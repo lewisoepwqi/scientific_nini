@@ -1,0 +1,217 @@
+# ============================================
+# 科研数据分析Web工具 - Docker Compose配置
+# 包含：前端、后端、PostgreSQL、Redis、Nginx
+# ============================================
+
+version: '3.8'
+
+services:
+  # ==========================================
+  # PostgreSQL 数据库
+  # ==========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: research_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-research}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: ${DB_NAME:-research_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "127.0.0.1:5432:5432"  # 仅本地访问，安全
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-research} -d ${DB_NAME:-research_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - research_network
+
+  # ==========================================
+  # Redis 缓存 & 消息队列
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: research_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"  # 仅本地访问
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - research_network
+
+  # ==========================================
+  # 后端 API 服务
+  # ==========================================
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../docker/backend/Dockerfile
+      target: production
+    container_name: research_backend
+    restart: unless-stopped
+    environment:
+      # 数据库配置
+      DATABASE_URL: postgresql://${DB_USER:-research}:${DB_PASSWORD:-changeme}@postgres:5432/${DB_NAME:-research_db}
+      # Redis配置
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-changeme}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-changeme}@redis:6379/2
+      # 应用配置
+      APP_ENV: ${APP_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY:-your-super-secret-key-change-in-production}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # 其他配置
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MAX_WORKERS: ${MAX_WORKERS:-4}
+    volumes:
+      - backend_logs:/app/logs
+      - backend_uploads:/app/uploads
+      - backend_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - research_network
+
+  # ==========================================
+  # Celery Worker (后台任务)
+  # ==========================================
+  celery-worker:
+    build:
+      context: ../backend
+      dockerfile: ../docker/backend/Dockerfile
+      target: celery-worker
+    container_name: research_celery_worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-research}:${DB_PASSWORD:-changeme}@postgres:5432/${DB_NAME:-research_db}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-changeme}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-changeme}@redis:6379/2
+      APP_ENV: ${APP_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY:-your-super-secret-key-change-in-production}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    volumes:
+      - backend_logs:/app/logs
+      - backend_uploads:/app/uploads
+      - backend_data:/app/data
+    depends_on:
+      - postgres
+      - redis
+      - backend
+    networks:
+      - research_network
+
+  # ==========================================
+  # Celery Beat (定时任务调度)
+  # ==========================================
+  celery-beat:
+    build:
+      context: ../backend
+      dockerfile: ../docker/backend/Dockerfile
+      target: celery-beat
+    container_name: research_celery_beat
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-research}:${DB_PASSWORD:-changeme}@postgres:5432/${DB_NAME:-research_db}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-changeme}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-changeme}@redis:6379/2
+      APP_ENV: ${APP_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY:-your-super-secret-key-change-in-production}
+    volumes:
+      - backend_logs:/app/logs
+      - celery_beat_data:/app/celerybeat-schedule
+    depends_on:
+      - postgres
+      - redis
+      - backend
+    networks:
+      - research_network
+
+  # ==========================================
+  # 前端服务
+  # ==========================================
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../docker/frontend/Dockerfile
+    container_name: research_frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: /api
+      VITE_APP_ENV: ${APP_ENV:-production}
+    depends_on:
+      - backend
+    networks:
+      - research_network
+
+  # ==========================================
+  # Nginx 反向代理
+  # ==========================================
+  nginx:
+    image: nginx:alpine
+    container_name: research_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - research_network
+
+# ============================================
+# 数据卷定义
+# ============================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  backend_logs:
+    driver: local
+  backend_uploads:
+    driver: local
+  backend_data:
+    driver: local
+  celery_beat_data:
+    driver: local
+  nginx_logs:
+    driver: local
+
+# ============================================
+# 网络定义
+# ============================================
+networks:
+  research_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

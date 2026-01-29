@@ -1,0 +1,56 @@
+# FastAPI and Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Database
+sqlalchemy==2.0.25
+alembic==1.13.1
+aiosqlite==0.19.0
+
+# Data Processing
+pandas==2.1.4
+numpy==1.26.3
+openpyxl==3.1.2
+xlrd==2.0.1
+
+# Scientific Computing & Statistics
+scipy==1.11.4
+statsmodels==0.14.1
+scikit-learn==1.4.0
+
+# Data Visualization
+plotly==5.18.0
+kaleido>=1.0.0
+matplotlib==3.8.2
+seaborn==0.13.1
+
+# Bioinformatics (for future multi-omics support)
+# scanpy==1.9.6
+# anndata==0.10.5
+# leidenalg==0.10.1
+
+# AI Integration (for future AI assistant)
+# openai==1.10.0
+# langchain==0.1.0
+
+# Caching & Async Tasks
+redis==5.0.1
+celery==5.3.6
+
+# Configuration
+pydantic==2.5.3
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+
+# Utilities
+httpx==0.26.0
+aiofiles==23.2.1
+typing-extensions==4.9.0
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+httpx==0.26.0
