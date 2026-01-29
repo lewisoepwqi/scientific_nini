@@ -1,5 +1,7 @@
 # 科研数据分析 Web 工具
 
+[![CI](https://github.com/lewisoepwqi/scientific_nini/actions/workflows/ci.yml/badge.svg)](https://github.com/lewisoepwqi/scientific_nini/actions/workflows/ci.yml)
+
 为女朋友打造的专属科研数据分析平台。
 
 ## 项目结构
