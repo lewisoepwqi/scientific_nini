@@ -305,45 +305,49 @@ class AnalysisService:
         group_column: str,
         method: str = "tukey"
     ) -> List[Dict[str, Any]]:
-        """Perform post-hoc test."""
+        """执行事后检验。"""
         if method == "tukey":
+            # 移除含有缺失值的行
+            clean_df = df[[value_column, group_column]].dropna()
+
             tukey = pairwise_tukeyhsd(
-                endog=df[value_column].dropna(),
-                groups=df[group_column],
+                endog=clean_df[value_column],
+                groups=clean_df[group_column],
                 alpha=0.05
             )
-            
+
             results = []
-            for i in range(len(tukey.groupsunique)):
-                for j in range(i + 1, len(tukey.groupsunique)):
+            n_groups = len(tukey.groupsunique)
+            comparison_idx = 0
+
+            # 遍历所有配对比较
+            for i in range(n_groups):
+                for j in range(i + 1, n_groups):
                     group1 = tukey.groupsunique[i]
                     group2 = tukey.groupsunique[j]
-                    
-                    # Find the comparison in tukey results
-                    mask = (
-                        (tukey._results_table.data[1:, 0] == group1) &
-                        (tukey._results_table.data[1:, 1] == group2)
-                    )
-                    if mask.any():
-                        idx = np.where(mask)[0][0] + 1
-                        row = tukey._results_table.data[idx]
-                        mean_diff = self._safe_float(row[2])
-                        pvalue = self._safe_float(row[3])
-                        ci_lower = self._safe_float(row[4])
-                        ci_upper = self._safe_float(row[5])
-                        if mean_diff is None or pvalue is None or ci_lower is None or ci_upper is None:
-                            continue
+
+                    # 直接使用 tukey 对象的属性获取结果
+                    mean_diff = self._safe_float(tukey.meandiffs[comparison_idx])
+                    pvalue = self._safe_float(tukey.pvalues[comparison_idx])
+                    ci_lower = self._safe_float(tukey.confint[comparison_idx, 0])
+                    ci_upper = self._safe_float(tukey.confint[comparison_idx, 1])
+                    reject = bool(tukey.reject[comparison_idx])
+
+                    if mean_diff is not None and pvalue is not None:
                         results.append({
                             "group1": str(group1),
                             "group2": str(group2),
                             "mean_diff": mean_diff,
                             "pvalue": pvalue,
-                            "reject": row[6],
+                            "reject": reject,
                             "ci_lower": ci_lower,
                             "ci_upper": ci_upper
                         })
+
+                    comparison_idx += 1
+
             return results
-        
+
         return []
     
     # ==================== Correlation ====================

@@ -378,15 +378,19 @@ export const analysisAPI = {
     options?: { alternative?: 'two-sided' | 'less' | 'greater'; alpha?: number }
   ): Promise<ApiResponse<StatisticalResult>> => {
     void groups;
-    const confidenceLevel = options?.alpha ? 1 - options.alpha : undefined;
+    // 构建请求体，只包含有效的字段
+    const body: Record<string, unknown> = {
+      column,
+      group_column: groupColumn,
+      alternative: options?.alternative || 'two-sided',
+    };
+    // 只有在明确指定 alpha 时才设置 confidence_level
+    if (options?.alpha !== undefined) {
+      body.confidence_level = 1 - options.alpha;
+    }
     const response = await apiClient.post(
       '/v1/analysis/t-test',
-      {
-        column,
-        group_column: groupColumn,
-        alternative: options?.alternative || 'two-sided',
-        confidence_level: confidenceLevel,
-      },
+      body,
       { params: { dataset_id: datasetId } }
     );
     return response.data;
