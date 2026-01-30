@@ -27,6 +27,24 @@ export const AnalysisPage: React.FC<AnalysisPageProps> = ({ className }) => {
   const [selectedType, setSelectedType] = useState('descriptive');
   const [expandedResult, setExpandedResult] = useState<string | null>(null);
 
+  const formatOptionalNumber = (value?: number | null, digits = 3) => {
+    if (value === null || value === undefined || Number.isNaN(value)) return '-';
+    return formatNumber(value, digits);
+  };
+
+  const buildBaseResult = (overrides: Partial<StatisticalResult>): StatisticalResult => ({
+    id: Math.random().toString(36).substring(7),
+    testName: analysisTypes.find((t) => t.id === selectedType)?.name || selectedType,
+    testType: selectedType,
+    columnX: '',
+    statistic: 0,
+    pValue: 0,
+    confidence: 0.95,
+    descriptiveStats: {},
+    createdAt: new Date(),
+    ...overrides,
+  });
+
   const runAnalysis = async () => {
     if (!currentDataset) return;
     
@@ -48,19 +66,29 @@ export const AnalysisPage: React.FC<AnalysisPageProps> = ({ className }) => {
       
       switch (selectedType) {
         case 'descriptive':
+          if (numericColumns.length === 0) {
+            throw new Error('没有可用的数值列进行描述性统计');
+          }
           response = await api.analysis.descriptiveStats(currentDataset.id, numericColumns.slice(0, 3));
           break;
         case 'ttest':
           if (numericColumns.length > 0 && categoricalColumns.length > 0) {
             response = await api.analysis.tTest(currentDataset.id, numericColumns[0], categoricalColumns[0]);
+          } else {
+            throw new Error('t 检验需要至少 1 个数值列和 1 个分组列');
           }
           break;
         case 'anova':
           if (numericColumns.length > 0 && categoricalColumns.length > 0) {
             response = await api.analysis.anova(currentDataset.id, numericColumns[0], categoricalColumns[0]);
+          } else {
+            throw new Error('ANOVA 需要至少 1 个数值列和 1 个分组列');
           }
           break;
         case 'correlation':
+          if (numericColumns.length < 2) {
+            throw new Error('相关性分析至少需要 2 个数值列');
+          }
           response = await api.analysis.correlation(currentDataset.id, numericColumns.slice(0, 4));
           break;
         default:
@@ -68,17 +96,98 @@ export const AnalysisPage: React.FC<AnalysisPageProps> = ({ className }) => {
       }
 
       if (response?.success && response.data) {
-        const result: StatisticalResult = {
-          id: Math.random().toString(36).substring(7),
-          testName: analysisTypes.find(t => t.id === selectedType)?.name || selectedType,
-          testType: selectedType,
-          columnX: numericColumns[0] || '',
-          statistic: 0,
-          pValue: 0,
-          confidence: 0.95,
-          descriptiveStats: response.data as Record<string, any>,
-          createdAt: new Date(),
-        };
+        let result: StatisticalResult;
+
+        if (selectedType === 'descriptive') {
+          result = buildBaseResult({
+            columnX: numericColumns[0] || '',
+            descriptiveStats: response.data as Record<string, any>,
+          });
+        } else if (selectedType === 'ttest') {
+          const tTestData = response.data as {
+            statistic: number;
+            pvalue: number;
+            df: number;
+            confidence_interval: number[];
+            effect_size?: number | null;
+            mean_diff?: number | null;
+            std_diff?: number | null;
+          };
+          result = buildBaseResult({
+            columnX: numericColumns[0] || '',
+            columnY: categoricalColumns[0] || '',
+            groupColumn: categoricalColumns[0] || '',
+            statistic: tTestData.statistic,
+            pValue: tTestData.pvalue,
+            effectSize: tTestData.effect_size ?? undefined,
+            effectSizeType: 'Cohen\'s d',
+            rawData: {
+              df: tTestData.df,
+              confidenceInterval: tTestData.confidence_interval,
+              meanDiff: tTestData.mean_diff,
+              stdDiff: tTestData.std_diff,
+            },
+          });
+        } else if (selectedType === 'anova') {
+          const anovaData = response.data as {
+            f_statistic: number;
+            pvalue: number;
+            df_between: number;
+            df_within: number;
+            sum_sq_between: number;
+            sum_sq_within: number;
+            mean_sq_between: number;
+            mean_sq_within: number;
+            eta_squared?: number | null;
+            post_hoc_results?: Array<{
+              group1: string;
+              group2: string;
+              pvalue: number;
+              reject: boolean;
+              mean_diff?: number;
+              ci_lower?: number;
+              ci_upper?: number;
+            }>;
+          };
+          result = buildBaseResult({
+            columnX: numericColumns[0] || '',
+            columnY: categoricalColumns[0] || '',
+            groupColumn: categoricalColumns[0] || '',
+            statistic: anovaData.f_statistic,
+            pValue: anovaData.pvalue,
+            effectSize: anovaData.eta_squared ?? undefined,
+            effectSizeType: 'η²',
+            postHoc: anovaData.post_hoc_results?.map((item) => ({
+              group1: item.group1,
+              group2: item.group2,
+              pValue: item.pvalue,
+              significant: Boolean(item.reject),
+            })),
+            rawData: {
+              dfBetween: anovaData.df_between,
+              dfWithin: anovaData.df_within,
+              sumSqBetween: anovaData.sum_sq_between,
+              sumSqWithin: anovaData.sum_sq_within,
+              meanSqBetween: anovaData.mean_sq_between,
+              meanSqWithin: anovaData.mean_sq_within,
+              postHocRaw: anovaData.post_hoc_results ?? [],
+            },
+          });
+        } else if (selectedType === 'correlation') {
+          const correlationData = response.data as {
+            matrix: Record<string, Record<string, number>>;
+            pValues: Record<string, Record<string, number>>;
+            method: string;
+          };
+          result = buildBaseResult({
+            columnX: numericColumns[0] || '',
+            rawData: correlationData,
+          });
+        } else {
+          result = buildBaseResult({
+            columnX: numericColumns[0] || '',
+          });
+        }
         addResult(result);
         addNotification({
           type: 'success',
@@ -209,33 +318,213 @@ export const AnalysisPage: React.FC<AnalysisPageProps> = ({ className }) => {
               {expandedResult === result.id && (
                 <div className="px-6 pb-6 border-t border-gray-100">
                   <div className="pt-4">
-                    <h4 className="text-sm font-medium text-gray-700 mb-3">描述性统计</h4>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-4 py-2 text-left">变量</th>
-                            <th className="px-4 py-2 text-right">计数</th>
-                            <th className="px-4 py-2 text-right">均值</th>
-                            <th className="px-4 py-2 text-right">标准差</th>
-                            <th className="px-4 py-2 text-right">最小值</th>
-                            <th className="px-4 py-2 text-right">最大值</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {Object.entries(result.descriptiveStats).map(([key, stats]: [string, any]) => (
-                            <tr key={key} className="border-t border-gray-100">
-                              <td className="px-4 py-2">{key}</td>
-                              <td className="px-4 py-2 text-right">{formatNumber(stats.count, 0)}</td>
-                              <td className="px-4 py-2 text-right">{formatNumber(stats.mean)}</td>
-                              <td className="px-4 py-2 text-right">{formatNumber(stats.std)}</td>
-                              <td className="px-4 py-2 text-right">{formatNumber(stats.min)}</td>
-                              <td className="px-4 py-2 text-right">{formatNumber(stats.max)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    {result.testType === 'descriptive' && (
+                      <>
+                        <h4 className="text-sm font-medium text-gray-700 mb-3">描述性统计</h4>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-4 py-2 text-left">变量</th>
+                                <th className="px-4 py-2 text-right">计数</th>
+                                <th className="px-4 py-2 text-right">均值</th>
+                                <th className="px-4 py-2 text-right">标准差</th>
+                                <th className="px-4 py-2 text-right">最小值</th>
+                                <th className="px-4 py-2 text-right">最大值</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {Object.entries(result.descriptiveStats).map(([key, stats]: [string, any]) => (
+                                <tr key={key} className="border-t border-gray-100">
+                                  <td className="px-4 py-2">{key}</td>
+                                  <td className="px-4 py-2 text-right">{formatOptionalNumber(stats.count, 0)}</td>
+                                  <td className="px-4 py-2 text-right">{formatOptionalNumber(stats.mean)}</td>
+                                  <td className="px-4 py-2 text-right">{formatOptionalNumber(stats.std)}</td>
+                                  <td className="px-4 py-2 text-right">{formatOptionalNumber(stats.min)}</td>
+                                  <td className="px-4 py-2 text-right">{formatOptionalNumber(stats.max)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+
+                    {result.testType === 'ttest' && (
+                      <div className="space-y-4">
+                        <h4 className="text-sm font-medium text-gray-700">t 检验结果</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <p className="text-gray-500">t 统计量</p>
+                            <p className="font-semibold text-gray-900">{formatOptionalNumber(result.statistic)}</p>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <p className="text-gray-500">p 值</p>
+                            <p className="font-semibold text-gray-900">{formatOptionalNumber(result.pValue)}</p>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <p className="text-gray-500">自由度</p>
+                            <p className="font-semibold text-gray-900">
+                              {formatOptionalNumber((result.rawData as any)?.df)}
+                            </p>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <p className="text-gray-500">效应量 (Cohen&apos;s d)</p>
+                            <p className="font-semibold text-gray-900">
+                              {formatOptionalNumber(result.effectSize)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-sm text-gray-700">
+                          <p className="font-medium text-gray-700 mb-2">置信区间</p>
+                          <p>
+                            {(() => {
+                              const interval = (result.rawData as any)?.confidenceInterval as number[] | undefined;
+                              if (!interval || interval.length < 2) return '—';
+                              return `${formatOptionalNumber(interval[0])} ~ ${formatOptionalNumber(interval[1])}`;
+                            })()}
+                          </p>
+                          <p className="mt-2 text-gray-500">
+                            均值差异：{formatOptionalNumber((result.rawData as any)?.meanDiff)}，
+                            合并标准差：{formatOptionalNumber((result.rawData as any)?.stdDiff)}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {result.testType === 'anova' && (
+                      <div className="space-y-4">
+                        <h4 className="text-sm font-medium text-gray-700">方差分析结果</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <p className="text-gray-500">F 统计量</p>
+                            <p className="font-semibold text-gray-900">{formatOptionalNumber(result.statistic)}</p>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <p className="text-gray-500">p 值</p>
+                            <p className="font-semibold text-gray-900">{formatOptionalNumber(result.pValue)}</p>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <p className="text-gray-500">η² 效应量</p>
+                            <p className="font-semibold text-gray-900">{formatOptionalNumber(result.effectSize)}</p>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <p className="text-gray-500">分组</p>
+                            <p className="font-semibold text-gray-900">{result.groupColumn || '-'}</p>
+                          </div>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm border border-gray-100 rounded-lg">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-4 py-2 text-left">指标</th>
+                                <th className="px-4 py-2 text-right">数值</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr className="border-t border-gray-100">
+                                <td className="px-4 py-2">组间自由度</td>
+                                <td className="px-4 py-2 text-right">
+                                  {formatOptionalNumber((result.rawData as any)?.dfBetween)}
+                                </td>
+                              </tr>
+                              <tr className="border-t border-gray-100">
+                                <td className="px-4 py-2">组内自由度</td>
+                                <td className="px-4 py-2 text-right">
+                                  {formatOptionalNumber((result.rawData as any)?.dfWithin)}
+                                </td>
+                              </tr>
+                              <tr className="border-t border-gray-100">
+                                <td className="px-4 py-2">组间平方和</td>
+                                <td className="px-4 py-2 text-right">
+                                  {formatOptionalNumber((result.rawData as any)?.sumSqBetween)}
+                                </td>
+                              </tr>
+                              <tr className="border-t border-gray-100">
+                                <td className="px-4 py-2">组内平方和</td>
+                                <td className="px-4 py-2 text-right">
+                                  {formatOptionalNumber((result.rawData as any)?.sumSqWithin)}
+                                </td>
+                              </tr>
+                              <tr className="border-t border-gray-100">
+                                <td className="px-4 py-2">组间均方</td>
+                                <td className="px-4 py-2 text-right">
+                                  {formatOptionalNumber((result.rawData as any)?.meanSqBetween)}
+                                </td>
+                              </tr>
+                              <tr className="border-t border-gray-100">
+                                <td className="px-4 py-2">组内均方</td>
+                                <td className="px-4 py-2 text-right">
+                                  {formatOptionalNumber((result.rawData as any)?.meanSqWithin)}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                        {result.postHoc && result.postHoc.length > 0 && (
+                          <div className="space-y-2">
+                            <h5 className="text-sm font-medium text-gray-700">事后检验</h5>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    <th className="px-4 py-2 text-left">组 1</th>
+                                    <th className="px-4 py-2 text-left">组 2</th>
+                                    <th className="px-4 py-2 text-right">p 值</th>
+                                    <th className="px-4 py-2 text-center">显著</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {result.postHoc.map((item, index) => (
+                                    <tr key={`${item.group1}-${item.group2}-${index}`} className="border-t border-gray-100">
+                                      <td className="px-4 py-2">{item.group1}</td>
+                                      <td className="px-4 py-2">{item.group2}</td>
+                                      <td className="px-4 py-2 text-right">{formatOptionalNumber(item.pValue)}</td>
+                                      <td className="px-4 py-2 text-center">
+                                        {item.significant ? '是' : '否'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {result.testType === 'correlation' && (
+                      <div className="space-y-3">
+                        <h4 className="text-sm font-medium text-gray-700">相关性矩阵</h4>
+                        <div className="text-xs text-gray-500">
+                          方法：{(result.rawData as any)?.method || 'pearson'}
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-4 py-2 text-left">变量</th>
+                                {Object.keys((result.rawData as any)?.matrix || {}).map((col) => (
+                                  <th key={col} className="px-4 py-2 text-right">{col}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {Object.entries((result.rawData as any)?.matrix || {}).map(([rowKey, rowValue]) => (
+                                <tr key={rowKey} className="border-t border-gray-100">
+                                  <td className="px-4 py-2">{rowKey}</td>
+                                  {Object.values(rowValue as Record<string, number>).map((value, index) => (
+                                    <td key={`${rowKey}-${index}`} className="px-4 py-2 text-right">
+                                      {formatOptionalNumber(value)}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-2 mt-4">
                     <button className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200">
