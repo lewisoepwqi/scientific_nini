@@ -46,3 +46,8 @@ uploads/
 *.db
 *.sqlite
 *.sqlite3
+.claude/
+.codex/
+.specify/
+科研数据分析作图工具现状分析报告.md
+综合优化建议报告.md
