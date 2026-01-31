@@ -12,6 +12,58 @@ interface UseFileUploadOptions {
   onError?: (error: Error) => void;
 }
 
+const mapColumnType = (
+  dtype?: string,
+  uniqueCount?: number,
+  totalRows?: number
+): ColumnType => {
+  if (!dtype) return 'text';
+  const normalized = dtype.toLowerCase();
+  if (normalized.includes('int') || normalized.includes('float') || normalized.includes('double')) {
+    return 'numeric';
+  }
+  if (normalized.includes('date') || normalized.includes('time')) {
+    return 'datetime';
+  }
+  if (normalized.includes('bool') || normalized.includes('category')) {
+    return 'categorical';
+  }
+  if (normalized.includes('object') || normalized.includes('string')) {
+    const safeUniqueCount = Number.isFinite(uniqueCount) ? (uniqueCount as number) : undefined;
+    const safeTotalRows = Number.isFinite(totalRows) ? (totalRows as number) : undefined;
+    if (safeUniqueCount !== undefined) {
+      if (safeUniqueCount <= 20) {
+        return 'categorical';
+      }
+      if (safeTotalRows && safeTotalRows > 0 && safeUniqueCount / safeTotalRows <= 0.05) {
+        return 'categorical';
+      }
+    }
+    return 'text';
+  }
+  return 'text';
+};
+
+const normalizeColumns = (
+  columns: Array<Record<string, unknown>>,
+  totalRows?: number
+): ColumnInfo[] => {
+  return columns.map((column) => ({
+    name: String(column.name ?? ''),
+    type: mapColumnType(
+      (column as { dtype?: string }).dtype,
+      Number((column as { unique_count?: number }).unique_count),
+      totalRows
+    ),
+    nullable: Boolean((column as { nullable?: boolean }).nullable),
+    uniqueCount: Number((column as { unique_count?: number }).unique_count ?? 0),
+    sample: (() => {
+      const sampleValues = (column as { sample_values?: unknown[] }).sample_values;
+      return Array.isArray(sampleValues) ? sampleValues : [];
+    })(),
+  }));
+};
+
 export function useFileUpload(options: UseFileUploadOptions = {}) {
   const { maxFiles = 1, maxSize = 100 * 1024 * 1024 } = options;
   
@@ -19,57 +71,6 @@ export function useFileUpload(options: UseFileUploadOptions = {}) {
   const { addNotification } = useUIStore();
   
   const [isUploading, setIsUploading] = useState(false);
-
-  const mapColumnType = (
-    dtype?: string,
-    uniqueCount?: number,
-    totalRows?: number
-  ): ColumnType => {
-    if (!dtype) return 'text';
-    const normalized = dtype.toLowerCase();
-    if (normalized.includes('int') || normalized.includes('float') || normalized.includes('double')) {
-      return 'numeric';
-    }
-    if (normalized.includes('date') || normalized.includes('time')) {
-      return 'datetime';
-    }
-    if (normalized.includes('bool') || normalized.includes('category')) {
-      return 'categorical';
-    }
-    if (normalized.includes('object') || normalized.includes('string')) {
-      const safeUniqueCount = Number.isFinite(uniqueCount) ? (uniqueCount as number) : undefined;
-      const safeTotalRows = Number.isFinite(totalRows) ? (totalRows as number) : undefined;
-      if (safeUniqueCount !== undefined) {
-        if (safeUniqueCount <= 20) {
-          return 'categorical';
-        }
-        if (safeTotalRows && safeTotalRows > 0 && safeUniqueCount / safeTotalRows <= 0.05) {
-          return 'categorical';
-        }
-      }
-      return 'text';
-    }
-    return 'text';
-  };
-
-  const normalizeColumns = (
-    columns: Array<Record<string, unknown>>,
-    totalRows?: number
-  ): ColumnInfo[] => {
-    return columns.map((column) => ({
-      name: String(column.name ?? ''),
-      type: mapColumnType(
-        (column as { dtype?: string }).dtype,
-        Number((column as { unique_count?: number }).unique_count),
-        totalRows
-      ),
-      nullable: Boolean((column as { nullable?: boolean }).nullable),
-      uniqueCount: Number((column as { unique_count?: number }).unique_count ?? 0),
-      sample: Array.isArray((column as { sample_values?: unknown[] }).sample_values)
-        ? (column as { sample_values?: unknown[] }).sample_values
-        : [],
-    }));
-  };
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -114,7 +115,7 @@ export function useFileUpload(options: UseFileUploadOptions = {}) {
         );
 
         if (response.success && response.data) {
-          const responseData = response.data as Record<string, unknown>;
+          const responseData = response.data;
           const datasetId = String(responseData.id ?? '');
           const fallbackName = file.name.replace(/\.[^/.]+$/, '');
           let previewData: Record<string, unknown>[] = [];

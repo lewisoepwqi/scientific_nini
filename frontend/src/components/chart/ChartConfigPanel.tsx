@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   BarChart3,
   ScatterChart,
@@ -11,10 +11,16 @@ import {
   Type,
   BarChart,
   Thermometer,
+  Layers,
+  Plus,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useChartStore, useDatasetStore } from '@store/index';
 import { cn } from '@utils/helpers';
-import type { ChartType, JournalStyle } from '../../types';
+import type { ChartType, JournalStyle, ChartLayer } from '../../types';
+import { CHART_COMPATIBILITY, MAX_OVERLAY_LAYERS } from '../../types';
 
 interface ChartConfigPanelProps {
   className?: string;
@@ -46,11 +52,203 @@ const significanceMethods = [
   { value: 'kruskal-wallis', label: 'Kruskal-Wallis' },
 ];
 
+// 叠加层配置卡片组件
+interface LayerConfigCardProps {
+  layer: ChartLayer;
+  index: number;
+  compatibleTypes: ChartType[];
+  numericColumns: { name: string }[];
+  allColumns: { name: string; type: string }[];
+  primaryXColumn: string | null;
+  primaryYColumn: string | null;
+  onUpdate: (updates: Partial<ChartLayer>) => void;
+  onRemove: () => void;
+}
+
+const LayerConfigCard: React.FC<LayerConfigCardProps> = ({
+  layer,
+  index,
+  compatibleTypes,
+  numericColumns,
+  allColumns,
+  primaryXColumn,
+  primaryYColumn,
+  onUpdate,
+  onRemove,
+}) => {
+  const [isExpanded, setIsExpanded] = useState(true);
+
+  const getChartTypeLabel = (type: ChartType) => {
+    return chartTypes.find((t) => t.value === type)?.label || type;
+  };
+
+  return (
+    <div className="border border-gray-200 rounded-lg bg-gray-50 overflow-hidden">
+      {/* 层标题栏 */}
+      <div
+        className="flex items-center justify-between p-3 bg-white cursor-pointer"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center gap-2">
+          <Layers className="w-4 h-4 text-gray-500" />
+          <span className="text-sm font-medium">
+            叠加层 {index + 1}: {getChartTypeLabel(layer.chartType)}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
+            className="p-1 text-red-500 hover:bg-red-50 rounded"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+          {isExpanded ? (
+            <ChevronUp className="w-4 h-4 text-gray-400" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-gray-400" />
+          )}
+        </div>
+      </div>
+
+      {/* 层配置内容 */}
+      {isExpanded && (
+        <div className="p-3 space-y-3 border-t border-gray-200">
+          {/* 图表类型 */}
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">图表类型</label>
+            <select
+              value={layer.chartType}
+              onChange={(e) => onUpdate({ chartType: e.target.value as ChartType })}
+              className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm"
+            >
+              {compatibleTypes.map((type) => (
+                <option key={type} value={type}>
+                  {getChartTypeLabel(type)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* 层名称 */}
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">层名称</label>
+            <input
+              type="text"
+              value={layer.name}
+              onChange={(e) => onUpdate({ name: e.target.value })}
+              placeholder="输入层名称..."
+              className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm"
+            />
+          </div>
+
+          {/* X 轴 */}
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">X 轴</label>
+            <select
+              value={layer.xColumn || ''}
+              onChange={(e) => onUpdate({ xColumn: e.target.value || null })}
+              className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm"
+            >
+              <option value="">
+                {primaryXColumn ? `使用主图层 (${primaryXColumn})` : '选择列...'}
+              </option>
+              {allColumns.map((col) => (
+                <option key={col.name} value={col.name}>
+                  {col.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Y 轴 */}
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">Y 轴</label>
+            <select
+              value={layer.yColumn || ''}
+              onChange={(e) => onUpdate({ yColumn: e.target.value || null })}
+              className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm"
+            >
+              <option value="">
+                {primaryYColumn ? `使用主图层 (${primaryYColumn})` : '选择列...'}
+              </option>
+              {numericColumns.map((col) => (
+                <option key={col.name} value={col.name}>
+                  {col.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Y 轴尺度 */}
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">Y 轴尺度</label>
+            <select
+              value={layer.yAxisMode || 'primary'}
+              onChange={(e) => onUpdate({ yAxisMode: e.target.value as 'primary' | 'secondary' })}
+              className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm"
+            >
+              <option value="primary">使用主图表 Y 轴</option>
+              <option value="secondary">使用右侧第二 Y 轴</option>
+            </select>
+          </div>
+
+          {/* 透明度 */}
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">透明度: {layer.opacity}</label>
+            <input
+              type="range"
+              min={0.1}
+              max={1}
+              step={0.1}
+              value={layer.opacity}
+              onChange={(e) => onUpdate({ opacity: parseFloat(e.target.value) })}
+              className="w-full"
+            />
+          </div>
+
+          {/* 颜色覆盖 */}
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">自定义颜色（可选）</label>
+            <div className="flex gap-2">
+              {layer.colorOverride ? (
+                <>
+                  <input
+                    type="color"
+                    value={layer.colorOverride}
+                    onChange={(e) => onUpdate({ colorOverride: e.target.value })}
+                    className="w-10 h-8 border border-gray-200 rounded cursor-pointer"
+                  />
+                  <button
+                    onClick={() => onUpdate({ colorOverride: null })}
+                    className="px-2 py-1 text-xs text-gray-500 border border-gray-200 rounded hover:bg-gray-100"
+                  >
+                    使用默认
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => onUpdate({ colorOverride: '#3B82F6' })}
+                  className="px-3 py-1.5 text-xs text-primary-600 border border-primary-200 rounded hover:bg-primary-50"
+                >
+                  设置自定义颜色
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
   className,
   onGenerate,
 }) => {
-  const { config, updateConfig } = useChartStore();
+  const { config, updateConfig, addLayer, updateLayer, removeLayer, clearLayers } = useChartStore();
   const { currentDataset } = useDatasetStore();
 
   if (!currentDataset) {
@@ -74,30 +272,82 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
   const categoricalColumns = currentDataset.columns.filter(isCategoricalColumn);
   const allColumns = currentDataset.columns;
 
+  // 获取兼容的图表类型
+  const compatibleTypes = CHART_COMPATIBILITY[config.chartType] || [];
+  const canAddLayer = compatibleTypes.length > 0 && (config.layers?.length || 0) < MAX_OVERLAY_LAYERS;
+
+  // 处理主图表类型变更
+  const handleChartTypeChange = (newType: ChartType) => {
+    // 清除不兼容的叠加层
+    const newCompatible = CHART_COMPATIBILITY[newType] || [];
+    if (config.layers && config.layers.length > 0) {
+      const hasIncompatible = config.layers.some(
+        (layer) => !newCompatible.includes(layer.chartType)
+      );
+      if (hasIncompatible) {
+        clearLayers();
+      }
+    }
+    updateConfig({ chartType: newType });
+  };
+
+  // 添加新叠加层
+  const handleAddLayer = () => {
+    if (!canAddLayer) return;
+
+    // 默认使用第一个兼容的类型
+    const defaultType = compatibleTypes[0];
+    const newLayer: Omit<ChartLayer, 'id'> = {
+      chartType: defaultType,
+      name: `叠加层 ${(config.layers?.length || 0) + 1}`,
+      xColumn: null,
+      yColumn: null,
+      groupColumn: null,
+      colorColumn: null,
+      opacity: 0.7,
+      colorOverride: null,
+      yAxisMode: 'primary',
+    };
+    addLayer(newLayer);
+  };
+
+  // 判断图表类型按钮是否禁用（叠加模式下，不兼容的类型禁用）
+  const isTypeDisabled = (type: ChartType) => {
+    if (!config.layers || config.layers.length === 0) return false;
+    return !compatibleTypes.includes(type);
+  };
+
   return (
     <div className={cn('space-y-6', className)}>
       {/* 图表类型选择 */}
       <div className="space-y-3">
         <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
           <BarChart3 className="w-4 h-4" />
-          图表类型
+          主图表类型
         </label>
         <div className="grid grid-cols-4 gap-2">
-          {chartTypes.map((type) => (
-            <button
-              key={type.value}
-              onClick={() => updateConfig({ chartType: type.value })}
-              className={cn(
-                'flex flex-col items-center gap-1 p-3 rounded-lg border transition-all',
-                config.chartType === type.value
-                  ? 'border-primary-500 bg-primary-50 text-primary-700'
-                  : 'border-gray-200 hover:border-primary-200 hover:bg-gray-50'
-              )}
-            >
-              {type.icon}
-              <span className="text-xs">{type.label}</span>
-            </button>
-          ))}
+          {chartTypes.map((type) => {
+            const disabled = isTypeDisabled(type.value);
+            return (
+              <button
+                key={type.value}
+                onClick={() => !disabled && handleChartTypeChange(type.value)}
+                disabled={disabled}
+                className={cn(
+                  'flex flex-col items-center gap-1 p-3 rounded-lg border transition-all',
+                  disabled
+                    ? 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed'
+                    : config.chartType === type.value
+                    ? 'border-primary-500 bg-primary-50 text-primary-700'
+                    : 'border-gray-200 hover:border-primary-200 hover:bg-gray-50'
+                )}
+                title={disabled ? '与现有叠加层不兼容' : undefined}
+              >
+                {type.icon}
+                <span className="text-xs">{type.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -176,6 +426,55 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
           </select>
         </div>
       </div>
+
+      {/* 叠加图层管理 */}
+      {compatibleTypes.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+              <Layers className="w-4 h-4" />
+              叠加图层
+            </label>
+            <button
+              onClick={handleAddLayer}
+              disabled={!canAddLayer}
+              className={cn(
+                'flex items-center gap-1 px-2 py-1 text-xs rounded transition-all',
+                canAddLayer
+                  ? 'bg-primary-500 text-white hover:bg-primary-600'
+                  : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              )}
+            >
+              <Plus className="w-3 h-3" />
+              添加叠加层
+            </button>
+          </div>
+
+          {/* 叠加层列表 */}
+          {config.layers && config.layers.length > 0 ? (
+            <div className="space-y-2">
+              {config.layers.map((layer, index) => (
+                <LayerConfigCard
+                  key={layer.id}
+                  layer={layer}
+                  index={index}
+                  compatibleTypes={compatibleTypes}
+                  numericColumns={numericColumns}
+                  allColumns={allColumns}
+                  primaryXColumn={config.xColumn}
+                  primaryYColumn={config.yColumn}
+                  onUpdate={(updates) => updateLayer(layer.id, updates)}
+                  onRemove={() => removeLayer(layer.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400 text-center py-2">
+              点击上方按钮添加叠加层（如趋势线、柱状统计等）
+            </p>
+          )}
+        </div>
+      )}
 
       {/* 期刊样式 */}
       <div className="space-y-3">
@@ -347,7 +646,9 @@ export const ChartConfigPanel: React.FC<ChartConfigPanelProps> = ({
             : 'bg-primary-500 text-white hover:bg-primary-600 shadow-lg hover:shadow-xl'
         )}
       >
-        生成图表
+        {config.layers && config.layers.length > 0
+          ? `生成叠加图表 (${config.layers.length + 1} 层)`
+          : '生成图表'}
       </button>
     </div>
   );

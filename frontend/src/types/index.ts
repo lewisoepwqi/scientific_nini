@@ -80,33 +80,36 @@ export interface ChartConfig {
   // 基础配置
   chartType: ChartType;
   title: string;
-  
+
   // 轴配置
   xColumn: string | null;
   yColumn: string | null;
   zColumn?: string | null; // 用于3D或热图
-  
+
   // 分组与着色
   groupColumn: string | null;
   colorColumn: string | null;
-  
+
   // 样式配置
   journalStyle: JournalStyle;
   colorPalette: string[];
-  
+
   // 统计配置
   showStatistics: boolean;
   showSignificance: boolean;
   significanceMethod: 't-test' | 'anova' | 'mann-whitney' | 'kruskal-wallis';
   significancePairs?: Array<[string, string]>;
-  
+
   // 外观配置
   width: number;
   height: number;
   fontSize: number;
   showGrid: boolean;
   showLegend: boolean;
-  
+
+  // 叠加图层配置
+  layers?: ChartLayer[];
+
   // 高级配置
   customLayout?: Partial<Layout>;
   customConfig?: Partial<Config>;
@@ -120,6 +123,52 @@ export interface ChartData {
   layout: Partial<Layout>;
   config: Partial<Config>;
 }
+
+/**
+ * 图表层配置 - 用于叠加图表
+ */
+export interface ChartLayer {
+  id: string;
+  chartType: ChartType;
+  name: string;
+
+  // 数据列配置
+  xColumn: string | null;
+  yColumn: string | null;
+  groupColumn: string | null;
+  colorColumn: string | null;
+
+  // 样式配置
+  opacity: number;
+  colorOverride: string | null;
+  yAxisMode?: 'primary' | 'secondary';
+
+  // 图表类型特定配置
+  showRegression?: boolean;
+  errorType?: 'sem' | 'sd' | 'ci';
+  showPoints?: boolean;
+  showMean?: boolean;
+  showBox?: boolean;
+}
+
+/**
+ * 最大叠加图层数
+ */
+export const MAX_OVERLAY_LAYERS = 3;
+
+/**
+ * 图表兼容性组
+ */
+export const CHART_COMPATIBILITY: Record<ChartType, ChartType[]> = {
+  scatter: ['scatter', 'line', 'bar'],
+  line: ['scatter', 'line', 'bar'],
+  bar: ['scatter', 'line', 'bar'],
+  box: ['box', 'violin'],
+  violin: ['box', 'violin'],
+  histogram: [],
+  heatmap: [],
+  correlation: [],
+};
 
 /**
  * 保存的图表
@@ -181,6 +230,70 @@ export interface StatisticalResult {
   
   createdAt: Date;
 }
+
+/**
+ * t 检验原始结果（后端返回）
+ */
+export interface TTestResultData {
+  statistic: number;
+  pvalue: number;
+  df: number;
+  confidence_interval: number[];
+  effect_size?: number | null;
+  mean_diff?: number | null;
+  std_diff?: number | null;
+}
+
+/**
+ * ANOVA 原始结果（后端返回）
+ */
+export interface AnovaResultData {
+  f_statistic: number;
+  pvalue: number;
+  df_between: number;
+  df_within: number;
+  sum_sq_between: number;
+  sum_sq_within: number;
+  mean_sq_between: number;
+  mean_sq_within: number;
+  eta_squared?: number | null;
+  post_hoc_results?: Array<{
+    group1: string;
+    group2: string;
+    pvalue: number;
+    reject: boolean;
+    mean_diff?: number;
+    ci_lower?: number;
+    ci_upper?: number;
+  }>;
+}
+
+/**
+ * 相关性分析原始结果（前端归一化格式）
+ */
+export interface CorrelationResultData {
+  matrix: Record<string, Record<string, number>>;
+  pValues: Record<string, Record<string, number>>;
+  method: string;
+}
+
+/**
+ * 描述性统计结果映射（前端使用）
+ */
+export type DescriptiveStatsMap = Record<
+  string,
+  {
+    count: number;
+    mean: number;
+    std: number;
+    min: number;
+    max: number;
+    median: number;
+    q1: number;
+    q3: number;
+    missing?: number | null;
+  }
+>;
 
 // ==================== AI 类型定义 ====================
 

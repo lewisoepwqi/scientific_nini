@@ -86,12 +86,14 @@ class VisualizationService:
         x_column: str,
         y_column: str,
         color_column: Optional[str] = None,
+        group_column: Optional[str] = None,
         size_column: Optional[str] = None,
         text_column: Optional[str] = None,
         show_regression: bool = False,
         regression_type: str = "linear",
         show_equation: bool = False,
         show_r_squared: bool = False,
+        use_multicategory_x: bool = False,
         title: Optional[str] = None,
         journal_style: JournalStyle = JournalStyle.DEFAULT,
         **kwargs
@@ -107,6 +109,8 @@ class VisualizationService:
         
         if color_column and color_column in df.columns:
             plot_df[color_column] = df.loc[plot_df.index, color_column]
+        if group_column and group_column in df.columns:
+            plot_df[group_column] = df.loc[plot_df.index, group_column]
         if size_column and size_column in df.columns:
             plot_df[size_column] = df.loc[plot_df.index, size_column]
         if text_column and text_column in df.columns:
@@ -124,6 +128,22 @@ class VisualizationService:
             opacity=kwargs.get("opacity", 0.7),
             labels={x_column: x_column, y_column: y_column}
         )
+
+        # 叠加柱状图时使用多级分类 X 轴，确保散点对齐
+        if use_multicategory_x and group_column and group_column in plot_df.columns:
+            if color_column and color_column in plot_df.columns:
+                color_series = plot_df[color_column].astype(str)
+                for trace in fig.data:
+                    mask = color_series == str(trace.name)
+                    x_values = plot_df.loc[mask, x_column].astype(str).tolist()
+                    group_values = plot_df.loc[mask, group_column].astype(str).tolist()
+                    trace.x = [x_values, group_values]
+            else:
+                x_values = plot_df[x_column].astype(str).tolist()
+                group_values = plot_df[group_column].astype(str).tolist()
+                for trace in fig.data:
+                    trace.x = [x_values, group_values]
+            fig.update_xaxes(type="multicategory")
         
         # Add regression line
         if show_regression:
@@ -285,17 +305,35 @@ class VisualizationService:
             raise VisualizationException(f"X column '{x_column}' not found")
         if y_column not in df.columns:
             raise VisualizationException(f"Y column '{y_column}' not found")
-        
+
+        # 如果 group_column 与 x_column 相同，忽略 group_column
+        if group_column and group_column == x_column:
+            group_column = None
+
         # Compute statistics
         if group_column and group_column in df.columns:
-            stats_df = df.groupby([x_column, group_column])[y_column].agg([
+            # 使用显式列名避免 reset_index 冲突
+            grouped = df.groupby([x_column, group_column])[y_column].agg([
                 "mean", "std", "count"
-            ]).reset_index()
+            ])
+            # 重命名索引名称以避免冲突
+            grouped.index.names = [f"_grp_{x_column}", f"_grp_{group_column}"]
+            stats_df = grouped.reset_index()
+            # 恢复原始列名
+            stats_df.rename(columns={
+                f"_grp_{x_column}": x_column,
+                f"_grp_{group_column}": group_column
+            }, inplace=True)
             stats_df["sem"] = stats_df["std"] / np.sqrt(stats_df["count"])
         else:
-            stats_df = df.groupby(x_column)[y_column].agg([
+            grouped = df.groupby(x_column)[y_column].agg([
                 "mean", "std", "count"
-            ]).reset_index()
+            ])
+            # 重命名索引名称以避免冲突
+            grouped.index.name = f"_grp_{x_column}"
+            stats_df = grouped.reset_index()
+            # 恢复原始列名
+            stats_df.rename(columns={f"_grp_{x_column}": x_column}, inplace=True)
             stats_df["sem"] = stats_df["std"] / np.sqrt(stats_df["count"])
         
         # Select error column
@@ -520,8 +558,247 @@ class VisualizationService:
         
         return fig
     
+    # ==================== 叠加图表 ====================
+
+    def create_overlay_chart(
+        self,
+        df: pd.DataFrame,
+        primary_config: Dict[str, Any],
+        overlay_configs: List[Dict[str, Any]],
+        journal_style: JournalStyle = JournalStyle.DEFAULT,
+        **kwargs
+    ) -> go.Figure:
+        """
+        创建叠加图表。
+
+        将多个图表层合并到同一个 Plotly Figure 中。
+
+        参数:
+            df: 数据 DataFrame
+            primary_config: 主图层配置
+            overlay_configs: 叠加层配置列表
+            journal_style: 期刊样式
+            **kwargs: 其他配置（title, width, height, show_legend）
+
+        返回:
+            合并后的 Plotly Figure
+        """
+        # 1. 生成主图层
+        primary_fig = self._generate_single_layer(df, primary_config, journal_style)
+
+        # 2. 创建合并后的 Figure
+        combined_fig = go.Figure()
+
+        # 添加主图层的 traces
+        for trace in primary_fig.data:
+            combined_fig.add_trace(trace)
+
+        # 3. 生成并添加叠加层
+        palette = self._get_palette(journal_style)
+        primary_chart_type = primary_config.get("chart_type")
+        if isinstance(primary_chart_type, str):
+            primary_chart_type = ChartType(primary_chart_type)
+        primary_group_column = primary_config.get("group_column")
+        primary_x_column = primary_config.get("x_column")
+        primary_has_multicategory = (
+            primary_chart_type == ChartType.BAR
+            and primary_group_column
+            and primary_group_column != primary_x_column
+        )
+        has_secondary_axis = False
+        secondary_axis_title: Optional[str] = None
+        for i, overlay_config in enumerate(overlay_configs):
+            # 如果叠加层没有指定数据列，使用主图层的配置
+            effective_config = {**overlay_config}
+            if not effective_config.get("x_column"):
+                effective_config["x_column"] = primary_config.get("x_column")
+            if not effective_config.get("y_column"):
+                effective_config["y_column"] = primary_config.get("y_column")
+            if not effective_config.get("value_column"):
+                effective_config["value_column"] = primary_config.get("value_column") or primary_config.get("y_column")
+            if not effective_config.get("group_column"):
+                effective_config["group_column"] = primary_config.get("group_column") or primary_config.get("x_column")
+            if primary_has_multicategory and effective_config.get("chart_type") in {ChartType.SCATTER, ChartType.LINE}:
+                effective_config["use_multicategory_x"] = True
+
+            overlay_fig = self._generate_single_layer(df, effective_config, journal_style)
+
+            # 应用叠加层样式
+            opacity = overlay_config.get("opacity", 0.7)
+            color_override = overlay_config.get("color_override")
+            layer_name = overlay_config.get("name", f"叠加层 {i + 1}")
+            y_axis_mode = overlay_config.get("y_axis", "primary")
+            use_secondary_axis = y_axis_mode == "secondary"
+            if use_secondary_axis:
+                has_secondary_axis = True
+                if secondary_axis_title is None:
+                    secondary_axis_title = overlay_config.get("y_column") or overlay_config.get("value_column")
+
+            for j, trace in enumerate(overlay_fig.data):
+                # 设置 trace 级别的透明度（这是正确的方式）
+                trace.opacity = opacity
+
+                # 从调色板选择不同颜色避免与主图层冲突
+                color_idx = (len(combined_fig.data) + j) % len(palette)
+                layer_color = color_override if color_override else palette[color_idx]
+
+                # 应用颜色到 marker
+                if hasattr(trace, "marker") and trace.marker is not None:
+                    # 只在 marker.color 未设置或为单色时覆盖
+                    if trace.marker.color is None or isinstance(trace.marker.color, str):
+                        trace.marker.color = layer_color
+
+                # 应用颜色到 line
+                if hasattr(trace, "line") and trace.line is not None:
+                    if trace.line.color is None or isinstance(trace.line.color, str):
+                        trace.line.color = layer_color
+
+                # 应用颜色到 fillcolor（用于 box/violin 等）
+                if hasattr(trace, "fillcolor"):
+                    trace.fillcolor = layer_color
+
+                # 更新图例名称
+                original_name = trace.name or ""
+                trace.name = f"{layer_name}: {original_name}" if original_name else layer_name
+                if use_secondary_axis:
+                    trace.yaxis = "y2"
+
+                combined_fig.add_trace(trace)
+
+        # 4. 应用全局样式
+        combined_fig = self._apply_journal_style(combined_fig, journal_style, kwargs.get("title"))
+
+        # 5. 更新布局
+        combined_fig.update_layout(
+            width=kwargs.get("width", self.default_width),
+            height=kwargs.get("height", self.default_height),
+            showlegend=kwargs.get("show_legend", True),
+        )
+
+        # 从主图层获取轴标题
+        if primary_fig.layout.xaxis.title:
+            combined_fig.update_xaxes(title=primary_fig.layout.xaxis.title)
+        if primary_fig.layout.yaxis.title:
+            combined_fig.update_yaxes(title=primary_fig.layout.yaxis.title)
+
+        if has_secondary_axis:
+            combined_fig.update_layout(
+                yaxis2=dict(
+                    title=secondary_axis_title or "叠加层 Y 轴",
+                    overlaying="y",
+                    side="right",
+                    showgrid=False
+                )
+            )
+
+        # 6. 使用主图层数据范围锁定 y 轴，避免叠加层改变范围（如柱状图强制包含 0）
+        primary_chart_type = primary_config.get("chart_type")
+        if isinstance(primary_chart_type, str):
+            primary_chart_type = ChartType(primary_chart_type)
+        if primary_chart_type in {ChartType.SCATTER, ChartType.LINE}:
+            y_values: List[float] = []
+            for trace in primary_fig.data:
+                if not hasattr(trace, "y") or trace.y is None:
+                    continue
+                try:
+                    values = np.asarray(trace.y, dtype=float)
+                except (TypeError, ValueError):
+                    continue
+                if values.size == 0:
+                    continue
+                finite_values = values[np.isfinite(values)]
+                if finite_values.size > 0:
+                    y_values.extend(finite_values.tolist())
+            if y_values:
+                combined_fig.update_yaxes(range=[min(y_values), max(y_values)], autorange=False)
+
+        return combined_fig
+
+    def _generate_single_layer(
+        self,
+        df: pd.DataFrame,
+        config: Dict[str, Any],
+        journal_style: JournalStyle = JournalStyle.DEFAULT
+    ) -> go.Figure:
+        """
+        生成单个图表层（复用现有方法）。
+
+        参数:
+            df: 数据 DataFrame
+            config: 图层配置
+            journal_style: 期刊样式
+
+        返回:
+            Plotly Figure
+        """
+        chart_type = config.get("chart_type")
+        if isinstance(chart_type, str):
+            from app.models.visualization import ChartType
+            chart_type = ChartType(chart_type)
+
+        # 根据图表类型调用对应的生成方法
+        if chart_type == ChartType.SCATTER:
+            return self.create_scatter(
+                df,
+                x_column=config.get("x_column"),
+                y_column=config.get("y_column"),
+                color_column=config.get("color_column"),
+                group_column=config.get("group_column"),
+                show_regression=config.get("show_regression", False),
+                journal_style=journal_style,
+                opacity=config.get("opacity", 0.7),
+                use_multicategory_x=config.get("use_multicategory_x", False),
+            )
+        elif chart_type == ChartType.LINE:
+            # 折线图：使用散点图方法但设置 mode="lines"
+            fig = self.create_scatter(
+                df,
+                x_column=config.get("x_column"),
+                y_column=config.get("y_column"),
+                color_column=config.get("color_column"),
+                group_column=config.get("group_column"),
+                show_regression=config.get("show_regression", False),
+                journal_style=journal_style,
+                opacity=config.get("opacity", 0.7),
+                use_multicategory_x=config.get("use_multicategory_x", False),
+            )
+            # 将所有 trace 的 mode 改为 lines+markers
+            for trace in fig.data:
+                if hasattr(trace, "mode"):
+                    trace.mode = "lines+markers"
+            return fig
+        elif chart_type == ChartType.BAR:
+            return self.create_bar_with_error(
+                df,
+                x_column=config.get("x_column"),
+                y_column=config.get("y_column"),
+                group_column=config.get("group_column"),
+                error_type=config.get("error_type", "sem"),
+                journal_style=journal_style,
+            )
+        elif chart_type == ChartType.BOX:
+            return self.create_box(
+                df,
+                value_column=config.get("value_column") or config.get("y_column"),
+                group_column=config.get("group_column") or config.get("x_column"),
+                show_points=config.get("show_points", True),
+                show_mean=config.get("show_mean", True),
+                journal_style=journal_style,
+            )
+        elif chart_type == ChartType.VIOLIN:
+            return self.create_violin(
+                df,
+                value_column=config.get("value_column") or config.get("y_column"),
+                group_column=config.get("group_column") or config.get("x_column"),
+                show_box=config.get("show_box", True),
+                show_points=config.get("show_points", False),
+                journal_style=journal_style,
+            )
+        else:
+            raise VisualizationException(f"不支持叠加的图表类型: {chart_type}")
+
     # ==================== Export Functions ====================
-    
+
     def export_figure(
         self,
         fig: go.Figure,

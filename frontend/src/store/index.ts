@@ -4,6 +4,7 @@ import type {
   DatasetInfo,
   ChartConfig,
   ChartData,
+  ChartLayer,
   SavedChart,
   StatisticalResult,
   AIMessage,
@@ -12,6 +13,7 @@ import type {
   UploadProgress,
   AIAnalysisSuggestion,
 } from '../types';
+import { CHART_COMPATIBILITY, MAX_OVERLAY_LAYERS } from '../types';
 
 // ==================== Dataset Store ====================
 
@@ -95,6 +97,12 @@ interface ChartState {
   saveChart: (chart: SavedChart) => void;
   deleteChart: (id: string) => void;
   setIsGenerating: (isGenerating: boolean) => void;
+
+  // 图层管理方法
+  addLayer: (layer: Omit<ChartLayer, 'id'>) => void;
+  updateLayer: (id: string, updates: Partial<ChartLayer>) => void;
+  removeLayer: (id: string) => void;
+  clearLayers: () => void;
 }
 
 const defaultChartConfig: ChartConfig = {
@@ -114,6 +122,7 @@ const defaultChartConfig: ChartConfig = {
   fontSize: 14,
   showGrid: true,
   showLegend: true,
+  layers: [],
 };
 
 export const useChartStore = create<ChartState>()(
@@ -172,6 +181,78 @@ export const useChartStore = create<ChartState>()(
 
         setIsGenerating: (isGenerating) => {
           set({ isGenerating }, false, 'setIsGenerating');
+        },
+
+        addLayer: (layer) => {
+          const id = Math.random().toString(36).substring(2, 9);
+          set(
+            (state) => {
+              // 检查兼容性：如果已有图层，新图层必须兼容
+              const existingLayers = state.config.layers || [];
+              if (existingLayers.length > 0) {
+                const primaryType = state.config.chartType;
+                const allowed = CHART_COMPATIBILITY[primaryType] || [];
+                if (!allowed.includes(layer.chartType)) {
+                  // 兼容性检查由 UI 层处理，此处静默返回
+                  return state;
+                }
+              }
+              // 最多叠加层数限制
+              if (existingLayers.length >= MAX_OVERLAY_LAYERS) {
+                // 层数限制由 UI 层处理，此处静默返回
+                return state;
+              }
+              return {
+                config: {
+                  ...state.config,
+                  layers: [...existingLayers, { ...layer, id }],
+                },
+              };
+            },
+            false,
+            'addLayer'
+          );
+        },
+
+        updateLayer: (id, updates) => {
+          set(
+            (state) => ({
+              config: {
+                ...state.config,
+                layers: (state.config.layers || []).map((layer) =>
+                  layer.id === id ? { ...layer, ...updates } : layer
+                ),
+              },
+            }),
+            false,
+            'updateLayer'
+          );
+        },
+
+        removeLayer: (id) => {
+          set(
+            (state) => ({
+              config: {
+                ...state.config,
+                layers: (state.config.layers || []).filter((layer) => layer.id !== id),
+              },
+            }),
+            false,
+            'removeLayer'
+          );
+        },
+
+        clearLayers: () => {
+          set(
+            (state) => ({
+              config: {
+                ...state.config,
+                layers: [],
+              },
+            }),
+            false,
+            'clearLayers'
+          );
         },
       }),
       {

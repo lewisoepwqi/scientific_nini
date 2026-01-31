@@ -6,6 +6,10 @@ import type {
   ChartConfig,
   ChartData,
   StatisticalResult,
+  DescriptiveStatsMap,
+  TTestResultData,
+  AnovaResultData,
+  CorrelationResultData,
   ParseOptions,
   SavedChart,
   AIAnalysisSuggestion,
@@ -57,12 +61,12 @@ export const uploadAPI = {
     file: File,
     options: ParseOptions = {},
     onProgress?: (progress: AxiosProgressEvent) => void
-  ): Promise<ApiResponse<DatasetInfo>> => {
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('options', JSON.stringify(options));
 
-    const response = await apiClient.post<ApiResponse<DatasetInfo>>(
+    const response = await apiClient.post<ApiResponse<Record<string, unknown>>>(
       '/v1/datasets/upload',
       formData,
       {
@@ -145,6 +149,11 @@ export const chartAPI = {
       show_legend: config.showLegend,
     };
 
+    // 检查是否有叠加层，如果有则调用叠加端点
+    if (config.layers && config.layers.length > 0) {
+      return chartAPI.generateOverlayChart(datasetId, config);
+    }
+
     let endpoint = '';
     let body: Record<string, unknown> = { ...baseConfig };
 
@@ -198,7 +207,7 @@ export const chartAPI = {
         };
         break;
       case 'heatmap':
-      case 'correlation':
+      case 'correlation': {
         endpoint = '/v1/visualizations/heatmap';
         const heatmapColumns = options?.columns || [config.xColumn, config.yColumn].filter(Boolean);
         if (heatmapColumns.length < 2) {
@@ -211,11 +220,73 @@ export const chartAPI = {
           show_values: config.showStatistics,
         };
         break;
+      }
       default:
         throw new Error('不支持的图表类型');
     }
 
     const response = await apiClient.post(endpoint, body, {
+      params: { dataset_id: datasetId },
+    });
+
+    const plotlyData = response.data?.data || {};
+    return {
+      ...response.data,
+      data: {
+        data: plotlyData.data || [],
+        layout: plotlyData.layout || {},
+        config: plotlyData.config || {},
+      },
+    };
+  },
+
+  /**
+   * 生成叠加图表
+   */
+  generateOverlayChart: async (
+    datasetId: string,
+    config: ChartConfig
+  ): Promise<ApiResponse<ChartData>> => {
+    // 构建主图层配置
+    const primaryLayer = {
+      chart_type: config.chartType,
+      name: '主图层',
+      x_column: config.xColumn,
+      y_column: config.yColumn,
+      group_column: config.groupColumn,
+      color_column: config.colorColumn,
+      opacity: 0.7,
+    };
+
+    // 构建叠加层配置
+    const overlayLayers = (config.layers || []).map((layer) => ({
+      chart_type: layer.chartType,
+      name: layer.name,
+      x_column: layer.xColumn,
+      y_column: layer.yColumn,
+      group_column: layer.groupColumn,
+      color_column: layer.colorColumn,
+      opacity: layer.opacity,
+      color_override: layer.colorOverride,
+      y_axis: layer.yAxisMode || 'primary',
+      show_regression: layer.showRegression,
+      error_type: layer.errorType,
+      show_points: layer.showPoints,
+      show_mean: layer.showMean,
+      show_box: layer.showBox,
+    }));
+
+    const body = {
+      title: config.title,
+      width: config.width,
+      height: config.height,
+      journal_style: config.journalStyle,
+      show_legend: config.showLegend,
+      primary_layer: primaryLayer,
+      overlay_layers: overlayLayers,
+    };
+
+    const response = await apiClient.post('/v1/visualizations/overlay', body, {
       params: { dataset_id: datasetId },
     });
 
@@ -322,20 +393,7 @@ export const analysisAPI = {
     columns: string[]
   ): Promise<
     ApiResponse<
-      Record<
-        string,
-        {
-          count: number;
-          mean: number;
-          std: number;
-          min: number;
-          max: number;
-          median: number;
-          q1: number;
-          q3: number;
-          missing: number;
-        }
-      >
+      DescriptiveStatsMap
     >
   > => {
     const response = await apiClient.post(
@@ -344,18 +402,35 @@ export const analysisAPI = {
       { params: { dataset_id: datasetId } }
     );
 
-    const list = Array.isArray(response.data?.data) ? response.data.data : [];
-    const mapped = list.reduce((acc: Record<string, any>, item: any) => {
-      const percentiles = item.percentiles || {};
-      acc[item.column] = {
-        count: item.count,
-        mean: item.mean,
-        std: item.std,
-        min: item.min,
-        max: item.max,
-        median: item.median,
-        q1: percentiles.p25,
-        q3: percentiles.p75,
+    const list = Array.isArray(response.data?.data)
+      ? (response.data.data as Array<Record<string, unknown>>)
+      : [];
+    const mapped = list.reduce((acc: DescriptiveStatsMap, item: Record<string, unknown>) => {
+      const row = item as {
+        column?: string;
+        count?: number;
+        mean?: number;
+        std?: number;
+        min?: number;
+        max?: number;
+        median?: number;
+        percentiles?: {
+          p25?: number;
+          p75?: number;
+        };
+      };
+      if (!row.column) {
+        return acc;
+      }
+      acc[row.column] = {
+        count: row.count ?? 0,
+        mean: row.mean ?? 0,
+        std: row.std ?? 0,
+        min: row.min ?? 0,
+        max: row.max ?? 0,
+        median: row.median ?? 0,
+        q1: row.percentiles?.p25 ?? 0,
+        q3: row.percentiles?.p75 ?? 0,
         missing: null,
       };
       return acc;
@@ -376,7 +451,7 @@ export const analysisAPI = {
     groupColumn: string,
     groups?: [string, string],
     options?: { alternative?: 'two-sided' | 'less' | 'greater'; alpha?: number }
-  ): Promise<ApiResponse<StatisticalResult>> => {
+  ): Promise<ApiResponse<TTestResultData>> => {
     void groups;
     // 构建请求体，只包含有效的字段
     const body: Record<string, unknown> = {
@@ -404,7 +479,7 @@ export const analysisAPI = {
     column: string,
     groupColumn: string,
     options?: { postHoc?: boolean; alpha?: number }
-  ): Promise<ApiResponse<StatisticalResult>> => {
+  ): Promise<ApiResponse<AnovaResultData>> => {
     const response = await apiClient.post(
       '/v1/analysis/anova',
       {
@@ -424,13 +499,7 @@ export const analysisAPI = {
     datasetId: string,
     columns: string[],
     method?: 'pearson' | 'spearman' | 'kendall'
-  ): Promise<
-    ApiResponse<{
-      matrix: Record<string, Record<string, number>>;
-      pValues: Record<string, Record<string, number>>;
-      method: string;
-    }>
-  > => {
+  ): Promise<ApiResponse<CorrelationResultData>> => {
     const response = await apiClient.post(
       '/v1/analysis/correlation',
       {
@@ -439,7 +508,22 @@ export const analysisAPI = {
       },
       { params: { dataset_id: datasetId } }
     );
-    return response.data;
+    const payload = response.data?.data as
+      | {
+          correlation_matrix?: Record<string, Record<string, number>>;
+          pvalue_matrix?: Record<string, Record<string, number>>;
+          method?: string;
+        }
+      | undefined;
+    const normalized: CorrelationResultData = {
+      matrix: payload?.correlation_matrix || {},
+      pValues: payload?.pvalue_matrix || {},
+      method: payload?.method || method || 'pearson',
+    };
+    return {
+      ...response.data,
+      data: normalized,
+    };
   },
 
   /**
@@ -556,9 +640,13 @@ export const aiAPI = {
     }
 
     const decoder = new TextDecoder();
-    while (true) {
+    let isDone = false;
+    while (!isDone) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        isDone = true;
+        break;
+      }
       
       const chunk = decoder.decode(value, { stream: true });
       const lines = chunk.split('\n');

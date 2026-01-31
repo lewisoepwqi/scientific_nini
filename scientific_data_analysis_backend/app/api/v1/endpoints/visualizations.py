@@ -13,7 +13,7 @@ from app.schemas.visualization import (
     VisualizationCreate, VisualizationResponse,
     ScatterConfig, BoxConfig, ViolinConfig, BarConfig,
     HeatmapConfig, PairedConfig, HistogramConfig,
-    VisualizationExportRequest
+    VisualizationExportRequest, OverlayChartConfig
 )
 from app.schemas.common import APIResponse
 from app.services.visualization_service import visualization_service
@@ -359,6 +359,68 @@ async def list_journal_styles():
     return APIResponse(
         success=True,
         data=styles
+    )
+
+
+@router.post("/overlay", response_model=APIResponse[dict])
+async def create_overlay_chart(
+    dataset_id: str,
+    config: OverlayChartConfig,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    创建叠加图表。
+
+    将多个图表类型叠加在同一画布上显示。
+
+    - **primary_layer**: 主图层配置（散点图、折线图、柱状图、箱线图或小提琴图）
+    - **overlay_layers**: 叠加层配置列表（最多 3 层）
+    - **journal_style**: 期刊样式
+
+    兼容性规则：
+    - 散点图、折线图、柱状图可互相叠加
+    - 箱线图、小提琴图可互相叠加
+    - 热图、相关性矩阵、直方图不支持叠加
+    """
+    from sqlalchemy import select
+
+    # 注意：图层兼容性验证已通过 @model_validator 自动执行
+    # 如果验证失败，Pydantic 会抛出 ValidationError，FastAPI 自动返回 422
+
+    # 获取数据集
+    result = await db.execute(
+        select(Dataset).where(Dataset.id == dataset_id)
+    )
+    dataset = result.scalar_one_or_none()
+
+    if not dataset:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"数据集 {dataset_id} 不存在"
+        )
+
+    # 加载数据
+    df = data_service.load_dataset(dataset.file_path)
+
+    # 转换配置为字典
+    primary_config = config.primary_layer.model_dump()
+    overlay_configs = [layer.model_dump() for layer in config.overlay_layers]
+
+    # 生成叠加图表
+    fig = visualization_service.create_overlay_chart(
+        df,
+        primary_config=primary_config,
+        overlay_configs=overlay_configs,
+        journal_style=config.journal_style,
+        title=config.title,
+        width=config.width,
+        height=config.height,
+        show_legend=config.show_legend
+    )
+
+    return APIResponse(
+        success=True,
+        data=visualization_service.figure_to_json(fig)
     )
 
 

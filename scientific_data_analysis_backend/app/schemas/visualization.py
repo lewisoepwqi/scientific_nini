@@ -3,15 +3,21 @@
 """
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 from app.models.visualization import ChartType, JournalStyle
 
 
-# ==================== Chart Configuration Schemas ====================
+# ==================== 常量定义 ====================
+
+# 最大叠加图层数
+MAX_OVERLAY_LAYERS = 3
+
+
+# ==================== 图表配置 Schemas ====================
 
 class AxisConfig(BaseModel):
-    """Schema for axis configuration."""
+    """坐标轴配置 Schema。"""
     title: Optional[str] = None
     label: Optional[str] = None
     log_scale: bool = False
@@ -20,7 +26,7 @@ class AxisConfig(BaseModel):
 
 
 class ChartConfig(BaseModel):
-    """Base schema for chart configuration."""
+    """图表配置基础 Schema。"""
     title: Optional[str] = None
     subtitle: Optional[str] = None
     width: Optional[int] = Field(default=800, ge=400, le=2000)
@@ -32,7 +38,7 @@ class ChartConfig(BaseModel):
 
 
 class ScatterConfig(ChartConfig):
-    """Schema for scatter plot configuration."""
+    """散点图配置 Schema。"""
     x_column: str
     y_column: str
     color_column: Optional[str] = None
@@ -48,7 +54,7 @@ class ScatterConfig(ChartConfig):
 
 
 class BoxConfig(ChartConfig):
-    """Schema for box plot configuration."""
+    """箱线图配置 Schema。"""
     value_column: str
     group_column: Optional[str] = None
     x_column: Optional[str] = None
@@ -60,7 +66,7 @@ class BoxConfig(ChartConfig):
 
 
 class ViolinConfig(ChartConfig):
-    """Schema for violin plot configuration."""
+    """小提琴图配置 Schema。"""
     value_column: str
     group_column: Optional[str] = None
     x_column: Optional[str] = None
@@ -71,7 +77,7 @@ class ViolinConfig(ChartConfig):
 
 
 class BarConfig(ChartConfig):
-    """Schema for bar chart configuration."""
+    """柱状图配置 Schema。"""
     x_column: str
     y_column: str
     group_column: Optional[str] = None
@@ -83,12 +89,12 @@ class BarConfig(ChartConfig):
 
 
 class HeatmapConfig(ChartConfig):
-    """Schema for heatmap configuration."""
+    """热图配置 Schema。"""
     columns: List[str]
     row_column: Optional[str] = None
     color_column: Optional[str] = None
     annotation_column: Optional[str] = None
-    colorscale: str = Field(default="RdBu_r", description="Plotly colorscale name")
+    colorscale: str = Field(default="RdBu_r", description="Plotly 颜色比例")
     center_at_zero: bool = True
     show_values: bool = True
     value_format: str = ".2f"
@@ -97,7 +103,7 @@ class HeatmapConfig(ChartConfig):
 
 
 class PairedConfig(ChartConfig):
-    """Schema for paired line plot configuration."""
+    """配对线图配置 Schema。"""
     subject_column: str
     condition_column: str
     value_column: str
@@ -110,7 +116,7 @@ class PairedConfig(ChartConfig):
 
 
 class HistogramConfig(ChartConfig):
-    """Schema for histogram configuration."""
+    """直方图配置 Schema。"""
     column: str
     group_column: Optional[str] = None
     bins: Optional[int] = Field(default=30, ge=5, le=100)
@@ -120,10 +126,10 @@ class HistogramConfig(ChartConfig):
     opacity: float = Field(default=0.7, ge=0.1, le=1.0)
 
 
-# ==================== Visualization CRUD Schemas ====================
+# ==================== 可视化 CRUD Schemas ====================
 
 class VisualizationCreate(BaseModel):
-    """Schema for creating a visualization."""
+    """创建可视化 Schema。"""
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     chart_type: ChartType
@@ -138,7 +144,7 @@ class VisualizationCreate(BaseModel):
 
 
 class VisualizationUpdate(BaseModel):
-    """Schema for updating a visualization."""
+    """更新可视化 Schema。"""
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
@@ -167,8 +173,74 @@ class VisualizationResponse(BaseModel):
 
 
 class VisualizationExportRequest(BaseModel):
-    """Schema for visualization export request."""
+    """可视化导出请求 Schema。"""
     format: str = Field(default="png", pattern="^(png|svg|pdf|jpeg|html)$")
     width: Optional[int] = Field(default=None, ge=400, le=4000)
     height: Optional[int] = Field(default=None, ge=300, le=3000)
     scale: float = Field(default=2.0, ge=1.0, le=4.0)
+
+
+# ==================== 叠加图表 Schemas ====================
+
+# 图表兼容性组定义
+CHART_COMPATIBILITY = {
+    ChartType.SCATTER: {ChartType.SCATTER, ChartType.LINE, ChartType.BAR},
+    ChartType.LINE: {ChartType.SCATTER, ChartType.LINE, ChartType.BAR},
+    ChartType.BAR: {ChartType.SCATTER, ChartType.LINE, ChartType.BAR},
+    ChartType.BOX: {ChartType.BOX, ChartType.VIOLIN},
+    ChartType.VIOLIN: {ChartType.BOX, ChartType.VIOLIN},
+    ChartType.HISTOGRAM: set(),
+    ChartType.HEATMAP: set(),
+    ChartType.CORRELATION_MATRIX: set(),
+}
+
+
+class OverlayLayerConfig(BaseModel):
+    """单个叠加层配置。"""
+    chart_type: ChartType
+    name: Optional[str] = None
+
+    # 数据列配置
+    x_column: Optional[str] = None
+    y_column: Optional[str] = None
+    value_column: Optional[str] = None
+    group_column: Optional[str] = None
+    color_column: Optional[str] = None
+
+    # 样式配置
+    opacity: float = Field(default=0.7, ge=0.1, le=1.0)
+    color_override: Optional[str] = None
+    y_axis: str = Field(default="primary", pattern="^(primary|secondary)$")
+
+    # 图表类型特定配置
+    show_regression: bool = False  # scatter 专用
+    error_type: str = Field(default="sem", pattern="^(sem|sd|ci)$")  # bar 专用
+    show_points: bool = True  # box/violin 专用
+    show_mean: bool = True  # box 专用
+    show_box: bool = True  # violin 专用
+
+
+class OverlayChartConfig(ChartConfig):
+    """叠加图表配置。"""
+    primary_layer: OverlayLayerConfig
+    overlay_layers: List[OverlayLayerConfig] = Field(
+        default_factory=list, max_length=MAX_OVERLAY_LAYERS
+    )
+
+    @model_validator(mode='after')
+    def validate_compatibility(self) -> 'OverlayChartConfig':
+        """验证图表类型兼容性（自动执行）。"""
+        primary_type = self.primary_layer.chart_type
+        allowed = CHART_COMPATIBILITY.get(primary_type, set())
+
+        if not allowed:
+            raise ValueError(f"图表类型 {primary_type.value} 不支持叠加")
+
+        for i, layer in enumerate(self.overlay_layers):
+            if layer.chart_type not in allowed:
+                raise ValueError(
+                    f"叠加层 {i+1} 的图表类型 {layer.chart_type.value} "
+                    f"无法与主图表类型 {primary_type.value} 叠加"
+                )
+
+        return self

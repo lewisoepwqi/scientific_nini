@@ -72,13 +72,25 @@ export function useChart(options: UseChartOptions = {}) {
           },
         };
 
-        if (config.chartType === 'line') {
+        // 处理 LINE 类型的 mode（主图表和叠加层都需要处理）
+        // 注意：后端已经为 LINE 类型设置了 mode="lines+markers"，
+        // 但为了兼容性，前端也进行处理
+        if (config.chartType === 'line' || (config.layers && config.layers.some(l => l.chartType === 'line'))) {
           styledData = {
             ...styledData,
-            data: styledData.data.map((trace: any) => ({
-              ...trace,
-              mode: trace.mode ? trace.mode.replace('markers', 'lines') : 'lines',
-            })),
+            data: styledData.data.map((trace) => {
+              // 如果 trace 名称包含"叠加层"且是 line 类型，或主图表是 line 类型
+              const isLineTrace = config.chartType === 'line' ||
+                (trace.name && config.layers?.some(l => l.chartType === 'line' && trace.name?.includes(l.name)));
+              const traceMode = (trace as { mode?: string }).mode;
+              if (isLineTrace && traceMode && traceMode.includes('markers') && !traceMode.includes('lines')) {
+                return {
+                  ...trace,
+                  mode: traceMode.replace('markers', 'lines+markers'),
+                } as typeof trace;
+              }
+              return trace;
+            }),
           };
         }
 
@@ -104,7 +116,7 @@ export function useChart(options: UseChartOptions = {}) {
     } finally {
       setIsGenerating(false);
     }
-  }, [currentDataset, config, setIsGenerating, addNotification]);
+  }, [currentDataset, config, setIsGenerating, setStoreChartData, addNotification]);
 
   /**
    * 更新图表配置

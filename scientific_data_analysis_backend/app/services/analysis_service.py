@@ -141,10 +141,14 @@ class AnalysisService:
         
         if group_column:
             # Independent samples t-test
+            if group_column not in df.columns:
+                raise AnalysisException(f"分组列 '{group_column}' 不存在")
+
             groups = df[group_column].dropna().unique()
             if len(groups) != 2:
                 raise AnalysisException(
-                    f"Group column must have exactly 2 groups, found {len(groups)}"
+                    f"t 检验要求分组列恰好包含 2 个分组，但 '{group_column}' 包含 {len(groups)} 个分组。"
+                    f"如需比较多组，请使用 ANOVA 方法。"
                 )
             
             group1_data = df[df[group_column] == groups[0]][column].dropna()
@@ -307,46 +311,74 @@ class AnalysisService:
     ) -> List[Dict[str, Any]]:
         """执行事后检验。"""
         if method == "tukey":
-            # 移除含有缺失值的行
-            clean_df = df[[value_column, group_column]].dropna()
+            try:
+                # 移除含有缺失值的行
+                clean_df = df[[value_column, group_column]].dropna()
 
-            tukey = pairwise_tukeyhsd(
-                endog=clean_df[value_column],
-                groups=clean_df[group_column],
-                alpha=0.05
-            )
+                # 检查是否有足够的数据
+                if len(clean_df) < 3:
+                    return []
 
-            results = []
-            n_groups = len(tukey.groupsunique)
-            comparison_idx = 0
+                n_unique_groups = clean_df[group_column].nunique()
+                if n_unique_groups < 2:
+                    return []
 
-            # 遍历所有配对比较
-            for i in range(n_groups):
-                for j in range(i + 1, n_groups):
-                    group1 = tukey.groupsunique[i]
-                    group2 = tukey.groupsunique[j]
+                tukey = pairwise_tukeyhsd(
+                    endog=clean_df[value_column],
+                    groups=clean_df[group_column],
+                    alpha=0.05
+                )
 
-                    # 直接使用 tukey 对象的属性获取结果
-                    mean_diff = self._safe_float(tukey.meandiffs[comparison_idx])
-                    pvalue = self._safe_float(tukey.pvalues[comparison_idx])
-                    ci_lower = self._safe_float(tukey.confint[comparison_idx, 0])
-                    ci_upper = self._safe_float(tukey.confint[comparison_idx, 1])
-                    reject = bool(tukey.reject[comparison_idx])
+                results = []
+                n_groups = len(tukey.groupsunique)
 
-                    if mean_diff is not None and pvalue is not None:
-                        results.append({
-                            "group1": str(group1),
-                            "group2": str(group2),
-                            "mean_diff": mean_diff,
-                            "pvalue": pvalue,
-                            "reject": reject,
-                            "ci_lower": ci_lower,
-                            "ci_upper": ci_upper
-                        })
+                # 计算总比较数量
+                total_comparisons = n_groups * (n_groups - 1) // 2
 
-                    comparison_idx += 1
+                # 验证数组长度
+                if (len(tukey.meandiffs) < total_comparisons or
+                    len(tukey.pvalues) < total_comparisons or
+                    len(tukey.reject) < total_comparisons or
+                    tukey.confint.shape[0] < total_comparisons):
+                    return []
 
-            return results
+                comparison_idx = 0
+
+                # 遍历所有配对比较
+                for i in range(n_groups):
+                    for j in range(i + 1, n_groups):
+                        if comparison_idx >= total_comparisons:
+                            break
+
+                        group1 = tukey.groupsunique[i]
+                        group2 = tukey.groupsunique[j]
+
+                        # 直接使用 tukey 对象的属性获取结果
+                        mean_diff = self._safe_float(tukey.meandiffs[comparison_idx])
+                        pvalue = self._safe_float(tukey.pvalues[comparison_idx])
+                        ci_lower = self._safe_float(tukey.confint[comparison_idx, 0])
+                        ci_upper = self._safe_float(tukey.confint[comparison_idx, 1])
+                        reject = bool(tukey.reject[comparison_idx])
+
+                        if mean_diff is not None and pvalue is not None:
+                            results.append({
+                                "group1": str(group1),
+                                "group2": str(group2),
+                                "mean_diff": mean_diff,
+                                "pvalue": pvalue,
+                                "reject": reject,
+                                "ci_lower": ci_lower,
+                                "ci_upper": ci_upper
+                            })
+
+                        comparison_idx += 1
+
+                return results
+            except Exception as e:
+                # 记录错误但不中断主流程
+                import logging
+                logging.warning(f"事后检验执行失败: {str(e)}")
+                return []
 
         return []
     
