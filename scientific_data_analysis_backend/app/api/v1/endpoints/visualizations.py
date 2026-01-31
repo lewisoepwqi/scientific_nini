@@ -17,6 +17,7 @@ from app.schemas.visualization import (
 )
 from app.schemas.common import APIResponse
 from app.services.visualization_service import visualization_service
+from app.services.chart_config_service import chart_config_service
 from app.services.data_service import data_service
 
 router = APIRouter()
@@ -475,3 +476,22 @@ async def export_visualization(
         media_type=f"image/{request.format}",
         filename=f"{viz.name}.{request.format}"
     )
+
+
+@router.post("/configs/{config_id}/clone", response_model=APIResponse[dict])
+async def clone_chart_config(
+    config_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """克隆图表配置（兼容旧路径）。"""
+    try:
+        config = await chart_config_service.clone_config(db, config_id)
+        await db.commit()
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc)
+        ) from exc
+
+    return APIResponse(success=True, data={"id": config.id, "version": config.version})

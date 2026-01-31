@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Calculator, Database, Play, Trash2, Download, ChevronDown, ChevronUp } from 'lucide-react';
-import { useDatasetStore, useAnalysisStore, useUIStore } from '@store/index';
+import { useDatasetStore, useAnalysisStore, useUIStore, useTaskStore } from '@store/index';
 import { cn, formatNumber } from '@utils/helpers';
 import { api } from '@services/api';
+import { taskApi } from '@services/taskApi';
+import { TaskChartList } from '@components/TaskChartList';
+import { SuggestionPanel } from '@components/SuggestionPanel';
 import type {
   StatisticalResult,
   DescriptiveStatsMap,
@@ -29,9 +32,11 @@ export const AnalysisPage: React.FC<AnalysisPageProps> = ({ className }) => {
   const { currentDataset } = useDatasetStore();
   const { results, addResult, removeResult, isAnalyzing, setIsAnalyzing } = useAnalysisStore();
   const { setCurrentPage, addNotification } = useUIStore();
+  const { tasks, currentTask, setTasks, setCurrentTask, setTaskCharts, setSuggestionStatus } = useTaskStore();
   
   const [selectedType, setSelectedType] = useState('descriptive');
   const [expandedResult, setExpandedResult] = useState<string | null>(null);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(false);
 
   const formatOptionalNumber = (value?: number | null, digits = 3) => {
     if (value === null || value === undefined || Number.isNaN(value)) return '-';
@@ -196,15 +201,36 @@ export const AnalysisPage: React.FC<AnalysisPageProps> = ({ className }) => {
           message: '分析完成！',
         });
       }
-    } catch (error) {
+    } catch {
       addNotification({
         type: 'error',
-        message: '分析失败: ' + (error instanceof Error ? error.message : '未知错误'),
+        message: '分析失败，请稍后再试',
       });
     } finally {
       setIsAnalyzing(false);
     }
   };
+
+  useEffect(() => {
+    const loadTasks = async () => {
+      setIsLoadingTasks(true);
+      try {
+        const response = await taskApi.listTasks({ limit: 20, offset: 0 });
+        if (response?.success && response.data) {
+          setTasks(response.data);
+        }
+      } catch {
+        addNotification({
+          type: 'error',
+          message: '任务列表加载失败',
+        });
+      } finally {
+        setIsLoadingTasks(false);
+      }
+    };
+
+    loadTasks();
+  }, [addNotification, setTasks]);
 
   if (!currentDataset) {
     return (
@@ -280,6 +306,77 @@ export const AnalysisPage: React.FC<AnalysisPageProps> = ({ className }) => {
           )}
         </button>
       </div>
+
+      {/* 任务列表 */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+            <Database className="w-5 h-5" />
+            任务列表
+          </h3>
+          <button
+            onClick={async () => {
+              setIsLoadingTasks(true);
+              try {
+                const response = await taskApi.listTasks({ limit: 20, offset: 0 });
+                if (response?.success && response.data) {
+                  setTasks(response.data);
+                }
+              } catch {
+                addNotification({
+                  type: 'error',
+                  message: '任务列表刷新失败',
+                });
+              } finally {
+                setIsLoadingTasks(false);
+              }
+            }}
+            className={cn(
+              'px-3 py-1.5 text-sm rounded-lg border',
+              isLoadingTasks ? 'text-gray-400 border-gray-200' : 'text-gray-600 hover:bg-gray-50 border-gray-200'
+            )}
+          >
+            {isLoadingTasks ? '加载中...' : '刷新'}
+          </button>
+        </div>
+        {tasks.length === 0 ? (
+          <p className="text-sm text-gray-500">暂无任务</p>
+        ) : (
+          <div className="space-y-2">
+            {tasks.map((task) => (
+              <button
+                key={task.id}
+                onClick={() => setCurrentTask(task)}
+                className={cn(
+                  'w-full flex items-center justify-between px-4 py-3 rounded-lg border text-left',
+                  currentTask?.id === task.id
+                    ? 'border-primary-500 bg-primary-50'
+                    : 'border-gray-200 hover:bg-gray-50'
+                )}
+              >
+                <div>
+                  <p className="font-medium text-gray-900">任务 {task.id.slice(0, 8)}</p>
+                  <p className="text-xs text-gray-500">阶段：{task.stage}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {currentTask && (
+        <TaskChartList
+          taskId={currentTask.id}
+          onLoaded={(charts) => setTaskCharts(currentTask.id, charts)}
+        />
+      )}
+
+      {currentTask && (
+        <SuggestionPanel
+          taskId={currentTask.id}
+          onStatusChange={(status) => setSuggestionStatus(currentTask.id, status)}
+        />
+      )}
 
       {/* 分析结果 */}
       {results.length > 0 && (

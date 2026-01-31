@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from ai_service.api.endpoints import router as ai_router
+from ai_service.api.router import api_router as ai_router
 from ai_service.core.llm_client import LLMConfig, ModelProvider, get_llm_client
 
 

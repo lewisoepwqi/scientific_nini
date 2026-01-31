@@ -322,6 +322,78 @@ GET /visualizations/journal-styles
 
 ---
 
+## 任务与分享
+
+### 创建任务
+```http
+POST /tasks
+Content-Type: application/json
+
+{
+  "dataset_id": "uuid"
+}
+```
+
+### 查询任务列表
+```http
+GET /tasks?limit=20&offset=0
+```
+
+### 获取任务状态
+```http
+GET /tasks/{task_id}/status
+```
+
+### 创建任务图表
+```http
+POST /tasks/{task_id}/visualizations
+Content-Type: application/json
+
+{
+  "chart_type": "scatter",
+  "config": { "title": "示例图" }
+}
+```
+
+### 复制图表配置
+```http
+POST /chart-configs/{config_id}/clone
+```
+
+### 生成 AI（人工智能）建议
+```http
+POST /tasks/{task_id}/suggestions
+```
+
+### 采纳/拒绝 AI 建议
+```http
+POST /tasks/{task_id}/suggestions/accept
+POST /tasks/{task_id}/suggestions/reject
+```
+
+### 创建分享包
+```http
+POST /visualizations/{visualization_id}/exports
+```
+
+### 获取分享包元数据
+```http
+GET /exports/{export_id}
+```
+
+### 创建任务分享
+```http
+POST /tasks/{task_id}/shares
+Content-Type: application/json
+
+{
+  "member_id": "member-1",
+  "permission": "view"
+}
+```
+
+---
+
 ## Health Check
 
 ### Health Status

@@ -13,7 +13,8 @@ import plotly.figure_factory as ff
 
 from app.core.config import settings
 from app.core.exceptions import VisualizationException
-from app.models.visualization import ChartType, JournalStyle
+from app.models.visualization import ChartType, JournalStyle, Visualization
+from app.models.chart_config import ChartConfig
 from app.services.data_service import data_service
 from app.utils.dataframe_utils import safe_json_serialize
 
@@ -830,3 +831,58 @@ class VisualizationService:
 
 # Singleton instance
 visualization_service = VisualizationService()
+
+
+class VisualizationRecordService:
+    """任务图表记录服务。"""
+
+    async def create_task_visualization(
+        self,
+        db,
+        task,
+        chart_type: str,
+        config: Dict[str, Any],
+        dataset_version_id: Optional[str],
+    ) -> Visualization:
+        """创建任务图表记录并持久化配置。"""
+        from sqlalchemy import select, func
+
+        count_stmt = select(func.count()).select_from(Visualization).where(Visualization.task_id == task.id)
+        count_result = await db.execute(count_stmt)
+        if (count_result.scalar_one() or 0) >= settings.TASK_MAX_CHARTS:
+            raise ValueError("超过单任务图表上限")
+
+        chart_config = ChartConfig(
+            semantic_config=config,
+            style_config=None,
+            export_config=None,
+            version=1,
+        )
+        db.add(chart_config)
+        await db.flush()
+
+        viz = Visualization(
+            name=config.get("title") or "未命名图表",
+            description=None,
+            chart_type=ChartType(chart_type),
+            journal_style=JournalStyle.DEFAULT,
+            config=config,
+            dataset_id=task.dataset_id,
+            task_id=task.id,
+            dataset_version_id=dataset_version_id or task.active_version_id,
+            config_id=chart_config.id,
+            render_log={},
+        )
+        db.add(viz)
+        await db.flush()
+        return viz
+
+    async def list_task_visualizations(self, db, task_id: str) -> List[Visualization]:
+        """获取任务图表列表。"""
+        from sqlalchemy import select
+
+        result = await db.execute(select(Visualization).where(Visualization.task_id == task_id))
+        return list(result.scalars().all())
+
+
+visualization_record_service = VisualizationRecordService()

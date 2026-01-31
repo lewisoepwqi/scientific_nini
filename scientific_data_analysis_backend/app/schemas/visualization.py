@@ -180,6 +180,29 @@ class VisualizationExportRequest(BaseModel):
     scale: float = Field(default=2.0, ge=1.0, le=4.0)
 
 
+# ==================== 任务可视化 Schemas ====================
+
+class TaskVisualizationCreate(BaseModel):
+    """任务图表创建 Schema。"""
+    chart_type: str
+    config: Dict[str, Any]
+    dataset_version_id: Optional[str] = None
+
+
+class TaskVisualizationResponse(BaseModel):
+    """任务图表响应 Schema。"""
+    id: str
+    task_id: str
+    dataset_version_id: Optional[str]
+    chart_type: str
+    config_id: Optional[str]
+    render_log: Optional[Dict[str, Any]]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # ==================== 叠加图表 Schemas ====================
 
 # 图表兼容性组定义

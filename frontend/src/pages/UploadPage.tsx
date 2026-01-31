@@ -1,8 +1,9 @@
 import React from 'react';
 import { FileUpload } from '@components/upload/FileUpload';
 import { FilePreview } from '@components/upload/FilePreview';
-import { useDatasetStore, useUIStore } from '@store/index';
+import { useDatasetStore, useTaskStore, useUIStore } from '@store/index';
 import { cn } from '@utils/helpers';
+import { taskApi } from '@services/taskApi';
 
 interface UploadPageProps {
   className?: string;
@@ -10,9 +11,22 @@ interface UploadPageProps {
 
 export const UploadPage: React.FC<UploadPageProps> = ({ className }) => {
   const { currentDataset } = useDatasetStore();
+  const { upsertTask, setCurrentTask } = useTaskStore();
   const { setCurrentPage } = useUIStore();
 
-  const handleUploadSuccess = () => {
+  const handleUploadSuccess = async () => {
+    if (currentDataset?.id) {
+      try {
+        const response = await taskApi.createTask(currentDataset.id);
+        if (response?.success && response.data) {
+          upsertTask(response.data);
+          setCurrentTask(response.data);
+        }
+      } catch (error) {
+        // 上传完成后任务创建失败不阻断主流程
+        console.warn('任务创建失败', error);
+      }
+    }
     // 上传成功后自动跳转到数据预览页面
     setTimeout(() => {
       setCurrentPage('preview');

@@ -1,3 +1,22 @@
+<!-- OPENSPEC:START -->
+# OpenSpec Instructions
+
+These instructions are for AI assistants working in this project.
+
+Always open `@/openspec/AGENTS.md` when the request:
+- Mentions planning or proposals (words like proposal, spec, change, plan)
+- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
+- Sounds ambiguous and you need the authoritative spec before coding
+
+Use `@/openspec/AGENTS.md` to learn:
+- How to create and apply change proposals
+- Spec format and conventions
+- Project structure and guidelines
+
+Keep this managed block so 'openspec update' can refresh the instructions.
+
+<!-- OPENSPEC:END -->
+
 # Repository Guidelines
 
 ## Project Structure & Module Organization
@@ -36,3 +55,10 @@
 ## Agent-Specific Instructions
 - 使用 `datetime.now(timezone.utc)` 代替 `datetime.utcnow()`; Pydantic v2 使用 `model_validate()` / `model_dump()`.
 - SQLAlchemy 异步 查询 使用 `select()`; SQLite Enum 需 `native_enum=False`.
+
+## Active Technologies
+- Python 3.x（后端/AI 服务），TypeScript（前端） + FastAPI（后端 Web 框架），React（前端框架） + Vite（构建工具） + Zustand（状态管理），Plotly（图表渲染） (001-task-based-analysis)
+- PostgreSQL（关系型数据库），Redis（缓存/任务状态），文件存储（数据集与导出包） (001-task-based-analysis)
+
+## Recent Changes
+- 001-task-based-analysis: Added Python 3.x（后端/AI 服务），TypeScript（前端） + FastAPI（后端 Web 框架），React（前端框架） + Vite（构建工具） + Zustand（状态管理），Plotly（图表渲染）

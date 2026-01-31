@@ -1,0 +1,449 @@
+openapi: 3.0.3
+info:
+  title: 任务化分析与多图表管理接口
+  version: 1.0.0
+  description: |
+    本文档为 OpenAPI（开放式应用程序接口规范）契约，覆盖任务、建议、图表与分享包能力。
+servers:
+  - url: /api/v1
+paths:
+  /tasks:
+    post:
+      summary: 创建分析任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCreateRequest'
+      responses:
+        '201':
+          description: 任务创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+    get:
+      summary: 查询任务列表
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+          description: 返回数量
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+          description: 起始偏移
+      responses:
+        '200':
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Task'
+  /tasks/{task_id}:
+    get:
+      summary: 获取任务详情
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 任务详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '404':
+          description: 任务不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /tasks/{task_id}/status:
+    get:
+      summary: 获取任务阶段状态
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 任务状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskStatus'
+  /tasks/{task_id}/suggestions:
+    post:
+      summary: 生成 AI 建议
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuggestionCreateRequest'
+      responses:
+        '201':
+          description: 建议生成成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Suggestion'
+  /tasks/{task_id}/suggestions/accept:
+    post:
+      summary: 采纳 AI 建议
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 采纳成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      task_id:
+                        type: string
+                      status:
+                        type: string
+  /tasks/{task_id}/suggestions/reject:
+    post:
+      summary: 拒绝 AI 建议
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 拒绝成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      task_id:
+                        type: string
+                      status:
+                        type: string
+  /tasks/{task_id}/visualizations:
+    post:
+      summary: 创建图表
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VisualizationCreateRequest'
+      responses:
+        '201':
+          description: 图表创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Visualization'
+    get:
+      summary: 获取任务图表列表
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 图表列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Visualization'
+  /chart-configs/{config_id}/clone:
+    post:
+      summary: 克隆图表配置
+      parameters:
+        - in: path
+          name: config_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: 克隆成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      version:
+                        type: integer
+  /visualizations/{visualization_id}/exports:
+    post:
+      summary: 生成分享包
+      parameters:
+        - in: path
+          name: visualization_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: 分享包创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportPackage'
+  /tasks/{task_id}/shares:
+    post:
+      summary: 创建任务分享
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskShareCreateRequest'
+      responses:
+        '201':
+          description: 分享创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskShare'
+  /exports/{export_id}:
+    get:
+      summary: 获取分享包元数据
+      parameters:
+        - in: path
+          name: export_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 分享包元数据（不含原始数据）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportPackage'
+
+components:
+  schemas:
+    TaskCreateRequest:
+      type: object
+      required: [dataset_id]
+      properties:
+        dataset_id:
+          type: string
+          description: 数据集标识
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+        dataset_id:
+          type: string
+        owner_id:
+          type: string
+        stage:
+          $ref: '#/components/schemas/TaskStage'
+        suggestion_status:
+          type: string
+          enum: [pending, accepted, rejected, skipped]
+        active_version_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    TaskStage:
+      type: string
+      enum:
+        - uploading
+        - parsed
+        - profiling
+        - suggestion_pending
+        - processing
+        - analysis_ready
+        - visualization_ready
+    TaskStatus:
+      type: object
+      properties:
+        task_id:
+          type: string
+        stage:
+          $ref: '#/components/schemas/TaskStage'
+        message:
+          type: string
+    SuggestionCreateRequest:
+      type: object
+      properties:
+        summary:
+          type: object
+          description: 数据概要（可选）
+    Suggestion:
+      type: object
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        cleaning:
+          type: array
+          items:
+            type: string
+        statistics:
+          type: array
+          items:
+            type: string
+        chart_recommendations:
+          type: array
+          items:
+            type: string
+        notes:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [pending, accepted, rejected]
+    VisualizationCreateRequest:
+      type: object
+      required: [chart_type, config]
+      properties:
+        chart_type:
+          type: string
+        config:
+          type: object
+          description: 语义/样式/导出配置
+        dataset_version_id:
+          type: string
+    Visualization:
+      type: object
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        dataset_version_id:
+          type: string
+        chart_type:
+          type: string
+        config_id:
+          type: string
+        render_log:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ExportPackage:
+      type: object
+      properties:
+        id:
+          type: string
+        visualization_id:
+          type: string
+        dataset_version_ref:
+          type: string
+          description: 数据版本引用（不包含原始数据）
+        config_snapshot:
+          type: object
+        render_log_snapshot:
+          type: object
+        expires_at:
+          type: string
+          format: date-time
+    TaskShareCreateRequest:
+      type: object
+      required: [member_id]
+      properties:
+        member_id:
+          type: string
+        permission:
+          type: string
+          enum: [view, edit]
+        expires_at:
+          type: string
+          format: date-time
+    TaskShare:
+      type: object
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        member_id:
+          type: string
+        permission:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string

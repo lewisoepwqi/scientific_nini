@@ -2,9 +2,10 @@ import React from 'react';
 import { ChartConfigPanel } from '@components/chart/ChartConfigPanel';
 import { ChartDisplay } from '@components/chart/ChartDisplay';
 import { useChart } from '@hooks/useChart';
-import { useDatasetStore, useUIStore } from '@store/index';
+import { useDatasetStore, useTaskStore, useUIStore } from '@store/index';
 import { cn } from '@utils/helpers';
 import { Database, ArrowLeft, BarChart3 } from 'lucide-react';
+import { visualizationApi } from '@services/visualizationApi';
 
 interface ChartPageProps {
   className?: string;
@@ -12,12 +13,35 @@ interface ChartPageProps {
 
 export const ChartPage: React.FC<ChartPageProps> = ({ className }) => {
   const { currentDataset } = useDatasetStore();
+  const { currentTask, setTaskCharts } = useTaskStore();
   const { setCurrentPage } = useUIStore();
   
   const {
+    config,
     isGenerating,
     generateChart,
   } = useChart();
+
+  const handleGenerate = async () => {
+    const result = await generateChart();
+    if (!result || !currentTask) {
+      return;
+    }
+    try {
+      await visualizationApi.createVisualization(currentTask.id, {
+        chartType: config.chartType,
+        config,
+        datasetVersionId: currentTask.activeVersionId || undefined,
+      });
+      const list = await visualizationApi.listTaskVisualizations(currentTask.id);
+      if (list?.success && list.data) {
+        setTaskCharts(currentTask.id, list.data);
+      }
+    } catch (error) {
+      // 图表持久化失败不阻断展示
+      console.warn('图表配置持久化失败', error);
+    }
+  };
 
   if (!currentDataset) {
     return (
@@ -66,14 +90,14 @@ export const ChartPage: React.FC<ChartPageProps> = ({ className }) => {
               <BarChart3 className="w-5 h-5" />
               图表配置
             </h3>
-            <ChartConfigPanel onGenerate={generateChart} />
+            <ChartConfigPanel onGenerate={handleGenerate} />
           </div>
         </div>
 
         {/* 图表展示区 */}
         <div className="lg:col-span-2">
           <ChartDisplay
-            onGenerate={generateChart}
+            onGenerate={handleGenerate}
             isGenerating={isGenerating}
           />
         </div>

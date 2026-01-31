@@ -1,0 +1,36 @@
+# 通用
+.git/
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
+.idea/
+
+# 环境变量
+.env*
+
+# Node.js
+node_modules/
+dist/
+build/
+coverage/
+*.log*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+ENV/
+
+# 数据/运行时
+uploads/
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker 元数据
+Dockerfile*
+.dockerignore

@@ -75,9 +75,13 @@ class Visualization(Base):
     # 输出
     plotly_config = Column(JSON, nullable=True)  # Plotly 图表 JSON
     image_path = Column(String(500), nullable=True)  # 渲染图像路径
+    render_log = Column(JSON, nullable=True)  # 渲染记录摘要
 
     # 外键
     dataset_id = Column(String(36), ForeignKey("datasets.id"), nullable=False)
+    task_id = Column(String(36), ForeignKey("analysis_tasks.id"), nullable=True)
+    dataset_version_id = Column(String(36), ForeignKey("dataset_versions.id"), nullable=True)
+    config_id = Column(String(36), ForeignKey("chart_configs.id"), nullable=True)
 
     # 时间戳
     created_at = Column(DateTime, default=utcnow)
@@ -85,6 +89,9 @@ class Visualization(Base):
 
     # 关联关系
     dataset = relationship("Dataset", back_populates="visualizations")
+    task = relationship("AnalysisTask", back_populates="visualizations")
+    dataset_version = relationship("DatasetVersion", back_populates="visualizations")
+    chart_config = relationship("ChartConfig")
 
     def __repr__(self):
         return f"<Visualization(id={self.id}, type={self.chart_type})>"

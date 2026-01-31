@@ -403,3 +403,5 @@ export interface ParsedData {
   rowCount: number;
   columnCount: number;
 }
+
+export * from './task';

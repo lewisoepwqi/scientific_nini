@@ -1,8 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FilePreview } from '@components/upload/FilePreview';
-import { useDatasetStore, useUIStore } from '@store/index';
+import { useDatasetStore, useTaskStore, useUIStore } from '@store/index';
 import { cn } from '@utils/helpers';
 import { Database, ArrowRight, BarChart3 } from 'lucide-react';
+import { ExportButton } from '@components/ExportButton';
+import { ShareDialog } from '@components/ShareDialog';
+import { ExportTemplateSelect } from '@components/ExportTemplateSelect';
+import { exportApi } from '@services/exportApi';
 
 interface PreviewPageProps {
   className?: string;
@@ -10,7 +14,10 @@ interface PreviewPageProps {
 
 export const PreviewPage: React.FC<PreviewPageProps> = ({ className }) => {
   const { currentDataset } = useDatasetStore();
+  const { currentTask, taskCharts } = useTaskStore();
   const { setCurrentPage } = useUIStore();
+  const [exportId, setExportId] = useState('');
+  const [exportInfo, setExportInfo] = useState<string | null>(null);
 
   if (!currentDataset) {
     return (
@@ -52,6 +59,42 @@ export const PreviewPage: React.FC<PreviewPageProps> = ({ className }) => {
 
       {/* 数据预览 */}
       <FilePreview />
+
+      {/* 分享与复现 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6 space-y-3">
+          <h3 className="font-semibold text-gray-900">分享包复现</h3>
+          <div className="flex gap-2">
+            <input
+              value={exportId}
+              onChange={(event) => setExportId(event.target.value)}
+              placeholder="输入分享包 ID"
+              className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+            />
+            <button
+              onClick={async () => {
+                const response = await exportApi.getExport(exportId);
+                if (response?.success && response.data) {
+                  setExportInfo(`配置版本引用：${response.data.datasetVersionRef}`);
+                } else {
+                  setExportInfo('分享包不存在或加载失败');
+                }
+              }}
+              className="px-3 py-2 text-sm text-white bg-primary-500 rounded-lg"
+            >
+              加载
+            </button>
+          </div>
+          {exportInfo && <p className="text-sm text-gray-600">{exportInfo}</p>}
+        </div>
+        <div className="space-y-3">
+          <ExportTemplateSelect />
+          {currentTask && taskCharts[currentTask.id]?.[0] && (
+            <ExportButton visualizationId={taskCharts[currentTask.id][0].id} />
+          )}
+          {currentTask && <ShareDialog taskId={currentTask.id} />}
+        </div>
+      </div>
     </div>
   );
 };

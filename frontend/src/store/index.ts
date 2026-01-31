@@ -508,3 +508,5 @@ export const useAppStore = () => ({
   aiChat: useAIChatStore(),
   ui: useUIStore(),
 });
+
+export { useTaskStore } from './taskStore';

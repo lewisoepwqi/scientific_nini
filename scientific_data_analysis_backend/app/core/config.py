@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"
     ALLOWED_EXTENSIONS: str = "xlsx,xls,csv,tsv,txt"
 
+    # 任务与图表配置
+    TASK_MAX_CHARTS: int = 50
+    DATA_RETENTION_DAYS: int = 30
+    EXPORT_RETENTION_DAYS: int = 30
+
     # AI 集成配置（可选）
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4"

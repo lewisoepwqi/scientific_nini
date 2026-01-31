@@ -17,7 +17,7 @@ import type {
 
 // ==================== Axios 实例配置 ====================
 
-const apiClient: AxiosInstance = axios.create({
+export const apiClient: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 30000,
   headers: {
