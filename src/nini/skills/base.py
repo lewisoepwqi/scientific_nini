@@ -1,0 +1,98 @@
+"""Skill 基类和 SkillResult。"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any
+
+from nini.agent.session import Session
+
+
+@dataclass
+class SkillResult:
+    """技能执行结果。"""
+
+    success: bool = True
+    data: Any = None
+    message: str = ""
+    # 图表相关
+    has_chart: bool = False
+    chart_data: Any = None
+    # 数据表相关
+    has_dataframe: bool = False
+    dataframe_preview: Any = None
+    # 产物
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """转换为可序列化的字典。"""
+        result: dict[str, Any] = {
+            "success": self.success,
+            "message": self.message,
+        }
+        if self.data is not None:
+            result["data"] = self.data
+        if self.has_chart:
+            result["has_chart"] = True
+            result["chart_data"] = self.chart_data
+        if self.has_dataframe:
+            result["has_dataframe"] = True
+            result["dataframe_preview"] = self.dataframe_preview
+        if self.artifacts:
+            result["artifacts"] = self.artifacts
+        return result
+
+
+class Skill(ABC):
+    """技能基类。所有技能必须实现此接口。"""
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """技能名称（用于工具调用）。"""
+        ...
+
+    @property
+    @abstractmethod
+    def description(self) -> str:
+        """技能描述（用于 LLM 理解功能）。"""
+        ...
+
+    @property
+    @abstractmethod
+    def parameters(self) -> dict[str, Any]:
+        """参数的 JSON Schema。"""
+        ...
+
+    @property
+    def is_idempotent(self) -> bool:
+        """是否幂等（默认否）。"""
+        return False
+
+    @abstractmethod
+    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+        """执行技能。"""
+        ...
+
+    def to_manifest(self) -> "SkillManifest":
+        """导出为统一技能清单（用于跨平台技能描述）。"""
+        from nini.skills.manifest import SkillManifest
+
+        return SkillManifest(
+            name=self.name,
+            description=self.description,
+            parameters=self.parameters,
+            is_idempotent=self.is_idempotent,
+        )
+
+    def get_tool_definition(self) -> dict[str, Any]:
+        """转换为 OpenAI function calling 格式。"""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }

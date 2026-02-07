@@ -1,0 +1,223 @@
+"""命令行入口：`python -m nini` / `nini`。"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import sys
+from typing import Sequence
+
+
+def _default_env_content() -> str:
+    return (
+        "# Nini 配置（首次运行建议修改）\n"
+        "NINI_DEBUG=false\n"
+        "\n"
+        "# 可选：OpenAI\n"
+        "NINI_OPENAI_API_KEY=\n"
+        "NINI_OPENAI_MODEL=gpt-4o\n"
+        "\n"
+        "# 可选：Anthropic Claude\n"
+        "NINI_ANTHROPIC_API_KEY=\n"
+        "NINI_ANTHROPIC_MODEL=claude-sonnet-4-20250514\n"
+        "\n"
+        "# 可选：Ollama（默认启用本地服务）\n"
+        "NINI_OLLAMA_BASE_URL=http://localhost:11434\n"
+        "NINI_OLLAMA_MODEL=qwen2.5:7b\n"
+        "\n"
+        "# 可选：Moonshot AI (Kimi)\n"
+        "NINI_MOONSHOT_API_KEY=\n"
+        "NINI_MOONSHOT_MODEL=moonshot-v1-8k\n"
+        "\n"
+        "# 可选：智谱 AI (GLM)\n"
+        "NINI_ZHIPU_API_KEY=\n"
+        "NINI_ZHIPU_MODEL=glm-4\n"
+        "\n"
+        "# 可选：DeepSeek\n"
+        "NINI_DEEPSEEK_API_KEY=\n"
+        "NINI_DEEPSEEK_MODEL=deepseek-chat\n"
+        "\n"
+        "# 可选：阿里百炼（通义千问）\n"
+        "NINI_DASHSCOPE_API_KEY=\n"
+        "NINI_DASHSCOPE_MODEL=qwen-plus\n"
+        "\n"
+        "# Agent / 沙箱\n"
+        "NINI_AGENT_MAX_ITERATIONS=20\n"
+        "NINI_SANDBOX_TIMEOUT=30\n"
+        "NINI_SANDBOX_MAX_MEMORY_MB=512\n"
+    )
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Nini - 科研数据分析 AI Agent")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    start_parser = subparsers.add_parser("start", help="启动 Nini 服务")
+    start_parser.add_argument("--host", default="127.0.0.1", help="监听地址")
+    start_parser.add_argument("--port", type=int, default=8000, help="监听端口")
+    start_parser.add_argument("--reload", action="store_true", help="开发模式热重载")
+    start_parser.add_argument(
+        "--log-level",
+        default="info",
+        choices=["critical", "error", "warning", "info", "debug", "trace"],
+        help="日志级别",
+    )
+    start_parser.set_defaults(func=_cmd_start)
+
+    init_parser = subparsers.add_parser("init", help="生成首次运行配置文件")
+    init_parser.add_argument(
+        "--env-file",
+        default=".env",
+        help="配置文件路径，默认当前目录 .env",
+    )
+    init_parser.add_argument(
+        "--force", action="store_true", help="覆盖已存在的配置文件"
+    )
+    init_parser.set_defaults(func=_cmd_init)
+
+    doctor_parser = subparsers.add_parser("doctor", help="检查运行环境与配置")
+    doctor_parser.set_defaults(func=_cmd_doctor)
+
+    return parser
+
+
+def _normalize_argv(argv: Sequence[str]) -> list[str]:
+    if not argv or argv[0].startswith("-"):
+        # 向后兼容：`nini --port 9000` 等价于 `nini start --port 9000`
+        return ["start", *argv]
+    return list(argv)
+
+
+def _cmd_start(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        print("缺少依赖，请先运行: pip install -e .[dev]")
+        return 1
+
+    uvicorn.run(
+        "nini.app:create_app",
+        factory=True,
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        log_level=args.log_level,
+    )
+    return 0
+
+
+def _cmd_init(args: argparse.Namespace) -> int:
+    env_path = Path(args.env_file).expanduser().resolve()
+    if env_path.exists() and not args.force:
+        print(f"配置文件已存在: {env_path}")
+        print("如需覆盖请添加 --force")
+        return 1
+
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    env_path.write_text(_default_env_content(), encoding="utf-8")
+
+    print(f"已生成配置文件: {env_path}")
+    print("下一步：")
+    print("1) 填写 API Key（或确保本地 Ollama 可用）")
+    print("2) 运行 `nini start --reload` 启动服务")
+    return 0
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    from nini.config import settings
+
+    checks: list[tuple[str, bool, str, bool]] = []
+
+    py_ok = sys.version_info >= (3, 12)
+    checks.append(
+        (
+            "Python 版本 >= 3.12",
+            py_ok,
+            f"当前: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            True,
+        )
+    )
+
+    data_dir_ok = True
+    data_dir_msg = ""
+    try:
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        probe = settings.data_dir / ".doctor_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        data_dir_msg = f"{settings.data_dir}"
+    except Exception as exc:
+        data_dir_ok = False
+        data_dir_msg = str(exc)
+    checks.append(("数据目录可写", data_dir_ok, data_dir_msg, True))
+
+    model_ok = bool(
+        settings.openai_api_key
+        or settings.anthropic_api_key
+        or settings.moonshot_api_key
+        or settings.zhipu_api_key
+        or settings.deepseek_api_key
+        or settings.dashscope_api_key
+        or (settings.ollama_base_url and settings.ollama_model)
+    )
+    # 收集已配置的提供商名称
+    configured_providers: list[str] = []
+    if settings.openai_api_key:
+        configured_providers.append("OpenAI")
+    if settings.anthropic_api_key:
+        configured_providers.append("Anthropic")
+    if settings.moonshot_api_key:
+        configured_providers.append("Moonshot")
+    if settings.zhipu_api_key:
+        configured_providers.append("智谱AI")
+    if settings.deepseek_api_key:
+        configured_providers.append("DeepSeek")
+    if settings.dashscope_api_key:
+        configured_providers.append("阿里百炼")
+    if settings.ollama_base_url and settings.ollama_model:
+        configured_providers.append("Ollama")
+    model_detail = (
+        ", ".join(configured_providers) if configured_providers else "未配置任何模型"
+    )
+    checks.append(
+        (
+            "至少一个模型路由可用",
+            model_ok,
+            model_detail,
+            True,
+        )
+    )
+
+    web_dist = Path(__file__).resolve().parent.parent.parent / "web" / "dist"
+    checks.append(("前端构建产物存在（可选）", web_dist.exists(), str(web_dist), False))
+
+    print("Nini 环境检查:")
+    failed = 0
+    for name, ok, detail, required in checks:
+        mark = "OK" if ok else "FAIL"
+        if not required and not ok:
+            mark = "WARN"
+        print(f"- [{mark}] {name}: {detail}")
+        if required and not ok:
+            failed += 1
+
+    if failed == 0:
+        print("检查通过，可以运行 `nini start`。")
+        return 0
+
+    print(f"检查完成：{failed} 项失败，请先修复。")
+    return 1
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(_normalize_argv(argv or sys.argv[1:]))
+    try:
+        return int(args.func(args))
+    except KeyboardInterrupt:
+        print("已中断。")
+        return 130
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
