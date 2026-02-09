@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 from nini.agent.session import Session
 from nini.memory.storage import ArtifactStorage
 from nini.skills.base import Skill, SkillResult
+from nini.workspace import WorkspaceManager
 
 
 class ExportChartSkill(Skill):
@@ -98,6 +99,12 @@ class ExportChartSkill(Skill):
             "path": str(path),
             "download_url": f"/api/artifacts/{session.id}/{full_name}",
         }
+        WorkspaceManager(session.id).add_artifact_record(
+            name=full_name,
+            artifact_type="chart",
+            file_path=path,
+            format_hint=fmt,
+        )
         session.artifacts["latest_export"] = artifact
 
         return SkillResult(

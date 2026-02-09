@@ -87,29 +87,48 @@ def create_app() -> FastAPI:
     app.include_router(ws_router)
 
     # 挂载前端静态文件（如果已构建）
-    # 策略：先挂载静态文件，再添加 SPA fallback 路由
-    # 这样可以确保 /api 和 /ws 优先于静态文件
     if _WEB_DIST.exists() and (_WEB_DIST / "index.html").exists():
-        from starlette.exceptions import HTTPException as StarletteHTTPException
+        from starlette.requests import Request
+        from starlette.responses import Response
         from fastapi.responses import FileResponse
 
-        # 1. 挂载静态文件（不含 html=True）
-        app.mount("/", StaticFiles(directory=str(_WEB_DIST)), name="web")
+        _index_html = str(_WEB_DIST / "index.html")
 
-        # 2. 添加 SPA fallback：非 API 路径的 404 返回 index.html
-        @app.exception_handler(StarletteHTTPException)
-        async def spa_fallback_handler(request, exc):
-            # 如果是 API 或 WebSocket 路径，或者非 404 错误，让 FastAPI 默认处理器处理
+        # 1. 挂载静态文件（html=True 让 / 自动映射到 index.html）
+        app.mount("/", StaticFiles(directory=str(_WEB_DIST), html=True), name="web")
+
+        # 2. SPA fallback 中间件：mounted app 的 404 不会触发 exception_handler，
+        #    但中间件可以拦截所有响应，包括子应用返回的 404
+        @app.middleware("http")
+        async def spa_fallback_middleware(request: Request, call_next) -> Response:
+            response = await call_next(request)
             path = request.url.path
-            if path.startswith("/api/") or path == "/ws" or exc.status_code != 404:
-                # 对于 API 路径，直接返回 None 让其他处理器处理
-                # 但由于 FastAPI 不允许返回 None，我们需要重新抛出并由框架处理
-                from fastapi.exception_handlers import http_exception_handler
-
-                return await http_exception_handler(request, exc)
-            # 其他 404 返回 index.html（SPA 路由）
-            return FileResponse(str(_WEB_DIST / "index.html"))
+            # 仅对非 API/WS 路径的 404 返回 index.html（SPA 客户端路由）
+            if (
+                response.status_code == 404
+                and not path.startswith("/api/")
+                and path != "/ws"
+            ):
+                return FileResponse(_index_html)
+            return response
 
         logger.info("前端静态文件已挂载: %s (SPA fallback 已启用)", _WEB_DIST)
+    else:
+        # 前端未构建时，根路径返回友好提示而非 404
+        from fastapi.responses import HTMLResponse
+
+        @app.get("/", response_class=HTMLResponse)
+        async def root_fallback():
+            return HTMLResponse(
+                content=(
+                    "<h2>Nini 后端已启动 ✓</h2>"
+                    "<p>前端尚未构建，请执行：</p>"
+                    "<pre>cd web &amp;&amp; npm install &amp;&amp; npm run build</pre>"
+                    "<p>然后重启服务。</p>"
+                    '<p>API 文档：<a href="/docs">/docs</a></p>'
+                ),
+                status_code=200,
+            )
+        logger.warning("前端构建产物不存在: %s — 根路径将显示提示页面", _WEB_DIST)
 
     return app

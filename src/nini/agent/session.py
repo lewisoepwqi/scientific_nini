@@ -23,6 +23,7 @@ class Session:
     messages: list[dict[str, Any]] = field(default_factory=list)
     datasets: dict[str, pd.DataFrame] = field(default_factory=dict)
     artifacts: dict[str, Any] = field(default_factory=dict)
+    workspace_hydrated: bool = False
     load_persisted_messages: bool = False
     conversation_memory: ConversationMemory = field(init=False, repr=False)
     knowledge_memory: KnowledgeMemory = field(init=False, repr=False)
@@ -79,6 +80,32 @@ class Session:
         }
         self.messages.append(msg)
         self.conversation_memory.append(msg)
+
+    def rollback_last_turn(self) -> str | None:
+        """回滚最后一轮：保留最后一条用户消息，删除其后的 Agent 输出。"""
+        last_user_idx = -1
+        for idx in range(len(self.messages) - 1, -1, -1):
+            if self.messages[idx].get("role") == "user":
+                last_user_idx = idx
+                break
+
+        if last_user_idx < 0:
+            return None
+
+        user_content = self.messages[last_user_idx].get("content")
+        if not isinstance(user_content, str) or not user_content.strip():
+            return None
+
+        self.messages = self.messages[: last_user_idx + 1]
+        self._rewrite_conversation_memory()
+        return user_content
+
+    def _rewrite_conversation_memory(self) -> None:
+        """根据当前 messages 重写持久化记忆。"""
+        self.conversation_memory.clear()
+        for msg in self.messages:
+            entry = {k: v for k, v in msg.items() if k != "_ts"}
+            self.conversation_memory.append(entry)
 
 
 class SessionManager:
@@ -143,6 +170,10 @@ class SessionManager:
             return True
         return False
 
+    def session_exists(self, session_id: str) -> bool:
+        """判断会话是否存在（内存或磁盘）。"""
+        return session_id in self._sessions or self._session_exists_on_disk(session_id)
+
     def list_sessions(self) -> list[dict[str, Any]]:
         sessions: dict[str, dict[str, Any]] = {}
 
@@ -205,7 +236,8 @@ class SessionManager:
     def _session_exists_on_disk(self, session_id: str) -> bool:
         memory_path = settings.sessions_dir / session_id / "memory.jsonl"
         knowledge_path = settings.sessions_dir / session_id / "knowledge.md"
-        return memory_path.exists() or knowledge_path.exists()
+        workspace_dir = settings.sessions_dir / session_id / "workspace"
+        return memory_path.exists() or knowledge_path.exists() or workspace_dir.exists()
 
     def _list_persisted_session_ids(self) -> list[str]:
         """列出有实际消息记录的会话ID（避免列出空目录）。"""
@@ -216,7 +248,12 @@ class SessionManager:
         for p in root.iterdir():
             if p.is_dir():
                 memory_path = p / "memory.jsonl"
-                if memory_path.exists():
+                workspace_dir = p / "workspace"
+                has_workspace_file = (
+                    workspace_dir.exists()
+                    and any(child.is_file() for child in workspace_dir.rglob("*"))
+                )
+                if memory_path.exists() or has_workspace_file:
                     session_ids.append(p.name)
         return session_ids
 

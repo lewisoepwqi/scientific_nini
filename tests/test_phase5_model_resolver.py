@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import sys
+import types
 from typing import Any, AsyncGenerator
 
 import pytest
@@ -320,3 +322,80 @@ def test_all_domestic_clients_support_stream_usage() -> None:
     # Moonshot 不支持 stream_options
     moonshot = MoonshotClient(api_key="test-key", model="test-model")
     assert moonshot._supports_stream_usage() is False  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_client_uses_default_http_client_and_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenAI 兼容客户端应显式注入并关闭 httpx 客户端。"""
+
+    class _FakeHttpClient:
+        def __init__(self, **kwargs: Any):
+            self.closed = False
+            self.kwargs = kwargs
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class _FakeAsyncOpenAI:
+        def __init__(self, **kwargs: Any):
+            self.kwargs = kwargs
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    fake_module = types.SimpleNamespace(
+        AsyncOpenAI=_FakeAsyncOpenAI,
+        DefaultAsyncHttpxClient=_FakeHttpClient,
+    )
+    monkeypatch.setitem(sys.modules, "openai", fake_module)
+
+    client = ZhipuClient(api_key="zhipu-test-key", model="glm-4")
+    client._ensure_client()  # noqa: SLF001
+
+    assert isinstance(client._http_client, _FakeHttpClient)  # noqa: SLF001
+    assert client._http_client.kwargs["trust_env"] is False  # noqa: SLF001
+    assert client._client.kwargs["http_client"] is client._http_client  # noqa: SLF001
+
+    underlying_client = client._client  # noqa: SLF001
+    await client.aclose()
+
+    assert underlying_client.closed is True
+    assert client._client is None  # noqa: SLF001
+    assert client._http_client is None  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_client_aclose_ignores_mounts_attribute_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """当底层关闭触发 _mounts 兼容性异常时应被吞掉。"""
+
+    class _FakeHttpClient:
+        def __init__(self, **kwargs: Any):
+            self.kwargs = kwargs
+
+        async def aclose(self) -> None:
+            return
+
+    class _FakeAsyncOpenAI:
+        def __init__(self, **kwargs: Any):
+            self.kwargs = kwargs
+
+        async def close(self) -> None:
+            raise AttributeError("'AsyncHttpxClientWrapper' object has no attribute '_mounts'")
+
+    fake_module = types.SimpleNamespace(
+        AsyncOpenAI=_FakeAsyncOpenAI,
+        DefaultAsyncHttpxClient=_FakeHttpClient,
+    )
+    monkeypatch.setitem(sys.modules, "openai", fake_module)
+
+    client = ZhipuClient(api_key="zhipu-test-key", model="glm-4")
+    client._ensure_client()  # noqa: SLF001
+
+    await client.aclose()
+    assert client._client is None  # noqa: SLF001
+    assert client._http_client is None  # noqa: SLF001

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 import pandas as pd
@@ -11,8 +12,10 @@ import plotly.graph_objects as go
 from plotly.utils import PlotlyJSONEncoder
 
 from nini.agent.session import Session
+from nini.memory.storage import ArtifactStorage
 from nini.skills.base import Skill, SkillResult
 from nini.skills.templates import get_template
+from nini.workspace import WorkspaceManager
 
 JOURNAL_PALETTES: dict[str, list[str]] = {
     "nature": ["#E64B35", "#4DBBD5", "#00A087", "#3C5488", "#F39B7F", "#8491B4"],
@@ -111,7 +114,7 @@ class CreateChartSkill(Skill):
 
     @property
     def is_idempotent(self) -> bool:
-        return True
+        return False
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
         dataset_name = kwargs["dataset_name"]
@@ -139,6 +142,32 @@ class CreateChartSkill(Skill):
                 "dataset_name": dataset_name,
                 "title": title,
             }
+
+            # 自动保存图表 JSON 到工作空间，便于会话成果管理与复用
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            output_name = WorkspaceManager(session.id).sanitize_filename(
+                f"{chart_type}_{ts}.plotly.json",
+                default_name="chart.plotly.json",
+            )
+            storage = ArtifactStorage(session.id)
+            path = storage.save_text(
+                json.dumps(chart_data, ensure_ascii=False),
+                output_name,
+            )
+            WorkspaceManager(session.id).add_artifact_record(
+                name=output_name,
+                artifact_type="chart",
+                file_path=path,
+                format_hint="json",
+            )
+            artifact = {
+                "name": output_name,
+                "type": "chart",
+                "format": "json",
+                "path": str(path),
+                "download_url": f"/api/artifacts/{session.id}/{output_name}",
+            }
+
             message = f"已生成 {chart_type} 图（{journal_style} 风格）"
             return SkillResult(
                 success=True,
@@ -150,6 +179,7 @@ class CreateChartSkill(Skill):
                 },
                 has_chart=True,
                 chart_data=chart_data,
+                artifacts=[artifact],
             )
         except ValueError as exc:
             return SkillResult(success=False, message=str(exc))

@@ -7,7 +7,8 @@ import { useStore, type Message } from '../store'
 import MessageBubble from './MessageBubble'
 import AgentTurnGroup from './AgentTurnGroup'
 import FileUpload from './FileUpload'
-import { Send, Loader2 } from 'lucide-react'
+import WorkspacePanel from './WorkspacePanel'
+import { Send, Loader2, Square } from 'lucide-react'
 
 /** 消息分组：用户消息独立，同一 turnId 的 agent 消息合并为一组 */
 interface MessageGroup {
@@ -62,11 +63,30 @@ export default function ChatPanel() {
   const messages = useStore((s) => s.messages)
   const isStreaming = useStore((s) => s.isStreaming)
   const sendMessage = useStore((s) => s.sendMessage)
+  const stopStreaming = useStore((s) => s.stopStreaming)
+  const retryLastTurn = useStore((s) => s.retryLastTurn)
   const [input, setInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const messageGroups = useMemo(() => groupMessages(messages), [messages])
+  const lastUserMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return messages[i].id
+    }
+    return null
+  }, [messages])
+  const canRetry = useMemo(() => {
+    let lastUserIndex = -1
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        lastUserIndex = i
+        break
+      }
+    }
+    if (lastUserIndex < 0) return false
+    return messages.slice(lastUserIndex + 1).some((m) => m.role !== 'user')
+  }, [messages])
 
   // 自动滚动到底部
   useEffect(() => {
@@ -106,6 +126,18 @@ export default function ChatPanel() {
     [handleSend],
   )
 
+  const handleStop = useCallback(() => {
+    if (!isStreaming) return
+    stopStreaming()
+  }, [isStreaming, stopStreaming])
+
+  const handleRetry = useCallback(() => {
+    if (isStreaming || !canRetry) return
+    const confirmed = window.confirm('重试后将清空上一轮智能体已输出内容，是否继续？')
+    if (!confirmed) return
+    retryLastTurn()
+  }, [isStreaming, canRetry, retryLastTurn])
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* 消息列表 */}
@@ -125,7 +157,17 @@ export default function ChatPanel() {
 
           {messageGroups.map((group) => {
             if (group.type === 'user') {
-              return <MessageBubble key={group.key} message={group.messages[0]} />
+              const userMessage = group.messages[0]
+              const showRetry = userMessage.id === lastUserMessageId && canRetry
+              return (
+                <MessageBubble
+                  key={group.key}
+                  message={userMessage}
+                  showRetry={showRetry}
+                  onRetry={handleRetry}
+                  retryDisabled={isStreaming}
+                />
+              )
             }
             // Agent turn 分组
             return <AgentTurnGroup key={group.key} messages={group.messages} />
@@ -146,6 +188,7 @@ export default function ChatPanel() {
       <div className="border-t bg-white px-4 py-3">
         <div className="max-w-3xl mx-auto">
           <FileUpload />
+          <WorkspacePanel />
 
           <div className="flex items-end gap-2 mt-2">
             <textarea
@@ -160,16 +203,27 @@ export default function ChatPanel() {
                          placeholder:text-gray-400"
               style={{ minHeight: '42px' }}
             />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || isStreaming}
-              className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white
-                         flex items-center justify-center
-                         hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed
-                         transition-colors"
-            >
-              <Send size={16} />
-            </button>
+            {isStreaming ? (
+              <button
+                onClick={handleStop}
+                className="flex-shrink-0 w-10 h-10 rounded-full bg-red-500 text-white
+                           flex items-center justify-center hover:bg-red-600 transition-colors"
+                title="停止生成"
+              >
+                <Square size={14} />
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!input.trim()}
+                className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white
+                           flex items-center justify-center
+                           hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed
+                           transition-colors"
+              >
+                <Send size={16} />
+              </button>
+            )}
           </div>
         </div>
       </div>

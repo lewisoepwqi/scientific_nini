@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from pathlib import Path
 import threading
 
@@ -151,3 +152,19 @@ def test_skill_execute_runs_in_worker_thread() -> None:
 
     assert result["success"] is True, result
     assert result["data"]["thread_id"] != main_thread_id
+
+
+def test_registry_execute_signature_avoids_name_collision() -> None:
+    """`execute` 的技能名参数不应占用 `name`，避免与工具入参冲突。"""
+    sig = inspect.signature(SkillRegistry.execute)
+    params = sig.parameters
+    assert "skill_name" in params
+    assert "name" not in params
+
+    bound = sig.bind(
+        object(),
+        "save_workflow",
+        session=object(),
+        name="模板A",
+    )
+    assert bound.arguments["skill_name"] == "save_workflow"

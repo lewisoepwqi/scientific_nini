@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from datetime import datetime, timezone
 import json
 import logging
 import re
@@ -19,6 +21,8 @@ from nini.agent.prompts.scientific import get_system_prompt
 from nini.agent.session import Session
 from nini.config import settings
 from nini.knowledge.loader import KnowledgeLoader
+from nini.memory.storage import ArtifactStorage
+from nini.workspace import WorkspaceManager
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +95,9 @@ class AgentRunner:
         self,
         session: Session,
         user_message: str,
+        *,
+        append_user_message: bool = True,
+        stop_event: asyncio.Event | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
         """执行一轮 Agent 交互，产出事件流。
 
@@ -101,11 +108,17 @@ class AgentRunner:
         4. 如果有 tool_calls → 执行工具 → 将结果反馈 → 重复 (最多 max_iterations 次)
         5. 如果是纯文本 → 输出并结束
         """
-        session.add_message("user", user_message)
+        if append_user_message:
+            session.add_message("user", user_message)
         max_iter = settings.agent_max_iterations
         turn_id = uuid.uuid4().hex[:12]
+        should_stop = stop_event.is_set if stop_event else (lambda: False)
 
         for iteration in range(max_iter):
+            if should_stop():
+                yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
+                return
+
             # 通知前端新迭代开始（用于重置流式文本累积）
             yield AgentEvent(
                 type=EventType.ITERATION_START,
@@ -126,6 +139,10 @@ class AgentRunner:
 
             try:
                 async for chunk in self._resolver.chat(messages, tools or None):
+                    if should_stop():
+                        yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
+                        return
+
                     # 流式推送文本
                     if chunk.text:
                         full_text += chunk.text
@@ -137,9 +154,16 @@ class AgentRunner:
                     if chunk.usage:
                         usage = chunk.usage
 
+            except asyncio.CancelledError:
+                logger.info("Agent 运行被取消: session=%s", session.id)
+                raise
             except Exception as e:
                 logger.error("LLM 调用失败: %s", e)
                 yield AgentEvent(type=EventType.ERROR, data=str(e), turn_id=turn_id)
+                return
+
+            if should_stop():
+                yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
                 return
 
             # 如果没有 tool_calls → 纯文本回复，结束循环
@@ -159,6 +183,10 @@ class AgentRunner:
             session.conversation_memory.append(assistant_tool_msg)
 
             for tc in tool_calls:
+                if should_stop():
+                    yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
+                    return
+
                 tc_id = tc["id"]
                 func_name = tc["function"]["name"]
                 func_args = tc["function"]["arguments"]
@@ -170,6 +198,26 @@ class AgentRunner:
                     tool_name=func_name,
                     turn_id=turn_id,
                 )
+
+                # 智能体生成的代码自动沉淀为工作空间产物
+                code_artifact = self._persist_run_code_source(
+                    session=session,
+                    func_name=func_name,
+                    func_args=func_args,
+                )
+                if code_artifact:
+                    session.add_assistant_event(
+                        "artifact",
+                        "代码已保存到工作空间",
+                        artifacts=[code_artifact],
+                    )
+                    yield AgentEvent(
+                        type=EventType.ARTIFACT,
+                        data=code_artifact,
+                        tool_call_id=tc_id,
+                        tool_name=func_name,
+                        turn_id=turn_id,
+                    )
 
                 # 执行工具
                 result = await self._execute_tool(session, func_name, func_args)
@@ -584,6 +632,52 @@ class AgentRunner:
         try:
             result = await self._skill_registry.execute(name, session=session, **args)
             return result
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error("工具 %s 执行失败: %s", name, e, exc_info=True)
             return {"error": f"工具 {name} 执行失败: {e}"}
+
+    def _persist_run_code_source(
+        self,
+        *,
+        session: Session,
+        func_name: str,
+        func_args: str,
+    ) -> dict[str, Any] | None:
+        """将 run_code 的代码片段自动保存到工作空间。"""
+        if func_name != "run_code":
+            return None
+
+        try:
+            args = json.loads(func_args)
+        except Exception:
+            return None
+        if not isinstance(args, dict):
+            return None
+
+        code = args.get("code")
+        if not isinstance(code, str) or not code.strip():
+            return None
+
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        filename = WorkspaceManager(session.id).sanitize_filename(
+            f"run_code_{ts}.py",
+            default_name="run_code.py",
+        )
+
+        storage = ArtifactStorage(session.id)
+        path = storage.save_text(code.rstrip() + "\n", filename)
+        WorkspaceManager(session.id).add_artifact_record(
+            name=filename,
+            artifact_type="code",
+            file_path=path,
+            format_hint="py",
+        )
+        return {
+            "name": filename,
+            "type": "code",
+            "format": "py",
+            "path": str(path),
+            "download_url": f"/api/artifacts/{session.id}/{filename}",
+        }

@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 import httpx
+from nini.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +105,9 @@ async def list_available_models(
     # 调用 OpenAI 兼容的 /v1/models 端点
     try:
         models_url = f"{effective_base.rstrip('/')}/models"
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(
+            timeout=10, trust_env=settings.llm_trust_env_proxy
+        ) as client:
             resp = await client.get(
                 models_url,
                 headers={"Authorization": f"Bearer {api_key}"},
@@ -141,7 +144,9 @@ async def _list_ollama_models(
     """获取 Ollama 本地模型列表。"""
     try:
         url = f"{base_url.rstrip('/')}/api/tags"
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with httpx.AsyncClient(
+            timeout=5, trust_env=settings.llm_trust_env_proxy
+        ) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             data = resp.json()

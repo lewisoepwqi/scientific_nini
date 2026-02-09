@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.3
     llm_max_tokens: int = 4096
     llm_max_retries: int = 3
+    llm_trust_env_proxy: bool = False
 
     # ---- Agent ----
     agent_max_iterations: int = 20

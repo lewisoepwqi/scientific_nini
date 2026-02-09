@@ -11,6 +11,7 @@ import pandas as pd
 from nini.agent.session import Session
 from nini.memory.storage import ArtifactStorage
 from nini.skills.base import Skill, SkillResult
+from nini.workspace import WorkspaceManager
 
 
 def _dataset_overview(session: Session, dataset_names: list[str] | None = None) -> str:
@@ -174,6 +175,12 @@ class GenerateReportSkill(Skill):
             "path": str(path),
             "download_url": f"/api/artifacts/{session.id}/{output_name}",
         }
+        WorkspaceManager(session.id).add_artifact_record(
+            name=output_name,
+            artifact_type="report",
+            file_path=path,
+            format_hint="md",
+        )
         session.artifacts["latest_report"] = artifact
 
         return SkillResult(

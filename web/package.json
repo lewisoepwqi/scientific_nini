@@ -6,23 +6,26 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
+    "lucide-react": "^0.469.0",
+    "plotly.js": "^2.35.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
-    "remark-gfm": "^4.0.0",
-    "plotly.js": "^2.35.3",
     "react-plotly.js": "^2.6.0",
-    "zustand": "^5.0.3",
-    "lucide-react": "^0.469.0"
+    "remark-gfm": "^4.0.0",
+    "zustand": "^5.0.3"
   },
   "devDependencies": {
-    "@types/react-plotly.js": "^2.6.3",
+    "@playwright/test": "^1.58.2",
     "@types/plotly.js": "^2.35.1",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@types/react-plotly.js": "^2.6.3",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.5.1",

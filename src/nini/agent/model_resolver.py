@@ -72,6 +72,14 @@ class BaseLLMClient(ABC):
         """获取当前使用的模型名称。"""
         return getattr(self, "_model", "") or ""
 
+    async def aclose(self) -> None:
+        """关闭底层 HTTP 客户端，释放连接资源。
+
+        子类应覆盖此方法以关闭各自的 SDK 客户端。
+        不调用此方法不会导致功能异常，但可能产生 GC 阶段的
+        'AsyncHttpxClientWrapper' 属性缺失警告。
+        """
+
 
 # ---- OpenAI 兼容客户端基类 ----
 
@@ -90,14 +98,24 @@ class OpenAICompatibleClient(BaseLLMClient):
         self._base_url = base_url
         self._model = model
         self._client = None
+        self._http_client = None
 
     def _ensure_client(self):
         if self._client is None:
-            from openai import AsyncOpenAI
+            from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
             kwargs: dict[str, Any] = {"api_key": self._api_key}
             if self._base_url:
                 kwargs["base_url"] = self._base_url
+            # 显式传入默认 httpx 客户端，避免 SDK 内部 wrapper 在 GC 时
+            # 触发 `AsyncHttpxClientWrapper._mounts` 兼容性异常。
+            if self._http_client is None:
+                # 默认不读取系统代理环境变量，避免 ALL_PROXY/HTTPS_PROXY
+                # 意外注入导致的 socksio 依赖报错。
+                self._http_client = DefaultAsyncHttpxClient(
+                    trust_env=settings.llm_trust_env_proxy
+                )
+            kwargs["http_client"] = self._http_client
             self._client = AsyncOpenAI(**kwargs)
 
     def is_available(self) -> bool:
@@ -179,6 +197,22 @@ class OpenAICompatibleClient(BaseLLMClient):
                 finish_reason=finish,
                 usage=usage,
             )
+
+    async def aclose(self) -> None:
+        """关闭底层 AsyncOpenAI 客户端，避免 GC 时 _mounts 属性缺失错误。"""
+        try:
+            if self._client is not None:
+                await self._client.close()
+            elif self._http_client is not None:
+                await self._http_client.aclose()
+        except AttributeError as e:
+            # 兼容某些 SDK/httpx 组合下的析构噪音，不影响主流程。
+            if "_mounts" not in str(e):
+                raise
+            logger.warning("关闭 %s 客户端时忽略 _mounts 兼容性异常: %s", self.provider_id, e)
+        finally:
+            self._client = None
+            self._http_client = None
 
     def _supports_stream_usage(self) -> bool:
         """是否支持 stream_options.include_usage。"""
@@ -297,6 +331,12 @@ class AnthropicClient(BaseLLMClient):
             finish_reason=finish_reason,
             usage=usage,
         )
+
+    async def aclose(self) -> None:
+        """关闭底层 AsyncAnthropic 客户端。"""
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
 
     def _convert_messages(
         self, messages: list[dict[str, Any]]

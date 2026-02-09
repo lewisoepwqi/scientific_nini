@@ -50,11 +50,16 @@ class SkillRegistry:
         """获取所有技能的 LLM 工具定义。"""
         return [s.get_tool_definition() for s in self._skills.values()]
 
-    async def execute(self, name: str, session: Session, **kwargs: Any) -> dict[str, Any]:
+    async def execute(
+        self,
+        skill_name: str,
+        session: Session,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         """执行技能并返回结果字典。"""
-        skill = self._skills.get(name)
+        skill = self._skills.get(skill_name)
         if skill is None:
-            return {"success": False, "message": f"未知技能: {name}"}
+            return {"success": False, "message": f"未知技能: {skill_name}"}
 
         try:
             # 同一会话内串行执行，避免并发读写同一 DataFrame
@@ -64,7 +69,7 @@ class SkillRegistry:
             )
             return result.to_dict()
         except Exception as e:
-            logger.error("技能 %s 执行失败: %s", name, e, exc_info=True)
+            logger.error("技能 %s 执行失败: %s", skill_name, e, exc_info=True)
             return {"success": False, "message": f"技能执行失败: {e}"}
 
     async def _execute_skill_in_thread(

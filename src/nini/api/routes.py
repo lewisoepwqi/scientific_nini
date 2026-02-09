@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from nini.agent.session import session_manager
 from nini.config import settings
@@ -15,13 +18,16 @@ from nini.models.schemas import (
     APIResponse,
     DatasetInfo,
     ModelConfigRequest,
+    SaveWorkspaceTextRequest,
     SessionInfo,
     SessionUpdateRequest,
     SetActiveModelRequest,
     UploadResponse,
 )
+from nini.workspace import WorkspaceManager
 
 router = APIRouter(prefix="/api")
+logger = logging.getLogger(__name__)
 
 
 # ---- 会话管理 ----
@@ -54,7 +60,7 @@ async def get_session_messages(session_id: str):
 
         mem = ConversationMemory(session_id)
         messages = mem.load_messages()
-        if not messages:
+        if not messages and not session_manager.session_exists(session_id):
             raise HTTPException(status_code=404, detail="会话不存在或无消息记录")
 
     # 过滤掉内部字段（如 _ts），只返回前端需要的字段
@@ -101,9 +107,9 @@ async def upload_file(
     session_id: str = Form(...),
 ):
     """上传数据文件到指定会话。"""
-    session = session_manager.get_session(session_id)
-    if session is None:
+    if not session_manager.session_exists(session_id):
         raise HTTPException(status_code=404, detail="会话不存在")
+    session = session_manager.get_or_create(session_id)
 
     # 验证文件类型
     if not file.filename:
@@ -116,9 +122,14 @@ async def upload_file(
             detail=f"不支持的文件类型: .{ext}，支持: {settings.allowed_extensions}",
         )
 
-    # 保存文件
+    manager = WorkspaceManager(session_id)
+    manager.ensure_dirs()
+    safe_filename = manager.sanitize_filename(file.filename, default_name="dataset.csv")
+    dataset_name = manager.unique_dataset_name(safe_filename)
+
+    # 保存文件（会话工作空间）
     dataset_id = uuid.uuid4().hex[:12]
-    save_path = settings.upload_dir / f"{dataset_id}.{ext}"
+    save_path = manager.uploads_dir / f"{dataset_id}_{dataset_name}"
 
     content = await file.read()
     if len(content) > settings.max_upload_size:
@@ -143,9 +154,20 @@ async def upload_file(
         save_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"无法解析文件: {e}")
 
-    # 注册到会话
-    dataset_name = file.filename
+    # 注册到会话（内存）
     session.datasets[dataset_name] = df
+    session.workspace_hydrated = True
+
+    # 写入工作空间索引
+    manager.add_dataset_record(
+        dataset_id=dataset_id,
+        name=dataset_name,
+        file_path=save_path,
+        file_type=ext,
+        file_size=len(content),
+        row_count=len(df),
+        column_count=len(df.columns),
+    )
 
     dataset_info = DatasetInfo(
         id=dataset_id,
@@ -158,7 +180,106 @@ async def upload_file(
         column_count=len(df.columns),
     )
 
-    return UploadResponse(success=True, dataset=dataset_info)
+    workspace_file = {
+        "id": dataset_id,
+        "name": dataset_name,
+        "kind": "dataset",
+        "size": len(content),
+        "download_url": f"/api/workspace/{session_id}/uploads/{quote(save_path.name)}",
+        "meta": {
+            "row_count": len(df),
+            "column_count": len(df.columns),
+            "file_type": ext,
+        },
+    }
+    return UploadResponse(success=True, dataset=dataset_info, workspace_file=workspace_file)
+
+
+@router.get("/sessions/{session_id}/datasets", response_model=APIResponse)
+async def list_session_datasets(session_id: str):
+    """获取会话工作空间中的数据集列表。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    manager = WorkspaceManager(session_id)
+    session = session_manager.get_session(session_id)
+    loaded_names = set(session.datasets.keys()) if session is not None else set()
+    datasets: list[dict[str, Any]] = []
+    for item in manager.list_datasets():
+        datasets.append(
+            {
+                "id": item.get("id"),
+                "name": item.get("name"),
+                "file_type": item.get("file_type"),
+                "file_size": item.get("file_size"),
+                "row_count": item.get("row_count"),
+                "column_count": item.get("column_count"),
+                "created_at": item.get("created_at"),
+                "loaded": item.get("name") in loaded_names,
+            }
+        )
+    return APIResponse(data={"session_id": session_id, "datasets": datasets})
+
+
+@router.post("/sessions/{session_id}/datasets/{dataset_id}/load", response_model=APIResponse)
+async def load_session_dataset(session_id: str, dataset_id: str):
+    """将工作空间数据集加载到会话内存。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    session = session_manager.get_or_create(session_id)
+    manager = WorkspaceManager(session_id)
+
+    record = manager.get_dataset_by_id(dataset_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+
+    try:
+        _, df = manager.load_dataset_by_id(dataset_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    name = str(record.get("name", ""))
+    if not name:
+        raise HTTPException(status_code=400, detail="数据集记录损坏：缺少名称")
+
+    session.datasets[name] = df
+    session.workspace_hydrated = True
+    return APIResponse(
+        data={
+            "session_id": session_id,
+            "dataset": {
+                "id": record.get("id"),
+                "name": name,
+                "row_count": len(df),
+                "column_count": len(df.columns),
+                "loaded": True,
+            },
+        }
+    )
+
+
+@router.get("/sessions/{session_id}/workspace/files", response_model=APIResponse)
+async def list_workspace_files(session_id: str):
+    """列出会话工作空间文件（数据集/产物/文本）。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    files = WorkspaceManager(session_id).list_workspace_files()
+    return APIResponse(data={"session_id": session_id, "files": files})
+
+
+@router.post("/sessions/{session_id}/workspace/save_text", response_model=APIResponse)
+async def save_workspace_text(session_id: str, req: SaveWorkspaceTextRequest):
+    """保存文本到会话工作空间。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    content = req.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="content 不能为空")
+
+    manager = WorkspaceManager(session_id)
+    note = manager.save_text_note(content, req.filename)
+    return APIResponse(data={"session_id": session_id, "file": note})
 
 
 # ---- 文件下载 ----
@@ -167,12 +288,34 @@ async def upload_file(
 @router.get("/artifacts/{session_id}/{filename}")
 async def download_artifact(session_id: str, filename: str):
     """下载会话产物。"""
-    from fastapi.responses import FileResponse
-
-    artifact_path = settings.sessions_dir / session_id / "artifacts" / filename
+    safe_name = Path(filename).name
+    artifact_path = settings.sessions_dir / session_id / "workspace" / "artifacts" / safe_name
+    if not artifact_path.exists():
+        # 兼容旧目录
+        artifact_path = settings.sessions_dir / session_id / "artifacts" / safe_name
     if not artifact_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
-    return FileResponse(str(artifact_path), filename=filename)
+    return FileResponse(str(artifact_path), filename=safe_name)
+
+
+@router.get("/workspace/{session_id}/uploads/{filename}")
+async def download_workspace_upload(session_id: str, filename: str):
+    """下载会话工作空间中的上传文件。"""
+    safe_name = Path(filename).name
+    path = settings.sessions_dir / session_id / "workspace" / "uploads" / safe_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return FileResponse(str(path), filename=safe_name)
+
+
+@router.get("/workspace/{session_id}/notes/{filename}")
+async def download_workspace_note(session_id: str, filename: str):
+    """下载会话工作空间中的文本文件。"""
+    safe_name = Path(filename).name
+    path = settings.sessions_dir / session_id / "workspace" / "notes" / safe_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return FileResponse(str(path), filename=safe_name)
 
 
 # ---- 模型配置 ----
@@ -406,7 +549,21 @@ async def test_model_connection(provider_id: str):
         text = "".join(c.text for c in chunks)
         return APIResponse(data={"message": f"连接成功: {text[:50]}"})
     except Exception as e:
-        return APIResponse(success=False, error=f"连接失败: {e}")
+        error_text = str(e)
+        if "socksio" in error_text.lower():
+            error_text = (
+                "检测到 SOCKS 代理配置，但环境未安装 socksio 依赖。"
+                "请执行 `pip install httpx[socks]`，"
+                "或移除 ALL_PROXY/HTTPS_PROXY 后重试。"
+            )
+        return APIResponse(success=False, error=f"连接失败: {error_text}")
+    finally:
+        # 显式关闭底层 HTTP 客户端，避免 GC 阶段
+        # AsyncHttpxClientWrapper.__del__ 触发 _mounts 属性缺失错误
+        try:
+            await client.aclose()
+        except Exception as close_error:
+            logger.warning("关闭模型测试客户端失败（%s）: %s", provider_id, close_error)
 
 
 # ---- 活跃模型管理 ----
@@ -485,9 +642,12 @@ async def run_workflow(template_id: str, session_id: str | None = None):
         raise HTTPException(status_code=404, detail="工作流模板不存在")
 
     if session_id:
-        session = session_manager.get_session(session_id)
-        if session is None:
+        if not session_manager.session_exists(session_id):
             raise HTTPException(status_code=404, detail="会话不存在")
+        session = session_manager.get_or_create(session_id)
+        if not session.workspace_hydrated:
+            WorkspaceManager(session_id).hydrate_session_datasets(session)
+            session.workspace_hydrated = True
         if not session.datasets:
             return APIResponse(
                 success=False, error="当前会话无已加载的数据集，请先上传数据"

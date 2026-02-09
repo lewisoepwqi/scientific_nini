@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 class WSMessage(BaseModel):
     """客户端发送的 WebSocket 消息。"""
 
-    type: str = "chat"  # chat / upload_complete / ping
+    type: str = "chat"  # chat / retry / stop / upload_complete / ping
     content: str = ""
     session_id: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -23,7 +23,7 @@ class WSMessage(BaseModel):
 class WSEvent(BaseModel):
     """服务端推送的 WebSocket 事件。"""
 
-    type: str  # text / tool_call / tool_result / chart / data / done / error / iteration_start
+    type: str  # text / tool_call / tool_result / chart / data / done / stopped / error / iteration_start
     data: Any = None
     session_id: Optional[str] = None
     tool_call_id: Optional[str] = None
@@ -62,6 +62,7 @@ class UploadResponse(BaseModel):
 
     success: bool
     dataset: Optional[DatasetInfo] = None
+    workspace_file: Optional[dict[str, Any]] = None
     error: Optional[str] = None
 
 
@@ -93,3 +94,10 @@ class SessionUpdateRequest(BaseModel):
     """会话更新请求。"""
 
     title: Optional[str] = None
+
+
+class SaveWorkspaceTextRequest(BaseModel):
+    """保存工作空间文本文件请求。"""
+
+    content: str
+    filename: Optional[str] = None

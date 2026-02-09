@@ -6,9 +6,11 @@ import asyncio
 import json
 import logging
 import math
+from contextlib import suppress
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -17,6 +19,7 @@ from nini.agent.session import session_manager
 from nini.agent.title_generator import generate_title
 from nini.models.schemas import WSEvent
 from nini.skills.registry import SkillRegistry
+from nini.workspace import WorkspaceManager
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +40,8 @@ async def websocket_agent(ws: WebSocket):
 
     客户端发送：
         {"type": "chat", "content": "...", "session_id": "..."}
+        {"type": "stop"}
+        {"type": "retry", "session_id": "..."}
 
     服务端推送事件流：
         {"type": "text", "data": "...", "session_id": "..."}
@@ -51,6 +56,80 @@ async def websocket_agent(ws: WebSocket):
 
     # 启动保活任务
     keepalive_task = asyncio.create_task(_keepalive(ws))
+    active_chat_task: asyncio.Task[None] | None = None
+    active_stop_event: asyncio.Event | None = None
+
+    async def _run_chat(
+        session: Any,
+        content: str,
+        *,
+        append_user_message: bool,
+    ) -> None:
+        nonlocal active_chat_task, active_stop_event
+        runner = AgentRunner(skill_registry=_skill_registry)
+        stop_event = active_stop_event or asyncio.Event()
+
+        # 会话首次恢复时，从工作空间补齐已上传数据集
+        if not getattr(session, "workspace_hydrated", False):
+            try:
+                loaded = WorkspaceManager(session.id).hydrate_session_datasets(session)
+                if loaded > 0:
+                    logger.info(
+                        "工作空间数据集已恢复: session_id=%s loaded=%d",
+                        session.id,
+                        loaded,
+                    )
+            except Exception as exc:
+                logger.warning("恢复工作空间数据集失败: session_id=%s err=%s", session.id, exc)
+            session.workspace_hydrated = True
+
+        try:
+            async for event in runner.run(
+                session,
+                content,
+                append_user_message=append_user_message,
+                stop_event=stop_event,
+            ):
+                await _send_event(
+                    ws,
+                    event.type.value,
+                    data=event.data,
+                    session_id=session.id,
+                    tool_call_id=event.tool_call_id,
+                    tool_name=event.tool_name,
+                    turn_id=event.turn_id,
+                )
+
+            # 对话完成后异步生成会话标题（首次对话时）
+            logger.debug(
+                "检查标题生成条件: title=%s, messages=%d",
+                session.title,
+                len(session.messages),
+            )
+            if (
+                not stop_event.is_set()
+                and session.title == "新会话"
+                and len(session.messages) >= 2
+            ):
+                logger.info("触发会话标题自动生成: session_id=%s", session.id)
+                asyncio.create_task(_auto_generate_title(ws, session))
+            else:
+                logger.debug(
+                    "跳过标题生成: title=%s, messages=%d, stopped=%s",
+                    session.title,
+                    len(session.messages),
+                    stop_event.is_set(),
+                )
+        except asyncio.CancelledError:
+            logger.info("请求已取消: session_id=%s", session.id)
+        except Exception as e:
+            logger.error("WebSocket 聊天任务异常: %s", e, exc_info=True)
+            with suppress(Exception):
+                await _send_event(ws, "error", data=f"服务器错误: {e}")
+        finally:
+            if active_chat_task is asyncio.current_task():
+                active_chat_task = None
+                active_stop_event = None
 
     try:
         while True:
@@ -68,7 +147,68 @@ async def websocket_agent(ws: WebSocket):
                 await _send_event(ws, "pong")
                 continue
 
+            if msg_type == "stop":
+                task = active_chat_task
+                if task and not task.done():
+                    if active_stop_event:
+                        active_stop_event.set()
+                    task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await task
+                    await _send_event(ws, "stopped", data="已停止当前请求")
+                else:
+                    await _send_event(ws, "stopped", data="当前没有进行中的请求")
+                continue
+
+            if msg_type == "retry":
+                if active_chat_task and not active_chat_task.done():
+                    await _send_event(
+                        ws,
+                        "error",
+                        data="当前有进行中的请求，请先停止后再重试",
+                    )
+                    continue
+
+                session_id = msg.get("session_id")
+                if not isinstance(session_id, str) or not session_id.strip():
+                    await _send_event(ws, "error", data="重试需要有效的 session_id")
+                    continue
+
+                session = session_manager.get_or_create(session_id)
+                retry_content = session.rollback_last_turn()
+                append_user_message = False
+                if not retry_content:
+                    raw_content = msg.get("content", "")
+                    retry_content = raw_content.strip() if isinstance(raw_content, str) else ""
+                    append_user_message = True
+
+                if not retry_content:
+                    await _send_event(ws, "error", data="没有可重试的用户消息")
+                    continue
+
+                # 返回 session_id 方便客户端追踪
+                await _send_event(ws, "session", data={"session_id": session.id})
+
+                # 运行 Agent（后台任务）
+                active_stop_event = asyncio.Event()
+                active_chat_task = asyncio.create_task(
+                    _run_chat(
+                        session,
+                        retry_content,
+                        append_user_message=append_user_message,
+                    )
+                )
+                continue
+
             if msg_type == "chat":
+                if active_chat_task and not active_chat_task.done():
+                    await _send_event(
+                        ws,
+                        "error",
+                        data="当前有进行中的请求，请等待完成或先停止",
+                    )
+                    continue
+
                 content = msg.get("content", "").strip()
                 if not content:
                     await _send_event(ws, "error", data="消息内容不能为空")
@@ -80,34 +220,14 @@ async def websocket_agent(ws: WebSocket):
                 # 返回 session_id 方便客户端追踪
                 await _send_event(ws, "session", data={"session_id": session.id})
 
-                # 运行 Agent
-                runner = AgentRunner(skill_registry=_skill_registry)
-                async for event in runner.run(session, content):
-                    await _send_event(
-                        ws,
-                        event.type.value,
-                        data=event.data,
-                        session_id=session.id,
-                        tool_call_id=event.tool_call_id,
-                        tool_name=event.tool_name,
-                        turn_id=event.turn_id,
-                    )
-
-                # 对话完成后异步生成会话标题（首次对话时）
-                logger.debug(
-                    "检查标题生成条件: title=%s, messages=%d",
-                    session.title,
-                    len(session.messages),
+                # 运行 Agent（后台任务）
+                active_stop_event = asyncio.Event()
+                active_chat_task = asyncio.create_task(
+                    _run_chat(session, content, append_user_message=True)
                 )
-                if session.title == "新会话" and len(session.messages) >= 2:
-                    logger.info("触发会话标题自动生成: session_id=%s", session.id)
-                    asyncio.create_task(_auto_generate_title(ws, session))
-                else:
-                    logger.debug(
-                        "跳过标题生成: title=%s, messages=%d",
-                        session.title,
-                        len(session.messages),
-                    )
+                continue
+
+            await _send_event(ws, "error", data=f"不支持的消息类型: {msg_type}")
 
     except WebSocketDisconnect:
         logger.info("WebSocket 连接已断开")
@@ -118,6 +238,13 @@ async def websocket_agent(ws: WebSocket):
         except Exception:
             pass
     finally:
+        if active_stop_event:
+            active_stop_event.set()
+        task = active_chat_task
+        if task and not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
         keepalive_task.cancel()
         try:
             await keepalive_task
@@ -176,6 +303,58 @@ class _NumpySafeEncoder(json.JSONEncoder):
         return super().default(o)
 
 
+def _dataframe_preview(df: pd.DataFrame, max_rows: int = 20) -> dict[str, Any]:
+    """将 DataFrame 压缩为可传输预览，避免 WebSocket JSON 序列化失败。"""
+    preview = df.head(max_rows)
+    return {
+        "__type__": "DataFrame",
+        "rows": int(len(df)),
+        "columns": [str(col) for col in df.columns.tolist()],
+        "preview_rows": int(len(preview)),
+        "preview": _to_json_safe(preview.to_dict(orient="records")),
+    }
+
+
+def _series_preview(series: pd.Series, max_rows: int = 20) -> dict[str, Any]:
+    """将 Series 压缩为可传输预览。"""
+    preview = series.head(max_rows).tolist()
+    return {
+        "__type__": "Series",
+        "name": str(series.name) if series.name is not None else None,
+        "length": int(len(series)),
+        "preview_rows": int(min(max_rows, len(series))),
+        "preview": _to_json_safe(preview),
+    }
+
+
+def _to_json_safe(value: Any) -> Any:
+    """递归转换为 JSON 安全结构。"""
+    if value is None:
+        return None
+    if isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        v = float(value)
+        return v if math.isfinite(v) else None
+    if isinstance(value, np.ndarray):
+        return _to_json_safe(value.tolist())
+    if isinstance(value, pd.DataFrame):
+        return _dataframe_preview(value)
+    if isinstance(value, pd.Series):
+        return _series_preview(value)
+    if isinstance(value, dict):
+        return {str(k): _to_json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_to_json_safe(v) for v in value]
+    return str(value)
+
+
 async def _send_event(
     ws: WebSocket,
     event_type: str,
@@ -194,7 +373,7 @@ async def _send_event(
     try:
         event = WSEvent(
             type=event_type,
-            data=data,
+            data=_to_json_safe(data),
             session_id=session_id,
             tool_call_id=tool_call_id,
             tool_name=tool_name,

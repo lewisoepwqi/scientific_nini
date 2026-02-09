@@ -15,7 +15,7 @@ class ArtifactStorage:
 
     def __init__(self, session_id: str):
         self.session_id = session_id
-        self._dir = settings.sessions_dir / session_id / "artifacts"
+        self._dir = settings.sessions_dir / session_id / "workspace" / "artifacts"
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def save(self, data: bytes, filename: str) -> Path:
@@ -37,14 +37,27 @@ class ArtifactStorage:
     def list_artifacts(self) -> list[dict[str, Any]]:
         """列出所有产物。"""
         result: list[dict[str, Any]] = []
-        for p in sorted(self._dir.iterdir()):
-            if p.is_file():
-                stat = p.stat()
-                result.append({
-                    "name": p.name,
-                    "size": stat.st_size,
-                    "path": str(p),
-                })
+        if self._dir.exists():
+            for p in sorted(self._dir.iterdir()):
+                if p.is_file():
+                    stat = p.stat()
+                    result.append({
+                        "name": p.name,
+                        "size": stat.st_size,
+                        "path": str(p),
+                    })
+
+        # 兼容旧目录
+        legacy_dir = settings.sessions_dir / self.session_id / "artifacts"
+        if legacy_dir.exists():
+            for p in sorted(legacy_dir.iterdir()):
+                if p.is_file() and not any(item["name"] == p.name for item in result):
+                    stat = p.stat()
+                    result.append({
+                        "name": p.name,
+                        "size": stat.st_size,
+                        "path": str(p),
+                    })
         return result
 
     def cleanup(self) -> None:

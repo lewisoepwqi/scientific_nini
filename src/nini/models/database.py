@@ -77,6 +77,12 @@ CREATE TABLE IF NOT EXISTS workflow_templates (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_datasets_session_created
+ON datasets(session_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_artifacts_session_created
+ON artifacts(session_id, created_at DESC);
 """
 
 

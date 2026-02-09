@@ -12,6 +12,27 @@ export interface ArtifactInfo {
   download_url: string
 }
 
+export interface DatasetItem {
+  id: string
+  name: string
+  file_type: string
+  file_size: number
+  row_count: number
+  column_count: number
+  created_at?: string
+  loaded: boolean
+}
+
+export interface WorkspaceFile {
+  id: string
+  name: string
+  kind: 'dataset' | 'artifact' | 'note'
+  size: number
+  created_at?: string
+  download_url: string
+  meta?: Record<string, unknown>
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'tool'
@@ -76,6 +97,8 @@ interface AppState {
   sessionId: string | null
   messages: Message[]
   sessions: SessionItem[]
+  datasets: DatasetItem[]
+  workspaceFiles: WorkspaceFile[]
 
   // 模型选择（统一为全局首选）
   activeModel: ActiveModelInfo | null
@@ -95,9 +118,14 @@ interface AppState {
   disconnect: () => void
   initApp: () => Promise<void>
   sendMessage: (content: string) => void
+  stopStreaming: () => void
+  retryLastTurn: () => void
   uploadFile: (file: File) => Promise<void>
   clearMessages: () => void
   fetchSessions: () => Promise<void>
+  fetchDatasets: () => Promise<void>
+  fetchWorkspaceFiles: () => Promise<void>
+  loadDataset: (datasetId: string) => Promise<void>
   createNewSession: () => Promise<void>
   switchSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
@@ -129,6 +157,8 @@ export const useStore = create<AppState>((set, get) => ({
   sessionId: null,
   messages: [],
   sessions: [],
+  datasets: [],
+  workspaceFiles: [],
   activeModel: null,
   ws: null,
   wsConnected: false,
@@ -168,7 +198,13 @@ export const useStore = create<AppState>((set, get) => ({
       const attempts = (state as unknown as Record<string, number>)._reconnectAttempts || 0
       const maxAttempts = 10
 
-      set({ ws: null, wsConnected: false, isStreaming: false, _streamingText: '' })
+      set({
+        ws: null,
+        wsConnected: false,
+        isStreaming: false,
+        _streamingText: '',
+        _currentTurnId: null,
+      })
 
       // 指数退避重连：1s, 2s, 4s, 8s, 16s, 30s(max)
       if (attempts < maxAttempts && !document.hidden) {
@@ -263,6 +299,58 @@ export const useStore = create<AppState>((set, get) => ({
     set({ isStreaming: true, _streamingText: '' })
   },
 
+  stopStreaming() {
+    const { ws, isStreaming, sessionId } = get()
+    if (!isStreaming) return
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: 'stop',
+          session_id: sessionId,
+        }),
+      )
+    }
+
+    // 立即停止前端流式状态，避免继续渲染后续 token
+    set({ isStreaming: false, _streamingText: '', _currentTurnId: null })
+  },
+
+  retryLastTurn() {
+    const { ws, sessionId, messages, isStreaming } = get()
+    if (isStreaming) return
+    if (!sessionId || !ws || ws.readyState !== WebSocket.OPEN) return
+
+    let lastUserIndex = -1
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        lastUserIndex = i
+        break
+      }
+    }
+    if (lastUserIndex < 0) return
+
+    const retryContent = messages[lastUserIndex].content.trim()
+    if (!retryContent) return
+
+    // 清空最后一条用户消息之后的 Agent 输出
+    const trimmedMessages = messages.slice(0, lastUserIndex + 1)
+    set({
+      messages: trimmedMessages,
+      isStreaming: true,
+      _streamingText: '',
+      _currentTurnId: null,
+    })
+
+    ws.send(
+      JSON.stringify({
+        type: 'retry',
+        session_id: sessionId,
+        content: retryContent,
+      }),
+    )
+  },
+
   async uploadFile(file: File) {
     let { sessionId } = get()
     if (!sessionId) {
@@ -276,6 +364,7 @@ export const useStore = create<AppState>((set, get) => ({
         }
         sessionId = createdSessionId
         set({ sessionId })
+        localStorage.setItem('nini_last_session_id', createdSessionId)
       } catch {
         const errMsg: Message = {
           id: nextId(),
@@ -304,6 +393,8 @@ export const useStore = create<AppState>((set, get) => ({
           timestamp: Date.now(),
         }
         set((s) => ({ messages: [...s.messages, sysMsg] }))
+        await get().fetchDatasets()
+        await get().fetchWorkspaceFiles()
       }
     } catch (e) {
       console.error('上传失败:', e)
@@ -311,7 +402,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   clearMessages() {
-    set({ messages: [], sessionId: null })
+    set({ messages: [], sessionId: null, datasets: [], workspaceFiles: [] })
   },
 
   async fetchSessions() {
@@ -326,6 +417,51 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  async fetchDatasets() {
+    const sid = get().sessionId
+    if (!sid) {
+      set({ datasets: [] })
+      return
+    }
+    try {
+      const resp = await fetch(`/api/sessions/${sid}/datasets`)
+      const payload = await resp.json()
+      const data = isRecord(payload.data) ? payload.data : null
+      const datasets = data && Array.isArray(data.datasets) ? data.datasets : []
+      set({ datasets: datasets as DatasetItem[] })
+    } catch (e) {
+      console.error('获取数据集列表失败:', e)
+    }
+  },
+
+  async fetchWorkspaceFiles() {
+    const sid = get().sessionId
+    if (!sid) {
+      set({ workspaceFiles: [] })
+      return
+    }
+    try {
+      const resp = await fetch(`/api/sessions/${sid}/workspace/files`)
+      const payload = await resp.json()
+      const data = isRecord(payload.data) ? payload.data : null
+      const files = data && Array.isArray(data.files) ? data.files : []
+      set({ workspaceFiles: files as WorkspaceFile[] })
+    } catch (e) {
+      console.error('获取工作空间文件失败:', e)
+    }
+  },
+
+  async loadDataset(datasetId: string) {
+    const sid = get().sessionId
+    if (!sid || !datasetId) return
+    try {
+      await fetch(`/api/sessions/${sid}/datasets/${datasetId}/load`, { method: 'POST' })
+      await get().fetchDatasets()
+    } catch (e) {
+      console.error('加载数据集失败:', e)
+    }
+  },
+
   async createNewSession() {
     try {
       const resp = await fetch('/api/sessions', { method: 'POST' })
@@ -336,7 +472,14 @@ export const useStore = create<AppState>((set, get) => ({
         throw new Error('会话创建失败')
       }
       // 切换到新会话，清空当前消息显示
-      set({ sessionId: newSessionId, messages: [], _streamingText: '', isStreaming: false })
+      set({
+        sessionId: newSessionId,
+        messages: [],
+        datasets: [],
+        workspaceFiles: [],
+        _streamingText: '',
+        isStreaming: false,
+      })
       // 清除保存的 session_id（新会话不需要恢复）
       localStorage.removeItem('nini_last_session_id')
       // 刷新会话列表
@@ -356,6 +499,8 @@ export const useStore = create<AppState>((set, get) => ({
       if (!payload.success) {
         // 会话存在但无消息，直接切换到空会话
         set({ sessionId: targetSessionId, messages: [], _streamingText: '', isStreaming: false })
+        await get().fetchDatasets()
+        await get().fetchWorkspaceFiles()
         return
       }
 
@@ -368,6 +513,8 @@ export const useStore = create<AppState>((set, get) => ({
       set({ sessionId: targetSessionId, messages, _streamingText: '', isStreaming: false })
       // 保存当前会话 ID 到 localStorage
       localStorage.setItem('nini_last_session_id', targetSessionId)
+      await get().fetchDatasets()
+      await get().fetchWorkspaceFiles()
     } catch (e) {
       console.error('切换会话失败:', e)
     }
@@ -379,7 +526,14 @@ export const useStore = create<AppState>((set, get) => ({
       const { sessionId } = get()
       // 如果删除的是当前会话，清空状态
       if (targetSessionId === sessionId) {
-        set({ sessionId: null, messages: [], _streamingText: '', isStreaming: false })
+        set({
+          sessionId: null,
+          messages: [],
+          datasets: [],
+          workspaceFiles: [],
+          _streamingText: '',
+          isStreaming: false,
+        })
       }
       // 刷新会话列表
       await get().fetchSessions()
@@ -627,6 +781,8 @@ function handleEvent(
         set({ sessionId: data.session_id })
         // 新会话创建后刷新会话列表
         get().fetchSessions()
+        get().fetchDatasets()
+        get().fetchWorkspaceFiles()
       }
       break
     }
@@ -823,6 +979,10 @@ function handleEvent(
       get().fetchSessions()
       break
 
+    case 'stopped':
+      set({ isStreaming: false, _streamingText: '', _currentTurnId: null })
+      break
+
     case 'error': {
       const errMsg: Message = {
         id: nextId(),
@@ -830,7 +990,12 @@ function handleEvent(
         content: `错误: ${evt.data}`,
         timestamp: Date.now(),
       }
-      set((s) => ({ messages: [...s.messages, errMsg], isStreaming: false, _streamingText: '' }))
+      set((s) => ({
+        messages: [...s.messages, errMsg],
+        isStreaming: false,
+        _streamingText: '',
+        _currentTurnId: null,
+      }))
       break
     }
   }

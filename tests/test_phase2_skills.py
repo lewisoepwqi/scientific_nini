@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -52,3 +54,8 @@ async def test_create_chart_skill_returns_plotly_json() -> None:
     assert isinstance(result["chart_data"], dict)
     assert "data" in result["chart_data"]
     assert "layout" in result["chart_data"]
+    artifacts = result.get("artifacts") or []
+    assert len(artifacts) == 1
+    assert artifacts[0]["format"] == "json"
+    assert artifacts[0]["name"].endswith(".plotly.json")
+    assert Path(artifacts[0]["path"]).exists()
