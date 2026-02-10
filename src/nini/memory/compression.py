@@ -259,3 +259,285 @@ async def compress_session_history_with_llm(
         "compressed_rounds": session.compressed_rounds,
         "last_compressed_at": session.last_compressed_at,
     }
+
+
+# ---- 结构化记忆压缩 ----
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class Finding:
+    """分析发现记录。
+
+    用于记录分析过程中的关键发现，如统计显著性、效应量、数据问题等。
+    """
+
+    category: str  # 发现类别
+    summary: str  # 简短总结
+    detail: str = ""  # 详细描述
+    confidence: float = 1.0  # 置信度 (0-1)
+    timestamp: float = field(default_factory=lambda: __import__("time").time())
+
+
+@dataclass
+class StatisticResult:
+    """统计结果记录。
+
+    记录统计检验的结果，便于后续引用和解释。
+    """
+
+    test_name: str  # 检验名称
+    test_statistic: float | None = None  # 检验统计量
+    p_value: float | None = None  # p 值
+    degrees_of_freedom: int | None = None  # 自由度
+    effect_size: float | None = None  # 效应量
+    effect_type: str = ""  # 效应量类型 (cohens_d, eta_squared 等)
+    confidence_interval_lower: float | None = None  # 置信区间下限
+    confidence_interval_upper: float | None = None  # 置信区间上限
+    confidence_level: float = 0.95  # 置信水平
+    significant: bool = False  # 是否显著
+
+
+@dataclass
+class Decision:
+    """决策记录。
+
+    记录分析过程中的决策，如方法选择、参数选择等。
+    """
+
+    decision_type: str  # 决策类型
+    chosen: str  # 选择的方法/参数
+    alternatives: list[str] = field(default_factory=list)  # 考虑的替代方案
+    rationale: str = ""  # 决策理由
+    confidence: float = 1.0  # 决策置信度
+    timestamp: float = field(default_factory=lambda: __import__("time").time())
+
+
+@dataclass
+class Artifact:
+    """产出文件记录。
+
+    记录分析过程中生成的文件，如图表、报告等。
+    """
+
+    artifact_type: str  # 文件类型 (chart, report, data)
+    path: str  # 文件路径
+    description: str = ""  # 描述
+    metadata: dict[str, Any] = field(default_factory=dict)  # 额外元数据
+    timestamp: float = field(default_factory=lambda: __import__("time").time())
+
+
+@dataclass
+class AnalysisMemory:
+    """结构化分析记忆。
+
+    将分析结果提取为结构化知识，而非简单文本摘要。
+    支持转换为可注入的上下文，用于后续分析。
+    """
+
+    session_id: str
+    dataset_name: str
+    findings: list[Finding] = field(default_factory=list)
+    statistics: list[StatisticResult] = field(default_factory=list)
+    decisions: list[Decision] = field(default_factory=list)
+    artifacts: list[Artifact] = field(default_factory=list)
+    created_at: float = field(default_factory=lambda: __import__("time").time())
+    updated_at: float = field(default_factory=lambda: __import__("time").time())
+
+    def add_finding(self, finding: Finding) -> None:
+        """添加发现记录。"""
+        self.findings.append(finding)
+        self.updated_at = __import__("time").time()
+
+    def add_statistic(self, statistic: StatisticResult) -> None:
+        """添加统计结果。"""
+        self.statistics.append(statistic)
+        self.updated_at = __import__("time").time()
+
+    def add_decision(self, decision: Decision) -> None:
+        """添加决策记录。"""
+        self.decisions.append(decision)
+        self.updated_at = __import__("time").time()
+
+    def add_artifact(
+        self,
+        artifact_type: str,
+        path: str,
+        description: str = "",
+        **metadata: Any,
+    ) -> None:
+        """添加产出文件记录。"""
+        artifact = Artifact(
+            artifact_type=artifact_type,
+            path=path,
+            description=description,
+            metadata=metadata,
+        )
+        self.artifacts.append(artifact)
+        self.updated_at = __import__("time").time()
+
+    def summary(self) -> str:
+        """生成摘要文本。"""
+        parts: list[str] = []
+
+        if self.findings:
+            parts.append(f"关键发现 ({len(self.findings)} 项)")
+
+        if self.statistics:
+            parts.append(f"统计结果 ({len(self.statistics)} 项)")
+
+        if self.decisions:
+            parts.append(f"决策记录 ({len(self.decisions)} 项)")
+
+        if self.artifacts:
+            parts.append(f"产出文件 ({len(self.artifacts)} 个)")
+
+        if not parts:
+            return "分析记忆为空"
+
+        return "、".join(parts) + f"（数据集: {self.dataset_name}）"
+
+    def to_context(self) -> dict[str, Any]:
+        """转换为可注入的上下文。"""
+        return {
+            "dataset_name": self.dataset_name,
+            "findings": [
+                {
+                    "category": f.category,
+                    "summary": f.summary,
+                    "detail": f.detail,
+                    "confidence": f.confidence,
+                }
+                for f in self.findings
+            ],
+            "statistics": [
+                {
+                    "test_name": s.test_name,
+                    "test_statistic": s.test_statistic,
+                    "p_value": s.p_value,
+                    "effect_size": s.effect_size,
+                    "significant": s.significant,
+                }
+                for s in self.statistics
+            ],
+            "decisions": [
+                {
+                    "type": d.decision_type,
+                    "chosen": d.chosen,
+                    "rationale": d.rationale,
+                }
+                for d in self.decisions
+            ],
+            "artifacts": [
+                {
+                    "type": a.artifact_type,
+                    "path": a.path,
+                    "description": a.description,
+                }
+                for a in self.artifacts
+            ],
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        """转换为字典（用于序列化）。"""
+        return {
+            "session_id": self.session_id,
+            "dataset_name": self.dataset_name,
+            "findings": [
+                {
+                    "category": f.category,
+                    "summary": f.summary,
+                    "detail": f.detail,
+                    "confidence": f.confidence,
+                    "timestamp": f.timestamp,
+                }
+                for f in self.findings
+            ],
+            "statistics": [
+                {
+                    "test_name": s.test_name,
+                    "test_statistic": s.test_statistic,
+                    "p_value": s.p_value,
+                    "degrees_of_freedom": s.degrees_of_freedom,
+                    "effect_size": s.effect_size,
+                    "effect_type": s.effect_type,
+                    "significant": s.significant,
+                }
+                for s in self.statistics
+            ],
+            "decisions": [
+                {
+                    "decision_type": d.decision_type,
+                    "chosen": d.chosen,
+                    "alternatives": d.alternatives,
+                    "rationale": d.rationale,
+                    "confidence": d.confidence,
+                    "timestamp": d.timestamp,
+                }
+                for d in self.decisions
+            ],
+            "artifacts": [
+                {
+                    "artifact_type": a.artifact_type,
+                    "path": a.path,
+                    "description": a.description,
+                    "metadata": a.metadata,
+                    "timestamp": a.timestamp,
+                }
+                for a in self.artifacts
+            ],
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    def get_context_prompt(self) -> str:
+        """获取用于系统提示词的记忆描述。"""
+        parts: list[str] = []
+
+        if self.findings:
+            parts.append(f"**关键发现**（{len(self.findings)} 项）：")
+            for f in self.findings[:5]:  # 最多显示 5 项
+                parts.append(f"- {f.category}: {f.summary}")
+
+        if self.statistics:
+            parts.append(f"**统计结果**（{len(self.statistics)} 项）：")
+            for s in self.statistics[:3]:  # 最多显示 3 项
+                sig = "显著" if s.significant else "不显著"
+                parts.append(f"- {s.test_name}: {sig}")
+
+        if self.decisions:
+            parts.append(f"**方法决策**（{len(self.decisions)} 项）：")
+            for d in self.decisions[:3]:  # 最多显示 3 项
+                parts.append(f"- {d.decision_type}: 选择 {d.chosen}")
+
+        if self.artifacts:
+            parts.append(f"**产出文件**（{len(self.artifacts)} 个）")
+
+        if not parts:
+            return f"暂无分析记录（数据集: {self.dataset_name}）"
+
+        return "\n".join(parts)
+
+
+# ---- 会话记忆注册表 ----
+
+_analysis_memories: dict[str, AnalysisMemory] = {}
+
+
+def get_analysis_memory(session_id: str, dataset_name: str) -> AnalysisMemory:
+    """获取或创建分析记忆。"""
+    key = f"{session_id}:{dataset_name}"
+    if key not in _analysis_memories:
+        _analysis_memories[key] = AnalysisMemory(
+            session_id=session_id,
+            dataset_name=dataset_name,
+        )
+    return _analysis_memories[key]
+
+
+def remove_analysis_memory(session_id: str, dataset_name: str) -> None:
+    """移除分析记忆。"""
+    key = f"{session_id}:{dataset_name}"
+    _analysis_memories.pop(key, None)
