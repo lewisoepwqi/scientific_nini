@@ -84,13 +84,24 @@ class ExportChartSkill(Skill):
         elif fmt == "json":
             path.write_text(fig.to_json(), encoding="utf-8")
         else:
-            fig.write_image(
-                str(path),
-                width=width,
-                height=height,
-                scale=scale,
-                format=fmt,
-            )
+            try:
+                fig.write_image(
+                    str(path),
+                    width=width,
+                    height=height,
+                    scale=scale,
+                    format=fmt,
+                )
+            except Exception as exc:
+                return SkillResult(
+                    success=False,
+                    message=(
+                        f"{fmt.upper()} 导出失败: {exc}\n"
+                        "SVG/PNG/JPEG 导出需要 kaleido 和 Chrome 浏览器支持。"
+                        "请运行 `python -c \"import kaleido; kaleido.get_chrome_sync()\"` 安装 Chrome，"
+                        "或选择 html/json 格式导出。"
+                    ),
+                )
 
         artifact = {
             "name": full_name,

@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     # ---- 知识库 ----
     knowledge_max_entries: int = 3  # 每次注入最多几个知识条目
     knowledge_max_chars: int = 3000  # 注入总字符数上限
+    prompt_component_max_chars: int = 20000
+    prompt_total_max_chars: int = 60000
+    skills_dir_path: Path = _ROOT / "skills"
 
     # ---- 派生属性 ----
     @property
@@ -105,6 +108,23 @@ class Settings(BaseSettings):
         d = self.data_dir / "knowledge"
         d.mkdir(parents=True, exist_ok=True)
         return d
+
+    @property
+    def prompt_components_dir(self) -> Path:
+        d = self.data_dir / "prompt_components"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @property
+    def skills_dir(self) -> Path:
+        """Markdown 技能目录（文件型技能定义）。"""
+        return Path(self.skills_dir_path)
+
+    @property
+    def skills_snapshot_path(self) -> Path:
+        p = self.data_dir / "SKILLS_SNAPSHOT.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
 
     @property
     def allowed_extensions_list(self) -> list[str]:

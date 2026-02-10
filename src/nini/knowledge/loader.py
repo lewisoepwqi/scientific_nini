@@ -14,6 +14,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,23 @@ class KnowledgeLoader:
         max_entries: int = 3,
         max_total_chars: int = 3000,
     ) -> str:
+        """根据上下文选择最相关的知识条目，返回拼接后的文本。"""
+        text, _ = self.select_with_hits(
+            user_message,
+            dataset_columns=dataset_columns,
+            max_entries=max_entries,
+            max_total_chars=max_total_chars,
+        )
+        return text
+
+    def select_with_hits(
+        self,
+        user_message: str,
+        *,
+        dataset_columns: list[str] | None = None,
+        max_entries: int = 3,
+        max_total_chars: int = 3000,
+    ) -> tuple[str, list[dict[str, Any]]]:
         """根据上下文选择最相关的知识条目，返回拼接后的文本。
 
         匹配逻辑：
@@ -74,37 +92,57 @@ class KnowledgeLoader:
         3. 取前 max_entries 个，总字符数不超过 max_total_chars
         """
         if not self._entries or not user_message:
-            return ""
+            return "", []
 
         msg_lower = user_message.lower()
 
-        scored: list[tuple[float, KnowledgeEntry]] = []
+        scored: list[tuple[float, int, KnowledgeEntry]] = []
         for entry in self._entries:
             hits = sum(1 for kw in entry.keywords if kw in msg_lower)
             if hits == 0:
                 continue
             score = hits * entry.priority_weight
-            scored.append((score, entry))
+            scored.append((score, hits, entry))
 
         if not scored:
-            return ""
+            return "", []
 
         # 按得分降序排列
         scored.sort(key=lambda t: t[0], reverse=True)
 
         parts: list[str] = []
+        hit_items: list[dict[str, Any]] = []
         total_chars = 0
-        for _, entry in scored[:max_entries]:
-            if total_chars + len(entry.content) > max_total_chars:
+        for score, hits, entry in scored[:max_entries]:
+            chunk = entry.content
+            source = entry.path.name
+            if total_chars + len(chunk) > max_total_chars:
                 # 尝试截断到限制内
                 remaining = max_total_chars - total_chars
                 if remaining > 200:
-                    parts.append(entry.content[:remaining] + "\n...")
+                    chunk = chunk[:remaining] + "\n..."
+                    parts.append(chunk)
+                    hit_items.append(
+                        {
+                            "source": source,
+                            "score": float(score),
+                            "hits": int(hits),
+                            "snippet": chunk[:300],
+                        }
+                    )
                 break
-            parts.append(entry.content)
-            total_chars += len(entry.content)
+            parts.append(chunk)
+            total_chars += len(chunk)
+            hit_items.append(
+                {
+                    "source": source,
+                    "score": float(score),
+                    "hits": int(hits),
+                    "snippet": chunk[:300],
+                }
+            )
 
-        return "\n\n".join(parts)
+        return "\n\n".join(parts), hit_items
 
     # ------ 内部方法 ------
 

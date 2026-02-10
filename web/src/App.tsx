@@ -1,22 +1,26 @@
 /**
- * 应用根组件 —— 左右分栏布局（侧边栏 + 对话面板），支持移动端响应式。
+ * 应用根组件 —— 三栏布局（会话列表 + 对话面板 + 工作区面板），支持移动端响应式。
  */
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useStore } from './store'
 import ChatPanel from './components/ChatPanel'
 import SessionList from './components/SessionList'
 import ModelConfigPanel from './components/ModelConfigPanel'
-import ModelSelector from './components/ModelSelector'
 import WorkflowPanel from './components/WorkflowPanel'
-import { Wifi, WifiOff, Settings, Menu, Zap } from 'lucide-react'
+import WorkspaceSidebar from './components/WorkspaceSidebar'
+import { Wifi, WifiOff, Settings, Menu, Zap, PanelRightOpen, PanelRightClose } from 'lucide-react'
 
 export default function App() {
   const connect = useStore((s) => s.connect)
   const initApp = useStore((s) => s.initApp)
   const wsConnected = useStore((s) => s.wsConnected)
+  const workspacePanelOpen = useStore((s) => s.workspacePanelOpen)
+  const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel)
   const [showSettings, setShowSettings] = useState(false)
   const [showWorkflows, setShowWorkflows] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [workspacePanelWidth, setWorkspacePanelWidth] = useState(420)
+  const [resizingWorkspace, setResizingWorkspace] = useState(false)
   const sendMessage = useStore((s) => s.sendMessage)
 
   // 应用初始化：恢复会话并建立 WebSocket 连接
@@ -26,6 +30,31 @@ export default function App() {
       connect()
     })
   }, [initApp, connect])
+
+  const handleWorkspaceResizeStart = useCallback(() => {
+    setResizingWorkspace(true)
+  }, [])
+
+  useEffect(() => {
+    if (!resizingWorkspace) return
+    const onMouseMove = (event: MouseEvent) => {
+      const width = window.innerWidth - event.clientX
+      const clamped = Math.max(340, Math.min(960, width))
+      setWorkspacePanelWidth(clamped)
+    }
+    const onMouseUp = () => setResizingWorkspace(false)
+
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'col-resize'
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [resizingWorkspace])
 
   return (
     <div className="flex h-screen bg-white">
@@ -62,7 +91,6 @@ export default function App() {
             <span className="text-sm font-medium text-gray-600">对话</span>
           </div>
           <div className="flex items-center gap-3">
-            <ModelSelector />
             <button
               onClick={() => setShowWorkflows(true)}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
@@ -76,6 +104,15 @@ export default function App() {
               title="模型配置"
             >
               <Settings size={16} />
+            </button>
+            <button
+              onClick={toggleWorkspacePanel}
+              className={`p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${
+                workspacePanelOpen ? 'text-blue-600 bg-blue-50' : 'text-gray-500'
+              }`}
+              title={workspacePanelOpen ? '关闭工作区' : '打开工作区'}
+            >
+              {workspacePanelOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
             </button>
             <div className="flex items-center gap-1.5 text-xs">
               {wsConnected ? (
@@ -96,6 +133,34 @@ export default function App() {
         {/* 对话面板 */}
         <ChatPanel />
       </div>
+
+      {/* 桌面端工作区面板 */}
+      {workspacePanelOpen && (
+        <div
+          className="border-l flex-shrink-0 hidden md:flex flex-col relative"
+          style={{ width: `${workspacePanelWidth}px` }}
+        >
+          <div
+            onMouseDown={handleWorkspaceResizeStart}
+            className="absolute left-0 top-0 h-full w-1.5 -translate-x-1/2 cursor-col-resize z-20 bg-transparent hover:bg-blue-200/40 active:bg-blue-300/60"
+            title="拖拽调整宽度"
+          />
+          <WorkspaceSidebar />
+        </div>
+      )}
+
+      {/* 移动端工作区面板（覆盖式抽屉） */}
+      {workspacePanelOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/30 md:hidden"
+            onClick={toggleWorkspacePanel}
+          />
+          <div className="fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-xl md:hidden flex flex-col">
+            <WorkspaceSidebar />
+          </div>
+        </>
+      )}
 
       {/* 模型配置弹窗 */}
       <ModelConfigPanel open={showSettings} onClose={() => setShowSettings(false)} />

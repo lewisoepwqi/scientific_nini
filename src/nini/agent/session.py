@@ -5,6 +5,8 @@ from __future__ import annotations
 import shutil
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+import json
 from typing import Any
 
 import pandas as pd
@@ -23,6 +25,9 @@ class Session:
     messages: list[dict[str, Any]] = field(default_factory=list)
     datasets: dict[str, pd.DataFrame] = field(default_factory=dict)
     artifacts: dict[str, Any] = field(default_factory=dict)
+    compressed_context: str = ""
+    compressed_rounds: int = 0
+    last_compressed_at: str | None = None
     workspace_hydrated: bool = False
     load_persisted_messages: bool = False
     conversation_memory: ConversationMemory = field(init=False, repr=False)
@@ -107,6 +112,18 @@ class Session:
             entry = {k: v for k, v in msg.items() if k != "_ts"}
             self.conversation_memory.append(entry)
 
+    def set_compressed_context(self, summary: str) -> None:
+        """更新压缩上下文，并记录压缩次数。"""
+        summary = summary.strip()
+        if not summary:
+            return
+        if self.compressed_context:
+            self.compressed_context = f"{self.compressed_context}\n\n---\n\n{summary}"
+        else:
+            self.compressed_context = summary
+        self.compressed_rounds += 1
+        self.last_compressed_at = datetime.now(timezone.utc).isoformat()
+
 
 class SessionManager:
     """管理所有活跃会话。"""
@@ -123,14 +140,26 @@ class SessionManager:
         sid = session_id or uuid.uuid4().hex[:12]
         # 如果需要加载持久化消息，先尝试加载标题
         title = "新会话"
+        compressed_context = ""
+        compressed_rounds = 0
+        last_compressed_at: str | None = None
         if load_persisted_messages:
-            loaded_title = self._load_session_title(sid)
+            meta = self._load_session_meta(sid)
+            loaded_title = str(meta.get("title", "")).strip()
             if loaded_title:
                 title = loaded_title
+            compressed_context = str(meta.get("compressed_context", "") or "")
+            compressed_rounds = int(meta.get("compressed_rounds", 0) or 0)
+            raw_last_compressed = meta.get("last_compressed_at")
+            if isinstance(raw_last_compressed, str) and raw_last_compressed.strip():
+                last_compressed_at = raw_last_compressed
 
         session = Session(
             id=sid,
             title=title,
+            compressed_context=compressed_context,
+            compressed_rounds=compressed_rounds,
+            last_compressed_at=last_compressed_at,
             load_persisted_messages=load_persisted_messages,
         )
         self._sessions[session.id] = session
@@ -207,31 +236,49 @@ class SessionManager:
 
     def save_session_title(self, session_id: str, title: str) -> None:
         """将会话标题持久化到元数据文件。"""
-        import json
+        self._save_session_meta_fields(session_id, {"title": title})
 
-        meta_path = settings.sessions_dir / session_id / "meta.json"
-        meta_path.parent.mkdir(parents=True, exist_ok=True)
-        meta: dict[str, Any] = {}
-        if meta_path.exists():
-            try:
-                meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        meta["title"] = title
-        meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    def save_session_compression(
+        self,
+        session_id: str,
+        *,
+        compressed_context: str,
+        compressed_rounds: int,
+        last_compressed_at: str | None,
+    ) -> None:
+        """持久化会话压缩元数据。"""
+        self._save_session_meta_fields(
+            session_id,
+            {
+                "compressed_context": compressed_context,
+                "compressed_rounds": int(compressed_rounds),
+                "last_compressed_at": last_compressed_at,
+            },
+        )
 
     def _load_session_title(self, session_id: str) -> str:
         """从元数据文件读取会话标题。"""
-        import json
+        meta = self._load_session_meta(session_id)
+        return str(meta.get("title", "新会话") or "新会话")
 
+    def _load_session_meta(self, session_id: str) -> dict[str, Any]:
         meta_path = settings.sessions_dir / session_id / "meta.json"
-        if meta_path.exists():
-            try:
-                meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                return meta.get("title", "新会话")
-            except Exception:
-                pass
-        return "新会话"
+        if not meta_path.exists():
+            return {}
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+        return {}
+
+    def _save_session_meta_fields(self, session_id: str, fields: dict[str, Any]) -> None:
+        meta_path = settings.sessions_dir / session_id / "meta.json"
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        meta = self._load_session_meta(session_id)
+        meta.update(fields)
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
     def _session_exists_on_disk(self, session_id: str) -> bool:
         memory_path = settings.sessions_dir / session_id / "memory.jsonl"

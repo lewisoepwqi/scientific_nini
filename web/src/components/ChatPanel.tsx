@@ -7,8 +7,8 @@ import { useStore, type Message } from '../store'
 import MessageBubble from './MessageBubble'
 import AgentTurnGroup from './AgentTurnGroup'
 import FileUpload from './FileUpload'
-import WorkspacePanel from './WorkspacePanel'
-import { Send, Loader2, Square } from 'lucide-react'
+import ModelSelector from './ModelSelector'
+import { Send, Loader2, Square, Archive } from 'lucide-react'
 
 /** 消息分组：用户消息独立，同一 turnId 的 agent 消息合并为一组 */
 interface MessageGroup {
@@ -65,9 +65,15 @@ export default function ChatPanel() {
   const sendMessage = useStore((s) => s.sendMessage)
   const stopStreaming = useStore((s) => s.stopStreaming)
   const retryLastTurn = useStore((s) => s.retryLastTurn)
+  const uploadFile = useStore((s) => s.uploadFile)
+  const compressCurrentSession = useStore((s) => s.compressCurrentSession)
+  const isUploading = useStore((s) => s.isUploading)
   const [input, setInput] = useState('')
+  const [isDragActive, setIsDragActive] = useState(false)
+  const [isCompressing, setIsCompressing] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const dragDepthRef = useRef(0)
 
   const messageGroups = useMemo(() => groupMessages(messages), [messages])
   const lastUserMessageId = useMemo(() => {
@@ -138,6 +144,84 @@ export default function ChatPanel() {
     retryLastTurn()
   }, [isStreaming, canRetry, retryLastTurn])
 
+  const handleCompress = useCallback(async () => {
+    if (isStreaming || isCompressing) return
+    const confirmed = window.confirm('将压缩当前会话的早期消息并归档，是否继续？')
+    if (!confirmed) return
+    setIsCompressing(true)
+    const result = await compressCurrentSession()
+    setIsCompressing(false)
+    const feedback: Message = {
+      id: `compress-${Date.now()}`,
+      role: 'assistant',
+      content: result.success ? result.message : `错误: ${result.message}`,
+      timestamp: Date.now(),
+    }
+    useStore.setState((s) => ({ messages: [...s.messages, feedback] }))
+  }, [isStreaming, isCompressing, compressCurrentSession])
+
+  const uploadFilesSequentially = useCallback(
+    async (files: File[]) => {
+      for (const file of files) {
+        await uploadFile(file)
+      }
+    },
+    [uploadFile],
+  )
+
+  const isFileDragEvent = useCallback((e: React.DragEvent) => {
+    return Array.from(e.dataTransfer.types || []).includes('Files')
+  }, [])
+
+  const handleComposerDragEnter = useCallback(
+    (e: React.DragEvent) => {
+      if (!isFileDragEvent(e)) return
+      e.preventDefault()
+      if (isUploading) return
+      dragDepthRef.current += 1
+      setIsDragActive(true)
+    },
+    [isFileDragEvent, isUploading],
+  )
+
+  const handleComposerDragLeave = useCallback(
+    (e: React.DragEvent) => {
+      if (!isFileDragEvent(e)) return
+      e.preventDefault()
+      if (isUploading) return
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+      if (dragDepthRef.current === 0) {
+        setIsDragActive(false)
+      }
+    },
+    [isFileDragEvent, isUploading],
+  )
+
+  const handleComposerDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (!isFileDragEvent(e)) return
+      e.preventDefault()
+      if (isUploading) return
+      if (!isDragActive) setIsDragActive(true)
+    },
+    [isDragActive, isFileDragEvent, isUploading],
+  )
+
+  const handleComposerDrop = useCallback(
+    (e: React.DragEvent) => {
+      if (!isFileDragEvent(e)) return
+      e.preventDefault()
+      if (isUploading) return
+      dragDepthRef.current = 0
+      setIsDragActive(false)
+      const files = Array.from(e.dataTransfer.files || [])
+      if (files.length > 0) {
+        void uploadFilesSequentially(files)
+      }
+    },
+    [isFileDragEvent, isUploading, uploadFilesSequentially],
+  )
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* 消息列表 */}
@@ -187,10 +271,13 @@ export default function ChatPanel() {
       {/* 输入区 */}
       <div className="border-t bg-white px-4 py-3">
         <div className="max-w-3xl mx-auto">
-          <FileUpload />
-          <WorkspacePanel />
-
-          <div className="flex items-end gap-2 mt-2">
+          <div
+            className="relative rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm"
+            onDragEnter={handleComposerDragEnter}
+            onDragLeave={handleComposerDragLeave}
+            onDragOver={handleComposerDragOver}
+            onDrop={handleComposerDrop}
+          >
             <textarea
               ref={textareaRef}
               value={input}
@@ -198,32 +285,61 @@ export default function ChatPanel() {
               onKeyDown={handleKeyDown}
               placeholder="描述你的分析需求..."
               rows={1}
-              className="flex-1 resize-none rounded-xl border border-gray-300 px-4 py-2.5 text-sm
-                         focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
-                         placeholder:text-gray-400"
+              className="w-full resize-none border-0 bg-transparent px-1 py-1.5 text-sm
+                         focus:outline-none placeholder:text-gray-400"
               style={{ minHeight: '42px' }}
             />
-            {isStreaming ? (
-              <button
-                onClick={handleStop}
-                className="flex-shrink-0 w-10 h-10 rounded-full bg-red-500 text-white
-                           flex items-center justify-center hover:bg-red-600 transition-colors"
-                title="停止生成"
-              >
-                <Square size={14} />
-              </button>
-            ) : (
-              <button
-                onClick={handleSend}
-                disabled={!input.trim()}
-                className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white
-                           flex items-center justify-center
-                           hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed
-                           transition-colors"
-              >
-                <Send size={16} />
-              </button>
+
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <FileUpload />
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <ModelSelector compact menuDirection="up" align="right" />
+                <button
+                  onClick={() => void handleCompress()}
+                  disabled={isStreaming || isCompressing || messages.length < 4}
+                  className="h-8 px-2.5 rounded-2xl border border-gray-200 text-gray-600 text-xs
+                             inline-flex items-center gap-1.5
+                             hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="压缩会话"
+                >
+                  <Archive size={12} />
+                  <span>{isCompressing ? '压缩中' : '压缩'}</span>
+                </button>
+                {isStreaming ? (
+                  <button
+                    onClick={handleStop}
+                    className="flex-shrink-0 w-10 h-10 rounded-2xl bg-red-500 text-white
+                               flex items-center justify-center hover:bg-red-600 transition-colors"
+                    title="停止生成"
+                  >
+                    <Square size={14} />
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSend}
+                    disabled={!input.trim()}
+                    className="flex-shrink-0 w-10 h-10 rounded-2xl bg-blue-600 text-white
+                               flex items-center justify-center
+                               hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed
+                               transition-colors"
+                  >
+                    <Send size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {isDragActive && (
+              <div className="pointer-events-none absolute inset-0 rounded-2xl border-2 border-blue-500 bg-blue-50/80 flex items-center justify-center text-sm font-medium text-blue-600">
+                释放以上传文件（支持多文件）
+              </div>
             )}
+          </div>
+
+          <div className="mt-1 px-1 text-[11px] text-gray-400">
+            Enter 发送，Shift + Enter 换行，可直接拖拽文件到输入框
           </div>
         </div>
       </div>

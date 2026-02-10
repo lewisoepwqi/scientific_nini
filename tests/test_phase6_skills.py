@@ -16,6 +16,7 @@ from nini.config import settings
 from nini.skills.base import Skill, SkillResult
 from nini.skills.registry import SkillRegistry
 from nini.skills.registry import create_default_registry
+from nini.workspace import WorkspaceManager
 
 
 @pytest.fixture(autouse=True)
@@ -168,3 +169,30 @@ def test_registry_execute_signature_avoids_name_collision() -> None:
         name="模板A",
     )
     assert bound.arguments["skill_name"] == "save_workflow"
+
+
+def test_organize_workspace_creates_folder_and_moves_file() -> None:
+    registry = create_default_registry()
+    session = Session()
+    wm = WorkspaceManager(session.id)
+    note = wm.save_text_note("实验记录", "lab-notes.md")
+
+    result = asyncio.run(
+        registry.execute(
+            "organize_workspace",
+            session=session,
+            create_folders=[{"name": "研究笔记"}],
+            moves=[{"file_id": note["id"], "folder_name": "研究笔记"}],
+        )
+    )
+
+    assert result["success"] is True, result
+    created = result["data"]["created_folders"]
+    moved = result["data"]["moved_files"]
+    assert len(created) == 1
+    assert len(moved) == 1
+    folder_id = created[0]["id"]
+    files = wm.list_workspace_files()
+    moved_note = next((f for f in files if f["id"] == note["id"]), None)
+    assert moved_note is not None
+    assert moved_note["folder"] == folder_id

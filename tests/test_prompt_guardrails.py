@@ -6,7 +6,9 @@ from datetime import date
 import json
 
 import pandas as pd
+import pytest
 
+from nini.config import settings
 from nini.agent.prompts.scientific import get_system_prompt
 from nini.agent.runner import AgentRunner
 from nini.agent.session import Session
@@ -90,3 +92,31 @@ def test_build_messages_filters_ui_events_and_large_tool_payloads() -> None:
     assert '"has_chart": true' in tool_content
     assert "chart_data" not in tool_content
     assert '"message": "图表已生成"' in tool_content
+
+
+def test_prompt_components_support_runtime_refresh(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    first = get_system_prompt()
+    assert "标准分析流程（必须遵循）" in first
+
+    component_path = settings.prompt_components_dir / "strategy.md"
+    component_path.write_text("自定义策略：只输出必要信息。", encoding="utf-8")
+    second = get_system_prompt()
+
+    assert "自定义策略：只输出必要信息。" in second
+
+
+def test_prompt_component_truncation_marker(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    monkeypatch.setattr(settings, "prompt_component_max_chars", 40)
+    long_text = "A" * 200
+    (settings.prompt_components_dir / "identity.md").write_text(long_text, encoding="utf-8")
+
+    prompt = get_system_prompt()
+    assert "...[truncated]" in prompt

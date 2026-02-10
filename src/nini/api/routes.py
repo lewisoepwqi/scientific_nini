@@ -10,13 +10,14 @@ from urllib.parse import quote
 
 import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from nini.agent.session import session_manager
 from nini.config import settings
 from nini.models.schemas import (
     APIResponse,
     DatasetInfo,
+    FileRenameRequest,
     ModelConfigRequest,
     SaveWorkspaceTextRequest,
     SessionInfo,
@@ -96,6 +97,45 @@ async def delete_session(session_id: str):
     """删除会话。"""
     session_manager.remove_session(session_id, delete_persistent=True)
     return APIResponse(data={"deleted": session_id})
+
+
+@router.post("/sessions/{session_id}/compress", response_model=APIResponse)
+async def compress_session(session_id: str):
+    """压缩会话历史并归档。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    session = session_manager.get_or_create(session_id)
+    from nini.memory.compression import compress_session_history
+
+    result = compress_session_history(session)
+    if not result.get("success"):
+        return APIResponse(success=False, error=str(result.get("message", "压缩失败")))
+
+    session_manager.save_session_compression(
+        session.id,
+        compressed_context=str(session.compressed_context),
+        compressed_rounds=int(session.compressed_rounds),
+        last_compressed_at=session.last_compressed_at,
+    )
+    return APIResponse(data=result)
+
+
+@router.get("/skills", response_model=APIResponse)
+async def list_skills(skill_type: str | None = None):
+    """获取技能目录（Function + Markdown）。"""
+    from nini.api.websocket import get_skill_registry
+
+    registry = get_skill_registry()
+    if registry is None:
+        return APIResponse(data={"skills": []})
+
+    # 每次请求都刷新 Markdown 技能快照，确保前端看到最新状态
+    registry.reload_markdown_skills()
+    registry.write_skills_snapshot()
+
+    skills = registry.list_skill_catalog(skill_type)
+    return APIResponse(data={"skills": skills})
 
 
 # ---- 文件上传 ----
@@ -260,11 +300,15 @@ async def load_session_dataset(session_id: str, dataset_id: str):
 
 
 @router.get("/sessions/{session_id}/workspace/files", response_model=APIResponse)
-async def list_workspace_files(session_id: str):
-    """列出会话工作空间文件（数据集/产物/文本）。"""
+async def list_workspace_files(session_id: str, q: str | None = None):
+    """列出会话工作空间文件（数据集/产物/文本），支持 ?q= 搜索。"""
     if not session_manager.session_exists(session_id):
         raise HTTPException(status_code=404, detail="会话不存在")
-    files = WorkspaceManager(session_id).list_workspace_files()
+    manager = WorkspaceManager(session_id)
+    if q and q.strip():
+        files = manager.search_files(q)
+    else:
+        files = manager.list_workspace_files()
     return APIResponse(data={"session_id": session_id, "files": files})
 
 
@@ -280,6 +324,146 @@ async def save_workspace_text(session_id: str, req: SaveWorkspaceTextRequest):
     manager = WorkspaceManager(session_id)
     note = manager.save_text_note(content, req.filename)
     return APIResponse(data={"session_id": session_id, "file": note})
+
+
+@router.delete("/sessions/{session_id}/workspace/files/{file_id}", response_model=APIResponse)
+async def delete_workspace_file(session_id: str, file_id: str):
+    """删除工作空间中的文件。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    manager = WorkspaceManager(session_id)
+    deleted = manager.delete_file(file_id)
+    if deleted is None:
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    # 如果删除的是数据集，同步移除内存中的 DataFrame
+    session = session_manager.get_session(session_id)
+    if session is not None:
+        name = deleted.get("name", "")
+        if name and name in session.datasets:
+            del session.datasets[name]
+
+    return APIResponse(data={"session_id": session_id, "deleted": file_id})
+
+
+@router.patch("/sessions/{session_id}/workspace/files/{file_id}", response_model=APIResponse)
+async def rename_workspace_file(session_id: str, file_id: str, req: FileRenameRequest):
+    """重命名工作空间中的文件。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    new_name = req.name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+    manager = WorkspaceManager(session_id)
+
+    # 如果重命名的是数据集，同步更新内存中的 key
+    kind, old_record = manager._find_record_by_id(file_id)
+    old_name = old_record.get("name", "") if old_record else ""
+
+    updated = manager.rename_file(file_id, new_name)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    # 更新内存中的数据集引用
+    if kind == "dataset" and old_name:
+        session = session_manager.get_session(session_id)
+        if session is not None and old_name in session.datasets:
+            df = session.datasets.pop(old_name)
+            session.datasets[updated.get("name", new_name)] = df
+
+    return APIResponse(data={"session_id": session_id, "file": updated})
+
+
+@router.get("/sessions/{session_id}/workspace/files/{file_id}/preview", response_model=APIResponse)
+async def preview_workspace_file(session_id: str, file_id: str):
+    """获取工作空间文件的预览内容。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    manager = WorkspaceManager(session_id)
+    preview = manager.get_file_preview(file_id)
+    if preview is None:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return APIResponse(data=preview)
+
+
+@router.get("/sessions/{session_id}/workspace/executions", response_model=APIResponse)
+async def list_code_executions(session_id: str):
+    """获取会话的代码执行历史。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    manager = WorkspaceManager(session_id)
+    executions = manager.list_code_executions()
+    return APIResponse(data={"session_id": session_id, "executions": executions})
+
+
+@router.post("/sessions/{session_id}/workspace/folders", response_model=APIResponse)
+async def create_folder(session_id: str, req: dict[str, Any]):
+    """创建自定义文件夹。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    name = req.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="文件夹名称不能为空")
+    parent = req.get("parent")
+    manager = WorkspaceManager(session_id)
+    folder = manager.create_folder(name, parent)
+    return APIResponse(data={"session_id": session_id, "folder": folder})
+
+
+@router.get("/sessions/{session_id}/workspace/folders", response_model=APIResponse)
+async def list_folders(session_id: str):
+    """列出自定义文件夹。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    manager = WorkspaceManager(session_id)
+    folders = manager.list_folders()
+    return APIResponse(data={"session_id": session_id, "folders": folders})
+
+
+@router.post("/sessions/{session_id}/workspace/files/{file_id}/move", response_model=APIResponse)
+async def move_file(session_id: str, file_id: str, req: dict[str, Any]):
+    """将文件移动到指定文件夹。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    folder_id = req.get("folder_id")
+    manager = WorkspaceManager(session_id)
+    updated = manager.move_file(file_id, folder_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return APIResponse(data={"session_id": session_id, "file": updated})
+
+
+@router.post("/sessions/{session_id}/workspace/files", response_model=APIResponse)
+async def create_workspace_file(session_id: str, req: dict[str, Any]):
+    """创建新文件（文本/Markdown）。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    content = req.get("content", "")
+    filename = req.get("filename", "").strip()
+    if not filename:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+    manager = WorkspaceManager(session_id)
+    note = manager.save_text_note(content, filename)
+    return APIResponse(data={"session_id": session_id, "file": note})
+
+
+@router.post("/sessions/{session_id}/workspace/batch-download")
+async def batch_download(session_id: str, req: dict[str, Any]):
+    """批量下载工作空间文件（ZIP 打包）。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    file_ids = req.get("file_ids", [])
+    if not isinstance(file_ids, list) or not file_ids:
+        raise HTTPException(status_code=400, detail="file_ids 不能为空")
+    manager = WorkspaceManager(session_id)
+    zip_bytes = manager.batch_download(file_ids)
+    if not zip_bytes:
+        raise HTTPException(status_code=404, detail="没有可下载的文件")
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="workspace_{session_id[:8]}.zip"'},
+    )
 
 
 # ---- 文件下载 ----

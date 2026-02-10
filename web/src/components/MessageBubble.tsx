@@ -37,7 +37,8 @@ export default function MessageBubble({
   const isUser = message.role === 'user'
   const isTool = message.role === 'tool'
   const [toolExpanded, setToolExpanded] = useState(message.toolStatus === 'error')
-  const hasWideContent = !!message.chartData || (!!message.images && message.images.length > 0)
+  const hasWideContent =
+    !!message.chartData || (!!message.images && message.images.length > 0)
 
   useEffect(() => {
     if (message.toolStatus === 'error') {
@@ -187,6 +188,25 @@ export default function MessageBubble({
               <div className="markdown-body prose prose-sm max-w-none">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
               </div>
+              {message.retrievals && message.retrievals.length > 0 && (
+                <div className="mt-2 space-y-2">
+                  {message.retrievals.map((item, idx) => (
+                    <div
+                      key={`${item.source}-${idx}`}
+                      className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs"
+                    >
+                      <div className="flex items-center justify-between gap-2 text-violet-700">
+                        <span className="font-medium truncate">{item.source}</span>
+                        <span className="text-[10px] whitespace-nowrap">
+                          {typeof item.score === 'number' ? `score=${item.score.toFixed(2)}` : ''}
+                          {typeof item.hits === 'number' ? ` hits=${item.hits}` : ''}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-violet-900 whitespace-pre-wrap">{item.snippet}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {message.chartData && (
                 <Suspense fallback={<div className="text-xs text-gray-500 mt-2">图表组件加载中...</div>}>
                   <ChartViewer chartData={message.chartData} />

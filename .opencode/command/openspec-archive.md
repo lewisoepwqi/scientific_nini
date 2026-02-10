@@ -1,4 +1,5 @@
 ---
+agent: build
 description: Archive a deployed OpenSpec change and update specs.
 ---
 <ChangeId>

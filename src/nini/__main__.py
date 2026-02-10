@@ -101,6 +101,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
         host=args.host,
         port=args.port,
         reload=args.reload,
+        reload_dirs=["src"] if args.reload else None,
         log_level=args.log_level,
     )
     return 0

@@ -196,3 +196,43 @@ def test_websocket_retry_clears_last_agent_turn_and_regenerates(
     ]
     assert any("重试后回答" in content for content in assistant_contents)
     assert all("第一次回答" not in content for content in assistant_contents)
+
+
+def test_websocket_emits_retrieval_event(
+    app_with_temp_data,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """命中知识检索时，应推送 retrieval 事件并包含必要字段。"""
+
+    # 写入知识文件（关键词命中）
+    knowledge_file = settings.knowledge_dir / "ttest.md"
+    knowledge_file.parent.mkdir(parents=True, exist_ok=True)
+    knowledge_file.write_text(
+        "<!-- keywords: t检验, 差异 -->\n<!-- priority: high -->\n"
+        "t 检验用于比较两个样本均值差异。",
+        encoding="utf-8",
+    )
+
+    async def fake_chat(messages, tools=None, temperature=None, max_tokens=None):
+        yield LLMChunk(text="收到检索上下文。")
+
+    monkeypatch.setattr(model_resolver, "chat", fake_chat)
+
+    with TestClient(app_with_temp_data) as client:
+        with client.websocket_connect("/ws") as ws:
+            ws.send_text(json.dumps({"type": "chat", "content": "请做 t检验"}))
+
+            events = []
+            for _ in range(20):
+                evt = ws.receive_json()
+                events.append(evt)
+                if evt["type"] in {"done", "error"}:
+                    break
+
+    retrieval_event = next((e for e in events if e["type"] == "retrieval"), None)
+    assert retrieval_event is not None, events
+    data = retrieval_event["data"]
+    assert data["query"] == "请做 t检验"
+    assert isinstance(data["results"], list) and data["results"]
+    assert "source" in data["results"][0]
+    assert "snippet" in data["results"][0]

@@ -34,6 +34,10 @@ def set_skill_registry(registry: SkillRegistry) -> None:
     _skill_registry = registry
 
 
+def get_skill_registry() -> SkillRegistry | None:
+    return _skill_registry
+
+
 @router.websocket("/ws")
 async def websocket_agent(ws: WebSocket):
     """WebSocket Agent 交互。
@@ -45,6 +49,7 @@ async def websocket_agent(ws: WebSocket):
 
     服务端推送事件流：
         {"type": "text", "data": "...", "session_id": "..."}
+        {"type": "retrieval", "data": {"query": "...", "results": [...]}}
         {"type": "tool_call", ...}
         {"type": "tool_result", ...}
         {"type": "chart", "data": {...}}
@@ -83,6 +88,10 @@ async def websocket_agent(ws: WebSocket):
                 logger.warning("恢复工作空间数据集失败: session_id=%s err=%s", session.id, exc)
             session.workspace_hydrated = True
 
+        # 缓存代码执行工具的输入代码，用于配对 tool_call → tool_result
+        _code_exec_tools = ("run_code", "execute_code", "code_exec")
+        _pending_code: dict[str, str] = {}
+
         try:
             async for event in runner.run(
                 session,
@@ -99,6 +108,54 @@ async def websocket_agent(ws: WebSocket):
                     tool_name=event.tool_name,
                     turn_id=event.turn_id,
                 )
+                # 产物或图片生成后通知前端刷新工作区面板
+                if event.type in (EventType.ARTIFACT, EventType.IMAGE):
+                    await _send_event(
+                        ws,
+                        "workspace_update",
+                        data={"action": "add"},
+                        session_id=session.id,
+                    )
+                # 工具调用：缓存代码执行工具的源代码
+                if (
+                    event.type == EventType.TOOL_CALL
+                    and event.tool_name
+                    and event.tool_name in _code_exec_tools
+                    and event.tool_call_id
+                ):
+                    try:
+                        call_data = event.data if isinstance(event.data, dict) else {}
+                        args_raw = call_data.get("arguments", "{}")
+                        args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+                        code = args.get("code", "") if isinstance(args, dict) else ""
+                        if code:
+                            _pending_code[event.tool_call_id] = str(code)
+                    except Exception:
+                        pass
+                # 工具执行结果：如果是代码执行类工具，配对源代码后持久化并推送事件
+                if (
+                    event.type == EventType.TOOL_RESULT
+                    and event.tool_name
+                    and event.tool_name in _code_exec_tools
+                ):
+                    try:
+                        result_data = event.data if isinstance(event.data, dict) else {}
+                        # 从缓存中取出配对的源代码
+                        paired_code = _pending_code.pop(event.tool_call_id or "", "")
+                        wm = WorkspaceManager(session.id)
+                        exec_record = wm.save_code_execution(
+                            code=paired_code,
+                            output=str(result_data.get("message", result_data.get("output", ""))),
+                            status=str(result_data.get("status", "success")),
+                        )
+                        await _send_event(
+                            ws,
+                            "code_execution",
+                            data=exec_record,
+                            session_id=session.id,
+                        )
+                    except Exception as exc:
+                        logger.debug("保存代码执行记录失败: %s", exc)
 
             # 对话完成后异步生成会话标题（首次对话时）
             logger.debug(

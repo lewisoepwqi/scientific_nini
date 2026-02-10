@@ -12,6 +12,22 @@ export interface ArtifactInfo {
   download_url: string
 }
 
+export interface RetrievalItem {
+  source: string
+  score?: number
+  hits?: number
+  snippet: string
+}
+
+export interface SkillItem {
+  type: 'function' | 'markdown' | string
+  name: string
+  description: string
+  location: string
+  enabled: boolean
+  metadata?: Record<string, unknown>
+}
+
 export interface DatasetItem {
   id: string
   name: string
@@ -31,6 +47,14 @@ export interface WorkspaceFile {
   created_at?: string
   download_url: string
   meta?: Record<string, unknown>
+  folder?: string | null
+}
+
+export interface WorkspaceFolder {
+  id: string
+  name: string
+  parent: string | null
+  created_at: string
 }
 
 export interface Message {
@@ -46,6 +70,7 @@ export interface Message {
   dataPreview?: unknown
   artifacts?: ArtifactInfo[]
   images?: string[] // 图片 URL 列表
+  retrievals?: RetrievalItem[] // 检索命中结果
   turnId?: string // Agent 回合 ID，用于消息分组
   timestamp: number
 }
@@ -62,6 +87,16 @@ export interface ActiveModelInfo {
   provider_name: string
   model: string
   preferred_provider: string | null
+}
+
+export interface CodeExecution {
+  id: string
+  session_id: string
+  code: string
+  output: string
+  status: string
+  language: string
+  created_at: string
 }
 
 interface WSEvent {
@@ -99,9 +134,22 @@ interface AppState {
   sessions: SessionItem[]
   datasets: DatasetItem[]
   workspaceFiles: WorkspaceFile[]
+  skills: SkillItem[]
 
   // 模型选择（统一为全局首选）
   activeModel: ActiveModelInfo | null
+
+  // 工作区面板状态
+  workspacePanelOpen: boolean
+  workspacePanelTab: 'files' | 'executions'
+  fileSearchQuery: string
+  previewTabs: string[]
+  previewFileId: string | null
+  codeExecutions: CodeExecution[]
+  workspaceFolders: WorkspaceFolder[]
+  isUploading: boolean
+  uploadProgress: number
+  uploadingFileName: string | null
 
   // 连接
   ws: WebSocket | null
@@ -125,13 +173,30 @@ interface AppState {
   fetchSessions: () => Promise<void>
   fetchDatasets: () => Promise<void>
   fetchWorkspaceFiles: () => Promise<void>
+  fetchSkills: () => Promise<void>
   loadDataset: (datasetId: string) => Promise<void>
+  compressCurrentSession: () => Promise<{ success: boolean; message: string }>
   createNewSession: () => Promise<void>
   switchSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
   updateSessionTitle: (sessionId: string, title: string) => Promise<void>
   fetchActiveModel: () => Promise<void>
   setPreferredProvider: (providerId: string) => Promise<void>
+
+  // 工作区面板操作
+  toggleWorkspacePanel: () => void
+  setWorkspacePanelTab: (tab: 'files' | 'executions') => void
+  setFileSearchQuery: (query: string) => void
+  deleteWorkspaceFile: (fileId: string) => Promise<void>
+  renameWorkspaceFile: (fileId: string, newName: string) => Promise<void>
+  openPreview: (fileId: string) => void
+  setActivePreview: (fileId: string | null) => void
+  closePreview: (fileId?: string) => void
+  fetchCodeExecutions: () => Promise<void>
+  fetchFolders: () => Promise<void>
+  createFolder: (name: string, parent?: string | null) => Promise<void>
+  moveFileToFolder: (fileId: string, folderId: string | null) => Promise<void>
+  createWorkspaceFile: (filename: string, content?: string) => Promise<void>
 }
 
 // ---- 工具函数 ----
@@ -151,6 +216,44 @@ function getWsUrl(): string {
   return `${proto}://${host}/ws`
 }
 
+function uploadWithProgress(
+  form: FormData,
+  onProgress: (percent: number) => void,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', '/api/upload')
+    xhr.responseType = 'json'
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return
+      const percent = Math.min(100, Math.round((event.loaded / event.total) * 100))
+      onProgress(percent)
+    }
+
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error(`上传失败: HTTP ${xhr.status}`))
+        return
+      }
+      const jsonResp = xhr.response
+      if (jsonResp && typeof jsonResp === 'object') {
+        resolve(jsonResp as Record<string, unknown>)
+        return
+      }
+      try {
+        const parsed = JSON.parse(xhr.responseText) as Record<string, unknown>
+        resolve(parsed)
+      } catch {
+        reject(new Error('上传响应解析失败'))
+      }
+    }
+
+    xhr.onerror = () => reject(new Error('上传请求失败'))
+    xhr.send(form)
+  })
+}
+
 // ---- Store ----
 
 export const useStore = create<AppState>((set, get) => ({
@@ -159,7 +262,18 @@ export const useStore = create<AppState>((set, get) => ({
   sessions: [],
   datasets: [],
   workspaceFiles: [],
+  skills: [],
   activeModel: null,
+  workspacePanelOpen: false,
+  workspacePanelTab: 'files',
+  fileSearchQuery: '',
+  previewTabs: [],
+  previewFileId: null,
+  codeExecutions: [],
+  workspaceFolders: [],
+  isUploading: false,
+  uploadProgress: 0,
+  uploadingFileName: null,
   ws: null,
   wsConnected: false,
   isStreaming: false,
@@ -254,6 +368,7 @@ export const useStore = create<AppState>((set, get) => ({
   async initApp() {
     // 1. 获取会话列表
     await get().fetchSessions()
+    await get().fetchSkills()
     
     // 2. 尝试恢复上次使用的会话
     const savedSessionId = localStorage.getItem('nini_last_session_id')
@@ -381,28 +496,63 @@ export const useStore = create<AppState>((set, get) => ({
     form.append('file', file)
     form.append('session_id', sessionId)
 
+    set({
+      isUploading: true,
+      uploadProgress: 0,
+      uploadingFileName: file.name,
+    })
+
     try {
-      const resp = await fetch('/api/upload', { method: 'POST', body: form })
-      const data = await resp.json()
-      if (data.success) {
+      const payload = await uploadWithProgress(form, (percent) => {
+        set({ uploadProgress: percent })
+      })
+      const success = payload.success === true
+      const dataset = isRecord(payload.dataset) ? payload.dataset : null
+      if (success && dataset) {
+        const datasetName = typeof dataset.name === 'string' ? dataset.name : file.name
+        const rowCount = typeof dataset.row_count === 'number' ? dataset.row_count : 0
+        const columnCount = typeof dataset.column_count === 'number' ? dataset.column_count : 0
         // 通知用户上传成功
         const sysMsg: Message = {
           id: nextId(),
           role: 'assistant',
-          content: `数据集 **${data.dataset.name}** 已加载（${data.dataset.row_count} 行 × ${data.dataset.column_count} 列）`,
+          content: `数据集 **${datasetName}** 已加载（${rowCount} 行 × ${columnCount} 列）`,
           timestamp: Date.now(),
         }
         set((s) => ({ messages: [...s.messages, sysMsg] }))
         await get().fetchDatasets()
         await get().fetchWorkspaceFiles()
+      } else {
+        throw new Error(typeof payload.error === 'string' ? payload.error : '上传失败')
       }
     } catch (e) {
       console.error('上传失败:', e)
+      const err = e instanceof Error ? e.message : '上传失败'
+      const errMsg: Message = {
+        id: nextId(),
+        role: 'assistant',
+        content: `错误: ${err}`,
+        timestamp: Date.now(),
+      }
+      set((s) => ({ messages: [...s.messages, errMsg] }))
+    } finally {
+      set({
+        isUploading: false,
+        uploadProgress: 0,
+        uploadingFileName: null,
+      })
     }
   },
 
   clearMessages() {
-    set({ messages: [], sessionId: null, datasets: [], workspaceFiles: [] })
+    set({
+      messages: [],
+      sessionId: null,
+      datasets: [],
+      workspaceFiles: [],
+      previewTabs: [],
+      previewFileId: null,
+    })
   },
 
   async fetchSessions() {
@@ -451,6 +601,18 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  async fetchSkills() {
+    try {
+      const resp = await fetch('/api/skills')
+      const payload = await resp.json()
+      const data = isRecord(payload.data) ? payload.data : null
+      const skills = data && Array.isArray(data.skills) ? data.skills : []
+      set({ skills: skills as SkillItem[] })
+    } catch (e) {
+      console.error('获取技能列表失败:', e)
+    }
+  },
+
   async loadDataset(datasetId: string) {
     const sid = get().sessionId
     if (!sid || !datasetId) return
@@ -459,6 +621,34 @@ export const useStore = create<AppState>((set, get) => ({
       await get().fetchDatasets()
     } catch (e) {
       console.error('加载数据集失败:', e)
+    }
+  },
+
+  async compressCurrentSession() {
+    const sid = get().sessionId
+    if (!sid) {
+      return { success: false, message: '请先选择会话' }
+    }
+    try {
+      const resp = await fetch(`/api/sessions/${sid}/compress`, { method: 'POST' })
+      const payload = await resp.json()
+      if (!payload.success) {
+        return {
+          success: false,
+          message: typeof payload.error === 'string' ? payload.error : '会话压缩失败',
+        }
+      }
+      const data = isRecord(payload.data) ? payload.data : null
+      const archivedCount = typeof data?.archived_count === 'number' ? data.archived_count : 0
+      const remainingCount = typeof data?.remaining_count === 'number' ? data.remaining_count : 0
+      const message = `会话压缩完成：归档 ${archivedCount} 条，剩余 ${remainingCount} 条`
+
+      // 压缩成功后刷新当前消息列表
+      await get().switchSession(sid)
+      return { success: true, message }
+    } catch (e) {
+      console.error('压缩会话失败:', e)
+      return { success: false, message: '压缩会话失败，请稍后重试' }
     }
   },
 
@@ -477,6 +667,8 @@ export const useStore = create<AppState>((set, get) => ({
         messages: [],
         datasets: [],
         workspaceFiles: [],
+        previewTabs: [],
+        previewFileId: null,
         _streamingText: '',
         isStreaming: false,
       })
@@ -498,7 +690,14 @@ export const useStore = create<AppState>((set, get) => ({
       const payload = await resp.json()
       if (!payload.success) {
         // 会话存在但无消息，直接切换到空会话
-        set({ sessionId: targetSessionId, messages: [], _streamingText: '', isStreaming: false })
+        set({
+          sessionId: targetSessionId,
+          messages: [],
+          previewTabs: [],
+          previewFileId: null,
+          _streamingText: '',
+          isStreaming: false,
+        })
         await get().fetchDatasets()
         await get().fetchWorkspaceFiles()
         return
@@ -510,11 +709,20 @@ export const useStore = create<AppState>((set, get) => ({
       // 将后端消息格式转换为前端 Message 格式（包含工具调用与结果）
       const messages = buildMessagesFromHistory(rawMessages as RawSessionMessage[])
 
-      set({ sessionId: targetSessionId, messages, _streamingText: '', isStreaming: false })
+      set({
+        sessionId: targetSessionId,
+        messages,
+        previewTabs: [],
+        previewFileId: null,
+        _streamingText: '',
+        isStreaming: false,
+      })
       // 保存当前会话 ID 到 localStorage
       localStorage.setItem('nini_last_session_id', targetSessionId)
       await get().fetchDatasets()
       await get().fetchWorkspaceFiles()
+      await get().fetchCodeExecutions()
+      await get().fetchFolders()
     } catch (e) {
       console.error('切换会话失败:', e)
     }
@@ -531,6 +739,8 @@ export const useStore = create<AppState>((set, get) => ({
           messages: [],
           datasets: [],
           workspaceFiles: [],
+          previewTabs: [],
+          previewFileId: null,
           _streamingText: '',
           isStreaming: false,
         })
@@ -586,6 +796,167 @@ export const useStore = create<AppState>((set, get) => ({
       }
     } catch (e) {
       console.error('设置首选模型失败:', e)
+    }
+  },
+
+  toggleWorkspacePanel() {
+    set((s) => ({ workspacePanelOpen: !s.workspacePanelOpen }))
+  },
+
+  setWorkspacePanelTab(tab: 'files' | 'executions') {
+    set({ workspacePanelTab: tab })
+  },
+
+  setFileSearchQuery(query: string) {
+    set({ fileSearchQuery: query })
+  },
+
+  async deleteWorkspaceFile(fileId: string) {
+    const sid = get().sessionId
+    if (!sid) return
+    try {
+      const resp = await fetch(`/api/sessions/${sid}/workspace/files/${fileId}`, {
+        method: 'DELETE',
+      })
+      const payload = await resp.json()
+      if (payload.success) {
+        await get().fetchWorkspaceFiles()
+        await get().fetchDatasets()
+      }
+    } catch (e) {
+      console.error('删除文件失败:', e)
+    }
+  },
+
+  openPreview(fileId: string) {
+    set((s) => {
+      if (s.previewTabs.includes(fileId)) {
+        return { previewFileId: fileId }
+      }
+      return {
+        previewTabs: [...s.previewTabs, fileId],
+        previewFileId: fileId,
+      }
+    })
+  },
+
+  setActivePreview(fileId: string | null) {
+    set({ previewFileId: fileId })
+  },
+
+  closePreview(fileId?: string) {
+    set((s) => {
+      const target = fileId ?? s.previewFileId
+      if (!target) return { previewFileId: null }
+      const nextTabs = s.previewTabs.filter((id) => id !== target)
+      if (nextTabs.length === 0) {
+        return { previewTabs: [], previewFileId: null }
+      }
+      if (s.previewFileId !== target) {
+        return { previewTabs: nextTabs }
+      }
+      return {
+        previewTabs: nextTabs,
+        previewFileId: nextTabs[nextTabs.length - 1],
+      }
+    })
+  },
+
+  async fetchCodeExecutions() {
+    const sid = get().sessionId
+    if (!sid) {
+      set({ codeExecutions: [] })
+      return
+    }
+    try {
+      const resp = await fetch(`/api/sessions/${sid}/workspace/executions`)
+      const payload = await resp.json()
+      const data = isRecord(payload.data) ? payload.data : null
+      const executions = data && Array.isArray(data.executions) ? data.executions : []
+      set({ codeExecutions: executions as CodeExecution[] })
+    } catch (e) {
+      console.error('获取执行历史失败:', e)
+    }
+  },
+
+  async renameWorkspaceFile(fileId: string, newName: string) {
+    const sid = get().sessionId
+    if (!sid || !newName.trim()) return
+    try {
+      const resp = await fetch(`/api/sessions/${sid}/workspace/files/${fileId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName }),
+      })
+      const payload = await resp.json()
+      if (payload.success) {
+        await get().fetchWorkspaceFiles()
+        await get().fetchDatasets()
+      }
+    } catch (e) {
+      console.error('重命名文件失败:', e)
+    }
+  },
+
+  async fetchFolders() {
+    const sid = get().sessionId
+    if (!sid) {
+      set({ workspaceFolders: [] })
+      return
+    }
+    try {
+      const resp = await fetch(`/api/sessions/${sid}/workspace/folders`)
+      const payload = await resp.json()
+      const data = isRecord(payload.data) ? payload.data : null
+      const folders = data && Array.isArray(data.folders) ? data.folders : []
+      set({ workspaceFolders: folders as WorkspaceFolder[] })
+    } catch (e) {
+      console.error('获取文件夹失败:', e)
+    }
+  },
+
+  async createFolder(name: string, parent?: string | null) {
+    const sid = get().sessionId
+    if (!sid || !name.trim()) return
+    try {
+      await fetch(`/api/sessions/${sid}/workspace/folders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, parent: parent ?? null }),
+      })
+      await get().fetchFolders()
+    } catch (e) {
+      console.error('创建文件夹失败:', e)
+    }
+  },
+
+  async moveFileToFolder(fileId: string, folderId: string | null) {
+    const sid = get().sessionId
+    if (!sid) return
+    try {
+      await fetch(`/api/sessions/${sid}/workspace/files/${fileId}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder_id: folderId }),
+      })
+      await get().fetchWorkspaceFiles()
+    } catch (e) {
+      console.error('移动文件失败:', e)
+    }
+  },
+
+  async createWorkspaceFile(filename: string, content?: string) {
+    const sid = get().sessionId
+    if (!sid || !filename.trim()) return
+    try {
+      await fetch(`/api/sessions/${sid}/workspace/files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename, content: content ?? '' }),
+      })
+      await get().fetchWorkspaceFiles()
+    } catch (e) {
+      console.error('创建文件失败:', e)
     }
   },
 }))
@@ -783,6 +1154,7 @@ function handleEvent(
         get().fetchSessions()
         get().fetchDatasets()
         get().fetchWorkspaceFiles()
+        get().fetchSkills()
       }
       break
     }
@@ -802,7 +1174,13 @@ function handleEvent(
         // 更新或创建 assistant 消息（同一迭代内）
         const msgs = [...s.messages]
         const last = msgs[msgs.length - 1]
-        if (last && last.role === 'assistant' && !last.toolName && last.turnId === turnId) {
+        if (
+          last &&
+          last.role === 'assistant' &&
+          !last.toolName &&
+          !last.retrievals &&
+          last.turnId === turnId
+        ) {
           msgs[msgs.length - 1] = { ...last, content: newStreamText }
         } else {
           msgs.push({
@@ -878,6 +1256,33 @@ function handleEvent(
         }
         return { messages: msgs }
       })
+      break
+    }
+
+    case 'retrieval': {
+      const data = isRecord(evt.data) ? evt.data : null
+      const query = data && typeof data.query === 'string' ? data.query : '检索结果'
+      const rawResults = data && Array.isArray(data.results) ? data.results : []
+      const retrievals: RetrievalItem[] = rawResults
+        .filter((item): item is Record<string, unknown> => isRecord(item))
+        .map((item) => ({
+          source: typeof item.source === 'string' ? item.source : 'unknown',
+          score: typeof item.score === 'number' ? item.score : undefined,
+          hits: typeof item.hits === 'number' ? item.hits : undefined,
+          snippet: typeof item.snippet === 'string' ? item.snippet : '',
+        }))
+      if (retrievals.length === 0) break
+
+      const turnId = evt.turn_id || get()._currentTurnId || undefined
+      const msg: Message = {
+        id: nextId(),
+        role: 'assistant',
+        content: `检索上下文：${query}`,
+        retrievals,
+        turnId,
+        timestamp: Date.now(),
+      }
+      set((s) => ({ messages: [...s.messages, msg] }))
       break
     }
 
@@ -968,6 +1373,24 @@ function handleEvent(
           sessions: s.sessions.map((sess) =>
             sess.id === data.session_id ? { ...sess, title: data.title } : sess
           ),
+        }))
+      }
+      break
+    }
+
+    case 'workspace_update': {
+      // 工作区文件变更，刷新文件列表
+      get().fetchWorkspaceFiles()
+      get().fetchDatasets()
+      break
+    }
+
+    case 'code_execution': {
+      // 新的代码执行记录
+      const execRecord = evt.data as CodeExecution
+      if (execRecord && execRecord.id) {
+        set((s) => ({
+          codeExecutions: [execRecord, ...s.codeExecutions],
         }))
       }
       break

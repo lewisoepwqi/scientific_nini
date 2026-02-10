@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import builtins as py_builtins
+import io
 import multiprocessing
 from multiprocessing.connection import Connection
 import os
@@ -100,6 +102,138 @@ def _build_exec_globals(datasets: dict[str, pd.DataFrame]) -> dict[str, Any]:
     return globals_dict
 
 
+def _collect_figures(exec_globals: dict[str, Any], exec_locals: dict[str, Any]) -> list[dict[str, Any]]:
+    """遍历执行环境，检测并序列化 Plotly/Matplotlib 图表对象。
+
+    - Plotly Figure: 通过 to_json() 序列化为 JSON 字符串
+    - Matplotlib Figure: 通过 savefig() 序列化为 base64 编码的 SVG 和 PNG
+    - 自动去重（同一对象不重复收集）
+    - 跳过空白图表和序列化失败的对象
+    """
+    figures: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
+
+    # 尝试导入图表库（子进程启动代码不受 AST 白名单限制）
+    plotly_figure_cls = None
+    mpl_figure_cls = None
+    try:
+        import plotly.graph_objects as go
+        plotly_figure_cls = go.Figure
+    except Exception:
+        pass
+    try:
+        import matplotlib.figure
+        mpl_figure_cls = matplotlib.figure.Figure
+    except Exception:
+        pass
+
+    if plotly_figure_cls is None and mpl_figure_cls is None:
+        return figures
+
+    # 合并两个命名空间，优先 exec_locals
+    combined: dict[str, Any] = {}
+    combined.update(exec_globals)
+    combined.update(exec_locals)
+
+    # 也检测 matplotlib.pyplot.gcf()
+    mpl_gcf_fig = None
+    if mpl_figure_cls is not None:
+        try:
+            import matplotlib.pyplot as plt
+            gcf = plt.gcf()
+            if gcf.get_axes():
+                mpl_gcf_fig = gcf
+        except Exception:
+            pass
+
+    for var_name, obj in combined.items():
+        if var_name.startswith("_"):
+            continue
+
+        obj_id = id(obj)
+        if obj_id in seen_ids:
+            continue
+
+        # Plotly Figure
+        if plotly_figure_cls is not None and isinstance(obj, plotly_figure_cls):
+            seen_ids.add(obj_id)
+            try:
+                json_str = obj.to_json()
+                title = ""
+                if obj.layout and hasattr(obj.layout, "title") and obj.layout.title:
+                    title_obj = obj.layout.title
+                    if hasattr(title_obj, "text") and title_obj.text:
+                        title = str(title_obj.text)
+                figures.append({
+                    "var_name": var_name,
+                    "library": "plotly",
+                    "plotly_json": json_str,
+                    "title": title,
+                })
+            except Exception:
+                pass
+            continue
+
+        # Matplotlib Figure
+        if mpl_figure_cls is not None and isinstance(obj, mpl_figure_cls):
+            seen_ids.add(obj_id)
+            if not obj.get_axes():
+                continue
+            try:
+                entry: dict[str, Any] = {
+                    "var_name": var_name,
+                    "library": "matplotlib",
+                    "title": "",
+                }
+                # 提取标题
+                title_text = obj._suptitle.get_text() if hasattr(obj, "_suptitle") and obj._suptitle else ""
+                if not title_text and obj.get_axes():
+                    title_text = obj.get_axes()[0].get_title()
+                entry["title"] = title_text or ""
+
+                # SVG
+                svg_buf = io.BytesIO()
+                obj.savefig(svg_buf, format="svg", bbox_inches="tight")
+                entry["svg_data"] = base64.b64encode(svg_buf.getvalue()).decode("ascii")
+
+                # PNG
+                png_buf = io.BytesIO()
+                obj.savefig(png_buf, format="png", bbox_inches="tight", dpi=150)
+                entry["png_data"] = base64.b64encode(png_buf.getvalue()).decode("ascii")
+
+                figures.append(entry)
+            except Exception:
+                pass
+            continue
+
+    # 检测 gcf（当前活跃图表），如果尚未被收集
+    if mpl_gcf_fig is not None and id(mpl_gcf_fig) not in seen_ids:
+        try:
+            entry = {
+                "var_name": "__gcf__",
+                "library": "matplotlib",
+                "title": "",
+            }
+            title_text = mpl_gcf_fig._suptitle.get_text() if hasattr(mpl_gcf_fig, "_suptitle") and mpl_gcf_fig._suptitle else ""
+            if not title_text and mpl_gcf_fig.get_axes():
+                title_text = mpl_gcf_fig.get_axes()[0].get_title()
+            entry["title"] = title_text or ""
+
+            svg_buf = io.BytesIO()
+            mpl_gcf_fig.savefig(svg_buf, format="svg", bbox_inches="tight")
+            entry["svg_data"] = base64.b64encode(svg_buf.getvalue()).decode("ascii")
+
+            png_buf = io.BytesIO()
+            mpl_gcf_fig.savefig(png_buf, format="png", bbox_inches="tight", dpi=150)
+            entry["png_data"] = base64.b64encode(png_buf.getvalue()).decode("ascii")
+
+            figures.append(entry)
+        except Exception:
+            pass
+
+    return figures
+
+
 def _sandbox_worker(
     conn: Connection,
     code: str,
@@ -142,12 +276,16 @@ def _sandbox_worker(
         if isinstance(output_df, pd.DataFrame):
             result_obj = output_df
 
+        # 自动检测并序列化图表对象
+        figures = _collect_figures(exec_globals, exec_locals)
+
         payload = {
             "success": True,
             "stdout": stdout_text,
             "stderr": stderr_text,
             "result": _try_pickleable(result_obj),
             "datasets": local_datasets if persist_df else {},
+            "figures": figures,
         }
         conn.send(payload)
     except Exception as exc:

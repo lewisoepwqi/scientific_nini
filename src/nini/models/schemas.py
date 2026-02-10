@@ -23,7 +23,7 @@ class WSMessage(BaseModel):
 class WSEvent(BaseModel):
     """服务端推送的 WebSocket 事件。"""
 
-    type: str  # text / tool_call / tool_result / chart / data / done / stopped / error / iteration_start
+    type: str  # text / tool_call / tool_result / retrieval / chart / data / done / stopped / error / iteration_start
     data: Any = None
     session_id: Optional[str] = None
     tool_call_id: Optional[str] = None
@@ -101,3 +101,9 @@ class SaveWorkspaceTextRequest(BaseModel):
 
     content: str
     filename: Optional[str] = None
+
+
+class FileRenameRequest(BaseModel):
+    """文件重命名请求。"""
+
+    name: str

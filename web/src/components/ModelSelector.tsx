@@ -1,5 +1,5 @@
 /**
- * 模型选择器 —— 顶栏下拉菜单，点选即设为全局首选模型（持久化）。
+ * 模型选择器 —— 下拉点选后设为全局首选模型（持久化）。
  */
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useStore } from '../store'
@@ -12,7 +12,17 @@ interface ProviderOption {
   current_model: string
 }
 
-export default function ModelSelector() {
+interface ModelSelectorProps {
+  compact?: boolean
+  menuDirection?: 'up' | 'down'
+  align?: 'left' | 'right'
+}
+
+export default function ModelSelector({
+  compact = false,
+  menuDirection = 'down',
+  align = 'right',
+}: ModelSelectorProps) {
   const activeModel = useStore((s) => s.activeModel)
   const fetchActiveModel = useStore((s) => s.fetchActiveModel)
   const setPreferredProvider = useStore((s) => s.setPreferredProvider)
@@ -75,24 +85,33 @@ export default function ModelSelector() {
     : '加载中...'
 
   const configuredProviders = providers.filter((p) => p.configured)
+  const triggerClass = compact
+    ? 'h-8 px-2.5 text-xs border-gray-200 text-gray-600'
+    : 'px-2.5 py-1 text-xs border-gray-200 text-gray-600'
+  const maxWidthClass = compact ? 'max-w-[150px]' : 'max-w-[120px]'
+  const menuPositionClass =
+    menuDirection === 'up'
+      ? `${align === 'right' ? 'right-0' : 'left-0'} bottom-full mb-1`
+      : `${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1`
 
   return (
     <div className="relative" ref={dropdownRef}>
       {/* 触发按钮 */}
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs
-                   text-gray-600 hover:bg-gray-100 transition-colors border border-gray-200"
+        className={`flex items-center gap-1.5 rounded-2xl hover:bg-gray-100 transition-colors border ${triggerClass}`}
         title="切换模型"
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
         <Bot size={13} className="text-blue-500 flex-shrink-0" />
-        <span className="truncate max-w-[120px]">{displayText}</span>
+        <span className={`truncate ${maxWidthClass}`}>{displayText}</span>
         <ChevronDown size={12} className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {/* 下拉菜单 */}
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-72 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50">
+        <div className={`absolute ${menuPositionClass} w-72 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50`}>
           {/* 自动选择（按优先级） */}
           <button
             onClick={() => handleSelect('')}

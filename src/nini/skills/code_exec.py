@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+import base64
+import logging
 import math
+from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from nini.agent.session import Session
+from nini.memory.storage import ArtifactStorage
 from nini.sandbox.executor import sandbox_executor
 from nini.sandbox.policy import SandboxPolicyError
 from nini.skills.base import Skill, SkillResult
+from nini.workspace import WorkspaceManager
+
+logger = logging.getLogger(__name__)
 
 
 def _json_safe_records(df: pd.DataFrame, n_rows: int = 20) -> list[dict[str, Any]]:
@@ -76,6 +83,156 @@ class RunCodeSkill(Skill):
             "required": ["code"],
         }
 
+    def _save_figures(
+        self, session: Session, figures: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """将沙箱序列化的图表保存为工件产物。
+
+        返回产物记录列表，供 SkillResult.artifacts 使用。
+        """
+        if not figures:
+            return []
+
+        storage = ArtifactStorage(session.id)
+        ws = WorkspaceManager(session.id)
+        artifacts: list[dict[str, Any]] = []
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+        for idx, fig_info in enumerate(figures):
+            var_name = fig_info.get("var_name", f"fig_{idx}")
+            library = fig_info.get("library", "unknown")
+            title = fig_info.get("title", "")
+            base_name = title.replace(" ", "_")[:40] if title else f"{var_name}_{ts}"
+
+            if library == "matplotlib":
+                # 保存 SVG
+                svg_b64 = fig_info.get("svg_data", "")
+                if svg_b64:
+                    try:
+                        svg_bytes = base64.b64decode(svg_b64)
+                        svg_name = f"{base_name}.svg"
+                        path = storage.save(svg_bytes, svg_name)
+                        record = ws.add_artifact_record(
+                            name=svg_name,
+                            artifact_type="chart",
+                            file_path=path,
+                            format_hint="svg",
+                        )
+                        artifacts.append({
+                            "name": svg_name,
+                            "type": "chart",
+                            "format": "svg",
+                            "path": str(path),
+                            "download_url": record.get("download_url", ""),
+                        })
+                    except Exception:
+                        logger.debug("保存 matplotlib SVG 失败", exc_info=True)
+
+                # 保存 PNG
+                png_b64 = fig_info.get("png_data", "")
+                if png_b64:
+                    try:
+                        png_bytes = base64.b64decode(png_b64)
+                        png_name = f"{base_name}.png"
+                        path = storage.save(png_bytes, png_name)
+                        record = ws.add_artifact_record(
+                            name=png_name,
+                            artifact_type="chart",
+                            file_path=path,
+                            format_hint="png",
+                        )
+                        artifacts.append({
+                            "name": png_name,
+                            "type": "chart",
+                            "format": "png",
+                            "path": str(path),
+                            "download_url": record.get("download_url", ""),
+                        })
+                    except Exception:
+                        logger.debug("保存 matplotlib PNG 失败", exc_info=True)
+
+            elif library == "plotly":
+                plotly_json = fig_info.get("plotly_json", "")
+                if not plotly_json:
+                    continue
+
+                # 保存 JSON
+                try:
+                    json_name = f"{base_name}.json"
+                    path = storage.save_text(plotly_json, json_name)
+                    ws.add_artifact_record(
+                        name=json_name,
+                        artifact_type="chart",
+                        file_path=path,
+                        format_hint="json",
+                    )
+                except Exception:
+                    logger.debug("保存 Plotly JSON 失败", exc_info=True)
+
+                # 生成 HTML（始终可用）
+                try:
+                    import plotly.graph_objects as go
+                    import json as json_mod
+
+                    fig = go.Figure(json_mod.loads(plotly_json))
+                    html_name = f"{base_name}.html"
+                    html_path = storage.get_path(html_name)
+                    fig.write_html(str(html_path))
+                    record = ws.add_artifact_record(
+                        name=html_name,
+                        artifact_type="chart",
+                        file_path=html_path,
+                        format_hint="html",
+                    )
+                    artifacts.append({
+                        "name": html_name,
+                        "type": "chart",
+                        "format": "html",
+                        "path": str(html_path),
+                        "download_url": record.get("download_url", ""),
+                    })
+                except Exception:
+                    logger.debug("保存 Plotly HTML 失败", exc_info=True)
+
+                # 尝试 SVG/PNG（需要 kaleido + Chrome）
+                try:
+                    import plotly.graph_objects as go
+                    import json as json_mod
+
+                    fig = go.Figure(json_mod.loads(plotly_json))
+                    for fmt in ("svg", "png"):
+                        img_name = f"{base_name}.{fmt}"
+                        img_path = storage.get_path(img_name)
+                        fig.write_image(str(img_path), format=fmt, width=1200, height=800, scale=2)
+                        record = ws.add_artifact_record(
+                            name=img_name,
+                            artifact_type="chart",
+                            file_path=img_path,
+                            format_hint=fmt,
+                        )
+                        artifacts.append({
+                            "name": img_name,
+                            "type": "chart",
+                            "format": fmt,
+                            "path": str(img_path),
+                            "download_url": record.get("download_url", ""),
+                        })
+                except Exception:
+                    # kaleido/Chrome 不可用时静默跳过图片导出
+                    logger.debug("Plotly 图片导出跳过（kaleido/Chrome 不可用）", exc_info=True)
+
+                # 写入 session.artifacts，使 export_chart 可复用
+                try:
+                    import json as json_mod
+                    session.artifacts["latest_chart"] = {
+                        "chart_data": json_mod.loads(plotly_json),
+                        "chart_type": "plotly_auto",
+                    }
+                except Exception:
+                    pass
+
+        return artifacts
+
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
         code = str(kwargs.get("code", "")).strip()
         dataset_name = kwargs.get("dataset_name")
@@ -117,6 +274,10 @@ class RunCodeSkill(Skill):
                 if isinstance(name, str) and isinstance(df, pd.DataFrame):
                     session.datasets[name] = df
 
+        # 处理自动检测到的图表
+        figures = payload.get("figures") or []
+        saved_artifacts = self._save_figures(session, figures)
+
         stdout = str(payload.get("stdout", "")).strip()
         stderr = str(payload.get("stderr", "")).strip()
         result_obj = payload.get("result")
@@ -134,6 +295,8 @@ class RunCodeSkill(Skill):
             }
             extra = f"，已保存为数据集 '{save_as}'" if save_as else ""
             msg = f"代码执行成功，返回 DataFrame（{len(result_obj)} 行 × {len(result_obj.columns)} 列）{extra}"
+            if saved_artifacts:
+                msg += f"\n自动导出了 {len(saved_artifacts)} 个图表产物"
             if stdout:
                 msg += f"\nstdout:\n{stdout}"
             if stderr:
@@ -144,9 +307,12 @@ class RunCodeSkill(Skill):
                 data={"result_type": "dataframe"},
                 has_dataframe=True,
                 dataframe_preview=preview,
+                artifacts=saved_artifacts,
             )
 
         msg = "代码执行成功"
+        if saved_artifacts:
+            msg += f"\n自动导出了 {len(saved_artifacts)} 个图表产物"
         if stdout:
             msg += f"\nstdout:\n{stdout}"
         if stderr:
@@ -156,4 +322,5 @@ class RunCodeSkill(Skill):
             success=True,
             message=msg,
             data={"result": result_obj, "result_type": type(result_obj).__name__},
+            artifacts=saved_artifacts,
         )

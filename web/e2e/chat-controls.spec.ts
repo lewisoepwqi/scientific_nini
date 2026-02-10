@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test'
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     ;(window as Record<string, unknown>).__wsSent = []
+    ;(window as Record<string, unknown>).__fetchSent = []
     const originalFetch = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url =
@@ -11,6 +12,9 @@ test.beforeEach(async ({ page }) => {
           : input instanceof URL
             ? input.toString()
             : input.url
+
+      const fetchSent = (window as Record<string, unknown>).__fetchSent as Array<Record<string, unknown>>
+      fetchSent.push({ url, method: init?.method || 'GET' })
 
       if (url.startsWith('/api/')) {
         if (url === '/api/sessions' && (!init?.method || init.method === 'GET')) {
@@ -94,6 +98,23 @@ test.beforeEach(async ({ page }) => {
             const content = String(payload.content ?? '')
             if (content.includes('slow')) {
               this.startSlowStream()
+            } else if (content.includes('retrieval')) {
+              this.emit({
+                type: 'retrieval',
+                data: {
+                  query: '请做 retrieval 分析',
+                  results: [
+                    {
+                      source: 'demo.md',
+                      score: 1.5,
+                      hits: 1,
+                      snippet: '这是检索命中的知识片段',
+                    },
+                  ],
+                },
+              })
+              this.emit({ type: 'text', data: '已结合检索上下文回答。' })
+              this.emit({ type: 'done' })
             } else if (content.includes('chart')) {
               this.emit({ type: 'text', data: '图表说明文本' })
               this.emit({
@@ -270,4 +291,44 @@ test('图表气泡应使用宽布局，不随文字长度收缩', async ({ page 
   expect(widths.chartWidth).toBeGreaterThan(0)
   // 图表气泡应显著宽于普通文本气泡，避免仅微小浮动导致误判
   expect(widths.chartWidth).toBeGreaterThan(widths.textWidth + 80)
+})
+
+test('检索事件应渲染检索卡片', async ({ page }) => {
+  const input = page.getByPlaceholder('描述你的分析需求...')
+  await input.fill('retrieval e2e test')
+  await input.press('Enter')
+
+  await expect(page.getByText('检索上下文：请做 retrieval 分析')).toBeVisible()
+  await expect(page.getByText('demo.md')).toBeVisible()
+  await expect(page.getByText('这是检索命中的知识片段')).toBeVisible()
+})
+
+test('压缩会话按钮应触发压缩 API', async ({ page }) => {
+  const input = page.getByPlaceholder('描述你的分析需求...')
+  await input.fill('quick message 1')
+  await input.press('Enter')
+  await expect(page.getByText('快速回答内容')).toBeVisible()
+
+  await input.fill('quick message 2')
+  await input.press('Enter')
+  await expect(page.getByText('快速回答内容')).toHaveCount(2)
+
+  await page.evaluate(() => {
+    window.confirm = () => true
+  })
+
+  const compressButton = page.getByTitle('压缩会话')
+  await expect(compressButton).toBeEnabled()
+  await compressButton.click()
+
+  const compressCalls = await page.evaluate(() => {
+    const sent = (window as Record<string, unknown>).__fetchSent as Array<Record<string, unknown>>
+    return sent.filter(
+      (item) =>
+        typeof item.url === 'string' &&
+        item.url.includes('/api/sessions/sess-e2e/compress') &&
+        item.method === 'POST',
+    ).length
+  })
+  expect(compressCalls).toBeGreaterThan(0)
 })
