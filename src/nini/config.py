@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     # ---- 知识库 ----
     knowledge_max_entries: int = 3  # 每次注入最多几个知识条目
     knowledge_max_chars: int = 3000  # 注入总字符数上限
+    knowledge_openai_embedding_model: str = "text-embedding-3-small"
+    knowledge_local_embedding_model: str = "BAAI/bge-small-zh-v1.5"
     prompt_component_max_chars: int = 20000
     prompt_total_max_chars: int = 60000
     skills_dir_path: Path = _ROOT / "skills"
@@ -129,6 +131,13 @@ class Settings(BaseSettings):
     @property
     def allowed_extensions_list(self) -> list[str]:
         return [ext.strip() for ext in self.allowed_extensions.split(",")]
+
+    @property
+    def profiles_dir(self) -> Path:
+        """用户画像存储目录。"""
+        d = self.data_dir / "profiles"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
 
 
 # 全局单例

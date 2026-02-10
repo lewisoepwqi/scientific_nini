@@ -71,7 +71,7 @@ def knowledge_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def loader(knowledge_dir: Path) -> KnowledgeLoader:
-    return KnowledgeLoader(knowledge_dir)
+    return KnowledgeLoader(knowledge_dir, enable_vector=False)
 
 
 class TestKnowledgeLoaderInit:
@@ -103,11 +103,11 @@ class TestKnowledgeLoaderInit:
     def test_empty_dir(self, tmp_path: Path) -> None:
         empty = tmp_path / "empty"
         empty.mkdir()
-        loader = KnowledgeLoader(empty)
+        loader = KnowledgeLoader(empty, enable_vector=False)
         assert len(loader.entries) == 0
 
     def test_nonexistent_dir(self, tmp_path: Path) -> None:
-        loader = KnowledgeLoader(tmp_path / "does_not_exist")
+        loader = KnowledgeLoader(tmp_path / "does_not_exist", enable_vector=False)
         assert len(loader.entries) == 0
 
 
@@ -186,7 +186,7 @@ class TestKnowledgeLoaderReload:
     """测试 reload 功能。"""
 
     def test_reload_picks_up_new_files(self, knowledge_dir: Path) -> None:
-        loader = KnowledgeLoader(knowledge_dir)
+        loader = KnowledgeLoader(knowledge_dir, enable_vector=False)
         assert len(loader.entries) == 4
 
         # 添加新文件

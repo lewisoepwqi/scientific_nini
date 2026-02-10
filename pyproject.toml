@@ -33,6 +33,17 @@ dependencies = [
     "openai>=1.58.0",
     "anthropic>=0.42.0",
 
+    # RAG 向量检索
+    "llama-index-core>=0.12.0",
+    "llama-index-embeddings-openai>=0.3.0",
+
+    # Token 统计
+    "tiktoken>=0.8.0",
+
+    # 网页抓取
+    "html2text>=2024.2.26",
+    "httpx>=0.28.0",
+
     # 数据库
     "aiosqlite>=0.20.0",
 

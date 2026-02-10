@@ -14,12 +14,15 @@ from nini.skills.clean_data import CleanDataSkill
 from nini.skills.code_exec import RunCodeSkill
 from nini.skills.data_ops import DataSummarySkill, LoadDatasetSkill, PreviewDataSkill
 from nini.skills.export import ExportChartSkill
+from nini.skills.fetch_url import FetchURLSkill
 from nini.skills.organize_workspace import OrganizeWorkspaceSkill
 from nini.skills.report import GenerateReportSkill
 from nini.skills.statistics import ANOVASkill, CorrelationSkill, RegressionSkill, TTestSkill
 from nini.skills.visualization import CreateChartSkill
 from nini.skills.workflow_skill import ApplyWorkflowSkill, ListWorkflowsSkill, SaveWorkflowSkill
 from nini.skills.markdown_scanner import render_skills_snapshot, scan_markdown_skills
+# 复合技能模板
+from nini.skills.templates import CompleteANOVASkill, CompleteComparisonSkill, CorrelationAnalysisSkill
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +176,11 @@ def create_default_registry() -> SkillRegistry:
     registry.register(ListWorkflowsSkill())
     registry.register(ApplyWorkflowSkill())
     registry.register(OrganizeWorkspaceSkill())
+    registry.register(FetchURLSkill())
+    # 复合技能模板（P0 优化）
+    registry.register(CompleteComparisonSkill())
+    registry.register(CompleteANOVASkill())
+    registry.register(CorrelationAnalysisSkill())
     registry.reload_markdown_skills()
     registry.write_skills_snapshot()
     return registry

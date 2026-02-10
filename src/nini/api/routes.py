@@ -95,20 +95,35 @@ async def update_session(session_id: str, req: SessionUpdateRequest):
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
     """删除会话。"""
+    from nini.utils.token_counter import remove_tracker
+
     session_manager.remove_session(session_id, delete_persistent=True)
+    remove_tracker(session_id)
     return APIResponse(data={"deleted": session_id})
 
 
 @router.post("/sessions/{session_id}/compress", response_model=APIResponse)
-async def compress_session(session_id: str):
-    """压缩会话历史并归档。"""
+async def compress_session(session_id: str, mode: str = "auto"):
+    """压缩会话历史并归档。
+
+    Args:
+        mode: 压缩模式。"lightweight" 使用轻量摘要，"llm" 使用 LLM 摘要，
+              "auto" 自动选择（优先 LLM，失败回退轻量）。
+    """
     if not session_manager.session_exists(session_id):
         raise HTTPException(status_code=404, detail="会话不存在")
 
     session = session_manager.get_or_create(session_id)
-    from nini.memory.compression import compress_session_history
 
-    result = compress_session_history(session)
+    if mode in ("llm", "auto"):
+        from nini.memory.compression import compress_session_history_with_llm
+
+        result = await compress_session_history_with_llm(session)
+    else:
+        from nini.memory.compression import compress_session_history
+
+        result = compress_session_history(session)
+
     if not result.get("success"):
         return APIResponse(success=False, error=str(result.get("message", "压缩失败")))
 
@@ -854,6 +869,47 @@ async def delete_workflow(template_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail="工作流模板不存在")
     return APIResponse(data={"deleted": template_id})
+
+
+# ---- Token 统计 ----
+
+
+@router.get("/sessions/{session_id}/token-usage", response_model=APIResponse)
+async def get_session_token_usage(session_id: str):
+    """获取会话的 token 消耗统计。"""
+    from nini.utils.token_counter import get_tracker
+
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    tracker = get_tracker(session_id)
+    return APIResponse(data=tracker.to_dict())
+
+
+@router.get("/sessions/{session_id}/context-size", response_model=APIResponse)
+async def get_session_context_size(session_id: str):
+    """获取当前会话上下文的 token 预估。"""
+    from nini.utils.token_counter import count_messages_tokens
+
+    session = session_manager.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在或未加载")
+
+    message_tokens = count_messages_tokens(session.messages)
+    compressed_tokens = 0
+    if getattr(session, "compressed_context", ""):
+        from nini.utils.token_counter import count_tokens
+
+        compressed_tokens = count_tokens(str(session.compressed_context))
+
+    return APIResponse(
+        data={
+            "session_id": session_id,
+            "message_count": len(session.messages),
+            "message_tokens": message_tokens,
+            "compressed_context_tokens": compressed_tokens,
+            "total_context_tokens": message_tokens + compressed_tokens,
+        }
+    )
 
 
 # ---- 健康检查 ----

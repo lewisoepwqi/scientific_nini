@@ -14,8 +14,21 @@ from plotly.utils import PlotlyJSONEncoder
 from nini.agent.session import Session
 from nini.memory.storage import ArtifactStorage
 from nini.skills.base import Skill, SkillResult
-from nini.skills.templates import get_template
 from nini.workspace import WorkspaceManager
+
+# 导入期刊风格配置
+try:
+    from nini.skills.templates import TEMPLATES as JOURNAL_TEMPLATES
+except ImportError:
+    # 如果 templates.py 不存在，使用默认配置
+    JOURNAL_TEMPLATES = {
+        "default": {"font": "Arial", "font_size": 12, "line_width": 1.5, "dpi": 300},
+    }
+
+
+def _get_journal_template(style: str) -> dict[str, object]:
+    """获取期刊风格配置，不存在时回退 default。"""
+    return JOURNAL_TEMPLATES.get(style.lower(), JOURNAL_TEMPLATES.get("default", {"font": "Arial", "font_size": 12, "line_width": 1.5, "dpi": 300}))
 
 JOURNAL_PALETTES: dict[str, list[str]] = {
     "nature": ["#E64B35", "#4DBBD5", "#00A087", "#3C5488", "#F39B7F", "#8491B4"],
@@ -41,7 +54,7 @@ def _assert_columns(df: pd.DataFrame, *columns: str | None) -> None:
 
 def _apply_style(fig: go.Figure, journal_style: str, title: str | None) -> None:
     """统一应用期刊风格布局。"""
-    template = get_template(journal_style)
+    template = _get_journal_template(journal_style)
     fig.update_layout(
         title=title,
         font={
