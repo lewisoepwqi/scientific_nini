@@ -203,3 +203,164 @@ def get_tracker(session_id: str) -> SessionTokenTracker:
 def remove_tracker(session_id: str) -> None:
     """移除会话追踪器。"""
     _trackers.pop(session_id, None)
+
+
+# ---- 成本透明化增强 ----
+
+
+@dataclass
+class TokenUsage:
+    """单次 Token 使用记录（兼容新测试）。"""
+
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    model: str
+
+    def estimate_cost(self) -> float:
+        """估算本次使用的成本（USD）。"""
+        return estimate_cost(
+            self.model,
+            self.prompt_tokens,
+            self.completion_tokens,
+        ) or 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        """转换为字典。"""
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "model": self.model,
+            "cost_estimate": round(self.estimate_cost(), 6),
+        }
+
+
+class TokenTracker:
+    """Token 追踪器（支持预算限制和实时更新）。"""
+
+    def __init__(self, budget_limit: float | None = None):
+        """初始化追踪器。
+
+        Args:
+            budget_limit: 预算限制（USD），None 表示无限制
+        """
+        self._budget_limit = budget_limit
+        self._total_tokens = 0
+        self._total_cost = 0.0
+        self._models_used: dict[str, int] = {}
+        self._usage_records: list[TokenUsage] = []
+
+    @property
+    def total_tokens(self) -> int:
+        return self._total_tokens
+
+    @property
+    def total_cost(self) -> float:
+        return self._total_cost
+
+    def record_usage(self, usage: TokenUsage) -> None:
+        """记录 Token 使用。"""
+        self._usage_records.append(usage)
+        self._total_tokens += usage.total_tokens
+        self._total_cost += usage.estimate_cost()
+
+        # 记录模型使用次数
+        self._models_used[usage.model] = self._models_used.get(usage.model, 0) + 1
+
+    def reset(self) -> None:
+        """重置追踪器。"""
+        self._total_tokens = 0
+        self._total_cost = 0.0
+        self._models_used = {}
+        self._usage_records = []
+
+    def is_over_budget(self) -> bool:
+        """检查是否超出预算。"""
+        if self._budget_limit is None:
+            return False
+        return self._total_cost >= self._budget_limit
+
+    def get_budget_usage_percent(self) -> float:
+        """获取预算使用百分比。"""
+        if self._budget_limit is None or self._budget_limit == 0:
+            return 0.0
+        return self._total_cost / self._budget_limit
+
+    def get_progress_info(self) -> dict[str, Any]:
+        """获取进度信息（用于实时更新 UI）。"""
+        return {
+            "tokens_used": self._total_tokens,
+            "cost_usd": round(self._total_cost, 6),
+            "budget_limit": self._budget_limit,
+            "budget_percent": round(self.get_budget_usage_percent() * 100, 2),
+            "over_budget": self.is_over_budget(),
+            "models_used": dict(self._models_used),
+            "record_count": len(self._usage_records),
+        }
+
+    def get_warning_level(self) -> str:
+        """获取警告级别。"""
+        if self.is_over_budget():
+            return "critical"
+        percent = self.get_budget_usage_percent()
+        if percent >= 0.9:
+            return "warning"
+        if percent >= 0.7:
+            return "caution"
+        return "normal"
+
+
+# 向后兼容：使用 SessionTokenTracker 作为主要接口
+class BudgetAwareTokenTracker(SessionTokenTracker):
+    """支持预算限制的 Token 追踪器。"""
+
+    def __init__(self, session_id: str, budget_limit: float | None = None):
+        """初始化追踪器。
+
+        Args:
+            session_id: 会话 ID
+            budget_limit: 预算限制（USD）
+        """
+        super().__init__(session_id=session_id)
+        self._budget_limit = budget_limit
+
+    @property
+    def budget_limit(self) -> float | None:
+        return self._budget_limit
+
+    @property
+    def budget_usage_percent(self) -> float:
+        """获取预算使用百分比。"""
+        if self._budget_limit is None or self._budget_limit == 0:
+            return 0.0
+        return min(self.total_cost_usd / self._budget_limit, 1.0)
+
+    @property
+    def is_over_budget(self) -> bool:
+        """检查是否超出预算。"""
+        if self._budget_limit is None:
+            return False
+        return self.total_cost_usd >= self._budget_limit
+
+    @property
+    def warning_level(self) -> str:
+        """获取警告级别。"""
+        if self.is_over_budget:
+            return "critical"
+        if self.budget_usage_percent >= 0.9:
+            return "warning"
+        if self.budget_usage_percent >= 0.7:
+            return "caution"
+        return "normal"
+
+    def to_dict(self) -> dict[str, Any]:
+        """导出统计（包含预算信息）。"""
+        base = super().to_dict()
+        base.update({
+            "budget_limit": self._budget_limit,
+            "budget_usage_percent": round(self.budget_usage_percent * 100, 2),
+            "warning_level": self.warning_level,
+            "is_over_budget": self.is_over_budget,
+        })
+        return base

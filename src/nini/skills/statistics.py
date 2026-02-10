@@ -495,3 +495,192 @@ class RegressionSkill(Skill):
 
         except Exception as e:
             return SkillResult(success=False, message=f"回归分析失败: {e}")
+
+
+# ---- 非参数检验 ----
+
+
+class MannWhitneySkill(Skill):
+    """执行 Mann-Whitney U 检验（两组独立样本的非参数检验）。"""
+
+    @property
+    def name(self) -> str:
+        return "mann_whitney"
+
+    @property
+    def description(self) -> str:
+        return (
+            "执行 Mann-Whitney U 检验（Wilcoxon 秩和检验）。"
+            "用于比较两组独立样本的分布差异，不需要正态性假设。"
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "dataset_name": {"type": "string", "description": "数据集名称"},
+                "value_column": {"type": "string", "description": "数值列名"},
+                "group_column": {"type": "string", "description": "分组列名"},
+                "alternative": {
+                    "type": "string",
+                    "enum": ["two-sided", "less", "greater"],
+                    "description": "备择假设方向",
+                    "default": "two-sided",
+                },
+            },
+            "required": ["dataset_name", "value_column", "group_column"],
+        }
+
+    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+        name = kwargs["dataset_name"]
+        value_col = kwargs["value_column"]
+        group_col = kwargs["group_column"]
+        alternative = kwargs.get("alternative", "two-sided")
+
+        df = _get_df(session, name)
+        if df is None:
+            return SkillResult(success=False, message=f"数据集 '{name}' 不存在")
+        if value_col not in df.columns:
+            return SkillResult(success=False, message=f"列 '{value_col}' 不存在")
+        if group_col not in df.columns:
+            return SkillResult(success=False, message=f"分组列 '{group_col}' 不存在")
+
+        groups = df[group_col].dropna().unique()
+        if len(groups) != 2:
+            return SkillResult(
+                success=False,
+                message=f"Mann-Whitney U 检验要求恰好 2 个分组，当前有 {len(groups)} 个",
+            )
+
+        g1 = df[df[group_col] == groups[0]][value_col].dropna()
+        g2 = df[df[group_col] == groups[1]][value_col].dropna()
+
+        if len(g1) < 2 or len(g2) < 2:
+            return SkillResult(success=False, message="每组至少需要 2 个观测值")
+
+        try:
+            stat, pval = stats.mannwhitneyu(
+                g1, g2, alternative=alternative
+            )
+
+            # 计算效应量（r = Z / sqrt(N)）
+            # 使用正态近似计算 Z
+            n1, n2 = len(g1), len(g2)
+            mean_u = n1 * n2 / 2
+            sigma_u = (n1 * n2 * (n1 + n2 + 1) / 12) ** 0.5
+            z_score = (stat - mean_u) / sigma_u if sigma_u > 0 else 0
+            r_effect = abs(z_score) / (n1 + n2) ** 0.5
+
+            result = {
+                "test_type": "Mann-Whitney U 检验",
+                "u_statistic": float(stat),
+                "p_value": float(pval),
+                "z_score": _safe_float(z_score),
+                "effect_size_r": _safe_float(r_effect),
+                "median1": float(g1.median()),
+                "median2": float(g2.median()),
+                "n1": len(g1),
+                "n2": len(g2),
+                "significant": bool(pval < 0.05),
+            }
+
+            sig = "显著" if pval < 0.05 else "不显著"
+            msg = (
+                f"Mann-Whitney U 检验: U = {stat:.0f}, "
+                f"p = {pval:.4f} ({sig}), "
+                f"r = {r_effect:.3f}"
+            )
+
+            return SkillResult(success=True, data=result, message=msg)
+
+        except Exception as e:
+            return SkillResult(success=False, message=f"Mann-Whitney U 检验失败: {e}")
+
+
+class KruskalWallisSkill(Skill):
+    """执行 Kruskal-Wallis H 检验（多组独立样本的非参数检验）。"""
+
+    @property
+    def name(self) -> str:
+        return "kruskal_wallis"
+
+    @property
+    def description(self) -> str:
+        return (
+            "执行 Kruskal-Wallis H 检验。"
+            "用于比较多组独立样本的分布差异，不需要正态性假设。"
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "dataset_name": {"type": "string", "description": "数据集名称"},
+                "value_column": {"type": "string", "description": "数值列名"},
+                "group_column": {"type": "string", "description": "分组列名"},
+            },
+            "required": ["dataset_name", "value_column", "group_column"],
+        }
+
+    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+        name = kwargs["dataset_name"]
+        value_col = kwargs["value_column"]
+        group_col = kwargs["group_column"]
+
+        df = _get_df(session, name)
+        if df is None:
+            return SkillResult(success=False, message=f"数据集 '{name}' 不存在")
+        if value_col not in df.columns:
+            return SkillResult(success=False, message=f"列 '{value_col}' 不存在")
+        if group_col not in df.columns:
+            return SkillResult(success=False, message=f"分组列 '{group_col}' 不存在")
+
+        groups = df[group_col].dropna().unique()
+        if len(groups) < 2:
+            return SkillResult(success=False, message="至少需要 2 个分组")
+
+        group_data = []
+        for group in groups:
+            gdata = df[df[group_col] == group][value_col].dropna()
+            if len(gdata) > 0:
+                group_data.append(gdata)
+
+        if len(group_data) < 2:
+            return SkillResult(success=False, message="至少需要 2 个有效分组")
+
+        try:
+            h_stat, pval = stats.kruskal(*group_data)
+
+            n_total = sum(len(g) for g in group_data)
+            k = len(group_data)
+
+            # 计算 eta squared（效应量）
+            eta_squared = (h_stat - k + 1) / (n_total - k) if n_total > k else 0
+
+            result = {
+                "test_type": "Kruskal-Wallis H 检验",
+                "h_statistic": float(h_stat),
+                "p_value": float(pval),
+                "df": k - 1,
+                "eta_squared": _safe_float(eta_squared),
+                "n_groups": k,
+                "group_medians": {
+                    str(name): float(data.median())
+                    for name, data in zip(groups, group_data)
+                },
+                "significant": bool(pval < 0.05),
+            }
+
+            sig = "显著" if pval < 0.05 else "不显著"
+            msg = (
+                f"Kruskal-Wallis H 检验: H({k-1}) = {h_stat:.3f}, "
+                f"p = {pval:.4f} ({sig}), η² = {eta_squared:.3f}"
+            )
+
+            return SkillResult(success=True, data=result, message=msg)
+
+        except Exception as e:
+            return SkillResult(success=False, message=f"Kruskal-Wallis H 检验失败: {e}")
+

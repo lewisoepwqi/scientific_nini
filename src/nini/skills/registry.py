@@ -6,6 +6,10 @@ import asyncio
 import logging
 from typing import Any
 
+import numpy as np
+import pandas as pd
+from scipy import stats
+
 from nini.agent.lane_queue import lane_queue
 from nini.agent.session import Session
 from nini.config import settings
@@ -17,7 +21,14 @@ from nini.skills.export import ExportChartSkill
 from nini.skills.fetch_url import FetchURLSkill
 from nini.skills.organize_workspace import OrganizeWorkspaceSkill
 from nini.skills.report import GenerateReportSkill
-from nini.skills.statistics import ANOVASkill, CorrelationSkill, RegressionSkill, TTestSkill
+from nini.skills.statistics import (
+    ANOVASkill,
+    CorrelationSkill,
+    KruskalWallisSkill,
+    MannWhitneySkill,
+    RegressionSkill,
+    TTestSkill,
+)
 from nini.skills.visualization import CreateChartSkill
 from nini.skills.workflow_skill import ApplyWorkflowSkill, ListWorkflowsSkill, SaveWorkflowSkill
 from nini.skills.markdown_scanner import render_skills_snapshot, scan_markdown_skills
@@ -25,6 +36,25 @@ from nini.skills.markdown_scanner import render_skills_snapshot, scan_markdown_s
 from nini.skills.templates import CompleteANOVASkill, CompleteComparisonSkill, CorrelationAnalysisSkill
 
 logger = logging.getLogger(__name__)
+
+
+# 统计方法的降级映射
+_FALLBACK_MAP: dict[str, list[dict[str, Any]]] = {
+    "t_test": [
+        {
+            "fallback_skill": "mann_whitney",
+            "condition": "non_normal",
+            "reason": "数据不符合正态性假设，改用非参数检验",
+        },
+    ],
+    "anova": [
+        {
+            "fallback_skill": "kruskal_wallis",
+            "condition": "non_normal_or_variance_hetero",
+            "reason": "数据不符合正态性或方差齐性假设，改用非参数检验",
+        },
+    ],
+}
 
 
 class SkillRegistry:
@@ -133,6 +163,258 @@ class SkillRegistry:
             logger.error("技能 %s 执行失败: %s", skill_name, e, exc_info=True)
             return {"success": False, "message": f"技能执行失败: {e}"}
 
+    async def execute_with_fallback(
+        self,
+        skill_name: str,
+        session: Session,
+        enable_fallback: bool = True,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """执行技能，在失败时尝试降级策略。
+
+        Args:
+            skill_name: 要执行的技能名称
+            session: 会话对象
+            enable_fallback: 是否启用降级策略
+            **kwargs: 技能参数
+
+        Returns:
+            包含执行结果和降级信息的字典
+        """
+        result: dict[str, Any] = {
+            "success": False,
+            "original_skill": skill_name,
+            "fallback": False,
+        }
+
+        # 首先尝试执行原始技能
+        original_result = await self.execute(skill_name, session=session, **kwargs)
+
+        # 如果原始技能成功，直接返回
+        if original_result.get("success") and enable_fallback:
+            # 检查是否需要基于前提条件降级
+            should_fallback = await self._should_trigger_fallback(
+                skill_name, session, kwargs, original_result
+            )
+            if should_fallback["trigger"]:
+                # 执行降级
+                return await self._execute_fallback(
+                    skill_name, session, kwargs, should_fallback
+                )
+            return original_result
+        elif original_result.get("success"):
+            return original_result
+
+        # 原始技能失败，尝试降级
+        if enable_fallback and skill_name in _FALLBACK_MAP:
+            return await self._execute_fallback(
+                skill_name, session, kwargs, {"reason": "原始技能执行失败"}
+            )
+
+        return original_result
+
+    async def _should_trigger_fallback(
+        self,
+        skill_name: str,
+        session: Session,
+        kwargs: dict[str, Any],
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        """判断是否应该触发降级。"""
+        trigger = False
+        reason = ""
+
+        # 检查数据前提条件
+        if skill_name in ["t_test", "anova"]:
+            dataset_name = kwargs.get("dataset_name")
+            value_column = kwargs.get("value_column")
+            group_column = kwargs.get("group_column")
+
+            if dataset_name and value_column and group_column:
+                df = session.datasets.get(dataset_name)
+                if df is not None:
+                    groups = df[group_column].dropna().unique()
+
+                    # 检查正态性
+                    non_normal_groups = []
+                    for group in groups:
+                        group_data = df[df[group_column] == group][value_column].dropna()
+                        if len(group_data) >= 3 and len(group_data) <= 5000:
+                            try:
+                                stat, p = stats.shapiro(group_data)
+                                if p < 0.05:
+                                    non_normal_groups.append(str(group))
+                            except Exception:
+                                pass
+
+                    if non_normal_groups:
+                        trigger = True
+                        reason = f"以下组不符合正态性假设: {', '.join(non_normal_groups)}"
+
+        return {"trigger": trigger, "reason": reason}
+
+    async def _execute_fallback(
+        self,
+        skill_name: str,
+        session: Session,
+        kwargs: dict[str, Any],
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """执行降级技能。"""
+        fallbacks = _FALLBACK_MAP.get(skill_name, [])
+        for fallback_config in fallbacks:
+            fallback_skill = fallback_config["fallback_skill"]
+
+            # 检查降级技能是否存在
+            if fallback_skill not in self._skills:
+                continue
+
+            # 特殊处理：mann_whitney 使用 t_test 的参数
+            fallback_kwargs = kwargs.copy()
+            if fallback_skill == "mann_whitney":
+                # Mann-Whitney 使用与 t_test 相同的参数
+                pass
+            elif fallback_skill == "kruskal_wallis":
+                # Kruskal-Wallis 使用与 anova 相同的参数
+                pass
+
+            # 执行降级技能
+            fallback_result = await self.execute(fallback_skill, session=session, **fallback_kwargs)
+
+            if fallback_result.get("success"):
+                return {
+                    **fallback_result,
+                    "original_skill": skill_name,
+                    "fallback_skill": fallback_skill,
+                    "fallback": True,
+                    "fallback_reason": fallback_config["reason"],
+                }
+
+        # 所有降级都失败
+        return {
+            "success": False,
+            "message": f"技能 {skill_name} 及其降级策略均失败",
+            "original_skill": skill_name,
+            "fallback": False,
+        }
+
+    async def diagnose_data_problem(
+        self,
+        session: Session,
+        dataset_name: str,
+        target_column: str | None = None,
+    ) -> dict[str, Any]:
+        """诊断数据问题并提供修复建议。
+
+        Args:
+            session: 会话对象
+            dataset_name: 数据集名称
+            target_column: 目标列名（可选）
+
+        Returns:
+            诊断结果字典
+        """
+        diagnosis: dict[str, Any] = {
+            "dataset_name": dataset_name,
+            "issues": [],
+            "suggestions": [],
+        }
+
+        df = session.datasets.get(dataset_name)
+        if df is None:
+            diagnosis["issues"].append({"type": "dataset_not_found", "message": "数据集不存在"})
+            return diagnosis
+
+        # 分析列
+        columns_to_analyze = [target_column] if target_column else df.columns.tolist()
+
+        for col in columns_to_analyze:
+            if col not in df.columns:
+                continue
+
+            col_data = df[col]
+
+            # 检查缺失值
+            missing_count = col_data.isna().sum()
+            if missing_count > 0:
+                missing_ratio = missing_count / len(col_data)
+                diagnosis["missing_values"] = {
+                    "column": col,
+                    "count": int(missing_count),
+                    "ratio": float(missing_ratio),
+                }
+                if missing_ratio > 0.5:
+                    diagnosis["suggestions"].append({
+                        "type": "missing_values",
+                        "severity": "high",
+                        "message": f"列 '{col}' 缺失值超过 50%，建议删除该列或使用插补方法",
+                    })
+                elif missing_ratio > 0.1:
+                    diagnosis["suggestions"].append({
+                        "type": "missing_values",
+                        "severity": "medium",
+                        "message": f"列 '{col}' 有 {missing_count} 个缺失值，考虑使用均值/中位数填充",
+                    })
+
+            # 检查数据类型（仅对数值列）
+            if pd.api.types.is_numeric_dtype(col_data):
+                # 检查异常值（使用 IQR 方法）
+                clean_data = col_data.dropna()
+                if len(clean_data) >= 4:
+                    Q1 = clean_data.quantile(0.25)
+                    Q3 = clean_data.quantile(0.75)
+                    IQR = Q3 - Q1
+                    lower_bound = Q1 - 1.5 * IQR
+                    upper_bound = Q3 + 1.5 * IQR
+
+                    outliers = clean_data[(clean_data < lower_bound) | (clean_data > upper_bound)]
+                    if len(outliers) > 0:
+                        diagnosis["outliers"] = {
+                            "column": col,
+                            "count": len(outliers),
+                            "values": outliers.tolist()[:10],  # 最多返回 10 个
+                        }
+                        if len(outliers) > len(clean_data) * 0.05:
+                            diagnosis["suggestions"].append({
+                                "type": "outliers",
+                                "severity": "medium",
+                                "message": f"列 '{col}' 有 {len(outliers)} 个异常值，建议检查数据质量",
+                            })
+
+                # 检查样本量
+                if len(clean_data) < 30:
+                    diagnosis["sample_size"] = {
+                        "column": col,
+                        "count": len(clean_data),
+                        "warning": True,
+                    }
+                    if len(clean_data) < 10:
+                        diagnosis["suggestions"].append({
+                            "type": "sample_size",
+                            "severity": "high",
+                            "message": f"列 '{col}' 样本量过小（n={len(clean_data)}），统计结果可能不可靠",
+                        })
+
+            else:
+                # 检查是否可以转换为数值
+                try:
+                    pd.to_numeric(col_data, errors="coerce")
+                    diagnosis["type_conversion"] = {
+                        "column": col,
+                        "current_type": str(col_data.dtype),
+                        "suggested_type": "numeric",
+                        "can_convert": True,
+                    }
+                    diagnosis["suggestions"].append({
+                        "type": "type_conversion",
+                        "severity": "low",
+                        "message": f"列 '{col}' 可以转换为数值类型以进行数值分析",
+                    })
+                except Exception:
+                    pass
+
+        return diagnosis
+
     async def _execute_skill_in_thread(
         self,
         *,
@@ -164,7 +446,9 @@ def create_default_registry() -> SkillRegistry:
     registry.register(PreviewDataSkill())
     registry.register(DataSummarySkill())
     registry.register(TTestSkill())
+    registry.register(MannWhitneySkill())
     registry.register(ANOVASkill())
+    registry.register(KruskalWallisSkill())
     registry.register(CorrelationSkill())
     registry.register(RegressionSkill())
     registry.register(CreateChartSkill())

@@ -24,6 +24,8 @@ from nini.knowledge.loader import KnowledgeLoader
 from nini.memory.storage import ArtifactStorage
 from nini.utils.token_counter import get_tracker
 from nini.workspace import WorkspaceManager
+# 导入事件模块
+from nini.agent.events import EventType, AgentEvent, create_reasoning_event
 
 logger = logging.getLogger(__name__)
 
@@ -43,36 +45,6 @@ _SUSPICIOUS_CONTEXT_PATTERNS = (
     "token",
 )
 _NON_DIALOG_EVENT_TYPES = {"chart", "data", "artifact", "image"}
-
-
-# ---- 事件类型 ----
-
-
-class EventType(str, Enum):
-    TEXT = "text"
-    TOOL_CALL = "tool_call"
-    TOOL_RESULT = "tool_result"
-    RETRIEVAL = "retrieval"
-    CHART = "chart"
-    DATA = "data"
-    ARTIFACT = "artifact"
-    IMAGE = "image"
-    ITERATION_START = "iteration_start"
-    DONE = "done"
-    ERROR = "error"
-
-
-@dataclass
-class AgentEvent:
-    """Agent 推送的事件。"""
-
-    type: EventType
-    data: Any = None
-    # 用于工具调用追踪
-    tool_call_id: str | None = None
-    tool_name: str | None = None
-    # 用于前端消息分组
-    turn_id: str | None = None
 
 
 # ---- Agent Runner ----
