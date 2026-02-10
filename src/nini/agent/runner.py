@@ -22,6 +22,7 @@ from nini.agent.session import Session
 from nini.config import settings
 from nini.knowledge.loader import KnowledgeLoader
 from nini.memory.storage import ArtifactStorage
+from nini.utils.token_counter import get_tracker
 from nini.workspace import WorkspaceManager
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,7 @@ class AgentRunner:
         max_iter = settings.agent_max_iterations
         turn_id = uuid.uuid4().hex[:12]
         should_stop = stop_event.is_set if stop_event else (lambda: False)
+        report_markdown_for_turn: str | None = None
 
         for iteration in range(max_iter):
             if should_stop():
@@ -168,6 +170,16 @@ class AgentRunner:
                 logger.error("LLM 调用失败: %s", e)
                 yield AgentEvent(type=EventType.ERROR, data=str(e), turn_id=turn_id)
                 return
+
+            # 记录 token 消耗
+            if usage:
+                model_info = self._resolver.get_active_model_info()
+                tracker = get_tracker(session.id)
+                tracker.record(
+                    model=model_info.get("model", "unknown"),
+                    input_tokens=usage.get("input_tokens", 0),
+                    output_tokens=usage.get("output_tokens", 0),
+                )
 
             if should_stop():
                 yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
@@ -232,6 +244,16 @@ class AgentRunner:
                 # 判断执行状态
                 has_error = isinstance(result, dict) and result.get("error")
                 status = "error" if has_error else "success"
+                if (
+                    func_name == "generate_report"
+                    and not has_error
+                    and isinstance(result, dict)
+                ):
+                    data_obj = result.get("data")
+                    if isinstance(data_obj, dict):
+                        report_md = data_obj.get("report_markdown")
+                        if isinstance(report_md, str) and report_md.strip():
+                            report_markdown_for_turn = report_md
 
                 # 推送工具结果
                 result_str = self._serialize_tool_result_for_memory(result)
@@ -319,6 +341,18 @@ class AgentRunner:
                     # 继续处理下一个 tool_call
                     pass
 
+            # generate_report 已返回完整报告时，直接将同一内容作为最终回复。
+            # 这样可确保页面展示与保存文件完全一致，避免模型二次改写造成偏差。
+            if report_markdown_for_turn:
+                session.add_message("assistant", report_markdown_for_turn)
+                yield AgentEvent(
+                    type=EventType.TEXT,
+                    data=report_markdown_for_turn,
+                    turn_id=turn_id,
+                )
+                yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
+                return
+
         # 达到最大迭代次数
         yield AgentEvent(
             type=EventType.ERROR,
@@ -396,6 +430,7 @@ class AgentRunner:
                 retrieval_event = {
                     "query": last_user_msg,
                     "results": retrieval_hits,
+                    "mode": "hybrid" if getattr(self._knowledge_loader, "vector_available", False) else "keyword",
                 }
 
         messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pandas as pd
 import pytest
 
 from nini.agent.runner import AgentRunner, EventType
@@ -37,6 +39,90 @@ class _DummyKnowledgeLoader:
                 }
             ],
         )
+
+
+class _ReportResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, tool_calls: list[dict[str, object]]):
+                self.text = text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls == 1:
+            yield _Chunk(
+                text="",
+                tool_calls=[
+                    {
+                        "id": "call_report_1",
+                        "type": "function",
+                        "function": {
+                            "name": "generate_report",
+                            "arguments": json.dumps(
+                                {
+                                    "title": "自动报告",
+                                    "summary_text": "保持一致性测试",
+                                    "dataset_names": ["exp.csv"],
+                                    "include_recent_messages": False,
+                                    "save_to_knowledge": False,
+                                },
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+            )
+            return
+
+        # 修复后不应执行到第二次 LLM 调用
+        yield _Chunk(text="这段不应出现", tool_calls=[])
+
+
+class _DummySkillRegistry:
+    def get_tool_definitions(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "generate_report",
+                    "description": "生成报告",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
+    async def execute(self, skill_name: str, session: Session, **kwargs):
+        if skill_name != "generate_report":
+            return {"error": f"unknown skill: {skill_name}"}
+        markdown = (
+            "# 自动报告\n\n"
+            "## 数据集概览\n"
+            "- exp.csv\n\n"
+            "## 分析摘要\n"
+            "保持一致性测试\n"
+        )
+        return {
+            "success": True,
+            "message": "报告已生成并保存",
+            "data": {
+                "title": "自动报告",
+                "filename": "auto_report.md",
+                "report_markdown": markdown,
+            },
+            "artifacts": [
+                {
+                    "name": "auto_report.md",
+                    "type": "report",
+                    "path": str(settings.sessions_dir / session.id / "workspace" / "artifacts" / "auto_report.md"),
+                    "download_url": f"/api/artifacts/{session.id}/auto_report.md",
+                }
+            ],
+        }
 
 
 @pytest.fixture(autouse=True)
@@ -74,6 +160,31 @@ async def test_runner_emits_retrieval_event_before_text() -> None:
     assert len(retrieval_event.data["results"]) == 1
 
 
+@pytest.mark.asyncio
+async def test_generate_report_uses_saved_markdown_as_final_response() -> None:
+    session = Session()
+    session.datasets["exp.csv"] = pd.DataFrame({"x": [1, 2, 3]})
+    resolver = _ReportResolver()
+    runner = AgentRunner(
+        resolver=resolver,
+        skill_registry=_DummySkillRegistry(),
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    events = []
+    async for event in runner.run(session, "生成报告"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    text_payloads = [str(e.data) for e in events if e.type == EventType.TEXT]
+    assert resolver.calls == 1
+    assert any("## 分析摘要" in payload for payload in text_payloads)
+    assert all("这段不应出现" not in payload for payload in text_payloads)
+    assert session.messages[-1]["role"] == "assistant"
+    assert "## 分析摘要" in str(session.messages[-1]["content"])
+
+
 def test_compress_session_history_archives_and_updates_context() -> None:
     session = Session()
     for i in range(8):
@@ -107,4 +218,3 @@ def test_api_compress_session_endpoint() -> None:
         assert payload["success"] is True
         assert payload["data"]["archived_count"] >= 4
         assert payload["data"]["remaining_count"] >= 1
-

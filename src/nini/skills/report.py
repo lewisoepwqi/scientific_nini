@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -92,6 +93,38 @@ def _build_markdown(
     return "\n".join(sections).strip() + "\n"
 
 
+def _resolve_output_name(
+    session: Session,
+    storage: ArtifactStorage,
+    *,
+    filename: Any,
+) -> str:
+    """解析并去重报告文件名，避免覆盖历史报告。"""
+    manager = WorkspaceManager(session.id)
+
+    if isinstance(filename, str) and filename.strip():
+        raw_name = filename.strip()
+    else:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        raw_name = f"analysis_report_{ts}.md"
+
+    if not raw_name.endswith(".md"):
+        raw_name += ".md"
+
+    safe_name = manager.sanitize_filename(raw_name, default_name="analysis_report.md")
+    if not safe_name.lower().endswith(".md"):
+        safe_name += ".md"
+
+    candidate = safe_name
+    stem = Path(safe_name).stem or "analysis_report"
+    suffix = Path(safe_name).suffix or ".md"
+    counter = 2
+    while storage.get_path(candidate).exists():
+        candidate = f"{stem}_{counter}{suffix}"
+        counter += 1
+    return candidate
+
+
 class GenerateReportSkill(Skill):
     """生成 Markdown 分析报告并保存为产物。"""
 
@@ -157,13 +190,11 @@ class GenerateReportSkill(Skill):
         )
 
         storage = ArtifactStorage(session.id)
-        output_name = (
-            str(filename).strip()
-            if isinstance(filename, str) and filename.strip()
-            else "analysis_report.md"
+        output_name = _resolve_output_name(
+            session,
+            storage,
+            filename=filename,
         )
-        if not output_name.endswith(".md"):
-            output_name += ".md"
         path = storage.save_text(markdown, output_name)
 
         if save_to_knowledge:

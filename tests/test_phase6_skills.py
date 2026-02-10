@@ -14,6 +14,7 @@ import pytest
 from nini.agent.session import Session
 from nini.config import settings
 from nini.skills.base import Skill, SkillResult
+from nini.skills.report import GenerateReportSkill
 from nini.skills.registry import SkillRegistry
 from nini.skills.registry import create_default_registry
 from nini.workspace import WorkspaceManager
@@ -85,6 +86,47 @@ def test_generate_report_writes_artifact_and_knowledge() -> None:
 
     knowledge_text = session.knowledge_memory.read()
     assert "## 测试报告" in knowledge_text
+
+
+def test_generate_report_default_filename_is_unique_and_not_overwritten() -> None:
+    skill = GenerateReportSkill()
+    session = Session()
+    session.datasets["exp.csv"] = pd.DataFrame({"x": [1, 2, 3]})
+
+    first_result = asyncio.run(
+        skill.execute(
+            session=session,
+            title="首份报告",
+            summary_text="第一次结论",
+            save_to_knowledge=False,
+        )
+    )
+    first = first_result.to_dict()
+    assert first["success"] is True, first
+    first_artifact = first_result.artifacts[0]
+    first_path = Path(first_artifact["path"])
+    first_content = first_path.read_text(encoding="utf-8")
+    assert "第一次结论" in first_content
+
+    second_result = asyncio.run(
+        skill.execute(
+            session=session,
+            title="次份报告",
+            summary_text="第二次结论",
+            save_to_knowledge=False,
+        )
+    )
+    second = second_result.to_dict()
+    assert second["success"] is True, second
+    second_artifact = second_result.artifacts[0]
+    second_path = Path(second_artifact["path"])
+    second_content = second_path.read_text(encoding="utf-8")
+    assert "第二次结论" in second_content
+
+    assert first_artifact["name"] != second_artifact["name"]
+    assert first_path.exists()
+    assert second_path.exists()
+    assert first_path.read_text(encoding="utf-8") == first_content
 
 
 def test_export_chart_exports_html_artifact() -> None:
