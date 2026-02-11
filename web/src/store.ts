@@ -1070,6 +1070,18 @@ function parseToolArgs(rawArgs: unknown): Record<string, unknown> {
   }
 }
 
+function normalizeRunCodeIntent(name: string, toolArgs: Record<string, unknown>): Record<string, unknown> {
+  if (name !== 'run_code') return toolArgs
+
+  const intent = typeof toolArgs.intent === 'string' ? toolArgs.intent.trim() : ''
+  if (intent) return toolArgs
+
+  const label = typeof toolArgs.label === 'string' ? toolArgs.label.trim() : ''
+  if (!label) return toolArgs
+
+  return { ...toolArgs, intent: label }
+}
+
 function normalizeToolResult(rawContent: unknown): { message: string; status: 'success' | 'error' } {
   if (typeof rawContent !== 'string' || !rawContent.trim()) {
     return { message: '', status: 'success' }
@@ -1169,7 +1181,7 @@ function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Message[] {
       for (const tc of toolCalls) {
         const name = tc.function?.name || '工具调用'
         const argsRaw = tc.function?.arguments || ''
-        const toolArgs = parseToolArgs(argsRaw)
+        const toolArgs = normalizeRunCodeIntent(name, parseToolArgs(argsRaw))
         const toolCallId = tc.id
         const msg: Message = {
           id: nextId(),
@@ -1301,10 +1313,12 @@ function handleEvent(
       const turnId = evt.turn_id || get()._currentTurnId || undefined
       let toolArgs: Record<string, unknown> = {}
       try {
-        toolArgs = JSON.parse(data.arguments)
+        const parsed = JSON.parse(data.arguments)
+        toolArgs = isRecord(parsed) ? parsed : { value: parsed }
       } catch {
         toolArgs = { raw: data.arguments }
       }
+      toolArgs = normalizeRunCodeIntent(data.name, toolArgs)
       const msg: Message = {
         id: nextId(),
         role: 'tool',
