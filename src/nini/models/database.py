@@ -1,13 +1,13 @@
 """SQLite 数据库模型和初始化。
 
-使用 aiosqlite + 原生 SQL（不依赖 SQLAlchemy ORM），保持轻量。
+使用 sqlite3 + 轻量异步包装（不依赖 SQLAlchemy ORM），保持轻量。
 """
 
 from __future__ import annotations
 
-import aiosqlite
 import logging
-from pathlib import Path
+import sqlite3
+from typing import Any, Iterable
 
 from nini.config import settings
 
@@ -86,18 +86,86 @@ ON artifacts(session_id, created_at DESC);
 """
 
 
+class AsyncSQLiteCursor:
+    """sqlite3.Cursor 的最小异步适配层。"""
+
+    def __init__(self, cursor: sqlite3.Cursor):
+        self._cursor = cursor
+
+    @property
+    def rowcount(self) -> int:
+        return self._cursor.rowcount
+
+    async def fetchone(self) -> sqlite3.Row | tuple[Any, ...] | None:
+        return self._cursor.fetchone()
+
+    async def fetchall(self) -> list[sqlite3.Row] | list[tuple[Any, ...]]:
+        return self._cursor.fetchall()
+
+    async def close(self) -> None:
+        self._cursor.close()
+
+
+class AsyncSQLiteConnection:
+    """sqlite3.Connection 的最小异步适配层。
+
+    说明：
+    - 当前执行环境中 aiosqlite 依赖线程回调，可能导致事件循环无法收敛。
+    - 这里保持 `await db.execute()/commit()/close()` 调用接口不变，
+      但底层使用同步 sqlite3，避免线程桥接阻塞。
+    """
+
+    def __init__(self, conn: sqlite3.Connection):
+        self._conn = conn
+
+    @property
+    def row_factory(self) -> type | None:
+        return self._conn.row_factory
+
+    @row_factory.setter
+    def row_factory(self, factory: type | None) -> None:
+        self._conn.row_factory = factory
+
+    async def execute(
+        self,
+        sql: str,
+        parameters: Iterable[Any] | None = None,
+    ) -> AsyncSQLiteCursor:
+        cursor = self._conn.execute(sql, tuple(parameters or ()))
+        return AsyncSQLiteCursor(cursor)
+
+    async def executescript(self, sql_script: str) -> AsyncSQLiteCursor:
+        cursor = self._conn.executescript(sql_script)
+        return AsyncSQLiteCursor(cursor)
+
+    async def commit(self) -> None:
+        self._conn.commit()
+
+    async def rollback(self) -> None:
+        self._conn.rollback()
+
+    async def close(self) -> None:
+        self._conn.close()
+
+    async def __aenter__(self) -> AsyncSQLiteConnection:
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self.close()
+
+
 async def init_db() -> None:
     """初始化数据库（建表 + 迁移）。"""
     db_path = settings.db_path
     logger.info("初始化数据库: %s", db_path)
-    async with aiosqlite.connect(str(db_path)) as db:
+    async with await get_db() as db:
         await db.executescript(_SCHEMA)
         # 迁移：为旧数据库添加新字段
         await _migrate_model_configs(db)
         await db.commit()
 
 
-async def _migrate_model_configs(db: aiosqlite.Connection) -> None:
+async def _migrate_model_configs(db: AsyncSQLiteConnection) -> None:
     """为 model_configs 表添加可能缺失的字段和索引（兼容旧数据库）。"""
     cursor = await db.execute("PRAGMA table_info(model_configs)")
     columns = {row[1] for row in await cursor.fetchall()}
@@ -145,8 +213,9 @@ async def _migrate_model_configs(db: aiosqlite.Connection) -> None:
         logger.debug("创建 app_settings 表跳过: %s", e)
 
 
-async def get_db() -> aiosqlite.Connection:
+async def get_db() -> AsyncSQLiteConnection:
     """获取数据库连接。"""
-    db = await aiosqlite.connect(str(settings.db_path))
-    db.row_factory = aiosqlite.Row
+    conn = sqlite3.connect(str(settings.db_path), timeout=10.0)
+    conn.row_factory = sqlite3.Row
+    db = AsyncSQLiteConnection(conn)
     return db

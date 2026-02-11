@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 import uuid
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,7 @@ from urllib.parse import quote
 
 import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 
 from nini.agent.session import session_manager
 from nini.config import settings
@@ -25,10 +26,66 @@ from nini.models.schemas import (
     SetActiveModelRequest,
     UploadResponse,
 )
+from nini.utils.dataframe_io import read_dataframe
 from nini.workspace import WorkspaceManager
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
+
+
+# Excel 序列日期关键词（用于启发式检测）
+_DATE_HINTS = {"日期", "时间", "时刻", "date", "time", "datetime", "timestamp"}
+
+
+def _fix_excel_serial_dates(df: pd.DataFrame) -> pd.DataFrame:
+    """检测并修复 Excel 序列日期：object 列中混入的浮点型日期值。
+
+    Excel 序列日期以 1899-12-30 为 day 0，合理范围 ~25000-55000 对应 ~1968-2050。
+    pd.to_datetime() 对 float 按纳秒解释会得到 1970 年附近的错误值。
+    此函数将此类值转为正确的 datetime。
+    """
+    excel_epoch = pd.Timestamp("1899-12-30")
+
+    for col in df.columns:
+        # 仅处理列名含日期/时间关键词的 object 列
+        col_lower = str(col).lower()
+        if not any(hint in col_lower for hint in _DATE_HINTS):
+            continue
+        if df[col].dtype != "object":
+            continue
+
+        def _convert_value(val: Any) -> Any:
+            """单值转换：Excel 序列日期 float/int → datetime。"""
+            if isinstance(val, (int, float)):
+                try:
+                    serial = float(val)
+                    if 25000 <= serial <= 55000:
+                        return excel_epoch + pd.to_timedelta(serial, unit="D")
+                except (ValueError, OverflowError):
+                    pass
+            return val
+
+        converted = df[col].map(_convert_value)
+        # 尽量将整列统一为 datetime，避免 datetime 与 str 混排导致后续排序报错
+        parsed = pd.to_datetime(converted, errors="coerce")
+        non_null_count = int(converted.notna().sum())
+        parsed_count = int(parsed.notna().sum())
+        if non_null_count > 0 and (parsed_count / non_null_count) >= 0.8:
+            df[col] = parsed
+        else:
+            df[col] = converted
+
+    return df
+
+
+def _build_download_response(path: Path, filename: str) -> Response:
+    """构造下载响应（避免 FileResponse 在线程池路径上的阻塞）。"""
+    media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    return Response(
+        content=path.read_bytes(),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---- 会话管理 ----
@@ -197,17 +254,14 @@ async def upload_file(
 
     # 读取为 DataFrame
     try:
-        if ext in ("xlsx", "xls"):
-            df = pd.read_excel(save_path)
-        elif ext == "csv":
-            df = pd.read_csv(save_path)
-        elif ext in ("tsv", "txt"):
-            df = pd.read_csv(save_path, sep="\t")
-        else:
-            raise ValueError(f"不支持的扩展名: {ext}")
+        df = read_dataframe(save_path, ext)
     except Exception as e:
         save_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"无法解析文件: {e}")
+
+    # Excel 序列日期自动转换：检测 object 列中混入的 Excel 序列日期数值
+    if ext in ("xlsx", "xls"):
+        df = _fix_excel_serial_dates(df)
 
     # 注册到会话（内存）
     session.datasets[dataset_name] = df
@@ -494,7 +548,7 @@ async def download_artifact(session_id: str, filename: str):
         artifact_path = settings.sessions_dir / session_id / "artifacts" / safe_name
     if not artifact_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
-    return FileResponse(str(artifact_path), filename=safe_name)
+    return _build_download_response(artifact_path, safe_name)
 
 
 @router.get("/workspace/{session_id}/uploads/{filename}")
@@ -504,7 +558,7 @@ async def download_workspace_upload(session_id: str, filename: str):
     path = settings.sessions_dir / session_id / "workspace" / "uploads" / safe_name
     if not path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
-    return FileResponse(str(path), filename=safe_name)
+    return _build_download_response(path, safe_name)
 
 
 @router.get("/workspace/{session_id}/notes/{filename}")
@@ -514,7 +568,7 @@ async def download_workspace_note(session_id: str, filename: str):
     path = settings.sessions_dir / session_id / "workspace" / "notes" / safe_name
     if not path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
-    return FileResponse(str(path), filename=safe_name)
+    return _build_download_response(path, safe_name)
 
 
 # ---- 模型配置 ----
@@ -561,7 +615,15 @@ _MODEL_PROVIDERS = [
     {
         "id": "zhipu",
         "name": "智谱 AI (GLM)",
-        "models": ["glm-4", "glm-4-plus", "glm-4-flash"],
+        "models": [
+            "glm-4.7",
+            "glm-4.6",
+            "glm-4.5",
+            "glm-4.5-air",
+            "glm-4",
+            "glm-4-plus",
+            "glm-4-flash",
+        ],
         "key_field": "zhipu_api_key",
         "model_field": "zhipu_model",
     },
@@ -885,6 +947,101 @@ async def get_session_token_usage(session_id: str):
     return APIResponse(data=tracker.to_dict())
 
 
+@router.get("/sessions/{session_id}/memory-files", response_model=APIResponse)
+async def list_memory_files(session_id: str):
+    """列出会话记忆文件（memory.jsonl、knowledge.md、meta.json、archive/*.json）。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    session_dir = settings.sessions_dir / session_id
+    files: list[dict[str, Any]] = []
+
+    # 检查标准记忆文件
+    for filename in ("memory.jsonl", "knowledge.md", "meta.json"):
+        fpath = session_dir / filename
+        if fpath.exists() and fpath.is_file():
+            stat = fpath.stat()
+            info: dict[str, Any] = {
+                "name": filename,
+                "size": stat.st_size,
+                "modified_at": stat.st_mtime,
+            }
+            # 对 memory.jsonl 统计行数
+            if filename == "memory.jsonl":
+                try:
+                    info["line_count"] = sum(1 for _ in open(fpath, "r", encoding="utf-8"))
+                except Exception:
+                    info["line_count"] = 0
+            files.append(info)
+
+    # 检查 archive 目录
+    archive_dir = session_dir / "archive"
+    if archive_dir.exists() and archive_dir.is_dir():
+        for apath in sorted(archive_dir.glob("*.json")):
+            stat = apath.stat()
+            files.append({
+                "name": f"archive/{apath.name}",
+                "size": stat.st_size,
+                "modified_at": stat.st_mtime,
+            })
+
+    # 获取压缩状态
+    session = session_manager.get_session(session_id)
+    compression_info: dict[str, Any] = {}
+    if session is not None:
+        compression_info = {
+            "compressed_rounds": getattr(session, "compressed_rounds", 0),
+            "last_compressed_at": getattr(session, "last_compressed_at", None),
+        }
+
+    return APIResponse(data={
+        "session_id": session_id,
+        "files": files,
+        "compression": compression_info,
+    })
+
+
+@router.get("/sessions/{session_id}/memory-files/{filename:path}", response_model=APIResponse)
+async def read_memory_file(session_id: str, filename: str):
+    """读取记忆文件内容（前 200 行）。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    # 安全检查：防止路径遍历
+    safe_name = Path(filename)
+    if ".." in safe_name.parts:
+        raise HTTPException(status_code=400, detail="无效的文件路径")
+
+    session_dir = settings.sessions_dir / session_id
+    fpath = session_dir / safe_name
+    if not fpath.exists() or not fpath.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    # 确保文件在会话目录内
+    try:
+        fpath.resolve().relative_to(session_dir.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无效的文件路径")
+
+    lines: list[str] = []
+    try:
+        with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+            for i, line in enumerate(f):
+                if i >= 200:
+                    break
+                lines.append(line.rstrip("\n"))
+    except Exception:
+        raise HTTPException(status_code=500, detail="无法读取文件")
+
+    return APIResponse(data={
+        "session_id": session_id,
+        "filename": filename,
+        "content": "\n".join(lines),
+        "total_lines_read": len(lines),
+        "truncated": len(lines) >= 200,
+    })
+
+
 @router.get("/sessions/{session_id}/context-size", response_model=APIResponse)
 async def get_session_context_size(session_id: str):
     """获取当前会话上下文的 token 预估。"""
@@ -900,6 +1057,10 @@ async def get_session_context_size(session_id: str):
         from nini.utils.token_counter import count_tokens
 
         compressed_tokens = count_tokens(str(session.compressed_context))
+    total_tokens = message_tokens + compressed_tokens
+    threshold_tokens = int(settings.auto_compress_threshold_tokens)
+    target_tokens = int(settings.auto_compress_target_tokens)
+    remaining_until_compress = max(threshold_tokens - total_tokens, 0)
 
     return APIResponse(
         data={
@@ -907,7 +1068,11 @@ async def get_session_context_size(session_id: str):
             "message_count": len(session.messages),
             "message_tokens": message_tokens,
             "compressed_context_tokens": compressed_tokens,
-            "total_context_tokens": message_tokens + compressed_tokens,
+            "total_context_tokens": total_tokens,
+            "auto_compress_enabled": bool(settings.auto_compress_enabled),
+            "compress_threshold_tokens": threshold_tokens,
+            "compress_target_tokens": target_tokens,
+            "remaining_until_compress_tokens": remaining_until_compress,
         }
     )
 

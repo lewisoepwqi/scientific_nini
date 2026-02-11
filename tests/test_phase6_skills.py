@@ -60,6 +60,16 @@ def test_generate_report_writes_artifact_and_knowledge() -> None:
     session.datasets["exp.csv"] = pd.DataFrame({"x": [1, 2, 3]})
     session.add_message("user", "请分析数据")
     session.add_tool_result("tc-1", '{"message":"t 检验结果显著"}')
+    wm = WorkspaceManager(session.id)
+    chart_path = settings.sessions_dir / session.id / "workspace" / "artifacts" / "phase6_chart.plotly.json"
+    chart_path.parent.mkdir(parents=True, exist_ok=True)
+    chart_path.write_text('{"data":[],"layout":{}}', encoding="utf-8")
+    wm.add_artifact_record(
+        name="phase6_chart.plotly.json",
+        artifact_type="chart",
+        file_path=chart_path,
+        format_hint="json",
+    )
 
     result = asyncio.run(
         registry.execute(
@@ -83,6 +93,11 @@ def test_generate_report_writes_artifact_and_knowledge() -> None:
     text = report_path.read_text(encoding="utf-8")
     assert "# 测试报告" in text
     assert "药物组优于对照组。" in text
+    assert "## 图表预览" in text
+    assert f"![phase6_chart.plotly.json](/api/artifacts/{session.id}/phase6_chart.plotly.json)" in text
+    assert "## 图表清单" in text
+    assert "`phase6_chart.plotly.json`" in text
+    assert f"/api/artifacts/{session.id}/phase6_chart.plotly.json" in text
 
     knowledge_text = session.knowledge_memory.read()
     assert "## 测试报告" in knowledge_text
@@ -163,8 +178,8 @@ def test_export_chart_exports_html_artifact() -> None:
     assert artifact["download_url"].endswith("/phase6_export.html")
 
 
-def test_skill_execute_runs_in_worker_thread() -> None:
-    """技能执行应在线程池中运行，避免阻塞主事件循环。"""
+def test_skill_execute_runs_in_current_thread() -> None:
+    """技能执行默认在当前事件循环线程中运行。"""
 
     class ThreadProbeSkill(Skill):
         @property
@@ -194,7 +209,7 @@ def test_skill_execute_runs_in_worker_thread() -> None:
     result = asyncio.run(registry.execute("thread_probe", session=session))
 
     assert result["success"] is True, result
-    assert result["data"]["thread_id"] != main_thread_id
+    assert result["data"]["thread_id"] == main_thread_id
 
 
 def test_registry_execute_signature_avoids_name_collision() -> None:

@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from nini.agent.session import session_manager
 from nini.app import create_app
 from nini.config import settings
+from tests.client_utils import LocalASGIClient
 
 
 @pytest.fixture(autouse=True)
@@ -25,12 +25,13 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
     session_manager._sessions.clear()
     app = create_app()
-    with TestClient(app) as c:
-        yield c
+    client = LocalASGIClient(app)
+    yield client
+    client.close()
     session_manager._sessions.clear()
 
 
-def test_workspace_dataset_persist_and_reload(client: TestClient) -> None:
+def test_workspace_dataset_persist_and_reload(client: LocalASGIClient) -> None:
     create_resp = client.post("/api/sessions")
     assert create_resp.status_code == 200
     session_id = create_resp.json()["data"]["session_id"]
@@ -71,7 +72,7 @@ def test_workspace_dataset_persist_and_reload(client: TestClient) -> None:
 
 
 def test_workspace_messages_endpoint_returns_empty_for_workspace_only_session(
-    client: TestClient,
+    client: LocalASGIClient,
 ) -> None:
     create_resp = client.post("/api/sessions")
     session_id = create_resp.json()["data"]["session_id"]
@@ -90,7 +91,7 @@ def test_workspace_messages_endpoint_returns_empty_for_workspace_only_session(
     assert messages_resp.json()["data"]["messages"] == []
 
 
-def test_workspace_save_text_and_download_note(client: TestClient) -> None:
+def test_workspace_save_text_and_download_note(client: LocalASGIClient) -> None:
     create_resp = client.post("/api/sessions")
     session_id = create_resp.json()["data"]["session_id"]
 
@@ -116,4 +117,3 @@ def test_workspace_save_text_and_download_note(client: TestClient) -> None:
     )
     assert download_resp.status_code == 200
     assert "print('hello')" in download_resp.text
-

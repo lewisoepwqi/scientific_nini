@@ -4,6 +4,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useStore } from '../store'
 import { MessageSquarePlus, MessageSquare, Trash2, X } from 'lucide-react'
+import MemoryPanel from './MemoryPanel'
 
 interface Props {
   onClose?: () => void
@@ -62,6 +63,17 @@ export default function SessionList({ onClose }: Props) {
             <X size={18} />
           </button>
         )}
+      </div>
+
+      <div className="p-3 border-b">
+        <button
+          onClick={() => { createNewSession(); onClose?.() }}
+          className="w-full flex items-center justify-center gap-2 rounded-lg border border-gray-200
+                     px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+        >
+          <MessageSquarePlus size={14} />
+          新建会话
+        </button>
       </div>
 
       {/* 会话列表 */}
@@ -127,16 +139,7 @@ export default function SessionList({ onClose }: Props) {
         })}
       </div>
 
-      <div className="p-3 border-t">
-        <button
-          onClick={() => { createNewSession(); onClose?.() }}
-          className="w-full flex items-center justify-center gap-2 rounded-lg border border-gray-200
-                     px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-        >
-          <MessageSquarePlus size={14} />
-          新建会话
-        </button>
-      </div>
+      <MemoryPanel />
     </div>
   )
 }

@@ -31,9 +31,12 @@ export default function AgentTurnGroup({ messages }: Props) {
   }
 
   // 分离中间步骤和最终回复
-  const intermediateMessages = lastAssistantIdx >= 0
+  // 分析思路消息（isReasoning）不折叠到中间步骤，始终显示
+  const allIntermediate = lastAssistantIdx >= 0
     ? messages.slice(0, lastAssistantIdx)
     : messages.slice(0, -1)
+  const reasoningMessages = allIntermediate.filter((m) => m.isReasoning)
+  const intermediateMessages = allIntermediate.filter((m) => !m.isReasoning)
   const finalMessages = lastAssistantIdx >= 0
     ? messages.slice(lastAssistantIdx)
     : messages.slice(-1)
@@ -44,6 +47,11 @@ export default function AgentTurnGroup({ messages }: Props) {
 
   return (
     <div>
+      {/* 分析思路始终显示 */}
+      {reasoningMessages.map((msg) => (
+        <MessageBubble key={msg.id} message={msg} />
+      ))}
+
       {/* 折叠的中间步骤 */}
       {intermediateMessages.length > 0 && (
         <div className="mb-2">
@@ -76,7 +84,7 @@ export default function AgentTurnGroup({ messages }: Props) {
 
 function findLastAssistantIndex(messages: Message[]): number {
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'assistant' && !messages[i].toolName) {
+    if (messages[i].role === 'assistant' && !messages[i].toolName && !messages[i].isReasoning) {
       return i
     }
   }

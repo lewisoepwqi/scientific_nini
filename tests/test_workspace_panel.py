@@ -5,17 +5,50 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import zipfile
 from pathlib import Path
 
+import httpx
+import pandas as pd
 import pytest
-from fastapi.testclient import TestClient
 
 from nini.agent.session import session_manager
+from nini.api.routes import _fix_excel_serial_dates
 from nini.app import create_app
 from nini.config import settings
 from nini.workspace import WorkspaceManager
+
+
+class LocalASGIClient:
+    """同步测试客户端：基于 httpx + ASGITransport，避免 TestClient 线程阻塞。"""
+
+    def __init__(self, app):
+        self._app = app
+
+    def request(self, method: str, url: str, **kwargs):
+        async def _run():
+            transport = httpx.ASGITransport(app=self._app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client:
+                return await client.request(method, url, **kwargs)
+
+        return asyncio.run(_run())
+
+    def get(self, url: str, **kwargs):
+        return self.request("GET", url, **kwargs)
+
+    def post(self, url: str, **kwargs):
+        return self.request("POST", url, **kwargs)
+
+    def patch(self, url: str, **kwargs):
+        return self.request("PATCH", url, **kwargs)
+
+    def delete(self, url: str, **kwargs):
+        return self.request("DELETE", url, **kwargs)
 
 
 @pytest.fixture(autouse=True)
@@ -31,12 +64,11 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
     session_manager._sessions.clear()
     app = create_app()
-    with TestClient(app) as c:
-        yield c
+    yield LocalASGIClient(app)
     session_manager._sessions.clear()
 
 
-def _create_session_and_upload(client: TestClient) -> tuple[str, str]:
+def _create_session_and_upload(client: LocalASGIClient) -> tuple[str, str]:
     """创建会话并上传一个 CSV 文件，返回 (session_id, dataset_id)。"""
     resp = client.post("/api/sessions")
     session_id = resp.json()["data"]["session_id"]
@@ -49,13 +81,28 @@ def _create_session_and_upload(client: TestClient) -> tuple[str, str]:
     return session_id, dataset_id
 
 
+def test_fix_excel_serial_dates_unifies_datetime_column_type() -> None:
+    df = pd.DataFrame(
+        {
+            "测量时刻": [
+                pd.Timestamp("2024-01-01 08:00:00"),
+                45000.5,  # Excel 序列日期
+            ]
+        }
+    )
+
+    fixed = _fix_excel_serial_dates(df)
+    assert pd.api.types.is_datetime64_any_dtype(fixed["测量时刻"])
+    assert int(fixed["测量时刻"].notna().sum()) == 2
+
+
 # ---- WorkspaceManager 单元测试 ----
 
 
 class TestWorkspaceManagerDeleteFile:
     """测试 delete_file 方法。"""
 
-    def test_delete_dataset(self, client: TestClient):
+    def test_delete_dataset(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
         manager = WorkspaceManager(session_id)
 
@@ -70,12 +117,12 @@ class TestWorkspaceManagerDeleteFile:
         # 确认已从索引移除
         assert manager.get_dataset_by_id(dataset_id) is None
 
-    def test_delete_nonexistent_returns_none(self, client: TestClient):
+    def test_delete_nonexistent_returns_none(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         manager = WorkspaceManager(session_id)
         assert manager.delete_file("nonexistent_id") is None
 
-    def test_delete_note(self, client: TestClient):
+    def test_delete_note(self, client: LocalASGIClient):
         resp = client.post("/api/sessions")
         session_id = resp.json()["data"]["session_id"]
         manager = WorkspaceManager(session_id)
@@ -95,7 +142,7 @@ class TestWorkspaceManagerDeleteFile:
 class TestWorkspaceManagerRenameFile:
     """测试 rename_file 方法。"""
 
-    def test_rename_dataset(self, client: TestClient):
+    def test_rename_dataset(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
         manager = WorkspaceManager(session_id)
 
@@ -108,7 +155,7 @@ class TestWorkspaceManagerRenameFile:
         assert new_path.exists()
         assert "renamed.csv" in new_path.name
 
-    def test_rename_nonexistent_returns_none(self, client: TestClient):
+    def test_rename_nonexistent_returns_none(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         manager = WorkspaceManager(session_id)
         assert manager.rename_file("nonexistent_id", "whatever.csv") is None
@@ -117,7 +164,7 @@ class TestWorkspaceManagerRenameFile:
 class TestWorkspaceManagerSearchFiles:
     """测试 search_files 方法。"""
 
-    def test_search_by_name(self, client: TestClient):
+    def test_search_by_name(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         manager = WorkspaceManager(session_id)
 
@@ -125,14 +172,14 @@ class TestWorkspaceManagerSearchFiles:
         assert len(results) == 1
         assert results[0]["name"] == "test.csv"
 
-    def test_search_no_match(self, client: TestClient):
+    def test_search_no_match(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         manager = WorkspaceManager(session_id)
 
         results = manager.search_files("不存在的文件")
         assert len(results) == 0
 
-    def test_search_empty_returns_all(self, client: TestClient):
+    def test_search_empty_returns_all(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         manager = WorkspaceManager(session_id)
 
@@ -143,7 +190,7 @@ class TestWorkspaceManagerSearchFiles:
 class TestWorkspaceManagerFilePreview:
     """测试 get_file_preview 方法。"""
 
-    def test_preview_csv(self, client: TestClient):
+    def test_preview_csv(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
         manager = WorkspaceManager(session_id)
 
@@ -152,7 +199,7 @@ class TestWorkspaceManagerFilePreview:
         assert preview["preview_type"] == "text"
         assert "a,b" in preview["content"]
 
-    def test_preview_note(self, client: TestClient):
+    def test_preview_note(self, client: LocalASGIClient):
         resp = client.post("/api/sessions")
         session_id = resp.json()["data"]["session_id"]
         manager = WorkspaceManager(session_id)
@@ -163,7 +210,7 @@ class TestWorkspaceManagerFilePreview:
         assert preview["preview_type"] == "text"
         assert "# 标题" in preview["content"]
 
-    def test_preview_nonexistent(self, client: TestClient):
+    def test_preview_nonexistent(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         manager = WorkspaceManager(session_id)
         assert manager.get_file_preview("nonexistent_id") is None
@@ -175,7 +222,7 @@ class TestWorkspaceManagerFilePreview:
 class TestDeleteAPI:
     """测试 DELETE /api/sessions/{sid}/workspace/files/{fid}。"""
 
-    def test_delete_file(self, client: TestClient):
+    def test_delete_file(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
         resp = client.delete(f"/api/sessions/{session_id}/workspace/files/{dataset_id}")
         assert resp.status_code == 200
@@ -186,12 +233,12 @@ class TestDeleteAPI:
         files = files_resp.json()["data"]["files"]
         assert all(f["id"] != dataset_id for f in files)
 
-    def test_delete_nonexistent_404(self, client: TestClient):
+    def test_delete_nonexistent_404(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         resp = client.delete(f"/api/sessions/{session_id}/workspace/files/no_such_id")
         assert resp.status_code == 404
 
-    def test_delete_removes_from_session_memory(self, client: TestClient):
+    def test_delete_removes_from_session_memory(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
         # 确认数据集在内存中
         session = session_manager.get_session(session_id)
@@ -205,7 +252,7 @@ class TestDeleteAPI:
 class TestRenameAPI:
     """测试 PATCH /api/sessions/{sid}/workspace/files/{fid}。"""
 
-    def test_rename_file(self, client: TestClient):
+    def test_rename_file(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
         resp = client.patch(
             f"/api/sessions/{session_id}/workspace/files/{dataset_id}",
@@ -214,7 +261,7 @@ class TestRenameAPI:
         assert resp.status_code == 200
         assert resp.json()["data"]["file"]["name"] == "data_v2.csv"
 
-    def test_rename_empty_name_400(self, client: TestClient):
+    def test_rename_empty_name_400(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
         resp = client.patch(
             f"/api/sessions/{session_id}/workspace/files/{dataset_id}",
@@ -222,7 +269,7 @@ class TestRenameAPI:
         )
         assert resp.status_code == 400
 
-    def test_rename_updates_session_memory(self, client: TestClient):
+    def test_rename_updates_session_memory(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
         session = session_manager.get_session(session_id)
         assert "test.csv" in session.datasets
@@ -238,14 +285,14 @@ class TestRenameAPI:
 class TestPreviewAPI:
     """测试 GET /api/sessions/{sid}/workspace/files/{fid}/preview。"""
 
-    def test_preview_csv(self, client: TestClient):
+    def test_preview_csv(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
         resp = client.get(f"/api/sessions/{session_id}/workspace/files/{dataset_id}/preview")
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["preview_type"] == "text"
 
-    def test_preview_nonexistent_404(self, client: TestClient):
+    def test_preview_nonexistent_404(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         resp = client.get(f"/api/sessions/{session_id}/workspace/files/no_id/preview")
         assert resp.status_code == 404
@@ -254,7 +301,7 @@ class TestPreviewAPI:
 class TestSearchAPI:
     """测试 GET /api/sessions/{sid}/workspace/files?q= 搜索。"""
 
-    def test_search_with_query(self, client: TestClient):
+    def test_search_with_query(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         resp = client.get(f"/api/sessions/{session_id}/workspace/files?q=test")
         assert resp.status_code == 200
@@ -262,13 +309,13 @@ class TestSearchAPI:
         assert len(files) == 1
         assert files[0]["name"] == "test.csv"
 
-    def test_search_no_match(self, client: TestClient):
+    def test_search_no_match(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         resp = client.get(f"/api/sessions/{session_id}/workspace/files?q=不存在")
         assert resp.status_code == 200
         assert len(resp.json()["data"]["files"]) == 0
 
-    def test_search_without_query_returns_all(self, client: TestClient):
+    def test_search_without_query_returns_all(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         resp = client.get(f"/api/sessions/{session_id}/workspace/files")
         assert resp.status_code == 200
@@ -278,7 +325,7 @@ class TestSearchAPI:
 class TestBatchDownloadAPI:
     """测试 POST /api/sessions/{sid}/workspace/batch-download。"""
 
-    def test_batch_download_zip_success(self, client: TestClient):
+    def test_batch_download_zip_success(self, client: LocalASGIClient):
         resp = client.post("/api/sessions")
         session_id = resp.json()["data"]["session_id"]
         manager = WorkspaceManager(session_id)
@@ -296,7 +343,7 @@ class TestBatchDownloadAPI:
             assert "batch_note.md" in names
             assert zf.read("batch_note.md").decode("utf-8") == "批量下载内容"
 
-    def test_batch_download_empty_file_ids_400(self, client: TestClient):
+    def test_batch_download_empty_file_ids_400(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         download = client.post(
             f"/api/sessions/{session_id}/workspace/batch-download",
@@ -304,7 +351,7 @@ class TestBatchDownloadAPI:
         )
         assert download.status_code == 400
 
-    def test_batch_download_missing_files_404(self, client: TestClient):
+    def test_batch_download_missing_files_404(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         download = client.post(
             f"/api/sessions/{session_id}/workspace/batch-download",

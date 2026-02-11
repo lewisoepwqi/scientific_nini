@@ -42,10 +42,12 @@ class Settings(BaseSettings):
 
     # Kimi Coding（kimi.com Coding Plan）
     kimi_coding_api_key: Optional[str] = None
+    kimi_coding_base_url: str = "https://api.kimi.com/coding/v1"
     kimi_coding_model: str = "kimi-for-coding"
 
     # 智谱 AI (GLM)
     zhipu_api_key: Optional[str] = None
+    zhipu_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     zhipu_model: str = "glm-4"
 
     # DeepSeek
@@ -63,15 +65,17 @@ class Settings(BaseSettings):
     llm_trust_env_proxy: bool = False
 
     # ---- Agent ----
-    agent_max_iterations: int = 20
+    # <= 0 表示不限制迭代次数（仅受用户中止/模型与工具自然收敛约束）
+    agent_max_iterations: int = 0
 
     # ---- 上传 ----
     max_upload_size: int = 50 * 1024 * 1024  # 50 MB
     allowed_extensions: str = "csv,xlsx,xls,tsv,txt"
 
     # ---- 沙箱 ----
-    sandbox_timeout: int = 30  # 秒
+    sandbox_timeout: int = 60  # 秒（含代码执行 + DataFrame 跨进程序列化时间）
     sandbox_max_memory_mb: int = 512
+    sandbox_image_export_timeout: int = 60  # 图片导出专用超时（秒），kaleido 渲染较慢
 
     # ---- 知识库 ----
     knowledge_max_entries: int = 3  # 每次注入最多几个知识条目
@@ -81,6 +85,11 @@ class Settings(BaseSettings):
     prompt_component_max_chars: int = 20000
     prompt_total_max_chars: int = 60000
     skills_dir_path: Path = _ROOT / "skills"
+
+    # ---- 自动上下文压缩 ----
+    auto_compress_enabled: bool = True
+    auto_compress_threshold_tokens: int = 30000
+    auto_compress_target_tokens: int = 15000
 
     # ---- 派生属性 ----
     @property

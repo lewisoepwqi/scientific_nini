@@ -25,6 +25,7 @@ class EventType(str, Enum):
     DONE = "done"
     ERROR = "error"
     REASONING = "reasoning"  # 推理事件，展示决策过程
+    CONTEXT_COMPRESSED = "context_compressed"  # 上下文自动压缩通知
 
 
 @dataclass

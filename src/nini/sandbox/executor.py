@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import builtins as py_builtins
 import io
@@ -10,6 +9,7 @@ import multiprocessing
 from multiprocessing.connection import Connection
 import os
 import pickle
+import time
 import traceback
 from typing import Any
 
@@ -18,6 +18,12 @@ import pandas as pd
 from nini.config import settings
 from nini.sandbox.capture import capture_stdio
 from nini.sandbox.policy import validate_code
+from nini.utils.chart_fonts import (
+    CJK_FONT_CANDIDATES,
+    CJK_FONT_FAMILY,
+    apply_plotly_cjk_font_fallback,
+    pick_available_matplotlib_font,
+)
 
 try:
     import resource  # type: ignore[attr-defined]
@@ -53,6 +59,101 @@ SAFE_BUILTINS: dict[str, Any] = {
     "ValueError": ValueError,
     "TypeError": TypeError,
 }
+
+_SCIENTIFIC_PALETTE = [
+    "#1B3A57",
+    "#2C7FB8",
+    "#4DAF7C",
+    "#D98E04",
+    "#C03D3E",
+    "#8A63D2",
+    "#5F7D95",
+    "#A5A58D",
+]
+
+
+def _apply_matplotlib_cjk_font_fallback(fig: Any) -> None:
+    """在导出前统一覆盖文本字体，降低中文方框字概率。"""
+    try:
+        from matplotlib.text import Text
+
+        for text_obj in fig.findobj(match=Text):
+            text_obj.set_fontfamily(CJK_FONT_CANDIDATES)
+    except Exception:
+        return
+
+
+def _configure_chart_defaults() -> None:
+    """统一绘图默认风格，优先保证中文显示和科研风格可读性。"""
+    # Matplotlib 默认样式
+    try:
+        import matplotlib
+        from matplotlib import cycler, rcParams
+
+        matplotlib.use("Agg", force=True)
+        rcParams["font.family"] = "sans-serif"
+        preferred_font = pick_available_matplotlib_font()
+        sans_serif = [preferred_font] if preferred_font else []
+        sans_serif.extend([font for font in CJK_FONT_CANDIDATES if font not in sans_serif])
+        rcParams["font.sans-serif"] = sans_serif
+        rcParams["axes.unicode_minus"] = False
+        rcParams["figure.dpi"] = 140
+        rcParams["savefig.dpi"] = 300
+        rcParams["axes.facecolor"] = "#FFFFFF"
+        rcParams["figure.facecolor"] = "#FFFFFF"
+        rcParams["axes.grid"] = True
+        rcParams["grid.color"] = "#E5E7EB"
+        rcParams["grid.linewidth"] = 0.8
+        rcParams["grid.alpha"] = 0.85
+        rcParams["axes.spines.top"] = False
+        rcParams["axes.spines.right"] = False
+        rcParams["axes.edgecolor"] = "#9CA3AF"
+        rcParams["axes.labelcolor"] = "#111827"
+        rcParams["xtick.color"] = "#374151"
+        rcParams["ytick.color"] = "#374151"
+        rcParams["axes.prop_cycle"] = cycler(color=_SCIENTIFIC_PALETTE)
+        rcParams["lines.linewidth"] = 1.8
+    except Exception:
+        pass
+
+    # Plotly 默认样式
+    try:
+        import plotly.express as px
+        import plotly.graph_objects as go
+        import plotly.io as pio
+
+        template = go.layout.Template(pio.templates["plotly_white"])
+        template.layout.font = {
+            "family": CJK_FONT_FAMILY,
+            "size": 12,
+            "color": "#111827",
+        }
+        template.layout.colorway = _SCIENTIFIC_PALETTE
+        template.layout.paper_bgcolor = "#FFFFFF"
+        template.layout.plot_bgcolor = "#FFFFFF"
+        template.layout.xaxis = {
+            "showline": True,
+            "linecolor": "#9CA3AF",
+            "ticks": "outside",
+            "tickcolor": "#9CA3AF",
+            "gridcolor": "#E5E7EB",
+            "zeroline": False,
+        }
+        template.layout.yaxis = {
+            "showline": True,
+            "linecolor": "#9CA3AF",
+            "ticks": "outside",
+            "tickcolor": "#9CA3AF",
+            "gridcolor": "#E5E7EB",
+            "zeroline": False,
+        }
+
+        pio.templates["nini_science"] = template
+        pio.templates.default = "nini_science"
+        px.defaults.template = "nini_science"
+        px.defaults.color_discrete_sequence = _SCIENTIFIC_PALETTE
+    except Exception:
+        pass
 
 
 def _safe_copy_datasets(datasets: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
@@ -102,7 +203,9 @@ def _build_exec_globals(datasets: dict[str, pd.DataFrame]) -> dict[str, Any]:
     return globals_dict
 
 
-def _collect_figures(exec_globals: dict[str, Any], exec_locals: dict[str, Any]) -> list[dict[str, Any]]:
+def _collect_figures(
+    exec_globals: dict[str, Any], exec_locals: dict[str, Any]
+) -> list[dict[str, Any]]:
     """遍历执行环境，检测并序列化 Plotly/Matplotlib 图表对象。
 
     - Plotly Figure: 通过 to_json() 序列化为 JSON 字符串
@@ -118,11 +221,13 @@ def _collect_figures(exec_globals: dict[str, Any], exec_locals: dict[str, Any]) 
     mpl_figure_cls = None
     try:
         import plotly.graph_objects as go
+
         plotly_figure_cls = go.Figure
     except Exception:
         pass
     try:
         import matplotlib.figure
+
         mpl_figure_cls = matplotlib.figure.Figure
     except Exception:
         pass
@@ -140,6 +245,7 @@ def _collect_figures(exec_globals: dict[str, Any], exec_locals: dict[str, Any]) 
     if mpl_figure_cls is not None:
         try:
             import matplotlib.pyplot as plt
+
             gcf = plt.gcf()
             if gcf.get_axes():
                 mpl_gcf_fig = gcf
@@ -158,18 +264,21 @@ def _collect_figures(exec_globals: dict[str, Any], exec_locals: dict[str, Any]) 
         if plotly_figure_cls is not None and isinstance(obj, plotly_figure_cls):
             seen_ids.add(obj_id)
             try:
+                apply_plotly_cjk_font_fallback(obj)
                 json_str = obj.to_json()
                 title = ""
                 if obj.layout and hasattr(obj.layout, "title") and obj.layout.title:
                     title_obj = obj.layout.title
                     if hasattr(title_obj, "text") and title_obj.text:
                         title = str(title_obj.text)
-                figures.append({
-                    "var_name": var_name,
-                    "library": "plotly",
-                    "plotly_json": json_str,
-                    "title": title,
-                })
+                figures.append(
+                    {
+                        "var_name": var_name,
+                        "library": "plotly",
+                        "plotly_json": json_str,
+                        "title": title,
+                    }
+                )
             except Exception:
                 pass
             continue
@@ -180,13 +289,16 @@ def _collect_figures(exec_globals: dict[str, Any], exec_locals: dict[str, Any]) 
             if not obj.get_axes():
                 continue
             try:
+                _apply_matplotlib_cjk_font_fallback(obj)
                 entry: dict[str, Any] = {
                     "var_name": var_name,
                     "library": "matplotlib",
                     "title": "",
                 }
                 # 提取标题
-                title_text = obj._suptitle.get_text() if hasattr(obj, "_suptitle") and obj._suptitle else ""
+                title_text = (
+                    obj._suptitle.get_text() if hasattr(obj, "_suptitle") and obj._suptitle else ""
+                )
                 if not title_text and obj.get_axes():
                     title_text = obj.get_axes()[0].get_title()
                 entry["title"] = title_text or ""
@@ -209,12 +321,17 @@ def _collect_figures(exec_globals: dict[str, Any], exec_locals: dict[str, Any]) 
     # 检测 gcf（当前活跃图表），如果尚未被收集
     if mpl_gcf_fig is not None and id(mpl_gcf_fig) not in seen_ids:
         try:
+            _apply_matplotlib_cjk_font_fallback(mpl_gcf_fig)
             entry = {
                 "var_name": "__gcf__",
                 "library": "matplotlib",
                 "title": "",
             }
-            title_text = mpl_gcf_fig._suptitle.get_text() if hasattr(mpl_gcf_fig, "_suptitle") and mpl_gcf_fig._suptitle else ""
+            title_text = (
+                mpl_gcf_fig._suptitle.get_text()
+                if hasattr(mpl_gcf_fig, "_suptitle") and mpl_gcf_fig._suptitle
+                else ""
+            )
             if not title_text and mpl_gcf_fig.get_axes():
                 title_text = mpl_gcf_fig.get_axes()[0].get_title()
             entry["title"] = title_text or ""
@@ -251,33 +368,38 @@ def _sandbox_worker(
     try:
         _set_resource_limits(timeout_seconds, max_memory_mb)
         os.chdir(working_dir)
+        _configure_chart_defaults()
 
         local_datasets = _safe_copy_datasets(datasets)
         exec_globals = _build_exec_globals(local_datasets)
-        exec_locals: dict[str, Any] = {}
 
+        # 使用单命名空间：避免 exec(code, globals, locals) 双命名空间导致
+        # 用户在代码中定义的函数无法被 lambda/闭包引用（NameError）。
+        # 单命名空间下所有定义统一存储在 exec_globals 中。
         if dataset_name:
             if dataset_name not in local_datasets:
                 raise ValueError(f"数据集 '{dataset_name}' 不存在")
-            exec_locals["df"] = local_datasets[dataset_name].copy(deep=True)
+            exec_globals["df"] = local_datasets[dataset_name].copy(deep=True)
 
         with capture_stdio() as (stdout_buf, stderr_buf):
             compiled = compile(code, "<sandbox>", "exec")
-            exec(compiled, exec_globals, exec_locals)
+            # 注意：这里使用 Python 内置的 exec() 函数执行沙箱代码，
+            # 不是 child_process.exec，代码已通过 validate_code() 策略校验。
+            exec(compiled, exec_globals)  # noqa: S102
             stdout_text = stdout_buf.getvalue()
             stderr_text = stderr_buf.getvalue()
 
-        result_obj = exec_locals.get("result", exec_globals.get("result"))
-        output_df = exec_locals.get("output_df")
+        result_obj = exec_globals.get("result")
+        output_df = exec_globals.get("output_df")
 
-        if persist_df and dataset_name and isinstance(exec_locals.get("df"), pd.DataFrame):
-            local_datasets[dataset_name] = exec_locals["df"]
+        if persist_df and dataset_name and isinstance(exec_globals.get("df"), pd.DataFrame):
+            local_datasets[dataset_name] = exec_globals["df"]
 
         if isinstance(output_df, pd.DataFrame):
             result_obj = output_df
 
-        # 自动检测并序列化图表对象
-        figures = _collect_figures(exec_globals, exec_locals)
+        # 自动检测并序列化图表对象（单命名空间，exec_locals 传空字典）
+        figures = _collect_figures(exec_globals, {})
 
         payload = {
             "success": True,
@@ -320,8 +442,7 @@ class SandboxExecutor:
         persist_df: bool = False,
     ) -> dict[str, Any]:
         """异步执行入口。"""
-        return await asyncio.to_thread(
-            self._execute_sync,
+        return self._execute_sync(
             code=code,
             session_id=session_id,
             datasets=datasets,
@@ -362,7 +483,39 @@ class SandboxExecutor:
 
         process.start()
         child_conn.close()
-        process.join(self.timeout_seconds)
+        deadline = time.monotonic() + self.timeout_seconds
+        payload: dict[str, Any] | None = None
+
+        # 注意：不能先 join 再 recv。若子进程发送 payload 较大（例如 output_df），
+        # 可能阻塞在 conn.send()，父进程若在 join 等待会形成死锁直到超时。
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+
+            if parent_conn.poll(min(0.05, remaining)):
+                try:
+                    payload = parent_conn.recv()
+                except EOFError:
+                    payload = None
+                break
+
+            if not process.is_alive():
+                # 进程已退出但可能还有最后一条消息尚未被读取
+                if parent_conn.poll(0.05):
+                    try:
+                        payload = parent_conn.recv()
+                    except EOFError:
+                        payload = None
+                break
+
+        if payload is not None:
+            process.join(timeout=1)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=1)
+            parent_conn.close()
+            return payload
 
         if process.is_alive():
             process.terminate()
@@ -375,18 +528,14 @@ class SandboxExecutor:
                 "stderr": "",
             }
 
-        if not parent_conn.poll():
-            parent_conn.close()
-            return {
-                "success": False,
-                "error": "沙箱进程异常退出，未返回结果",
-                "stdout": "",
-                "stderr": "",
-            }
-
-        payload = parent_conn.recv()
+        process.join(timeout=0.2)
         parent_conn.close()
-        return payload
+        return {
+            "success": False,
+            "error": "沙箱进程异常退出，未返回结果",
+            "stdout": "",
+            "stderr": "",
+        }
 
 
 sandbox_executor = SandboxExecutor()

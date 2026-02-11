@@ -91,6 +91,7 @@ async def websocket_agent(ws: WebSocket):
         # 缓存代码执行工具的输入代码，用于配对 tool_call → tool_result
         _code_exec_tools = ("run_code", "execute_code", "code_exec")
         _pending_code: dict[str, str] = {}
+        _pending_tool_args: dict[str, dict] = {}
 
         try:
             async for event in runner.run(
@@ -108,6 +109,14 @@ async def websocket_agent(ws: WebSocket):
                     tool_name=event.tool_name,
                     turn_id=event.turn_id,
                 )
+                # 分析思路事件：通知前端刷新工作区（已保存为产物）
+                if event.type == EventType.REASONING:
+                    await _send_event(
+                        ws,
+                        "workspace_update",
+                        data={"action": "add"},
+                        session_id=session.id,
+                    )
                 # 产物或图片生成后通知前端刷新工作区面板
                 if event.type in (EventType.ARTIFACT, EventType.IMAGE):
                     await _send_event(
@@ -130,6 +139,11 @@ async def websocket_agent(ws: WebSocket):
                         code = args.get("code", "") if isinstance(args, dict) else ""
                         if code:
                             _pending_code[event.tool_call_id] = str(code)
+                        # 缓存完整工具调用参数
+                        _pending_tool_args[event.tool_call_id] = {
+                            "tool_name": event.tool_name,
+                            "tool_args": args if isinstance(args, dict) else {},
+                        }
                     except Exception:
                         pass
                 # 工具执行结果：如果是代码执行类工具，配对源代码后持久化并推送事件
@@ -140,13 +154,20 @@ async def websocket_agent(ws: WebSocket):
                 ):
                     try:
                         result_data = event.data if isinstance(event.data, dict) else {}
-                        # 从缓存中取出配对的源代码
+                        # 从缓存中取出配对的源代码和工具参数
                         paired_code = _pending_code.pop(event.tool_call_id or "", "")
+                        tool_info = _pending_tool_args.pop(event.tool_call_id or "", {})
+                        # 计算当前上下文 token 数
+                        from nini.utils.token_counter import count_messages_tokens
+                        ctx_tokens = count_messages_tokens(session.messages)
                         wm = WorkspaceManager(session.id)
                         exec_record = wm.save_code_execution(
                             code=paired_code,
                             output=str(result_data.get("message", result_data.get("output", ""))),
                             status=str(result_data.get("status", "success")),
+                            tool_name=tool_info.get("tool_name"),
+                            tool_args=tool_info.get("tool_args"),
+                            context_token_count=ctx_tokens,
                         )
                         await _send_event(
                             ws,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -14,6 +15,7 @@ from plotly.utils import PlotlyJSONEncoder
 from nini.agent.session import Session
 from nini.memory.storage import ArtifactStorage
 from nini.skills.base import Skill, SkillResult
+from nini.utils.chart_fonts import CJK_FONT_FAMILY
 from nini.workspace import WorkspaceManager
 
 # 导入期刊风格配置
@@ -22,13 +24,20 @@ try:
 except ImportError:
     # 如果 templates.py 不存在，使用默认配置
     JOURNAL_TEMPLATES = {
-        "default": {"font": "Arial", "font_size": 12, "line_width": 1.5, "dpi": 300},
+        "default": {"font": CJK_FONT_FAMILY, "font_size": 12, "line_width": 1.5, "dpi": 300},
     }
 
 
 def _get_journal_template(style: str) -> dict[str, object]:
     """获取期刊风格配置，不存在时回退 default。"""
-    return JOURNAL_TEMPLATES.get(style.lower(), JOURNAL_TEMPLATES.get("default", {"font": "Arial", "font_size": 12, "line_width": 1.5, "dpi": 300}))
+    return JOURNAL_TEMPLATES.get(
+        style.lower(),
+        JOURNAL_TEMPLATES.get(
+            "default",
+            {"font": CJK_FONT_FAMILY, "font_size": 12, "line_width": 1.5, "dpi": 300},
+        ),
+    )
+
 
 JOURNAL_PALETTES: dict[str, list[str]] = {
     "nature": ["#E64B35", "#4DBBD5", "#00A087", "#3C5488", "#F39B7F", "#8491B4"],
@@ -71,6 +80,32 @@ def _apply_style(fig: go.Figure, journal_style: str, title: str | None) -> None:
     fig.update_yaxes(showgrid=True, gridcolor="#E5E7EB", zeroline=False)
 
 
+def _prepare_line_dataframe(df: pd.DataFrame, x_col: str) -> pd.DataFrame:
+    """为折线图准备可排序的数据，兼容混合类型时间列。"""
+    plot_df = df.copy()
+
+    # 常规路径：直接按 x 排序
+    try:
+        return plot_df.sort_values(by=x_col, kind="mergesort")
+    except TypeError:
+        pass
+
+    # 回退路径 1：优先尝试将 x 列整体解析为 datetime
+    coerced = pd.to_datetime(plot_df[x_col], errors="coerce")
+    non_null = int(plot_df[x_col].notna().sum())
+    parsed_non_null = int(coerced.notna().sum())
+    if non_null > 0 and (parsed_non_null / non_null) >= 0.8:
+        return plot_df.assign(**{x_col: coerced}).sort_values(by=x_col, kind="mergesort")
+
+    # 回退路径 2：按字符串排序，确保不会因类型不一致崩溃
+    sort_key = plot_df[x_col].map(lambda v: "" if pd.isna(v) else str(v))
+    return (
+        plot_df.assign(__x_sort_key=sort_key)
+        .sort_values(by="__x_sort_key", kind="mergesort")
+        .drop(columns=["__x_sort_key"])
+    )
+
+
 class CreateChartSkill(Skill):
     """生成科研图表。"""
 
@@ -82,11 +117,15 @@ class CreateChartSkill(Skill):
         return "create_chart"
 
     @property
+    def category(self) -> str:
+        return "visualization"
+
+    @property
     def description(self) -> str:
         return (
-            "创建图表并返回 Plotly JSON。"
-            "支持 scatter/line/bar/box/violin/histogram/heatmap，"
+            "快速创建简单标准图表。支持 scatter/line/bar/box/violin/histogram/heatmap，"
             "支持 default/nature/science/cell/nejm/lancet 风格。"
+            "如需复杂自定义图表、子图布局、统计标注等，请使用 run_code。"
         )
 
     @property
@@ -157,12 +196,19 @@ class CreateChartSkill(Skill):
             }
 
             # 自动保存图表 JSON 到工作空间，便于会话成果管理与复用
-            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-            output_name = WorkspaceManager(session.id).sanitize_filename(
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+            base_name = WorkspaceManager(session.id).sanitize_filename(
                 f"{chart_type}_{ts}.plotly.json",
                 default_name="chart.plotly.json",
             )
             storage = ArtifactStorage(session.id)
+            output_name = base_name
+            stem = Path(base_name).stem or "chart"
+            suffix = Path(base_name).suffix or ".json"
+            counter = 2
+            while storage.get_path(output_name).exists():
+                output_name = f"{stem}_{counter}{suffix}"
+                counter += 1
             path = storage.save_text(
                 json.dumps(chart_data, ensure_ascii=False),
                 output_name,
@@ -222,7 +268,7 @@ class CreateChartSkill(Skill):
             _assert_columns(df, x_col, y_col, color_col)
             if not x_col or not y_col:
                 raise ValueError("line 需要 x_column 和 y_column")
-            plot_df = df.sort_values(by=x_col)
+            plot_df = _prepare_line_dataframe(df, x_col)
             return px.line(
                 plot_df, x=x_col, y=y_col, color=color_col, color_discrete_sequence=palette
             )

@@ -41,6 +41,7 @@ function CopyButton({ text }: { text: string }) {
 
 function ExecutionItem({ exec }: { exec: CodeExecution }) {
   const [expanded, setExpanded] = useState(true)
+  const [argsExpanded, setArgsExpanded] = useState(false)
   const isError = exec.status === 'error'
 
   return (
@@ -57,13 +58,36 @@ function ExecutionItem({ exec }: { exec: CodeExecution }) {
         ) : (
           <CheckCircle size={12} className="text-emerald-500 flex-shrink-0" />
         )}
-        <span className="text-gray-500 font-mono">{exec.language || 'python'}</span>
+        <span className="text-gray-500 font-mono">{exec.tool_name || exec.language || 'python'}</span>
+        {exec.context_token_count != null && (
+          <span className="text-[10px] text-gray-400" title="执行时上下文 Token 数">
+            {exec.context_token_count.toLocaleString()} tok
+          </span>
+        )}
         <span className="text-gray-400 ml-auto">{formatTime(exec.created_at)}</span>
       </button>
 
       {/* 展开的内容 */}
       {expanded && (
         <div className="border-t">
+          {/* 工具参数（折叠展示） */}
+          {exec.tool_args && Object.keys(exec.tool_args).length > 0 && (
+            <div className="border-b">
+              <button
+                onClick={() => setArgsExpanded(!argsExpanded)}
+                className="w-full flex items-center gap-1 px-3 py-1 bg-gray-50 text-[10px] text-gray-400 font-medium hover:bg-gray-100 transition-colors"
+              >
+                <span>{argsExpanded ? '▼' : '▶'}</span>
+                <span>TOOL ARGS</span>
+              </button>
+              {argsExpanded && (
+                <pre className="text-[11px] font-mono px-3 py-2 overflow-x-auto bg-gray-50 text-gray-600 max-h-32 overflow-y-auto">
+                  {JSON.stringify(exec.tool_args, null, 2)}
+                </pre>
+              )}
+            </div>
+          )}
+
           {/* Request（代码） */}
           {exec.code && (
             <div className="relative">

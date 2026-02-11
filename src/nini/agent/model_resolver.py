@@ -105,6 +105,7 @@ class OpenAICompatibleClient(BaseLLMClient):
             from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
             kwargs: dict[str, Any] = {"api_key": self._api_key}
+            kwargs["max_retries"] = max(0, int(settings.llm_max_retries))
             if self._base_url:
                 kwargs["base_url"] = self._base_url
             # 显式传入默认 httpx 客户端，避免 SDK 内部 wrapper 在 GC 时
@@ -540,7 +541,7 @@ class KimiCodingClient(OpenAICompatibleClient):
     ):
         super().__init__(
             api_key=api_key or settings.kimi_coding_api_key,
-            base_url=base_url or "https://api.kimi.com/coding/v1",
+            base_url=base_url or settings.kimi_coding_base_url,
             model=model or settings.kimi_coding_model,
         )
 
@@ -561,11 +562,12 @@ class ZhipuClient(OpenAICompatibleClient):
     def __init__(
         self,
         api_key: str | None = None,
+        base_url: str | None = None,
         model: str | None = None,
     ):
         super().__init__(
             api_key=api_key or settings.zhipu_api_key,
-            base_url="https://open.bigmodel.cn/api/paas/v4",
+            base_url=base_url or settings.zhipu_base_url,
             model=model or settings.zhipu_model,
         )
 
@@ -737,6 +739,7 @@ class ModelResolver:
             ),
             ZhipuClient(
                 api_key=_get("zhipu", "api_key"),
+                base_url=_get("zhipu", "base_url"),
                 model=_get("zhipu", "model"),
             ),
             DeepSeekClient(

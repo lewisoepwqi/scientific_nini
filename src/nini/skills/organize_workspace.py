@@ -17,6 +17,10 @@ class OrganizeWorkspaceSkill(Skill):
         return "organize_workspace"
 
     @property
+    def category(self) -> str:
+        return "other"
+
+    @property
     def description(self) -> str:
         return "创建工作区文件夹并移动文件，用于整理数据集/产物/笔记。"
 

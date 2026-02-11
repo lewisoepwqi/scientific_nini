@@ -3,8 +3,6 @@
  */
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { type Message } from '../store'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import {
   Bot,
   User,
@@ -18,6 +16,8 @@ import {
 } from 'lucide-react'
 import DataViewer from './DataViewer'
 import ArtifactDownload from './ArtifactDownload'
+import AnalysisPlanCard from './AnalysisPlanCard'
+import MarkdownContent from './MarkdownContent'
 
 interface Props {
   message: Message
@@ -36,15 +36,22 @@ export default function MessageBubble({
 }: Props) {
   const isUser = message.role === 'user'
   const isTool = message.role === 'tool'
+  const isReasoning = !!message.isReasoning
+  const hasEmbeddedPlotly = typeof message.content === 'string' && message.content.includes('.plotly.json')
   const [toolExpanded, setToolExpanded] = useState(message.toolStatus === 'error')
   const hasWideContent =
-    !!message.chartData || (!!message.images && message.images.length > 0)
+    !!message.chartData || (!!message.images && message.images.length > 0) || hasEmbeddedPlotly
 
   useEffect(() => {
     if (message.toolStatus === 'error') {
       setToolExpanded(true)
     }
   }, [message.toolStatus])
+
+  // 分析思路消息使用专用卡片
+  if (isReasoning) {
+    return <AnalysisPlanCard content={message.content} />
+  }
 
   // 工具消息使用卡片式折叠显示
   if (isTool) {
@@ -134,7 +141,7 @@ export default function MessageBubble({
                       {isError ? '错误信息：' : '执行结果：'}
                     </div>
                     <div className={`text-xs ${themeColors.resultBg} border ${themeColors.resultBorder} rounded px-2 py-1.5 ${themeColors.resultText} markdown-body prose prose-sm max-w-none`}>
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.toolResult!}</ReactMarkdown>
+                      <MarkdownContent content={message.toolResult!} />
                     </div>
                   </div>
                 )}
@@ -186,7 +193,7 @@ export default function MessageBubble({
           ) : (
             <>
               <div className="markdown-body prose prose-sm max-w-none">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                <MarkdownContent content={message.content} />
               </div>
               {message.retrievals && message.retrievals.length > 0 && (
                 <div className="mt-2 space-y-2">

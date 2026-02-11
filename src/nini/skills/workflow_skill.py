@@ -27,6 +27,10 @@ class SaveWorkflowSkill(Skill):
         return "save_workflow"
 
     @property
+    def category(self) -> str:
+        return "other"
+
+    @property
     def description(self) -> str:
         return (
             "将当前会话中的分析步骤保存为工作流模板，以便后续在新数据集上一键复用。"
@@ -88,6 +92,10 @@ class ListWorkflowsSkill(Skill):
         return "list_workflows"
 
     @property
+    def category(self) -> str:
+        return "other"
+
+    @property
     def description(self) -> str:
         return "列出所有已保存的工作流模板，展示名称、步骤和创建时间。"
 
@@ -122,6 +130,10 @@ class ApplyWorkflowSkill(Skill):
     @property
     def name(self) -> str:
         return "apply_workflow"
+
+    @property
+    def category(self) -> str:
+        return "other"
 
     @property
     def description(self) -> str:

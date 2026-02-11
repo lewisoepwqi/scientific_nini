@@ -59,3 +59,33 @@ async def test_create_chart_skill_returns_plotly_json() -> None:
     assert artifacts[0]["format"] == "json"
     assert artifacts[0]["name"].endswith(".plotly.json")
     assert Path(artifacts[0]["path"]).exists()
+
+
+@pytest.mark.asyncio
+async def test_create_line_chart_with_mixed_datetime_types() -> None:
+    registry = create_default_registry()
+    session = Session()
+    session.datasets["timeline.csv"] = pd.DataFrame(
+        {
+            "测量时刻": [
+                pd.Timestamp("2024-01-02 09:00:00"),
+                "2024-01-01 09:00:00",
+                pd.Timestamp("2024-01-03 09:00:00"),
+            ],
+            "收缩压": [120, 118, 122],
+        }
+    )
+
+    result = await registry.execute(
+        "create_chart",
+        session=session,
+        dataset_name="timeline.csv",
+        chart_type="line",
+        x_column="测量时刻",
+        y_column="收缩压",
+        title="收缩压趋势",
+    )
+
+    assert result["success"] is True, result
+    assert result["has_chart"] is True
+    assert isinstance(result["chart_data"], dict)

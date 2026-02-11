@@ -35,8 +35,12 @@ Nini 支持多种模型提供商，按优先级自动路由，失败自动降级
 |---|---|---|
 | `NINI_MOONSHOT_API_KEY` | 空 | Moonshot AI (Kimi) Key |
 | `NINI_MOONSHOT_MODEL` | `moonshot-v1-8k` | Moonshot 模型（可选 `moonshot-v1-32k`、`moonshot-v1-128k`） |
+| `NINI_KIMI_CODING_API_KEY` | 空 | Kimi Coding Key |
+| `NINI_KIMI_CODING_BASE_URL` | `https://api.kimi.com/coding/v1` | Kimi Coding OpenAI 兼容地址 |
+| `NINI_KIMI_CODING_MODEL` | `kimi-for-coding` | Kimi Coding 模型 |
 | `NINI_ZHIPU_API_KEY` | 空 | 智谱 AI Key |
-| `NINI_ZHIPU_MODEL` | `glm-4` | 智谱模型（可选 `glm-4-plus`、`glm-4-flash`） |
+| `NINI_ZHIPU_BASE_URL` | `https://open.bigmodel.cn/api/paas/v4` | 智谱 OpenAI 兼容地址（Coding Plan 可改为 `https://open.bigmodel.cn/api/coding/paas/v4`） |
+| `NINI_ZHIPU_MODEL` | `glm-4` | 智谱模型（可选 `glm-4.7`、`glm-4.6`、`glm-4.5`、`glm-4.5-air`、`glm-4-plus`、`glm-4-flash`） |
 | `NINI_DEEPSEEK_API_KEY` | 空 | DeepSeek Key |
 | `NINI_DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek 模型（可选 `deepseek-coder`、`deepseek-reasoner`） |
 | `NINI_DASHSCOPE_API_KEY` | 空 | 阿里百炼（通义千问）Key |
@@ -61,9 +65,10 @@ Nini 支持多种模型提供商，按优先级自动路由，失败自动降级
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `NINI_AGENT_MAX_ITERATIONS` | `20` | 单轮对话最大 ReAct 迭代次数 |
+| `NINI_AGENT_MAX_ITERATIONS` | `0` | 单轮对话最大 ReAct 迭代次数；`<=0` 表示不限制 |
 | `NINI_SANDBOX_TIMEOUT` | `30` | `run_code` 超时时间（秒） |
 | `NINI_SANDBOX_MAX_MEMORY_MB` | `512` | `run_code` 内存上限（MB） |
+| `NINI_SANDBOX_IMAGE_EXPORT_TIMEOUT` | `60` | 图片导出（kaleido）专用超时（秒） |
 
 ## 上传配置
 
@@ -118,7 +123,16 @@ NINI_MOONSHOT_MODEL=moonshot-v1-8k
 
 ```env
 NINI_ZHIPU_API_KEY=xxx.xxx
-NINI_ZHIPU_MODEL=glm-4
+NINI_ZHIPU_BASE_URL=https://open.bigmodel.cn/api/coding/paas/v4
+NINI_ZHIPU_MODEL=glm-4.7
+```
+
+使用 Kimi Coding：
+
+```env
+NINI_KIMI_CODING_API_KEY=sk-xxx
+NINI_KIMI_CODING_BASE_URL=https://api.kimi.com/coding/v1
+NINI_KIMI_CODING_MODEL=kimi-for-coding
 ```
 
 > 提示：可同时配置多个模型，Nini 会按优先级自动路由，失败时自动降级到下一个可用模型。

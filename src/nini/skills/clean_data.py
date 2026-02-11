@@ -53,6 +53,10 @@ class CleanDataSkill(Skill):
         return "clean_data"
 
     @property
+    def category(self) -> str:
+        return "data"
+
+    @property
     def description(self) -> str:
         return (
             "执行数据清洗：缺失值处理、异常值过滤、标准化。"

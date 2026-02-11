@@ -17,6 +17,12 @@ interface MessageGroup {
   key: string
 }
 
+interface ContextSizeData {
+  total_context_tokens?: number
+  compress_threshold_tokens?: number
+  compress_target_tokens?: number
+}
+
 function groupMessages(messages: Message[]): MessageGroup[] {
   const groups: MessageGroup[] = []
   let currentTurnId: string | null = null
@@ -59,8 +65,25 @@ function groupMessages(messages: Message[]): MessageGroup[] {
   return groups
 }
 
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(1, value))
+}
+
+function computeRemainingRatio(totalTokens: number, thresholdTokens: number, targetTokens: number): number {
+  if (thresholdTokens <= 0) return 1
+  if (thresholdTokens <= targetTokens) {
+    return clamp01((thresholdTokens - totalTokens) / thresholdTokens)
+  }
+  if (totalTokens <= targetTokens) return 1
+  const windowSize = thresholdTokens - targetTokens
+  return clamp01(1 - (totalTokens - targetTokens) / windowSize)
+}
+
 export default function ChatPanel() {
+  const sessionId = useStore((s) => s.sessionId)
   const messages = useStore((s) => s.messages)
+  const contextCompressionTick = useStore((s) => s.contextCompressionTick)
   const isStreaming = useStore((s) => s.isStreaming)
   const sendMessage = useStore((s) => s.sendMessage)
   const stopStreaming = useStore((s) => s.stopStreaming)
@@ -71,6 +94,8 @@ export default function ChatPanel() {
   const [input, setInput] = useState('')
   const [isDragActive, setIsDragActive] = useState(false)
   const [isCompressing, setIsCompressing] = useState(false)
+  const [contextRemainingRatio, setContextRemainingRatio] = useState(1)
+  const [contextTokens, setContextTokens] = useState<number | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const dragDepthRef = useRef(0)
@@ -94,10 +119,51 @@ export default function ChatPanel() {
     return messages.slice(lastUserIndex + 1).some((m) => m.role !== 'user')
   }, [messages])
 
+  const refreshContextBudget = useCallback(async () => {
+    if (!sessionId) {
+      setContextRemainingRatio(1)
+      setContextTokens(null)
+      return
+    }
+    try {
+      const resp = await fetch(`/api/sessions/${sessionId}/context-size`)
+      const payload = await resp.json()
+      if (!payload.success) return
+      const data = (payload.data || {}) as ContextSizeData
+      const totalTokens = typeof data.total_context_tokens === 'number' ? data.total_context_tokens : 0
+      const thresholdTokens =
+        typeof data.compress_threshold_tokens === 'number' ? data.compress_threshold_tokens : 30000
+      const targetTokens =
+        typeof data.compress_target_tokens === 'number' ? data.compress_target_tokens : 15000
+      setContextTokens(totalTokens)
+      setContextRemainingRatio(computeRemainingRatio(totalTokens, thresholdTokens, targetTokens))
+    } catch {
+      // 忽略网络异常，保留当前进度
+    }
+  }, [sessionId])
+
   // 自动滚动到底部
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // 会话上下文空间估计
+  useEffect(() => {
+    void refreshContextBudget()
+  }, [refreshContextBudget, messages.length])
+
+  // 切换会话后重置进度条
+  useEffect(() => {
+    setContextRemainingRatio(1)
+    setContextTokens(null)
+  }, [sessionId])
+
+  // 自动或手动压缩后回到初始进度，再同步一次最新值
+  useEffect(() => {
+    if (contextCompressionTick <= 0) return
+    setContextRemainingRatio(1)
+    void refreshContextBudget()
+  }, [contextCompressionTick, refreshContextBudget])
 
   // 输入框自适应高度
   const adjustHeight = useCallback(() => {
@@ -151,6 +217,10 @@ export default function ChatPanel() {
     setIsCompressing(true)
     const result = await compressCurrentSession()
     setIsCompressing(false)
+    if (result.success) {
+      setContextRemainingRatio(1)
+      void refreshContextBudget()
+    }
     const feedback: Message = {
       id: `compress-${Date.now()}`,
       role: 'assistant',
@@ -158,7 +228,7 @@ export default function ChatPanel() {
       timestamp: Date.now(),
     }
     useStore.setState((s) => ({ messages: [...s.messages, feedback] }))
-  }, [isStreaming, isCompressing, compressCurrentSession])
+  }, [isStreaming, isCompressing, compressCurrentSession, refreshContextBudget])
 
   const uploadFilesSequentially = useCallback(
     async (files: File[]) => {
@@ -221,6 +291,23 @@ export default function ChatPanel() {
     },
     [isFileDragEvent, isUploading, uploadFilesSequentially],
   )
+
+  const compressLevel =
+    contextRemainingRatio > 0.66 ? 'safe' : contextRemainingRatio > 0.33 ? 'warning' : 'critical'
+  const compressProgressColor =
+    compressLevel === 'safe'
+      ? 'rgba(16, 185, 129, 0.28)'
+      : compressLevel === 'warning'
+        ? 'rgba(249, 115, 22, 0.26)'
+        : 'rgba(239, 68, 68, 0.26)'
+  const compressTextColor =
+    compressLevel === 'safe'
+      ? 'text-emerald-700'
+      : compressLevel === 'warning'
+        ? 'text-orange-700'
+        : 'text-red-700'
+  const contextUsageRatio = clamp01(1 - contextRemainingRatio)
+  const usagePercent = Math.round(contextUsageRatio * 100)
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -299,13 +386,34 @@ export default function ChatPanel() {
                 <button
                   onClick={() => void handleCompress()}
                   disabled={isStreaming || isCompressing || messages.length < 4}
-                  className="h-8 px-2.5 rounded-2xl border border-gray-200 text-gray-600 text-xs
-                             inline-flex items-center gap-1.5
-                             hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="压缩会话"
+                  className={`relative h-8 px-2.5 rounded-2xl border text-xs inline-flex items-center gap-1.5
+                             overflow-hidden transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                               compressTextColor
+                             } ${
+                               compressLevel === 'safe'
+                                 ? 'border-emerald-200 hover:bg-emerald-50/60'
+                                 : compressLevel === 'warning'
+                                   ? 'border-orange-200 hover:bg-orange-50/60'
+                                   : 'border-red-200 hover:bg-red-50/60'
+                             }`}
+                  title={
+                    contextTokens === null
+                      ? '压缩会话'
+                      : `压缩会话（占用 ${usagePercent}% · 当前 ${contextTokens.toLocaleString()} tok）`
+                  }
                 >
+                  <span
+                    className="absolute left-0 top-0 h-full rounded-2xl transition-all duration-300 ease-out"
+                    style={{
+                      width: `${usagePercent}%`,
+                      backgroundColor: compressProgressColor,
+                    }}
+                  />
+                  <span className="relative z-10 inline-flex items-center gap-1.5">
                   <Archive size={12} />
                   <span>{isCompressing ? '压缩中' : '压缩'}</span>
+                  <span className="text-[10px] tabular-nums">{usagePercent}%</span>
+                  </span>
                 </button>
                 {isStreaming ? (
                   <button

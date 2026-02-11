@@ -92,8 +92,10 @@ class SkillRegistry:
                     "type": "function",
                     "name": skill.name,
                     "description": skill.description,
+                    "category": skill.category,
                     "location": f"{skill.__class__.__module__}.{skill.__class__.__name__}",
                     "enabled": True,
+                    "expose_to_llm": skill.expose_to_llm,
                     "metadata": {
                         "parameters": skill.parameters,
                         "is_idempotent": skill.is_idempotent,
@@ -138,8 +140,12 @@ class SkillRegistry:
         settings.skills_snapshot_path.write_text(content, encoding="utf-8")
 
     def get_tool_definitions(self) -> list[dict[str, Any]]:
-        """获取所有技能的 LLM 工具定义。"""
-        return [s.get_tool_definition() for s in self._skills.values()]
+        """获取暴露给 LLM 的技能工具定义（过滤 expose_to_llm=False）。"""
+        return [
+            s.get_tool_definition()
+            for s in self._skills.values()
+            if s.expose_to_llm
+        ]
 
     async def execute(
         self,
@@ -422,13 +428,8 @@ class SkillRegistry:
         session: Session,
         kwargs: dict[str, Any],
     ) -> SkillResult:
-        """在线程中运行技能协程，避免主事件循环被 CPU 密集逻辑阻塞。"""
-        return await asyncio.to_thread(
-            self._run_skill_coroutine,
-            skill,
-            session,
-            kwargs,
-        )
+        """在当前事件循环中执行技能协程。"""
+        return await skill.execute(session=session, **kwargs)
 
     @staticmethod
     def _run_skill_coroutine(
@@ -451,11 +452,11 @@ def create_default_registry() -> SkillRegistry:
     registry.register(KruskalWallisSkill())
     registry.register(CorrelationSkill())
     registry.register(RegressionSkill())
+    registry.register(RunCodeSkill())
     registry.register(CreateChartSkill())
     registry.register(ExportChartSkill())
     registry.register(CleanDataSkill())
     registry.register(GenerateReportSkill())
-    registry.register(RunCodeSkill())
     registry.register(SaveWorkflowSkill())
     registry.register(ListWorkflowsSkill())
     registry.register(ApplyWorkflowSkill())

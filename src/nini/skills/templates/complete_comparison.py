@@ -20,6 +20,7 @@ from scipy import stats
 
 from nini.agent.session import Session
 from nini.skills.base import Skill, SkillResult
+from nini.utils.chart_fonts import CJK_FONT_FAMILY
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,10 @@ class CompleteComparisonSkill(Skill):
     @property
     def name(self) -> str:
         return "complete_comparison"
+
+    @property
+    def category(self) -> str:
+        return "composite"
 
     @property
     def description(self) -> str:
@@ -97,8 +102,7 @@ class CompleteComparisonSkill(Skill):
         quality_report = self._check_data_quality(df, value_column, group_column)
         if not quality_report["valid"]:
             return SkillResult(
-                success=False,
-                message=f"数据质量检查失败: {quality_report['error']}"
+                success=False, message=f"数据质量检查失败: {quality_report['error']}"
             )
 
         # 步骤2: 分离数据
@@ -114,10 +118,7 @@ class CompleteComparisonSkill(Skill):
         data2 = df[df[group_column] == group2_name][value_column].dropna()
 
         if len(data1) < 2 or len(data2) < 2:
-            return SkillResult(
-                success=False,
-                message="每组至少需要 2 个观测值"
-            )
+            return SkillResult(success=False, message="每组至少需要 2 个观测值")
 
         # 步骤3: 前提检验
         assumptions = self._test_assumptions(data1, data2)
@@ -134,9 +135,7 @@ class CompleteComparisonSkill(Skill):
         effect_size = self._calculate_effect_size(data1, data2, assumptions)
 
         # 步骤6: 可视化
-        chart_data = self._create_visualization(
-            df, value_column, group_column, journal_style
-        )
+        chart_data = self._create_visualization(df, value_column, group_column, journal_style)
 
         # 步骤7: 生成报告
         report = self._generate_report(
@@ -183,9 +182,7 @@ class CompleteComparisonSkill(Skill):
 
         return report
 
-    def _test_assumptions(
-        self, data1: pd.Series, data2: pd.Series
-    ) -> dict[str, Any]:
+    def _test_assumptions(self, data1: pd.Series, data2: pd.Series) -> dict[str, Any]:
         """检验统计前提。"""
         assumptions: dict[str, Any] = {
             "normality_test1": None,
@@ -321,9 +318,7 @@ class CompleteComparisonSkill(Skill):
             # 参数：Cohen's d
             n1, n2 = len(data1), len(data2)
             mean_diff = data1.mean() - data2.mean()
-            pooled_std = np.sqrt(
-                ((n1 - 1) * data1.var() + (n2 - 1) * data2.var()) / (n1 + n2 - 2)
-            )
+            pooled_std = np.sqrt(((n1 - 1) * data1.var() + (n2 - 1) * data2.var()) / (n1 + n2 - 2))
             cohens_d = mean_diff / pooled_std if pooled_std > 0 else 0
 
             return {
@@ -359,11 +354,13 @@ class CompleteComparisonSkill(Skill):
 
         for group in groups:
             group_data = df[df[group_column] == group][value_column].dropna()
-            fig.add_trace(go.Box(
-                y=group_data,
-                name=str(group),
-                boxpoints="outliers",
-            ))
+            fig.add_trace(
+                go.Box(
+                    y=group_data,
+                    name=str(group),
+                    boxpoints="outliers",
+                )
+            )
 
         # 应用期刊风格
         self._apply_journal_style(fig, journal_style)
@@ -383,22 +380,22 @@ class CompleteComparisonSkill(Skill):
         """应用期刊样式。"""
         style_configs = {
             "nature": {
-                "font": {"family": "Arial", "size": 12},
+                "font": {"family": CJK_FONT_FAMILY, "size": 12},
                 "plot_bgcolor": "white",
                 "paper_bgcolor": "white",
             },
             "science": {
-                "font": {"family": "Helvetica", "size": 11},
+                "font": {"family": CJK_FONT_FAMILY, "size": 11},
                 "plot_bgcolor": "white",
                 "paper_bgcolor": "white",
             },
             "cell": {
-                "font": {"family": "Arial", "size": 10},
+                "font": {"family": CJK_FONT_FAMILY, "size": 10},
                 "plot_bgcolor": "white",
                 "paper_bgcolor": "white",
             },
             "apa": {
-                "font": {"family": "Times New Roman", "size": 12},
+                "font": {"family": CJK_FONT_FAMILY, "size": 12},
                 "plot_bgcolor": "white",
                 "paper_bgcolor": "white",
             },
@@ -435,10 +432,7 @@ class CompleteComparisonSkill(Skill):
             )
         else:
             stat = test_result["statistic"]
-            stats_text = (
-                f"{test_type}结果显示："
-                f"U = {stat:.0f}, p = {p_val:.4f}"
-            )
+            stats_text = f"{test_type}结果显示：" f"U = {stat:.0f}, p = {p_val:.4f}"
 
         # 效应量
         effect_text = (

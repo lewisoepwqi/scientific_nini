@@ -19,6 +19,7 @@ from scipy.stats import kendalltau, pearsonr, spearmanr
 
 from nini.agent.session import Session
 from nini.skills.base import Skill, SkillResult
+from nini.utils.chart_fonts import CJK_FONT_FAMILY
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,10 @@ class CorrelationAnalysisSkill(Skill):
     @property
     def name(self) -> str:
         return "correlation_analysis"
+
+    @property
+    def category(self) -> str:
+        return "composite"
 
     @property
     def description(self) -> str:
@@ -98,9 +103,7 @@ class CorrelationAnalysisSkill(Skill):
             return SkillResult(success=False, message="至少需要 3 个完整观测值")
 
         # 步骤2: 计算相关矩阵和 p 值矩阵
-        corr_matrix, pvalue_matrix = self._calculate_correlation_matrices(
-            clean_df, columns, method
-        )
+        corr_matrix, pvalue_matrix = self._calculate_correlation_matrices(clean_df, columns, method)
 
         # 步骤3: 识别显著相关
         significant_pairs = self._identify_significant_correlations(
@@ -108,9 +111,7 @@ class CorrelationAnalysisSkill(Skill):
         )
 
         # 步骤4: 可视化
-        chart_data = self._create_visualization(
-            corr_matrix, pvalue_matrix, columns, journal_style
-        )
+        chart_data = self._create_visualization(corr_matrix, pvalue_matrix, columns, journal_style)
 
         # 步骤5: 生成报告
         report = self._generate_report(
@@ -180,13 +181,15 @@ class CorrelationAnalysisSkill(Skill):
                 p = pvalue_matrix[col1][col2]
 
                 if p < 0.05:
-                    significant_pairs.append({
-                        "var1": col1,
-                        "var2": col2,
-                        "correlation": r,
-                        "p_value": p,
-                        "interpretation": self._interpret_correlation(r),
-                    })
+                    significant_pairs.append(
+                        {
+                            "var1": col1,
+                            "var2": col2,
+                            "correlation": r,
+                            "p_value": p,
+                            "interpretation": self._interpret_correlation(r),
+                        }
+                    )
 
         # 按相关系数绝对值排序
         significant_pairs.sort(key=lambda x: abs(x["correlation"]), reverse=True)
@@ -229,21 +232,26 @@ class CorrelationAnalysisSkill(Skill):
             z_values.append(row)
 
         # 创建热图
-        fig = go.Figure(data=go.Heatmap(
-            z=z_values,
-            x=columns,
-            y=columns,
-            colorscale="RdBu",
-            zmid=0,
-            text=[[
-                f"r={corr_matrix[columns[i]][columns[j]]:.3f}<br>"
-                f"p={pvalue_matrix[columns[i]][columns[j]]:.4f}"
-                for j in range(len(columns))
-            ] for i in range(len(columns))],
-            texttemplate="%{text}",
-            textfont={"size": 10},
-            colorbar={"title": "相关系数"},
-        ))
+        fig = go.Figure(
+            data=go.Heatmap(
+                z=z_values,
+                x=columns,
+                y=columns,
+                colorscale="RdBu",
+                zmid=0,
+                text=[
+                    [
+                        f"r={corr_matrix[columns[i]][columns[j]]:.3f}<br>"
+                        f"p={pvalue_matrix[columns[i]][columns[j]]:.4f}"
+                        for j in range(len(columns))
+                    ]
+                    for i in range(len(columns))
+                ],
+                texttemplate="%{text}",
+                textfont={"size": 10},
+                colorbar={"title": "相关系数"},
+            )
+        )
 
         # 应用期刊风格
         self._apply_journal_style(fig, journal_style)
@@ -263,22 +271,22 @@ class CorrelationAnalysisSkill(Skill):
         """应用期刊样式。"""
         style_configs = {
             "nature": {
-                "font": {"family": "Arial", "size": 12},
+                "font": {"family": CJK_FONT_FAMILY, "size": 12},
                 "plot_bgcolor": "white",
                 "paper_bgcolor": "white",
             },
             "science": {
-                "font": {"family": "Helvetica", "size": 11},
+                "font": {"family": CJK_FONT_FAMILY, "size": 11},
                 "plot_bgcolor": "white",
                 "paper_bgcolor": "white",
             },
             "cell": {
-                "font": {"family": "Arial", "size": 10},
+                "font": {"family": CJK_FONT_FAMILY, "size": 10},
                 "plot_bgcolor": "white",
                 "paper_bgcolor": "white",
             },
             "apa": {
-                "font": {"family": "Times New Roman", "size": 12},
+                "font": {"family": CJK_FONT_FAMILY, "size": 12},
                 "plot_bgcolor": "white",
                 "paper_bgcolor": "white",
             },
@@ -303,9 +311,7 @@ class CorrelationAnalysisSkill(Skill):
         }.get(method, method)
 
         # 基本统计
-        stats_text = (
-            f"{method_name} 相关性分析（n={sample_size}）。"
-        )
+        stats_text = f"{method_name} 相关性分析（n={sample_size}）。"
 
         # 显著相关对
         if significant_pairs:
