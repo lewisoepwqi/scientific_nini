@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Download, X, Loader2 } from 'lucide-react'
 import { useStore } from '../store'
+import MarkdownContent from './MarkdownContent'
 
 interface PreviewData {
   id: string
@@ -169,12 +170,19 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
           </p>
         </div>
       )
-    case 'text':
+    case 'text': {
+      const isMarkdown = preview.ext === 'md' || preview.ext === 'markdown'
       return (
         <div>
-          <pre className="text-xs font-mono bg-gray-50 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words">
-            {preview.content}
-          </pre>
+          {isMarkdown ? (
+            <div className="markdown-body prose prose-sm max-w-none">
+              <MarkdownContent content={preview.content || ''} />
+            </div>
+          ) : (
+            <pre className="text-xs font-mono bg-gray-50 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words">
+              {preview.content}
+            </pre>
+          )}
           {preview.total_lines && preview.preview_lines && preview.total_lines > preview.preview_lines && (
             <div className="mt-2 text-[10px] text-gray-400 text-center">
               显示前 {preview.preview_lines} 行 / 共 {preview.total_lines} 行
@@ -182,6 +190,7 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
           )}
         </div>
       )
+    }
     case 'html':
       return (
         <iframe

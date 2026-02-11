@@ -36,6 +36,7 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
         "- 优先使用 run_code 编写 matplotlib/plotly 绘图代码，图表会自动检测并保存。\n"
         "- run_code 适合：复杂自定义图表、子图布局、统计标注、组合图表。\n"
         "- create_chart 仅用于快速生成简单标准图表（散点图、柱状图等），无需额外定制时使用。\n"
+        "- 使用 run_code 时必须提供 intent（一句中文短语，说明执行意图，如‘绘制箱线图’、‘方差分析 treatment vs control’）。\n"
         "- 使用 run_code 绘图时，设置 purpose='visualization' 并提供 label 描述图表用途。\n\n"
         "绘图字体规范：\n"
         "- 涉及中文文本时，禁止将字体设置为单一西文字体（如 Arial/Helvetica/Times New Roman）或单一字体（如仅 SimHei）。\n"

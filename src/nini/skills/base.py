@@ -24,6 +24,8 @@ class SkillResult:
     dataframe_preview: Any = None
     # 产物
     artifacts: list[dict[str, Any]] = field(default_factory=list)
+    # 扩展元数据
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """转换为可序列化的字典。"""
@@ -41,6 +43,8 @@ class SkillResult:
             result["dataframe_preview"] = self.dataframe_preview
         if self.artifacts:
             result["artifacts"] = self.artifacts
+        if self.metadata:
+            result["metadata"] = self.metadata
         return result
 
 

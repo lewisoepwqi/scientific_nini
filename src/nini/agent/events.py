@@ -13,6 +13,7 @@ from typing import Any
 
 class EventType(str, Enum):
     """Agent 事件类型。"""
+
     TEXT = "text"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
@@ -39,6 +40,8 @@ class AgentEvent:
     tool_name: str | None = None
     # 用于前端消息分组
     turn_id: str | None = None
+    # 事件元数据（如 run_code 执行意图）
+    metadata: dict[str, Any] = field(default_factory=dict)
     # 时间戳
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 

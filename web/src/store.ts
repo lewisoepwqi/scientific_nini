@@ -68,6 +68,7 @@ export interface Message {
   toolInput?: Record<string, unknown> // 工具调用参数
   toolResult?: string // 工具执行结果
   toolStatus?: 'success' | 'error' // 工具执行状态
+  toolIntent?: string // 工具执行意图
   chartData?: unknown
   dataPreview?: unknown
   artifacts?: ArtifactInfo[]
@@ -103,6 +104,7 @@ export interface CodeExecution {
   tool_name?: string
   tool_args?: Record<string, unknown>
   context_token_count?: number
+  intent?: string
 }
 
 export interface MemoryFile {
@@ -119,6 +121,7 @@ interface WSEvent {
   tool_call_id?: string
   tool_name?: string
   turn_id?: string
+  metadata?: Record<string, unknown>
 }
 
 interface RawSessionMessage {
@@ -1183,13 +1186,16 @@ function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Message[] {
         const argsRaw = tc.function?.arguments || ''
         const toolArgs = normalizeRunCodeIntent(name, parseToolArgs(argsRaw))
         const toolCallId = tc.id
+        const toolIntent =
+          name === 'run_code' && typeof toolArgs.intent === 'string' ? toolArgs.intent : undefined
         const msg: Message = {
           id: nextId(),
           role: 'tool',
-          content: `调用工具: **${name}**`,
+          content: toolIntent ? `🔧 ${name}: ${toolIntent}` : `调用工具: **${name}**`,
           toolName: name,
           toolCallId: toolCallId || undefined,
           toolInput: toolArgs,
+          toolIntent,
           timestamp: nextTimestamp(),
         }
         messages.push(msg)
@@ -1319,13 +1325,17 @@ function handleEvent(
         toolArgs = { raw: data.arguments }
       }
       toolArgs = normalizeRunCodeIntent(data.name, toolArgs)
+      const intent = typeof evt.metadata?.intent === 'string'
+        ? evt.metadata.intent
+        : (data.name === 'run_code' && typeof toolArgs.intent === 'string' ? toolArgs.intent : undefined)
       const msg: Message = {
         id: nextId(),
         role: 'tool',
-        content: `调用工具: **${data.name}**`,
+        content: data.name === 'run_code' && intent ? `🔧 ${data.name}: ${intent}` : `调用工具: **${data.name}**`,
         toolName: data.name,
         toolCallId: evt.tool_call_id || undefined,
         toolInput: toolArgs,
+        toolIntent: intent,
         turnId,
         timestamp: Date.now(),
       }
@@ -1353,6 +1363,9 @@ function handleEvent(
             ...msgs[existingIndex],
             toolResult: resultMessage,
             toolStatus: status,
+            toolIntent:
+              msgs[existingIndex].toolIntent ||
+              (typeof evt.metadata?.intent === 'string' ? evt.metadata.intent : undefined),
           }
         } else {
           // 创建新的结果消息
@@ -1364,6 +1377,7 @@ function handleEvent(
             toolCallId: toolCallId || undefined,
             toolResult: resultMessage,
             toolStatus: status,
+            toolIntent: typeof evt.metadata?.intent === 'string' ? evt.metadata.intent : undefined,
             turnId,
             timestamp: Date.now(),
           })

@@ -97,6 +97,10 @@ class RunCodeSkill(Skill):
                     "type": "string",
                     "description": "简短描述代码用途，如'绘制组间箱线图'，用于产物命名",
                 },
+                "intent": {
+                    "type": "string",
+                    "description": "执行意图摘要（建议 8-30 字），用于记录本次 run_code 的分析目的",
+                },
             },
             "required": ["code"],
         }
@@ -345,6 +349,7 @@ class RunCodeSkill(Skill):
                     "stderr": payload.get("stderr", ""),
                     "traceback": payload.get("traceback", ""),
                 },
+                metadata={"intent": intent} if intent else {},
             )
 
         # 回写被持久化的数据集
@@ -388,6 +393,7 @@ class RunCodeSkill(Skill):
                 has_dataframe=True,
                 dataframe_preview=preview,
                 artifacts=saved_artifacts,
+                metadata={"intent": intent} if intent else {},
             )
 
         msg = "代码执行成功"
@@ -403,4 +409,5 @@ class RunCodeSkill(Skill):
             message=msg,
             data={"result": result_obj, "result_type": type(result_obj).__name__},
             artifacts=saved_artifacts,
+            metadata={"intent": intent} if intent else {},
         )
