@@ -70,6 +70,16 @@ class Skill(ABC):
         """是否幂等（默认否）。"""
         return False
 
+    @property
+    def category(self) -> str:
+        """技能分类，用于前端分组展示。"""
+        return "other"
+
+    @property
+    def expose_to_llm(self) -> bool:
+        """是否暴露给 LLM 作为可调用工具。设为 False 可减少工具数量。"""
+        return True
+
     @abstractmethod
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
         """执行技能。"""
@@ -84,6 +94,7 @@ class Skill(ABC):
             description=self.description,
             parameters=self.parameters,
             is_idempotent=self.is_idempotent,
+            category=self.category,
         )
 
     def get_tool_definition(self) -> dict[str, Any]:

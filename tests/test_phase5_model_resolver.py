@@ -15,6 +15,7 @@ from nini.agent.model_resolver import (
     BaseLLMClient,
     DashScopeClient,
     DeepSeekClient,
+    KimiCodingClient,
     LLMChunk,
     ModelResolver,
     MoonshotClient,
@@ -239,12 +240,34 @@ def test_moonshot_client_unavailable_without_key() -> None:
     assert client.is_available() is False
 
 
+def test_kimi_coding_client_base_url_and_availability() -> None:
+    """Kimi Coding 客户端：正确设置 base_url，有 API Key 时可用。"""
+    client = KimiCodingClient(api_key="sk-kimi-test", model="kimi-for-coding")
+    assert client.is_available() is True
+    assert client._base_url == "https://api.kimi.com/coding/v1"  # noqa: SLF001
+    assert client._model == "kimi-for-coding"  # noqa: SLF001
+
+
 def test_zhipu_client_base_url_and_availability() -> None:
     """智谱 AI 客户端：正确设置 base_url，有 API Key 时可用。"""
     client = ZhipuClient(api_key="zhipu-test-key", model="glm-4")
     assert client.is_available() is True
     assert client._base_url == "https://open.bigmodel.cn/api/paas/v4"  # noqa: SLF001
     assert client._model == "glm-4"  # noqa: SLF001
+
+
+def test_zhipu_client_supports_custom_base_url() -> None:
+    """智谱 AI 客户端：支持自定义 base_url（如 Coding Plan 端点）。"""
+    client = ZhipuClient(
+        api_key="zhipu-test-key",
+        base_url="https://open.bigmodel.cn/api/coding/paas/v4",
+        model="glm-4.7",
+    )
+    assert client.is_available() is True
+    assert (
+        client._base_url == "https://open.bigmodel.cn/api/coding/paas/v4"  # noqa: SLF001
+    )
+    assert client._model == "glm-4.7"  # noqa: SLF001
 
 
 def test_zhipu_client_unavailable_without_key() -> None:
@@ -322,6 +345,8 @@ def test_all_domestic_clients_support_stream_usage() -> None:
     # Moonshot 不支持 stream_options
     moonshot = MoonshotClient(api_key="test-key", model="test-model")
     assert moonshot._supports_stream_usage() is False  # noqa: SLF001
+    kimi_coding = KimiCodingClient(api_key="test-key", model="kimi-for-coding")
+    assert kimi_coding._supports_stream_usage() is False  # noqa: SLF001
 
 
 @pytest.mark.asyncio
@@ -358,6 +383,7 @@ async def test_openai_compatible_client_uses_default_http_client_and_closes(
     assert isinstance(client._http_client, _FakeHttpClient)  # noqa: SLF001
     assert client._http_client.kwargs["trust_env"] is False  # noqa: SLF001
     assert client._client.kwargs["http_client"] is client._http_client  # noqa: SLF001
+    assert client._client.kwargs["max_retries"] == 3  # noqa: SLF001
 
     underlying_client = client._client  # noqa: SLF001
     await client.aclose()

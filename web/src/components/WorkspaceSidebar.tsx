@@ -25,7 +25,6 @@ export default function WorkspaceSidebar() {
   const sessionId = useStore((s) => s.sessionId)
   const workspaceFiles = useStore((s) => s.workspaceFiles)
   const workspacePanelTab = useStore((s) => s.workspacePanelTab)
-  const skills = useStore((s) => s.skills)
   const previewTabs = useStore((s) => s.previewTabs)
   const previewFileId = useStore((s) => s.previewFileId)
   const fileSearchQuery = useStore((s) => s.fileSearchQuery)
@@ -36,7 +35,6 @@ export default function WorkspaceSidebar() {
   const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel)
   const fetchWorkspaceFiles = useStore((s) => s.fetchWorkspaceFiles)
   const fetchDatasets = useStore((s) => s.fetchDatasets)
-  const fetchSkills = useStore((s) => s.fetchSkills)
   const isUploading = useStore((s) => s.isUploading)
   const uploadProgress = useStore((s) => s.uploadProgress)
   const uploadingFileName = useStore((s) => s.uploadingFileName)
@@ -135,7 +133,6 @@ export default function WorkspaceSidebar() {
             onClick={() => {
               fetchWorkspaceFiles()
               fetchDatasets()
-              fetchSkills()
             }}
             className="p-1 rounded hover:bg-gray-100 text-gray-400"
             title="刷新"
@@ -312,31 +309,6 @@ export default function WorkspaceSidebar() {
             <div className="px-3 py-1.5 border-t text-[10px] text-gray-400 flex-shrink-0">
               共 {workspaceFiles.length} 个文件
               {fileSearchQuery && ` · 显示 ${filteredFiles.length} 个`}
-            </div>
-            <div className="px-3 py-2 border-t bg-gray-50 flex-shrink-0">
-              <div className="text-[11px] text-gray-500 mb-1">技能清单</div>
-              <div className="text-[10px] text-gray-400">
-                Function: {skills.filter((s) => s.type === 'function').length} · Markdown:{' '}
-                {skills.filter((s) => s.type === 'markdown').length}
-              </div>
-              <div className="mt-1 space-y-1 text-[10px] text-gray-500">
-                <div className="truncate">
-                  F:{' '}
-                  {skills
-                    .filter((s) => s.type === 'function')
-                    .slice(0, 4)
-                    .map((s) => s.name)
-                    .join(', ') || '-'}
-                </div>
-                <div className="truncate">
-                  M:{' '}
-                  {skills
-                    .filter((s) => s.type === 'markdown')
-                    .slice(0, 4)
-                    .map((s) => s.name)
-                    .join(', ') || '-'}
-                </div>
-              </div>
             </div>
           </div>
         )}

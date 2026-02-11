@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from nini.agent.session import session_manager
 from nini.app import create_app
 from nini.config import settings
+from tests.client_utils import LocalASGIClient
 
 
 @pytest.fixture(autouse=True)
@@ -22,12 +22,13 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """创建带临时数据目录的 TestClient。"""
+    """创建带临时数据目录的 HTTP 测试客户端。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
     session_manager._sessions.clear()
     app = create_app()
-    with TestClient(app) as c:
-        yield c
+    client = LocalASGIClient(app)
+    yield client
+    client.close()
     session_manager._sessions.clear()
 
 
@@ -66,7 +67,7 @@ def test_list_sessions_includes_disk_sessions() -> None:
 # ---- GET /api/sessions/{session_id}/messages 端点测试 ----
 
 
-def test_get_session_messages_from_memory(client: TestClient) -> None:
+def test_get_session_messages_from_memory(client: LocalASGIClient) -> None:
     """从内存中的活跃会话获取消息历史。"""
     # 创建会话
     resp = client.post("/api/sessions")
@@ -94,7 +95,7 @@ def test_get_session_messages_from_memory(client: TestClient) -> None:
     assert messages[1]["content"] == "你好！有什么可以帮助你的？"
 
 
-def test_get_session_messages_from_disk(client: TestClient) -> None:
+def test_get_session_messages_from_disk(client: LocalASGIClient) -> None:
     """从磁盘持久化的会话获取消息历史。"""
     # 创建会话并添加消息
     resp = client.post("/api/sessions")
@@ -120,13 +121,13 @@ def test_get_session_messages_from_disk(client: TestClient) -> None:
     assert messages[1]["content"] == "消息已保存"
 
 
-def test_get_session_messages_404_for_nonexistent(client: TestClient) -> None:
+def test_get_session_messages_404_for_nonexistent(client: LocalASGIClient) -> None:
     """请求不存在的会话返回 404。"""
     resp = client.get("/api/sessions/nonexistent-session-id/messages")
     assert resp.status_code == 404
 
 
-def test_get_session_messages_filters_internal_fields(client: TestClient) -> None:
+def test_get_session_messages_filters_internal_fields(client: LocalASGIClient) -> None:
     """返回的消息应过滤掉内部字段，只包含前端需要的字段。"""
     resp = client.post("/api/sessions")
     session_id = resp.json()["data"]["session_id"]
@@ -159,7 +160,7 @@ def test_get_session_messages_filters_internal_fields(client: TestClient) -> Non
     assert set(msg.keys()) <= allowed_keys
 
 
-def test_get_session_messages_with_tool_calls(client: TestClient) -> None:
+def test_get_session_messages_with_tool_calls(client: LocalASGIClient) -> None:
     """包含工具调用的消息应正确返回 tool_calls 字段。"""
     resp = client.post("/api/sessions")
     session_id = resp.json()["data"]["session_id"]
@@ -199,7 +200,7 @@ def test_get_session_messages_with_tool_calls(client: TestClient) -> None:
     assert messages[1]["tool_call_id"] == "call_123"
 
 
-def test_get_session_messages_empty_session(client: TestClient) -> None:
+def test_get_session_messages_empty_session(client: LocalASGIClient) -> None:
     """新创建的空会话（内存中有但无消息）应返回空消息列表。"""
     resp = client.post("/api/sessions")
     session_id = resp.json()["data"]["session_id"]
@@ -211,7 +212,7 @@ def test_get_session_messages_empty_session(client: TestClient) -> None:
     assert data["data"]["messages"] == []
 
 
-def test_get_session_messages_includes_persisted_event_fields(client: TestClient) -> None:
+def test_get_session_messages_includes_persisted_event_fields(client: LocalASGIClient) -> None:
     """图表/数据/产物事件应可从历史接口恢复。"""
     resp = client.post("/api/sessions")
     session_id = resp.json()["data"]["session_id"]

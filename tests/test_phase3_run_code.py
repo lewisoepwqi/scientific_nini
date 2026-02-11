@@ -91,3 +91,29 @@ def test_run_code_output_df_can_save_as_dataset() -> None:
     assert result["has_dataframe"] is True
     assert "normalized.csv" in session.datasets
     assert "x_norm" in session.datasets["normalized.csv"].columns
+
+
+def test_run_code_large_output_df_does_not_timeout() -> None:
+    registry = create_default_registry()
+    session = Session()
+    row_count = 20000
+    session.datasets["raw.csv"] = pd.DataFrame(
+        {
+            "x": list(range(row_count)),
+            "y": list(range(row_count)),
+        }
+    )
+
+    result = asyncio.run(
+        registry.execute(
+            "run_code",
+            session=session,
+            dataset_name="raw.csv",
+            code="output_df = df[['x', 'y']].copy()",
+        )
+    )
+
+    assert result["success"] is True, result
+    assert result["has_dataframe"] is True
+    assert result["dataframe_preview"]["total_rows"] == row_count
+    assert "超时" not in result["message"]

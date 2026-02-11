@@ -44,6 +44,10 @@ class FetchURLSkill(Skill):
         return "fetch_url"
 
     @property
+    def category(self) -> str:
+        return "other"
+
+    @property
     def description(self) -> str:
         return (
             "抓取指定 URL 的网页内容并转换为 Markdown 格式。"

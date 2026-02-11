@@ -22,9 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 _DEFAULT_COMPONENTS: dict[str, str] = {
-    "identity.md": (
-        "你是 Nini，一位专业、严谨、可审计的科研数据分析 AI 助手。"
-    ),
+    "identity.md": ("你是 Nini，一位专业、严谨、可审计的科研数据分析 AI 助手。"),
     "strategy.md": (
         "标准分析流程（必须遵循）：\n"
         "1. 问题定义：明确研究问题、变量角色（自变量/因变量/协变量）与比较目标。\n"
@@ -34,6 +32,15 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
         "5. 执行分析：按步骤调用工具，关键参数透明可复现。\n"
         "6. 结果报告：至少包含统计量、p 值、效应量、置信区间（若可得）与实际意义解释。\n"
         "7. 风险提示：指出局限性（样本量、偏倚、多重比较、因果外推风险）并给出下一步建议。\n\n"
+        "可视化策略：\n"
+        "- 优先使用 run_code 编写 matplotlib/plotly 绘图代码，图表会自动检测并保存。\n"
+        "- run_code 适合：复杂自定义图表、子图布局、统计标注、组合图表。\n"
+        "- create_chart 仅用于快速生成简单标准图表（散点图、柱状图等），无需额外定制时使用。\n"
+        "- 使用 run_code 绘图时，设置 purpose='visualization' 并提供 label 描述图表用途。\n\n"
+        "绘图字体规范：\n"
+        "- 涉及中文文本时，禁止将字体设置为单一西文字体（如 Arial/Helvetica/Times New Roman）或单一字体（如仅 SimHei）。\n"
+        "- Matplotlib 如需手动设置字体，必须使用中文 fallback 链（例如 Noto Sans CJK SC, Source Han Sans SC, Microsoft YaHei, PingFang SC, SimHei, Arial Unicode MS, DejaVu Sans）。\n"
+        "- Plotly 如需手动设置 font.family，必须使用逗号分隔的中文 fallback 链，避免中文显示为方框。\n\n"
         "输出规范（默认）：\n"
         "- 先给出\u201c分析计划\u201d，再给出\u201c执行与结果\u201d，最后给出\u201c结论与风险\u201d。\n"
         "- 结论必须与结果一致，避免超出数据支持范围的断言。\n"
@@ -125,7 +132,8 @@ class PromptBuilder:
         if total_chars > total_limit:
             logger.warning(
                 "系统提示词总量 (%d 字符) 超过上限 (%d)，启动截断保护",
-                total_chars, total_limit,
+                total_chars,
+                total_limit,
             )
             components = self._apply_budget_protection(components, total_limit)
 
@@ -147,11 +155,13 @@ class PromptBuilder:
             snapshot_text = skills_snapshot.read_text(encoding="utf-8")
         else:
             snapshot_text = "当前无可用的 Markdown Skills 快照。"
-        components.append(PromptComponent(
-            name="skills_snapshot",
-            text=snapshot_text,
-            priority=_PRIORITY.get("skills_snapshot", 50),
-        ))
+        components.append(
+            PromptComponent(
+                name="skills_snapshot",
+                text=snapshot_text,
+                priority=_PRIORITY.get("skills_snapshot", 50),
+            )
+        )
 
         for filename in _ORDER:
             path = self._base_dir / filename
@@ -160,11 +170,13 @@ class PromptBuilder:
                 path.write_text(default_text + "\n", encoding="utf-8")
             text = path.read_text(encoding="utf-8") if path.exists() else default_text
             comp_name = filename.replace(".md", "")
-            components.append(PromptComponent(
-                name=comp_name,
-                text=text,
-                priority=_PRIORITY.get(comp_name, 50),
-            ))
+            components.append(
+                PromptComponent(
+                    name=comp_name,
+                    text=text,
+                    priority=_PRIORITY.get(comp_name, 50),
+                )
+            )
         return components
 
     @staticmethod
@@ -177,9 +189,7 @@ class PromptBuilder:
         核心策略：优先级低的组件先被截断或丢弃。
         """
         # 按优先级升序排列（低优先级在前，方便截断）
-        sorted_by_priority = sorted(
-            enumerate(components), key=lambda t: t[1].priority
-        )
+        sorted_by_priority = sorted(enumerate(components), key=lambda t: t[1].priority)
 
         # 计算当前总大小
         def _total_size() -> int:
@@ -205,7 +215,10 @@ class PromptBuilder:
             )
             logger.info(
                 "截断保护: %s (%d → %d 字符, 优先级=%d)",
-                comp.name, current_len, target_len, comp.priority,
+                comp.name,
+                current_len,
+                target_len,
+                comp.priority,
             )
 
         return components

@@ -11,6 +11,8 @@ import {
   Download,
   Check,
   Filter,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 
 type FilterType = 'all' | 'chart' | 'report' | 'data'
@@ -32,7 +34,14 @@ function isImageFile(name: string): boolean {
 function isChartFile(file: WorkspaceFile): boolean {
   const name = file.name.toLowerCase()
   const ext = name.split('.').pop() || ''
-  return ['html', 'htm', 'png', 'jpg', 'jpeg', 'svg'].includes(ext) && file.kind === 'artifact'
+  const metaType = String(file.meta?.type || '').toLowerCase()
+  return (
+    file.kind === 'artifact' && (
+      ['html', 'htm', 'png', 'jpg', 'jpeg', 'svg', 'webp'].includes(ext) ||
+      name.endsWith('.plotly.json') ||
+      (ext === 'json' && metaType === 'chart')
+    )
+  )
 }
 
 function isReportFile(file: WorkspaceFile): boolean {
@@ -41,7 +50,12 @@ function isReportFile(file: WorkspaceFile): boolean {
 }
 
 function isDataFile(file: WorkspaceFile): boolean {
-  const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  const name = file.name.toLowerCase()
+  const ext = name.split('.').pop()?.toLowerCase() || ''
+  const metaType = String(file.meta?.type || '').toLowerCase()
+  if (name.endsWith('.plotly.json') || (ext === 'json' && metaType === 'chart')) {
+    return false
+  }
   return ['csv', 'xlsx', 'xls', 'tsv', 'json'].includes(ext)
 }
 
@@ -62,6 +76,9 @@ function ThumbnailIcon({ file }: { file: WorkspaceFile }) {
 
   // 非图片文件用图标
   const ext = name.split('.').pop() || ''
+  if (name.endsWith('.plotly.json')) {
+    return <FileCode size={28} className="text-orange-400" />
+  }
   if (['html', 'htm'].includes(ext)) {
     return <FileCode size={28} className="text-orange-400" />
   }
@@ -79,14 +96,19 @@ export default function ArtifactGallery() {
   const workspaceFiles = useStore((s) => s.workspaceFiles)
   const openPreview = useStore((s) => s.openPreview)
   const [filter, setFilter] = useState<FilterType>('all')
+  const [showInternal, setShowInternal] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
 
-  // 只显示产物
+  // 只显示产物（默认隐藏内部产物）
   const artifacts = useMemo(() => {
-    return workspaceFiles.filter((f) => f.kind === 'artifact')
-  }, [workspaceFiles])
+    return workspaceFiles.filter((f) => {
+      if (f.kind !== 'artifact') return false
+      if (!showInternal && f.meta?.visibility === 'internal') return false
+      return true
+    })
+  }, [workspaceFiles, showInternal])
 
   // 按类型过滤
   const filteredArtifacts = useMemo(() => {
@@ -166,6 +188,15 @@ export default function ArtifactGallery() {
             {getFilterLabel(type)}
           </button>
         ))}
+        <button
+          onClick={() => setShowInternal(!showInternal)}
+          className={`ml-auto p-1 rounded transition-colors ${
+            showInternal ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-600'
+          }`}
+          title={showInternal ? '隐藏内部产物' : '显示内部产物'}
+        >
+          {showInternal ? <Eye size={12} /> : <EyeOff size={12} />}
+        </button>
       </div>
 
       {/* 网格 */}

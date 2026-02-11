@@ -7,8 +7,9 @@ import ChatPanel from './components/ChatPanel'
 import SessionList from './components/SessionList'
 import ModelConfigPanel from './components/ModelConfigPanel'
 import WorkflowPanel from './components/WorkflowPanel'
+import SkillCatalogPanel from './components/SkillCatalogPanel'
 import WorkspaceSidebar from './components/WorkspaceSidebar'
-import { Wifi, WifiOff, Settings, Menu, Zap, PanelRightOpen, PanelRightClose } from 'lucide-react'
+import { Wifi, WifiOff, Settings, Menu, Zap, Wrench, PanelRightOpen, PanelRightClose } from 'lucide-react'
 
 export default function App() {
   const connect = useStore((s) => s.connect)
@@ -18,6 +19,7 @@ export default function App() {
   const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel)
   const [showSettings, setShowSettings] = useState(false)
   const [showWorkflows, setShowWorkflows] = useState(false)
+  const [showSkills, setShowSkills] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [workspacePanelWidth, setWorkspacePanelWidth] = useState(420)
   const [resizingWorkspace, setResizingWorkspace] = useState(false)
@@ -99,6 +101,13 @@ export default function App() {
               <Zap size={16} />
             </button>
             <button
+              onClick={() => setShowSkills(true)}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+              title="技能清单"
+            >
+              <Wrench size={16} />
+            </button>
+            <button
               onClick={() => setShowSettings(true)}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
               title="模型配置"
@@ -174,6 +183,8 @@ export default function App() {
           sendMessage(`应用工作流模板 ${templateId}`)
         }}
       />
+
+      <SkillCatalogPanel open={showSkills} onClose={() => setShowSkills(false)} />
     </div>
   )
 }

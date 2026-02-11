@@ -23,8 +23,10 @@ export interface SkillItem {
   type: 'function' | 'markdown' | string
   name: string
   description: string
+  category?: string
   location: string
   enabled: boolean
+  expose_to_llm?: boolean
   metadata?: Record<string, unknown>
 }
 
@@ -71,6 +73,7 @@ export interface Message {
   artifacts?: ArtifactInfo[]
   images?: string[] // 图片 URL 列表
   retrievals?: RetrievalItem[] // 检索命中结果
+  isReasoning?: boolean // 分析思路消息标记
   turnId?: string // Agent 回合 ID，用于消息分组
   timestamp: number
 }
@@ -97,6 +100,16 @@ export interface CodeExecution {
   status: string
   language: string
   created_at: string
+  tool_name?: string
+  tool_args?: Record<string, unknown>
+  context_token_count?: number
+}
+
+export interface MemoryFile {
+  name: string
+  size: number
+  modified_at: string
+  type: 'memory' | 'knowledge' | 'meta' | 'archive'
 }
 
 interface WSEvent {
@@ -132,9 +145,13 @@ interface AppState {
   sessionId: string | null
   messages: Message[]
   sessions: SessionItem[]
+  contextCompressionTick: number
   datasets: DatasetItem[]
   workspaceFiles: WorkspaceFile[]
   skills: SkillItem[]
+
+  // 记忆面板
+  memoryFiles: MemoryFile[]
 
   // 模型选择（统一为全局首选）
   activeModel: ActiveModelInfo | null
@@ -180,6 +197,7 @@ interface AppState {
   switchSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
   updateSessionTitle: (sessionId: string, title: string) => Promise<void>
+  fetchMemoryFiles: () => Promise<void>
   fetchActiveModel: () => Promise<void>
   setPreferredProvider: (providerId: string) => Promise<void>
 
@@ -208,6 +226,25 @@ function nextId(): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function inferMemoryFileType(name: string): MemoryFile['type'] {
+  if (name === 'memory.jsonl') return 'memory'
+  if (name === 'knowledge.md') return 'knowledge'
+  if (name.startsWith('archive/')) return 'archive'
+  return 'meta'
+}
+
+function normalizeMemoryTimestamp(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const millis = value > 1e12 ? value : value * 1000
+    return new Date(millis).toISOString()
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Date.parse(value)
+    if (!Number.isNaN(parsed)) return new Date(parsed).toISOString()
+  }
+  return new Date().toISOString()
 }
 
 function getWsUrl(): string {
@@ -260,9 +297,11 @@ export const useStore = create<AppState>((set, get) => ({
   sessionId: null,
   messages: [],
   sessions: [],
+  contextCompressionTick: 0,
   datasets: [],
   workspaceFiles: [],
   skills: [],
+  memoryFiles: [],
   activeModel: null,
   workspacePanelOpen: false,
   workspacePanelTab: 'files',
@@ -548,6 +587,7 @@ export const useStore = create<AppState>((set, get) => ({
     set({
       messages: [],
       sessionId: null,
+      contextCompressionTick: 0,
       datasets: [],
       workspaceFiles: [],
       previewTabs: [],
@@ -645,6 +685,7 @@ export const useStore = create<AppState>((set, get) => ({
 
       // 压缩成功后刷新当前消息列表
       await get().switchSession(sid)
+      set((s) => ({ contextCompressionTick: s.contextCompressionTick + 1 }))
       return { success: true, message }
     } catch (e) {
       console.error('压缩会话失败:', e)
@@ -665,6 +706,7 @@ export const useStore = create<AppState>((set, get) => ({
       set({
         sessionId: newSessionId,
         messages: [],
+        contextCompressionTick: 0,
         datasets: [],
         workspaceFiles: [],
         previewTabs: [],
@@ -693,6 +735,7 @@ export const useStore = create<AppState>((set, get) => ({
         set({
           sessionId: targetSessionId,
           messages: [],
+          contextCompressionTick: 0,
           previewTabs: [],
           previewFileId: null,
           _streamingText: '',
@@ -712,6 +755,7 @@ export const useStore = create<AppState>((set, get) => ({
       set({
         sessionId: targetSessionId,
         messages,
+        contextCompressionTick: 0,
         previewTabs: [],
         previewFileId: null,
         _streamingText: '',
@@ -737,6 +781,7 @@ export const useStore = create<AppState>((set, get) => ({
         set({
           sessionId: null,
           messages: [],
+          contextCompressionTick: 0,
           datasets: [],
           workspaceFiles: [],
           previewTabs: [],
@@ -767,6 +812,44 @@ export const useStore = create<AppState>((set, get) => ({
       }))
     } catch (e) {
       console.error('更新会话标题失败:', e)
+    }
+  },
+
+  async fetchMemoryFiles() {
+    const sid = get().sessionId
+    if (!sid) {
+      set({ memoryFiles: [] })
+      return
+    }
+    try {
+      const resp = await fetch(`/api/sessions/${sid}/memory-files`)
+      const payload = await resp.json()
+      const rawData = isRecord(payload.data) ? payload.data : null
+      const rawFiles: unknown[] = Array.isArray(payload.data)
+        ? payload.data
+        : (rawData && Array.isArray(rawData.files) ? rawData.files : [])
+
+      const normalized: MemoryFile[] = rawFiles
+        .filter((item): item is Record<string, unknown> => isRecord(item))
+        .map((item) => {
+          const name = typeof item.name === 'string' ? item.name : 'unknown'
+          const size = typeof item.size === 'number' && Number.isFinite(item.size) ? item.size : 0
+          return {
+            name,
+            size,
+            modified_at: normalizeMemoryTimestamp(item.modified_at),
+            type: inferMemoryFileType(name),
+          }
+        })
+
+      if (payload.success) {
+        set({ memoryFiles: normalized })
+      } else {
+        set({ memoryFiles: [] })
+      }
+    } catch (e) {
+      console.error('获取记忆文件失败:', e)
+      set({ memoryFiles: [] })
     }
   },
 
@@ -1196,6 +1279,23 @@ function handleEvent(
       break
     }
 
+    case 'reasoning': {
+      const data = isRecord(evt.data) ? evt.data : null
+      const content = data && typeof data.content === 'string' ? data.content : ''
+      if (!content) break
+      const turnId = evt.turn_id || get()._currentTurnId || undefined
+      const msg: Message = {
+        id: nextId(),
+        role: 'assistant',
+        content,
+        isReasoning: true,
+        turnId,
+        timestamp: Date.now(),
+      }
+      set((s) => ({ messages: [...s.messages, msg] }))
+      break
+    }
+
     case 'tool_call': {
       const data = evt.data as { name: string; arguments: string }
       const turnId = evt.turn_id || get()._currentTurnId || undefined
@@ -1393,6 +1493,23 @@ function handleEvent(
           codeExecutions: [execRecord, ...s.codeExecutions],
         }))
       }
+      break
+    }
+
+    case 'context_compressed': {
+      // 上下文自动压缩通知
+      const data = isRecord(evt.data) ? evt.data : null
+      const archivedCount = typeof data?.archived_count === 'number' ? data.archived_count : 0
+      const sysMsg: Message = {
+        id: nextId(),
+        role: 'assistant',
+        content: `上下文已自动压缩，归档了 ${archivedCount} 条消息，以保持响应速度。`,
+        timestamp: Date.now(),
+      }
+      set((s) => ({
+        messages: [...s.messages, sysMsg],
+        contextCompressionTick: s.contextCompressionTick + 1,
+      }))
       break
     }
 

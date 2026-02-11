@@ -63,6 +63,14 @@ class TTestSkill(Skill):
         return "t_test"
 
     @property
+    def category(self) -> str:
+        return "statistics"
+
+    @property
+    def expose_to_llm(self) -> bool:
+        return False
+
+    @property
     def description(self) -> str:
         return (
             "执行 t 检验。支持三种模式：\n"
@@ -230,6 +238,14 @@ class ANOVASkill(Skill):
         return "anova"
 
     @property
+    def category(self) -> str:
+        return "statistics"
+
+    @property
+    def expose_to_llm(self) -> bool:
+        return False
+
+    @property
     def description(self) -> str:
         return "执行单因素方差分析(ANOVA)，比较多个组的均值差异。当 p < 0.05 时自动执行 Tukey HSD 事后检验。"
 
@@ -339,6 +355,14 @@ class CorrelationSkill(Skill):
         return "correlation"
 
     @property
+    def category(self) -> str:
+        return "statistics"
+
+    @property
+    def expose_to_llm(self) -> bool:
+        return False
+
+    @property
     def description(self) -> str:
         return "计算多个数值列之间的相关性矩阵和 p 值矩阵。支持 Pearson、Spearman、Kendall 三种方法。"
 
@@ -426,6 +450,14 @@ class RegressionSkill(Skill):
         return "regression"
 
     @property
+    def category(self) -> str:
+        return "statistics"
+
+    @property
+    def expose_to_llm(self) -> bool:
+        return False
+
+    @property
     def description(self) -> str:
         return "执行线性回归分析，返回系数、R²、F 统计量等。"
 
@@ -506,6 +538,14 @@ class MannWhitneySkill(Skill):
     @property
     def name(self) -> str:
         return "mann_whitney"
+
+    @property
+    def category(self) -> str:
+        return "statistics"
+
+    @property
+    def expose_to_llm(self) -> bool:
+        return False
 
     @property
     def description(self) -> str:
@@ -604,6 +644,14 @@ class KruskalWallisSkill(Skill):
     @property
     def name(self) -> str:
         return "kruskal_wallis"
+
+    @property
+    def category(self) -> str:
+        return "statistics"
+
+    @property
+    def expose_to_llm(self) -> bool:
+        return False
 
     @property
     def description(self) -> str:

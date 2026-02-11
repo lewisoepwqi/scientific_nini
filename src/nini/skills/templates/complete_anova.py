@@ -21,6 +21,7 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 from nini.agent.session import Session
 from nini.skills.base import Skill, SkillResult
+from nini.utils.chart_fonts import CJK_FONT_FAMILY
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,10 @@ class CompleteANOVASkill(Skill):
     @property
     def name(self) -> str:
         return "complete_anova"
+
+    @property
+    def category(self) -> str:
+        return "composite"
 
     @property
     def description(self) -> str:
@@ -115,14 +120,10 @@ class CompleteANOVASkill(Skill):
         effect_size = self._calculate_effect_size(group_data, anova_result)
 
         # 步骤6: 可视化
-        chart_data = self._create_visualization(
-            clean_df, value_column, group_column, journal_style
-        )
+        chart_data = self._create_visualization(clean_df, value_column, group_column, journal_style)
 
         # 步骤7: 生成报告
-        report = self._generate_report(
-            anova_result, post_hoc_result, effect_size, journal_style
-        )
+        report = self._generate_report(anova_result, post_hoc_result, effect_size, journal_style)
 
         # 组装结果
         result_data = {
@@ -142,9 +143,7 @@ class CompleteANOVASkill(Skill):
             chart_data=chart_data,
         )
 
-    def _perform_anova(
-        self, group_data: list[pd.Series], groups: list[Any]
-    ) -> dict[str, Any]:
+    def _perform_anova(self, group_data: list[pd.Series], groups: list[Any]) -> dict[str, Any]:
         """执行单因素方差分析。"""
         f_stat, p_val = stats.f_oneway(*group_data)
 
@@ -160,9 +159,7 @@ class CompleteANOVASkill(Skill):
         grand_mean = float(np.concatenate(group_data).mean())
 
         # 计算平方和
-        ss_between = sum(
-            len(g) * (g.mean() - grand_mean) ** 2 for g in group_data
-        )
+        ss_between = sum(len(g) * (g.mean() - grand_mean) ** 2 for g in group_data)
         ss_within = sum(((g - g.mean()) ** 2).sum() for g in group_data)
         ss_total = ss_between + ss_within
 
@@ -200,15 +197,17 @@ class CompleteANOVASkill(Skill):
                 for j in range(i + 1, n_groups):
                     idx = len(comparisons)
                     if idx < len(tukey.pvalues):
-                        comparisons.append({
-                            "group1": str(tukey.groupsunique[i]),
-                            "group2": str(tukey.groupsunique[j]),
-                            "mean_diff": float(tukey.meandiffs[idx]),
-                            "p_value": float(tukey.pvalues[idx]),
-                            "significant": bool(tukey.reject[idx]),
-                            "ci_lower": float(tukey.confint[idx][0]),
-                            "ci_upper": float(tukey.confint[idx][1]),
-                        })
+                        comparisons.append(
+                            {
+                                "group1": str(tukey.groupsunique[i]),
+                                "group2": str(tukey.groupsunique[j]),
+                                "mean_diff": float(tukey.meandiffs[idx]),
+                                "p_value": float(tukey.pvalues[idx]),
+                                "significant": bool(tukey.reject[idx]),
+                                "ci_lower": float(tukey.confint[idx][0]),
+                                "ci_upper": float(tukey.confint[idx][1]),
+                            }
+                        )
 
             return {
                 "test_type": "Tukey HSD 事后检验",
@@ -260,11 +259,13 @@ class CompleteANOVASkill(Skill):
 
         for group in groups:
             group_data = df[df[group_column] == group][value_column]
-            fig.add_trace(go.Box(
-                y=group_data,
-                name=str(group),
-                boxpoints="outliers",
-            ))
+            fig.add_trace(
+                go.Box(
+                    y=group_data,
+                    name=str(group),
+                    boxpoints="outliers",
+                )
+            )
 
         # 应用期刊风格
         self._apply_journal_style(fig, journal_style)
@@ -284,22 +285,22 @@ class CompleteANOVASkill(Skill):
         """应用期刊样式。"""
         style_configs = {
             "nature": {
-                "font": {"family": "Arial", "size": 12},
+                "font": {"family": CJK_FONT_FAMILY, "size": 12},
                 "plot_bgcolor": "white",
                 "paper_bgcolor": "white",
             },
             "science": {
-                "font": {"family": "Helvetica", "size": 11},
+                "font": {"family": CJK_FONT_FAMILY, "size": 11},
                 "plot_bgcolor": "white",
                 "paper_bgcolor": "white",
             },
             "cell": {
-                "font": {"family": "Arial", "size": 10},
+                "font": {"family": CJK_FONT_FAMILY, "size": 10},
                 "plot_bgcolor": "white",
                 "paper_bgcolor": "white",
             },
             "apa": {
-                "font": {"family": "Times New Roman", "size": 12},
+                "font": {"family": CJK_FONT_FAMILY, "size": 12},
                 "plot_bgcolor": "white",
                 "paper_bgcolor": "white",
             },
@@ -329,9 +330,7 @@ class CompleteANOVASkill(Skill):
         )
 
         # 效应量
-        effect_text = (
-            f"η² = {effect_size['value']:.3f} ({effect_size['interpretation']})"
-        )
+        effect_text = f"η² = {effect_size['value']:.3f} ({effect_size['interpretation']})"
 
         # 事后检验结果
         post_hoc_text = ""

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi.testclient import TestClient
 import pandas as pd
 import pytest
 
@@ -14,6 +13,7 @@ from nini.agent.session import Session, session_manager
 from nini.app import create_app
 from nini.config import settings
 from nini.memory.compression import compress_session_history
+from tests.client_utils import LocalASGIClient
 
 
 class _DummyResolver:
@@ -125,6 +125,57 @@ class _DummySkillRegistry:
         }
 
 
+class _TwoStepToolResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, tool_calls: list[dict[str, object]]):
+                self.text = text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls == 1:
+            yield _Chunk(
+                text="",
+                tool_calls=[
+                    {
+                        "id": "call_echo_1",
+                        "type": "function",
+                        "function": {
+                            "name": "echo_tool",
+                            "arguments": json.dumps({"value": "ok"}, ensure_ascii=False),
+                        },
+                    }
+                ],
+            )
+            return
+
+        yield _Chunk(text="最终回复", tool_calls=[])
+
+
+class _EchoSkillRegistry:
+    def get_tool_definitions(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "echo_tool",
+                    "description": "回声测试工具",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
+    async def execute(self, skill_name: str, session: Session, **kwargs):
+        if skill_name != "echo_tool":
+            return {"error": f"unknown skill: {skill_name}"}
+        return {"success": True, "message": "echo ok", "data": {"value": kwargs.get("value")}}
+
+
 @pytest.fixture(autouse=True)
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
@@ -185,6 +236,35 @@ async def test_generate_report_uses_saved_markdown_as_final_response() -> None:
     assert "## 分析摘要" in str(session.messages[-1]["content"])
 
 
+@pytest.mark.asyncio
+async def test_runner_unlimited_iterations_when_max_is_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "agent_max_iterations", 0)
+
+    session = Session()
+    resolver = _TwoStepToolResolver()
+    runner = AgentRunner(
+        resolver=resolver,
+        skill_registry=_EchoSkillRegistry(),
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    events = []
+    async for event in runner.run(session, "继续分析"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    event_types = [e.type.value for e in events]
+    assert resolver.calls == 2
+    assert "tool_call" in event_types
+    assert "tool_result" in event_types
+    assert "error" not in event_types
+    assert session.messages[-1]["role"] == "assistant"
+    assert session.messages[-1]["content"] == "最终回复"
+
+
 def test_compress_session_history_archives_and_updates_context() -> None:
     session = Session()
     for i in range(8):
@@ -203,7 +283,7 @@ def test_compress_session_history_archives_and_updates_context() -> None:
 
 def test_api_compress_session_endpoint() -> None:
     app = create_app()
-    with TestClient(app) as client:
+    with LocalASGIClient(app) as client:
         create_resp = client.post("/api/sessions")
         session_id = create_resp.json()["data"]["session_id"]
 
@@ -212,7 +292,7 @@ def test_api_compress_session_endpoint() -> None:
         for i in range(6):
             session.add_message("user" if i % 2 == 0 else "assistant", f"历史-{i}")
 
-        resp = client.post(f"/api/sessions/{session_id}/compress")
+        resp = client.post(f"/api/sessions/{session_id}/compress", params={"mode": "lightweight"})
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["success"] is True

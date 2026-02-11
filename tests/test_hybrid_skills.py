@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi.testclient import TestClient
 import pytest
 
 from nini.agent.session import session_manager
 from nini.app import create_app
 from nini.config import settings
+from nini.api.websocket import set_skill_registry
 from nini.skills.registry import create_default_registry
+from tests.client_utils import LocalASGIClient
 
 
 @pytest.fixture(autouse=True)
@@ -92,7 +93,8 @@ def test_api_skills_returns_hybrid_catalog(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    with TestClient(app) as client:
+    set_skill_registry(create_default_registry())
+    with LocalASGIClient(app) as client:
         resp = client.get("/api/skills")
         assert resp.status_code == 200
         payload = resp.json()

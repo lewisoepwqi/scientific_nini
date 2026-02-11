@@ -11,8 +11,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import aiosqlite
-
 from nini.config import settings
 from nini.models.database import get_db
 from nini.utils.crypto import decrypt_api_key, encrypt_api_key, mask_api_key
@@ -182,12 +180,12 @@ async def get_effective_config(provider: str) -> dict[str, Any]:
         "kimi_coding": {
             "api_key": settings.kimi_coding_api_key,
             "model": settings.kimi_coding_model,
-            "base_url": None,
+            "base_url": settings.kimi_coding_base_url,
         },
         "zhipu": {
             "api_key": settings.zhipu_api_key,
             "model": settings.zhipu_model,
-            "base_url": None,
+            "base_url": settings.zhipu_base_url,
         },
         "deepseek": {
             "api_key": settings.deepseek_api_key,

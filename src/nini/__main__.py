@@ -29,8 +29,14 @@ def _default_env_content() -> str:
         "NINI_MOONSHOT_API_KEY=\n"
         "NINI_MOONSHOT_MODEL=moonshot-v1-8k\n"
         "\n"
+        "# 可选：Kimi Coding（api.kimi.com）\n"
+        "NINI_KIMI_CODING_API_KEY=\n"
+        "NINI_KIMI_CODING_BASE_URL=https://api.kimi.com/coding/v1\n"
+        "NINI_KIMI_CODING_MODEL=kimi-for-coding\n"
+        "\n"
         "# 可选：智谱 AI (GLM)\n"
         "NINI_ZHIPU_API_KEY=\n"
+        "NINI_ZHIPU_BASE_URL=https://open.bigmodel.cn/api/paas/v4\n"
         "NINI_ZHIPU_MODEL=glm-4\n"
         "\n"
         "# 可选：DeepSeek\n"
@@ -42,9 +48,10 @@ def _default_env_content() -> str:
         "NINI_DASHSCOPE_MODEL=qwen-plus\n"
         "\n"
         "# Agent / 沙箱\n"
-        "NINI_AGENT_MAX_ITERATIONS=20\n"
+        "NINI_AGENT_MAX_ITERATIONS=0\n"
         "NINI_SANDBOX_TIMEOUT=30\n"
         "NINI_SANDBOX_MAX_MEMORY_MB=512\n"
+        "NINI_SANDBOX_IMAGE_EXPORT_TIMEOUT=60\n"
     )
 
 
@@ -156,6 +163,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         settings.openai_api_key
         or settings.anthropic_api_key
         or settings.moonshot_api_key
+        or settings.kimi_coding_api_key
         or settings.zhipu_api_key
         or settings.deepseek_api_key
         or settings.dashscope_api_key
@@ -169,6 +177,8 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         configured_providers.append("Anthropic")
     if settings.moonshot_api_key:
         configured_providers.append("Moonshot")
+    if settings.kimi_coding_api_key:
+        configured_providers.append("Kimi Coding")
     if settings.zhipu_api_key:
         configured_providers.append("智谱AI")
     if settings.deepseek_api_key:
@@ -188,6 +198,32 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             True,
         )
     )
+
+    # kaleido + Chrome 检查（图片导出依赖）
+    kaleido_ok = False
+    kaleido_msg = ""
+    try:
+        import kaleido  # noqa: F401
+
+        # 通过 choreographer 检测 Chrome 是否已安装（不触发下载）
+        try:
+            from choreographer.browsers.chromium import (
+                get_browser_path,
+                chromium_based_browsers,
+            )
+
+            chrome_path = get_browser_path(chromium_based_browsers)
+            kaleido_ok = chrome_path is not None
+            kaleido_msg = f"Chrome: {chrome_path}" if kaleido_ok else "Chrome 未安装"
+        except Exception:
+            # choreographer API 可能不同版本有差异，降级检测
+            kaleido_msg = "kaleido 已安装，Chrome 状态未知"
+            kaleido_ok = False
+        if not kaleido_ok:
+            kaleido_msg += "（运行 `kaleido_get_chrome` 安装）"
+    except ImportError:
+        kaleido_msg = "kaleido 未安装（pip install kaleido）"
+    checks.append(("kaleido + Chrome（图片导出，可选）", kaleido_ok, kaleido_msg, False))
 
     web_dist = Path(__file__).resolve().parent.parent.parent / "web" / "dist"
     checks.append(("前端构建产物存在（可选）", web_dist.exists(), str(web_dist), False))

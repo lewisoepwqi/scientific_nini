@@ -36,15 +36,28 @@ _PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
     },
     "moonshot": {
         "base_url": "https://api.moonshot.cn/v1",
-        "static": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k", "kimi-k2-0711-preview"],
+        "static": [
+            "moonshot-v1-8k",
+            "moonshot-v1-32k",
+            "moonshot-v1-128k",
+            "kimi-k2-0711-preview",
+        ],
     },
     "kimi_coding": {
-        "base_url": "https://api.kimi.com/coding/v1",
+        "base_url": settings.kimi_coding_base_url,
         "static": ["kimi-for-coding"],
     },
     "zhipu": {
-        "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "static": ["glm-4", "glm-4-plus", "glm-4-flash"],
+        "base_url": settings.zhipu_base_url,
+        "static": [
+            "glm-4.7",
+            "glm-4.6",
+            "glm-4.5",
+            "glm-4.5-air",
+            "glm-4",
+            "glm-4-plus",
+            "glm-4-flash",
+        ],
     },
     "deepseek": {
         "base_url": "https://api.deepseek.com/v1",

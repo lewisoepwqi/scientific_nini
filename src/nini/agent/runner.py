@@ -21,8 +21,9 @@ from nini.agent.prompts.scientific import get_system_prompt
 from nini.agent.session import Session
 from nini.config import settings
 from nini.knowledge.loader import KnowledgeLoader
+from nini.memory.compression import compress_session_history_with_llm
 from nini.memory.storage import ArtifactStorage
-from nini.utils.token_counter import get_tracker
+from nini.utils.token_counter import count_messages_tokens, get_tracker
 from nini.workspace import WorkspaceManager
 # 导入事件模块
 from nini.agent.events import EventType, AgentEvent, create_reasoning_event
@@ -79,7 +80,8 @@ class AgentRunner:
         1. 将用户消息加入会话
         2. 构建 LLM 调用 messages（系统 prompt + 历史 + 数据摘要）
         3. 调用 LLM 获取响应
-        4. 如果有 tool_calls → 执行工具 → 将结果反馈 → 重复 (最多 max_iterations 次)
+        4. 如果有 tool_calls → 执行工具 → 将结果反馈 → 重复
+           （当 agent_max_iterations > 0 时最多该次数；<=0 不限制）
         5. 如果是纯文本 → 输出并结束
         """
         if append_user_message:
@@ -88,8 +90,14 @@ class AgentRunner:
         turn_id = uuid.uuid4().hex[:12]
         should_stop = stop_event.is_set if stop_event else (lambda: False)
         report_markdown_for_turn: str | None = None
+        iteration = 0
 
-        for iteration in range(max_iter):
+        # 自动上下文压缩检查
+        compress_event = await self._maybe_auto_compress(session)
+        if compress_event is not None:
+            yield compress_event
+
+        while max_iter <= 0 or iteration < max_iter:
             if should_stop():
                 yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
                 return
@@ -164,6 +172,33 @@ class AgentRunner:
                 return
 
             # 有 tool_calls → 记录并执行
+            # 第一次迭代中，LLM 同时输出文本和 tool_calls：
+            # 文本部分视为"分析思路"，发出 REASONING 事件并保存到工作空间
+            if iteration == 0 and full_text and full_text.strip():
+                reasoning_text = full_text.strip()
+                yield AgentEvent(
+                    type=EventType.REASONING,
+                    data={"content": reasoning_text},
+                    turn_id=turn_id,
+                )
+                # 保存分析思路到工作空间（标记为内部产物）
+                try:
+                    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                    plan_filename = f"analysis_plan_{ts}.md"
+                    plan_storage = ArtifactStorage(session.id)
+                    plan_path = plan_storage.save_text(
+                        f"# 分析思路\n\n{reasoning_text}\n", plan_filename
+                    )
+                    WorkspaceManager(session.id).add_artifact_record(
+                        name=plan_filename,
+                        artifact_type="note",
+                        file_path=plan_path,
+                        format_hint="md",
+                        visibility="internal",
+                    )
+                except Exception as exc:
+                    logger.debug("保存分析思路失败: %s", exc)
+
             # 先把 assistant 带 tool_calls 的消息加入会话
             assistant_tool_msg = {
                 "role": "assistant",
@@ -214,7 +249,9 @@ class AgentRunner:
                 result = await self._execute_tool(session, func_name, func_args)
 
                 # 判断执行状态
-                has_error = isinstance(result, dict) and result.get("error")
+                has_error = isinstance(result, dict) and (
+                    result.get("error") or result.get("success") is False
+                )
                 status = "error" if has_error else "success"
                 if (
                     func_name == "generate_report"
@@ -240,7 +277,7 @@ class AgentRunner:
                         data={
                             "result": result,
                             "status": status,
-                            "message": result.get("error")
+                            "message": result.get("error") or result.get("message", "工具执行失败")
                             if has_error
                             else result.get("message", "工具执行完成"),
                         },
@@ -324,13 +361,15 @@ class AgentRunner:
                 )
                 yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
                 return
+            iteration += 1
 
-        # 达到最大迭代次数
-        yield AgentEvent(
-            type=EventType.ERROR,
-            data=f"达到最大迭代次数 ({max_iter})，已停止执行。",
-            turn_id=turn_id,
-        )
+        if max_iter > 0:
+            # 达到最大迭代次数（仅在启用上限时触发）
+            yield AgentEvent(
+                type=EventType.ERROR,
+                data=f"达到最大迭代次数 ({max_iter})，已停止执行。",
+                turn_id=turn_id,
+            )
 
     def _build_messages(self, session: Session) -> list[dict[str, Any]]:
         """构建发送给 LLM 的消息列表。"""
@@ -429,6 +468,16 @@ class AgentRunner:
         # 添加会话历史，过滤掉不完整的 tool_calls 消息
         valid_messages = self._filter_valid_messages(session.messages)
         prepared_messages = self._prepare_messages_for_llm(valid_messages)
+
+        # 滑动窗口兜底：如果 token 数仍超限，从最旧消息开始移除
+        if settings.auto_compress_enabled and prepared_messages:
+            threshold = settings.auto_compress_threshold_tokens
+            current_tokens = count_messages_tokens(messages + prepared_messages)
+            if current_tokens > threshold:
+                prepared_messages = self._sliding_window_trim(
+                    prepared_messages, threshold, base_tokens=count_messages_tokens(messages)
+                )
+
         messages.extend(prepared_messages)
 
         return messages, retrieval_event
@@ -684,6 +733,89 @@ class AgentRunner:
             logger.error("工具 %s 执行失败: %s", name, e, exc_info=True)
             return {"error": f"工具 {name} 执行失败: {e}"}
 
+    async def _maybe_auto_compress(self, session: Session) -> AgentEvent | None:
+        """检查上下文 token 数，超过阈值时自动压缩。"""
+        if not settings.auto_compress_enabled:
+            return None
+        threshold = settings.auto_compress_threshold_tokens
+        current_tokens = count_messages_tokens(session.messages)
+        if current_tokens <= threshold:
+            return None
+
+        logger.info(
+            "自动压缩触发: 当前 %d tokens, 阈值 %d tokens",
+            current_tokens, threshold,
+        )
+        try:
+            result = await compress_session_history_with_llm(
+                session, ratio=0.5, min_messages=4
+            )
+            if result.get("success"):
+                archived_count = result.get("archived_count", 0)
+                remaining_count = result.get("remaining_count", 0)
+                return AgentEvent(
+                    type=EventType.CONTEXT_COMPRESSED,
+                    data={
+                        "archived_count": archived_count,
+                        "remaining_count": remaining_count,
+                        "previous_tokens": current_tokens,
+                        "message": f"上下文已自动压缩，归档了 {archived_count} 条消息",
+                    },
+                )
+        except Exception as exc:
+            logger.warning("自动压缩失败: %s", exc, exc_info=True)
+        return None
+
+    @staticmethod
+    def _sliding_window_trim(
+        messages: list[dict[str, Any]],
+        token_budget: int,
+        base_tokens: int = 0,
+        min_recent: int = 4,
+    ) -> list[dict[str, Any]]:
+        """从最旧消息开始移除，保留至少 min_recent 条，不破坏 tool_call/tool_result 对。"""
+        if not messages:
+            return messages
+
+        # 构建 tool_call_id → 索引的映射，确保成对移除
+        tc_pair: dict[str, list[int]] = {}
+        for i, msg in enumerate(messages):
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                for tc in msg["tool_calls"]:
+                    tc_id = tc.get("id")
+                    if tc_id:
+                        tc_pair.setdefault(tc_id, []).append(i)
+            elif msg.get("role") == "tool" and msg.get("tool_call_id"):
+                tc_pair.setdefault(msg["tool_call_id"], []).append(i)
+
+        # 哪些索引必须一起移除
+        index_groups: dict[int, set[int]] = {}
+        for indices in tc_pair.values():
+            group = set(indices)
+            for idx in indices:
+                index_groups[idx] = group
+
+        removed: set[int] = set()
+        total = len(messages)
+        protected = set(range(max(0, total - min_recent), total))
+
+        for i in range(total):
+            current_tokens = base_tokens + count_messages_tokens(
+                [m for j, m in enumerate(messages) if j not in removed]
+            )
+            if current_tokens <= token_budget:
+                break
+            if i in removed or i in protected:
+                continue
+
+            # 移除此索引及其配对
+            to_remove = index_groups.get(i, {i})
+            if to_remove & protected:
+                continue
+            removed |= to_remove
+
+        return [m for i, m in enumerate(messages) if i not in removed]
+
     def _persist_run_code_source(
         self,
         *,
@@ -691,7 +823,11 @@ class AgentRunner:
         func_name: str,
         func_args: str,
     ) -> dict[str, Any] | None:
-        """将 run_code 的代码片段自动保存到工作空间。"""
+        """将 run_code 的代码片段自动保存到工作空间。
+
+        仅在 purpose 为 visualization 或 export 时保存为可交付产物；
+        exploration/transformation 的代码只记录到 executions/ 目录。
+        """
         if func_name != "run_code":
             return None
 
@@ -706,15 +842,28 @@ class AgentRunner:
         if not isinstance(code, str) or not code.strip():
             return None
 
+        purpose = str(args.get("purpose", "exploration")).strip()
+        label = args.get("label") or None
+
+        # exploration/transformation 的代码只写入 executions/，不生成产物
+        if purpose not in ("visualization", "export"):
+            ws = WorkspaceManager(session.id)
+            ws.save_code_execution(code=code.rstrip(), output="", status="pending")
+            return None
+
+        # visualization/export 保存为可交付产物，使用 label 命名
+        ws = WorkspaceManager(session.id)
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        filename = WorkspaceManager(session.id).sanitize_filename(
-            f"run_code_{ts}.py",
-            default_name="run_code.py",
-        )
+        if label:
+            filename = ws.sanitize_filename(f"{label}.py", default_name="code.py")
+        else:
+            filename = ws.sanitize_filename(
+                f"run_code_{ts}.py", default_name="run_code.py",
+            )
 
         storage = ArtifactStorage(session.id)
         path = storage.save_text(code.rstrip() + "\n", filename)
-        WorkspaceManager(session.id).add_artifact_record(
+        ws.add_artifact_record(
             name=filename,
             artifact_type="code",
             file_path=path,

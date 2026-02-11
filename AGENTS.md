@@ -19,6 +19,9 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 # Repository Guidelines
 
+> 适用对象：OpenAI Codex / 其他读取 AGENTS.md 的编码智能体
+> 目标：保证 `main` 分支稳定、提交可追溯、变更可验证、PR 可审查。
+
 ## Project Structure & Module Organization
 - 当前仓库采用单架构：`src/nini/`（后端与 Agent 运行时）+ `web/`（前端）+ `tests/`（测试）+ `docs/`（文档）+ `data/`（运行时数据）。
 - 旧三服务目录（`frontend/`、`scientific_data_analysis_backend/`、`ai_service/`）已清理，不再作为开发目标。
@@ -39,8 +42,12 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 - 首次初始化：`nini init`
 - 环境检查：`nini doctor`
 - 启动服务：`nini start --reload`
+- Python 格式化：`black src tests`
+- Python 格式检查：`black --check src tests`
+- Python 类型检查：`mypy src/nini`
 - 后端测试：`pytest -q`
 - 前端构建：`cd web && npm install && npm run build`
+- 前端 E2E（按需）：`cd web && npm run test:e2e`
 - 打包：`python -m build`
 
 ## Coding Style & Naming Conventions
@@ -54,9 +61,77 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 - 最小回归要求：`pytest -q` + `cd web && npm run build`。
 - 涉及 CLI 变更时必须补充或更新 `tests/test_phase7_cli.py`。
 
-## Commit & Pull Request Guidelines
-- 提交信息建议使用中文、动词开头、说明影响范围。
-- PR 建议包含：变更摘要、关键测试命令与结果、必要截图（如有 UI 变化）。
+## Git 工作流（强制）
+- 禁止在 `main` 直接开发与提交。
+- 所有开发必须走：`feature/fix/chore/docs` 分支 → PR → 合并到 `main`。
+- 分支命名规范：
+  - `feature/<topic>`：新功能
+  - `fix/<topic>`：缺陷修复
+  - `chore/<topic>`：构建、依赖、配置
+  - `docs/<topic>`：文档
+- 合并策略：
+  - 默认使用 `Squash merge`，保持 `main` 历史整洁。
+  - 禁止在 `main` 执行 `git push --force`。
+
+## 提交规范（强制）
+### 提交信息格式（Conventional Commits）
+- 格式：`type(scope): subject`。
+- `scope` 可省略；`subject` 推荐英文小写开头（允许中文，但全仓保持一致）。
+- `type` 取值：
+  - `feat`：新功能
+  - `fix`：修复缺陷
+  - `docs`：文档
+  - `refactor`：重构（不改变外部行为）
+  - `perf`：性能优化
+  - `test`：测试
+  - `build`：构建系统
+  - `ci`：CI 配置
+  - `chore`：杂项
+- 示例：
+  - `feat(agent): add websocket reconnect`
+  - `fix(api): handle empty dataset response`
+  - `docs(cli): update init examples`
+
+### 提交粒度与内容
+- 一个提交只做一件事，避免“顺手改”无关内容。
+- 禁止仅为格式化而全仓改动（除非任务就是格式化）。
+- 禁止提交敏感信息（token、密码、证书、私钥）。
+- 仅提交必要文件；`lockfile`（如 `uv.lock`）仅在依赖变更时提交。
+
+## PR 规范（强制）
+### PR 基本要求
+- PR 描述必须写清：
+  - 变更内容（做了什么）
+  - 验证方式（怎么验证通过）
+  - 风险点与回滚方式（如有）
+- PR 应尽量小，保证可审查、可回滚。
+
+### 合并前自检清单（必须通过）
+- ✅ 代码可运行/可编译（若适用）。
+- ✅ 测试通过（若存在测试体系）。
+- ✅ lint/format 通过（若适用）。
+- ✅ 新增/修改行为有对应测试或说明（至少二选一）。
+- ✅ 文档/注释同步更新（若影响使用方式）。
+- 推荐执行顺序：`format → lint/typecheck → test → build`。
+- 本仓库常用命令：
+  - `black --check src tests`
+  - `mypy src/nini`
+  - `pytest -q`
+  - `cd web && npm run build`
+  - `python -m build`（发布前建议）
+  - `cd web && npm run test:e2e`（前端交互改动时建议）
+
+## 智能体工作约束（强制）
+- 先计划后修改：开始动手前先输出 3～7 条行动计划（文件级别）。
+- 最小改动原则：优先局部修改，避免无关重构。
+- 新增依赖必须说明原因，并优先复用现有依赖；如必须新增依赖，PR 描述中必须写明。
+- 任何可能破坏性操作（清库、批量删除、重写历史等）必须停止并请求人工确认。
+
+## Done 定义（强制）
+- 变更已按规范提交在非 `main` 分支上。
+- PR 已创建（或已达到可直接创建状态，描述与检查项齐全）。
+- 合并前自检清单全部通过（或在 PR 明确说明豁免原因）。
+- 变更说明清晰，可复现、可回滚。
 
 ## Security & Configuration Tips
 - API Key 仅通过环境变量配置，不提交到仓库。

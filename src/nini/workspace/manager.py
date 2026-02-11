@@ -24,6 +24,7 @@ from urllib.parse import quote
 import pandas as pd
 
 from nini.config import settings
+from nini.utils.dataframe_io import read_dataframe
 
 _SAFE_FILENAME_PATTERN = re.compile(r"[^0-9A-Za-z\u4e00-\u9fff._ -]")
 
@@ -183,14 +184,7 @@ class WorkspaceManager:
         if not path.exists():
             raise ValueError(f"数据集文件不存在: {path}")
         ext = str(record.get("file_type", "")).lower()
-        if ext in ("xlsx", "xls"):
-            df = pd.read_excel(path)
-        elif ext == "csv":
-            df = pd.read_csv(path)
-        elif ext in ("tsv", "txt"):
-            df = pd.read_csv(path, sep="\t")
-        else:
-            raise ValueError(f"不支持的数据集扩展名: {ext}")
+        df = read_dataframe(path, ext)
         return record, df
 
     def hydrate_session_datasets(self, session: Any) -> int:
@@ -217,6 +211,7 @@ class WorkspaceManager:
         artifact_type: str,
         file_path: Path,
         format_hint: str | None = None,
+        visibility: str = "deliverable",
     ) -> dict[str, Any]:
         index = self._load_index()
         record = {
@@ -228,6 +223,7 @@ class WorkspaceManager:
             "path": str(file_path),
             "download_url": f"/api/artifacts/{self.session_id}/{name}",
             "created_at": _now_iso(),
+            "visibility": visibility,
         }
         artifacts = index.get("artifacts", [])
         if not isinstance(artifacts, list):
@@ -342,6 +338,7 @@ class WorkspaceManager:
                         "format": item.get("format"),
                         "versions": item.get("versions", []),
                         "version": item.get("version"),
+                        "visibility": item.get("visibility", "deliverable"),
                     },
                 }
             )
@@ -579,11 +576,14 @@ class WorkspaceManager:
         output: str,
         status: str = "success",
         language: str = "python",
+        tool_name: str | None = None,
+        tool_args: dict[str, Any] | None = None,
+        context_token_count: int | None = None,
     ) -> dict[str, Any]:
         """将代码执行记录持久化到 workspace/executions/ 目录。"""
         self.ensure_dirs()
         exec_id = uuid.uuid4().hex[:12]
-        record = {
+        record: dict[str, Any] = {
             "id": exec_id,
             "session_id": self.session_id,
             "code": code,
@@ -592,6 +592,12 @@ class WorkspaceManager:
             "language": language,
             "created_at": _now_iso(),
         }
+        if tool_name is not None:
+            record["tool_name"] = tool_name
+        if tool_args is not None:
+            record["tool_args"] = tool_args
+        if context_token_count is not None:
+            record["context_token_count"] = context_token_count
         exec_path = self.executions_dir / f"{exec_id}.json"
         exec_path.write_text(
             json.dumps(record, ensure_ascii=False, indent=2),

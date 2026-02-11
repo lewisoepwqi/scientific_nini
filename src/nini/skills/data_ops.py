@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -13,6 +14,12 @@ import pandas as pd
 
 from nini.agent.session import Session
 from nini.skills.base import Skill, SkillResult
+from nini.utils.dataframe_io import (
+    list_excel_sheet_names,
+    read_excel_all_sheets,
+    read_excel_sheet_dataframe,
+)
+from nini.workspace import WorkspaceManager
 
 
 # ---- 工具函数 ----
@@ -51,6 +58,17 @@ def _dataframe_to_json_safe(df: pd.DataFrame) -> list[dict[str, Any]]:
     return result
 
 
+def _unique_dataset_name(session: Session, preferred_name: str) -> str:
+    """保证新数据集名不与会话中已有名称冲突。"""
+    name = preferred_name.strip() or "dataset"
+    if name not in session.datasets:
+        return name
+    index = 2
+    while f"{name}_{index}" in session.datasets:
+        index += 1
+    return f"{name}_{index}"
+
+
 # ---- 技能实现 ----
 
 
@@ -62,8 +80,16 @@ class LoadDatasetSkill(Skill):
         return "load_dataset"
 
     @property
+    def category(self) -> str:
+        return "data"
+
+    @property
     def description(self) -> str:
-        return "加载已上传的数据集。传入数据集名称（文件名），返回数据集基本信息。"
+        return (
+            "加载已上传的数据集。默认返回数据集基本信息。"
+            "对于 Excel 文件，支持按 sheet 读取（sheet_mode=single）或读取全部 sheet（sheet_mode=all），"
+            "并可选择将全部 sheet 合并为一个数据集（combine_sheets=true）。"
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -73,6 +99,33 @@ class LoadDatasetSkill(Skill):
                 "dataset_name": {
                     "type": "string",
                     "description": "数据集名称（文件名，例如 experiment.csv）",
+                },
+                "sheet_mode": {
+                    "type": "string",
+                    "enum": ["default", "single", "all"],
+                    "default": "default",
+                    "description": (
+                        "Excel 读取模式：default=默认加载；single=仅加载指定 sheet；"
+                        "all=加载全部 sheet（可选合并）"
+                    ),
+                },
+                "sheet_name": {
+                    "type": "string",
+                    "description": "sheet_mode=single 时必填，目标工作表名称",
+                },
+                "combine_sheets": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "sheet_mode=all 时是否将全部 sheet 合并为一个数据集",
+                },
+                "include_sheet_column": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "合并模式下是否新增 `__sheet_name__` 列标记来源 sheet",
+                },
+                "output_dataset_name": {
+                    "type": "string",
+                    "description": "可选。指定输出数据集名称（用于 single/all+combine）",
                 },
             },
             "required": ["dataset_name"],
@@ -84,6 +137,11 @@ class LoadDatasetSkill(Skill):
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
         name = kwargs.get("dataset_name", "")
+        sheet_mode = str(kwargs.get("sheet_mode", "default")).strip().lower()
+        sheet_name_raw = kwargs.get("sheet_name")
+        combine_sheets = bool(kwargs.get("combine_sheets", False))
+        include_sheet_column = bool(kwargs.get("include_sheet_column", True))
+        output_dataset_name_raw = str(kwargs.get("output_dataset_name", "")).strip()
 
         if not name:
             # 如果没有指定名称，返回所有已加载数据集的列表
@@ -99,27 +157,153 @@ class LoadDatasetSkill(Skill):
                 message=f"当前已加载 {len(datasets)} 个数据集: {', '.join(datasets)}",
             )
 
-        if name not in session.datasets:
-            available = list(session.datasets.keys())
+        if sheet_mode not in {"default", "single", "all"}:
             return SkillResult(
                 success=False,
-                message=f"数据集 '{name}' 不存在。可用数据集: {', '.join(available) or '无'}",
+                message="sheet_mode 仅支持: default/single/all",
             )
 
-        df = session.datasets[name]
-        info = {
-            "name": name,
-            "rows": len(df),
-            "columns": len(df.columns),
-            "column_names": df.columns.tolist(),
-            "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
-            "memory_mb": round(df.memory_usage(deep=True).sum() / 1024 / 1024, 2),
-        }
+        manager = WorkspaceManager(session.id)
+
+        if sheet_mode == "default":
+            if name not in session.datasets:
+                record = manager.get_dataset_by_name(name)
+                if record is not None:
+                    dataset_id = str(record.get("id", "")).strip()
+                    if dataset_id:
+                        try:
+                            _, df_loaded = manager.load_dataset_by_id(dataset_id)
+                            session.datasets[name] = df_loaded
+                        except Exception:
+                            pass
+            if name not in session.datasets:
+                available = list(session.datasets.keys())
+                return SkillResult(
+                    success=False,
+                    message=f"数据集 '{name}' 不存在。可用数据集: {', '.join(available) or '无'}",
+                )
+
+            df = session.datasets[name]
+            info = {
+                "name": name,
+                "rows": len(df),
+                "columns": len(df.columns),
+                "column_names": df.columns.tolist(),
+                "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
+                "memory_mb": round(df.memory_usage(deep=True).sum() / 1024 / 1024, 2),
+            }
+
+            return SkillResult(
+                success=True,
+                data=info,
+                message=f"数据集 '{name}': {info['rows']} 行 × {info['columns']} 列",
+            )
+
+        record = manager.get_dataset_by_name(name)
+        if record is None:
+            return SkillResult(success=False, message=f"数据集 '{name}' 未在工作区中找到")
+
+        ext = str(record.get("file_type", "")).strip().lower()
+        if ext not in {"xlsx", "xls"}:
+            return SkillResult(
+                success=False,
+                message=f"数据集 '{name}' 不是 Excel 文件，无法使用 sheet_mode={sheet_mode}",
+            )
+
+        file_path = Path(str(record.get("file_path", "")).strip())
+        if not file_path.exists():
+            return SkillResult(success=False, message=f"数据集文件不存在: {file_path}")
+
+        if sheet_mode == "single":
+            try:
+                available_sheets = list_excel_sheet_names(file_path, ext)
+            except Exception:
+                available_sheets = []
+            if not isinstance(sheet_name_raw, str) or not sheet_name_raw.strip():
+                extra = f"；可用 sheet: {', '.join(available_sheets)}" if available_sheets else ""
+                return SkillResult(success=False, message=f"sheet_mode=single 时必须提供 sheet_name{extra}")
+            sheet_name = sheet_name_raw.strip()
+            try:
+                df_sheet = read_excel_sheet_dataframe(file_path, ext, sheet_name=sheet_name)
+            except Exception as exc:
+                extra = f"；可用 sheet: {', '.join(available_sheets)}" if available_sheets else ""
+                return SkillResult(success=False, message=f"读取 sheet 失败: {exc}{extra}")
+
+            preferred = output_dataset_name_raw or f"{name}[{sheet_name}]"
+            output_name = _unique_dataset_name(session, preferred)
+            session.datasets[output_name] = df_sheet
+
+            return SkillResult(
+                success=True,
+                data={
+                    "source_dataset": name,
+                    "sheet_mode": "single",
+                    "sheet_name": sheet_name,
+                    "output_dataset": output_name,
+                    "rows": len(df_sheet),
+                    "columns": len(df_sheet.columns),
+                },
+                message=f"已加载 sheet '{sheet_name}' 到数据集 '{output_name}'（{len(df_sheet)} 行 × {len(df_sheet.columns)} 列）",
+            )
+
+        try:
+            sheets_map = read_excel_all_sheets(file_path, ext)
+            sheet_names = list_excel_sheet_names(file_path, ext)
+        except Exception as exc:
+            return SkillResult(success=False, message=f"读取全部 sheet 失败: {exc}")
+
+        if not sheets_map:
+            return SkillResult(success=False, message=f"Excel 文件 '{name}' 不包含可读取的 sheet")
+
+        if combine_sheets:
+            combined_parts: list[pd.DataFrame] = []
+            for s_name, s_df in sheets_map.items():
+                piece = s_df.copy()
+                if include_sheet_column:
+                    piece["__sheet_name__"] = s_name
+                combined_parts.append(piece)
+            merged = pd.concat(combined_parts, ignore_index=True, sort=False)
+
+            preferred = output_dataset_name_raw or f"{name}[all_combined]"
+            output_name = _unique_dataset_name(session, preferred)
+            session.datasets[output_name] = merged
+
+            return SkillResult(
+                success=True,
+                data={
+                    "source_dataset": name,
+                    "sheet_mode": "all",
+                    "combine_sheets": True,
+                    "sheet_count": len(sheet_names),
+                    "sheet_names": sheet_names,
+                    "output_dataset": output_name,
+                    "rows": len(merged),
+                    "columns": len(merged.columns),
+                },
+                message=(
+                    f"已加载并合并 {len(sheet_names)} 个 sheet 到数据集 '{output_name}'"
+                    f"（{len(merged)} 行 × {len(merged.columns)} 列）"
+                ),
+            )
+
+        created: list[dict[str, Any]] = []
+        for s_name, s_df in sheets_map.items():
+            preferred = f"{name}[{s_name}]"
+            out_name = _unique_dataset_name(session, preferred)
+            session.datasets[out_name] = s_df
+            created.append({"name": out_name, "sheet_name": s_name, "rows": len(s_df), "columns": len(s_df.columns)})
 
         return SkillResult(
             success=True,
-            data=info,
-            message=f"数据集 '{name}': {info['rows']} 行 × {info['columns']} 列",
+            data={
+                "source_dataset": name,
+                "sheet_mode": "all",
+                "combine_sheets": False,
+                "sheet_count": len(sheet_names),
+                "sheet_names": sheet_names,
+                "created_datasets": created,
+            },
+            message=f"已加载全部 sheet，共创建 {len(created)} 个数据集",
         )
 
 
@@ -129,6 +313,10 @@ class PreviewDataSkill(Skill):
     @property
     def name(self) -> str:
         return "preview_data"
+
+    @property
+    def category(self) -> str:
+        return "data"
 
     @property
     def description(self) -> str:
@@ -203,6 +391,10 @@ class DataSummarySkill(Skill):
     @property
     def name(self) -> str:
         return "data_summary"
+
+    @property
+    def category(self) -> str:
+        return "data"
 
     @property
     def description(self) -> str:
