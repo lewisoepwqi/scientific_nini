@@ -7,7 +7,7 @@ import mimetypes
 import uuid
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -551,7 +551,8 @@ async def batch_download(session_id: str, req: dict[str, Any]):
 @router.get("/artifacts/{session_id}/{filename}")
 async def download_artifact(session_id: str, filename: str):
     """下载会话产物。"""
-    safe_name = Path(filename).name
+    # 兼容已编码/双重编码文件名（如 %25E8...），统一解码一次后再做安全裁剪。
+    safe_name = Path(unquote(filename)).name
     artifact_path = settings.sessions_dir / session_id / "workspace" / "artifacts" / safe_name
     if not artifact_path.exists():
         # 兼容旧目录
@@ -1057,9 +1058,10 @@ async def get_session_context_size(session_id: str):
     """获取当前会话上下文的 token 预估。"""
     from nini.utils.token_counter import count_messages_tokens
 
-    session = session_manager.get_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="会话不存在或未加载")
+    # 使用 get_or_create 确保只存在于磁盘上的会话也能被加载
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    session = session_manager.get_or_create(session_id)
 
     message_tokens = count_messages_tokens(session.messages)
     compressed_tokens = 0

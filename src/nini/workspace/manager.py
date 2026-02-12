@@ -19,7 +19,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import pandas as pd
 
@@ -323,7 +323,12 @@ class WorkspaceManager:
             download_url = raw_url
             if raw_url.startswith(f"/api/artifacts/{self.session_id}/"):
                 suffix = raw_url.split(f"/api/artifacts/{self.session_id}/", 1)[-1]
-                download_url = f"/api/artifacts/{self.session_id}/{quote(suffix)}"
+                # 统一归一化为“编码一次”的文件名，避免 %25 双重编码。
+                try:
+                    normalized_suffix = quote(unquote(suffix), safe="")
+                except Exception:
+                    normalized_suffix = quote(suffix, safe="")
+                download_url = f"/api/artifacts/{self.session_id}/{normalized_suffix}"
             files.append(
                 {
                     "id": item.get("id"),

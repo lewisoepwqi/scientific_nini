@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
 from nini.agent.session import session_manager
 from nini.app import create_app
 from nini.config import settings
+from nini.workspace import WorkspaceManager
 from tests.client_utils import LocalASGIClient
 
 
@@ -117,3 +119,48 @@ def test_workspace_save_text_and_download_note(client: LocalASGIClient) -> None:
     )
     assert download_resp.status_code == 200
     assert "print('hello')" in download_resp.text
+
+
+def test_download_artifact_supports_double_encoded_filename(
+    client: LocalASGIClient,
+) -> None:
+    create_resp = client.post("/api/sessions")
+    session_id = create_resp.json()["data"]["session_id"]
+
+    manager = WorkspaceManager(session_id)
+    manager.ensure_dirs()
+    filename = "血压日变化分析.png"
+    artifact_path = manager.artifacts_dir / filename
+    artifact_path.write_bytes(b"PNG")
+
+    encoded_once = quote(filename, safe="")
+    encoded_twice = quote(encoded_once, safe="")
+    download_resp = client.get(f"/api/artifacts/{session_id}/{encoded_twice}")
+    assert download_resp.status_code == 200
+    assert download_resp.content == b"PNG"
+
+
+def test_workspace_artifact_download_url_not_double_encoded() -> None:
+    session = session_manager.create_session()
+    manager = WorkspaceManager(session.id)
+    manager.ensure_dirs()
+    filename = "血压日变化分析.png"
+    artifact_path = manager.artifacts_dir / filename
+    artifact_path.write_bytes(b"PNG")
+    record = manager.add_artifact_record(
+        name=filename,
+        artifact_type="chart",
+        file_path=artifact_path,
+        format_hint="png",
+    )
+
+    # rename_file 会把 artifact 的 download_url 设为已编码形式，这里用于模拟历史索引数据。
+    renamed = manager.rename_file(str(record["id"]), filename)
+    assert renamed is not None
+
+    files = manager.list_workspace_files()
+    artifact = next((item for item in files if item.get("id") == record["id"]), None)
+    assert artifact is not None
+    url = str(artifact["download_url"])
+    assert "%E8%A1%80" in url
+    assert "%25E8%A1%80" not in url
