@@ -152,8 +152,7 @@ class TTestSkill(Skill):
                 # Cohen's d
                 mean_diff = g1.mean() - g2.mean()
                 pooled_std = np.sqrt(
-                    ((len(g1) - 1) * g1.var() + (len(g2) - 1) * g2.var())
-                    / (len(g1) + len(g2) - 2)
+                    ((len(g1) - 1) * g1.var() + (len(g2) - 1) * g2.var()) / (len(g1) + len(g2) - 2)
                 )
                 cohens_d = mean_diff / pooled_std if pooled_std > 0 else 0
 
@@ -304,7 +303,9 @@ class ANOVASkill(Skill):
                 "eta_squared": _safe_float(eta_sq),
                 "n_groups": k,
                 "group_sizes": {str(gn): len(g) for gn, g in zip(group_names, groups)},
-                "group_means": {str(gn): _safe_float(g.mean()) for gn, g in zip(group_names, groups)},
+                "group_means": {
+                    str(gn): _safe_float(g.mean()) for gn, g in zip(group_names, groups)
+                },
                 "significant": bool(pval < 0.05),
             }
 
@@ -323,13 +324,15 @@ class ANOVASkill(Skill):
                     for i in range(n_groups):
                         for j in range(i + 1, n_groups):
                             if idx < len(tukey.pvalues):
-                                post_hoc.append({
-                                    "group1": str(tukey.groupsunique[i]),
-                                    "group2": str(tukey.groupsunique[j]),
-                                    "mean_diff": _safe_float(tukey.meandiffs[idx]),
-                                    "p_value": _safe_float(tukey.pvalues[idx]),
-                                    "significant": bool(tukey.reject[idx]),
-                                })
+                                post_hoc.append(
+                                    {
+                                        "group1": str(tukey.groupsunique[i]),
+                                        "group2": str(tukey.groupsunique[j]),
+                                        "mean_diff": _safe_float(tukey.meandiffs[idx]),
+                                        "p_value": _safe_float(tukey.pvalues[idx]),
+                                        "significant": bool(tukey.reject[idx]),
+                                    }
+                                )
                             idx += 1
                     result["post_hoc"] = post_hoc
                 except Exception:
@@ -364,7 +367,9 @@ class CorrelationSkill(Skill):
 
     @property
     def description(self) -> str:
-        return "计算多个数值列之间的相关性矩阵和 p 值矩阵。支持 Pearson、Spearman、Kendall 三种方法。"
+        return (
+            "计算多个数值列之间的相关性矩阵和 p 值矩阵。支持 Pearson、Spearman、Kendall 三种方法。"
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -600,9 +605,7 @@ class MannWhitneySkill(Skill):
             return SkillResult(success=False, message="每组至少需要 2 个观测值")
 
         try:
-            stat, pval = stats.mannwhitneyu(
-                g1, g2, alternative=alternative
-            )
+            stat, pval = stats.mannwhitneyu(g1, g2, alternative=alternative)
 
             # 计算效应量（r = Z / sqrt(N)）
             # 使用正态近似计算 Z
@@ -655,10 +658,7 @@ class KruskalWallisSkill(Skill):
 
     @property
     def description(self) -> str:
-        return (
-            "执行 Kruskal-Wallis H 检验。"
-            "用于比较多组独立样本的分布差异，不需要正态性假设。"
-        )
+        return "执行 Kruskal-Wallis H 检验。" "用于比较多组独立样本的分布差异，不需要正态性假设。"
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -715,8 +715,7 @@ class KruskalWallisSkill(Skill):
                 "eta_squared": _safe_float(eta_squared),
                 "n_groups": k,
                 "group_medians": {
-                    str(name): float(data.median())
-                    for name, data in zip(groups, group_data)
+                    str(name): float(data.median()) for name, data in zip(groups, group_data)
                 },
                 "significant": bool(pval < 0.05),
             }
@@ -731,4 +730,3 @@ class KruskalWallisSkill(Skill):
 
         except Exception as e:
             return SkillResult(success=False, message=f"Kruskal-Wallis H 检验失败: {e}")
-

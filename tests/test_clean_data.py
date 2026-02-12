@@ -44,10 +44,12 @@ class TestMissingPatternAnalysis:
     def test_systematic_missing(self):
         # 创建系统性缺失：当 b 缺失时，a 也缺失
         # 使用更大的数据集以获得统计显著性
-        df = pd.DataFrame({
-            "a": [1, None, 3, None, 5, 6, None, 8, None, 10],
-            "b": ["x", None, "y", None, "z", "a", None, "b", None, "c"]
-        })
+        df = pd.DataFrame(
+            {
+                "a": [1, None, 3, None, 5, 6, None, 8, None, 10],
+                "b": ["x", None, "y", None, "z", "a", None, "b", None, "c"],
+            }
+        )
         pattern = analyze_missing_pattern(df, "a")
         assert pattern == MissingPattern.SYSTEMATIC
 
@@ -126,6 +128,7 @@ class TestRecommendationStrategies:
 
     def test_no_missing_recommendation(self):
         from nini.skills.clean_data import ColumnProfile
+
         profile = ColumnProfile(
             column="test",
             dtype="float64",
@@ -142,6 +145,7 @@ class TestRecommendationStrategies:
 
     def test_high_missing_recommendation(self):
         from nini.skills.clean_data import ColumnProfile
+
         profile = ColumnProfile(
             column="test",
             dtype="float64",
@@ -158,6 +162,7 @@ class TestRecommendationStrategies:
 
     def test_skewed_data_recommendation(self):
         from nini.skills.clean_data import ColumnProfile
+
         profile = ColumnProfile(
             column="test",
             dtype="float64",
@@ -176,6 +181,7 @@ class TestRecommendationStrategies:
 
     def test_outlier_recommendation(self):
         from nini.skills.clean_data import ColumnProfile
+
         profile = ColumnProfile(
             column="test",
             dtype="float64",
@@ -198,11 +204,13 @@ class TestDatasetFeaturesAnalysis:
     """测试数据集整体特征分析。"""
 
     def test_complete_dataset_analysis(self):
-        df = pd.DataFrame({
-            "numeric": [1, 2, 3, 4, 5],
-            "categorical": ["a", "b", "a", "b", "a"],
-            "with_missing": [1, None, 3, None, 5],
-        })
+        df = pd.DataFrame(
+            {
+                "numeric": [1, 2, 3, 4, 5],
+                "categorical": ["a", "b", "a", "b", "a"],
+                "with_missing": [1, None, 3, None, 5],
+            }
+        )
         features = analyze_dataset_features(df)
 
         assert features["total_rows"] == 5
@@ -217,11 +225,13 @@ class TestCleaningStrategyRecommendation:
     """测试完整清洗策略推荐。"""
 
     def test_recommend_cleaning_strategy(self):
-        df = pd.DataFrame({
-            "normal_col": [1, 2, 3, 4, 5],
-            "missing_col": [1, None, 3, None, 5],
-            "category_col": ["a", "b", "a", None, "b"],
-        })
+        df = pd.DataFrame(
+            {
+                "normal_col": [1, 2, 3, 4, 5],
+                "missing_col": [1, None, 3, None, 5],
+                "category_col": ["a", "b", "a", None, "b"],
+            }
+        )
         result = recommend_cleaning_strategy(df)
 
         assert "overall_strategy" in result
@@ -245,10 +255,12 @@ class TestRecommendCleaningStrategySkill:
     async def test_skill_execution(self):
         registry = create_default_registry()
         session = Session()
-        session.datasets["test.csv"] = pd.DataFrame({
-            "value": [1, 2, None, 4, 5],
-            "category": ["a", "b", "a", None, "b"],
-        })
+        session.datasets["test.csv"] = pd.DataFrame(
+            {
+                "value": [1, 2, None, 4, 5],
+                "category": ["a", "b", "a", None, "b"],
+            }
+        )
 
         result = await registry.execute(
             "recommend_cleaning_strategy",
@@ -276,11 +288,13 @@ class TestRecommendCleaningStrategySkill:
     async def test_skill_with_target_columns(self):
         registry = create_default_registry()
         session = Session()
-        session.datasets["test.csv"] = pd.DataFrame({
-            "value": [1, 2, None, 4, 5],
-            "category": ["a", "b", "a", None, "b"],
-            "other": [1, 2, 3, 4, 5],
-        })
+        session.datasets["test.csv"] = pd.DataFrame(
+            {
+                "value": [1, 2, None, 4, 5],
+                "category": ["a", "b", "a", None, "b"],
+                "other": [1, 2, 3, 4, 5],
+            }
+        )
 
         result = await registry.execute(
             "recommend_cleaning_strategy",
@@ -300,9 +314,11 @@ class TestCleanDataAutoMode:
     async def test_auto_missing_strategy(self):
         registry = create_default_registry()
         session = Session()
-        session.datasets["test.csv"] = pd.DataFrame({
-            "value": [1, 2, None, 4, 5],
-        })
+        session.datasets["test.csv"] = pd.DataFrame(
+            {
+                "value": [1, 2, None, 4, 5],
+            }
+        )
 
         result = await registry.execute(
             "clean_data",
@@ -324,9 +340,11 @@ class TestCleanDataAutoMode:
         # 创建有异常值的数据 - 使用更大的数据集
         np.random.seed(42)
         normal_data = np.random.normal(0, 1, 50)
-        session.datasets["test.csv"] = pd.DataFrame({
-            "value": list(normal_data) + [100, 200],  # 添加异常值
-        })
+        session.datasets["test.csv"] = pd.DataFrame(
+            {
+                "value": list(normal_data) + [100, 200],  # 添加异常值
+            }
+        )
 
         result = await registry.execute(
             "clean_data",
@@ -344,10 +362,12 @@ class TestCleanDataAutoMode:
         registry = create_default_registry()
         session = Session()
         # 创建高缺失率列
-        session.datasets["test.csv"] = pd.DataFrame({
-            "mostly_missing": [1, None, None, None, None],  # 80% 缺失
-            "normal_col": [1, 2, 3, 4, 5],
-        })
+        session.datasets["test.csv"] = pd.DataFrame(
+            {
+                "mostly_missing": [1, None, None, None, None],  # 80% 缺失
+                "normal_col": [1, 2, 3, 4, 5],
+            }
+        )
 
         result = await registry.execute(
             "clean_data",
@@ -365,9 +385,11 @@ class TestCleanDataAutoMode:
     async def test_legacy_mode_still_works(self):
         registry = create_default_registry()
         session = Session()
-        session.datasets["test.csv"] = pd.DataFrame({
-            "value": [1, 2, None, 4, 5],
-        })
+        session.datasets["test.csv"] = pd.DataFrame(
+            {
+                "value": [1, 2, None, 4, 5],
+            }
+        )
 
         result = await registry.execute(
             "clean_data",

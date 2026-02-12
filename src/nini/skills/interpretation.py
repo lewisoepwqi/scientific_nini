@@ -46,7 +46,9 @@ class ResultInterpreter:
             if mean1 is not None and mean2 is not None:
                 diff = mean1 - mean2
                 direction = "高于" if diff > 0 else "低于"
-                parts.append(f"第一组均值 ({mean1:.3f}) {direction}第二组均值 ({mean2:.3f})，差值为 {abs(diff):.3f}。")
+                parts.append(
+                    f"第一组均值 ({mean1:.3f}) {direction}第二组均值 ({mean2:.3f})，差值为 {abs(diff):.3f}。"
+                )
 
             # 效应量解读
             if cohens_d is not None:
@@ -59,13 +61,17 @@ class ResultInterpreter:
             if mean is not None and test_value is not None:
                 diff = mean - test_value
                 direction = "高于" if diff > 0 else "低于"
-                parts.append(f"样本均值 ({mean:.3f}) {direction}检验值 ({test_value:.3f})，差值为 {abs(diff):.3f}。")
+                parts.append(
+                    f"样本均值 ({mean:.3f}) {direction}检验值 ({test_value:.3f})，差值为 {abs(diff):.3f}。"
+                )
 
         # 实际意义总结
         if significant:
             parts.append("📊 实际意义：两组之间存在统计学差异，该结果不太可能是随机波动导致的。")
         else:
-            parts.append("📊 实际意义：未能检测到两组之间的统计学差异。可能原因：1) 确实无差异；2) 样本量不足；3) 效应量较小。")
+            parts.append(
+                "📊 实际意义：未能检测到两组之间的统计学差异。可能原因：1) 确实无差异；2) 样本量不足；3) 效应量较小。"
+            )
 
         return "\n".join(parts)
 
@@ -117,9 +123,13 @@ class ResultInterpreter:
 
         # 实际意义总结
         if significant:
-            parts.append("\n📊 实际意义：不同组别间存在真实的均值差异。建议结合事后检验结果，确定具体哪些组之间存在差异，并考虑效应量大小判断实际重要性。")
+            parts.append(
+                "\n📊 实际意义：不同组别间存在真实的均值差异。建议结合事后检验结果，确定具体哪些组之间存在差异，并考虑效应量大小判断实际重要性。"
+            )
         else:
-            parts.append("\n📊 实际意义：各组均值在统计上无显著差异。可能原因：1) 组间确实无差异；2) 组内变异较大；3) 样本量不足。建议检查数据分布或增加样本量。")
+            parts.append(
+                "\n📊 实际意义：各组均值在统计上无显著差异。可能原因：1) 组间确实无差异；2) 组内变异较大；3) 样本量不足。建议检查数据分布或增加样本量。"
+            )
 
         return "\n".join(parts)
 
@@ -181,11 +191,17 @@ class ResultInterpreter:
 
         # 方法说明
         if method == "pearson":
-            parts.append("\n💡 说明：Pearson 相关系数衡量线性关系，取值范围 [-1, 1]。注意：相关性不等于因果性。")
+            parts.append(
+                "\n💡 说明：Pearson 相关系数衡量线性关系，取值范围 [-1, 1]。注意：相关性不等于因果性。"
+            )
         elif method == "spearman":
-            parts.append("\n💡 说明：Spearman 等级相关系数衡量单调关系，对异常值更稳健。注意：相关性不等于因果性。")
+            parts.append(
+                "\n💡 说明：Spearman 等级相关系数衡量单调关系，对异常值更稳健。注意：相关性不等于因果性。"
+            )
         elif method == "kendall":
-            parts.append("\n💡 说明：Kendall 等级相关系数衡量一致性，适用于小样本。注意：相关性不等于因果性。")
+            parts.append(
+                "\n💡 说明：Kendall 等级相关系数衡量一致性，适用于小样本。注意：相关性不等于因果性。"
+            )
 
         return "\n".join(parts)
 
@@ -217,7 +233,9 @@ class ResultInterpreter:
                 parts.append(f"回归模型整体不显著 (F = {f_stat:.3f}, p = {f_pvalue:.4f} >= 0.05)。")
 
         # R² 解读
-        parts.append(f"R² = {r_squared:.4f}，表示自变量可以解释因变量 {r_squared * 100:.2f}% 的变异。")
+        parts.append(
+            f"R² = {r_squared:.4f}，表示自变量可以解释因变量 {r_squared * 100:.2f}% 的变异。"
+        )
         if adjusted_r2 is not None:
             parts.append(f"调整 R² = {adjusted_r2:.4f}（考虑自变量个数后的修正值）。")
 
@@ -234,7 +252,9 @@ class ResultInterpreter:
             p_value = coef_info.get("p_value", 1.0)
             sig = "显著" if p_value < 0.05 else "不显著"
             direction = "正向" if estimate > 0 else "负向"
-            parts.append(f"  - {var}: 系数 = {estimate:.4f} ({direction}影响, {sig}, p = {p_value:.4f})")
+            parts.append(
+                f"  - {var}: 系数 = {estimate:.4f} ({direction}影响, {sig}, p = {p_value:.4f})"
+            )
 
         # 实际意义总结
         if f_pvalue is not None and f_pvalue < 0.05:
@@ -286,7 +306,9 @@ class ResultInterpreter:
             parts.append(f"效应量 r = {effect_size_r:.3f}，属于{effect}。")
 
         if significant:
-            parts.append("📊 实际意义：两组分布存在显著差异。由于是非参数检验，结论适用于分布形状而不仅是均值。")
+            parts.append(
+                "📊 实际意义：两组分布存在显著差异。由于是非参数检验，结论适用于分布形状而不仅是均值。"
+            )
         else:
             parts.append("📊 实际意义：未能检测到两组分布的显著差异。")
 
@@ -313,10 +335,14 @@ class ResultInterpreter:
         parts.append("注：非参数检验，不假设数据服从正态分布，适用于多组比较。")
 
         if significant:
-            parts.append(f"结果具有统计学显著性 (H({df}) = {h_stat:.3f}, p = {p_value:.4f} < 0.05)。")
+            parts.append(
+                f"结果具有统计学显著性 (H({df}) = {h_stat:.3f}, p = {p_value:.4f} < 0.05)。"
+            )
             parts.append(f"{n_groups} 个组的分布中至少有一组与其他组存在显著差异。")
         else:
-            parts.append(f"结果不具有统计学显著性 (H({df}) = {h_stat:.3f}, p = {p_value:.4f} >= 0.05)。")
+            parts.append(
+                f"结果不具有统计学显著性 (H({df}) = {h_stat:.3f}, p = {p_value:.4f} >= 0.05)。"
+            )
             parts.append(f"未能检测到 {n_groups} 个组之间的显著差异。")
 
         # 效应量
@@ -332,7 +358,9 @@ class ResultInterpreter:
                 parts.append(f"  - {group}: {median:.3f}")
 
         if significant:
-            parts.append("\n📊 实际意义：多组间存在显著差异。建议进行事后检验（如 Dunn 检验）确定具体哪些组之间存在差异。")
+            parts.append(
+                "\n📊 实际意义：多组间存在显著差异。建议进行事后检验（如 Dunn 检验）确定具体哪些组之间存在差异。"
+            )
         else:
             parts.append("\n📊 实际意义：各组分布在统计上无显著差异。")
 
@@ -478,7 +506,14 @@ class InterpretStatisticalResultSkill(Skill):
             "properties": {
                 "test_type": {
                     "type": "string",
-                    "enum": ["t_test", "anova", "correlation", "regression", "mann_whitney", "kruskal_wallis"],
+                    "enum": [
+                        "t_test",
+                        "anova",
+                        "correlation",
+                        "regression",
+                        "mann_whitney",
+                        "kruskal_wallis",
+                    ],
                     "description": "统计检验类型",
                 },
                 "result": {
@@ -494,20 +529,12 @@ class InterpretStatisticalResultSkill(Skill):
         result = kwargs.get("result")
 
         if not test_type or not result:
-            return SkillResult(
-                success=False,
-                message="请提供 test_type 和 result 参数"
-            )
+            return SkillResult(success=False, message="请提供 test_type 和 result 参数")
 
         try:
             interpretation = interpret_result(test_type, result)
             return SkillResult(
-                success=True,
-                data={"interpretation": interpretation},
-                message="统计结果解读完成"
+                success=True, data={"interpretation": interpretation}, message="统计结果解读完成"
             )
         except Exception as e:
-            return SkillResult(
-                success=False,
-                message=f"解读失败: {e}"
-            )
+            return SkillResult(success=False, message=f"解读失败: {e}")

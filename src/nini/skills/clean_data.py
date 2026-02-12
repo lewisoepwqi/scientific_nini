@@ -247,7 +247,10 @@ def recommend_outlier_strategy(profile: ColumnProfile) -> tuple[str, str]:
         return "none", "无异常值"
 
     if profile.outlier_pattern == OutlierPattern.EXTREME:
-        return "winsorize", f"异常值比例过高（{profile.outlier_ratio:.1%}），建议使用缩尾处理而非删除"
+        return (
+            "winsorize",
+            f"异常值比例过高（{profile.outlier_ratio:.1%}），建议使用缩尾处理而非删除",
+        )
 
     if profile.outlier_pattern == OutlierPattern.SKEWED:
         return "iqr", f"数据呈偏态分布（skewness={profile.skewness:.2f}），使用 IQR 方法识别异常值"
@@ -430,7 +433,17 @@ def _safe_preview(df: pd.DataFrame, n_rows: int = 20) -> dict[str, Any]:
 class CleanDataSkill(Skill):
     """对数据集进行缺失值处理、异常值过滤与标准化。"""
 
-    _missing_strategies = ["auto", "none", "drop", "mean", "median", "mode", "zero", "ffill", "bfill"]
+    _missing_strategies = [
+        "auto",
+        "none",
+        "drop",
+        "mean",
+        "median",
+        "mode",
+        "zero",
+        "ffill",
+        "bfill",
+    ]
     _outlier_methods = ["auto", "none", "iqr", "zscore"]
 
     @property
@@ -693,7 +706,9 @@ class CleanDataSkill(Skill):
                 continue
             df[col] = (df[col] - df[col].mean()) / std
 
-    def _handle_missing_auto(self, df: pd.DataFrame, recommendations: dict[str, Any] | None) -> None:
+    def _handle_missing_auto(
+        self, df: pd.DataFrame, recommendations: dict[str, Any] | None
+    ) -> None:
         """基于推荐策略自动处理缺失值。"""
         if recommendations is None:
             return
@@ -735,7 +750,9 @@ class CleanDataSkill(Skill):
 
         df.reset_index(drop=True, inplace=True)
 
-    def _handle_outliers_auto(self, df: pd.DataFrame, recommendations: dict[str, Any] | None) -> int:
+    def _handle_outliers_auto(
+        self, df: pd.DataFrame, recommendations: dict[str, Any] | None
+    ) -> int:
         """基于推荐策略自动处理异常值。"""
         if recommendations is None:
             return 0
@@ -865,8 +882,7 @@ class RecommendCleaningStrategySkill(Skill):
             invalid_cols = [c for c in target_columns if c not in df.columns]
             if invalid_cols:
                 return SkillResult(
-                    success=False,
-                    message=f"以下列不存在: {', '.join(invalid_cols)}"
+                    success=False, message=f"以下列不存在: {', '.join(invalid_cols)}"
                 )
             df = df[target_columns].copy()
 

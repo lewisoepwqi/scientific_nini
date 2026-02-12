@@ -88,9 +88,27 @@ class TestResultInterpreter:
             "group_sizes": {"A": 30, "B": 30, "C": 30},
             "group_means": {"A": 10.0, "B": 12.5, "C": 11.0},
             "post_hoc": [
-                {"group1": "A", "group2": "B", "mean_diff": -2.5, "p_value": 0.005, "significant": True},
-                {"group1": "A", "group2": "C", "mean_diff": -1.0, "p_value": 0.35, "significant": False},
-                {"group1": "B", "group2": "C", "mean_diff": 1.5, "p_value": 0.12, "significant": False},
+                {
+                    "group1": "A",
+                    "group2": "B",
+                    "mean_diff": -2.5,
+                    "p_value": 0.005,
+                    "significant": True,
+                },
+                {
+                    "group1": "A",
+                    "group2": "C",
+                    "mean_diff": -1.0,
+                    "p_value": 0.35,
+                    "significant": False,
+                },
+                {
+                    "group1": "B",
+                    "group2": "C",
+                    "mean_diff": 1.5,
+                    "p_value": 0.12,
+                    "significant": False,
+                },
             ],
         }
 

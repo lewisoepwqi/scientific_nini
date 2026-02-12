@@ -34,8 +34,13 @@ from nini.skills.interpretation import InterpretStatisticalResultSkill
 from nini.skills.visualization import CreateChartSkill
 from nini.skills.workflow_skill import ApplyWorkflowSkill, ListWorkflowsSkill, SaveWorkflowSkill
 from nini.skills.markdown_scanner import render_skills_snapshot, scan_markdown_skills
+
 # 复合技能模板
-from nini.skills.templates import CompleteANOVASkill, CompleteComparisonSkill, CorrelationAnalysisSkill
+from nini.skills.templates import (
+    CompleteANOVASkill,
+    CompleteComparisonSkill,
+    CorrelationAnalysisSkill,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -143,11 +148,7 @@ class SkillRegistry:
 
     def get_tool_definitions(self) -> list[dict[str, Any]]:
         """获取暴露给 LLM 的技能工具定义（过滤 expose_to_llm=False）。"""
-        return [
-            s.get_tool_definition()
-            for s in self._skills.values()
-            if s.expose_to_llm
-        ]
+        return [s.get_tool_definition() for s in self._skills.values() if s.expose_to_llm]
 
     async def execute(
         self,
@@ -206,9 +207,7 @@ class SkillRegistry:
             )
             if should_fallback["trigger"]:
                 # 执行降级
-                return await self._execute_fallback(
-                    skill_name, session, kwargs, should_fallback
-                )
+                return await self._execute_fallback(skill_name, session, kwargs, should_fallback)
             return original_result
         elif original_result.get("success"):
             return original_result
@@ -311,6 +310,7 @@ class SkillRegistry:
         session: Session,
         dataset_name: str,
         target_column: str | None = None,
+        include_quality_score: bool = True,
     ) -> dict[str, Any]:
         """诊断数据问题并提供修复建议。
 
@@ -318,10 +318,13 @@ class SkillRegistry:
             session: 会话对象
             dataset_name: 数据集名称
             target_column: 目标列名（可选）
+            include_quality_score: 是否包含质量评分（默认 True）
 
         Returns:
             诊断结果字典
         """
+        from nini.skills.data_quality import evaluate_data_quality
+
         diagnosis: dict[str, Any] = {
             "dataset_name": dataset_name,
             "issues": [],
@@ -332,6 +335,31 @@ class SkillRegistry:
         if df is None:
             diagnosis["issues"].append({"type": "dataset_not_found", "message": "数据集不存在"})
             return diagnosis
+
+        # 集成质量评分
+        if include_quality_score:
+            try:
+                quality_report = evaluate_data_quality(df, dataset_name)
+                diagnosis["quality_score"] = {
+                    "overall_score": round(quality_report.overall_score, 2),
+                    "grade": quality_report.summary.get("grade", "未知"),
+                    "dimension_scores": {
+                        ds.dimension.value: round(ds.score, 2)
+                        for ds in quality_report.dimension_scores
+                    },
+                }
+                # 将质量问题的建议添加到诊断建议中
+                for ds in quality_report.dimension_scores:
+                    for suggestion in ds.suggestions:
+                        diagnosis["suggestions"].append(
+                            {
+                                "type": f"quality_{ds.dimension.value}",
+                                "severity": "medium" if ds.score >= 70 else "high",
+                                "message": suggestion,
+                            }
+                        )
+            except Exception as e:
+                logger.warning("质量评分计算失败: %s", e)
 
         # 分析列
         columns_to_analyze = [target_column] if target_column else df.columns.tolist()
@@ -352,17 +380,21 @@ class SkillRegistry:
                     "ratio": float(missing_ratio),
                 }
                 if missing_ratio > 0.5:
-                    diagnosis["suggestions"].append({
-                        "type": "missing_values",
-                        "severity": "high",
-                        "message": f"列 '{col}' 缺失值超过 50%，建议删除该列或使用插补方法",
-                    })
+                    diagnosis["suggestions"].append(
+                        {
+                            "type": "missing_values",
+                            "severity": "high",
+                            "message": f"列 '{col}' 缺失值超过 50%，建议删除该列或使用插补方法",
+                        }
+                    )
                 elif missing_ratio > 0.1:
-                    diagnosis["suggestions"].append({
-                        "type": "missing_values",
-                        "severity": "medium",
-                        "message": f"列 '{col}' 有 {missing_count} 个缺失值，考虑使用均值/中位数填充",
-                    })
+                    diagnosis["suggestions"].append(
+                        {
+                            "type": "missing_values",
+                            "severity": "medium",
+                            "message": f"列 '{col}' 有 {missing_count} 个缺失值，考虑使用均值/中位数填充",
+                        }
+                    )
 
             # 检查数据类型（仅对数值列）
             if pd.api.types.is_numeric_dtype(col_data):
@@ -383,11 +415,13 @@ class SkillRegistry:
                             "values": outliers.tolist()[:10],  # 最多返回 10 个
                         }
                         if len(outliers) > len(clean_data) * 0.05:
-                            diagnosis["suggestions"].append({
-                                "type": "outliers",
-                                "severity": "medium",
-                                "message": f"列 '{col}' 有 {len(outliers)} 个异常值，建议检查数据质量",
-                            })
+                            diagnosis["suggestions"].append(
+                                {
+                                    "type": "outliers",
+                                    "severity": "medium",
+                                    "message": f"列 '{col}' 有 {len(outliers)} 个异常值，建议检查数据质量",
+                                }
+                            )
 
                 # 检查样本量
                 if len(clean_data) < 30:
@@ -397,11 +431,13 @@ class SkillRegistry:
                         "warning": True,
                     }
                     if len(clean_data) < 10:
-                        diagnosis["suggestions"].append({
-                            "type": "sample_size",
-                            "severity": "high",
-                            "message": f"列 '{col}' 样本量过小（n={len(clean_data)}），统计结果可能不可靠",
-                        })
+                        diagnosis["suggestions"].append(
+                            {
+                                "type": "sample_size",
+                                "severity": "high",
+                                "message": f"列 '{col}' 样本量过小（n={len(clean_data)}），统计结果可能不可靠",
+                            }
+                        )
 
             else:
                 # 检查是否可以转换为数值
@@ -413,11 +449,13 @@ class SkillRegistry:
                         "suggested_type": "numeric",
                         "can_convert": True,
                     }
-                    diagnosis["suggestions"].append({
-                        "type": "type_conversion",
-                        "severity": "low",
-                        "message": f"列 '{col}' 可以转换为数值类型以进行数值分析",
-                    })
+                    diagnosis["suggestions"].append(
+                        {
+                            "type": "type_conversion",
+                            "severity": "low",
+                            "message": f"列 '{col}' 可以转换为数值类型以进行数值分析",
+                        }
+                    )
                 except Exception:
                     pass
 
@@ -459,6 +497,8 @@ def create_default_registry() -> SkillRegistry:
     registry.register(ExportChartSkill())
     registry.register(CleanDataSkill())
     registry.register(RecommendCleaningStrategySkill())
+    registry.register(DataQualitySkill())
+    registry.register(DataQualityReportSkill())
     registry.register(GenerateReportSkill())
     registry.register(SaveWorkflowSkill())
     registry.register(ListWorkflowsSkill())
