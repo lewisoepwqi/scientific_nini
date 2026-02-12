@@ -1,28 +1,68 @@
 """复合技能模板模块。
 
 将原子技能组合成"分析模板"，覆盖常见科研场景。
+同时提供期刊样式模板（Nature, Science, Cell 等）的动态加载功能。
 """
 
 from nini.skills.templates.complete_anova import CompleteANOVASkill
 from nini.skills.templates.complete_comparison import CompleteComparisonSkill
 from nini.skills.templates.correlation_analysis import CorrelationAnalysisSkill
 
+# 导入期刊样式模板功能
+from nini.skills.templates.journal_styles import (
+    delete_custom_template,
+    get_template_info,
+    get_template_names,
+    get_templates,
+    reload_templates,
+    save_custom_template,
+    TEMPLATES,
+)
+
 __all__ = [
+    # 复合技能类
     "CompleteComparisonSkill",
     "CompleteANOVASkill",
     "CorrelationAnalysisSkill",
-    "get_template",
+    # 期刊模板函数
+    "get_templates",
+    "get_template_names",
+    "get_template_info",
+    "save_custom_template",
+    "delete_custom_template",
+    "reload_templates",
+    "TEMPLATES",
 ]
 
 
 def get_template(name: str):
-    """获取模板的便捷函数。"""
-    templates = {
+    """获取模板的便捷函数。
+
+    支持两种类型的模板：
+    1. 复合技能模板（complete_comparison, complete_anova, correlation_analysis）
+    2. 期刊样式模板（nature, science, cell, nejm, lancet, default）
+
+    Args:
+        name: 模板名称
+
+    Returns:
+        复合技能返回实例，期刊模板返回配置字典，不存在返回 None
+    """
+    # 首先检查复合技能模板
+    skill_templates = {
         "complete_comparison": CompleteComparisonSkill,
         "complete_anova": CompleteANOVASkill,
         "correlation_analysis": CorrelationAnalysisSkill,
     }
-    template_class = templates.get(name)
+    template_class = skill_templates.get(name)
     if template_class:
         return template_class()
-    return None
+
+    # 然后检查期刊样式模板
+    from nini.skills.templates.journal_styles import get_template as get_journal_template
+
+    journal_template = get_journal_template(name)
+    # 如果返回的是默认模板且请求的不是 default，说明没找到
+    if name != "default" and journal_template.get("name") == "默认模板":
+        return None
+    return journal_template

@@ -27,6 +27,199 @@ import statsmodels.api as sm
 from nini.agent.session import Session
 from nini.skills.base import Skill, SkillResult
 
+# ---- 多重比较校正 ----
+
+
+def bonferroni_correction(p_values: list[float], alpha: float = 0.05) -> dict[str, Any]:
+    """Bonferroni 校正：最保守的方法，控制族错误率。
+
+    Args:
+        p_values: p 值列表
+        alpha: 显著性水平
+
+    Returns:
+        包含校正后 p 值和显著性判断的字典
+    """
+    n = len(p_values)
+    if n == 0:
+        return {"method": "Bonferroni", "corrected_pvalues": [], "significant": []}
+
+    # Bonferroni: p_corrected = p * n
+    corrected = [min(p * n, 1.0) for p in p_values]
+    # 使用校正后的 p 值与 alpha 比较判断显著性
+    significant = [p < alpha for p in corrected]
+
+    return {
+        "method": "Bonferroni",
+        "alpha": alpha,
+        "n_comparisons": n,
+        "original_pvalues": p_values,
+        "corrected_pvalues": corrected,
+        "significant": significant,
+        "description": "最保守的方法，将 alpha 除以比较次数",
+    }
+
+
+def holm_correction(p_values: list[float], alpha: float = 0.05) -> dict[str, Any]:
+    """Holm-Bonferroni 校正：逐步校正方法，比 Bonferroni 更有统计效能。
+
+    Args:
+        p_values: p 值列表
+        alpha: 显著性水平
+
+    Returns:
+        包含校正后 p 值和显著性判断的字典
+    """
+    n = len(p_values)
+    if n == 0:
+        return {"method": "Holm", "corrected_pvalues": [], "significant": []}
+
+    # 保存原始索引
+    indexed_pvalues = [(i, p) for i, p in enumerate(p_values)]
+    # 按 p 值升序排序
+    indexed_pvalues.sort(key=lambda x: x[1])
+
+    corrected = [0.0] * n
+
+    # Holm 校正：
+    # 1. 按 p 值从小到大排序
+    # 2. 对每个 p_i，计算 p_corrected = p_i * (n - i)，其中 i 是排序后的索引（从0开始）
+    # 3. 确保单调性（校正后 p 值不递减）
+
+    # 第一轮：计算原始校正后 p 值
+    temp_corrected = []
+    for rank, (orig_i, p) in enumerate(indexed_pvalues):
+        multiplier = n - rank
+        corrected_p = min(p * multiplier, 1.0)
+        temp_corrected.append((orig_i, corrected_p))
+
+    # 第二轮：确保单调性（从大到小，确保不递减）
+    # 从最大的 p 值开始，确保每个校正后 p 值不小于后面的
+    for i in range(len(temp_corrected) - 2, -1, -1):
+        orig_i, p_corr = temp_corrected[i]
+        next_p = temp_corrected[i + 1][1]
+        if p_corr < next_p:
+            temp_corrected[i] = (orig_i, next_p)
+
+    # 填充结果
+    for orig_i, p_corr in temp_corrected:
+        corrected[orig_i] = p_corr
+
+    significant = [p < alpha for p in corrected]
+
+    return {
+        "method": "Holm",
+        "alpha": alpha,
+        "n_comparisons": n,
+        "original_pvalues": p_values,
+        "corrected_pvalues": corrected,
+        "significant": significant,
+        "description": "逐步校正方法，比 Bonferroni 更有统计效能",
+    }
+
+
+def fdr_correction(p_values: list[float], alpha: float = 0.05) -> dict[str, Any]:
+    """FDR (False Discovery Rate) 校正：Benjamini-Hochberg 方法。
+
+    控制假发现率，适用于探索性分析。
+
+    Args:
+        p_values: p 值列表
+        alpha: 显著性水平
+
+    Returns:
+        包含校正后 p 值和显著性判断的字典
+    """
+    n = len(p_values)
+    if n == 0:
+        return {"method": "FDR (Benjamini-Hochberg)", "corrected_pvalues": [], "significant": []}
+
+    # 保存原始索引
+    indexed_pvalues = [(i, p) for i, p in enumerate(p_values)]
+    # 按 p 值升序排序
+    indexed_pvalues.sort(key=lambda x: x[1])
+
+    # 第一轮：计算原始校正后 p 值
+    temp_corrected = []
+    for rank, (orig_i, p) in enumerate(indexed_pvalues, 1):
+        corrected_p = min(p * n / rank, 1.0)
+        temp_corrected.append((orig_i, corrected_p))
+
+    # 第二轮：确保单调性（从大到小，确保不递减）
+    corrected = [0.0] * n
+    min_p = temp_corrected[-1][1] if temp_corrected else 1.0
+    for i in range(len(temp_corrected) - 1, -1, -1):
+        orig_i, p_corr = temp_corrected[i]
+        min_p = min(min_p, p_corr)
+        corrected[orig_i] = min_p
+
+    significant = [p < alpha for p in corrected]
+
+    return {
+        "method": "FDR (Benjamini-Hochberg)",
+        "alpha": alpha,
+        "n_comparisons": n,
+        "original_pvalues": p_values,
+        "corrected_pvalues": corrected,
+        "significant": significant,
+        "description": "控制假发现率，适用于探索性分析",
+    }
+
+
+def multiple_comparison_correction(
+    p_values: list[float],
+    method: str = "bonferroni",
+    alpha: float = 0.05,
+) -> dict[str, Any]:
+    """多重比较校正的主函数。
+
+    Args:
+        p_values: p 值列表
+        method: 校正方法 ("bonferroni", "holm", "fdr")
+        alpha: 显著性水平
+
+    Returns:
+        校正结果字典
+    """
+    method = method.lower()
+
+    if method == "bonferroni":
+        return bonferroni_correction(p_values, alpha)
+    elif method in ["holm", "holm-bonferroni"]:
+        return holm_correction(p_values, alpha)
+    elif method in ["fdr", "bh", "benjamini-hochberg"]:
+        return fdr_correction(p_values, alpha)
+    else:
+        raise ValueError(f"不支持的校正方法: {method}")
+
+
+def recommend_correction_method(n_comparisons: int, context: str = "exploratory") -> str:
+    """推荐多重比较校正方法。
+
+    Args:
+        n_comparisons: 比较次数
+        context: 使用场景 ("exploratory", "confirmatory", "high_stakes")
+
+    Returns:
+        推荐的方法名称
+    """
+    if n_comparisons <= 1:
+        return "none"
+
+    if context == "high_stakes":
+        # 高风险场景（如药物临床试验）：使用最严格的 Bonferroni
+        return "bonferroni"
+    elif context == "confirmatory":
+        # 验证性研究：使用 Holm 方法，平衡效能和错误控制
+        return "holm"
+    else:
+        # 探索性分析：使用 FDR，更有统计效能
+        if n_comparisons > 10:
+            return "fdr"
+        else:
+            return "holm"
+
+
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
@@ -68,7 +261,7 @@ class TTestSkill(Skill):
 
     @property
     def expose_to_llm(self) -> bool:
-        return False
+        return True
 
     @property
     def description(self) -> str:
@@ -152,8 +345,7 @@ class TTestSkill(Skill):
                 # Cohen's d
                 mean_diff = g1.mean() - g2.mean()
                 pooled_std = np.sqrt(
-                    ((len(g1) - 1) * g1.var() + (len(g2) - 1) * g2.var())
-                    / (len(g1) + len(g2) - 2)
+                    ((len(g1) - 1) * g1.var() + (len(g2) - 1) * g2.var()) / (len(g1) + len(g2) - 2)
                 )
                 cohens_d = mean_diff / pooled_std if pooled_std > 0 else 0
 
@@ -243,7 +435,7 @@ class ANOVASkill(Skill):
 
     @property
     def expose_to_llm(self) -> bool:
-        return False
+        return True
 
     @property
     def description(self) -> str:
@@ -304,7 +496,9 @@ class ANOVASkill(Skill):
                 "eta_squared": _safe_float(eta_sq),
                 "n_groups": k,
                 "group_sizes": {str(gn): len(g) for gn, g in zip(group_names, groups)},
-                "group_means": {str(gn): _safe_float(g.mean()) for gn, g in zip(group_names, groups)},
+                "group_means": {
+                    str(gn): _safe_float(g.mean()) for gn, g in zip(group_names, groups)
+                },
                 "significant": bool(pval < 0.05),
             }
 
@@ -323,13 +517,15 @@ class ANOVASkill(Skill):
                     for i in range(n_groups):
                         for j in range(i + 1, n_groups):
                             if idx < len(tukey.pvalues):
-                                post_hoc.append({
-                                    "group1": str(tukey.groupsunique[i]),
-                                    "group2": str(tukey.groupsunique[j]),
-                                    "mean_diff": _safe_float(tukey.meandiffs[idx]),
-                                    "p_value": _safe_float(tukey.pvalues[idx]),
-                                    "significant": bool(tukey.reject[idx]),
-                                })
+                                post_hoc.append(
+                                    {
+                                        "group1": str(tukey.groupsunique[i]),
+                                        "group2": str(tukey.groupsunique[j]),
+                                        "mean_diff": _safe_float(tukey.meandiffs[idx]),
+                                        "p_value": _safe_float(tukey.pvalues[idx]),
+                                        "significant": bool(tukey.reject[idx]),
+                                    }
+                                )
                             idx += 1
                     result["post_hoc"] = post_hoc
                 except Exception:
@@ -360,11 +556,13 @@ class CorrelationSkill(Skill):
 
     @property
     def expose_to_llm(self) -> bool:
-        return False
+        return True
 
     @property
     def description(self) -> str:
-        return "计算多个数值列之间的相关性矩阵和 p 值矩阵。支持 Pearson、Spearman、Kendall 三种方法。"
+        return (
+            "计算多个数值列之间的相关性矩阵和 p 值矩阵。支持 Pearson、Spearman、Kendall 三种方法。"
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -455,7 +653,7 @@ class RegressionSkill(Skill):
 
     @property
     def expose_to_llm(self) -> bool:
-        return False
+        return True
 
     @property
     def description(self) -> str:
@@ -545,7 +743,7 @@ class MannWhitneySkill(Skill):
 
     @property
     def expose_to_llm(self) -> bool:
-        return False
+        return True
 
     @property
     def description(self) -> str:
@@ -600,9 +798,7 @@ class MannWhitneySkill(Skill):
             return SkillResult(success=False, message="每组至少需要 2 个观测值")
 
         try:
-            stat, pval = stats.mannwhitneyu(
-                g1, g2, alternative=alternative
-            )
+            stat, pval = stats.mannwhitneyu(g1, g2, alternative=alternative)
 
             # 计算效应量（r = Z / sqrt(N)）
             # 使用正态近似计算 Z
@@ -651,14 +847,11 @@ class KruskalWallisSkill(Skill):
 
     @property
     def expose_to_llm(self) -> bool:
-        return False
+        return True
 
     @property
     def description(self) -> str:
-        return (
-            "执行 Kruskal-Wallis H 检验。"
-            "用于比较多组独立样本的分布差异，不需要正态性假设。"
-        )
+        return "执行 Kruskal-Wallis H 检验。" "用于比较多组独立样本的分布差异，不需要正态性假设。"
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -715,8 +908,7 @@ class KruskalWallisSkill(Skill):
                 "eta_squared": _safe_float(eta_squared),
                 "n_groups": k,
                 "group_medians": {
-                    str(name): float(data.median())
-                    for name, data in zip(groups, group_data)
+                    str(name): float(data.median()) for name, data in zip(groups, group_data)
                 },
                 "significant": bool(pval < 0.05),
             }
@@ -732,3 +924,108 @@ class KruskalWallisSkill(Skill):
         except Exception as e:
             return SkillResult(success=False, message=f"Kruskal-Wallis H 检验失败: {e}")
 
+
+class MultipleComparisonCorrectionSkill(Skill):
+    """执行多重比较校正。
+
+    支持 Bonferroni、Holm-Bonferroni、FDR (Benjamini-Hochberg) 等校正方法。
+    """
+
+    @property
+    def name(self) -> str:
+        return "multiple_comparison_correction"
+
+    @property
+    def category(self) -> str:
+        return "statistics"
+
+    @property
+    def expose_to_llm(self) -> bool:
+        return True
+
+    @property
+    def description(self) -> str:
+        return (
+            "对多个 p 值进行多重比较校正。支持 Bonferroni（最保守）、"
+            "Holm（平衡）、FDR（探索性）三种方法。当进行多次统计检验时，"
+            "使用此工具控制族错误率或假发现率。"
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "p_values": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "description": "p 值列表（例如来自多次 t 检验或相关性分析）",
+                },
+                "method": {
+                    "type": "string",
+                    "enum": ["bonferroni", "holm", "fdr"],
+                    "description": "校正方法：bonferroni=最保守，holm=平衡，fdr=探索性",
+                    "default": "bonferroni",
+                },
+                "alpha": {
+                    "type": "number",
+                    "description": "显著性水平",
+                    "default": 0.05,
+                },
+                "context": {
+                    "type": "string",
+                    "enum": ["exploratory", "confirmatory", "high_stakes"],
+                    "description": "研究场景，用于方法推荐",
+                    "default": "exploratory",
+                },
+            },
+            "required": ["p_values"],
+        }
+
+    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+        p_values = kwargs["p_values"]
+        method = kwargs.get("method", "bonferroni")
+        alpha = kwargs.get("alpha", 0.05)
+        context = kwargs.get("context", "exploratory")
+
+        # 验证输入
+        if not p_values:
+            return SkillResult(success=False, message="p_values 不能为空")
+
+        if not all(0 <= p <= 1 for p in p_values):
+            return SkillResult(success=False, message="所有 p 值必须在 [0, 1] 范围内")
+
+        try:
+            # 执行校正
+            result = multiple_comparison_correction(p_values, method, alpha)
+
+            # 添加推荐信息
+            recommended = recommend_correction_method(len(p_values), context)
+            result["recommended_method"] = recommended
+            result["recommendation_reason"] = self._get_recommendation_reason(recommended, context)
+
+            # 统计显著结果数
+            n_significant = sum(result["significant"])
+
+            msg = (
+                f"{result['method']} 校正完成: "
+                f"{n_significant}/{len(p_values)} 个比较显著 "
+                f"(α = {alpha})"
+            )
+
+            return SkillResult(success=True, data=result, message=msg)
+
+        except Exception as e:
+            return SkillResult(success=False, message=f"多重比较校正失败: {e}")
+
+    def _get_recommendation_reason(self, method: str, context: str) -> str:
+        """获取方法推荐理由。"""
+        reasons = {
+            ("bonferroni", "high_stakes"): "高风险场景（如临床试验）应使用最严格的 Bonferroni 校正",
+            ("bonferroni", "confirmatory"): "验证性研究建议使用 Bonferroni 或 Holm 方法",
+            ("holm", "confirmatory"): "Holm 方法在控制族错误率的同时提供更高的统计效能",
+            ("fdr", "exploratory"): "探索性分析建议使用 FDR 控制，以发现更多潜在关联",
+            ("holm", "exploratory"): "比较次数较少时，Holm 方法是 FDR 的良好替代",
+            ("none", "exploratory"): "单次比较不需要多重校正",
+        }
+        return reasons.get((method, context), f"基于 {context} 场景推荐 {method} 方法")

@@ -1,0 +1,23 @@
+# Nature 期刊模板
+name: "Nature"
+key: "nature"
+style:
+  font_family: "Arial, Noto Sans CJK SC, Source Han Sans SC, Microsoft YaHei, DejaVu Sans"
+  font_size: 11
+  line_width: 1.2
+  dpi: 300
+  figure_size: [3.54, 2.76]
+colors:
+  - "#E64B35"
+  - "#4DBBD5"
+  - "#00A087"
+  - "#3C5488"
+  - "#F39B7F"
+  - "#8491B4"
+metadata:
+  category: "journal"
+  description: "Nature 期刊风格，双栏排版优化"
+  created_at: "2024-01-01"
+  version: "1.0"
+  publisher: "Nature Publishing Group"
+  typical_columns: 2

@@ -1,0 +1,23 @@
+# Science 期刊模板
+name: "Science"
+key: "science"
+style:
+  font_family: "Arial, Noto Sans CJK SC, Source Han Sans SC, Microsoft YaHei, DejaVu Sans"
+  font_size: 12
+  line_width: 1.2
+  dpi: 300
+  figure_size: [3.54, 2.76]
+colors:
+  - "#1F77B4"
+  - "#FF7F0E"
+  - "#2CA02C"
+  - "#D62728"
+  - "#9467BD"
+  - "#8C564B"
+metadata:
+  category: "journal"
+  description: "Science 期刊风格，AAAS 出版"
+  created_at: "2024-01-01"
+  version: "1.0"
+  publisher: "American Association for the Advancement of Science"
+  typical_columns: 2
