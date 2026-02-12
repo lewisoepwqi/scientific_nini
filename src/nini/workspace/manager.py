@@ -527,6 +527,16 @@ class WorkspaceManager:
                 "content": content,
             }
 
+        # Plotly 图表 JSON（.plotly.json）—— 返回 download_url 供前端直接渲染
+        if path.name.endswith(".plotly.json"):
+            return {
+                "id": file_id,
+                "kind": kind,
+                "preview_type": "plotly_chart",
+                "name": record.get("name", ""),
+                "download_url": record.get("download_url", ""),
+            }
+
         # 文本类型
         text_exts = {
             "txt",

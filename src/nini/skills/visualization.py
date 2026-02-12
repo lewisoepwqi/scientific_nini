@@ -196,11 +196,18 @@ class CreateChartSkill(Skill):
             }
 
             # 自动保存图表 JSON 到工作空间，便于会话成果管理与复用
-            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-            base_name = WorkspaceManager(session.id).sanitize_filename(
-                f"{chart_type}_{ts}.plotly.json",
-                default_name="chart.plotly.json",
-            )
+            ws = WorkspaceManager(session.id)
+            if title and title.strip():
+                base_name = ws.sanitize_filename(
+                    f"{title.strip()}.plotly.json",
+                    default_name="chart.plotly.json",
+                )
+            else:
+                ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+                base_name = ws.sanitize_filename(
+                    f"{chart_type}_{ts}.plotly.json",
+                    default_name="chart.plotly.json",
+                )
             storage = ArtifactStorage(session.id)
             output_name = base_name
             stem = Path(base_name).stem or "chart"
@@ -213,7 +220,7 @@ class CreateChartSkill(Skill):
                 json.dumps(chart_data, ensure_ascii=False),
                 output_name,
             )
-            WorkspaceManager(session.id).add_artifact_record(
+            ws.add_artifact_record(
                 name=output_name,
                 artifact_type="chart",
                 file_path=path,

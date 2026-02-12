@@ -9,6 +9,7 @@ import ModelConfigPanel from './components/ModelConfigPanel'
 import WorkflowPanel from './components/WorkflowPanel'
 import SkillCatalogPanel from './components/SkillCatalogPanel'
 import WorkspaceSidebar from './components/WorkspaceSidebar'
+import MemoryPanel from './components/MemoryPanel'
 import { Wifi, WifiOff, Settings, Menu, Zap, Wrench, PanelRightOpen, PanelRightClose } from 'lucide-react'
 
 export default function App() {
@@ -154,7 +155,10 @@ export default function App() {
             className="absolute left-0 top-0 h-full w-1.5 -translate-x-1/2 cursor-col-resize z-20 bg-transparent hover:bg-blue-200/40 active:bg-blue-300/60"
             title="拖拽调整宽度"
           />
-          <WorkspaceSidebar />
+          <div className="flex-1 min-h-0">
+            <WorkspaceSidebar />
+          </div>
+          <MemoryPanel />
         </div>
       )}
 
@@ -166,7 +170,10 @@ export default function App() {
             onClick={toggleWorkspacePanel}
           />
           <div className="fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-xl md:hidden flex flex-col">
-            <WorkspaceSidebar />
+            <div className="flex-1 min-h-0">
+              <WorkspaceSidebar />
+            </div>
+            <MemoryPanel />
           </div>
         </>
       )}

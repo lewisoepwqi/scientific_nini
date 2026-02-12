@@ -697,6 +697,18 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   async createNewSession() {
+    // 防重复：如果已有未使用的空会话，直接切换过去
+    const { sessions, sessionId } = get()
+    const emptySession = sessions.find(
+      (s) => s.message_count === 0 && s.title === '新会话'
+    )
+    if (emptySession) {
+      if (emptySession.id !== sessionId) {
+        await get().switchSession(emptySession.id)
+      }
+      return
+    }
+
     try {
       const resp = await fetch('/api/sessions', { method: 'POST' })
       const payload = await resp.json()
