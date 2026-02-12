@@ -81,10 +81,20 @@ def _fix_excel_serial_dates(df: pd.DataFrame) -> pd.DataFrame:
 def _build_download_response(path: Path, filename: str) -> Response:
     """构造下载响应（避免 FileResponse 在线程池路径上的阻塞）。"""
     media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    # RFC 5987 / RFC 6266: 非 ASCII 文件名用 filename* 编码，ASCII 用 filename 降级
+    try:
+        filename.encode("latin-1")
+        disposition = f'attachment; filename="{filename}"'
+    except UnicodeEncodeError:
+        ascii_fallback = filename.encode("ascii", errors="replace").decode("ascii")
+        utf8_encoded = quote(filename, safe="")
+        disposition = (
+            f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{utf8_encoded}"
+        )
     return Response(
         content=path.read_bytes(),
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": disposition},
     )
 
 

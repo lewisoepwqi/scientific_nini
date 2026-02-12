@@ -83,6 +83,44 @@ def pick_available_matplotlib_font() -> str | None:
     return None
 
 
+def get_available_cjk_fonts() -> list[str]:
+    """返回系统中实际可用的 CJK 候选字体列表（用于 rcParams 配置）。
+
+    仅返回 matplotlib 能找到的字体，避免大量 'Font family not found' 警告。
+    如果没有任何真正的 CJK 字体可用，会尝试下载 Noto CJK 作为兜底。
+    """
+    try:
+        from matplotlib import font_manager
+
+        available = {
+            entry.name.lower()
+            for entry in font_manager.fontManager.ttflist
+            if getattr(entry, "name", None)
+        }
+        # 先检查真正的 CJK 字体（排除 DejaVu Sans 等通用兜底）
+        cjk_found: list[str] = []
+        for candidate in _PRIMARY_CJK_CANDIDATES:
+            if candidate.lower() in available:
+                cjk_found.append(candidate)
+        # 没有真正的 CJK 字体时，尝试下载 Noto CJK
+        if not cjk_found:
+            fallback_name = _ensure_downloaded_matplotlib_cjk_font()
+            if fallback_name:
+                cjk_found.append(fallback_name)
+        if not cjk_found:
+            logger.warning(
+                "未找到任何中文字体，图表中文可能显示为方框。"
+                "建议安装中文字体：apt install fonts-noto-cjk 或 yum install google-noto-sans-cjk-sc-fonts"
+            )
+        # 最后追加通用兜底字体（如 DejaVu Sans）
+        generic_fallback = CJK_FONT_CANDIDATES[-1]  # DejaVu Sans
+        if generic_fallback.lower() in available and generic_fallback not in cjk_found:
+            cjk_found.append(generic_fallback)
+        return cjk_found
+    except Exception:
+        return []
+
+
 def apply_plotly_cjk_font_fallback(fig: Any) -> None:
     """给 Plotly Figure 应用中文字体回退链。"""
     try:

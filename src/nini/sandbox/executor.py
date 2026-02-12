@@ -22,6 +22,7 @@ from nini.utils.chart_fonts import (
     CJK_FONT_CANDIDATES,
     CJK_FONT_FAMILY,
     apply_plotly_cjk_font_fallback,
+    get_available_cjk_fonts,
     pick_available_matplotlib_font,
 )
 
@@ -92,9 +93,11 @@ def _configure_chart_defaults() -> None:
 
         matplotlib.use("Agg", force=True)
         rcParams["font.family"] = "sans-serif"
-        preferred_font = pick_available_matplotlib_font()
-        sans_serif = [preferred_font] if preferred_font else []
-        sans_serif.extend([font for font in CJK_FONT_CANDIDATES if font not in sans_serif])
+        # 仅配置系统实际存在的字体，避免大量 'Font family not found' 警告
+        sans_serif = get_available_cjk_fonts()
+        if not sans_serif:
+            # 所有 CJK 候选都不可用，保留 DejaVu Sans 作为最低兜底
+            sans_serif = ["DejaVu Sans"]
         rcParams["font.sans-serif"] = sans_serif
         rcParams["axes.unicode_minus"] = False
         rcParams["figure.dpi"] = 140
