@@ -4,7 +4,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useStore } from '../store'
 import { MessageSquarePlus, MessageSquare, Trash2, X } from 'lucide-react'
-import MemoryPanel from './MemoryPanel'
 
 interface Props {
   onClose?: () => void
@@ -139,7 +138,6 @@ export default function SessionList({ onClose }: Props) {
         })}
       </div>
 
-      <MemoryPanel />
     </div>
   )
 }
