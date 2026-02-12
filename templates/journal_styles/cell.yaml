@@ -1,0 +1,23 @@
+# Cell 期刊模板
+name: "Cell"
+key: "cell"
+style:
+  font_family: "Arial, Noto Sans CJK SC, Source Han Sans SC, Microsoft YaHei, DejaVu Sans"
+  font_size: 11
+  line_width: 1.0
+  dpi: 300
+  figure_size: [3.54, 2.76]
+colors:
+  - "#E41A1C"
+  - "#377EB8"
+  - "#4DAF4A"
+  - "#984EA3"
+  - "#FF7F00"
+  - "#FFFF33"
+metadata:
+  category: "journal"
+  description: "Cell 期刊风格，Cell Press 出版"
+  created_at: "2024-01-01"
+  version: "1.0"
+  publisher: "Cell Press"
+  typical_columns: 2

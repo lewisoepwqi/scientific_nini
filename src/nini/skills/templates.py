@@ -1,58 +1,16 @@
-"""出版级模板定义。"""
+"""出版级模板定义，支持从 YAML 文件动态加载。
 
-from __future__ import annotations
+向后兼容模块：请使用 nini.skills.templates.journal_styles 或从 nini.skills.templates 导入。
+"""
 
-from typing import Any
-
-from nini.utils.chart_fonts import CJK_FONT_FAMILY
-
-TEMPLATES: dict[str, dict[str, Any]] = {
-    "default": {
-        "name": "默认模板",
-        "font": CJK_FONT_FAMILY,
-        "font_size": 12,
-        "line_width": 1.5,
-        "dpi": 300,
-    },
-    "nature": {
-        "name": "Nature",
-        "font": CJK_FONT_FAMILY,
-        "font_size": 11,
-        "line_width": 1.2,
-        "dpi": 300,
-    },
-    "science": {
-        "name": "Science",
-        "font": CJK_FONT_FAMILY,
-        "font_size": 12,
-        "line_width": 1.2,
-        "dpi": 300,
-    },
-    "cell": {
-        "name": "Cell",
-        "font": CJK_FONT_FAMILY,
-        "font_size": 11,
-        "line_width": 1.0,
-        "dpi": 300,
-    },
-    "nejm": {
-        "name": "NEJM",
-        "font": CJK_FONT_FAMILY,
-        "font_size": 10,
-        "line_width": 1.0,
-        "dpi": 300,
-    },
-    "lancet": {
-        "name": "Lancet",
-        "font": CJK_FONT_FAMILY,
-        "font_size": 10,
-        "line_width": 1.0,
-        "dpi": 300,
-    },
-}
-
-
-def get_template(style: str) -> dict[str, Any]:
-    """获取模板配置，不存在时回退 default。"""
-    key = style.lower().strip()
-    return TEMPLATES.get(key, TEMPLATES["default"])
+# 从新的位置重新导出所有功能，保持向后兼容
+from nini.skills.templates.journal_styles import (  # noqa: F401
+    TEMPLATES,
+    delete_custom_template,
+    get_template,
+    get_template_info,
+    get_template_names,
+    get_templates,
+    reload_templates,
+    save_custom_template,
+)

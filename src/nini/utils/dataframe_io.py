@@ -1,10 +1,12 @@
-"""表格读取工具：按扩展名解析为 DataFrame。"""
+"""表格读取工具：按扩展名解析为 DataFrame，以及 DataFrame 序列化工具。"""
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 
@@ -31,7 +33,7 @@ def _missing_excel_dependency_error(ext_norm: str, exc: ImportError) -> ValueErr
         )
     return ValueError(
         "解析 .xls 失败：缺少 xlrd 依赖（>=2.0.1）。"
-        "请执行 `pip install \"xlrd>=2.0.1\"`（或 `pip install -e .[dev]`）后重试。"
+        '请执行 `pip install "xlrd>=2.0.1"`（或 `pip install -e .[dev]`）后重试。'
     )
 
 
@@ -112,3 +114,63 @@ def read_dataframe(path: Path, ext: str) -> pd.DataFrame:
         return pd.read_csv(path, sep="\t")
 
     raise ValueError(f"不支持的扩展名: {ext_norm}")
+
+
+# ---- DataFrame JSON 序列化工具 ----
+
+
+def dataframe_to_json_safe(
+    df: pd.DataFrame,
+    n_rows: int | None = None,
+    handle_non_finite: bool = True,
+) -> list[dict[str, Any]]:
+    """将 DataFrame 转换为 JSON 安全的字典列表。
+
+    处理以下类型转换：
+    - numpy.bool_ -> Python bool
+    - numpy.integer -> Python int
+    - numpy.floating/float -> Python float (非有限值转为 None)
+    - NaN/None -> None
+
+    Args:
+        df: 输入 DataFrame
+        n_rows: 如果指定，只转换前 n 行（用于预览）
+        handle_non_finite: 是否将非有限数值（inf, -inf, nan）转为 None
+
+    Returns:
+        JSON 安全的字典列表
+    """
+    if n_rows is not None:
+        df = df.head(n_rows)
+
+    records = df.to_dict(orient="records")
+    result: list[dict[str, Any]] = []
+
+    for record in records:
+        safe_record: dict[str, Any] = {}
+        for key, value in record.items():
+            safe_record[key] = _convert_value_to_json_safe(value, handle_non_finite)
+        result.append(safe_record)
+
+    return result
+
+
+def _convert_value_to_json_safe(value: Any, handle_non_finite: bool = True) -> Any:
+    """将单个值转换为 JSON 安全格式。"""
+    if isinstance(value, np.bool_):
+        return bool(value)
+    elif isinstance(value, np.integer):
+        return int(value)
+    elif isinstance(value, (np.floating, float)):
+        if handle_non_finite and not math.isfinite(value):
+            return None
+        return float(value)
+    elif pd.isna(value):
+        return None
+    else:
+        return value
+
+
+def series_to_json_safe(series: pd.Series) -> list[Any]:
+    """将 Series 转换为 JSON 安全的列表。"""
+    return [_convert_value_to_json_safe(v) for v in series]

@@ -19,30 +19,19 @@ from nini.sandbox.executor import sandbox_executor
 from nini.sandbox.policy import SandboxPolicyError
 from nini.skills.base import Skill, SkillResult
 from nini.utils.chart_fonts import apply_plotly_cjk_font_fallback
+from nini.utils.dataframe_io import dataframe_to_json_safe
 from nini.workspace import WorkspaceManager
 
 logger = logging.getLogger(__name__)
 
 
 def _json_safe_records(df: pd.DataFrame, n_rows: int = 20) -> list[dict[str, Any]]:
-    """DataFrame 预览转 JSON 安全结构。"""
-    preview = df.head(n_rows)
-    rows = preview.to_dict(orient="records")
-    safe_rows: list[dict[str, Any]] = []
-    for row in rows:
-        safe_row: dict[str, Any] = {}
-        for key, value in row.items():
-            if isinstance(value, (np.integer, np.floating, float)):
-                if isinstance(value, (np.floating, float)) and not math.isfinite(value):
-                    safe_row[key] = None
-                else:
-                    safe_row[key] = float(value)
-            elif pd.isna(value):
-                safe_row[key] = None
-            else:
-                safe_row[key] = value
-        safe_rows.append(safe_row)
-    return safe_rows
+    """DataFrame 预览转 JSON 安全结构。
+
+    注意：此函数已迁移到 nini.utils.dataframe_io.dataframe_to_json_safe，
+    保留此包装函数以保持向后兼容。
+    """
+    return dataframe_to_json_safe(df, n_rows=n_rows)
 
 
 class RunCodeSkill(Skill):
