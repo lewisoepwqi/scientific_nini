@@ -324,6 +324,7 @@ class RunCodeSkill(Skill):
                 success=False,
                 message="代码不能为空",
                 data={"metadata": metadata},
+                metadata=metadata,
             )
         if dataset_name and dataset_name not in session.datasets:
             return SkillResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
