@@ -1,0 +1,23 @@
+# NEJM (New England Journal of Medicine) 期刊模板
+name: "NEJM"
+key: "nejm"
+style:
+  font_family: "Arial, Noto Sans CJK SC, Source Han Sans SC, Microsoft YaHei, DejaVu Sans"
+  font_size: 10
+  line_width: 1.0
+  dpi: 300
+  figure_size: [3.54, 2.76]
+colors:
+  - "#BC3C29"
+  - "#0072B5"
+  - "#E18727"
+  - "#20854E"
+  - "#7876B1"
+  - "#6F99AD"
+metadata:
+  category: "journal"
+  description: "New England Journal of Medicine 风格"
+  created_at: "2024-01-01"
+  version: "1.0"
+  publisher: "Massachusetts Medical Society"
+  typical_columns: 2

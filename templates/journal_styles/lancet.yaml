@@ -1,0 +1,23 @@
+# Lancet 期刊模板
+name: "Lancet"
+key: "lancet"
+style:
+  font_family: "Arial, Noto Sans CJK SC, Source Han Sans SC, Microsoft YaHei, DejaVu Sans"
+  font_size: 10
+  line_width: 1.0
+  dpi: 300
+  figure_size: [3.54, 2.76]
+colors:
+  - "#00468B"
+  - "#ED0000"
+  - "#42B540"
+  - "#0099B4"
+  - "#925E9F"
+  - "#FDAF91"
+metadata:
+  category: "journal"
+  description: "The Lancet 期刊风格"
+  created_at: "2024-01-01"
+  version: "1.0"
+  publisher: "Elsevier"
+  typical_columns: 2

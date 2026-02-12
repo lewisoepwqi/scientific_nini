@@ -1,0 +1,25 @@
+# 默认期刊模板
+name: "默认模板"
+key: "default"
+style:
+  font_family: "Noto Sans CJK SC, Source Han Sans SC, Microsoft YaHei, PingFang SC, Hiragino Sans GB, WenQuanYi Micro Hei, SimHei, Arial Unicode MS, DejaVu Sans"
+  font_size: 12
+  line_width: 1.5
+  dpi: 300
+  figure_size: [6.4, 4.8]
+colors:
+  - "#636EFA"
+  - "#EF553B"
+  - "#00CC96"
+  - "#AB63FA"
+  - "#FFA15A"
+  - "#19D3F3"
+  - "#FF6692"
+  - "#B6E880"
+  - "#FF97FF"
+  - "#FECB52"
+metadata:
+  category: "general"
+  description: "通用默认模板，适用于大多数场景"
+  created_at: "2024-01-01"
+  version: "1.0"

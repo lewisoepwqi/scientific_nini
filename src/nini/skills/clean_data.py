@@ -13,6 +13,7 @@ from scipy import stats
 
 from nini.agent.session import Session
 from nini.skills.base import Skill, SkillResult
+from nini.utils.dataframe_io import dataframe_to_json_safe
 
 
 class MissingPattern(Enum):
@@ -401,26 +402,11 @@ def recommend_cleaning_strategy(df: pd.DataFrame) -> dict[str, Any]:
 
 
 def _safe_preview(df: pd.DataFrame, n_rows: int = 20) -> dict[str, Any]:
-    preview = df.head(n_rows)
-    rows = preview.to_dict(orient="records")
-    safe_rows: list[dict[str, Any]] = []
-    for row in rows:
-        safe_row: dict[str, Any] = {}
-        for key, value in row.items():
-            if isinstance(value, np.bool_):
-                safe_row[key] = bool(value)
-            elif isinstance(value, np.integer):
-                safe_row[key] = int(value)
-            elif isinstance(value, (np.floating, float)):
-                if not math.isfinite(value):
-                    safe_row[key] = None
-                else:
-                    safe_row[key] = float(value)
-            elif pd.isna(value):
-                safe_row[key] = None
-            else:
-                safe_row[key] = value
-        safe_rows.append(safe_row)
+    """生成 DataFrame 的安全预览。
+
+    使用统一的 dataframe_to_json_safe 函数处理序列化。
+    """
+    safe_rows = dataframe_to_json_safe(df, n_rows=n_rows)
 
     return {
         "data": safe_rows,

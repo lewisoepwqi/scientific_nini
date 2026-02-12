@@ -15,12 +15,12 @@ import pandas as pd
 from nini.agent.session import Session
 from nini.skills.base import Skill, SkillResult
 from nini.utils.dataframe_io import (
+    dataframe_to_json_safe,
     list_excel_sheet_names,
     read_excel_all_sheets,
     read_excel_sheet_dataframe,
 )
 from nini.workspace import WorkspaceManager
-
 
 # ---- 工具函数 ----
 
@@ -35,27 +35,12 @@ def _safe_float(value: float | None) -> float | None:
 
 
 def _dataframe_to_json_safe(df: pd.DataFrame) -> list[dict[str, Any]]:
-    """将 DataFrame 转换为 JSON 安全的字典列表。"""
-    records = df.to_dict(orient="records")
-    result = []
-    for record in records:
-        safe_record = {}
-        for k, v in record.items():
-            if isinstance(v, np.bool_):
-                safe_record[k] = bool(v)
-            elif isinstance(v, np.integer):
-                safe_record[k] = int(v)
-            elif isinstance(v, (np.floating, float)):
-                if not math.isfinite(v):
-                    safe_record[k] = None
-                else:
-                    safe_record[k] = float(v)
-            elif pd.isna(v):
-                safe_record[k] = None
-            else:
-                safe_record[k] = v
-        result.append(safe_record)
-    return result
+    """将 DataFrame 转换为 JSON 安全的字典列表。
+
+    注意：此函数已迁移到 nini.utils.dataframe_io.dataframe_to_json_safe，
+    保留此包装函数以保持向后兼容。
+    """
+    return dataframe_to_json_safe(df)
 
 
 def _unique_dataset_name(session: Session, preferred_name: str) -> str:
@@ -221,7 +206,9 @@ class LoadDatasetSkill(Skill):
                 available_sheets = []
             if not isinstance(sheet_name_raw, str) or not sheet_name_raw.strip():
                 extra = f"；可用 sheet: {', '.join(available_sheets)}" if available_sheets else ""
-                return SkillResult(success=False, message=f"sheet_mode=single 时必须提供 sheet_name{extra}")
+                return SkillResult(
+                    success=False, message=f"sheet_mode=single 时必须提供 sheet_name{extra}"
+                )
             sheet_name = sheet_name_raw.strip()
             try:
                 df_sheet = read_excel_sheet_dataframe(file_path, ext, sheet_name=sheet_name)
@@ -291,7 +278,14 @@ class LoadDatasetSkill(Skill):
             preferred = f"{name}[{s_name}]"
             out_name = _unique_dataset_name(session, preferred)
             session.datasets[out_name] = s_df
-            created.append({"name": out_name, "sheet_name": s_name, "rows": len(s_df), "columns": len(s_df.columns)})
+            created.append(
+                {
+                    "name": out_name,
+                    "sheet_name": s_name,
+                    "rows": len(s_df),
+                    "columns": len(s_df.columns),
+                }
+            )
 
         return SkillResult(
             success=True,
@@ -426,9 +420,7 @@ class DataSummarySkill(Skill):
         summary: dict[str, Any] = {
             "shape": {"rows": len(df), "columns": len(df.columns)},
             "missing_values": {
-                col: int(df[col].isnull().sum())
-                for col in df.columns
-                if df[col].isnull().any()
+                col: int(df[col].isnull().sum()) for col in df.columns if df[col].isnull().any()
             },
         }
 
@@ -455,9 +447,7 @@ class DataSummarySkill(Skill):
             vc = df[col].value_counts().head(10)
             categorical_stats[col] = {
                 "unique_count": int(df[col].nunique()),
-                "top_values": [
-                    {"value": str(k), "count": int(v)} for k, v in vc.items()
-                ],
+                "top_values": [{"value": str(k), "count": int(v)} for k, v in vc.items()],
             }
         summary["categorical_stats"] = categorical_stats
 
