@@ -26,6 +26,15 @@ BANNED_CALLS: set[str] = {
     "compile",
     "open",
     "input",
+    "getattr",
+    "setattr",
+    "delattr",
+    "globals",
+    "locals",
+    "vars",
+    "dir",
+    "type",
+    "breakpoint",
 }
 
 

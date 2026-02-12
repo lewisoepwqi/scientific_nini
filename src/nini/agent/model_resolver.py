@@ -106,6 +106,7 @@ class OpenAICompatibleClient(BaseLLMClient):
 
             kwargs: dict[str, Any] = {"api_key": self._api_key}
             kwargs["max_retries"] = max(0, int(settings.llm_max_retries))
+            kwargs["timeout"] = max(1, int(settings.llm_timeout))
             if self._base_url:
                 kwargs["base_url"] = self._base_url
             # 显式传入默认 httpx 客户端，避免 SDK 内部 wrapper 在 GC 时
@@ -262,7 +263,10 @@ class AnthropicClient(BaseLLMClient):
         if self._client is None:
             from anthropic import AsyncAnthropic
 
-            self._client = AsyncAnthropic(api_key=self._api_key)
+            self._client = AsyncAnthropic(
+                api_key=self._api_key,
+                timeout=max(1, int(settings.llm_timeout)),
+            )
 
     def is_available(self) -> bool:
         return bool(self._api_key and self._model)
@@ -552,6 +556,7 @@ class KimiCodingClient(OpenAICompatibleClient):
 
             kwargs: dict[str, Any] = {"api_key": self._api_key}
             kwargs["max_retries"] = max(0, int(settings.llm_max_retries))
+            kwargs["timeout"] = max(1, int(settings.llm_timeout))
             if self._base_url:
                 kwargs["base_url"] = self._base_url
             if self._http_client is None:

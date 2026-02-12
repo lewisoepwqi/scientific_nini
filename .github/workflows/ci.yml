@@ -17,7 +17,12 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - run: pip install -e .[dev]
-      - run: pytest -q
+      - name: Format check
+        run: black --check src tests
+      - name: Type check
+        run: mypy src/nini
+      - name: Test with coverage
+        run: pytest --cov=src/nini --cov-report=xml -q
 
   frontend:
     runs-on: ubuntu-latest

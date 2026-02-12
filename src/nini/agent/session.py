@@ -185,7 +185,21 @@ class SessionManager:
     def remove_session(
         self, session_id: str, *, delete_persistent: bool = False
     ) -> None:
-        self._sessions.pop(session_id, None)
+        session = self._sessions.pop(session_id, None)
+        # 清理内存资源
+        if session is not None:
+            # 清理分析记忆
+            from nini.memory.compression import clear_session_analysis_memories
+
+            clear_session_analysis_memories(session_id)
+        # 清理会话 lane
+        from nini.agent.lane_queue import lane_queue
+
+        lane_queue.remove_lane(session_id)
+        # 清理 token tracker
+        from nini.utils.token_counter import remove_tracker
+
+        remove_tracker(session_id)
         if delete_persistent:
             session_dir = settings.sessions_dir / session_id
             if session_dir.exists():
