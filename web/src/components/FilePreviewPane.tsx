@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Download, X, Loader2 } from 'lucide-react'
 import { useStore } from '../store'
 import MarkdownContent from './MarkdownContent'
+import PlotlyFromUrl from './PlotlyFromUrl'
 
 interface PreviewData {
   id: string
@@ -170,6 +171,11 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
           </p>
         </div>
       )
+    case 'plotly_chart':
+      if (preview.download_url) {
+        return <PlotlyFromUrl url={preview.download_url} alt={preview.name} />
+      }
+      return <div className="text-center text-gray-500 py-12 text-sm">图表地址不可用</div>
     case 'text': {
       const isMarkdown = preview.ext === 'md' || preview.ext === 'markdown'
       return (
