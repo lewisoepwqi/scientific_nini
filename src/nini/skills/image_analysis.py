@@ -167,7 +167,9 @@ class ImageAnalysisSkill(Skill):
                 message=f"图片分析失败: {exc}",
             )
 
-    async def _get_image_source(self, session: Session, kwargs: dict[str, Any]) -> dict[str, Any] | None:
+    async def _get_image_source(
+        self, session: Session, kwargs: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """获取图片来源信息。"""
         # 1. 优先使用 image_data（base64 编码）
         image_data = kwargs.get("image_data")
@@ -346,7 +348,7 @@ class ImageAnalysisSkill(Skill):
         ]
 
         response = await self._client.chat.completions.create(
-            model="gpt-4o" or "gpt-4-vision-preview",
+            model=settings.openai_model,
             messages=messages,
             max_tokens=2048,
         )
@@ -397,7 +399,9 @@ class ImageAnalysisSkill(Skill):
                 if len(series_list) == 1:
                     series = series_list[0]
                     if "x" in series and "y" in series:
-                        return pd.DataFrame({series.get("name", "value"): series["y"]}, index=series["x"])
+                        return pd.DataFrame(
+                            {series.get("name", "value"): series["y"]}, index=series["x"]
+                        )
 
                 # 多个系列：转换为长格式
                 rows = []

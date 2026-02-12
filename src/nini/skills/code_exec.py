@@ -308,9 +308,19 @@ class RunCodeSkill(Skill):
         save_as = kwargs.get("save_as")
         purpose = str(kwargs.get("purpose", "exploration")).strip()
         label = kwargs.get("label") or None
+        intent = str(kwargs.get("intent") or label or "").strip()
+        metadata = {
+            "intent": intent,
+            "purpose": purpose,
+            "label": str(label).strip() if isinstance(label, str) else "",
+        }
 
         if not code:
-            return SkillResult(success=False, message="代码不能为空")
+            return SkillResult(
+                success=False,
+                message="代码不能为空",
+                data={"metadata": metadata},
+            )
         if dataset_name and dataset_name not in session.datasets:
             return SkillResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
 
