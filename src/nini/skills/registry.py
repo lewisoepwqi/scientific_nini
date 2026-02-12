@@ -14,9 +14,10 @@ from nini.agent.lane_queue import lane_queue
 from nini.agent.session import Session
 from nini.config import settings
 from nini.skills.base import Skill, SkillResult
-from nini.skills.clean_data import CleanDataSkill
+from nini.skills.clean_data import CleanDataSkill, RecommendCleaningStrategySkill
 from nini.skills.code_exec import RunCodeSkill
 from nini.skills.data_ops import DataSummarySkill, LoadDatasetSkill, PreviewDataSkill
+from nini.skills.data_quality import DataQualitySkill, DataQualityReportSkill
 from nini.skills.export import ExportChartSkill
 from nini.skills.fetch_url import FetchURLSkill
 from nini.skills.organize_workspace import OrganizeWorkspaceSkill
@@ -29,6 +30,7 @@ from nini.skills.statistics import (
     RegressionSkill,
     TTestSkill,
 )
+from nini.skills.interpretation import InterpretStatisticalResultSkill
 from nini.skills.visualization import CreateChartSkill
 from nini.skills.workflow_skill import ApplyWorkflowSkill, ListWorkflowsSkill, SaveWorkflowSkill
 from nini.skills.markdown_scanner import render_skills_snapshot, scan_markdown_skills
@@ -456,6 +458,7 @@ def create_default_registry() -> SkillRegistry:
     registry.register(CreateChartSkill())
     registry.register(ExportChartSkill())
     registry.register(CleanDataSkill())
+    registry.register(RecommendCleaningStrategySkill())
     registry.register(GenerateReportSkill())
     registry.register(SaveWorkflowSkill())
     registry.register(ListWorkflowsSkill())
@@ -466,6 +469,7 @@ def create_default_registry() -> SkillRegistry:
     registry.register(CompleteComparisonSkill())
     registry.register(CompleteANOVASkill())
     registry.register(CorrelationAnalysisSkill())
+    registry.register(InterpretStatisticalResultSkill())
     registry.reload_markdown_skills()
     registry.write_skills_snapshot()
     return registry

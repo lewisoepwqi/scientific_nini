@@ -68,7 +68,7 @@ class TTestSkill(Skill):
 
     @property
     def expose_to_llm(self) -> bool:
-        return False
+        return True
 
     @property
     def description(self) -> str:
@@ -243,7 +243,7 @@ class ANOVASkill(Skill):
 
     @property
     def expose_to_llm(self) -> bool:
-        return False
+        return True
 
     @property
     def description(self) -> str:
@@ -360,7 +360,7 @@ class CorrelationSkill(Skill):
 
     @property
     def expose_to_llm(self) -> bool:
-        return False
+        return True
 
     @property
     def description(self) -> str:
@@ -455,7 +455,7 @@ class RegressionSkill(Skill):
 
     @property
     def expose_to_llm(self) -> bool:
-        return False
+        return True
 
     @property
     def description(self) -> str:
@@ -545,7 +545,7 @@ class MannWhitneySkill(Skill):
 
     @property
     def expose_to_llm(self) -> bool:
-        return False
+        return True
 
     @property
     def description(self) -> str:
@@ -651,7 +651,7 @@ class KruskalWallisSkill(Skill):
 
     @property
     def expose_to_llm(self) -> bool:
-        return False
+        return True
 
     @property
     def description(self) -> str:
