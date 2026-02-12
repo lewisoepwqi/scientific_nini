@@ -5,7 +5,6 @@ from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 # 项目根目录（pyproject.toml 所在位置）
 _ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -45,9 +44,9 @@ class Settings(BaseSettings):
     kimi_coding_base_url: str = "https://api.kimi.com/coding/v1"
     kimi_coding_model: str = "kimi-for-coding"
 
-    # 智谱 AI (GLM)
+    # 智谱 AI (GLM) — 默认使用 Coding Plan 端点
     zhipu_api_key: Optional[str] = None
-    zhipu_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
+    zhipu_base_url: str = "https://open.bigmodel.cn/api/coding/paas/v4"
     zhipu_model: str = "glm-4"
 
     # DeepSeek

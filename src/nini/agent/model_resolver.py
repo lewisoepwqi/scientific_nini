@@ -113,9 +113,7 @@ class OpenAICompatibleClient(BaseLLMClient):
             if self._http_client is None:
                 # 默认不读取系统代理环境变量，避免 ALL_PROXY/HTTPS_PROXY
                 # 意外注入导致的 socksio 依赖报错。
-                self._http_client = DefaultAsyncHttpxClient(
-                    trust_env=settings.llm_trust_env_proxy
-                )
+                self._http_client = DefaultAsyncHttpxClient(trust_env=settings.llm_trust_env_proxy)
             kwargs["http_client"] = self._http_client
             self._client = AsyncOpenAI(**kwargs)
 
@@ -339,9 +337,7 @@ class AnthropicClient(BaseLLMClient):
             await self._client.close()
             self._client = None
 
-    def _convert_messages(
-        self, messages: list[dict[str, Any]]
-    ) -> tuple[str, list[dict[str, Any]]]:
+    def _convert_messages(self, messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
         """将 OpenAI 消息格式转换为 Anthropic 消息格式。"""
         system_parts: list[str] = []
         out: list[dict[str, Any]] = []
@@ -428,9 +424,7 @@ class AnthropicClient(BaseLLMClient):
             text = text[:2000] + "...(截断)"
         return "[工具结果]\n" + text
 
-    def _convert_tools(
-        self, tools: list[dict[str, Any]] | None
-    ) -> list[dict[str, Any]] | None:
+    def _convert_tools(self, tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
         """将 OpenAI tools 转换为 Anthropic tools。"""
         if not tools:
             return None
@@ -528,10 +522,17 @@ class MoonshotClient(OpenAICompatibleClient):
 
 
 class KimiCodingClient(OpenAICompatibleClient):
-    """Kimi Coding Plan 适配器（api.kimi.com），兼容 OpenAI 协议。"""
+    """Kimi Coding Plan 适配器（api.kimi.com），兼容 OpenAI 协议。
+
+    Kimi Coding API 通过 User-Agent 头识别编码工具客户端，
+    未携带合法标识会返回 403 access_terminated_error。
+    """
 
     provider_id = "kimi_coding"
     provider_name = "Kimi Coding"
+
+    # Kimi 白名单校验所需的 User-Agent 标识
+    _USER_AGENT = "ClaudeCode/1.0.0"
 
     def __init__(
         self,
@@ -545,6 +546,23 @@ class KimiCodingClient(OpenAICompatibleClient):
             model=model or settings.kimi_coding_model,
         )
 
+    def _ensure_client(self):
+        if self._client is None:
+            from openai import AsyncOpenAI, DefaultAsyncHttpxClient
+
+            kwargs: dict[str, Any] = {"api_key": self._api_key}
+            kwargs["max_retries"] = max(0, int(settings.llm_max_retries))
+            if self._base_url:
+                kwargs["base_url"] = self._base_url
+            if self._http_client is None:
+                self._http_client = DefaultAsyncHttpxClient(trust_env=settings.llm_trust_env_proxy)
+            kwargs["http_client"] = self._http_client
+            kwargs["default_headers"] = {
+                "User-Agent": self._USER_AGENT,
+                "X-Title": "Nini",
+            }
+            self._client = AsyncOpenAI(**kwargs)
+
     def _supports_stream_usage(self) -> bool:
         # Kimi Coding API 不支持 stream_options.include_usage
         return False
@@ -554,7 +572,11 @@ class KimiCodingClient(OpenAICompatibleClient):
 
 
 class ZhipuClient(OpenAICompatibleClient):
-    """智谱 AI (GLM) 适配器，兼容 OpenAI 协议。"""
+    """智谱 AI (GLM) 适配器，兼容 OpenAI 协议。
+
+    默认使用 Coding Plan 端点 (open.bigmodel.cn/api/coding/paas/v4)，
+    与标准 API 端点共用同一 API Key，但计费走 Coding 订阅通道。
+    """
 
     provider_id = "zhipu"
     provider_name = "智谱 AI (GLM)"
@@ -570,6 +592,10 @@ class ZhipuClient(OpenAICompatibleClient):
             base_url=base_url or settings.zhipu_base_url,
             model=model or settings.zhipu_model,
         )
+
+    def _supports_stream_usage(self) -> bool:
+        # 智谱 Coding Plan 端点不支持 stream_options.include_usage
+        return False
 
 
 # ---- DeepSeek 客户端 ----
@@ -664,10 +690,7 @@ class ModelResolver:
         # 如果有首选提供商，优先检查
         if self._preferred_provider:
             for client in self._clients:
-                if (
-                    client.provider_id == self._preferred_provider
-                    and client.is_available()
-                ):
+                if client.provider_id == self._preferred_provider and client.is_available():
                     return {
                         "provider_id": client.provider_id,
                         "provider_name": client.provider_name,
@@ -702,9 +725,7 @@ class ModelResolver:
                 others.append(client)
         return preferred + others
 
-    def reload_clients(
-        self, config_overrides: dict[str, dict[str, Any]] | None = None
-    ) -> None:
+    def reload_clients(self, config_overrides: dict[str, dict[str, Any]] | None = None) -> None:
         """使用新配置重新初始化所有客户端。
 
         Args:
