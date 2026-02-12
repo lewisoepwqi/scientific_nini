@@ -249,10 +249,10 @@ def test_kimi_coding_client_base_url_and_availability() -> None:
 
 
 def test_zhipu_client_base_url_and_availability() -> None:
-    """智谱 AI 客户端：正确设置 base_url，有 API Key 时可用。"""
+    """智谱 AI 客户端：默认使用 Coding Plan 端点，有 API Key 时可用。"""
     client = ZhipuClient(api_key="zhipu-test-key", model="glm-4")
     assert client.is_available() is True
-    assert client._base_url == "https://open.bigmodel.cn/api/paas/v4"  # noqa: SLF001
+    assert client._base_url == "https://open.bigmodel.cn/api/coding/paas/v4"  # noqa: SLF001
     assert client._model == "glm-4"  # noqa: SLF001
 
 
@@ -264,9 +264,7 @@ def test_zhipu_client_supports_custom_base_url() -> None:
         model="glm-4.7",
     )
     assert client.is_available() is True
-    assert (
-        client._base_url == "https://open.bigmodel.cn/api/coding/paas/v4"  # noqa: SLF001
-    )
+    assert client._base_url == "https://open.bigmodel.cn/api/coding/paas/v4"  # noqa: SLF001
     assert client._model == "glm-4.7"  # noqa: SLF001
 
 
@@ -338,15 +336,18 @@ async def test_domestic_client_fallback_in_resolver() -> None:
 def test_all_domestic_clients_support_stream_usage() -> None:
     """国产模型客户端 stream_options.include_usage 支持情况。"""
     # 支持 stream_options 的提供商
-    for cls in [ZhipuClient, DeepSeekClient, DashScopeClient]:
+    for cls in [DeepSeekClient, DashScopeClient]:
         client = cls(api_key="test-key", model="test-model")
         assert client._supports_stream_usage() is True  # noqa: SLF001
 
-    # Moonshot 不支持 stream_options
-    moonshot = MoonshotClient(api_key="test-key", model="test-model")
-    assert moonshot._supports_stream_usage() is False  # noqa: SLF001
-    kimi_coding = KimiCodingClient(api_key="test-key", model="kimi-for-coding")
-    assert kimi_coding._supports_stream_usage() is False  # noqa: SLF001
+    # 不支持 stream_options 的提供商
+    for cls, kwargs in [  # type: ignore[assignment]
+        (MoonshotClient, {"api_key": "test-key", "model": "test-model"}),
+        (KimiCodingClient, {"api_key": "test-key", "model": "kimi-for-coding"}),
+        (ZhipuClient, {"api_key": "test-key", "model": "test-model"}),
+    ]:
+        client = cls(**kwargs)
+        assert client._supports_stream_usage() is False  # noqa: SLF001
 
 
 @pytest.mark.asyncio

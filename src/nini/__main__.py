@@ -34,9 +34,9 @@ def _default_env_content() -> str:
         "NINI_KIMI_CODING_BASE_URL=https://api.kimi.com/coding/v1\n"
         "NINI_KIMI_CODING_MODEL=kimi-for-coding\n"
         "\n"
-        "# 可选：智谱 AI (GLM)\n"
+        "# 可选：智谱 AI (GLM) — 默认 Coding Plan 端点\n"
         "NINI_ZHIPU_API_KEY=\n"
-        "NINI_ZHIPU_BASE_URL=https://open.bigmodel.cn/api/paas/v4\n"
+        "NINI_ZHIPU_BASE_URL=https://open.bigmodel.cn/api/coding/paas/v4\n"
         "NINI_ZHIPU_MODEL=glm-4\n"
         "\n"
         "# 可选：DeepSeek\n"
@@ -77,9 +77,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=".env",
         help="配置文件路径，默认当前目录 .env",
     )
-    init_parser.add_argument(
-        "--force", action="store_true", help="覆盖已存在的配置文件"
-    )
+    init_parser.add_argument("--force", action="store_true", help="覆盖已存在的配置文件")
     init_parser.set_defaults(func=_cmd_init)
 
     doctor_parser = subparsers.add_parser("doctor", help="检查运行环境与配置")
@@ -187,9 +185,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         configured_providers.append("阿里百炼")
     if settings.ollama_base_url and settings.ollama_model:
         configured_providers.append("Ollama")
-    model_detail = (
-        ", ".join(configured_providers) if configured_providers else "未配置任何模型"
-    )
+    model_detail = ", ".join(configured_providers) if configured_providers else "未配置任何模型"
     checks.append(
         (
             "至少一个模型路由可用",
