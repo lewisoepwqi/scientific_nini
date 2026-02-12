@@ -108,6 +108,7 @@ async def websocket_agent(ws: WebSocket):
                     tool_call_id=event.tool_call_id,
                     tool_name=event.tool_name,
                     turn_id=event.turn_id,
+                    metadata=event.metadata,
                 )
                 # 分析思路事件：通知前端刷新工作区（已保存为产物）
                 if event.type == EventType.REASONING:
@@ -143,6 +144,11 @@ async def websocket_agent(ws: WebSocket):
                         _pending_tool_args[event.tool_call_id] = {
                             "tool_name": event.tool_name,
                             "tool_args": args if isinstance(args, dict) else {},
+                            "intent": (
+                                event.metadata.get("intent")
+                                if isinstance(event.metadata, dict)
+                                else None
+                            ),
                         }
                     except Exception:
                         pass
@@ -159,8 +165,14 @@ async def websocket_agent(ws: WebSocket):
                         tool_info = _pending_tool_args.pop(event.tool_call_id or "", {})
                         # 计算当前上下文 token 数
                         from nini.utils.token_counter import count_messages_tokens
+
                         ctx_tokens = count_messages_tokens(session.messages)
                         wm = WorkspaceManager(session.id)
+                        event_intent = (
+                            event.metadata.get("intent")
+                            if isinstance(event.metadata, dict)
+                            else None
+                        )
                         exec_record = wm.save_code_execution(
                             code=paired_code,
                             output=str(result_data.get("message", result_data.get("output", ""))),
@@ -168,6 +180,7 @@ async def websocket_agent(ws: WebSocket):
                             tool_name=tool_info.get("tool_name"),
                             tool_args=tool_info.get("tool_args"),
                             context_token_count=ctx_tokens,
+                            intent=event_intent or tool_info.get("intent"),
                         )
                         await _send_event(
                             ws,
@@ -184,11 +197,7 @@ async def websocket_agent(ws: WebSocket):
                 session.title,
                 len(session.messages),
             )
-            if (
-                not stop_event.is_set()
-                and session.title == "新会话"
-                and len(session.messages) >= 2
-            ):
+            if not stop_event.is_set() and session.title == "新会话" and len(session.messages) >= 2:
                 logger.info("触发会话标题自动生成: session_id=%s", session.id)
                 asyncio.create_task(_auto_generate_title(ws, session))
             else:
@@ -441,6 +450,7 @@ async def _send_event(
     tool_call_id: str | None = None,
     tool_name: str | None = None,
     turn_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """发送 WebSocket 事件。使用自定义编码器兜底处理 numpy 类型。"""
     # 检查连接是否仍然打开
@@ -456,11 +466,10 @@ async def _send_event(
             tool_call_id=tool_call_id,
             tool_name=tool_name,
             turn_id=turn_id,
+            metadata=metadata or {},
         )
         event_dict = event.model_dump(exclude_none=True)
-        await ws.send_text(
-            json.dumps(event_dict, cls=_NumpySafeEncoder, ensure_ascii=False)
-        )
+        await ws.send_text(json.dumps(event_dict, cls=_NumpySafeEncoder, ensure_ascii=False))
     except RuntimeError as e:
         # 连接可能在发送过程中关闭
         if "close message has been sent" in str(e):

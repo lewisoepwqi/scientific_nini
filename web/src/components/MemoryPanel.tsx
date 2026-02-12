@@ -1,7 +1,7 @@
 /**
  * 记忆面板 —— 展示会话记忆文件状态与上下文 Token 用量。
  */
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useStore, type MemoryFile } from '../store'
 import {
   Brain,
@@ -12,6 +12,17 @@ import {
   RefreshCw,
   Database,
 } from 'lucide-react'
+
+
+const MEMORY_PANEL_HEIGHT_KEY = 'nini.memoryPanel.height'
+const MEMORY_PANEL_DEFAULT_HEIGHT = 200
+const MEMORY_PANEL_MIN_HEIGHT = 100
+const MEMORY_PANEL_MAX_HEIGHT = 600
+
+function clampHeight(value: number): number {
+  if (!Number.isFinite(value)) return MEMORY_PANEL_DEFAULT_HEIGHT
+  return Math.min(MEMORY_PANEL_MAX_HEIGHT, Math.max(MEMORY_PANEL_MIN_HEIGHT, Math.round(value)))
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -118,6 +129,12 @@ export default function MemoryPanel() {
   const fetchMemoryFiles = useStore((s) => s.fetchMemoryFiles)
   const [collapsed, setCollapsed] = useState(true)
   const [contextTokens, setContextTokens] = useState<number | null>(null)
+  const [panelHeight, setPanelHeight] = useState<number>(MEMORY_PANEL_DEFAULT_HEIGHT)
+  const resizingRef = useRef(false)
+  const startYRef = useRef(0)
+  const startHeightRef = useRef(MEMORY_PANEL_DEFAULT_HEIGHT)
+  const dragHandleRef = useRef<HTMLButtonElement | null>(null)
+  const canResize = useMemo(() => !window.matchMedia('(pointer: coarse)').matches, [])
 
   const fetchContextTokens = useCallback(async () => {
     if (!sessionId) return
@@ -148,6 +165,59 @@ export default function MemoryPanel() {
     setContextTokens(null)
   }, [sessionId])
 
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(MEMORY_PANEL_HEIGHT_KEY)
+      if (!saved) return
+      const parsed = Number(saved)
+      if (Number.isFinite(parsed)) {
+        setPanelHeight(clampHeight(parsed))
+      }
+    } catch {
+      // 忽略 localStorage 异常
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(MEMORY_PANEL_HEIGHT_KEY, String(clampHeight(panelHeight)))
+    } catch {
+      // 忽略 localStorage 异常
+    }
+  }, [panelHeight])
+
+  useEffect(() => {
+    if (!canResize) return
+    const onMouseMove = (event: MouseEvent) => {
+      if (!resizingRef.current) return
+      const delta = startYRef.current - event.clientY
+      setPanelHeight(clampHeight(startHeightRef.current + delta))
+    }
+    const onMouseUp = () => {
+      if (!resizingRef.current) return
+      resizingRef.current = false
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [canResize])
+
+  const handleResizeStart = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    if (!canResize) return
+    event.preventDefault()
+    resizingRef.current = true
+    startYRef.current = event.clientY
+    startHeightRef.current = panelHeight
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'ns-resize'
+  }, [canResize, panelHeight])
+
+
   if (!sessionId) return null
 
   return (
@@ -168,7 +238,20 @@ export default function MemoryPanel() {
 
       {!collapsed && (
         <div className="px-2 pb-2">
-          <div className="flex items-center justify-end mb-1">
+          <div className="flex items-center justify-between mb-1">
+            {canResize ? (
+              <button
+                ref={dragHandleRef}
+                onMouseDown={handleResizeStart}
+                className="w-full mr-2 h-4 rounded border border-dashed border-gray-200 text-[10px] text-gray-400 hover:text-gray-500 hover:border-gray-300 flex items-center justify-center cursor-ns-resize"
+                title="拖动调整记忆状态高度"
+                aria-label="拖动调整记忆状态高度"
+              >
+                ⋮⋮
+              </button>
+            ) : (
+              <div className="text-[10px] text-gray-400">移动端固定高度</div>
+            )}
             <button
               onClick={() => {
                 fetchMemoryFiles()
@@ -180,15 +263,17 @@ export default function MemoryPanel() {
               <RefreshCw size={10} />
             </button>
           </div>
-          {memoryFiles.length === 0 ? (
-            <div className="text-[10px] text-gray-400 text-center py-2">暂无记忆文件</div>
-          ) : (
-            <div className="bg-white rounded border border-gray-100">
-              {memoryFiles.map((file) => (
-                <MemoryFileItem key={file.name} file={file} />
-              ))}
-            </div>
-          )}
+          <div className="overflow-y-auto" style={{ maxHeight: `${panelHeight}px` }}>
+            {memoryFiles.length === 0 ? (
+              <div className="text-[10px] text-gray-400 text-center py-2">暂无记忆文件</div>
+            ) : (
+              <div className="bg-white rounded border border-gray-100">
+                {memoryFiles.map((file) => (
+                  <MemoryFileItem key={file.name} file={file} />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

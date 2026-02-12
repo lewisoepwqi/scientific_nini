@@ -88,6 +88,13 @@ function ExecutionItem({ exec }: { exec: CodeExecution }) {
             </div>
           )}
 
+          {exec.intent && (
+            <div className="px-3 py-2 border-b bg-blue-50/60 text-[11px] text-blue-700">
+              <span className="font-medium">执行意图：</span>
+              <span>{exec.intent}</span>
+            </div>
+          )}
+
           {/* Request（代码） */}
           {exec.code && (
             <div className="relative">

@@ -372,7 +372,11 @@ class WorkspaceManager:
         for kind in ("datasets", "artifacts", "notes"):
             for item in index.get(kind, []):
                 if isinstance(item, dict) and item.get("id") == file_id:
-                    kind_singular = {"datasets": "dataset", "artifacts": "artifact", "notes": "note"}[kind]
+                    kind_singular = {
+                        "datasets": "dataset",
+                        "artifacts": "artifact",
+                        "notes": "note",
+                    }[kind]
                     return kind_singular, item
         return "", None
 
@@ -441,11 +445,15 @@ class WorkspaceManager:
                 # 更新 download_url
                 if kind == "datasets":
                     fname = Path(item.get(path_key, "")).name
-                    item["download_url"] = f"/api/workspace/{self.session_id}/uploads/{quote(fname)}"
+                    item["download_url"] = (
+                        f"/api/workspace/{self.session_id}/uploads/{quote(fname)}"
+                    )
                 elif kind == "artifacts":
                     item["download_url"] = f"/api/artifacts/{self.session_id}/{quote(safe_name)}"
                 elif kind == "notes":
-                    item["download_url"] = f"/api/workspace/{self.session_id}/notes/{quote(safe_name)}"
+                    item["download_url"] = (
+                        f"/api/workspace/{self.session_id}/notes/{quote(safe_name)}"
+                    )
 
                 self._save_index(index)
                 return item
@@ -466,11 +474,21 @@ class WorkspaceManager:
 
         path_str = record.get("file_path") or record.get("path") or ""
         if not path_str:
-            return {"id": file_id, "kind": kind, "preview_type": "unavailable", "message": "文件路径不存在"}
+            return {
+                "id": file_id,
+                "kind": kind,
+                "preview_type": "unavailable",
+                "message": "文件路径不存在",
+            }
 
         path = Path(path_str)
         if not path.exists() or not path.is_file():
-            return {"id": file_id, "kind": kind, "preview_type": "unavailable", "message": "文件不存在"}
+            return {
+                "id": file_id,
+                "kind": kind,
+                "preview_type": "unavailable",
+                "message": "文件不存在",
+            }
 
         ext = path.suffix.lower().lstrip(".")
         mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
@@ -510,7 +528,21 @@ class WorkspaceManager:
             }
 
         # 文本类型
-        text_exts = {"txt", "csv", "tsv", "json", "md", "py", "r", "log", "yaml", "yml", "toml", "ini", "cfg"}
+        text_exts = {
+            "txt",
+            "csv",
+            "tsv",
+            "json",
+            "md",
+            "py",
+            "r",
+            "log",
+            "yaml",
+            "yml",
+            "toml",
+            "ini",
+            "cfg",
+        }
         if ext in text_exts:
             lines = []
             try:
@@ -520,7 +552,12 @@ class WorkspaceManager:
                             break
                         lines.append(line.rstrip("\n"))
             except Exception:
-                return {"id": file_id, "kind": kind, "preview_type": "error", "message": "无法读取文件"}
+                return {
+                    "id": file_id,
+                    "kind": kind,
+                    "preview_type": "error",
+                    "message": "无法读取文件",
+                }
             return {
                 "id": file_id,
                 "kind": kind,
@@ -579,6 +616,7 @@ class WorkspaceManager:
         tool_name: str | None = None,
         tool_args: dict[str, Any] | None = None,
         context_token_count: int | None = None,
+        intent: str | None = None,
     ) -> dict[str, Any]:
         """将代码执行记录持久化到 workspace/executions/ 目录。"""
         self.ensure_dirs()
@@ -598,6 +636,8 @@ class WorkspaceManager:
             record["tool_args"] = tool_args
         if context_token_count is not None:
             record["context_token_count"] = context_token_count
+        if intent:
+            record["intent"] = intent
         exec_path = self.executions_dir / f"{exec_id}.json"
         exec_path.write_text(
             json.dumps(record, ensure_ascii=False, indent=2),
@@ -636,7 +676,9 @@ class WorkspaceManager:
                     continue
                 path = Path(path_str)
                 if path.exists() and path.is_file():
-                    base_name = self.sanitize_filename(str(record.get("name", path.name)), default_name=path.name)
+                    base_name = self.sanitize_filename(
+                        str(record.get("name", path.name)), default_name=path.name
+                    )
                     arcname = base_name
                     if arcname in used_names:
                         stem = Path(base_name).stem
@@ -673,11 +715,13 @@ class WorkspaceManager:
                 # 将当前版本加入历史
                 current_path = item.get("path", "")
                 if current_path:
-                    versions.append({
-                        "path": current_path,
-                        "created_at": item.get("created_at", _now_iso()),
-                        "version": len(versions) + 1,
-                    })
+                    versions.append(
+                        {
+                            "path": current_path,
+                            "created_at": item.get("created_at", _now_iso()),
+                            "version": len(versions) + 1,
+                        }
+                    )
 
                 # 更新为新版本
                 item["path"] = str(new_path)
@@ -687,7 +731,7 @@ class WorkspaceManager:
                 # 限制版本数量
                 if len(versions) > max_versions:
                     # 删除最旧的版本文件
-                    for old in versions[:len(versions) - max_versions]:
+                    for old in versions[: len(versions) - max_versions]:
                         old_path = Path(old.get("path", ""))
                         if old_path.exists():
                             old_path.unlink(missing_ok=True)

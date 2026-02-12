@@ -112,6 +112,11 @@ export default function MessageBubble({
                 <span className={`font-medium ${themeColors.title}`}>
                   {message.toolName || '工具调用'}
                 </span>
+                {message.toolIntent && (
+                  <span className={`text-xs ${themeColors.title} opacity-80 truncate max-w-[260px]`} title={message.toolIntent}>
+                    {message.toolIntent}
+                  </span>
+                )}
                 {hasResult && (
                   <span className={`text-xs ${isError ? 'text-red-600' : 'text-green-600'}`}>
                     {isError ? '执行失败' : '执行完成'}
