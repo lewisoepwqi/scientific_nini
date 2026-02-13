@@ -9,12 +9,15 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import Request
+from starlette.responses import Response
 
 from nini.config import settings
 from nini.models.database import init_db
@@ -78,6 +81,15 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Request ID 中间件：为每个请求生成唯一标识
+    @app.middleware("http")
+    async def request_id_middleware(request: Request, call_next) -> Response:
+        # 优先使用客户端传入的 X-Request-ID，否则生成新的
+        request_id = request.headers.get("X-Request-ID") or secrets.token_hex(8)
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
 
     # 注册路由（注意：API/WebSocket 路由必须先注册，确保优先级高于静态文件）
     from nini.api.routes import router as http_router

@@ -541,3 +541,10 @@ def remove_analysis_memory(session_id: str, dataset_name: str) -> None:
     """移除分析记忆。"""
     key = f"{session_id}:{dataset_name}"
     _analysis_memories.pop(key, None)
+
+
+def clear_session_analysis_memories(session_id: str) -> None:
+    """清除会话的所有分析记忆。"""
+    keys_to_remove = [k for k in _analysis_memories if k.startswith(f"{session_id}:")]
+    for key in keys_to_remove:
+        _analysis_memories.pop(key, None)

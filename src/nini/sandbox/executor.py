@@ -33,7 +33,7 @@ except Exception:  # pragma: no cover - Windows 等平台可能不存在
 
 
 SAFE_BUILTINS: dict[str, Any] = {
-    "__import__": py_builtins.__import__,
+    # NOTE: __import__ removed for security - imports controlled via policy.py ALLOWED_IMPORT_ROOTS
     "abs": abs,
     "all": all,
     "any": any,
