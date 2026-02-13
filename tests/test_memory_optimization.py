@@ -78,7 +78,7 @@ class TestLargePayloadReference:
         """小数据不应该被引用化。"""
         # 使用临时目录
         session_id = "test_small"
-        settings.sessions_dir = tmp_path
+        settings.data_dir = tmp_path
 
         memory = ConversationMemory(session_id)
         entry = {
@@ -100,7 +100,7 @@ class TestLargePayloadReference:
         """大数据应该被引用化。"""
         # 使用临时目录
         session_id = "test_large"
-        settings.sessions_dir = tmp_path
+        settings.data_dir = tmp_path
 
         memory = ConversationMemory(session_id)
 
@@ -131,7 +131,7 @@ class TestLargePayloadReference:
 
         # 验证引用文件存在
         ref_path = chart_field["_ref"]
-        payload_file = tmp_path / session_id / ref_path
+        payload_file = settings.sessions_dir / session_id / "workspace" / "artifacts" / ref_path
         assert payload_file.exists()
 
         # 验证引用文件内容
@@ -141,7 +141,7 @@ class TestLargePayloadReference:
     def test_resolve_references(self, tmp_path):
         """测试引用解析。"""
         session_id = "test_resolve"
-        settings.sessions_dir = tmp_path
+        settings.data_dir = tmp_path
 
         memory = ConversationMemory(session_id)
 
@@ -171,7 +171,7 @@ class TestAutoCompression:
     def test_auto_compress_triggered(self, tmp_path, monkeypatch):
         """测试当文件超过阈值时自动触发压缩。"""
         # 设置较小的阈值用于测试
-        monkeypatch.setattr(settings, "sessions_dir", tmp_path)
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
         monkeypatch.setattr(settings, "memory_auto_compress", True)
         monkeypatch.setattr(settings, "memory_compress_threshold_kb", 1)  # 1 KB
         monkeypatch.setattr(settings, "memory_keep_recent_messages", 5)
@@ -192,7 +192,7 @@ class TestAutoCompression:
 
     def test_auto_compress_disabled(self, tmp_path, monkeypatch):
         """测试禁用自动压缩时不触发。"""
-        monkeypatch.setattr(settings, "sessions_dir", tmp_path)
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
         monkeypatch.setattr(settings, "memory_auto_compress", False)
 
         session = Session()
@@ -213,7 +213,7 @@ class TestMemoryFileSize:
     def test_memory_size_with_large_payloads(self, tmp_path):
         """验证大型数据引用化后文件大小减少。"""
         session_id = "test_size"
-        settings.sessions_dir = tmp_path
+        settings.data_dir = tmp_path
 
         memory = ConversationMemory(session_id)
 
@@ -233,7 +233,7 @@ class TestMemoryFileSize:
             memory.append(entry)
 
         # 获取 memory.jsonl 文件大小
-        memory_path = tmp_path / session_id / "memory.jsonl"
+        memory_path = settings.sessions_dir / session_id / "memory.jsonl"
         memory_size = memory_path.stat().st_size
 
         # 验证文件大小远小于原始数据大小
@@ -242,7 +242,7 @@ class TestMemoryFileSize:
         assert memory_size < 10 * 1024  # 小于 10 KB
 
         # 验证 payloads 目录存在且包含文件
-        payloads_dir = tmp_path / session_id / "workspace" / "artifacts" / "memory-payloads"
+        payloads_dir = settings.sessions_dir / session_id / "workspace" / "artifacts" / "memory-payloads"
         assert payloads_dir.exists()
         payload_files = list(payloads_dir.glob("*.json"))
         assert len(payload_files) == 4  # 4 个图表文件

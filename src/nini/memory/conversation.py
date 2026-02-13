@@ -136,7 +136,7 @@ class ConversationMemory:
                 continue
 
             ref_path = value["_ref"]
-            payload_path = self._dir / ref_path
+            payload_path = self._dir / "workspace" / "artifacts" / ref_path
 
             # 加载引用数据
             try:
