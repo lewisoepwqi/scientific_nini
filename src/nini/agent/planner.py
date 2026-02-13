@@ -113,20 +113,21 @@ class PlannerAgent:
             status=PlanStatus.PENDING,
         ))
 
-        # 阶段5: 报告
-        phases.append(PlanPhase(
-            phase_type="report",
-            description="生成分析报告",
-            actions=[
-                PlanAction(
-                    action_type="generate_report",
-                    skill="generate_report",
-                    parameters={},
-                    description="生成最终报告",
-                )
-            ],
-            status=PlanStatus.PENDING,
-        ))
+        # 阶段5: 报告（不再无条件添加，由 Agent 根据用户意图和提示词指导决定）
+        # 移除自动报告生成，让 Agent 通过 strategy.md 指导自主判断
+        # phases.append(PlanPhase(
+        #     phase_type="report",
+        #     description="生成分析报告",
+        #     actions=[
+        #         PlanAction(
+        #             action_type="generate_report",
+        #             skill="generate_report",
+        #             parameters={},
+        #             description="生成最终报告",
+        #         )
+        #     ],
+        #     status=PlanStatus.PENDING,
+        # ))
 
         return ExecutionPlan(
             user_intent=intent,

@@ -187,39 +187,59 @@ def _is_noise(text: str) -> bool:
     return any(p in lower for p in _NOISE_PATTERNS)
 
 
+def _safe_parse_json(content: Any) -> dict | None:
+    """安全解析 JSON，失败返回 None。"""
+    if isinstance(content, dict):
+        return content
+    if isinstance(content, str):
+        try:
+            return json.loads(content.strip())
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
 def _recent_findings(messages: list[dict[str, Any]], max_items: int = 12) -> str:
-    """从工具执行结果中提取有意义的分析发现，过滤噪声。"""
+    """从工具执行结果中智能提取和综合关键发现。"""
     findings: list[str] = []
+    stats_results: list[str] = []
+    viz_results: list[str] = []
+
     for msg in reversed(messages):
-        role = msg.get("role")
-        if role != "tool":
+        if msg.get("role") != "tool":
             continue
 
         content = msg.get("content")
-        parsed = None
-        if isinstance(content, str):
-            try:
-                parsed = json.loads(content)
-            except Exception:
-                parsed = None
+        parsed = _safe_parse_json(content)
+        if not isinstance(parsed, dict) or not parsed.get("success"):
+            continue
 
-        if isinstance(parsed, dict):
-            # 跳过失败的工具执行
-            if parsed.get("success") is False or parsed.get("error"):
-                continue
-            message = parsed.get("message")
-            if isinstance(message, str) and message.strip() and not _is_noise(message):
-                truncated = message.strip()[:120]
-                findings.append(f"- {truncated}")
-        # 非 JSON 格式的原始输出不再提取，避免 DataFrame dump 等噪声
+        message = parsed.get("message", "").strip()
+        if not message or _is_noise(message):
+            continue
 
-        if len(findings) >= max_items:
+        # 按工具类型分类
+        tool_name = msg.get("name", "unknown")
+        if tool_name in ("t_test", "anova", "correlation", "regression", "mann_whitney", "kruskal_wallis"):
+            stats_results.append(f"- {message[:200]}")
+        elif tool_name in ("create_chart", "run_code") and ("chart" in message.lower() or "图" in message):
+            viz_results.append(f"- {message[:120]}")
+        else:
+            findings.append(f"- {message[:150]}")
+
+        if len(findings) + len(stats_results) + len(viz_results) >= max_items:
             break
 
-    if not findings:
-        return ""
-    findings.reverse()
-    return "\n".join(findings)
+    # 分组输出
+    output: list[str] = []
+    if stats_results:
+        output.extend(["### 统计分析结果"] + stats_results[:5])
+    if viz_results:
+        output.extend(["", "### 可视化产出"] + viz_results[:4])
+    if findings:
+        output.extend(["", "### 其他发现"] + findings[:3])
+
+    return "\n".join(output) if output else ""
 
 
 def _session_statistics(session: Session) -> str:
@@ -268,6 +288,13 @@ def _session_statistics(session: Session) -> str:
     return "\n".join(lines)
 
 
+def _strip_leading_h2(text: str) -> str:
+    """移除文本开头的 H2 标题（避免与模板重复）。"""
+    import re
+    # 匹配开头的 "## 标题\n"
+    return re.sub(r"^##\s+[^\n]+\n+", "", text.strip(), count=1)
+
+
 def _build_markdown(
     session: Session,
     *,
@@ -292,11 +319,13 @@ def _build_markdown(
 
     # 分析方法（可选）
     if methods and methods.strip():
-        sections.extend(["", "## 分析方法", methods.strip()])
+        cleaned_methods = _strip_leading_h2(methods.strip())
+        sections.extend(["", "## 分析方法", cleaned_methods])
 
     # 分析摘要
     if summary_text and summary_text.strip():
-        sections.extend(["", "## 分析摘要", summary_text.strip()])
+        cleaned_summary = _strip_leading_h2(summary_text.strip())
+        sections.extend(["", "## 分析摘要", cleaned_summary])
 
     # 图表清单（可选）
     if include_charts:
@@ -315,7 +344,8 @@ def _build_markdown(
 
     # 结论与建议（可选）
     if conclusions and conclusions.strip():
-        sections.extend(["", "## 结论与建议", conclusions.strip()])
+        cleaned_conclusions = _strip_leading_h2(conclusions.strip())
+        sections.extend(["", "## 结论与建议", cleaned_conclusions])
 
     # 分析统计（性能监控）
     stats = _session_statistics(session)
