@@ -43,6 +43,7 @@ class Session:
         msg = {"role": role, "content": content}
         self.messages.append(msg)
         self.conversation_memory.append(msg)
+        self._check_auto_compress()
 
     def add_assistant_event(
         self,
@@ -123,6 +124,58 @@ class Session:
             self.compressed_context = summary
         self.compressed_rounds += 1
         self.last_compressed_at = datetime.now(timezone.utc).isoformat()
+
+    def _check_auto_compress(self) -> None:
+        """检查是否需要自动压缩 memory.jsonl。"""
+        if not settings.memory_auto_compress:
+            return
+
+        # 检查 memory.jsonl 文件大小
+        memory_path = settings.sessions_dir / self.id / "memory.jsonl"
+        if not memory_path.exists():
+            return
+
+        try:
+            size_kb = memory_path.stat().st_size / 1024
+            threshold_kb = settings.memory_compress_threshold_kb
+
+            if size_kb > threshold_kb:
+                # 触发自动压缩
+                self._auto_compress_memory()
+        except Exception:
+            pass  # 静默失败，不影响正常流程
+
+    def _auto_compress_memory(self) -> None:
+        """自动压缩 memory，保留最近的消息，归档旧消息。"""
+        from nini.memory.compression import compress_session_history
+
+        keep_recent = settings.memory_keep_recent_messages
+        total = len(self.messages)
+
+        if total <= keep_recent:
+            return
+
+        # 计算需要归档的比例
+        ratio = max(0.1, min(0.9, (total - keep_recent) / total))
+
+        try:
+            result = compress_session_history(self, ratio=ratio, min_messages=keep_recent)
+            if result.get("success"):
+                # 持久化压缩元数据
+                from nini.agent.session import session_manager
+
+                session_manager.save_session_compression(
+                    self.id,
+                    compressed_context=self.compressed_context,
+                    compressed_rounds=self.compressed_rounds,
+                    last_compressed_at=self.last_compressed_at,
+                )
+        except Exception as exc:
+            # 压缩失败不应阻止正常流程
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning(f"[Session] 自动压缩失败: {exc}")
 
 
 class SessionManager:
