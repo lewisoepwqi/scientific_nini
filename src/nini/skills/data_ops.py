@@ -302,7 +302,10 @@ class LoadDatasetSkill(Skill):
 
 
 class PreviewDataSkill(Skill):
-    """预览数据集的前 N 行。"""
+    """预览数据集的前后部分行（避免大数据集预览过大）。"""
+
+    # 预览行数上限（超过此值将采用 head+tail 策略）
+    MAX_PREVIEW_ROWS = 100
 
     @property
     def name(self) -> str:
@@ -314,7 +317,7 @@ class PreviewDataSkill(Skill):
 
     @property
     def description(self) -> str:
-        return "预览数据集的前 N 行数据和列信息。"
+        return "预览数据集的前后部分行数据和列信息。大数据集自动限制预览行数以优化性能。"
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -327,7 +330,7 @@ class PreviewDataSkill(Skill):
                 },
                 "n_rows": {
                     "type": "integer",
-                    "description": "预览行数，默认 5",
+                    "description": f"预览行数，默认 5，最多 {self.MAX_PREVIEW_ROWS}",
                     "default": 5,
                 },
             },
@@ -340,13 +343,23 @@ class PreviewDataSkill(Skill):
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
         name = kwargs["dataset_name"]
-        n_rows = kwargs.get("n_rows", 5)
+        n_rows = min(kwargs.get("n_rows", 5), self.MAX_PREVIEW_ROWS)
 
         df = session.datasets.get(name)
         if df is None:
             return SkillResult(success=False, message=f"数据集 '{name}' 不存在")
 
-        preview_df = df.head(n_rows)
+        # 智能预览：小数据集全部预览，大数据集 head+tail
+        total_rows = len(df)
+        if total_rows <= n_rows:
+            preview_df = df
+            preview_info = f"全部 {total_rows} 行"
+        else:
+            # 前后各取一半
+            half = n_rows // 2
+            preview_df = pd.concat([df.head(half), df.tail(n_rows - half)])
+            preview_info = f"前 {half} 行 + 后 {n_rows - half} 行（共 {total_rows} 行）"
+
         data = _dataframe_to_json_safe(preview_df)
 
         # 列信息
@@ -366,14 +379,15 @@ class PreviewDataSkill(Skill):
         result = {
             "data": data,
             "columns": columns_info,
-            "total_rows": len(df),
-            "preview_rows": min(n_rows, len(df)),
+            "total_rows": total_rows,
+            "preview_rows": len(preview_df),
+            "preview_strategy": "full" if total_rows <= n_rows else "head_tail",
         }
 
         return SkillResult(
             success=True,
             data=result,
-            message=f"数据集 '{name}' 预览（{result['preview_rows']}/{result['total_rows']} 行）",
+            message=f"数据集 '{name}' 预览：{preview_info}",
             has_dataframe=True,
             dataframe_preview=result,
         )
