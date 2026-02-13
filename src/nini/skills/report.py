@@ -352,6 +352,11 @@ def _build_markdown(
     if stats:
         sections.extend(["", "## 分析统计", stats])
 
+    # 分析统计（性能监控）
+    stats = _session_statistics(session)
+    if stats:
+        sections.extend(["", "## 分析统计", stats])
+
     return "\n".join(sections).strip() + "\n"
 
 
