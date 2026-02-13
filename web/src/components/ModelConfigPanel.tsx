@@ -145,6 +145,8 @@ function ModelCombobox({
         <input
           ref={inputRef}
           type="text"
+          name={`${providerId}-model-search`}
+          autoComplete="off"
           value={query}
           onChange={(e) => handleInputChange(e.target.value)}
           onFocus={() => setDropdownOpen(true)}
@@ -210,6 +212,7 @@ function ModelCombobox({
 
 export default function ModelConfigPanel({ open, onClose }: Props) {
   const activeModel = useStore((s) => s.activeModel)
+  const fetchActiveModel = useStore((s) => s.fetchActiveModel)
   const setPreferredProvider = useStore((s) => s.setPreferredProvider)
 
   // 从 activeModel 中获取当前全局首选
@@ -289,14 +292,15 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
   const handleSave = useCallback(async (providerId: string) => {
     setSaveStatus((prev) => ({ ...prev, [providerId]: { loading: true } }))
     try {
+      const normalizedApiKey = editForm.api_key.trim()
       const body: Record<string, unknown> = {
         provider_id: providerId,
         model: editForm.model || undefined,
         base_url: editForm.base_url || undefined,
       }
       // 仅在用户输入了新 Key 时才发送
-      if (editForm.api_key) {
-        body.api_key = editForm.api_key
+      if (normalizedApiKey) {
+        body.api_key = normalizedApiKey
       }
 
       const resp = await fetch('/api/models/config', {
@@ -314,6 +318,8 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
         setEditingId(null)
         // 刷新列表
         await fetchModels()
+        await fetchActiveModel()
+        window.dispatchEvent(new Event('nini:model-config-updated'))
       } else {
         setSaveStatus((prev) => ({
           ...prev,
@@ -326,7 +332,7 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
         [providerId]: { loading: false, success: false, message: `请求失败: ${e}` },
       }))
     }
-  }, [editForm, fetchModels])
+  }, [editForm, fetchActiveModel, fetchModels])
 
   const handleSetDefault = useCallback(async (providerId: string) => {
     setDefaultLoading(providerId)
@@ -431,11 +437,31 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
                       {isEditing ? (
                         /* 编辑模式 */
                         <div className="space-y-2">
+                          <input
+                            type="text"
+                            tabIndex={-1}
+                            autoComplete="username"
+                            className="hidden"
+                            value=""
+                            readOnly
+                            aria-hidden="true"
+                          />
+                          <input
+                            type="password"
+                            tabIndex={-1}
+                            autoComplete="new-password"
+                            className="hidden"
+                            value=""
+                            readOnly
+                            aria-hidden="true"
+                          />
                           {p.id !== 'ollama' && (
                             <div>
                               <label className="text-xs text-gray-500 mb-1 block">API Key</label>
                               <input
                                 type="password"
+                                name={`${p.id}-api-key`}
+                                autoComplete="new-password"
                                 value={editForm.api_key}
                                 onChange={(e) => setEditForm({ ...editForm, api_key: e.target.value })}
                                 placeholder={p.api_key_hint ? `当前: ${p.api_key_hint}（留空保持不变）` : '输入 API Key'}
@@ -456,6 +482,8 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
                             <label className="text-xs text-gray-500 mb-1 block">Base URL（可选）</label>
                             <input
                               type="text"
+                              name={`${p.id}-base-url`}
+                              autoComplete="off"
                               value={editForm.base_url}
                               onChange={(e) => setEditForm({ ...editForm, base_url: e.target.value })}
                               placeholder="留空使用默认端点"

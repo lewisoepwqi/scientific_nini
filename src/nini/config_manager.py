@@ -52,8 +52,14 @@ async def save_model_config(
     if provider not in VALID_PROVIDERS:
         raise ValueError(f"不支持的模型提供商: {provider}")
 
-    encrypted_key = encrypt_api_key(api_key) if api_key else None
-    key_hint = mask_api_key(api_key) if api_key else ""
+    # 统一规范：None / 空字符串 / 全空白均视为“未提供新 Key”
+    normalized_api_key = api_key.strip() if isinstance(api_key, str) else None
+    if normalized_api_key == "":
+        normalized_api_key = None
+    has_new_key = normalized_api_key is not None
+
+    encrypted_key = encrypt_api_key(normalized_api_key) if has_new_key else None
+    key_hint = mask_api_key(normalized_api_key or "") if has_new_key else ""
 
     db = await get_db()
     try:
@@ -66,8 +72,8 @@ async def save_model_config(
 
         if existing:
             # 更新：如果未提供新 Key 则保留旧值
-            final_encrypted_key = encrypted_key if encrypted_key else existing[1]
-            final_key_hint = key_hint if key_hint else (existing[2] or "")
+            final_encrypted_key = encrypted_key if has_new_key else existing[1]
+            final_key_hint = key_hint if has_new_key else (existing[2] or "")
             await db.execute(
                 """
                 UPDATE model_configs
@@ -86,6 +92,7 @@ async def save_model_config(
             )
         else:
             # 插入新记录
+            final_key_hint = key_hint
             await db.execute(
                 """
                 INSERT INTO model_configs (provider, model, encrypted_api_key, api_key_hint, base_url, is_active, updated_at)
@@ -106,7 +113,7 @@ async def save_model_config(
         return {
             "provider": provider,
             "model": model or "",
-            "api_key_hint": key_hint,
+            "api_key_hint": final_key_hint,
             "base_url": base_url,
             "is_active": is_active,
         }
