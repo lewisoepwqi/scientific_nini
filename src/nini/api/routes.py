@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import mimetypes
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -673,6 +675,95 @@ async def download_workspace_note(session_id: str, filename: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
     return _build_download_response(path, safe_name)
+
+
+@router.get("/sessions/{session_id}/export-all")
+async def export_all_artifacts(session_id: str):
+    """批量导出会话的所有产物为 ZIP 文件。
+
+    包含：
+    - artifacts/ 目录中的所有分析产物（图表、报告等）
+    - uploads/ 目录中的上传文件
+    - notes/ 目录中的笔记文件
+    - memory.jsonl 会话记忆（可选）
+    """
+    session_dir = settings.sessions_dir / session_id
+    if not session_dir.exists():
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    workspace_dir = session_dir / "workspace"
+
+    # 创建内存中的 ZIP 文件
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        file_count = 0
+
+        # 1. 添加 artifacts（产物）
+        artifacts_dir = workspace_dir / "artifacts"
+        if artifacts_dir.exists():
+            for file_path in artifacts_dir.rglob("*"):
+                if file_path.is_file():
+                    # 跳过内部引用文件
+                    if "memory-payloads" in str(file_path):
+                        continue
+                    arcname = f"artifacts/{file_path.relative_to(artifacts_dir)}"
+                    zip_file.write(file_path, arcname)
+                    file_count += 1
+
+        # 2. 添加 uploads（上传文件）
+        uploads_dir = workspace_dir / "uploads"
+        if uploads_dir.exists():
+            for file_path in uploads_dir.rglob("*"):
+                if file_path.is_file():
+                    arcname = f"uploads/{file_path.relative_to(uploads_dir)}"
+                    zip_file.write(file_path, arcname)
+                    file_count += 1
+
+        # 3. 添加 notes（笔记）
+        notes_dir = workspace_dir / "notes"
+        if notes_dir.exists():
+            for file_path in notes_dir.rglob("*"):
+                if file_path.is_file():
+                    arcname = f"notes/{file_path.relative_to(notes_dir)}"
+                    zip_file.write(file_path, arcname)
+                    file_count += 1
+
+        # 4. 添加 memory.jsonl（可选，格式化版本）
+        memory_file = session_dir / "memory.jsonl"
+        if memory_file.exists():
+            zip_file.write(memory_file, "memory.jsonl")
+            file_count += 1
+
+        # 5. 添加元数据文件
+        from nini.agent.session import session_manager
+        session = session_manager.get_session(session_id)
+        if session:
+            metadata = {
+                "session_id": session_id,
+                "exported_at": datetime.now(timezone.utc).isoformat(),
+                "file_count": file_count,
+                "datasets": list(session.datasets.keys()),
+            }
+            import json
+            zip_file.writestr(
+                "metadata.json",
+                json.dumps(metadata, ensure_ascii=False, indent=2)
+            )
+
+    # 准备下载响应
+    zip_buffer.seek(0)
+    zip_bytes = zip_buffer.read()
+
+    # 生成文件名
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"nini_session_{session_id[:8]}_{timestamp}.zip"
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---- 模型配置 ----
