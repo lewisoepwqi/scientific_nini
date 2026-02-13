@@ -103,7 +103,13 @@ function useVerticalResize(defaultHeight: number, min: number, max: number) {
 
 // ---- 单个记忆文件 ----
 
-function MemoryFileItem({ file }: { file: MemoryFile }) {
+function MemoryFileItem({
+  file,
+  refreshVersion,
+}: {
+  file: MemoryFile
+  refreshVersion: number
+}) {
   const sessionId = useStore((s) => s.sessionId)
   const [expanded, setExpanded] = useState(false)
   const [content, setContent] = useState<string | null>(null)
@@ -114,15 +120,8 @@ function MemoryFileItem({ file }: { file: MemoryFile }) {
     FILE_CONTENT_MAX_HEIGHT,
   )
 
-  const handleExpand = useCallback(async () => {
-    if (expanded) {
-      setExpanded(false)
-      return
-    }
-    setExpanded(true)
-    if (content !== null) return
+  const loadContent = useCallback(async () => {
     if (!sessionId) return
-
     setLoading(true)
     try {
       const resp = await fetch(
@@ -139,7 +138,26 @@ function MemoryFileItem({ file }: { file: MemoryFile }) {
     } finally {
       setLoading(false)
     }
-  }, [expanded, content, sessionId, file.name])
+  }, [sessionId, file.name])
+
+  const handleExpand = useCallback(async () => {
+    if (expanded) {
+      setExpanded(false)
+      return
+    }
+    setExpanded(true)
+    if (content === null) {
+      await loadContent()
+    }
+  }, [expanded, content, loadContent])
+
+  // 点击“刷新”后清空缓存；若当前展开则自动重新拉取最新内容。
+  useEffect(() => {
+    setContent(null)
+    if (expanded) {
+      void loadContent()
+    }
+  }, [refreshVersion, expanded, loadContent])
 
   return (
     <div className="border-b border-gray-100 last:border-b-0">
@@ -194,6 +212,8 @@ export default function MemoryPanel() {
   const memoryFiles = useStore((s) => s.memoryFiles)
   const fetchMemoryFiles = useStore((s) => s.fetchMemoryFiles)
   const [collapsed, setCollapsed] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshVersion, setRefreshVersion] = useState(0)
   const [contextTokens, setContextTokens] = useState<number | null>(null)
   const [panelHeight, setPanelHeight] = useState<number>(MEMORY_PANEL_DEFAULT_HEIGHT)
   const resizingRef = useRef(false)
@@ -218,12 +238,25 @@ export default function MemoryPanel() {
     }
   }, [sessionId])
 
+  const handleRefresh = useCallback(async () => {
+    if (!sessionId) return
+    setRefreshing(true)
+    try {
+      await Promise.all([
+        fetchMemoryFiles(),
+        fetchContextTokens(),
+      ])
+      setRefreshVersion((v) => v + 1)
+    } finally {
+      setRefreshing(false)
+    }
+  }, [sessionId, fetchMemoryFiles, fetchContextTokens])
+
   useEffect(() => {
     if (sessionId && !collapsed) {
-      fetchMemoryFiles()
-      void fetchContextTokens()
+      void handleRefresh()
     }
-  }, [sessionId, collapsed, fetchMemoryFiles, fetchContextTokens])
+  }, [sessionId, collapsed, handleRefresh])
 
   useEffect(() => {
     setContextTokens(null)
@@ -322,14 +355,11 @@ export default function MemoryPanel() {
         <div className="flex flex-col min-h-0 px-2 pb-2" style={{ height: `${panelHeight}px` }}>
           <div className="flex items-center justify-end mb-1 flex-shrink-0">
             <button
-              onClick={() => {
-                fetchMemoryFiles()
-                void fetchContextTokens()
-              }}
+              onClick={() => void handleRefresh()}
               className="p-1 rounded hover:bg-gray-100 text-gray-400"
               title="刷新"
             >
-              <RefreshCw size={10} />
+              <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} />
             </button>
           </div>
           <div className="flex-1 overflow-y-auto min-h-0">
@@ -338,7 +368,7 @@ export default function MemoryPanel() {
             ) : (
               <div className="bg-white rounded border border-gray-100">
                 {memoryFiles.map((file) => (
-                  <MemoryFileItem key={file.name} file={file} />
+                  <MemoryFileItem key={file.name} file={file} refreshVersion={refreshVersion} />
                 ))}
               </div>
             )}

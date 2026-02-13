@@ -61,6 +61,18 @@ export default function ModelSelector({
     if (open) fetchProviders()
   }, [open, fetchProviders])
 
+  // 模型配置更新后同步刷新显示与下拉数据
+  useEffect(() => {
+    const handleModelConfigUpdated = () => {
+      void fetchActiveModel()
+      if (open) {
+        void fetchProviders()
+      }
+    }
+    window.addEventListener('nini:model-config-updated', handleModelConfigUpdated)
+    return () => window.removeEventListener('nini:model-config-updated', handleModelConfigUpdated)
+  }, [fetchActiveModel, fetchProviders, open])
+
   // 点击外部关闭下拉
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
