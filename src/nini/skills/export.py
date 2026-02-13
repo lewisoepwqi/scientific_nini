@@ -19,13 +19,13 @@ from nini.workspace import WorkspaceManager
 logger = logging.getLogger(__name__)
 
 # 需要 kaleido + Chrome 的格式
-_KALEIDO_FORMATS = {"png", "jpeg", "svg"}
+_KALEIDO_FORMATS = {"png", "jpeg", "svg", "pdf"}
 
 
 class ExportChartSkill(Skill):
     """导出最近生成的图表。"""
 
-    _formats = ["png", "jpeg", "svg", "html", "json"]
+    _formats = ["png", "jpeg", "svg", "pdf", "html", "json"]
 
     @property
     def name(self) -> str:
@@ -37,7 +37,7 @@ class ExportChartSkill(Skill):
 
     @property
     def description(self) -> str:
-        return "将最近生成的图表导出为 PNG/JPEG/SVG/HTML/JSON 文件。"
+        return "将最近生成的图表导出为 PNG/JPEG/SVG/PDF/HTML/JSON 文件。"
 
     @property
     def parameters(self) -> dict[str, Any]:

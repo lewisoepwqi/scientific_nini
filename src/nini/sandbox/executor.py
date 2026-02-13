@@ -15,6 +15,8 @@ from typing import Any
 
 import pandas as pd
 
+from nini.charts import build_style_spec
+from nini.charts.renderers import apply_matplotlib_rc_style
 from nini.config import settings
 from nini.sandbox.capture import capture_stdio
 from nini.sandbox.policy import validate_code
@@ -23,7 +25,6 @@ from nini.utils.chart_fonts import (
     CJK_FONT_FAMILY,
     apply_plotly_cjk_font_fallback,
     get_available_cjk_fonts,
-    pick_available_matplotlib_font,
 )
 
 try:
@@ -86,17 +87,6 @@ SAFE_BUILTINS: dict[str, Any] = {
     "TypeError": TypeError,
 }
 
-_SCIENTIFIC_PALETTE = [
-    "#1B3A57",
-    "#2C7FB8",
-    "#4DAF7C",
-    "#D98E04",
-    "#C03D3E",
-    "#8A63D2",
-    "#5F7D95",
-    "#A5A58D",
-]
-
 
 def _apply_matplotlib_cjk_font_fallback(fig: Any) -> None:
     """在导出前统一覆盖文本字体，降低中文方框字概率。"""
@@ -111,36 +101,22 @@ def _apply_matplotlib_cjk_font_fallback(fig: Any) -> None:
 
 def _configure_chart_defaults() -> None:
     """统一绘图默认风格，优先保证中文显示和科研风格可读性。"""
+    style = build_style_spec()
+
     # Matplotlib 默认样式
     try:
         import matplotlib
         from matplotlib import cycler, rcParams
 
         matplotlib.use("Agg", force=True)
-        rcParams["font.family"] = "sans-serif"
+        apply_matplotlib_rc_style(rcParams, style)
         # 仅配置系统实际存在的字体，避免大量 'Font family not found' 警告
         sans_serif = get_available_cjk_fonts()
-        if not sans_serif:
-            # 所有 CJK 候选都不可用，保留 DejaVu Sans 作为最低兜底
-            sans_serif = ["DejaVu Sans"]
-        rcParams["font.sans-serif"] = sans_serif
+        if sans_serif:
+            rcParams["font.sans-serif"] = sans_serif
         rcParams["axes.unicode_minus"] = False
-        rcParams["figure.dpi"] = 140
-        rcParams["savefig.dpi"] = 300
-        rcParams["axes.facecolor"] = "#FFFFFF"
-        rcParams["figure.facecolor"] = "#FFFFFF"
-        rcParams["axes.grid"] = True
-        rcParams["grid.color"] = "#E5E7EB"
-        rcParams["grid.linewidth"] = 0.8
-        rcParams["grid.alpha"] = 0.85
-        rcParams["axes.spines.top"] = False
-        rcParams["axes.spines.right"] = False
-        rcParams["axes.edgecolor"] = "#9CA3AF"
-        rcParams["axes.labelcolor"] = "#111827"
-        rcParams["xtick.color"] = "#374151"
-        rcParams["ytick.color"] = "#374151"
-        rcParams["axes.prop_cycle"] = cycler(color=_SCIENTIFIC_PALETTE)
-        rcParams["lines.linewidth"] = 1.8
+        rcParams["axes.prop_cycle"] = cycler(color=list(style.colors))
+        rcParams["lines.linewidth"] = style.line_width
     except Exception:
         pass
 
@@ -153,33 +129,33 @@ def _configure_chart_defaults() -> None:
         template = go.layout.Template(pio.templates["plotly_white"])
         template.layout.font = {
             "family": CJK_FONT_FAMILY,
-            "size": 12,
-            "color": "#111827",
+            "size": style.font_size,
+            "color": style.text_color,
         }
-        template.layout.colorway = _SCIENTIFIC_PALETTE
-        template.layout.paper_bgcolor = "#FFFFFF"
-        template.layout.plot_bgcolor = "#FFFFFF"
+        template.layout.colorway = list(style.colors)
+        template.layout.paper_bgcolor = style.background_color
+        template.layout.plot_bgcolor = style.background_color
         template.layout.xaxis = {
             "showline": True,
-            "linecolor": "#9CA3AF",
+            "linecolor": style.axis_color,
             "ticks": "outside",
-            "tickcolor": "#9CA3AF",
-            "gridcolor": "#E5E7EB",
+            "tickcolor": style.axis_color,
+            "gridcolor": style.grid_color,
             "zeroline": False,
         }
         template.layout.yaxis = {
             "showline": True,
-            "linecolor": "#9CA3AF",
+            "linecolor": style.axis_color,
             "ticks": "outside",
-            "tickcolor": "#9CA3AF",
-            "gridcolor": "#E5E7EB",
+            "tickcolor": style.axis_color,
+            "gridcolor": style.grid_color,
             "zeroline": False,
         }
 
         pio.templates["nini_science"] = template
         pio.templates.default = "nini_science"
         px.defaults.template = "nini_science"
-        px.defaults.color_discrete_sequence = _SCIENTIFIC_PALETTE
+        px.defaults.color_discrete_sequence = list(style.colors)
     except Exception:
         pass
 
@@ -309,6 +285,7 @@ def _collect_figures(
     - 跳过空白图表和序列化失败的对象
     """
     figures: list[dict[str, Any]] = []
+    style = build_style_spec()
     seen_ids: set[int] = set()
 
     # 尝试导入图表库（子进程启动代码不受 AST 白名单限制）
@@ -403,9 +380,14 @@ def _collect_figures(
                 obj.savefig(svg_buf, format="svg", bbox_inches="tight")
                 entry["svg_data"] = base64.b64encode(svg_buf.getvalue()).decode("ascii")
 
+                # PDF
+                pdf_buf = io.BytesIO()
+                obj.savefig(pdf_buf, format="pdf", bbox_inches="tight")
+                entry["pdf_data"] = base64.b64encode(pdf_buf.getvalue()).decode("ascii")
+
                 # PNG
                 png_buf = io.BytesIO()
-                obj.savefig(png_buf, format="png", bbox_inches="tight", dpi=150)
+                obj.savefig(png_buf, format="png", bbox_inches="tight", dpi=style.dpi)
                 entry["png_data"] = base64.b64encode(png_buf.getvalue()).decode("ascii")
 
                 figures.append(entry)
@@ -435,8 +417,12 @@ def _collect_figures(
             mpl_gcf_fig.savefig(svg_buf, format="svg", bbox_inches="tight")
             entry["svg_data"] = base64.b64encode(svg_buf.getvalue()).decode("ascii")
 
+            pdf_buf = io.BytesIO()
+            mpl_gcf_fig.savefig(pdf_buf, format="pdf", bbox_inches="tight")
+            entry["pdf_data"] = base64.b64encode(pdf_buf.getvalue()).decode("ascii")
+
             png_buf = io.BytesIO()
-            mpl_gcf_fig.savefig(png_buf, format="png", bbox_inches="tight", dpi=150)
+            mpl_gcf_fig.savefig(png_buf, format="png", bbox_inches="tight", dpi=style.dpi)
             entry["png_data"] = base64.b64encode(png_buf.getvalue()).decode("ascii")
 
             figures.append(entry)

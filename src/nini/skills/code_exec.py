@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from nini.agent.session import Session
+from nini.charts import build_style_spec
 from nini.config import settings
 from nini.memory.storage import ArtifactStorage
 from nini.sandbox.executor import sandbox_executor
@@ -111,6 +112,7 @@ class RunCodeSkill(Skill):
         ws = WorkspaceManager(session.id)
         artifacts: list[dict[str, Any]] = []
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        style_spec = build_style_spec()
 
         for idx, fig_info in enumerate(figures):
             var_name = fig_info.get("var_name", f"fig_{idx}")
@@ -125,6 +127,33 @@ class RunCodeSkill(Skill):
                 base_name = f"{var_name}_{ts}"
 
             if library == "matplotlib":
+                # 保存 PDF
+                pdf_b64 = fig_info.get("pdf_data", "")
+                if pdf_b64:
+                    try:
+                        pdf_bytes = base64.b64decode(pdf_b64)
+                        pdf_name = f"{base_name}.pdf"
+                        path = storage.save(pdf_bytes, pdf_name)
+                        record = ws.add_artifact_record(
+                            name=pdf_name,
+                            artifact_type="chart",
+                            file_path=path,
+                            format_hint="pdf",
+                        )
+                        artifacts.append(
+                            {
+                                "name": pdf_name,
+                                "type": "chart",
+                                "format": "pdf",
+                                "path": str(path),
+                                "download_url": record.get("download_url", ""),
+                                "render_engine": "matplotlib",
+                                "style_key": style_spec.style_key,
+                            }
+                        )
+                    except Exception:
+                        logger.debug("保存 matplotlib PDF 失败", exc_info=True)
+
                 # 保存 SVG
                 svg_b64 = fig_info.get("svg_data", "")
                 if svg_b64:
@@ -145,6 +174,8 @@ class RunCodeSkill(Skill):
                                 "format": "svg",
                                 "path": str(path),
                                 "download_url": record.get("download_url", ""),
+                                "render_engine": "matplotlib",
+                                "style_key": style_spec.style_key,
                             }
                         )
                     except Exception:
@@ -170,6 +201,8 @@ class RunCodeSkill(Skill):
                                 "format": "png",
                                 "path": str(path),
                                 "download_url": record.get("download_url", ""),
+                                "render_engine": "matplotlib",
+                                "style_key": style_spec.style_key,
                             }
                         )
                     except Exception:
@@ -242,7 +275,10 @@ class RunCodeSkill(Skill):
 
                     fig = go.Figure(json_mod.loads(normalized_plotly_json))
                     apply_plotly_cjk_font_fallback(fig)
-                    for fmt in ("svg", "png"):
+                    export_formats = [
+                        fmt for fmt in style_spec.export_formats if fmt in {"pdf", "svg", "png"}
+                    ] or ["pdf", "svg", "png"]
+                    for fmt in export_formats:
                         img_name = f"{base_name}.{fmt}"
                         img_path = storage.get_path(img_name)
                         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
@@ -252,7 +288,7 @@ class RunCodeSkill(Skill):
                                 format=fmt,
                                 width=1200,
                                 height=800,
-                                scale=2,
+                                scale=max(1, int(style_spec.dpi / 150)),
                             )
                             future.result(timeout=export_timeout)
                         record = ws.add_artifact_record(
@@ -268,6 +304,8 @@ class RunCodeSkill(Skill):
                                 "format": fmt,
                                 "path": str(img_path),
                                 "download_url": record.get("download_url", ""),
+                                "render_engine": "plotly",
+                                "style_key": style_spec.style_key,
                             }
                         )
                 except concurrent.futures.TimeoutError:
@@ -288,6 +326,8 @@ class RunCodeSkill(Skill):
                         "chart_data": normalized_chart_data
                         or json_mod.loads(normalized_plotly_json),
                         "chart_type": "plotly_auto",
+                        "render_engine": "plotly",
+                        "style_key": style_spec.style_key,
                     }
                 except Exception:
                     pass

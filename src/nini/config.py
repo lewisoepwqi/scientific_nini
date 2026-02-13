@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     plotly_export_scale: float = 2.0
     plotly_export_timeout: float = 30.0  # 秒
 
+    # ---- 图表风格与一致性配置 ----
+    chart_default_style: str = "default"
+    chart_default_render_engine: str = "auto"  # auto|plotly|matplotlib
+    chart_bitmap_dpi: int = 300
+    chart_default_export_formats: str = "pdf,svg,png"
+    chart_similarity_threshold: float = 0.96
+
     # ---- 知识库 ----
     knowledge_max_entries: int = 3  # 每次注入最多几个知识条目
     knowledge_max_chars: int = 3000  # 注入总字符数上限
