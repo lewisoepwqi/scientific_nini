@@ -32,8 +32,33 @@ except Exception:  # pragma: no cover - Windows 等平台可能不存在
     resource = None  # type: ignore[assignment]
 
 
+def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
+    """白名单版本的 __import__ 函数。
+
+    只允许导入 ALLOWED_IMPORT_ROOTS 中的模块。
+    由于模块已预加载到 globals，此函数主要用于兼容 import 语句。
+    """
+    from nini.sandbox.policy import ALLOWED_IMPORT_ROOTS
+
+    # 提取根模块名
+    root_module = name.split(".", 1)[0]
+
+    # 检查白名单
+    if root_module not in ALLOWED_IMPORT_ROOTS:
+        raise ImportError(
+            f"模块 '{name}' 不在沙箱白名单中。允许的模块: {', '.join(sorted(ALLOWED_IMPORT_ROOTS))}"
+        )
+
+    # 调用真正的 __import__
+    import builtins
+
+    return builtins.__import__(name, *args, **kwargs)
+
+
 SAFE_BUILTINS: dict[str, Any] = {
-    # NOTE: __import__ removed for security - imports controlled via policy.py ALLOWED_IMPORT_ROOTS
+    # 受限的 __import__（只允许白名单模块）
+    "__import__": _safe_import,
+    # 标准内建函数
     "abs": abs,
     "all": all,
     "any": any,
@@ -198,11 +223,78 @@ def _try_pickleable(value: Any) -> Any:
 
 
 def _build_exec_globals(datasets: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    """构建沙箱执行环境的全局命名空间。
+
+    预加载常用科学计算模块，避免用户代码 import 失败（SAFE_BUILTINS 中已移除 __import__）。
+    """
+    # 预加载常用模块（避免 import 失败）
+    import numpy as np
+    import datetime
+    from datetime import datetime as dt, timedelta
+    from collections import Counter, defaultdict, deque
+    from itertools import combinations, permutations, product
+    from functools import reduce, partial
+    import re
+    import json
+
+    # 尝试导入可视化库（可能未安装）
+    try:
+        import matplotlib.pyplot as plt
+        import matplotlib
+    except ImportError:
+        plt = None
+        matplotlib = None
+
+    try:
+        import seaborn as sns
+    except ImportError:
+        sns = None
+
+    try:
+        import plotly.graph_objects as go
+        import plotly.express as px
+    except ImportError:
+        go = None
+        px = None
+
     globals_dict: dict[str, Any] = {
         "__builtins__": SAFE_BUILTINS,
+        # 数据框架（预加载）
         "pd": pd,
         "datasets": datasets,
+        # 数值计算
+        "np": np,
+        "numpy": np,
+        # 日期时间
+        "datetime": datetime,
+        "dt": dt,
+        "timedelta": timedelta,
+        # 数据结构
+        "Counter": Counter,
+        "defaultdict": defaultdict,
+        "deque": deque,
+        # 迭代器工具
+        "combinations": combinations,
+        "permutations": permutations,
+        "product": product,
+        # 函数式工具
+        "reduce": reduce,
+        "partial": partial,
+        # 文本处理
+        "re": re,
+        "json": json,
     }
+
+    # 可视化库（如果可用）
+    if plt is not None:
+        globals_dict["plt"] = plt
+        globals_dict["matplotlib"] = matplotlib
+    if sns is not None:
+        globals_dict["sns"] = sns
+    if go is not None:
+        globals_dict["go"] = go
+        globals_dict["px"] = px
+
     return globals_dict
 
 
