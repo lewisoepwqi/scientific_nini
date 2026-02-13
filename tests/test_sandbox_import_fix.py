@@ -112,10 +112,11 @@ arr = np.array([1, 2, 3])
 print(f"NumPy 数组: {arr}")
 
 now = datetime.datetime.now()
-print(f"当前时间类型: {type(now).__name__}")
+print(f"当前时间验证: {str(now)[:10]}")  # 输出日期部分，避免使用 type()
 
 pattern = re.compile(r'\\d+')
-print(f"正则对象: {type(pattern).__name__}")
+result = pattern.findall('123abc456')
+print(f"正则匹配结果: {result}")
 """
         session = Session()
         outcome = await sandbox_executor.execute(
@@ -128,8 +129,10 @@ print(f"正则对象: {type(pattern).__name__}")
 
         assert outcome["success"], f"执行失败: {outcome.get('error')}"
         assert "NumPy 数组" in outcome["stdout"]
-        assert "datetime" in outcome["stdout"]
-        assert "Pattern" in outcome["stdout"]
+        assert "当前时间验证" in outcome["stdout"]
+        assert "正则匹配结果" in outcome["stdout"]
+        assert "123" in outcome["stdout"]
+        assert "456" in outcome["stdout"]
 
     @pytest.mark.asyncio
     async def test_pandas_numpy_integration(self):
@@ -168,22 +171,25 @@ print(f"B列总和: {total}")
     @pytest.mark.asyncio
     async def test_blocked_import_still_fails(self):
         """测试被禁止的模块导入仍然失败。"""
+        from nini.sandbox.policy import SandboxPolicyError
+
         code = """
 import os
 files = os.listdir('.')
 """
         session = Session()
-        outcome = await sandbox_executor.execute(
-            code=code,
-            session_id=session.id,
-            datasets=session.datasets,
-            dataset_name=None,
-            persist_df=False,
-        )
 
-        # 应该失败（在 validate_code 阶段被拦截）
-        assert not outcome["success"]
-        assert "不允许导入" in outcome.get("error", "")
+        # 应该在 validate_code 阶段抛出 SandboxPolicyError
+        with pytest.raises(SandboxPolicyError) as exc_info:
+            await sandbox_executor.execute(
+                code=code,
+                session_id=session.id,
+                datasets=session.datasets,
+                dataset_name=None,
+                persist_df=False,
+            )
+
+        assert "不允许导入" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_user_reported_scenario(self):

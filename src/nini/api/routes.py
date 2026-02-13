@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import mimetypes
+import re
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -673,6 +676,212 @@ async def download_workspace_note(session_id: str, filename: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
     return _build_download_response(path, safe_name)
+
+
+def _extract_image_urls(md_content: str, session_id: str) -> list[dict[str, str]]:
+    """从 Markdown 提取图片 URL 及本地路径。
+
+    Returns:
+        [{"url": "/api/artifacts/...", "path": Path(...), "filename": "...", "alt": "..."}]
+    """
+    pattern = r'!\[([^\]]*)\]\((/api/artifacts/' + re.escape(session_id) + r'/[^)]+)\)'
+    matches = re.findall(pattern, md_content)
+
+    results = []
+    for alt_text, url in matches:
+        # 解析 URL 获取文件名
+        filename = unquote(url.split("/")[-1])
+        artifact_path = settings.sessions_dir / session_id / "workspace" / "artifacts" / filename
+
+        if artifact_path.exists():
+            results.append({
+                "url": url,
+                "path": str(artifact_path),
+                "filename": filename,
+                "alt": alt_text,
+            })
+
+    return results
+
+
+def _bundle_markdown_with_images(
+    md_path: Path,
+    image_urls: list[dict[str, str]],
+    session_id: str,
+) -> bytes:
+    """将 Markdown 和图片打包为 ZIP。
+
+    ZIP 结构:
+        report.md          # 修改后的 Markdown（图片路径改为相对路径）
+        images/
+            chart1.png
+            chart2.plotly.json
+    """
+    buf = io.BytesIO()
+    md_content = md_path.read_text(encoding="utf-8")
+
+    # 修改 Markdown 中的图片路径为相对路径
+    updated_md = md_content
+    for img in image_urls:
+        old_url = img["url"]
+        new_url = f"images/{img['filename']}"
+        updated_md = updated_md.replace(f"]({old_url})", f"]({new_url})")
+
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # 添加修改后的 Markdown
+        zf.writestr(md_path.name, updated_md.encode("utf-8"))
+
+        # 添加图片文件
+        for img in image_urls:
+            img_path = Path(img["path"])
+            if img_path.exists():
+                zf.write(img_path, f"images/{img['filename']}")
+
+    return buf.getvalue()
+
+
+@router.get("/workspace/{session_id}/artifacts/{filename}/bundle")
+async def download_markdown_with_images(
+    session_id: str,
+    filename: str,
+):
+    """下载 Markdown 文件并自动打包相关图片。
+
+    如果文件是 .md 且包含图片引用，返回 ZIP 打包（markdown + images）。
+    否则返回原文件。
+    """
+    safe_name = Path(unquote(filename)).name
+    md_path = settings.sessions_dir / session_id / "workspace" / "artifacts" / safe_name
+
+    # 也支持从 notes 下载
+    if not md_path.exists():
+        md_path = settings.sessions_dir / session_id / "workspace" / "notes" / safe_name
+
+    if not md_path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    if not safe_name.endswith(".md"):
+        # 非 Markdown 文件直接返回
+        return _build_download_response(md_path, safe_name)
+
+    # 解析 Markdown 中的图片引用
+    md_content = md_path.read_text(encoding="utf-8")
+    image_urls = _extract_image_urls(md_content, session_id)
+
+    if not image_urls:
+        # 无图片引用，直接返回原文件
+        return _build_download_response(md_path, safe_name)
+
+    # ZIP 打包模式
+    logger.info(f"检测到 {len(image_urls)} 个图片引用，打包下载: {safe_name}")
+    zip_bytes = _bundle_markdown_with_images(md_path, image_urls, session_id)
+    zip_filename = safe_name.replace(".md", "_bundle.zip")
+
+    # 构造文件名编码（复用 _build_download_response 的逻辑）
+    try:
+        zip_filename.encode("latin-1")
+        disposition = f'attachment; filename="{zip_filename}"'
+    except UnicodeEncodeError:
+        ascii_fallback = zip_filename.encode("ascii", errors="replace").decode("ascii")
+        utf8_encoded = quote(zip_filename, safe="")
+        disposition = (
+            f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{utf8_encoded}"
+        )
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": disposition},
+    )
+
+
+@router.get("/sessions/{session_id}/export-all")
+async def export_all_artifacts(session_id: str):
+    """批量导出会话的所有产物为 ZIP 文件。
+
+    包含：
+    - artifacts/ 目录中的所有分析产物（图表、报告等）
+    - uploads/ 目录中的上传文件
+    - notes/ 目录中的笔记文件
+    - memory.jsonl 会话记忆（可选）
+    """
+    session_dir = settings.sessions_dir / session_id
+    if not session_dir.exists():
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    workspace_dir = session_dir / "workspace"
+
+    # 创建内存中的 ZIP 文件
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        file_count = 0
+
+        # 1. 添加 artifacts（产物）
+        artifacts_dir = workspace_dir / "artifacts"
+        if artifacts_dir.exists():
+            for file_path in artifacts_dir.rglob("*"):
+                if file_path.is_file():
+                    # 跳过内部引用文件
+                    if "memory-payloads" in str(file_path):
+                        continue
+                    arcname = f"artifacts/{file_path.relative_to(artifacts_dir)}"
+                    zip_file.write(file_path, arcname)
+                    file_count += 1
+
+        # 2. 添加 uploads（上传文件）
+        uploads_dir = workspace_dir / "uploads"
+        if uploads_dir.exists():
+            for file_path in uploads_dir.rglob("*"):
+                if file_path.is_file():
+                    arcname = f"uploads/{file_path.relative_to(uploads_dir)}"
+                    zip_file.write(file_path, arcname)
+                    file_count += 1
+
+        # 3. 添加 notes（笔记）
+        notes_dir = workspace_dir / "notes"
+        if notes_dir.exists():
+            for file_path in notes_dir.rglob("*"):
+                if file_path.is_file():
+                    arcname = f"notes/{file_path.relative_to(notes_dir)}"
+                    zip_file.write(file_path, arcname)
+                    file_count += 1
+
+        # 4. 添加 memory.jsonl（可选，格式化版本）
+        memory_file = session_dir / "memory.jsonl"
+        if memory_file.exists():
+            zip_file.write(memory_file, "memory.jsonl")
+            file_count += 1
+
+        # 5. 添加元数据文件
+        from nini.agent.session import session_manager
+        session = session_manager.get_session(session_id)
+        if session:
+            metadata = {
+                "session_id": session_id,
+                "exported_at": datetime.now(timezone.utc).isoformat(),
+                "file_count": file_count,
+                "datasets": list(session.datasets.keys()),
+            }
+            import json
+            zip_file.writestr(
+                "metadata.json",
+                json.dumps(metadata, ensure_ascii=False, indent=2)
+            )
+
+    # 准备下载响应
+    zip_buffer.seek(0)
+    zip_bytes = zip_buffer.read()
+
+    # 生成文件名
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"nini_session_{session_id[:8]}_{timestamp}.zip"
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---- 模型配置 ----
