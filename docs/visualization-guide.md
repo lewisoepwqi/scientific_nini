@@ -5,10 +5,27 @@
 ## 概述
 
 Nini 提供了两种绘图方式：
-1. **`create_chart` 技能**：快速标准图表，支持 7 种期刊风格
+1. **`create_chart` 技能**：快速标准图表，支持双渲染引擎（`plotly` / `matplotlib`）
 2. **`run_code` 技能**：自定义代码，完全控制
 
 本指南帮助您选择合适的方法并遵循最佳实践。
+
+### 统一风格契约
+
+两种方式都遵循统一发表级风格契约（字体、配色、线宽、尺寸、DPI、导出格式），默认目标为：
+
+- 位图导出默认 `300 DPI`
+- 导出格式优先 `pdf/svg/png`
+- 色盲友好配色与统一字体回退链
+
+### 参数迁移对照（旧 → 新）
+
+| 旧参数/行为 | 新参数/行为 | 说明 |
+|---|---|---|
+| `create_chart` 固定 Plotly | `create_chart(render_engine=auto|plotly|matplotlib)` | 默认 `auto`，当前优先走 Plotly 以保持兼容 |
+| 分散样式配置（模板/技能内部/沙箱） | 统一 `ChartStyleSpec` 契约 | 字体、配色、尺寸、线宽、DPI 由同一契约输出 |
+| Matplotlib 自动导出 PNG 150 DPI | Matplotlib 默认 PNG 300 DPI | 满足发表级位图基线要求 |
+| `export_chart` 不支持 PDF | `export_chart` 支持 PDF | 与 `pdf/svg/png` 导出策略对齐 |
 
 ---
 
@@ -18,8 +35,8 @@ Nini 提供了两种绘图方式：
 用户需求
 ├─ 简单标准图表（散点、折线、柱状、箱线图等）
 │  └─ 使用 create_chart ✅
-│     ├─ 支持 7 种期刊风格（Nature, Science, Cell 等）
-│     └─ 自动应用中文字体
+│     ├─ 可选 render_engine=plotly|matplotlib|auto
+│     └─ 自动应用统一发表级风格
 │
 ├─ 复杂自定义需求（多子图、统计标注、特殊布局）
 │  └─ 使用 run_code ✅
@@ -48,7 +65,8 @@ create_chart(
     x_column="height",
     y_column="weight",
     title="身高与体重的关系",
-    journal_style="nature"
+    journal_style="nature",
+    render_engine="auto"
 )
 
 # run_code 方式（带回归线）
