@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     auto_compress_threshold_tokens: int = 30000
     auto_compress_target_tokens: int = 15000
 
+    # ---- Memory 优化 ----
+    memory_large_payload_threshold_bytes: int = 10 * 1024  # 10 KB，超过此大小的数据引用化
+    memory_auto_compress: bool = True
+    memory_compress_threshold_kb: int = 500
+    memory_keep_recent_messages: int = 20
+
     # ---- 派生属性 ----
     @property
     def upload_dir(self) -> Path:
