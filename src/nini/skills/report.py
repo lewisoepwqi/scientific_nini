@@ -295,52 +295,6 @@ def _strip_leading_h2(text: str) -> str:
     return re.sub(r"^##\s+[^\n]+\n+", "", text.strip(), count=1)
 
 
-def _session_statistics(session: Session) -> str:
-    """生成会话性能统计信息。"""
-    messages = session.messages
-
-    # 统计各类消息数量
-    user_messages = sum(1 for m in messages if m.get("role") == "user")
-    assistant_messages = sum(1 for m in messages if m.get("role") == "assistant")
-    tool_messages = sum(1 for m in messages if m.get("role") == "tool")
-
-    # 统计工具调用次数
-    tool_calls_count = 0
-    tool_names: dict[str, int] = {}
-    for m in messages:
-        if m.get("role") == "assistant" and m.get("tool_calls"):
-            for tc in m.get("tool_calls", []):
-                tool_calls_count += 1
-                name = tc.get("function", {}).get("name", "unknown")
-                tool_names[name] = tool_names.get(name, 0) + 1
-
-    # 统计数据集
-    dataset_count = len(session.datasets)
-    total_rows = sum(len(df) for df in session.datasets.values())
-
-    # 统计产物
-    artifact_count = len(session.artifacts)
-
-    # 构建统计信息
-    lines = [
-        f"- **总消息数**: {len(messages)} 条（用户 {user_messages}，助手 {assistant_messages}，工具 {tool_messages}）",
-        f"- **工具调用**: {tool_calls_count} 次",
-    ]
-
-    # 工具调用详情（前 5 个）
-    if tool_names:
-        top_tools = sorted(tool_names.items(), key=lambda x: x[1], reverse=True)[:5]
-        tool_details = ", ".join([f"{name}×{count}" for name, count in top_tools])
-        lines.append(f"  - 常用工具: {tool_details}")
-
-    lines.extend([
-        f"- **数据集**: {dataset_count} 个，总计 {total_rows:,} 行数据",
-        f"- **生成产物**: {artifact_count} 个",
-    ])
-
-    return "\n".join(lines)
-
-
 def _build_markdown(
     session: Session,
     *,
