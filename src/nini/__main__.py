@@ -83,6 +83,20 @@ def _build_parser() -> argparse.ArgumentParser:
     doctor_parser = subparsers.add_parser("doctor", help="检查运行环境与配置")
     doctor_parser.set_defaults(func=_cmd_doctor)
 
+    export_parser = subparsers.add_parser("export-memory", help="导出会话记忆为格式化 JSON")
+    export_parser.add_argument("session_id", help="会话 ID")
+    export_parser.add_argument(
+        "-o", "--output", type=Path, help="输出文件路径（JSON），默认输出到标准输出"
+    )
+    export_parser.add_argument(
+        "--pretty/--compact",
+        dest="pretty",
+        action="store_true",
+        default=True,
+        help="是否格式化输出（默认格式化）",
+    )
+    export_parser.set_defaults(func=_cmd_export_memory)
+
     return parser
 
 
@@ -240,6 +254,46 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
     print(f"检查完成：{failed} 项失败，请先修复。")
     return 1
+
+
+def _cmd_export_memory(args: argparse.Namespace) -> int:
+    """导出会话记忆为格式化 JSON"""
+    import json
+    from datetime import datetime, timezone
+    from nini.memory.conversation import ConversationMemory, format_memory_entries
+
+    session_id = args.session_id
+
+    try:
+        mem = ConversationMemory(session_id)
+        entries = mem.load_messages(resolve_refs=False)
+        formatted = format_memory_entries(entries)
+
+        result = {
+            "session_id": session_id,
+            "total_entries": len(entries),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "entries": formatted,
+        }
+
+        # 序列化
+        indent = 2 if args.pretty else None
+        json_str = json.dumps(result, ensure_ascii=False, indent=indent, default=str)
+
+        if args.output:
+            args.output.write_text(json_str, encoding="utf-8")
+            print(f"✓ 已导出到 {args.output}")
+        else:
+            print(json_str)
+
+        return 0
+
+    except FileNotFoundError:
+        print(f"错误：会话 {session_id} 不存在或无记忆文件")
+        return 1
+    except Exception as e:
+        print(f"错误：{e}")
+        return 1
 
 
 def main(argv: Sequence[str] | None = None) -> int:

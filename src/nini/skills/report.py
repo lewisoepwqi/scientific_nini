@@ -15,6 +15,47 @@ from nini.skills.base import Skill, SkillResult
 from nini.workspace import WorkspaceManager
 
 
+def _sanitize_chinese_filename(title: str, max_bytes: int = 80) -> str:
+    """
+    将报告标题转换为安全的文件名。
+
+    规则：
+    - 移除文件系统禁止字符（<>:"/\\|?*）
+    - 保留中文、英文、数字、下划线、连字符
+    - 限制字节长度（UTF-8 编码）
+    - 去除首尾空格和下划线
+
+    示例：
+        "血压与心率的相关性分析" -> "血压与心率的相关性分析"
+        "Data Analysis: 2024" -> "Data_Analysis_2024"
+        "文件名太长" * 20 -> "文件名太长..." (截断到max_bytes)
+    """
+    import re
+    import unicodedata
+
+    # 1. Unicode 规范化（NFC）
+    normalized = unicodedata.normalize("NFC", title)
+
+    # 2. 移除文件系统禁止字符，保留中文、字母、数字、下划线、连字符、空格
+    safe = re.sub(r'[<>:"/\\|?*]+', "", normalized)
+    safe = re.sub(r"\s+", "_", safe)  # 空格转下划线
+
+    # 3. 字节长度限制（UTF-8）
+    safe_bytes = safe.encode("utf-8")
+    if len(safe_bytes) > max_bytes:
+        # 逐字符截断到目标字节数
+        truncated = ""
+        for char in safe:
+            test = (truncated + char).encode("utf-8")
+            if len(test) > max_bytes:
+                break
+            truncated += char
+        safe = truncated
+
+    # 4. 清理首尾下划线
+    return safe.strip("_") or "report"
+
+
 def _dataset_overview(session: Session, dataset_names: list[str] | None = None) -> str:
     targets = dataset_names or list(session.datasets.keys())
     if not targets:
@@ -238,15 +279,19 @@ def _resolve_output_name(
     storage: ArtifactStorage,
     *,
     filename: Any,
+    title: str,
 ) -> str:
-    """解析并去重报告文件名，避免覆盖历史报告。"""
+    """解析并去重报告文件名，避免覆盖历史报告。支持从标题生成语义化文件名。"""
     manager = WorkspaceManager(session.id)
 
     if isinstance(filename, str) and filename.strip():
+        # 用户指定了文件名，使用用户指定的
         raw_name = filename.strip()
     else:
+        # 自动生成：从标题提取 + 时间戳
+        sanitized_title = _sanitize_chinese_filename(title, max_bytes=60)
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        raw_name = f"analysis_report_{ts}.md"
+        raw_name = f"{sanitized_title}_{ts}.md"
 
     if not raw_name.endswith(".md"):
         raw_name += ".md"
@@ -361,6 +406,7 @@ class GenerateReportSkill(Skill):
             session,
             storage,
             filename=filename,
+            title=title,
         )
         path = storage.save_text(markdown, output_name)
 

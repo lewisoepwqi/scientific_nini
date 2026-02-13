@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from nini.agent.session import Session
-from nini.sandbox.executor import execute_code
+from nini.sandbox.executor import sandbox_executor
 
 
 class TestSandboxImportFix:
@@ -25,9 +25,10 @@ result = np.array([1, 2, 3, 4, 5])
 print(f"数组均值: {result.mean()}")
 """
         session = Session()
-        outcome = await execute_code(
+        outcome = await sandbox_executor.execute(
             code=code,
-            session=session,
+            session_id=session.id,
+            datasets=session.datasets,
             dataset_name=None,
             persist_df=False,
         )
@@ -46,9 +47,10 @@ formatted = now.strftime("%Y-%m-%d %H:%M")
 print(f"格式化时间: {formatted}")
 """
         session = Session()
-        outcome = await execute_code(
+        outcome = await sandbox_executor.execute(
             code=code,
-            session=session,
+            session_id=session.id,
+            datasets=session.datasets,
             dataset_name=None,
             persist_df=False,
         )
@@ -67,9 +69,10 @@ counts = Counter(words)
 print(f"最常见: {counts.most_common(1)}")
 """
         session = Session()
-        outcome = await execute_code(
+        outcome = await sandbox_executor.execute(
             code=code,
-            session=session,
+            session_id=session.id,
+            datasets=session.datasets,
             dataset_name=None,
             persist_df=False,
         )
@@ -88,9 +91,10 @@ numbers = re.findall(r'\\d+', text)
 print(f"找到的数字: {numbers}")
 """
         session = Session()
-        outcome = await execute_code(
+        outcome = await sandbox_executor.execute(
             code=code,
-            session=session,
+            session_id=session.id,
+            datasets=session.datasets,
             dataset_name=None,
             persist_df=False,
         )
@@ -114,9 +118,10 @@ pattern = re.compile(r'\\d+')
 print(f"正则对象: {type(pattern).__name__}")
 """
         session = Session()
-        outcome = await execute_code(
+        outcome = await sandbox_executor.execute(
             code=code,
-            session=session,
+            session_id=session.id,
+            datasets=session.datasets,
             dataset_name=None,
             persist_df=False,
         )
@@ -148,9 +153,10 @@ total = df['B'].sum()
 print(f"B列总和: {total}")
 """
         session = Session()
-        outcome = await execute_code(
+        outcome = await sandbox_executor.execute(
             code=code,
-            session=session,
+            session_id=session.id,
+            datasets=session.datasets,
             dataset_name=None,
             persist_df=False,
         )
@@ -167,9 +173,10 @@ import os
 files = os.listdir('.')
 """
         session = Session()
-        outcome = await execute_code(
+        outcome = await sandbox_executor.execute(
             code=code,
-            session=session,
+            session_id=session.id,
+            datasets=session.datasets,
             dataset_name=None,
             persist_df=False,
         )
@@ -208,9 +215,10 @@ print("\\n缺失值统计：")
 print(df.isnull().sum())
 """
         session = Session()
-        outcome = await execute_code(
+        outcome = await sandbox_executor.execute(
             code=code,
-            session=session,
+            session_id=session.id,
+            datasets=session.datasets,
             dataset_name=None,
             persist_df=False,
         )

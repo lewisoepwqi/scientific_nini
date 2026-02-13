@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     sandbox_max_memory_mb: int = 512
     sandbox_image_export_timeout: int = 60  # 图片导出专用超时（秒），kaleido 渲染较慢
 
+    # ---- Plotly 图表导出配置 ----
+    plotly_export_width: int = 1400
+    plotly_export_height: int = 900
+    plotly_export_scale: float = 2.0
+    plotly_export_timeout: float = 30.0  # 秒
+
     # ---- 知识库 ----
     knowledge_max_entries: int = 3  # 每次注入最多几个知识条目
     knowledge_max_chars: int = 3000  # 注入总字符数上限

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import mimetypes
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote
@@ -96,6 +98,78 @@ def _build_download_response(path: Path, filename: str) -> Response:
         media_type=media_type,
         headers={"Content-Disposition": disposition},
     )
+
+
+async def _convert_plotly_json_to_png(
+    json_path: Path,
+    session_id: str,
+    width: int | None = None,
+    height: int | None = None,
+    scale: float | None = None,
+) -> Response | None:
+    """
+    将 Plotly JSON 转换为高清 PNG 并返回响应。
+
+    失败时返回 None，调用方应降级到返回原始 JSON。
+    """
+    import json
+    import plotly.graph_objects as go
+    from nini.utils.chart_fonts import apply_plotly_cjk_font_fallback
+
+    # 使用配置值作为默认值
+    width = width or settings.plotly_export_width
+    height = height or settings.plotly_export_height
+    scale = scale or settings.plotly_export_scale
+    timeout = settings.plotly_export_timeout
+
+    try:
+        # 1. 读取 JSON
+        chart_data = json.loads(json_path.read_text(encoding="utf-8"))
+
+        # 2. 重建 Figure
+        fig = go.Figure(chart_data)
+
+        # 3. 应用中文字体
+        apply_plotly_cjk_font_fallback(fig)
+
+        # 4. 转换为 PNG（在线程池中执行，避免阻塞）
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+
+        # 异步执行，使用配置的超时时间
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                fig.write_image,
+                str(tmp_path),
+                width=width,
+                height=height,
+                scale=scale,
+                format="png",
+            ),
+            timeout=timeout,
+        )
+
+        # 5. 读取并返回
+        png_bytes = tmp_path.read_bytes()
+        tmp_path.unlink()  # 清理临时文件
+
+        # 构建文件名：移除 .plotly.json 后缀，添加 .png
+        png_filename = json_path.stem.replace(".plotly", "") + ".png"
+
+        return Response(
+            content=png_bytes,
+            media_type="image/png",
+            headers={"Content-Disposition": f'attachment; filename="{png_filename}"'},
+        )
+
+    except asyncio.TimeoutError:
+        logger.warning(f"Plotly PNG 转换超时: {json_path.name}")
+        return None
+    except Exception as e:
+        logger.warning(f"Plotly PNG 转换失败: {json_path.name}, 错误: {e}")
+        return None
 
 
 # ---- 会话管理 ----
@@ -550,7 +624,7 @@ async def batch_download(session_id: str, req: dict[str, Any]):
 
 @router.get("/artifacts/{session_id}/{filename}")
 async def download_artifact(session_id: str, filename: str):
-    """下载会话产物。"""
+    """下载会话产物（.plotly.json 自动转 PNG）。"""
     # 兼容已编码/双重编码文件名（如 %25E8...），统一解码一次后再做安全裁剪。
     safe_name = Path(unquote(filename)).name
     artifact_path = settings.sessions_dir / session_id / "workspace" / "artifacts" / safe_name
@@ -559,6 +633,25 @@ async def download_artifact(session_id: str, filename: str):
         artifact_path = settings.sessions_dir / session_id / "artifacts" / safe_name
     if not artifact_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
+
+    # 检测是否为 Plotly JSON
+    if safe_name.lower().endswith(".plotly.json"):
+        logger.info(f"检测到 Plotly JSON，尝试转换为 PNG: {safe_name}")
+        png_response = await _convert_plotly_json_to_png(
+            artifact_path,
+            session_id=session_id,
+            width=1400,
+            height=900,
+            scale=2.0,
+        )
+        if png_response:
+            logger.info(f"Plotly PNG 转换成功: {safe_name}")
+            return png_response
+        else:
+            logger.warning(f"Plotly PNG 转换失败，降级返回原始 JSON: {safe_name}")
+            # 降级：返回原始 JSON
+
+    # 普通文件下载
     return _build_download_response(artifact_path, safe_name)
 
 
@@ -1010,6 +1103,47 @@ async def list_memory_files(session_id: str):
         "files": files,
         "compression": compression_info,
     })
+
+
+@router.get("/sessions/{session_id}/memory/formatted", response_model=APIResponse)
+async def export_formatted_memory(session_id: str):
+    """
+    导出格式化的会话记忆。
+
+    返回格式化的 JSON，包含会话消息摘要和统计信息。
+    """
+    from nini.memory.conversation import ConversationMemory, format_memory_entries
+
+    session = session_manager.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    # 加载记忆（不解析引用，节省内存）
+    mem = ConversationMemory(session_id)
+    entries = mem.load_messages(resolve_refs=False)
+
+    # 格式化
+    formatted = format_memory_entries(entries)
+
+    # 统计信息
+    stats = {
+        "total_entries": len(entries),
+        "user_messages": sum(1 for e in entries if e.get("role") == "user"),
+        "assistant_messages": sum(1 for e in entries if e.get("role") == "assistant"),
+        "tool_results": sum(1 for e in entries if e.get("role") == "tool"),
+        "has_attachments": sum(1 for f in formatted if f.get("has_attachments")),
+    }
+
+    return APIResponse(
+        success=True,
+        message="记忆导出成功",
+        data={
+            "session_id": session_id,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "statistics": stats,
+            "entries": formatted,
+        },
+    )
 
 
 @router.get("/sessions/{session_id}/memory-files/{filename:path}", response_model=APIResponse)

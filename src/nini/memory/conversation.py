@@ -198,3 +198,85 @@ class ConversationMemory:
         """清空会话记忆。"""
         if self._path.exists():
             self._path.unlink()
+
+
+def _build_entry_preview(entry: dict, max_chars: int = 200) -> str:
+    """生成可读的条目摘要。"""
+    role = entry.get("role", "")
+
+    if role == "user":
+        content = entry.get("content", "")
+        preview = content[:max_chars] + ("..." if len(content) > max_chars else "")
+        return preview
+
+    elif role == "assistant":
+        content = entry.get("content", "")
+        tool_calls = entry.get("tool_calls", [])
+
+        if tool_calls:
+            tool_names = [
+                tc.get("function", {}).get("name", "unknown") for tc in tool_calls
+            ]
+            preview = f"[调用工具: {', '.join(tool_names)}]"
+            if content:
+                preview += f" {content[:100]}"
+            return preview[:max_chars] + ("..." if len(preview) > max_chars else "")
+
+        return content[:max_chars] + ("..." if len(content) > max_chars else "")
+
+    elif role == "tool":
+        content_str = str(entry.get("content", ""))
+        return f"[工具结果] {content_str[:150]}..."
+
+    return str(entry)[:max_chars] + ("..." if len(str(entry)) > max_chars else "")
+
+
+def format_memory_entries(entries: list[dict]) -> list[dict]:
+    """
+    将 JSONL 条目格式化为可读的结构。
+
+    返回格式：
+    [
+        {
+            "index": 1,
+            "timestamp": "2026-02-13T10:30:00+00:00",
+            "role": "user",
+            "type": "用户消息",
+            "preview": "分析血压数据的相关性",
+            "has_attachments": false,
+            "raw": {...}  # 原始数据（可选）
+        },
+        ...
+    ]
+    """
+    result = []
+    for i, entry in enumerate(entries, 1):
+        role = entry.get("role", "unknown")
+
+        # 生成类型标签
+        type_label = {
+            "user": "用户消息",
+            "assistant": "助手回复",
+            "tool": "工具结果",
+        }.get(role, "未知类型")
+
+        # 生成预览文本
+        preview = _build_entry_preview(entry, max_chars=200)
+
+        # 检测大型数据引用
+        has_attachments = any(
+            isinstance(entry.get(field), dict) and "_ref" in entry.get(field, {})
+            for field in ConversationMemory._LARGE_DATA_FIELDS
+        )
+
+        formatted = {
+            "index": i,
+            "timestamp": entry.get("_ts", ""),
+            "role": role,
+            "type": type_label,
+            "preview": preview,
+            "has_attachments": has_attachments,
+        }
+        result.append(formatted)
+
+    return result
