@@ -3,6 +3,7 @@
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useStore, type WorkspaceFile } from '../store'
+import { resolveDownloadUrl } from './downloadUtils'
 import {
   FileSpreadsheet,
   FileImage,
@@ -84,6 +85,7 @@ export default function FileListItem({ file }: Props) {
     if (!window.confirm(`确定删除文件「${file.name}」？此操作不可撤销。`)) return
     await deleteWorkspaceFile(file.id)
   }, [file.id, file.name, deleteWorkspaceFile])
+  const downloadUrl = resolveDownloadUrl(file.download_url, file.name) || file.download_url
 
   return (
     <div className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-100 transition-colors">
@@ -136,7 +138,7 @@ export default function FileListItem({ file }: Props) {
       {!isRenaming && (
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           <a
-            href={file.download_url}
+            href={downloadUrl}
             target="_blank"
             rel="noreferrer"
             className="p-1 rounded hover:bg-gray-200 text-gray-500"

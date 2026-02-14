@@ -115,6 +115,27 @@ test.beforeEach(async ({ page }) => {
               })
               this.emit({ type: 'text', data: '已结合检索上下文回答。' })
               this.emit({ type: 'done' })
+            } else if (content.includes('legacy-chart')) {
+              this.emit({ type: 'text', data: '旧格式图表说明' })
+              this.emit({
+                type: 'chart',
+                data: {
+                  figure: {
+                    data: [
+                      {
+                        type: 'bar',
+                        x: ['A', 'B'],
+                        y: [2, 5],
+                      },
+                    ],
+                    layout: {
+                      title: 'Legacy Chart',
+                    },
+                  },
+                  chart_type: 'bar',
+                },
+              })
+              this.emit({ type: 'done' })
             } else if (content.includes('chart')) {
               this.emit({ type: 'text', data: '图表说明文本' })
               this.emit({
@@ -291,6 +312,16 @@ test('图表气泡应使用宽布局，不随文字长度收缩', async ({ page 
   expect(widths.chartWidth).toBeGreaterThan(0)
   // 图表气泡应显著宽于普通文本气泡，避免仅微小浮动导致误判
   expect(widths.chartWidth).toBeGreaterThan(widths.textWidth + 80)
+})
+
+test('旧图表协议（figure 包装）应正常渲染且不显示空数据提示', async ({ page }) => {
+  const input = page.getByPlaceholder('描述你的分析需求...')
+  await input.fill('legacy-chart e2e test')
+  await input.press('Enter')
+
+  await expect(page.getByText('旧格式图表说明')).toBeVisible()
+  await expect(page.locator('svg.main-svg').first()).toBeVisible()
+  await expect(page.getByText('图表数据为空')).toHaveCount(0)
 })
 
 test('检索事件应渲染检索卡片', async ({ page }) => {

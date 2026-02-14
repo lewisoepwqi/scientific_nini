@@ -26,10 +26,12 @@ class TestCompleteComparisonSkill:
         session = Session()
 
         # 创建测试数据
-        test_data = pd.DataFrame({
-            "value": [10.2, 11.5, 9.8, 10.5, 11.1, 20.1, 21.5, 19.8, 20.5, 21.2],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [10.2, 11.5, 9.8, 10.5, 11.1, 20.1, 21.5, 19.8, 20.5, 21.2],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         # 执行
@@ -53,10 +55,12 @@ class TestCompleteComparisonSkill:
         session = Session()
 
         # 包含缺失值的数据
-        test_data = pd.DataFrame({
-            "value": [10.2, None, 9.8, 10.5, 11.1, 20.1, 21.5, None, 20.5, 21.2],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [10.2, None, 9.8, 10.5, 11.1, 20.1, 21.5, None, 20.5, 21.2],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await skill.execute(
@@ -77,10 +81,12 @@ class TestCompleteComparisonSkill:
         skill = CompleteComparisonSkill()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "value": [10.2, 11.5, 9.8, 10.5, 11.1, 20.1, 21.5, 19.8, 20.5, 21.2],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [10.2, 11.5, 9.8, 10.5, 11.1, 20.1, 21.5, 19.8, 20.5, 21.2],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await skill.execute(
@@ -101,10 +107,12 @@ class TestCompleteComparisonSkill:
         skill = CompleteComparisonSkill()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "value": [10.2, 11.5, 9.8, 10.5, 11.1, 20.1, 21.5, 19.8, 20.5, 21.2],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [10.2, 11.5, 9.8, 10.5, 11.1, 20.1, 21.5, 19.8, 20.5, 21.2],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await skill.execute(
@@ -127,10 +135,12 @@ class TestCompleteComparisonSkill:
         skill = CompleteComparisonSkill()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "value": [10.2, 11.5, 9.8, 10.5, 11.1, 20.1, 21.5, 19.8, 20.5, 21.2],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [10.2, 11.5, 9.8, 10.5, 11.1, 20.1, 21.5, 19.8, 20.5, 21.2],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await skill.execute(
@@ -143,6 +153,9 @@ class TestCompleteComparisonSkill:
         # 应该生成图表
         assert result.has_chart is True
         assert result.chart_data is not None
+        assert isinstance(result.chart_data, dict)
+        assert "data" in result.chart_data
+        assert "figure" not in result.chart_data
 
     @pytest.mark.asyncio
     async def test_skill_generates_apa_report(self):
@@ -152,10 +165,12 @@ class TestCompleteComparisonSkill:
         skill = CompleteComparisonSkill()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "value": [10.2, 11.5, 9.8, 10.5, 11.1, 20.1, 21.5, 19.8, 20.5, 21.2],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [10.2, 11.5, 9.8, 10.5, 11.1, 20.1, 21.5, 19.8, 20.5, 21.2],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await skill.execute(
@@ -180,10 +195,12 @@ class TestCompleteComparisonSkill:
         session = Session()
 
         # 明显偏态的数据
-        test_data = pd.DataFrame({
-            "value": [1, 1, 1, 2, 2, 100, 150, 200, 250, 300],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [1, 1, 1, 2, 2, 100, 150, 200, 250, 300],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await skill.execute(
@@ -235,10 +252,12 @@ class TestCompleteANOVASkill:
         session = Session()
 
         # 三组数据
-        test_data = pd.DataFrame({
-            "value": [10, 11, 10, 12, 11, 20, 21, 20, 22, 21, 30, 31, 30, 32, 31],
-            "group": ["A"] * 5 + ["B"] * 5 + ["C"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [10, 11, 10, 12, 11, 20, 21, 20, 22, 21, 30, 31, 30, 32, 31],
+                "group": ["A"] * 5 + ["B"] * 5 + ["C"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await skill.execute(
@@ -261,10 +280,12 @@ class TestCompleteANOVASkill:
         skill = CompleteANOVASkill()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "value": [10, 11, 10, 12, 11, 20, 21, 20, 22, 21, 30, 31, 30, 32, 31],
-            "group": ["A"] * 5 + ["B"] * 5 + ["C"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [10, 11, 10, 12, 11, 20, 21, 20, 22, 21, 30, 31, 30, 32, 31],
+                "group": ["A"] * 5 + ["B"] * 5 + ["C"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await skill.execute(
@@ -293,12 +314,15 @@ class TestCorrelationAnalysisSkill:
 
         # 多变量数据
         import numpy as np
+
         np.random.seed(42)
-        test_data = pd.DataFrame({
-            "var1": np.random.randn(20),
-            "var2": np.random.randn(20) * 0.5 + np.random.randn(20) * 0.5,
-            "var3": np.random.randn(20),
-        })
+        test_data = pd.DataFrame(
+            {
+                "var1": np.random.randn(20),
+                "var2": np.random.randn(20) * 0.5 + np.random.randn(20) * 0.5,
+                "var3": np.random.randn(20),
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await skill.execute(
@@ -322,11 +346,14 @@ class TestCorrelationAnalysisSkill:
         session = Session()
 
         import numpy as np
+
         np.random.seed(42)
-        test_data = pd.DataFrame({
-            "var1": np.random.randn(20),
-            "var2": np.random.randn(20),
-        })
+        test_data = pd.DataFrame(
+            {
+                "var1": np.random.randn(20),
+                "var2": np.random.randn(20),
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await skill.execute(
@@ -338,6 +365,9 @@ class TestCorrelationAnalysisSkill:
 
         # 应该生成图表
         assert result.has_chart is True
+        assert isinstance(result.chart_data, dict)
+        assert "data" in result.chart_data
+        assert "figure" not in result.chart_data
 
     @pytest.mark.asyncio
     async def test_supports_different_methods(self):
@@ -348,11 +378,14 @@ class TestCorrelationAnalysisSkill:
         session = Session()
 
         import numpy as np
+
         np.random.seed(42)
-        test_data = pd.DataFrame({
-            "var1": np.random.randn(20),
-            "var2": np.random.randn(20),
-        })
+        test_data = pd.DataFrame(
+            {
+                "var1": np.random.randn(20),
+                "var2": np.random.randn(20),
+            }
+        )
         session.datasets["test_data"] = test_data
 
         for method in ["pearson", "spearman", "kendall"]:

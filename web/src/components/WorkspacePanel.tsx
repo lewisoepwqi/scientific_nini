@@ -4,6 +4,7 @@
 import { useMemo } from 'react'
 import { useStore } from '../store'
 import { Database, FolderOpen, RefreshCw, Download } from 'lucide-react'
+import { resolveDownloadUrl } from './downloadUtils'
 
 function formatSize(size: number): string {
   if (size < 1024) return `${size} B`
@@ -82,7 +83,9 @@ export default function WorkspacePanel() {
         <div className="text-[11px] text-gray-600">文件产物 {fileCountText}</div>
         <div className="mt-1.5 max-h-24 overflow-auto space-y-1">
           {files.length === 0 && <div className="text-[11px] text-gray-400">暂无工作空间文件</div>}
-          {files.map((item) => (
+          {files.map((item) => {
+            const href = resolveDownloadUrl(item.download_url, item.name) || item.download_url
+            return (
             <div
               key={item.id}
               className="flex items-center justify-between rounded-md bg-white px-2 py-1 text-[11px] border border-gray-200"
@@ -94,7 +97,7 @@ export default function WorkspacePanel() {
                 </div>
               </div>
               <a
-                href={item.download_url}
+                href={href}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 rounded border border-gray-200 px-1.5 py-0.5 text-gray-600 hover:bg-gray-100"
@@ -104,10 +107,10 @@ export default function WorkspacePanel() {
                 下载
               </a>
             </div>
-          ))}
+            )
+          })}
         </div>
       </div>
     </div>
   )
 }
-

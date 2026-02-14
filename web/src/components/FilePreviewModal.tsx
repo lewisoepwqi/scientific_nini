@@ -6,6 +6,7 @@ import { useStore } from '../store'
 import { X, Download, Loader2 } from 'lucide-react'
 import MarkdownContent from './MarkdownContent'
 import PlotlyFromUrl from './PlotlyFromUrl'
+import { resolveDownloadUrl } from './downloadUtils'
 
 interface PreviewData {
   id: string
@@ -35,6 +36,10 @@ export default function FilePreviewModal() {
 
   // 获取文件信息（用于下载 URL）
   const fileInfo = workspaceFiles.find((f) => f.id === previewFileId)
+  const resolvedDownloadUrl = resolveDownloadUrl(
+    fileInfo?.download_url,
+    preview?.name || fileInfo?.name,
+  )
 
   useEffect(() => {
     if (!previewFileId || !sessionId) {
@@ -100,9 +105,9 @@ export default function FilePreviewModal() {
               )}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
-              {fileInfo?.download_url && (
+              {resolvedDownloadUrl && (
                 <a
-                  href={fileInfo.download_url}
+                  href={resolvedDownloadUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
@@ -212,21 +217,17 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
       )
 
     case 'pdf':
+      if (preview.download_url) {
+        return (
+          <iframe
+            src={preview.download_url}
+            className="w-full h-[70vh] border rounded-lg"
+            title={preview.name}
+          />
+        )
+      }
       return (
-        <div className="text-center py-12">
-          <p className="text-sm text-gray-600">PDF 文件预览</p>
-          {preview.download_url && (
-            <a
-              href={preview.download_url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
-            >
-              <Download size={14} />
-              下载查看
-            </a>
-          )}
-        </div>
+        <div className="text-center py-12 text-sm text-gray-500">PDF 预览地址不可用</div>
       )
 
     case 'unsupported':

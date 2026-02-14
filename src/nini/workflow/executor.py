@@ -7,6 +7,7 @@ from typing import Any, AsyncGenerator
 
 from nini.agent.runner import AgentEvent, EventType
 from nini.agent.session import Session
+from nini.utils.chart_payload import normalize_chart_payload
 from nini.workflow.template import WorkflowTemplate
 
 logger = logging.getLogger(__name__)
@@ -44,9 +45,7 @@ async def execute_workflow(
 
         # 执行工具
         try:
-            result = await skill_registry.execute(
-                step.tool_name, session=session, **args
-            )
+            result = await skill_registry.execute(step.tool_name, session=session, **args)
         except Exception as e:
             logger.error("工作流步骤 %d/%d 执行失败: %s", idx, total, e)
             result = {"success": False, "error": str(e)}
@@ -60,9 +59,9 @@ async def execute_workflow(
             data={
                 "result": result,
                 "status": status,
-                "message": result.get("error")
-                if has_error
-                else result.get("message", "步骤执行完成"),
+                "message": (
+                    result.get("error") if has_error else result.get("message", "步骤执行完成")
+                ),
             },
             tool_call_id=f"wf-{template.id}-{idx}",
             tool_name=step.tool_name,
@@ -71,9 +70,11 @@ async def execute_workflow(
         # 推送产物事件
         if isinstance(result, dict):
             if result.get("has_chart"):
+                raw_chart_data = result.get("chart_data")
+                normalized_chart_data = normalize_chart_payload(raw_chart_data)
                 yield AgentEvent(
                     type=EventType.CHART,
-                    data=result.get("chart_data"),
+                    data=normalized_chart_data if normalized_chart_data else raw_chart_data,
                 )
             if result.get("has_dataframe"):
                 yield AgentEvent(

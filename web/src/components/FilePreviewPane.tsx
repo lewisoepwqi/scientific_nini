@@ -6,6 +6,7 @@ import { Download, X, Loader2 } from 'lucide-react'
 import { useStore } from '../store'
 import MarkdownContent from './MarkdownContent'
 import PlotlyFromUrl from './PlotlyFromUrl'
+import { resolveDownloadUrl } from './downloadUtils'
 
 interface PreviewData {
   id: string
@@ -95,6 +96,10 @@ export default function FilePreviewPane() {
   const preview = cache[previewFileId]
   const error = errors[previewFileId]
   const isLoading = loadingId === previewFileId && !preview && !error
+  const resolvedDownloadUrl = resolveDownloadUrl(
+    fileInfo?.download_url,
+    preview?.name || fileInfo?.name,
+  )
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -110,9 +115,9 @@ export default function FilePreviewPane() {
           )}
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {fileInfo?.download_url && (
+          {resolvedDownloadUrl && (
             <a
-              href={fileInfo.download_url}
+              href={resolvedDownloadUrl}
               target="_blank"
               rel="noreferrer"
               className="p-1 rounded hover:bg-gray-100 text-gray-500"
@@ -243,4 +248,3 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
       )
   }
 }
-

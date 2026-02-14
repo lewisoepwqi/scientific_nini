@@ -130,6 +130,15 @@ test.beforeEach(async ({ page }) => {
                     download_url: '/api/artifacts/sess-e2e/report_b.md',
                     meta: { type: 'report', format: 'md' },
                   },
+                  {
+                    id: 'art-3',
+                    name: 'report_c.pdf',
+                    kind: 'artifact',
+                    size: 8192,
+                    created_at: '2026-02-10T00:00:02Z',
+                    download_url: '/api/artifacts/sess-e2e/report_c.pdf',
+                    meta: { type: 'chart', format: 'pdf' },
+                  },
                 ],
               },
             }),
@@ -175,6 +184,26 @@ test.beforeEach(async ({ page }) => {
                 content: '# report_b',
                 total_lines: 1,
                 preview_lines: 1,
+              },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          )
+        }
+
+        if (url === '/api/sessions/sess-e2e/workspace/files/art-3/preview') {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                id: 'art-3',
+                kind: 'artifact',
+                preview_type: 'pdf',
+                name: 'report_c.pdf',
+                ext: 'pdf',
+                download_url: '/api/artifacts/sess-e2e/report_c.pdf',
               },
             }),
             {
@@ -324,4 +353,37 @@ test('文件预览以动态标签页打开并可关闭', async ({ page }) => {
 
   await expect(previewTab).toHaveCount(0)
   await expect(page.getByText('preview-content-art-1').first()).toHaveCount(0)
+})
+
+test('Markdown 下载链接应优先指向 bundle 接口（列表与预览头部）', async ({ page }) => {
+  await page.getByTitle('打开工作区').click()
+
+  const mdRow = page.locator('div.group').filter({ hasText: 'report_b.md' }).first()
+  const listDownloadHref = await mdRow.locator('a[title="下载"]').getAttribute('href')
+  expect(listDownloadHref).toBe('/api/workspace/sess-e2e/artifacts/report_b.md/bundle')
+
+  await mdRow.getByText('report_b.md').click()
+  await expect(page.getByRole('heading', { name: 'report_b.md' })).toBeVisible()
+
+  const previewDownloadHref = await page.locator('a[title="下载"]').first().getAttribute('href')
+  expect(previewDownloadHref).toBe('/api/workspace/sess-e2e/artifacts/report_b.md/bundle')
+})
+
+test('PDF 在列表与画廊入口均应内嵌预览', async ({ page }) => {
+  await page.getByTitle('打开工作区').click()
+
+  const pdfRow = page.locator('div.group').filter({ hasText: 'report_c.pdf' }).first()
+  await pdfRow.getByText('report_c.pdf').click()
+  await expect(page.locator('iframe[src*="/api/artifacts/sess-e2e/report_c.pdf"]:visible')).toBeVisible()
+  await page.locator('button[title="关闭预览"]:visible').first().click()
+
+  await page.locator('button[title="切换到目录树视图"]:visible').click()
+  await page.locator('button[title="切换到画廊视图"]:visible').click()
+  await page
+    .locator('div.relative.rounded-lg.border')
+    .filter({ hasText: 'report_c.pdf' })
+    .first()
+    .locator('div.aspect-square')
+    .click()
+  await expect(page.locator('iframe[src*="/api/artifacts/sess-e2e/report_c.pdf"]:visible')).toBeVisible()
 })

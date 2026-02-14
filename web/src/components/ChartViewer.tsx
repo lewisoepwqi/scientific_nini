@@ -48,14 +48,31 @@ function buildAxis(axis: unknown): Partial<Plotly.LayoutAxis> {
   }
 }
 
+function normalizeChartData(chartData: unknown): Record<string, unknown> | null {
+  if (!isRecord(chartData)) return null
+  if (isRecord(chartData.figure)) {
+    const figure = chartData.figure as Record<string, unknown>
+    const merged: Record<string, unknown> = { ...figure }
+    if (!('config' in merged) && isRecord(chartData.config)) {
+      merged.config = chartData.config
+    }
+    if (typeof chartData.schema_version === 'string') {
+      merged.schema_version = chartData.schema_version
+    }
+    return merged
+  }
+  return chartData
+}
+
 export default function ChartViewer({ chartData }: Props) {
-  if (!isRecord(chartData)) {
+  const normalized = normalizeChartData(chartData)
+  if (!normalized) {
     return <div className="text-xs text-red-500">图表数据格式无效</div>
   }
 
-  const data = Array.isArray(chartData.data) ? (chartData.data as Plotly.Data[]) : []
-  const baseLayout = isRecord(chartData.layout) ? (chartData.layout as Partial<Plotly.Layout>) : {}
-  const baseConfig = isRecord(chartData.config) ? (chartData.config as Partial<Plotly.Config>) : {}
+  const data = Array.isArray(normalized.data) ? (normalized.data as Plotly.Data[]) : []
+  const baseLayout = isRecord(normalized.layout) ? (normalized.layout as Partial<Plotly.Layout>) : {}
+  const baseConfig = isRecord(normalized.config) ? (normalized.config as Partial<Plotly.Config>) : {}
 
   if (data.length === 0) {
     return <div className="text-xs text-red-500">图表数据为空</div>

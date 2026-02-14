@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
 from nini.agent.session import session_manager
 from nini.app import create_app
 from nini.config import settings
+from nini.workspace import WorkspaceManager
 from tests.client_utils import LocalASGIClient
 
 
@@ -252,3 +256,107 @@ def test_get_session_messages_includes_persisted_event_fields(client: LocalASGIC
     assert messages[1]["data_preview"]["columns"][0]["name"] == "x"
     assert messages[2]["event_type"] == "artifact"
     assert messages[2]["artifacts"][0]["name"] == "report.md"
+
+
+def test_get_session_messages_resolve_referenced_chart_payload(client: LocalASGIClient) -> None:
+    """磁盘恢复消息时应自动解引用大型 chart_data。"""
+    resp = client.post("/api/sessions")
+    session_id = resp.json()["data"]["session_id"]
+    session = session_manager.get_session(session_id)
+    assert session is not None
+
+    large_chart = {
+        "data": [{"x": list(range(1500)), "y": list(range(1500))}],
+        "layout": {"title": "large chart"},
+    }
+    session.add_assistant_event("chart", "图表已生成", chart_data=large_chart)
+
+    # 模拟重启，强制走磁盘读取路径
+    session_manager._sessions.clear()
+
+    resp = client.get(f"/api/sessions/{session_id}/messages")
+    assert resp.status_code == 200
+    messages = resp.json()["data"]["messages"]
+    assert len(messages) == 1
+    chart_data = messages[0]["chart_data"]
+    assert isinstance(chart_data, dict)
+    assert "_ref" not in str(chart_data)
+    assert isinstance(chart_data.get("data"), list)
+
+
+def test_download_markdown_bundle_with_images(client: LocalASGIClient) -> None:
+    """含图片引用的 Markdown 下载应返回 zip 打包。"""
+    resp = client.post("/api/sessions")
+    session_id = resp.json()["data"]["session_id"]
+    session = session_manager.get_session(session_id)
+    assert session is not None
+
+    wm = WorkspaceManager(session_id)
+    artifact_dir = settings.sessions_dir / session_id / "workspace" / "artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    image_name = "chart.png"
+    image_path = artifact_dir / image_name
+    image_path.write_bytes(b"fakepng")
+    wm.add_artifact_record(
+        name=image_name,
+        artifact_type="chart",
+        file_path=image_path,
+        format_hint="png",
+    )
+
+    md_name = "report.md"
+    md_path = artifact_dir / md_name
+    md_path.write_text(
+        f"![图表](/api/artifacts/{session_id}/{image_name})\n",
+        encoding="utf-8",
+    )
+    wm.add_artifact_record(
+        name=md_name,
+        artifact_type="report",
+        file_path=md_path,
+        format_hint="md",
+    )
+
+    resp = client.get(f"/api/workspace/{session_id}/artifacts/{quote(md_name)}/bundle")
+    assert resp.status_code == 200
+    assert resp.headers.get("content-type", "").startswith("application/zip")
+
+    content = resp.content
+    with zipfile.ZipFile(io.BytesIO(content), "r") as zf:
+        names = set(zf.namelist())
+        assert md_name in names
+        assert f"images/{image_name}" in names
+        bundled_md = zf.read(md_name).decode("utf-8")
+        assert f"![图表](images/{image_name})" in bundled_md
+
+
+def test_get_session_messages_normalizes_legacy_figure_payload(client: LocalASGIClient) -> None:
+    """历史 `figure` 包装图表应被转换为顶层 data/layout。"""
+    resp = client.post("/api/sessions")
+    session_id = resp.json()["data"]["session_id"]
+    session = session_manager.get_session(session_id)
+    assert session is not None
+
+    session.add_assistant_event(
+        "chart",
+        "图表已生成",
+        chart_data={
+            "figure": {
+                "data": [{"x": [1, 2], "y": [3, 4], "type": "scatter"}],
+                "layout": {"title": "legacy"},
+            },
+            "chart_type": "line",
+        },
+    )
+    session_manager._sessions.clear()
+
+    resp = client.get(f"/api/sessions/{session_id}/messages")
+    assert resp.status_code == 200
+    messages = resp.json()["data"]["messages"]
+    assert len(messages) == 1
+    chart_data = messages[0]["chart_data"]
+    assert isinstance(chart_data, dict)
+    assert "data" in chart_data
+    assert "layout" in chart_data
+    assert "figure" not in chart_data

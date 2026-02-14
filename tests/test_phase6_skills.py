@@ -61,7 +61,9 @@ def test_generate_report_writes_artifact_and_knowledge() -> None:
     session.add_message("user", "请分析数据")
     session.add_tool_result("tc-1", '{"message":"t 检验结果显著"}')
     wm = WorkspaceManager(session.id)
-    chart_path = settings.sessions_dir / session.id / "workspace" / "artifacts" / "phase6_chart.plotly.json"
+    chart_path = (
+        settings.sessions_dir / session.id / "workspace" / "artifacts" / "phase6_chart.plotly.json"
+    )
     chart_path.parent.mkdir(parents=True, exist_ok=True)
     chart_path.write_text('{"data":[],"layout":{}}', encoding="utf-8")
     wm.add_artifact_record(
@@ -94,13 +96,84 @@ def test_generate_report_writes_artifact_and_knowledge() -> None:
     assert "# 测试报告" in text
     assert "药物组优于对照组。" in text
     assert "## 图表预览" in text
-    assert f"![phase6_chart.plotly.json](/api/artifacts/{session.id}/phase6_chart.plotly.json)" in text
+    assert (
+        f"![phase6_chart.plotly.json](/api/artifacts/{session.id}/phase6_chart.plotly.json)" in text
+    )
     assert "## 图表清单" in text
     assert "`phase6_chart.plotly.json`" in text
     assert f"/api/artifacts/{session.id}/phase6_chart.plotly.json" in text
+    assert "## 分析统计" not in text
 
     knowledge_text = session.knowledge_memory.read()
     assert "## 测试报告" in knowledge_text
+
+
+def test_generate_report_can_include_single_session_stats_section() -> None:
+    skill = GenerateReportSkill()
+    session = Session()
+    session.datasets["exp.csv"] = pd.DataFrame({"x": [1, 2, 3]})
+    session.add_message("user", "统计信息测试")
+
+    result = asyncio.run(
+        skill.execute(
+            session=session,
+            title="统计附录测试",
+            summary_text="结论",
+            include_session_stats=True,
+            save_to_knowledge=False,
+        )
+    )
+    payload = result.to_dict()
+    assert payload["success"] is True, payload
+
+    report_path = Path(result.artifacts[0]["path"])
+    text = report_path.read_text(encoding="utf-8")
+    assert text.count("## 分析统计（系统观测）") == 1
+
+
+def test_generate_report_chart_preview_deduplicates_multi_format_artifacts() -> None:
+    skill = GenerateReportSkill()
+    session = Session()
+    session.datasets["exp.csv"] = pd.DataFrame({"x": [1, 2, 3]})
+    wm = WorkspaceManager(session.id)
+    artifact_dir = settings.sessions_dir / session.id / "workspace" / "artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    files = {
+        "trend.png": b"png",
+        "trend.svg": b"<svg></svg>",
+        "trend.pdf": b"%PDF-1.4",
+    }
+    for name, content in files.items():
+        path = artifact_dir / name
+        path.write_bytes(content if isinstance(content, bytes) else content.encode("utf-8"))
+        wm.add_artifact_record(
+            name=name,
+            artifact_type="chart",
+            file_path=path,
+            format_hint=name.rsplit(".", 1)[-1],
+        )
+
+    result = asyncio.run(
+        skill.execute(
+            session=session,
+            title="图表去重测试",
+            summary_text="结论",
+            include_recent_messages=False,
+            save_to_knowledge=False,
+        )
+    )
+    payload = result.to_dict()
+    assert payload["success"] is True, payload
+
+    report_path = Path(result.artifacts[0]["path"])
+    text = report_path.read_text(encoding="utf-8")
+    assert "![trend.png]" in text
+    assert "![trend.svg]" not in text
+    assert "### 图 1：trend.png" in text
+    assert "### 图 2：" not in text
+    assert "`trend.svg`" in text
+    assert "`trend.pdf`" in text
 
 
 def test_generate_report_default_filename_is_unique_and_not_overwritten() -> None:
