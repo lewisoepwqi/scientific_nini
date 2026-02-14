@@ -44,6 +44,10 @@ class ImageAnalysisSkill(Skill):
         return "image_analysis"
 
     @property
+    def category(self) -> str:
+        return "data"
+
+    @property
     def description(self) -> str:
         return (
             "从图片中提取数据或分析图表。"
