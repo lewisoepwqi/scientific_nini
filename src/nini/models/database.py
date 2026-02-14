@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import Any, Iterable
+from typing import Any, Iterable, cast
 
 from nini.config import settings
 
@@ -97,7 +97,7 @@ class AsyncSQLiteCursor:
         return self._cursor.rowcount
 
     async def fetchone(self) -> sqlite3.Row | tuple[Any, ...] | None:
-        return self._cursor.fetchone()
+        return cast(sqlite3.Row | tuple[Any, ...] | None, self._cursor.fetchone())
 
     async def fetchall(self) -> list[sqlite3.Row] | list[tuple[Any, ...]]:
         return self._cursor.fetchall()
@@ -120,7 +120,7 @@ class AsyncSQLiteConnection:
 
     @property
     def row_factory(self) -> type | None:
-        return self._conn.row_factory
+        return cast(type | None, self._conn.row_factory)
 
     @row_factory.setter
     def row_factory(self, factory: type | None) -> None:

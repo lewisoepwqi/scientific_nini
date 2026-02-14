@@ -84,9 +84,7 @@ class ConversationMemory:
 
             # 生成唯一文件名（基于内容哈希）
             content_hash = hashlib.md5(
-                json.dumps(data, ensure_ascii=False, default=str, sort_keys=True).encode(
-                    "utf-8"
-                )
+                json.dumps(data, ensure_ascii=False, default=str, sort_keys=True).encode("utf-8")
             ).hexdigest()[:12]
 
             filename = f"{field}_{content_hash}.json"
@@ -108,9 +106,7 @@ class ConversationMemory:
                 }
                 modified = True
 
-                logger.info(
-                    f"[Memory] 大型数据引用化: {field} ({size} bytes) -> {filename}"
-                )
+                logger.info(f"[Memory] 大型数据引用化: {field} ({size} bytes) -> {filename}")
             except Exception as exc:
                 logger.warning(f"[Memory] 保存大型数据失败: {field}, {exc}")
 
@@ -205,17 +201,20 @@ def _build_entry_preview(entry: dict, max_chars: int = 200) -> str:
     role = entry.get("role", "")
 
     if role == "user":
-        content = entry.get("content", "")
+        content = str(entry.get("content", ""))
         preview = content[:max_chars] + ("..." if len(content) > max_chars else "")
         return preview
 
     elif role == "assistant":
-        content = entry.get("content", "")
-        tool_calls = entry.get("tool_calls", [])
+        content = str(entry.get("content", ""))
+        tool_calls_raw = entry.get("tool_calls", [])
+        tool_calls = tool_calls_raw if isinstance(tool_calls_raw, list) else []
 
         if tool_calls:
             tool_names = [
-                tc.get("function", {}).get("name", "unknown") for tc in tool_calls
+                tc.get("function", {}).get("name", "unknown")
+                for tc in tool_calls
+                if isinstance(tc, dict)
             ]
             preview = f"[调用工具: {', '.join(tool_names)}]"
             if content:

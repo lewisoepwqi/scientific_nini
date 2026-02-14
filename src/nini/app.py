@@ -12,6 +12,7 @@ import logging
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Awaitable, Callable
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -84,7 +85,10 @@ def create_app() -> FastAPI:
 
     # Request ID 中间件：为每个请求生成唯一标识
     @app.middleware("http")
-    async def request_id_middleware(request: Request, call_next) -> Response:
+    async def request_id_middleware(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
         # 优先使用客户端传入的 X-Request-ID，否则生成新的
         request_id = request.headers.get("X-Request-ID") or secrets.token_hex(8)
         response = await call_next(request)
@@ -112,15 +116,14 @@ def create_app() -> FastAPI:
         # 2. SPA fallback 中间件：mounted app 的 404 不会触发 exception_handler，
         #    但中间件可以拦截所有响应，包括子应用返回的 404
         @app.middleware("http")
-        async def spa_fallback_middleware(request: Request, call_next) -> Response:
+        async def spa_fallback_middleware(
+            request: Request,
+            call_next: Callable[[Request], Awaitable[Response]],
+        ) -> Response:
             response = await call_next(request)
             path = request.url.path
             # 仅对非 API/WS 路径的 404 返回 index.html（SPA 客户端路由）
-            if (
-                response.status_code == 404
-                and not path.startswith("/api/")
-                and path != "/ws"
-            ):
+            if response.status_code == 404 and not path.startswith("/api/") and path != "/ws":
                 return FileResponse(_index_html)
             return response
 
@@ -141,6 +144,7 @@ def create_app() -> FastAPI:
                 ),
                 status_code=200,
             )
+
         logger.warning("前端构建产物不存在: %s — 根路径将显示提示页面", _WEB_DIST)
 
     return app
