@@ -18,7 +18,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote, unquote
 
 import pandas as pd
@@ -763,7 +763,10 @@ class WorkspaceManager:
         for kind in ("artifacts",):
             for item in index.get(kind, []):
                 if isinstance(item, dict) and item.get("id") == file_id:
-                    return item.get("versions", [])
+                    versions = item.get("versions", [])
+                    return (
+                        cast(list[dict[str, Any]], versions) if isinstance(versions, list) else []
+                    )
         return []
 
     # ---- Agent 自定义文件夹 ----

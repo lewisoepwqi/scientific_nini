@@ -24,6 +24,7 @@ from nini.knowledge.loader import KnowledgeLoader
 from nini.memory.compression import compress_session_history_with_llm
 from nini.memory.storage import ArtifactStorage
 from nini.utils.token_counter import count_messages_tokens, get_tracker
+from nini.utils.chart_payload import normalize_chart_payload
 from nini.workspace import WorkspaceManager
 
 # 导入事件模块
@@ -272,15 +273,29 @@ class AgentRunner:
                         if isinstance(report_md, str) and report_md.strip():
                             report_markdown_for_turn = report_md
 
+                raw_metadata: Any = result.get("metadata") if isinstance(result, dict) else None
+                result_metadata: dict[str, Any] = (
+                    raw_metadata if isinstance(raw_metadata, dict) else {}
+                )
+                execution_id = result_metadata.get("execution_id")
+                if not isinstance(execution_id, str):
+                    execution_id = None
+
                 # 推送工具结果
                 result_str = self._serialize_tool_result_for_memory(result)
 
                 # 必须先将工具结果加入会话，保证消息历史完整
                 # 即使后续发送事件失败（如 WebSocket 断开），消息顺序也正确
-                session.add_tool_result(tc_id, result_str)
+                session.add_tool_result(
+                    tc_id,
+                    result_str,
+                    tool_name=func_name,
+                    status=status,
+                    intent=tool_call_metadata.get("intent"),
+                    execution_id=execution_id,
+                )
 
                 try:
-                    result_metadata = result.get("metadata") if isinstance(result, dict) else None
                     yield AgentEvent(
                         type=EventType.TOOL_RESULT,
                         data={
@@ -300,14 +315,19 @@ class AgentRunner:
 
                     # 检查是否有图表数据
                     if isinstance(result, dict) and result.get("has_chart"):
+                        raw_chart_data = result.get("chart_data")
+                        normalized_chart_data = normalize_chart_payload(raw_chart_data)
+                        chart_data = (
+                            normalized_chart_data if normalized_chart_data else raw_chart_data
+                        )
                         session.add_assistant_event(
                             "chart",
                             "图表已生成",
-                            chart_data=result.get("chart_data"),
+                            chart_data=chart_data,
                         )
                         yield AgentEvent(
                             type=EventType.CHART,
-                            data=result.get("chart_data"),
+                            data=chart_data,
                             turn_id=turn_id,
                         )
                     if isinstance(result, dict) and result.get("has_dataframe"):
@@ -538,8 +558,11 @@ class AgentRunner:
     def _get_last_user_message(session: Session) -> str:
         """从会话历史中提取最后一条用户消息。"""
         for msg in reversed(session.messages):
-            if msg.get("role") == "user" and msg.get("content"):
-                return msg["content"]
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content")
+            if isinstance(content, str) and content:
+                return content
         return ""
 
     @staticmethod
@@ -603,6 +626,11 @@ class AgentRunner:
             cleaned.pop("images", None)
 
             if role == "tool":
+                # 这些字段用于报告与审计，不应传给 LLM 消息协议。
+                cleaned.pop("tool_name", None)
+                cleaned.pop("status", None)
+                cleaned.pop("intent", None)
+                cleaned.pop("execution_id", None)
                 cleaned["content"] = cls._compact_tool_content(
                     cleaned.get("content"), max_chars=2000
                 )
@@ -714,7 +742,10 @@ class AgentRunner:
         """获取所有已注册技能的工具定义。"""
         if self._skill_registry is None:
             return []
-        return self._skill_registry.get_tool_definitions()
+        raw = self._skill_registry.get_tool_definitions()
+        if not isinstance(raw, list):
+            return []
+        return [item for item in raw if isinstance(item, dict)]
 
     async def _execute_tool(
         self,

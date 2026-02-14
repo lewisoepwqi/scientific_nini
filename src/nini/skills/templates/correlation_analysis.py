@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
@@ -20,6 +20,9 @@ from scipy.stats import kendalltau, pearsonr, spearmanr
 from nini.agent.session import Session
 from nini.skills.base import Skill, SkillResult
 from nini.utils.chart_fonts import CJK_FONT_FAMILY
+
+if TYPE_CHECKING:
+    import plotly.graph_objects as go
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +195,11 @@ class CorrelationAnalysisSkill(Skill):
                     )
 
         # 按相关系数绝对值排序
-        significant_pairs.sort(key=lambda x: abs(x["correlation"]), reverse=True)
+        def _abs_correlation(pair: dict[str, Any]) -> float:
+            corr = pair.get("correlation")
+            return abs(float(corr)) if isinstance(corr, (int, float, np.floating)) else 0.0
+
+        significant_pairs.sort(key=_abs_correlation, reverse=True)
 
         return significant_pairs
 
@@ -262,10 +269,10 @@ class CorrelationAnalysisSkill(Skill):
             yaxis={"autorange": "reversed"},
         )
 
-        return {
-            "figure": fig.to_dict(),
-            "chart_type": "heatmap",
-        }
+        chart_payload = cast(dict[str, Any], fig.to_plotly_json())
+        chart_payload["chart_type"] = "heatmap"
+        chart_payload["schema_version"] = "1.0"
+        return chart_payload
 
     def _apply_journal_style(self, fig: go.Figure, journal_style: str) -> None:
         """应用期刊样式。"""

@@ -31,6 +31,7 @@ from nini.models.schemas import (
     SetActiveModelRequest,
     UploadResponse,
 )
+from nini.utils.chart_payload import normalize_chart_payload
 from nini.utils.dataframe_io import read_dataframe
 from nini.workspace import WorkspaceManager
 
@@ -93,9 +94,7 @@ def _build_download_response(path: Path, filename: str) -> Response:
     except UnicodeEncodeError:
         ascii_fallback = filename.encode("ascii", errors="replace").decode("ascii")
         utf8_encoded = quote(filename, safe="")
-        disposition = (
-            f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{utf8_encoded}"
-        )
+        disposition = f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{utf8_encoded}"
     return Response(
         content=path.read_bytes(),
         media_type=media_type,
@@ -204,20 +203,22 @@ async def get_session_messages(session_id: str):
         from nini.memory.conversation import ConversationMemory
 
         mem = ConversationMemory(session_id)
-        messages = mem.load_messages()
+        messages = mem.load_messages(resolve_refs=True)
         if not messages and not session_manager.session_exists(session_id):
             raise HTTPException(status_code=404, detail="会话不存在或无消息记录")
 
     # 过滤掉内部字段（如 _ts），只返回前端需要的字段
     cleaned: list[dict] = []
     for msg in messages:
+        chart_data = msg.get("chart_data")
+        normalized_chart_data = normalize_chart_payload(chart_data)
         item = {
             "role": msg.get("role", ""),
             "content": msg.get("content", ""),
             "tool_calls": msg.get("tool_calls"),
             "tool_call_id": msg.get("tool_call_id"),
             "event_type": msg.get("event_type"),
-            "chart_data": msg.get("chart_data"),
+            "chart_data": normalized_chart_data if normalized_chart_data else chart_data,
             "data_preview": msg.get("data_preview"),
             "artifacts": msg.get("artifacts"),
             "images": msg.get("images"),
@@ -684,7 +685,7 @@ def _extract_image_urls(md_content: str, session_id: str) -> list[dict[str, str]
     Returns:
         [{"url": "/api/artifacts/...", "path": Path(...), "filename": "...", "alt": "..."}]
     """
-    pattern = r'!\[([^\]]*)\]\((/api/artifacts/' + re.escape(session_id) + r'/[^)]+)\)'
+    pattern = r"!\[([^\]]*)\]\((/api/artifacts/" + re.escape(session_id) + r"/[^)]+)\)"
     matches = re.findall(pattern, md_content)
 
     results = []
@@ -694,12 +695,14 @@ def _extract_image_urls(md_content: str, session_id: str) -> list[dict[str, str]
         artifact_path = settings.sessions_dir / session_id / "workspace" / "artifacts" / filename
 
         if artifact_path.exists():
-            results.append({
-                "url": url,
-                "path": str(artifact_path),
-                "filename": filename,
-                "alt": alt_text,
-            })
+            results.append(
+                {
+                    "url": url,
+                    "path": str(artifact_path),
+                    "filename": filename,
+                    "alt": alt_text,
+                }
+            )
 
     return results
 
@@ -784,9 +787,7 @@ async def download_markdown_with_images(
     except UnicodeEncodeError:
         ascii_fallback = zip_filename.encode("ascii", errors="replace").decode("ascii")
         utf8_encoded = quote(zip_filename, safe="")
-        disposition = (
-            f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{utf8_encoded}"
-        )
+        disposition = f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{utf8_encoded}"
 
     return Response(
         content=zip_bytes,
@@ -814,7 +815,7 @@ async def export_all_artifacts(session_id: str):
     # 创建内存中的 ZIP 文件
     zip_buffer = io.BytesIO()
 
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         file_count = 0
 
         # 1. 添加 artifacts（产物）
@@ -855,6 +856,7 @@ async def export_all_artifacts(session_id: str):
 
         # 5. 添加元数据文件
         from nini.agent.session import session_manager
+
         session = session_manager.get_session(session_id)
         if session:
             metadata = {
@@ -864,10 +866,8 @@ async def export_all_artifacts(session_id: str):
                 "datasets": list(session.datasets.keys()),
             }
             import json
-            zip_file.writestr(
-                "metadata.json",
-                json.dumps(metadata, ensure_ascii=False, indent=2)
-            )
+
+            zip_file.writestr("metadata.json", json.dumps(metadata, ensure_ascii=False, indent=2))
 
     # 准备下载响应
     zip_buffer.seek(0)
@@ -1030,8 +1030,7 @@ async def list_models():
                 "configured": configured,
                 "current_model": effective_model,
                 "available_models": provider["models"],
-                "api_key_hint": db_cfg.get("api_key_hint")
-                or mask_api_key(env_key or ""),
+                "api_key_hint": db_cfg.get("api_key_hint") or mask_api_key(env_key or ""),
                 "base_url": effective_base_url,
                 "priority": idx,
                 "config_source": config_source,
@@ -1223,9 +1222,7 @@ async def run_workflow(template_id: str, session_id: str | None = None):
             WorkspaceManager(session_id).hydrate_session_datasets(session)
             session.workspace_hydrated = True
         if not session.datasets:
-            return APIResponse(
-                success=False, error="当前会话无已加载的数据集，请先上传数据"
-            )
+            return APIResponse(success=False, error="当前会话无已加载的数据集，请先上传数据")
 
     return APIResponse(
         data={
@@ -1292,11 +1289,13 @@ async def list_memory_files(session_id: str):
     if archive_dir.exists() and archive_dir.is_dir():
         for apath in sorted(archive_dir.glob("*.json")):
             stat = apath.stat()
-            files.append({
-                "name": f"archive/{apath.name}",
-                "size": stat.st_size,
-                "modified_at": stat.st_mtime,
-            })
+            files.append(
+                {
+                    "name": f"archive/{apath.name}",
+                    "size": stat.st_size,
+                    "modified_at": stat.st_mtime,
+                }
+            )
 
     # 获取压缩状态
     session = session_manager.get_session(session_id)
@@ -1307,11 +1306,13 @@ async def list_memory_files(session_id: str):
             "last_compressed_at": getattr(session, "last_compressed_at", None),
         }
 
-    return APIResponse(data={
-        "session_id": session_id,
-        "files": files,
-        "compression": compression_info,
-    })
+    return APIResponse(
+        data={
+            "session_id": session_id,
+            "files": files,
+            "compression": compression_info,
+        }
+    )
 
 
 @router.get("/sessions/{session_id}/memory/formatted", response_model=APIResponse)
@@ -1345,8 +1346,8 @@ async def export_formatted_memory(session_id: str):
 
     return APIResponse(
         success=True,
-        message="记忆导出成功",
         data={
+            "message": "记忆导出成功",
             "session_id": session_id,
             "exported_at": datetime.now(timezone.utc).isoformat(),
             "statistics": stats,
@@ -1387,13 +1388,15 @@ async def read_memory_file(session_id: str, filename: str):
     except Exception:
         raise HTTPException(status_code=500, detail="无法读取文件")
 
-    return APIResponse(data={
-        "session_id": session_id,
-        "filename": filename,
-        "content": "\n".join(lines),
-        "total_lines_read": len(lines),
-        "truncated": len(lines) >= 200,
-    })
+    return APIResponse(
+        data={
+            "session_id": session_id,
+            "filename": filename,
+            "content": "\n".join(lines),
+            "total_lines_read": len(lines),
+            "truncated": len(lines) >= 200,
+        }
+    )
 
 
 @router.get("/sessions/{session_id}/context-size", response_model=APIResponse)

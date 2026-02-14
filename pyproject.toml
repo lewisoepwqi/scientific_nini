@@ -66,6 +66,9 @@ dev = [
     "httpx>=0.28.0",
     "black>=24.0",
     "mypy>=1.14",
+    "pandas-stubs>=2.2.0",
+    "scipy-stubs>=1.14.0",
+    "types-PyYAML>=6.0.12",
 ]
 
 [project.scripts]
@@ -86,3 +89,24 @@ target-version = ["py312"]
 python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
+# 离线环境无法安装第三方 stubs 时，先关闭 import-untyped 噪声；
+# 待联网补齐 stubs 后应移除此开关。
+disable_error_code = ["import-untyped"]
+
+[[tool.mypy.overrides]]
+module = [
+    "pandas",
+    "pandas.*",
+    "scipy",
+    "scipy.*",
+    "yaml",
+    "plotly",
+    "plotly.*",
+    "statsmodels",
+    "statsmodels.*",
+    "seaborn",
+    "kaleido",
+    "llama_index",
+    "llama_index.*",
+]
+ignore_missing_imports = true

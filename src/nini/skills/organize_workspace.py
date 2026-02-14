@@ -98,9 +98,9 @@ class OrganizeWorkspaceSkill(Skill):
                 continue
             parent = folder.get("parent")
             parent_id = str(parent) if isinstance(parent, str) and parent else None
-            folder_id = str(folder.get("id", "")).strip()
-            if folder_id:
-                folder_by_name[(name, parent_id)] = folder_id
+            existing_folder_id = str(folder.get("id", "")).strip()
+            if existing_folder_id:
+                folder_by_name[(name, parent_id)] = existing_folder_id
 
         for idx, item in enumerate(create_folders):
             if not isinstance(item, dict):
@@ -138,13 +138,13 @@ class OrganizeWorkspaceSkill(Skill):
                 errors.append(f"moves[{idx}] 缺少有效的 file_id")
                 continue
 
-            folder_id: str | None = None
+            move_folder_id: str | None = None
             if "folder_id" in item:
                 raw_folder_id = item.get("folder_id")
                 if raw_folder_id is None:
-                    folder_id = None
+                    move_folder_id = None
                 elif isinstance(raw_folder_id, str) and raw_folder_id.strip():
-                    folder_id = raw_folder_id.strip()
+                    move_folder_id = raw_folder_id.strip()
                 else:
                     errors.append(f"moves[{idx}] 的 folder_id 无效")
                     continue
@@ -152,18 +152,18 @@ class OrganizeWorkspaceSkill(Skill):
                 folder_name = item["folder_name"].strip()
                 parent = None
                 key = (folder_name, parent)
-                folder_id = folder_by_name.get(key)
-                if folder_id is None and auto_create:
+                move_folder_id = folder_by_name.get(key)
+                if move_folder_id is None and auto_create:
                     folder = manager.create_folder(name=folder_name, parent=parent)
-                    folder_id = str(folder.get("id", "")).strip() or None
-                    if folder_id:
-                        folder_by_name[key] = folder_id
+                    move_folder_id = str(folder.get("id", "")).strip() or None
+                    if move_folder_id:
+                        folder_by_name[key] = move_folder_id
                         created.append(folder)
-                if folder_id is None:
+                if move_folder_id is None:
                     errors.append(f"moves[{idx}] 指定的 folder_name 不存在: {folder_name}")
                     continue
 
-            updated = manager.move_file(file_id.strip(), folder_id)
+            updated = manager.move_file(file_id.strip(), move_folder_id)
             if updated is None:
                 errors.append(f"moves[{idx}] 文件不存在: {file_id}")
                 continue

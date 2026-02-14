@@ -106,7 +106,8 @@ def _configure_chart_defaults() -> None:
     # Matplotlib 默认样式
     try:
         import matplotlib
-        from matplotlib import cycler, rcParams
+        from cycler import cycler
+        from matplotlib import rcParams
 
         matplotlib.use("Agg", force=True)
         apply_matplotlib_rc_style(rcParams, style)
@@ -214,24 +215,32 @@ def _build_exec_globals(datasets: dict[str, pd.DataFrame]) -> dict[str, Any]:
     import json
 
     # 尝试导入可视化库（可能未安装）
+    plt: Any | None = None
+    matplotlib: Any | None = None
     try:
         import matplotlib.pyplot as plt
         import matplotlib
     except ImportError:
-        plt = None
-        matplotlib = None
+        pass
 
+    sns: Any | None = None
     try:
-        import seaborn as sns
-    except ImportError:
-        sns = None
+        import seaborn as _sns
 
-    try:
-        import plotly.graph_objects as go
-        import plotly.express as px
+        sns = _sns
     except ImportError:
-        go = None
-        px = None
+        pass
+
+    go: Any | None = None
+    px: Any | None = None
+    try:
+        import plotly.graph_objects as _go
+        import plotly.express as _px
+
+        go = _go
+        px = _px
+    except ImportError:
+        pass
 
     globals_dict: dict[str, Any] = {
         "__builtins__": SAFE_BUILTINS,

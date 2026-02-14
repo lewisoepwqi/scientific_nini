@@ -37,7 +37,7 @@ class Session:
         self.conversation_memory = ConversationMemory(self.id)
         self.knowledge_memory = KnowledgeMemory(self.id)
         if self.load_persisted_messages and not self.messages:
-            self.messages.extend(self.conversation_memory.load_messages())
+            self.messages.extend(self.conversation_memory.load_messages(resolve_refs=True))
 
     def add_message(self, role: str, content: str) -> None:
         msg = {"role": role, "content": content}
@@ -78,12 +78,29 @@ class Session:
         self.messages.append(msg)
         self.conversation_memory.append(msg)
 
-    def add_tool_result(self, tool_call_id: str, content: str) -> None:
+    def add_tool_result(
+        self,
+        tool_call_id: str,
+        content: str,
+        *,
+        tool_name: str | None = None,
+        status: str | None = None,
+        intent: str | None = None,
+        execution_id: str | None = None,
+    ) -> None:
         msg = {
             "role": "tool",
             "tool_call_id": tool_call_id,
             "content": content,
         }
+        if tool_name:
+            msg["tool_name"] = tool_name
+        if status:
+            msg["status"] = status
+        if intent:
+            msg["intent"] = intent
+        if execution_id:
+            msg["execution_id"] = execution_id
         self.messages.append(msg)
         self.conversation_memory.append(msg)
 
@@ -235,9 +252,7 @@ class SessionManager:
 
         return self.create_session()
 
-    def remove_session(
-        self, session_id: str, *, delete_persistent: bool = False
-    ) -> None:
+    def remove_session(self, session_id: str, *, delete_persistent: bool = False) -> None:
         session = self._sessions.pop(session_id, None)
         # 清理内存资源
         if session is not None:
@@ -363,9 +378,8 @@ class SessionManager:
             if p.is_dir():
                 memory_path = p / "memory.jsonl"
                 workspace_dir = p / "workspace"
-                has_workspace_file = (
-                    workspace_dir.exists()
-                    and any(child.is_file() for child in workspace_dir.rglob("*"))
+                has_workspace_file = workspace_dir.exists() and any(
+                    child.is_file() for child in workspace_dir.rglob("*")
                 )
                 if memory_path.exists() or has_workspace_file:
                     session_ids.append(p.name)

@@ -58,8 +58,8 @@ async def save_model_config(
         normalized_api_key = None
     has_new_key = normalized_api_key is not None
 
-    encrypted_key = encrypt_api_key(normalized_api_key) if has_new_key else None
-    key_hint = mask_api_key(normalized_api_key or "") if has_new_key else ""
+    encrypted_key = encrypt_api_key(normalized_api_key) if normalized_api_key is not None else None
+    key_hint = mask_api_key(normalized_api_key) if normalized_api_key is not None else ""
 
     db = await get_db()
     try:
@@ -237,12 +237,10 @@ async def get_default_provider() -> str | None:
     """
     db = await get_db()
     try:
-        cursor = await db.execute(
-            "SELECT value FROM app_settings WHERE key = 'default_provider'"
-        )
+        cursor = await db.execute("SELECT value FROM app_settings WHERE key = 'default_provider'")
         row = await cursor.fetchone()
         if row and row[0]:
-            provider_id = row[0]
+            provider_id = row[0] if isinstance(row[0], str) else None
             if provider_id in VALID_PROVIDERS:
                 return provider_id
         return None

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, cast
 
 from nini.agent.lane_queue import lane_queue
 from nini.agent.session import Session
@@ -177,7 +177,7 @@ class SkillRegistry:
                 session.id,
                 self._execute_skill_in_thread(skill=skill, session=session, kwargs=kwargs),
             )
-            return result.to_dict()
+            return cast(dict[str, Any], result.to_dict())
         except Exception as e:
             logger.error("技能 %s 执行失败: %s", skill_name, e, exc_info=True)
             return {"success": False, "message": f"技能执行失败: {e}"}
@@ -232,7 +232,7 @@ class SkillRegistry:
         context: dict[str, Any],
     ) -> dict[str, Any]:
         """执行降级技能。"""
-        return await self._fallback_manager.execute_fallback(
+        result = await self._fallback_manager.execute_fallback(
             skill_name=skill_name,
             session=session,
             kwargs=kwargs.copy(),
@@ -240,6 +240,7 @@ class SkillRegistry:
             skill_resolver=self.get,
             skill_executor=lambda name, sess, kw: self.execute(name, session=sess, **kw),
         )
+        return cast(dict[str, Any], result)
 
     async def diagnose_data_problem(
         self,

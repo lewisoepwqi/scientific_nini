@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
@@ -22,6 +22,9 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 from nini.agent.session import Session
 from nini.skills.base import Skill, SkillResult
 from nini.utils.chart_fonts import CJK_FONT_FAMILY
+
+if TYPE_CHECKING:
+    import plotly.graph_objects as go
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +192,7 @@ class CompleteANOVASkill(Skill):
                 alpha=0.05,
             )
 
-            comparisons = []
+            comparisons: list[dict[str, Any]] = []
             n_groups = len(tukey.groupsunique)
 
             # 提取成对比较结果
@@ -276,10 +279,10 @@ class CompleteANOVASkill(Skill):
             xaxis_title=group_column,
         )
 
-        return {
-            "figure": fig.to_dict(),
-            "chart_type": "box",
-        }
+        chart_payload = cast(dict[str, Any], fig.to_plotly_json())
+        chart_payload["chart_type"] = "box"
+        chart_payload["schema_version"] = "1.0"
+        return chart_payload
 
     def _apply_journal_style(self, fig: go.Figure, journal_style: str) -> None:
         """应用期刊样式。"""

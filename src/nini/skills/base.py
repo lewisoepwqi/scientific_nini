@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nini.agent.session import Session
+
+if TYPE_CHECKING:
+    from nini.skills.manifest import SkillManifest
 
 
 @dataclass

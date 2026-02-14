@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import plotly.express as px
@@ -26,7 +26,8 @@ from nini.workspace import WorkspaceManager
 
 def _to_plotly_json(fig: go.Figure) -> dict[str, Any]:
     """将 Figure 转换为 JSON 可序列化字典。"""
-    return json.loads(json.dumps(fig, cls=PlotlyJSONEncoder))
+    payload = json.loads(json.dumps(fig, cls=PlotlyJSONEncoder))
+    return cast(dict[str, Any], payload) if isinstance(payload, dict) else {}
 
 
 def _assert_columns(df: pd.DataFrame, *columns: str | None) -> None:
@@ -574,7 +575,8 @@ class CreateChartSkill(Skill):
                 vp = ax.violinplot(
                     grouped_values, positions=positions, showmeans=False, showextrema=True
                 )
-                for idx, body in enumerate(vp["bodies"]):
+                bodies = cast(list[Any], vp["bodies"])
+                for idx, body in enumerate(bodies):
                     body.set_facecolor(palette[idx % len(palette)])
                     body.set_alpha(0.7)
                 ax.set_xticks(positions)
@@ -583,7 +585,8 @@ class CreateChartSkill(Skill):
                 vp = ax.violinplot(
                     [df[value_col].dropna().to_list()], showmeans=False, showextrema=True
                 )
-                for body in vp["bodies"]:
+                bodies = cast(list[Any], vp["bodies"])
+                for body in bodies:
                     body.set_facecolor(palette[0])
                     body.set_alpha(0.7)
                 ax.set_xticks([1])
