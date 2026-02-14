@@ -9,8 +9,9 @@ from __future__ import annotations
 import json
 import logging
 from abc import ABC, abstractmethod
+from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, TypedDict
 
 from nini.config import settings
 
@@ -37,6 +38,17 @@ class LLMResponse:
     text: str = ""
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
+    # 记录流式聚合后的终止原因，便于上层诊断空输出/截断等问题
+    finish_reason: str | None = None
+    finish_reasons: list[str] = field(default_factory=list)
+
+
+class PurposeRoute(TypedDict):
+    """用途路由配置。"""
+
+    provider_id: str | None
+    model: str | None
+    base_url: str | None
 
 
 # ---- 抽象客户端 ----
@@ -651,8 +663,10 @@ class DashScopeClient(OpenAICompatibleClient):
 class ModelResolver:
     """多模型路由器：按优先级尝试可用模型，失败自动降级。
 
-    支持设置首选提供商：当用户选择特定模型时，优先使用该提供商，
-    失败后仍按默认优先级降级。
+    支持全局首选与用途级首选：
+    - 全局首选：所有用途共享
+    - 用途首选：仅作用于特定用途（如 title_generation/image_analysis）
+    路由优先级：用途首选 > 全局首选 > 默认优先级。
     """
 
     def __init__(self, clients: list[BaseLLMClient] | None = None):
@@ -669,41 +683,113 @@ class ModelResolver:
         ]
         # 用户首选的提供商 ID（None 表示使用默认优先级）
         self._preferred_provider: str | None = None
+        # 用途级路由配置：purpose -> {provider_id, model, base_url}
+        self._purpose_routes: dict[str, PurposeRoute] = {}
+        # 最近一次客户端重载时的有效配置（用于构造用途专用客户端）
+        self._config_overrides: dict[str, dict[str, Any]] = {}
 
-    def set_preferred_provider(self, provider_id: str | None) -> None:
+    @staticmethod
+    def _empty_purpose_route() -> PurposeRoute:
+        return {"provider_id": None, "model": None, "base_url": None}
+
+    def set_purpose_route(
+        self,
+        purpose: str,
+        *,
+        provider_id: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ) -> None:
+        """设置用途级路由配置。"""
+        if not purpose:
+            return
+        normalized_provider = provider_id.strip() if isinstance(provider_id, str) else ""
+        normalized_model = model.strip() if isinstance(model, str) else ""
+        normalized_base_url = base_url.strip() if isinstance(base_url, str) else ""
+        if not normalized_provider:
+            self._purpose_routes.pop(purpose, None)
+            logger.info("用途模型路由已清除: purpose=%s", purpose)
+            return
+        route: PurposeRoute = {
+            "provider_id": normalized_provider,
+            "model": normalized_model or None,
+            "base_url": normalized_base_url or None,
+        }
+        self._purpose_routes[purpose] = route
+        logger.info(
+            "用途模型路由已设置: purpose=%s provider=%s model=%s base_url=%s",
+            purpose,
+            route["provider_id"],
+            route["model"] or "",
+            route["base_url"] or "",
+        )
+
+    def get_purpose_route(self, purpose: str) -> PurposeRoute:
+        """获取用途级路由配置。"""
+        route = self._purpose_routes.get(purpose)
+        if route is None:
+            return self._empty_purpose_route()
+        return {
+            "provider_id": route.get("provider_id"),
+            "model": route.get("model"),
+            "base_url": route.get("base_url"),
+        }
+
+    def get_purpose_routes(self) -> dict[str, PurposeRoute]:
+        """获取全部用途级路由配置。"""
+        return {
+            purpose: {
+                "provider_id": route.get("provider_id"),
+                "model": route.get("model"),
+                "base_url": route.get("base_url"),
+            }
+            for purpose, route in self._purpose_routes.items()
+        }
+
+    def set_preferred_provider(
+        self,
+        provider_id: str | None,
+        *,
+        purpose: str | None = None,
+    ) -> None:
         """设置首选模型提供商。
 
         Args:
             provider_id: 提供商 ID（如 "openai"、"anthropic"），None 表示恢复默认优先级。
+            purpose: 用途标识；None 表示全局首选，非 None 表示用途级首选。
         """
-        self._preferred_provider = provider_id
-        logger.info("首选模型提供商已设置为: %s", provider_id or "（默认优先级）")
+        if purpose:
+            self.set_purpose_route(purpose, provider_id=provider_id)
+            return
 
-    def get_preferred_provider(self) -> str | None:
+        self._preferred_provider = provider_id
+        logger.info("全局首选模型提供商已设置为: %s", provider_id or "（默认优先级）")
+
+    def get_preferred_provider(self, *, purpose: str | None = None) -> str | None:
         """获取当前首选的提供商 ID。"""
+        if purpose:
+            return self.get_purpose_route(purpose).get("provider_id")
         return self._preferred_provider
 
-    def get_active_model_info(self) -> dict[str, str]:
+    def get_preferred_providers_by_purpose(self) -> dict[str, str]:
+        """获取所有用途级首选提供商。"""
+        result: dict[str, str] = {}
+        for purpose, route in self._purpose_routes.items():
+            provider = route.get("provider_id")
+            if provider:
+                result[purpose] = provider
+        return result
+
+    def get_active_model_info(self, *, purpose: str | None = None) -> dict[str, str]:
         """获取当前活跃模型的信息。
 
-        如果设置了首选提供商且可用，返回该提供商信息；
-        否则返回默认优先级中第一个可用的提供商信息。
+        如果设置了用途首选且可用，优先返回用途首选；
+        否则回退到全局首选；最后使用默认优先级中第一个可用提供商。
 
         Returns:
             包含 provider_id、provider_name、model 的字典。
         """
-        # 如果有首选提供商，优先检查
-        if self._preferred_provider:
-            for client in self._clients:
-                if client.provider_id == self._preferred_provider and client.is_available():
-                    return {
-                        "provider_id": client.provider_id,
-                        "provider_name": client.provider_name,
-                        "model": client.get_model_name(),
-                    }
-
-        # 回退到默认优先级
-        for client in self._clients:
+        for client in self._get_ordered_clients(purpose=purpose):
             if client.is_available():
                 return {
                     "provider_id": client.provider_id,
@@ -713,22 +799,87 @@ class ModelResolver:
 
         return {"provider_id": "", "provider_name": "无可用模型", "model": ""}
 
-    def _get_ordered_clients(self) -> list[BaseLLMClient]:
+    def _get_ordered_clients(self, *, purpose: str | None = None) -> list[BaseLLMClient]:
         """获取按首选提供商优先排序的客户端列表。
 
-        如果设置了首选提供商，将其排在最前面，其余保持原有优先级。
+        如果设置了用途模型覆盖，先插入用途专用客户端；
+        再按用途首选/全局首选将同提供商客户端排在前面。
         """
-        if not self._preferred_provider:
-            return self._clients
+        ordered = list(self._clients)
+        route = self.get_purpose_route(purpose) if purpose else self._empty_purpose_route()
+        route_provider = route.get("provider_id")
+        route_model = route.get("model")
+        route_base_url = route.get("base_url")
+        if route_provider and (route_model or route_base_url):
+            specialized = self._build_client_for_provider(
+                route_provider,
+                model=route_model,
+                base_url=route_base_url,
+            )
+            if specialized is not None:
+                ordered = [specialized] + ordered
+
+        preferred_provider = route_provider or self._preferred_provider
+        if not preferred_provider:
+            return ordered
 
         preferred: list[BaseLLMClient] = []
         others: list[BaseLLMClient] = []
-        for client in self._clients:
-            if client.provider_id == self._preferred_provider:
+        for client in ordered:
+            if client.provider_id == preferred_provider:
                 preferred.append(client)
             else:
                 others.append(client)
         return preferred + others
+
+    def _build_client_for_provider(
+        self,
+        provider_id: str,
+        *,
+        model: str | None = None,
+        base_url: str | None = None,
+    ) -> BaseLLMClient | None:
+        """按 provider 构造临时客户端（支持用途级 model/base_url 覆盖）。"""
+        cfg = self._config_overrides.get(provider_id, {})
+        api_key = cfg.get("api_key")
+        cfg_model = cfg.get("model")
+        cfg_base_url = cfg.get("base_url")
+        effective_model = model or cfg_model
+        effective_base_url = base_url or cfg_base_url
+
+        if provider_id == "openai":
+            return OpenAIClient(api_key=api_key, base_url=effective_base_url, model=effective_model)
+        if provider_id == "anthropic":
+            return AnthropicClient(api_key=api_key, model=effective_model)
+        if provider_id == "moonshot":
+            return MoonshotClient(
+                api_key=api_key,
+                base_url=effective_base_url,
+                model=effective_model,
+            )
+        if provider_id == "kimi_coding":
+            return KimiCodingClient(
+                api_key=api_key,
+                base_url=effective_base_url,
+                model=effective_model,
+            )
+        if provider_id == "zhipu":
+            return ZhipuClient(
+                api_key=api_key,
+                base_url=effective_base_url,
+                model=effective_model,
+            )
+        if provider_id == "deepseek":
+            return DeepSeekClient(api_key=api_key, model=effective_model)
+        if provider_id == "dashscope":
+            return DashScopeClient(api_key=api_key, model=effective_model)
+        if provider_id == "ollama":
+            return OllamaClient(base_url=effective_base_url, model=effective_model)
+        return None
+
+    def _is_temporary_client(self, client: BaseLLMClient) -> bool:
+        """判断是否为临时用途客户端。"""
+        return all(client is not base for base in self._clients)
 
     def reload_clients(self, config_overrides: dict[str, dict[str, Any]] | None = None) -> None:
         """使用新配置重新初始化所有客户端。
@@ -739,6 +890,7 @@ class ModelResolver:
                 DB 配置已合并 .env 后传入。
         """
         overrides = config_overrides or {}
+        self._config_overrides = overrides
 
         def _get(provider: str, key: str) -> str | None:
             return overrides.get(provider, {}).get(key)
@@ -804,18 +956,23 @@ class ModelResolver:
         *,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        purpose: str | None = None,
     ) -> AsyncGenerator[LLMChunk, None]:
         """带故障转移的流式聊天。
 
-        如果设置了首选提供商，优先使用该提供商；失败后按默认优先级降级。
+        路由优先级：用途首选 > 全局首选 > 默认优先级。
         """
         temp = temperature if temperature is not None else settings.llm_temperature
         tokens = max_tokens if max_tokens is not None else settings.llm_max_tokens
 
         last_error: Exception | None = None
 
-        for client in self._get_ordered_clients():
+        for client in self._get_ordered_clients(purpose=purpose):
+            is_temp = self._is_temporary_client(client)
             if not client.is_available():
+                if is_temp:
+                    with suppress(Exception):
+                        await client.aclose()
                 continue
             try:
                 async for chunk in client.chat(
@@ -826,9 +983,18 @@ class ModelResolver:
             except NotImplementedError:
                 continue
             except Exception as e:
-                logger.warning("LLM 客户端 %s 调用失败: %s", type(client).__name__, e)
+                logger.warning(
+                    "LLM 客户端 %s 调用失败: purpose=%s err=%s",
+                    type(client).__name__,
+                    purpose or "default",
+                    e,
+                )
                 last_error = e
                 continue
+            finally:
+                if is_temp:
+                    with suppress(Exception):
+                        await client.aclose()
 
         raise RuntimeError(f"所有 LLM 客户端均失败: {last_error}")
 
@@ -839,13 +1005,22 @@ class ModelResolver:
         *,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        purpose: str | None = None,
     ) -> LLMResponse:
         """非流式便捷方法：聚合所有 chunk 为完整响应。"""
         response = LLMResponse()
         async for chunk in self.chat(
-            messages, tools, temperature=temperature, max_tokens=max_tokens
+            messages,
+            tools,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            purpose=purpose,
         ):
             response.text += chunk.text
+            if chunk.finish_reason:
+                response.finish_reason = chunk.finish_reason
+                if chunk.finish_reason not in response.finish_reasons:
+                    response.finish_reasons.append(chunk.finish_reason)
             if chunk.tool_calls:
                 response.tool_calls.extend(chunk.tool_calls)
             if chunk.usage:
@@ -859,7 +1034,11 @@ model_resolver = ModelResolver()
 
 async def reload_model_resolver() -> None:
     """从数据库加载配置并重新初始化全局 model_resolver 的客户端。"""
-    from nini.config_manager import get_all_effective_configs, get_default_provider
+    from nini.config_manager import (
+        get_all_effective_configs,
+        get_default_provider,
+        get_model_purpose_routes,
+    )
 
     configs = await get_all_effective_configs()
     model_resolver.reload_clients(configs)
@@ -869,3 +1048,15 @@ async def reload_model_resolver() -> None:
     if default_provider:
         model_resolver.set_preferred_provider(default_provider)
         logger.info("已从数据库加载默认提供商: %s", default_provider)
+    else:
+        model_resolver.set_preferred_provider(None)
+
+    purpose_routes = await get_model_purpose_routes()
+    for purpose, route in purpose_routes.items():
+        model_resolver.set_purpose_route(
+            purpose,
+            provider_id=route.get("provider_id"),
+            model=route.get("model"),
+            base_url=route.get("base_url"),
+        )
+    logger.info("已从数据库加载用途模型路由: %s", purpose_routes)

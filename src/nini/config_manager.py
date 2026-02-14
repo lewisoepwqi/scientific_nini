@@ -8,8 +8,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any
+from typing import Any, TypedDict
 
 from nini.config import settings
 from nini.models.database import get_db
@@ -28,6 +29,20 @@ VALID_PROVIDERS = {
     "dashscope",
     "ollama",
 }
+
+# 支持的模型用途
+MODEL_PURPOSES: tuple[str, ...] = ("chat", "title_generation", "image_analysis")
+VALID_MODEL_PURPOSES = set(MODEL_PURPOSES)
+
+_PURPOSE_ROUTING_KEY = "preferred_provider_by_purpose"
+
+
+class ModelPurposeRoute(TypedDict):
+    """用途模型路由配置。"""
+
+    provider_id: str | None
+    model: str | None
+    base_url: str | None
 
 
 async def save_model_config(
@@ -289,3 +304,176 @@ async def set_default_provider(provider_id: str | None) -> bool:
         return False
     finally:
         await db.close()
+
+
+def _empty_route() -> ModelPurposeRoute:
+    return {"provider_id": None, "model": None, "base_url": None}
+
+
+def _normalize_route_item(item: Any) -> ModelPurposeRoute:
+    """兼容旧格式（字符串 provider）与新格式（对象）。"""
+    route = _empty_route()
+
+    # 旧格式：{"chat": "zhipu"}
+    if isinstance(item, str):
+        provider_id = item.strip()
+        if provider_id and provider_id in VALID_PROVIDERS:
+            route["provider_id"] = provider_id
+        return route
+
+    # 新格式：{"provider_id": "...", "model": "...", "base_url": "..."}
+    if not isinstance(item, dict):
+        return route
+
+    provider_raw = item.get("provider_id")
+    provider_id = provider_raw.strip() if isinstance(provider_raw, str) else ""
+    if provider_id and provider_id in VALID_PROVIDERS:
+        route["provider_id"] = provider_id
+
+    model_raw = item.get("model")
+    model = model_raw.strip() if isinstance(model_raw, str) else ""
+    if model:
+        route["model"] = model
+
+    base_url_raw = item.get("base_url")
+    base_url = base_url_raw.strip() if isinstance(base_url_raw, str) else ""
+    if base_url:
+        route["base_url"] = base_url
+
+    # provider 缺失时，model/base_url 无意义，自动清空
+    if not route["provider_id"]:
+        route["model"] = None
+        route["base_url"] = None
+    return route
+
+
+def _normalize_purpose_routes(value: Any) -> dict[str, ModelPurposeRoute]:
+    """清洗并校验用途路由映射。"""
+    normalized: dict[str, ModelPurposeRoute] = {
+        purpose: _empty_route() for purpose in MODEL_PURPOSES
+    }
+    if not isinstance(value, dict):
+        return normalized
+
+    for purpose, raw in value.items():
+        if purpose not in VALID_MODEL_PURPOSES:
+            continue
+        normalized[purpose] = _normalize_route_item(raw)
+    return normalized
+
+
+async def get_model_purpose_routes() -> dict[str, ModelPurposeRoute]:
+    """读取用途级别的模型路由映射。"""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT value FROM app_settings WHERE key = ?",
+            (_PURPOSE_ROUTING_KEY,),
+        )
+        row = await cursor.fetchone()
+        if not row or not row[0]:
+            return {purpose: _empty_route() for purpose in MODEL_PURPOSES}
+        try:
+            loaded = json.loads(row[0])
+        except json.JSONDecodeError:
+            logger.warning("用途模型路由配置解析失败，已回退为空映射")
+            loaded = {}
+        return _normalize_purpose_routes(loaded)
+    finally:
+        await db.close()
+
+
+async def set_model_purpose_routes(
+    updates: dict[str, dict[str, str | None]],
+) -> dict[str, ModelPurposeRoute]:
+    """保存用途级别的模型路由映射（增量更新）。"""
+    for purpose in updates:
+        if purpose not in VALID_MODEL_PURPOSES:
+            raise ValueError(f"不支持的模型用途: {purpose}")
+
+    current = await get_model_purpose_routes()
+    merged: dict[str, ModelPurposeRoute] = {
+        purpose: {
+            "provider_id": current[purpose]["provider_id"],
+            "model": current[purpose]["model"],
+            "base_url": current[purpose]["base_url"],
+        }
+        for purpose in MODEL_PURPOSES
+    }
+
+    for purpose, payload in updates.items():
+        route = merged[purpose]
+        if "provider_id" in payload:
+            provider_id = payload.get("provider_id")
+            normalized_provider = provider_id.strip() if isinstance(provider_id, str) else None
+            route["provider_id"] = normalized_provider or None
+        if "model" in payload:
+            model = payload.get("model")
+            normalized_model = model.strip() if isinstance(model, str) else None
+            route["model"] = normalized_model or None
+        if "base_url" in payload:
+            base_url = payload.get("base_url")
+            normalized_base_url = base_url.strip() if isinstance(base_url, str) else None
+            route["base_url"] = normalized_base_url or None
+
+        if route["provider_id"] and route["provider_id"] not in VALID_PROVIDERS:
+            raise ValueError(f"不支持的模型提供商: {route['provider_id']}")
+        if not route["provider_id"] and (route["model"] or route["base_url"]):
+            raise ValueError(f"用途 {purpose} 配置了 model/base_url，但缺少 provider_id")
+
+    to_store: dict[str, dict[str, str]] = {}
+    for purpose, route in merged.items():
+        provider_id = route.get("provider_id")
+        if not provider_id:
+            continue
+        item: dict[str, str] = {"provider_id": provider_id}
+        if route.get("model"):
+            item["model"] = str(route["model"])
+        if route.get("base_url"):
+            item["base_url"] = str(route["base_url"])
+        to_store[purpose] = item
+
+    db = await get_db()
+    try:
+        if to_store:
+            await db.execute(
+                """
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES (?, ?, datetime('now'))
+                ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+                """,
+                (_PURPOSE_ROUTING_KEY, json.dumps(to_store, ensure_ascii=False)),
+            )
+        else:
+            await db.execute(
+                "DELETE FROM app_settings WHERE key = ?",
+                (_PURPOSE_ROUTING_KEY,),
+            )
+        await db.commit()
+        logger.info("用途模型路由已更新: %s", to_store)
+        return merged
+    finally:
+        await db.close()
+
+
+async def get_purpose_provider_routes() -> dict[str, str | None]:
+    """读取用途级别的首选提供商映射（兼容接口）。"""
+    routes = await get_model_purpose_routes()
+    return {purpose: routes[purpose].get("provider_id") for purpose in MODEL_PURPOSES}
+
+
+async def set_purpose_provider_routes(
+    updates: dict[str, str | None],
+) -> dict[str, str | None]:
+    """保存用途级别的首选提供商映射（兼容接口）。"""
+    transformed: dict[str, dict[str, str | None]] = {}
+    for purpose, provider in updates.items():
+        transformed[purpose] = {
+            "provider_id": provider,
+            "model": None,
+            "base_url": None,
+        }
+    merged = await set_model_purpose_routes(transformed)
+    return {purpose: merged[purpose].get("provider_id") for purpose in MODEL_PURPOSES}

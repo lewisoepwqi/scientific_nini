@@ -21,6 +21,13 @@ from nini.skills.base import SkillResult
 TEST_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 
 
+class _DummyLLMResponse:
+    """模拟 LLMResponse。"""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
 @pytest.fixture
 def mock_image_data():
     """提供测试用的 base64 编码图片数据。"""
@@ -404,6 +411,27 @@ class TestVisionModelIntegration:
 
             # 应该返回 SkillResult（虽然可能包含错误信息）
             assert isinstance(result, SkillResult)
+
+    @pytest.mark.asyncio
+    async def test_call_vision_model_uses_image_analysis_purpose(self, mock_image_data):
+        """视觉模型调用应走 image_analysis 用途路由。"""
+        from nini.skills.image_analysis import ImageAnalysisSkill
+
+        skill = ImageAnalysisSkill()
+        called_kwargs: dict[str, Any] = {}
+
+        async def _fake_chat_complete(*args, **kwargs):  # type: ignore[no-untyped-def]
+            called_kwargs.update(kwargs)
+            return _DummyLLMResponse('{"chart_type":"bar"}')
+
+        with patch("nini.skills.image_analysis.model_resolver.chat_complete", _fake_chat_complete):
+            result = await skill._call_vision_model(  # noqa: SLF001
+                {"data": mock_image_data, "media_type": "image/png"},
+                "请分析图表",
+            )
+
+        assert "bar" in result
+        assert called_kwargs.get("purpose") == "image_analysis"
 
 
 class TestDataFormatSupport:

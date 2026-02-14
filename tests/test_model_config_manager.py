@@ -7,7 +7,14 @@ from pathlib import Path
 import pytest
 
 from nini.config import settings
-from nini.config_manager import get_effective_config, save_model_config
+from nini.config_manager import (
+    get_effective_config,
+    get_model_purpose_routes,
+    get_purpose_provider_routes,
+    save_model_config,
+    set_model_purpose_routes,
+    set_purpose_provider_routes,
+)
 from nini.models.database import init_db
 
 
@@ -58,3 +65,70 @@ async def test_save_model_with_blank_key_does_not_override_existing_key() -> Non
     assert cfg["api_key"] == "sk-test-blank-87654321"
     assert cfg["model"] == "deepseek-reasoner"
     assert updated["api_key_hint"] == first["api_key_hint"]
+
+
+@pytest.mark.asyncio
+async def test_purpose_provider_routes_default_to_none() -> None:
+    """用途路由未配置时应返回空映射（值为 None）。"""
+    await init_db()
+
+    routes = await get_purpose_provider_routes()
+
+    assert routes == {
+        "chat": None,
+        "title_generation": None,
+        "image_analysis": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_set_purpose_provider_routes_merges_updates() -> None:
+    """用途路由应支持增量更新并持久化。"""
+    await init_db()
+
+    first = await set_purpose_provider_routes(
+        {
+            "title_generation": "zhipu",
+            "image_analysis": "openai",
+        }
+    )
+    second = await set_purpose_provider_routes(
+        {
+            "title_generation": None,
+        }
+    )
+    loaded = await get_purpose_provider_routes()
+
+    assert first["title_generation"] == "zhipu"
+    assert first["image_analysis"] == "openai"
+    assert second["title_generation"] is None
+    assert second["image_analysis"] == "openai"
+    assert loaded["title_generation"] is None
+    assert loaded["image_analysis"] == "openai"
+
+
+@pytest.mark.asyncio
+async def test_set_model_purpose_routes_supports_model_override() -> None:
+    """用途路由应支持 provider+model 组合配置。"""
+    await init_db()
+
+    await set_model_purpose_routes(
+        {
+            "chat": {
+                "provider_id": "zhipu",
+                "model": "glm-5",
+                "base_url": None,
+            },
+            "title_generation": {
+                "provider_id": "zhipu",
+                "model": "glm-4.7-flash",
+                "base_url": None,
+            },
+        }
+    )
+    routes = await get_model_purpose_routes()
+
+    assert routes["chat"]["provider_id"] == "zhipu"
+    assert routes["chat"]["model"] == "glm-5"
+    assert routes["title_generation"]["provider_id"] == "zhipu"
+    assert routes["title_generation"]["model"] == "glm-4.7-flash"

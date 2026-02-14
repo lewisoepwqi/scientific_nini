@@ -4,16 +4,14 @@ from __future__ import annotations
 
 import base64
 import json
-from io import BytesIO
 from pathlib import Path
 from typing import Any, cast
 
 import httpx
 import pandas as pd
-from openai import AsyncOpenAI
 
+from nini.agent.model_resolver import model_resolver
 from nini.agent.session import Session
-from nini.config import settings
 from nini.skills.base import Skill, SkillResult
 
 
@@ -33,11 +31,6 @@ class ImageAnalysisSkill(Skill):
     ]
 
     _output_formats = ["dataframe", "csv", "json", "text"]
-
-    def __init__(self) -> None:
-        """初始化图片分析技能。"""
-        self._client: AsyncOpenAI | None = None
-        self._vision_available: bool | None = None  # None 表示未检测
 
     @property
     def name(self) -> str:
@@ -273,7 +266,7 @@ class ImageAnalysisSkill(Skill):
         if not self._is_vision_available():
             return {
                 "chart_type": "unknown",
-                "error": "视觉模型不可用，请配置 OpenAI API Key",
+                "error": "视觉模型不可用，请先在模型配置中设置可用的图片识别模型",
             }
 
         try:
@@ -309,7 +302,7 @@ class ImageAnalysisSkill(Skill):
         """提取数据（表格或图表数据）。"""
         if not self._is_vision_available():
             return {
-                "error": "视觉模型不可用，请配置 OpenAI API Key",
+                "error": "视觉模型不可用，请先在模型配置中设置可用的图片识别模型",
             }
 
         try:
@@ -333,12 +326,6 @@ class ImageAnalysisSkill(Skill):
 
     async def _call_vision_model(self, image_source: dict[str, Any], prompt: str) -> str:
         """调用视觉模型。"""
-        if not self._client:
-            api_key = settings.openai_api_key
-            if not api_key:
-                raise ValueError("未配置 OpenAI API Key")
-            self._client = AsyncOpenAI(api_key=api_key)
-
         base64_data = image_source["data"]
         media_type = image_source.get("media_type", "image/png")
 
@@ -357,13 +344,13 @@ class ImageAnalysisSkill(Skill):
             }
         ]
 
-        response = await self._client.chat.completions.create(
-            model=settings.openai_model,
-            messages=cast(Any, messages),
+        response = await model_resolver.chat_complete(
+            cast(Any, messages),
             max_tokens=2048,
+            temperature=0.1,
+            purpose="image_analysis",
         )
-
-        return response.choices[0].message.content or ""
+        return response.text or ""
 
     def _parse_json_response(self, response: str, default: Any = None) -> Any:
         """解析 JSON 响应。"""
@@ -473,8 +460,5 @@ class ImageAnalysisSkill(Skill):
 
     def _is_vision_available(self) -> bool:
         """检测视觉模型是否可用。"""
-        if self._vision_available is not None:
-            return self._vision_available
-
-        self._vision_available = bool(settings.openai_api_key)
-        return self._vision_available
+        info = model_resolver.get_active_model_info(purpose="image_analysis")
+        return bool(info.get("provider_id"))

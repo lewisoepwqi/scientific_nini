@@ -25,6 +25,7 @@ from nini.models.schemas import (
     DatasetInfo,
     FileRenameRequest,
     ModelConfigRequest,
+    ModelRoutingRequest,
     SaveWorkspaceTextRequest,
     SessionInfo,
     SessionUpdateRequest,
@@ -963,6 +964,12 @@ _MODEL_PROVIDERS = [
     },
 ]
 
+_MODEL_PURPOSES = [
+    {"id": "chat", "label": "主对话"},
+    {"id": "title_generation", "label": "标题生成"},
+    {"id": "image_analysis", "label": "图片识别"},
+]
+
 
 @router.get("/models/{provider_id}/available", response_model=APIResponse)
 async def list_available_models_endpoint(provider_id: str):
@@ -1038,6 +1045,113 @@ async def list_models():
         )
 
     return APIResponse(data=result)
+
+
+@router.get("/models/routing", response_model=APIResponse)
+async def get_model_routing():
+    """获取用途模型路由配置与当前生效模型。"""
+    from nini.agent.model_resolver import model_resolver
+    from nini.config_manager import get_model_purpose_routes
+
+    preferred_provider = model_resolver.get_preferred_provider()
+    purpose_routes = await get_model_purpose_routes()
+    active_by_purpose: dict[str, dict[str, str]] = {}
+    purpose_providers: dict[str, str | None] = {}
+    for item in _MODEL_PURPOSES:
+        purpose = item["id"]
+        purpose_providers[purpose] = purpose_routes.get(purpose, {}).get("provider_id")
+        active_by_purpose[purpose] = model_resolver.get_active_model_info(purpose=purpose)
+
+    return APIResponse(
+        data={
+            "preferred_provider": preferred_provider,
+            "purpose_routes": purpose_routes,
+            "purpose_providers": purpose_providers,
+            "active_by_purpose": active_by_purpose,
+            "purposes": _MODEL_PURPOSES,
+        }
+    )
+
+
+@router.post("/models/routing", response_model=APIResponse)
+async def set_model_routing(req: ModelRoutingRequest):
+    """保存用途模型路由配置（支持部分更新）。"""
+    from nini.agent.model_resolver import model_resolver
+    from nini.config_manager import (
+        set_default_provider,
+        set_model_purpose_routes,
+        VALID_MODEL_PURPOSES,
+        VALID_PROVIDERS,
+    )
+
+    update_global_preferred = "preferred_provider" in req.model_fields_set
+    preferred_provider: str | None = None
+    if update_global_preferred:
+        preferred_provider_raw = (req.preferred_provider or "").strip()
+        preferred_provider = preferred_provider_raw or None
+        if preferred_provider and preferred_provider not in VALID_PROVIDERS:
+            return APIResponse(success=False, error=f"未知的模型提供商: {preferred_provider}")
+
+    updates: dict[str, dict[str, str | None]] = {}
+    # 兼容旧版字段：purpose_providers（仅 provider）
+    for purpose, provider in req.purpose_providers.items():
+        if purpose not in VALID_MODEL_PURPOSES:
+            return APIResponse(success=False, error=f"未知的模型用途: {purpose}")
+        provider_id = (provider or "").strip() or None
+        if provider_id and provider_id not in VALID_PROVIDERS:
+            return APIResponse(success=False, error=f"未知的模型提供商: {provider_id}")
+        updates[purpose] = {
+            "provider_id": provider_id,
+            "model": None,
+            "base_url": None,
+        }
+
+    # 新版字段：purpose_routes（provider + model + base_url）
+    for purpose, route in req.purpose_routes.items():
+        if purpose not in VALID_MODEL_PURPOSES:
+            return APIResponse(success=False, error=f"未知的模型用途: {purpose}")
+        provider_id = (route.provider_id or "").strip() or None
+        model = (route.model or "").strip() or None
+        base_url = (route.base_url or "").strip() or None
+        if provider_id and provider_id not in VALID_PROVIDERS:
+            return APIResponse(success=False, error=f"未知的模型提供商: {provider_id}")
+        updates[purpose] = {
+            "provider_id": provider_id,
+            "model": model,
+            "base_url": base_url,
+        }
+
+    # 更新全局首选（为空表示清除）
+    if update_global_preferred:
+        await set_default_provider(preferred_provider)
+        model_resolver.set_preferred_provider(preferred_provider)
+
+    # 更新用途路由（增量）
+    merged_routes = await set_model_purpose_routes(updates)
+    for purpose, route in merged_routes.items():
+        model_resolver.set_purpose_route(
+            purpose,
+            provider_id=route.get("provider_id"),
+            model=route.get("model"),
+            base_url=route.get("base_url"),
+        )
+
+    active_by_purpose: dict[str, dict[str, str]] = {}
+    purpose_providers: dict[str, str | None] = {}
+    for item in _MODEL_PURPOSES:
+        purpose = item["id"]
+        purpose_providers[purpose] = merged_routes.get(purpose, {}).get("provider_id")
+        active_by_purpose[purpose] = model_resolver.get_active_model_info(purpose=purpose)
+
+    return APIResponse(
+        data={
+            "preferred_provider": model_resolver.get_preferred_provider(),
+            "purpose_routes": merged_routes,
+            "purpose_providers": purpose_providers,
+            "active_by_purpose": active_by_purpose,
+            "purposes": _MODEL_PURPOSES,
+        }
+    )
 
 
 @router.post("/models/config", response_model=APIResponse)
@@ -1149,6 +1263,8 @@ async def get_active_model():
 
     info: dict[str, Any] = model_resolver.get_active_model_info()
     info["preferred_provider"] = model_resolver.get_preferred_provider()
+    info["purpose_preferred_providers"] = model_resolver.get_preferred_providers_by_purpose()
+    info["purpose_routes"] = model_resolver.get_purpose_routes()
     return APIResponse(data=info)
 
 

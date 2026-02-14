@@ -90,6 +90,23 @@ class SetActiveModelRequest(BaseModel):
     provider_id: str
 
 
+class ModelPurposeRouteRequest(BaseModel):
+    """单个用途的模型路由配置。"""
+
+    provider_id: Optional[str] = None
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+class ModelRoutingRequest(BaseModel):
+    """用途模型路由配置请求。"""
+
+    preferred_provider: Optional[str] = None
+    purpose_routes: dict[str, ModelPurposeRouteRequest] = Field(default_factory=dict)
+    # 兼容旧版前端：仅提供 provider 映射
+    purpose_providers: dict[str, Optional[str]] = Field(default_factory=dict)
+
+
 class SessionUpdateRequest(BaseModel):
     """会话更新请求。"""
 
