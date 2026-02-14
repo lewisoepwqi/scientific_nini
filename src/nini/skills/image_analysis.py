@@ -6,7 +6,7 @@ import base64
 import json
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pandas as pd
@@ -292,7 +292,12 @@ class ImageAnalysisSkill(Skill):
             )
 
             response = await self._call_vision_model(image_source, prompt)
-            return self._parse_json_response(response, default={"chart_type": "unknown"})
+            parsed = self._parse_json_response(response, default={"chart_type": "unknown"})
+            return (
+                cast(dict[str, Any], parsed)
+                if isinstance(parsed, dict)
+                else {"chart_type": "unknown"}
+            )
 
         except Exception as exc:
             return {
@@ -318,7 +323,8 @@ class ImageAnalysisSkill(Skill):
             )
 
             response = await self._call_vision_model(image_source, prompt)
-            return self._parse_json_response(response, default={})
+            parsed = self._parse_json_response(response, default={})
+            return cast(dict[str, Any], parsed) if isinstance(parsed, dict) else {}
 
         except Exception as exc:
             return {
@@ -353,7 +359,7 @@ class ImageAnalysisSkill(Skill):
 
         response = await self._client.chat.completions.create(
             model=settings.openai_model,
-            messages=messages,
+            messages=cast(Any, messages),
             max_tokens=2048,
         )
 
@@ -426,14 +432,14 @@ class ImageAnalysisSkill(Skill):
         except Exception:
             return None
 
-    def _format_output(self, data: dict[str, Any], output_format: str) -> str:
+    def _format_output(self, data: dict[str, Any], output_format: str) -> str | dict[str, Any]:
         """格式化输出。"""
         if output_format == "json":
             return json.dumps(data, ensure_ascii=False, indent=2)
         if output_format == "csv":
             df = self._data_to_dataframe(data.get("extracted_data", {}))
             if df is not None:
-                return df.to_csv(index=False)
+                return cast(str, df.to_csv(index=False))
             return ""
         if output_format == "text":
             return str(data)

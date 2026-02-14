@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import numpy as np
 import pandas as pd
 
 
-def _raise_excel_parse_error(exc: Exception, ext_norm: str) -> None:
+def _raise_excel_parse_error(exc: Exception, ext_norm: str) -> NoReturn:
     """将底层 Excel 读取异常转换为更友好的中文错误。"""
     message = str(exc)
     lower = message.lower()

@@ -113,24 +113,28 @@ class VectorKnowledgeStore:
                     if remaining > 200:
                         text = text[:remaining] + "\n..."
                         parts.append(text)
-                        hit_items.append({
-                            "source": source,
-                            "score": score,
-                            "hits": 1,
-                            "snippet": text[:300],
-                            "method": "vector",
-                        })
+                        hit_items.append(
+                            {
+                                "source": source,
+                                "score": score,
+                                "hits": 1,
+                                "snippet": text[:300],
+                                "method": "vector",
+                            }
+                        )
                     break
 
                 parts.append(text)
                 total_chars += len(text)
-                hit_items.append({
-                    "source": source,
-                    "score": score,
-                    "hits": 1,
-                    "snippet": text[:300],
-                    "method": "vector",
-                })
+                hit_items.append(
+                    {
+                        "source": source,
+                        "score": score,
+                        "hits": 1,
+                        "snippet": text[:300],
+                        "method": "vector",
+                    }
+                )
 
             return "\n\n".join(parts), hit_items
         except Exception:
@@ -150,7 +154,10 @@ class VectorKnowledgeStore:
         except (json.JSONDecodeError, OSError):
             return True
 
-        return current_hashes != saved_hashes
+        if not isinstance(saved_hashes, dict):
+            return True
+        normalized_saved = {str(key): str(value) for key, value in saved_hashes.items()}
+        return current_hashes != normalized_saved
 
     def _compute_file_hashes(self) -> dict[str, str]:
         """计算知识目录下所有 .md 文件的 MD5 哈希。"""
@@ -224,9 +231,7 @@ class VectorKnowledgeStore:
         Settings.embed_model = embed_model
 
         try:
-            storage_context = StorageContext.from_defaults(
-                persist_dir=str(self._storage_dir)
-            )
+            storage_context = StorageContext.from_defaults(persist_dir=str(self._storage_dir))
             self._index = load_index_from_storage(storage_context)
             logger.info("从磁盘加载向量索引成功: %s", self._storage_dir)
             return True
@@ -260,9 +265,7 @@ class VectorKnowledgeStore:
                         text=content,
                         metadata={
                             "file_name": md_path.name,
-                            "file_path": str(
-                                md_path.relative_to(self._knowledge_dir)
-                            ),
+                            "file_path": str(md_path.relative_to(self._knowledge_dir)),
                         },
                     )
                 )
@@ -301,9 +304,7 @@ class VectorKnowledgeStore:
         try:
             from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
-            return HuggingFaceEmbedding(
-                model_name=settings.knowledge_local_embedding_model
-            )
+            return HuggingFaceEmbedding(model_name=settings.knowledge_local_embedding_model)
         except ImportError:
             logger.info("本地 embedding 依赖加载失败，已回退到关键词检索")
         except ValueError as exc:

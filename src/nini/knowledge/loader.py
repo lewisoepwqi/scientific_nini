@@ -175,7 +175,7 @@ class KnowledgeLoader:
             hits = sum(1 for kw in entry.keywords if kw in msg_lower)
             if hits == 0:
                 continue
-            score = hits * entry.priority_weight
+            score = float(hits * entry.priority_weight)
             scored.append((score, hits, entry))
 
         if not scored:
