@@ -89,6 +89,29 @@ _NOISE_PATTERNS = (
     "deprecationwarning",
 )
 
+_PREVIEW_FORMAT_PRIORITY = {
+    "png": 0,
+    "jpg": 1,
+    "jpeg": 1,
+    "webp": 2,
+    "svg": 3,
+    "html": 4,
+    "htm": 4,
+    "json": 5,
+    "pdf": 6,
+}
+
+_KEY_FINDING_TOOLS = {
+    "correlation_analysis",
+    "complete_anova",
+    "complete_comparison",
+    "t_test",
+    "anova",
+    "regression",
+    "mann_whitney",
+    "kruskal_wallis",
+}
+
 
 def _collect_chart_artifacts(session_id: str, max_items: int = 12) -> list[dict[str, str]]:
     """收集会话图表产物（去重，按时间倒序）。"""
@@ -132,6 +155,50 @@ def _collect_chart_artifacts(session_id: str, max_items: int = 12) -> list[dict[
     return results
 
 
+def _chart_group_key(name: str) -> str:
+    """生成图表分组键，用于多格式去重。"""
+    lower = name.lower()
+    if lower.endswith(".plotly.json"):
+        return lower[: -len(".plotly.json")]
+    path = Path(lower)
+    return str(path.with_suffix(""))
+
+
+def _chart_format_priority(chart: dict[str, str]) -> int:
+    name = chart.get("name", "")
+    fmt = chart.get("format", "").lower()
+    if name.lower().endswith(".plotly.json"):
+        return _PREVIEW_FORMAT_PRIORITY.get("json", 99)
+    return _PREVIEW_FORMAT_PRIORITY.get(fmt, 99)
+
+
+def _select_preview_charts(charts: list[dict[str, str]]) -> list[dict[str, str]]:
+    """按图表基名去重，选择单一主预览格式。"""
+    groups: dict[str, list[dict[str, str]]] = {}
+    order: list[str] = []
+    for chart in charts:
+        key = _chart_group_key(chart["name"])
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(chart)
+
+    selected: list[dict[str, str]] = []
+    for key in order:
+        items = groups.get(key, [])
+        if not items:
+            continue
+        primary = sorted(
+            items,
+            key=lambda item: (
+                _chart_format_priority(item),
+                item.get("name", ""),
+            ),
+        )[0]
+        selected.append(primary)
+    return selected
+
+
 def _chart_artifacts_markdown(session_id: str) -> str:
     """生成图表清单 Markdown。"""
     charts = _collect_chart_artifacts(session_id)
@@ -154,7 +221,7 @@ def _chart_artifacts_markdown(session_id: str) -> str:
 
 def _chart_preview_markdown(session_id: str) -> str:
     """生成图表预览 Markdown。"""
-    charts = _collect_chart_artifacts(session_id)
+    charts = _select_preview_charts(_collect_chart_artifacts(session_id))
     if not charts:
         return ""
 
@@ -193,62 +260,57 @@ def _safe_parse_json(content: Any) -> dict | None:
         return content
     if isinstance(content, str):
         try:
-            return json.loads(content.strip())
+            parsed = json.loads(content.strip())
+            return parsed if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
             return None
     return None
 
 
 def _recent_findings(messages: list[dict[str, Any]], max_items: int = 12) -> str:
-    """从工具执行结果中智能提取和综合关键发现。"""
+    """从结构化工具结果提取关键发现，避免噪声与中间步骤污染。"""
     findings: list[str] = []
-    stats_results: list[str] = []
-    viz_results: list[str] = []
+    seen: set[tuple[str, str]] = set()
 
     for msg in reversed(messages):
         if msg.get("role") != "tool":
             continue
 
-        content = msg.get("content")
-        parsed = _safe_parse_json(content)
-        if not isinstance(parsed, dict) or not parsed.get("success"):
+        if msg.get("status") and msg.get("status") != "success":
             continue
 
-        message = parsed.get("message", "").strip()
+        parsed = _safe_parse_json(msg.get("content"))
+        if not isinstance(parsed, dict):
+            continue
+        if parsed.get("success") is False:
+            continue
+
+        tool_name = str(msg.get("tool_name") or "").strip().lower()
+        if not tool_name:
+            # 历史消息兼容：仅做最小推断
+            message_preview = str(parsed.get("message", "")).lower()
+            if "相关性分析" in message_preview or "pearson" in message_preview:
+                tool_name = "correlation_analysis"
+
+        if tool_name not in _KEY_FINDING_TOOLS:
+            continue
+
+        message = str(parsed.get("message", "")).strip()
         if not message or _is_noise(message):
             continue
 
-        # 按工具类型分类
-        tool_name = msg.get("name", "unknown")
-        if tool_name in (
-            "t_test",
-            "anova",
-            "correlation",
-            "regression",
-            "mann_whitney",
-            "kruskal_wallis",
-        ):
-            stats_results.append(f"- {message[:200]}")
-        elif tool_name in ("create_chart", "run_code") and (
-            "chart" in message.lower() or "图" in message
-        ):
-            viz_results.append(f"- {message[:120]}")
-        else:
-            findings.append(f"- {message[:150]}")
+        key = (tool_name, message)
+        if key in seen:
+            continue
+        seen.add(key)
+        findings.append(f"- {message[:220]}")
 
-        if len(findings) + len(stats_results) + len(viz_results) >= max_items:
+        if len(findings) >= max_items:
             break
 
-    # 分组输出
-    output: list[str] = []
-    if stats_results:
-        output.extend(["### 统计分析结果"] + stats_results[:5])
-    if viz_results:
-        output.extend(["", "### 可视化产出"] + viz_results[:4])
-    if findings:
-        output.extend(["", "### 其他发现"] + findings[:3])
-
-    return "\n".join(output) if output else ""
+    if not findings:
+        return ""
+    return "\n".join(["### 统计与模型发现"] + findings)
 
 
 def _session_statistics(session: Session) -> str:
@@ -274,8 +336,13 @@ def _session_statistics(session: Session) -> str:
     dataset_count = len(session.datasets)
     total_rows = sum(len(df) for df in session.datasets.values())
 
-    # 统计产物
-    artifact_count = len(session.artifacts)
+    # 统计产物（以工作区索引为准，排除内部产物）
+    workspace_artifacts = WorkspaceManager(session.id).list_artifacts()
+    artifact_count = sum(
+        1
+        for item in workspace_artifacts
+        if str(item.get("visibility", "deliverable")).lower() != "internal"
+    )
 
     # 构建统计信息
     lines = [
@@ -317,6 +384,7 @@ def _build_markdown(
     conclusions: str,
     include_recent_messages: bool,
     include_charts: bool,
+    include_session_stats: bool,
 ) -> str:
     """构建结构化 Markdown 报告。无内容的 section 自动跳过。"""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -359,15 +427,11 @@ def _build_markdown(
         cleaned_conclusions = _strip_leading_h2(conclusions.strip())
         sections.extend(["", "## 结论与建议", cleaned_conclusions])
 
-    # 分析统计（性能监控）
-    stats = _session_statistics(session)
-    if stats:
-        sections.extend(["", "## 分析统计", stats])
-
-    # 分析统计（性能监控）
-    stats = _session_statistics(session)
-    if stats:
-        sections.extend(["", "## 分析统计", stats])
+    # 分析统计（可选附录）
+    if include_session_stats:
+        stats = _session_statistics(session)
+        if stats:
+            sections.extend(["", "## 分析统计（系统观测）", stats])
 
     return "\n".join(sections).strip() + "\n"
 
@@ -460,6 +524,11 @@ class GenerateReportSkill(Skill):
                     "default": True,
                     "description": "是否在报告中附加图表清单（从工作空间图表产物自动提取）",
                 },
+                "include_session_stats": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "是否附加系统观测统计（消息数、工具调用等）",
+                },
                 "save_to_knowledge": {
                     "type": "boolean",
                     "default": True,
@@ -485,6 +554,7 @@ class GenerateReportSkill(Skill):
         dataset_names = kwargs.get("dataset_names") or None
         include_recent_messages = bool(kwargs.get("include_recent_messages", True))
         include_charts = bool(kwargs.get("include_charts", True))
+        include_session_stats = bool(kwargs.get("include_session_stats", False))
         save_to_knowledge = bool(kwargs.get("save_to_knowledge", True))
         filename = kwargs.get("filename")
 
@@ -497,6 +567,7 @@ class GenerateReportSkill(Skill):
             conclusions=conclusions,
             include_recent_messages=include_recent_messages,
             include_charts=include_charts,
+            include_session_stats=include_session_stats,
         )
 
         storage = ArtifactStorage(session.id)
