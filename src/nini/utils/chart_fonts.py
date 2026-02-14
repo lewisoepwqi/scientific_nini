@@ -24,11 +24,16 @@ CJK_FONT_CANDIDATES = [
 CJK_FONT_FAMILY = ", ".join(CJK_FONT_CANDIDATES)
 
 _PRIMARY_CJK_CANDIDATES = CJK_FONT_CANDIDATES[:-1]
-_FALLBACK_FONT_URL = (
+_FALLBACK_FONT_URLS = [
+    # jsDelivr CDN（国内可用）
+    "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/"
+    "Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf",
+    # GitHub Raw（海外直连）
     "https://raw.githubusercontent.com/notofonts/noto-cjk/main/"
-    "Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf"
-)
+    "Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf",
+]
 _FALLBACK_FONT_PATH = settings.data_dir / "fonts" / "NotoSansCJKsc-Regular.otf"
+_DOWNLOAD_TIMEOUT = 10  # 单个镜像超时（秒）
 _download_attempted = False
 _downloaded_font_name: str | None = None
 logger = logging.getLogger(__name__)
@@ -180,20 +185,43 @@ def _ensure_downloaded_matplotlib_cjk_font() -> str | None:
     except Exception:
         return None
 
-    try:
-        _FALLBACK_FONT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = Path(f"{_FALLBACK_FONT_PATH}.tmp")
-        with urlopen(_FALLBACK_FONT_URL, timeout=20) as resp, tmp_path.open("wb") as dst:
-            dst.write(resp.read())
-        tmp_path.replace(_FALLBACK_FONT_PATH)
-
-        from matplotlib import font_manager
-
-        font_manager.fontManager.addfont(str(_FALLBACK_FONT_PATH))
-        _downloaded_font_name = font_manager.FontProperties(
-            fname=str(_FALLBACK_FONT_PATH)
-        ).get_name()
-        return _downloaded_font_name
-    except Exception:
-        logger.warning("中文字体自动引导失败：将继续使用系统默认字体", exc_info=True)
+    if not settings.font_auto_download:
+        logger.info("字体自动下载已禁用（NINI_FONT_AUTO_DOWNLOAD=false），跳过下载")
         return None
+
+    # 构建候选 URL 列表：用户自定义优先，否则使用内置镜像列表
+    urls: list[str] = (
+        [settings.font_fallback_url] if settings.font_fallback_url else list(_FALLBACK_FONT_URLS)
+    )
+
+    _FALLBACK_FONT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = Path(f"{_FALLBACK_FONT_PATH}.tmp")
+
+    for url in urls:
+        try:
+            logger.info("尝试从 %s 下载中文字体…", url.split("/")[2])
+            with urlopen(url, timeout=_DOWNLOAD_TIMEOUT) as resp, tmp_path.open("wb") as dst:
+                dst.write(resp.read())
+            tmp_path.replace(_FALLBACK_FONT_PATH)
+
+            from matplotlib import font_manager
+
+            font_manager.fontManager.addfont(str(_FALLBACK_FONT_PATH))
+            _downloaded_font_name = font_manager.FontProperties(
+                fname=str(_FALLBACK_FONT_PATH)
+            ).get_name()
+            return _downloaded_font_name
+        except Exception:
+            logger.debug("从 %s 下载字体失败，尝试下一个镜像", url, exc_info=True)
+
+    # 清理可能残留的临时文件
+    tmp_path.unlink(missing_ok=True)
+
+    logger.warning(
+        "中文字体自动下载失败：将继续使用系统默认字体。"
+        "可通过以下方式解决：\n"
+        "  1. 安装系统字体：apt install fonts-noto-cjk 或 yum install google-noto-sans-cjk-sc-fonts\n"
+        "  2. 设置 NINI_FONT_FALLBACK_URL 指定可访问的字体下载地址\n"
+        "  3. 设置 NINI_FONT_AUTO_DOWNLOAD=false 禁用自动下载"
+    )
+    return None
