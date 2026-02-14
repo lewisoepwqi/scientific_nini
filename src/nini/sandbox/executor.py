@@ -25,6 +25,7 @@ from nini.utils.chart_fonts import (
     CJK_FONT_FAMILY,
     apply_plotly_cjk_font_fallback,
     get_available_cjk_fonts,
+    get_matplotlib_font_list,
 )
 
 try:
@@ -94,7 +95,7 @@ def _apply_matplotlib_cjk_font_fallback(fig: Any) -> None:
         from matplotlib.text import Text
 
         for text_obj in fig.findobj(match=Text):
-            text_obj.set_fontfamily(CJK_FONT_CANDIDATES)
+            text_obj.set_fontfamily(get_available_cjk_fonts() or CJK_FONT_CANDIDATES)
     except Exception:
         return
 
@@ -112,7 +113,7 @@ def _configure_chart_defaults() -> None:
         matplotlib.use("Agg", force=True)
         apply_matplotlib_rc_style(rcParams, style)
         # 仅配置系统实际存在的字体，避免大量 'Font family not found' 警告
-        sans_serif = get_available_cjk_fonts()
+        sans_serif = get_matplotlib_font_list()
         if sans_serif:
             rcParams["font.sans-serif"] = sans_serif
         rcParams["axes.unicode_minus"] = False

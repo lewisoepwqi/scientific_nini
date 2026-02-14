@@ -126,6 +126,35 @@ def get_available_cjk_fonts() -> list[str]:
         return []
 
 
+def get_matplotlib_font_list(family: str | None = None) -> list[str]:
+    """返回适合 rcParams['font.sans-serif'] 的已过滤字体列表。
+
+    从 with_cjk_font_fallback(family) 的结果中，仅保留 matplotlib 能实际找到的字体，
+    避免大量 'Font family not found' 警告污染日志。
+    """
+    try:
+        from matplotlib import font_manager
+
+        available = {
+            entry.name.lower()
+            for entry in font_manager.fontManager.ttflist
+            if getattr(entry, "name", None)
+        }
+        full_chain = [
+            part.strip() for part in with_cjk_font_fallback(family).split(",") if part.strip()
+        ]
+        filtered = [f for f in full_chain if f.lower() in available]
+        if not any(c.lower() in {f.lower() for f in filtered} for c in _PRIMARY_CJK_CANDIDATES):
+            # 没有任何 CJK 字体可用，尝试下载兜底
+            fallback_name = _ensure_downloaded_matplotlib_cjk_font()
+            if fallback_name and fallback_name not in filtered:
+                filtered.insert(0, fallback_name)
+        return filtered if filtered else full_chain
+    except Exception:
+        # matplotlib 不可用时，返回完整链作为兜底
+        return [part.strip() for part in with_cjk_font_fallback(family).split(",") if part.strip()]
+
+
 def apply_plotly_cjk_font_fallback(fig: Any) -> None:
     """给 Plotly Figure 应用中文字体回退链。"""
     try:
