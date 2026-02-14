@@ -41,11 +41,13 @@ class ArtifactStorage:
             for p in sorted(self._dir.iterdir()):
                 if p.is_file():
                     stat = p.stat()
-                    result.append({
-                        "name": p.name,
-                        "size": stat.st_size,
-                        "path": str(p),
-                    })
+                    result.append(
+                        {
+                            "name": p.name,
+                            "size": stat.st_size,
+                            "path": str(p),
+                        }
+                    )
 
         # 兼容旧目录
         legacy_dir = settings.sessions_dir / self.session_id / "artifacts"
@@ -53,11 +55,13 @@ class ArtifactStorage:
             for p in sorted(legacy_dir.iterdir()):
                 if p.is_file() and not any(item["name"] == p.name for item in result):
                     stat = p.stat()
-                    result.append({
-                        "name": p.name,
-                        "size": stat.st_size,
-                        "path": str(p),
-                    })
+                    result.append(
+                        {
+                            "name": p.name,
+                            "size": stat.st_size,
+                            "path": str(p),
+                        }
+                    )
         return result
 
     def cleanup(self) -> None:

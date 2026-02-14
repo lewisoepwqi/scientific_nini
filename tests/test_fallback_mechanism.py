@@ -28,10 +28,12 @@ async def test_t_test_fallback_to_mann_whitney_on_non_normal() -> None:
 
     # 创建明显偏态的数据（指数分布）
     np.random.seed(42)
-    session.datasets["non_normal.csv"] = pd.DataFrame({
-        "group": ["A"] * 30 + ["B"] * 30,
-        "value": list(np.random.exponential(1, 30)) + list(np.random.exponential(2, 30)),
-    })
+    session.datasets["non_normal.csv"] = pd.DataFrame(
+        {
+            "group": ["A"] * 30 + ["B"] * 30,
+            "value": list(np.random.exponential(1, 30)) + list(np.random.exponential(2, 30)),
+        }
+    )
 
     result = await registry.execute_with_fallback(
         "t_test",
@@ -46,7 +48,9 @@ async def test_t_test_fallback_to_mann_whitney_on_non_normal() -> None:
     assert result["fallback"] is True, "非正态数据应触发降级"
     assert result["fallback_skill"] == "mann_whitney"
     assert result["success"] is True
-    assert "原始技能执行失败" in result.get("fallback_reason", "") or "不符合正态性假设" in result.get("fallback_reason", "")
+    assert "原始技能执行失败" in result.get(
+        "fallback_reason", ""
+    ) or "不符合正态性假设" in result.get("fallback_reason", "")
 
 
 @pytest.mark.asyncio
@@ -57,12 +61,14 @@ async def test_anova_fallback_to_kruskal_wallis_on_non_normal() -> None:
 
     # 创建三组偏态数据
     np.random.seed(42)
-    session.datasets["non_normal_anova.csv"] = pd.DataFrame({
-        "group": ["A"] * 20 + ["B"] * 20 + ["C"] * 20,
-        "value": list(np.random.exponential(1, 20)) +
-                 list(np.random.exponential(2, 20)) +
-                 list(np.random.exponential(3, 20)),
-    })
+    session.datasets["non_normal_anova.csv"] = pd.DataFrame(
+        {
+            "group": ["A"] * 20 + ["B"] * 20 + ["C"] * 20,
+            "value": list(np.random.exponential(1, 20))
+            + list(np.random.exponential(2, 20))
+            + list(np.random.exponential(3, 20)),
+        }
+    )
 
     result = await registry.execute_with_fallback(
         "anova",
@@ -87,10 +93,12 @@ async def test_fallback_disabled_when_requested() -> None:
 
     # 创建偏态数据
     np.random.seed(42)
-    session.datasets["non_normal.csv"] = pd.DataFrame({
-        "group": ["A"] * 30 + ["B"] * 30,
-        "value": list(np.random.exponential(1, 30)) + list(np.random.exponential(2, 30)),
-    })
+    session.datasets["non_normal.csv"] = pd.DataFrame(
+        {
+            "group": ["A"] * 30 + ["B"] * 30,
+            "value": list(np.random.exponential(1, 30)) + list(np.random.exponential(2, 30)),
+        }
+    )
 
     result = await registry.execute_with_fallback(
         "t_test",
@@ -113,10 +121,12 @@ async def test_normal_data_no_fallback_needed() -> None:
 
     # 创建正态数据
     np.random.seed(42)
-    session.datasets["normal.csv"] = pd.DataFrame({
-        "group": ["A"] * 50 + ["B"] * 50,
-        "value": list(np.random.normal(1, 0.5, 50)) + list(np.random.normal(2, 0.5, 50)),
-    })
+    session.datasets["normal.csv"] = pd.DataFrame(
+        {
+            "group": ["A"] * 50 + ["B"] * 50,
+            "value": list(np.random.normal(1, 0.5, 50)) + list(np.random.normal(2, 0.5, 50)),
+        }
+    )
 
     result = await registry.execute_with_fallback(
         "t_test",
@@ -139,11 +149,13 @@ async def test_data_diagnosis_missing_values() -> None:
     session = Session()
 
     # 创建有缺失值的数据
-    session.datasets["missing.csv"] = pd.DataFrame({
-        "x": [1, 2, np.nan, 4, 5],
-        "y": [1, np.nan, np.nan, 4, 5],
-        "z": [1, 2, 3, 4, 5],
-    })
+    session.datasets["missing.csv"] = pd.DataFrame(
+        {
+            "x": [1, 2, np.nan, 4, 5],
+            "y": [1, np.nan, np.nan, 4, 5],
+            "z": [1, 2, 3, 4, 5],
+        }
+    )
 
     diagnosis = await registry.diagnose_data_problem(
         session=session,
@@ -209,9 +221,11 @@ async def test_data_diagnosis_with_suggestions() -> None:
     session = Session()
 
     # 创建有多种问题的数据
-    session.datasets["problems.csv"] = pd.DataFrame({
-        "value": [1, 2, np.nan, 4, 5, 100],  # 缺失值+异常值
-    })
+    session.datasets["problems.csv"] = pd.DataFrame(
+        {
+            "value": [1, 2, np.nan, 4, 5, 100],  # 缺失值+异常值
+        }
+    )
 
     diagnosis = await registry.diagnose_data_problem(
         session=session,
@@ -238,10 +252,12 @@ async def test_fallback_preserves_original_result_info() -> None:
 
     # 创建偏态数据
     np.random.seed(42)
-    session.datasets["non_normal.csv"] = pd.DataFrame({
-        "group": ["A"] * 30 + ["B"] * 30,
-        "value": list(np.random.exponential(1, 30)) + list(np.random.exponential(2, 30)),
-    })
+    session.datasets["non_normal.csv"] = pd.DataFrame(
+        {
+            "group": ["A"] * 30 + ["B"] * 30,
+            "value": list(np.random.exponential(1, 30)) + list(np.random.exponential(2, 30)),
+        }
+    )
 
     result = await registry.execute_with_fallback(
         "t_test",

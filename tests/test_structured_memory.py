@@ -178,17 +178,21 @@ class TestAnalysisMemory:
         )
 
         # 添加一些数据
-        memory.add_finding(Finding(
-            category="statistical_significance",
-            summary="显著差异",
-            detail="p < 0.05",
-        ))
+        memory.add_finding(
+            Finding(
+                category="statistical_significance",
+                summary="显著差异",
+                detail="p < 0.05",
+            )
+        )
 
-        memory.add_statistic(StatisticResult(
-            test_name="t 检验",
-            test_statistic=3.45,
-            p_value=0.003,
-        ))
+        memory.add_statistic(
+            StatisticResult(
+                test_name="t 检验",
+                test_statistic=3.45,
+                p_value=0.003,
+            )
+        )
 
         context = memory.to_context()
 
@@ -205,10 +209,12 @@ class TestAnalysisMemory:
             dataset_name="experiment_data",
         )
 
-        memory.add_finding(Finding(
-            category="statistical_significance",
-            summary="显著差异",
-        ))
+        memory.add_finding(
+            Finding(
+                category="statistical_significance",
+                summary="显著差异",
+            )
+        )
 
         summary = memory.summary()
 
@@ -222,10 +228,12 @@ class TestAnalysisMemory:
             dataset_name="experiment_data",
         )
 
-        memory.add_finding(Finding(
-            category="statistical_significance",
-            summary="显著差异",
-        ))
+        memory.add_finding(
+            Finding(
+                category="statistical_significance",
+                summary="显著差异",
+            )
+        )
 
         data = memory.to_dict()
 
@@ -291,19 +299,23 @@ class TestMemoryIntegration:
         )
 
         # 添加统计结果
-        memory.add_statistic(StatisticResult(
-            test_name=analysis_result["test_type"],
-            test_statistic=analysis_result["t_statistic"],
-            p_value=analysis_result["p_value"],
-        ))
+        memory.add_statistic(
+            StatisticResult(
+                test_name=analysis_result["test_type"],
+                test_statistic=analysis_result["t_statistic"],
+                p_value=analysis_result["p_value"],
+            )
+        )
 
         # 添加发现
         if analysis_result["significant"]:
-            memory.add_finding(Finding(
-                category="statistical_significance",
-                summary="结果显示显著差异",
-                detail=f"p = {analysis_result['p_value']}",
-            ))
+            memory.add_finding(
+                Finding(
+                    category="statistical_significance",
+                    summary="结果显示显著差异",
+                    detail=f"p = {analysis_result['p_value']}",
+                )
+            )
 
         assert len(memory.statistics) == 1
         assert len(memory.findings) == 1
@@ -316,26 +328,32 @@ class TestMemoryIntegration:
         )
 
         # 添加完整的分析记录
-        memory.add_decision(Decision(
-            decision_type="method_selection",
-            chosen="t 检验",
-            alternatives=["ANOVA", "Mann-Whitney"],
-            rationale="两组比较，数据符合正态性",
-        ))
+        memory.add_decision(
+            Decision(
+                decision_type="method_selection",
+                chosen="t 检验",
+                alternatives=["ANOVA", "Mann-Whitney"],
+                rationale="两组比较，数据符合正态性",
+            )
+        )
 
-        memory.add_statistic(StatisticResult(
-            test_name="独立样本 t 检验",
-            test_statistic=3.45,
-            p_value=0.003,
-            degrees_of_freedom=18,
-        ))
+        memory.add_statistic(
+            StatisticResult(
+                test_name="独立样本 t 检验",
+                test_statistic=3.45,
+                p_value=0.003,
+                degrees_of_freedom=18,
+            )
+        )
 
-        memory.add_finding(Finding(
-            category="statistical_significance",
-            summary="组间存在显著差异",
-            detail="t(18) = 3.45, p = 0.003",
-            confidence=0.95,
-        ))
+        memory.add_finding(
+            Finding(
+                category="statistical_significance",
+                summary="组间存在显著差异",
+                detail="t(18) = 3.45, p = 0.003",
+                confidence=0.95,
+            )
+        )
 
         # 转换为上下文
         context = memory.to_context()

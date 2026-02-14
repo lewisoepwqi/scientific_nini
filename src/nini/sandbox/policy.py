@@ -50,53 +50,49 @@ from dataclasses import dataclass
 # 分层白名单：从最安全到受限
 # Tier 1: 纯计算/数据处理（完全安全）
 _TIER1_SAFE_MODULES = {
-    "math",           # 数学函数
-    "statistics",     # 统计函数
-    "random",         # 随机数生成
-    "decimal",        # 精确小数运算
-    "fractions",      # 分数运算
-    "cmath",          # 复数数学
+    "math",  # 数学函数
+    "statistics",  # 统计函数
+    "random",  # 随机数生成
+    "decimal",  # 精确小数运算
+    "fractions",  # 分数运算
+    "cmath",  # 复数数学
 }
 
 # Tier 2: 标准库工具（安全）
 _TIER2_STDLIB_UTILS = {
-    "datetime",       # 日期时间处理（★ 数据分析必备）
-    "time",           # 时间相关函数
-    "calendar",       # 日历操作
-    "collections",    # 高级数据结构（deque, Counter, defaultdict 等）
-    "itertools",      # 迭代器工具
-    "functools",      # 函数式编程工具
-    "operator",       # 操作符函数
-    "heapq",          # 堆队列
-    "bisect",         # 二分查找
-    "array",          # 数组
-    "copy",           # 深浅拷贝
-    "json",           # JSON 处理
-    "csv",            # CSV 文件处理
-    "re",             # 正则表达式
-    "string",         # 字符串常量和工具
-    "textwrap",       # 文本包装
-    "unicodedata",    # Unicode 数据库
+    "datetime",  # 日期时间处理（★ 数据分析必备）
+    "time",  # 时间相关函数
+    "calendar",  # 日历操作
+    "collections",  # 高级数据结构（deque, Counter, defaultdict 等）
+    "itertools",  # 迭代器工具
+    "functools",  # 函数式编程工具
+    "operator",  # 操作符函数
+    "heapq",  # 堆队列
+    "bisect",  # 二分查找
+    "array",  # 数组
+    "copy",  # 深浅拷贝
+    "json",  # JSON 处理
+    "csv",  # CSV 文件处理
+    "re",  # 正则表达式
+    "string",  # 字符串常量和工具
+    "textwrap",  # 文本包装
+    "unicodedata",  # Unicode 数据库
 }
 
 # Tier 3: 科学计算栈（安全）
 _TIER3_SCIENTIFIC = {
-    "pandas",         # 数据框架
-    "numpy",          # 数值计算
-    "scipy",          # 科学计算
-    "statsmodels",    # 统计模型
-    "sklearn",        # 机器学习（scikit-learn）
-    "matplotlib",     # 绘图
-    "plotly",         # 交互式绘图
-    "seaborn",        # 统计可视化
+    "pandas",  # 数据框架
+    "numpy",  # 数值计算
+    "scipy",  # 科学计算
+    "statsmodels",  # 统计模型
+    "sklearn",  # 机器学习（scikit-learn）
+    "matplotlib",  # 绘图
+    "plotly",  # 交互式绘图
+    "seaborn",  # 统计可视化
 }
 
 # 合并所有白名单（共 28 个模块）
-ALLOWED_IMPORT_ROOTS: set[str] = (
-    _TIER1_SAFE_MODULES
-    | _TIER2_STDLIB_UTILS
-    | _TIER3_SCIENTIFIC
-)
+ALLOWED_IMPORT_ROOTS: set[str] = _TIER1_SAFE_MODULES | _TIER2_STDLIB_UTILS | _TIER3_SCIENTIFIC
 
 BANNED_CALLS: set[str] = {
     "__import__",

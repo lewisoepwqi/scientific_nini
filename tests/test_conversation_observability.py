@@ -100,11 +100,7 @@ class _DummySkillRegistry:
         if skill_name != "generate_report":
             return {"error": f"unknown skill: {skill_name}"}
         markdown = (
-            "# 自动报告\n\n"
-            "## 数据集概览\n"
-            "- exp.csv\n\n"
-            "## 分析摘要\n"
-            "保持一致性测试\n"
+            "# 自动报告\n\n" "## 数据集概览\n" "- exp.csv\n\n" "## 分析摘要\n" "保持一致性测试\n"
         )
         return {
             "success": True,
@@ -118,7 +114,13 @@ class _DummySkillRegistry:
                 {
                     "name": "auto_report.md",
                     "type": "report",
-                    "path": str(settings.sessions_dir / session.id / "workspace" / "artifacts" / "auto_report.md"),
+                    "path": str(
+                        settings.sessions_dir
+                        / session.id
+                        / "workspace"
+                        / "artifacts"
+                        / "auto_report.md"
+                    ),
                     "download_url": f"/api/artifacts/{session.id}/auto_report.md",
                 }
             ],

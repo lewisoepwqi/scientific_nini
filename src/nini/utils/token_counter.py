@@ -219,11 +219,14 @@ class TokenUsage:
 
     def estimate_cost(self) -> float:
         """估算本次使用的成本（USD）。"""
-        return estimate_cost(
-            self.model,
-            self.prompt_tokens,
-            self.completion_tokens,
-        ) or 0.0
+        return (
+            estimate_cost(
+                self.model,
+                self.prompt_tokens,
+                self.completion_tokens,
+            )
+            or 0.0
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """转换为字典。"""
@@ -357,10 +360,12 @@ class BudgetAwareTokenTracker(SessionTokenTracker):
     def to_dict(self) -> dict[str, Any]:
         """导出统计（包含预算信息）。"""
         base = super().to_dict()
-        base.update({
-            "budget_limit": self._budget_limit,
-            "budget_usage_percent": round(self.budget_usage_percent * 100, 2),
-            "warning_level": self.warning_level,
-            "is_over_budget": self.is_over_budget,
-        })
+        base.update(
+            {
+                "budget_limit": self._budget_limit,
+                "budget_usage_percent": round(self.budget_usage_percent * 100, 2),
+                "warning_level": self.warning_level,
+                "is_over_budget": self.is_over_budget,
+            }
+        )
         return base

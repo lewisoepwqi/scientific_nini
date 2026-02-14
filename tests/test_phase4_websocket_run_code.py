@@ -157,10 +157,7 @@ def test_websocket_retry_clears_last_agent_turn_and_regenerates(
                 break
 
         assert session_id
-        assert any(
-            e["type"] == "text" and "第一次回答" in e.get("data", "")
-            for e in first_events
-        )
+        assert any(e["type"] == "text" and "第一次回答" in e.get("data", "") for e in first_events)
 
         ws.send_text(json.dumps({"type": "retry", "session_id": session_id}))
 
@@ -174,18 +171,13 @@ def test_websocket_retry_clears_last_agent_turn_and_regenerates(
     retry_types = [e["type"] for e in retry_events]
     assert "done" in retry_types
     assert "error" not in retry_types
-    assert any(
-        e["type"] == "text" and "重试后回答" in e.get("data", "")
-        for e in retry_events
-    )
+    assert any(e["type"] == "text" and "重试后回答" in e.get("data", "") for e in retry_events)
 
     session = session_manager.get_session(session_id)
     assert session is not None
     assert len([m for m in session.messages if m.get("role") == "user"]) == 1
     assistant_contents = [
-        str(m.get("content", ""))
-        for m in session.messages
-        if m.get("role") == "assistant"
+        str(m.get("content", "")) for m in session.messages if m.get("role") == "assistant"
     ]
     assert any("重试后回答" in content for content in assistant_contents)
     assert all("第一次回答" not in content for content in assistant_contents)

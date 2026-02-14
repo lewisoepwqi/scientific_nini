@@ -65,53 +65,59 @@ class PlannerAgent:
 
         # 阶段1: 数据加载（如果需要）
         if not has_data:
-            phases.append(PlanPhase(
-                phase_type="data_loading",
-                description="加载用户数据",
+            phases.append(
+                PlanPhase(
+                    phase_type="data_loading",
+                    description="加载用户数据",
+                    actions=[
+                        PlanAction(
+                            action_type="load_data",
+                            skill="load_dataset",
+                            parameters={"prompt": "请上传数据集"},
+                            description="等待用户上传数据",
+                        )
+                    ],
+                    status=PlanStatus.PENDING,
+                )
+            )
+
+        # 阶段2: 数据检查
+        phases.append(
+            PlanPhase(
+                phase_type="data_check",
+                description="检查数据质量和摘要",
                 actions=[
                     PlanAction(
-                        action_type="load_data",
-                        skill="load_dataset",
-                        parameters={"prompt": "请上传数据集"},
-                        description="等待用户上传数据",
+                        action_type="summary",
+                        skill="data_summary",
+                        parameters={},
+                        description="生成数据摘要",
                     )
                 ],
                 status=PlanStatus.PENDING,
-            ))
-
-        # 阶段2: 数据检查
-        phases.append(PlanPhase(
-            phase_type="data_check",
-            description="检查数据质量和摘要",
-            actions=[
-                PlanAction(
-                    action_type="summary",
-                    skill="data_summary",
-                    parameters={},
-                    description="生成数据摘要",
-                )
-            ],
-            status=PlanStatus.PENDING,
-        ))
+            )
+        )
 
         # 阶段3: 统计分析（根据意图选择）
         stat_phase = self._create_statistical_phase(intent, session)
         phases.append(stat_phase)
 
         # 阶段4: 可视化
-        phases.append(PlanPhase(
-            phase_type="visualization",
-            description="生成可视化图表",
-            actions=[
-                PlanAction(
-                    action_type="create_chart",
-                    skill="create_chart",
-                    parameters={"journal_style": "nature"},
-                    description="创建图表",
-                )
-            ],
-            status=PlanStatus.PENDING,
-        ))
+        phases.append(
+            PlanPhase(
+                phase_type="visualization",
+                description="生成可视化图表",
+                actions=[
+                    PlanAction(
+                        action_type="create_chart",
+                        skill="create_chart",
+                        parameters={"journal_style": "nature"},
+                        description="创建图表",
+                    )
+                ],
+                status=PlanStatus.PENDING,
+            )
+        )
 
         # 阶段5: 报告（不再无条件添加，由 Agent 根据用户意图和提示词指导决定）
         # 移除自动报告生成，让 Agent 通过 strategy.md 指导自主判断
@@ -277,15 +283,11 @@ class PlannerAgent:
                     dataset_name = action.parameters["dataset_name"]
                     if dataset_name not in session.datasets:
                         validation_result["is_valid"] = False
-                        validation_result["errors"].append(
-                            f"数据集 '{dataset_name}' 不存在"
-                        )
+                        validation_result["errors"].append(f"数据集 '{dataset_name}' 不存在")
 
         # 生成建议
         if len(plan.phases) > 5:
-            validation_result["suggestions"].append(
-                "计划包含较多阶段，考虑合并以提高效率"
-            )
+            validation_result["suggestions"].append("计划包含较多阶段，考虑合并以提高效率")
 
         return validation_result
 

@@ -120,7 +120,7 @@ def test_phase2c_upload_xls_missing_xlrd_returns_friendly_error(
 
     def fake_read_dataframe(*args, **kwargs):
         raise ValueError(
-            "解析 .xls 失败：缺少 xlrd 依赖（>=2.0.1）。请执行 `pip install \"xlrd>=2.0.1\"` 后重试。"
+            '解析 .xls 失败：缺少 xlrd 依赖（>=2.0.1）。请执行 `pip install "xlrd>=2.0.1"` 后重试。'
         )
 
     monkeypatch.setattr("nini.api.routes.read_dataframe", fake_read_dataframe)

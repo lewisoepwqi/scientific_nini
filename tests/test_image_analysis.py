@@ -16,12 +16,9 @@ import pytest
 from nini.agent.session import Session
 from nini.skills.base import SkillResult
 
-
 # 创建一个简单的测试图片（1x1 PNG 的 base64）
 # 这是一个最小的 PNG 图片
-TEST_PNG_BASE64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-)
+TEST_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 
 
 @pytest.fixture
@@ -161,8 +158,10 @@ class TestImageAnalysisExecution:
         skill = ImageAnalysisSkill()
 
         # Mock the vision model call
-        with patch.object(skill, "_is_vision_available", return_value=True), \
-             patch.object(skill, "_call_vision_model", new_callable=AsyncMock) as mock_call:
+        with (
+            patch.object(skill, "_is_vision_available", return_value=True),
+            patch.object(skill, "_call_vision_model", new_callable=AsyncMock) as mock_call,
+        ):
             mock_call.return_value = json.dumps(mock_vision_response, ensure_ascii=False)
 
             result = await skill.execute(
@@ -223,8 +222,10 @@ class TestImageToDataset:
         skill = ImageAnalysisSkill()
 
         # Mock the vision model call
-        with patch.object(skill, "_is_vision_available", return_value=True), \
-             patch.object(skill, "_call_vision_model", new_callable=AsyncMock) as mock_call:
+        with (
+            patch.object(skill, "_is_vision_available", return_value=True),
+            patch.object(skill, "_call_vision_model", new_callable=AsyncMock) as mock_call,
+        ):
             mock_call.return_value = json.dumps(mock_data_response, ensure_ascii=False)
 
             result = await skill.execute(
@@ -248,8 +249,10 @@ class TestImageToDataset:
         skill = ImageAnalysisSkill()
 
         # Mock the vision model call
-        with patch.object(skill, "_is_vision_available", return_value=True), \
-             patch.object(skill, "_call_vision_model", new_callable=AsyncMock) as mock_call:
+        with (
+            patch.object(skill, "_is_vision_available", return_value=True),
+            patch.object(skill, "_call_vision_model", new_callable=AsyncMock) as mock_call,
+        ):
             mock_call.return_value = json.dumps(mock_data_response, ensure_ascii=False)
 
             result = await skill.execute(
@@ -278,8 +281,10 @@ class TestChartInfoExtraction:
         skill = ImageAnalysisSkill()
 
         # Mock the vision model call
-        with patch.object(skill, "_is_vision_available", return_value=True), \
-             patch.object(skill, "_call_vision_model", new_callable=AsyncMock) as mock_call:
+        with (
+            patch.object(skill, "_is_vision_available", return_value=True),
+            patch.object(skill, "_call_vision_model", new_callable=AsyncMock) as mock_call,
+        ):
             mock_call.return_value = json.dumps(mock_vision_response, ensure_ascii=False)
 
             result = await skill.execute(
@@ -302,8 +307,10 @@ class TestChartInfoExtraction:
         skill = ImageAnalysisSkill()
 
         # Mock the vision model call
-        with patch.object(skill, "_is_vision_available", return_value=True), \
-             patch.object(skill, "_call_vision_model", new_callable=AsyncMock) as mock_call:
+        with (
+            patch.object(skill, "_is_vision_available", return_value=True),
+            patch.object(skill, "_call_vision_model", new_callable=AsyncMock) as mock_call,
+        ):
             mock_call.return_value = json.dumps(mock_vision_response, ensure_ascii=False)
 
             result = await skill.execute(

@@ -20,4 +20,4 @@
 - [x] 4.1 新增后端测试：图表新旧契约兼容、报告章节边界、关键发现过滤、Markdown 打包
 - [x] 4.2 新增前端测试：ChartViewer 兼容渲染、PDF 双入口预览、Markdown 下载跳转 bundle
 - [x] 4.3 回归会话复现：验证 `334ac687b639` 同类流程问题全部关闭
-- [ ] 4.4 执行并通过 `black --check src tests`、`mypy src/nini`、`pytest -q`、`cd web && npm run build`
+- [x] 4.4 执行并通过 `black --check src tests`、`mypy src/nini`、`pytest -q`、`cd web && npm run build`

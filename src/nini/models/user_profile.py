@@ -14,6 +14,7 @@ from typing import Any
 # 支持的领域
 class DomainType(str):
     """研究领域类型。"""
+
     GENERAL = "general"
     BIOLOGY = "biology"
     MEDICINE = "medicine"
@@ -26,6 +27,7 @@ class DomainType(str):
 # 支持的期刊风格
 class JournalStyle(str):
     """学术期刊风格。"""
+
     NATURE = "nature"
     SCIENCE = "science"
     CELL = "cell"
@@ -88,8 +90,7 @@ class UserProfile:
 
         # 按使用频率排序更新 favorite_tests
         self.favorite_tests = [
-            test for test, _ in
-            Counter(self._test_usage_counter).most_common(10)
+            test for test, _ in Counter(self._test_usage_counter).most_common(10)
         ]
 
         self.updated_at = datetime.now(timezone.utc)
@@ -155,9 +156,11 @@ class UserProfile:
 
         if isinstance(created_at, str):
             from datetime import datetime, timezone
+
             created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
         if isinstance(updated_at, str):
             from datetime import datetime, timezone
+
             updated_at = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
 
         return cls(

@@ -41,9 +41,7 @@ def test_read_dataframe_xls_missing_xlrd_raises_friendly_error(
         engine: str | None = None,
         sheet_name: object | None = None,
     ):  # type: ignore[override]
-        raise ImportError(
-            "Import xlrd failed. Install xlrd >= 2.0.1 for xls Excel support."
-        )
+        raise ImportError("Import xlrd failed. Install xlrd >= 2.0.1 for xls Excel support.")
 
     monkeypatch.setattr(pd, "read_excel", fake_read_excel)
 

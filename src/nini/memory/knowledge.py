@@ -39,9 +39,7 @@ class KnowledgeMemory:
         """追加一个章节。"""
         existing = self.read()
         new_content = (
-            f"{existing}\n\n## {section}\n\n{content}"
-            if existing
-            else f"## {section}\n\n{content}"
+            f"{existing}\n\n## {section}\n\n{content}" if existing else f"## {section}\n\n{content}"
         )
         self.write(new_content.strip() + "\n")
 
