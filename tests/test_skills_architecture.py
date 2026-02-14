@@ -360,3 +360,332 @@ def test_valid_categories_constant() -> None:
         "other",
     }
     assert VALID_CATEGORIES == expected
+
+
+# ===========================================================================
+# Phase 3 测试：分类统一、ToolAdapter、CLI
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 7. 分类统一：所有 Function Skill 必须使用标准分类
+# ---------------------------------------------------------------------------
+
+
+def test_all_function_skills_use_valid_categories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """所有 Function Skill 的 category 必须在 VALID_CATEGORIES 中。"""
+    monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
+    (tmp_path / "empty").mkdir()
+
+    registry = create_default_registry()
+    for item in registry.list_function_skills():
+        assert (
+            item["category"] in VALID_CATEGORIES
+        ), f"技能 {item['name']} 使用了非标准分类 '{item['category']}'"
+
+
+def test_no_skills_use_deprecated_categories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """不应存在已废弃的分类值（code, composite）。"""
+    monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
+    (tmp_path / "empty").mkdir()
+
+    registry = create_default_registry()
+    deprecated = {"code", "composite"}
+    for item in registry.list_function_skills():
+        assert (
+            item["category"] not in deprecated
+        ), f"技能 {item['name']} 使用了已废弃分类 '{item['category']}'"
+
+
+# ---------------------------------------------------------------------------
+# 8. ToolAdapter 测试
+# ---------------------------------------------------------------------------
+
+
+def test_tool_adapter_to_openai_tools(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ToolAdapter 应能导出 OpenAI 工具列表。"""
+    from nini.skills.tool_adapter import ToolAdapter
+
+    monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
+    (tmp_path / "empty").mkdir()
+
+    registry = create_default_registry()
+    adapter = ToolAdapter(registry)
+    tools = adapter.to_openai_tools()
+
+    assert len(tools) > 0
+    for tool in tools:
+        assert tool["type"] == "function"
+        assert "function" in tool
+        assert "name" in tool["function"]
+        assert "parameters" in tool["function"]
+
+
+def test_tool_adapter_to_mcp_tools(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ToolAdapter 应能导出 MCP 工具列表。"""
+    from nini.skills.tool_adapter import ToolAdapter
+
+    skills_dir = tmp_path / "skills"
+    _write_skill_md(
+        skills_dir / "guide" / "SKILL.md",
+        name="guide",
+        description="指南",
+        category="report",
+    )
+    monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+
+    registry = create_default_registry()
+    adapter = ToolAdapter(registry)
+    tools = adapter.to_mcp_tools()
+
+    assert len(tools) > 0
+    for tool in tools:
+        assert "name" in tool
+        assert "description" in tool
+        assert "inputSchema" in tool
+
+    # 确认包含 Markdown Skill
+    mcp_names = {t["name"] for t in tools}
+    assert "guide" in mcp_names
+
+
+def test_tool_adapter_to_claude_code_markdown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ToolAdapter 应能导出 Claude Code Markdown 格式。"""
+    from nini.skills.tool_adapter import ToolAdapter
+
+    monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
+    (tmp_path / "empty").mkdir()
+
+    registry = create_default_registry()
+    adapter = ToolAdapter(registry)
+    md = adapter.to_claude_code_markdown()
+
+    assert "# Nini 技能目录" in md
+    assert "t_test" in md
+
+
+def test_to_mcp_tool_single_skill() -> None:
+    """to_mcp_tool 应正确转换单个技能。"""
+    from nini.skills.tool_adapter import to_mcp_tool
+
+    skill = _DummySkill("test_mcp")
+    mcp = to_mcp_tool(skill)
+
+    assert mcp["name"] == "test_mcp"
+    assert mcp["description"] == "测试用占位技能"
+    assert mcp["inputSchema"] == {"type": "object", "properties": {}}
+
+
+def test_to_openai_tool_single_skill() -> None:
+    """to_openai_tool 应正确转换单个技能。"""
+    from nini.skills.tool_adapter import to_openai_tool
+
+    skill = _DummySkill("test_openai")
+    oai = to_openai_tool(skill)
+
+    assert oai["type"] == "function"
+    assert oai["function"]["name"] == "test_openai"
+
+
+# ---------------------------------------------------------------------------
+# 9. CLI 测试
+# ---------------------------------------------------------------------------
+
+
+def test_cli_skills_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """nini skills list 应输出技能列表。"""
+    import argparse
+
+    from nini.__main__ import _cmd_skills_list
+
+    monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
+    (tmp_path / "empty").mkdir()
+
+    args = argparse.Namespace(type="all", category=None, output_format="table")
+    ret = _cmd_skills_list(args)
+
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "t_test" in out
+    assert "create_chart" in out
+
+
+def test_cli_skills_list_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """nini skills list --format json 应输出合法 JSON。"""
+    import argparse
+    import json
+
+    from nini.__main__ import _cmd_skills_list
+
+    monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
+    (tmp_path / "empty").mkdir()
+
+    args = argparse.Namespace(type="all", category=None, output_format="json")
+    ret = _cmd_skills_list(args)
+
+    assert ret == 0
+    out = capsys.readouterr().out
+    catalog = json.loads(out)
+    assert isinstance(catalog, list)
+    assert len(catalog) > 0
+
+
+def test_cli_skills_list_filter_by_category(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """nini skills list --category statistics 应仅显示统计类技能。"""
+    import argparse
+    import json
+
+    from nini.__main__ import _cmd_skills_list
+
+    monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
+    (tmp_path / "empty").mkdir()
+
+    args = argparse.Namespace(type="all", category="statistics", output_format="json")
+    _cmd_skills_list(args)
+
+    out = capsys.readouterr().out
+    catalog = json.loads(out)
+    for item in catalog:
+        assert item["category"] == "statistics"
+
+
+def test_cli_skills_create_function(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """nini skills create 应创建 Function Skill 脚手架。"""
+    import argparse
+
+    from nini.__main__ import _cmd_skills_create
+
+    # 把脚手架目标目录指向 tmp_path
+    skills_module_dir = tmp_path / "skills_module"
+    skills_module_dir.mkdir()
+    monkeypatch.setattr(
+        "nini.__main__._create_function_skill",
+        lambda name, desc, cat: _create_function_skill_in(skills_module_dir, name, desc, cat),
+    )
+
+    args = argparse.Namespace(
+        skill_name="test_skill",
+        skill_type="function",
+        category="statistics",
+        description="测试技能",
+    )
+    ret = _cmd_skills_create(args)
+    assert ret == 0
+
+
+def _create_function_skill_in(target_dir: Path, name: str, description: str, category: str) -> int:
+    """测试辅助：在指定目录创建 Function Skill 脚手架。"""
+    target = target_dir / f"{name}.py"
+    target.write_text(f"# {name} - {description} ({category})\n", encoding="utf-8")
+    print(f"已创建 Function Skill 脚手架：{target}")
+    return 0
+
+
+def test_cli_skills_create_markdown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """nini skills create --type markdown 应创建 Markdown Skill 脚手架。"""
+    import argparse
+
+    from nini.__main__ import _cmd_skills_create
+
+    skills_root = tmp_path / "skills_root"
+    monkeypatch.setattr(
+        "nini.__main__._create_markdown_skill",
+        lambda name, desc, cat: _create_markdown_skill_in(skills_root, name, desc, cat),
+    )
+
+    args = argparse.Namespace(
+        skill_name="test_guide",
+        skill_type="markdown",
+        category="report",
+        description="测试指南",
+    )
+    ret = _cmd_skills_create(args)
+    assert ret == 0
+
+
+def _create_markdown_skill_in(skills_root: Path, name: str, description: str, category: str) -> int:
+    """测试辅助：在指定目录创建 Markdown Skill 脚手架。"""
+    target_dir = skills_root / name
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / "SKILL.md"
+    target.write_text(
+        f"---\nname: {name}\ndescription: {description}\ncategory: {category}\n---\n",
+        encoding="utf-8",
+    )
+    print(f"已创建 Markdown Skill 脚手架：{target}")
+    return 0
+
+
+def test_cli_skills_create_invalid_name(capsys: pytest.CaptureFixture[str]) -> None:
+    """非法技能名称应被拒绝。"""
+    import argparse
+
+    from nini.__main__ import _cmd_skills_create
+
+    args = argparse.Namespace(
+        skill_name="Invalid-Name",
+        skill_type="function",
+        category="other",
+        description="",
+    )
+    ret = _cmd_skills_create(args)
+    assert ret == 1
+    assert "不合法" in capsys.readouterr().out
+
+
+def test_cli_skills_export_mcp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """nini skills export --format mcp 应输出合法 JSON。"""
+    import argparse
+    import json
+
+    from nini.__main__ import _cmd_skills_export
+
+    monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
+    (tmp_path / "empty").mkdir()
+
+    args = argparse.Namespace(export_format="mcp", output=None)
+    ret = _cmd_skills_export(args)
+    assert ret == 0
+
+    out = capsys.readouterr().out
+    tools = json.loads(out)
+    assert isinstance(tools, list)
+    assert all("inputSchema" in t for t in tools)

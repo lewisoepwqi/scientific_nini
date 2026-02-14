@@ -28,7 +28,7 @@ class SaveWorkflowSkill(Skill):
 
     @property
     def category(self) -> str:
-        return "other"
+        return "workflow"
 
     @property
     def description(self) -> str:
@@ -62,14 +62,10 @@ class SaveWorkflowSkill(Skill):
         if not name:
             return SkillResult(success=False, message="请提供工作流模板名称")
 
-        template = extract_workflow_from_session(
-            session, name=name, description=description
-        )
+        template = extract_workflow_from_session(session, name=name, description=description)
 
         if not template.steps:
-            return SkillResult(
-                success=False, message="当前会话中没有可提取的分析步骤"
-            )
+            return SkillResult(success=False, message="当前会话中没有可提取的分析步骤")
 
         await save_template(template)
 
@@ -93,7 +89,7 @@ class ListWorkflowsSkill(Skill):
 
     @property
     def category(self) -> str:
-        return "other"
+        return "workflow"
 
     @property
     def description(self) -> str:
@@ -113,9 +109,7 @@ class ListWorkflowsSkill(Skill):
         for t in templates:
             steps = t.get("steps", [])
             step_names = [s.get("tool_name", "?") for s in steps]
-            lines.append(
-                f"- **{t['name']}**（{len(steps)} 步）：{' → '.join(step_names)}"
-            )
+            lines.append(f"- **{t['name']}**（{len(steps)} 步）：{' → '.join(step_names)}")
 
         return SkillResult(
             success=True,
@@ -133,7 +127,7 @@ class ApplyWorkflowSkill(Skill):
 
     @property
     def category(self) -> str:
-        return "other"
+        return "workflow"
 
     @property
     def description(self) -> str:
@@ -162,9 +156,7 @@ class ApplyWorkflowSkill(Skill):
 
         template = await get_template(template_id)
         if template is None:
-            return SkillResult(
-                success=False, message=f"未找到工作流模板: {template_id}"
-            )
+            return SkillResult(success=False, message=f"未找到工作流模板: {template_id}")
 
         # 注意：实际执行在 API 层通过 workflow executor 完成，
         # 这里只返回模板信息让前端/WebSocket 层发起执行
