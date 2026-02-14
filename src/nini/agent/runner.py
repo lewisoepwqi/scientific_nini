@@ -127,7 +127,11 @@ class AgentRunner:
             usage: dict[str, int] = {}
 
             try:
-                async for chunk in self._resolver.chat(messages, tools or None):
+                async for chunk in self._resolver.chat(
+                    messages,
+                    tools or None,
+                    purpose="chat",
+                ):
                     if should_stop():
                         yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
                         return
@@ -153,7 +157,7 @@ class AgentRunner:
 
             # 记录 token 消耗
             if usage:
-                model_info = self._resolver.get_active_model_info()
+                model_info = self._resolver.get_active_model_info(purpose="chat")
                 tracker = get_tracker(session.id)
                 tracker.record(
                     model=model_info.get("model", "unknown"),

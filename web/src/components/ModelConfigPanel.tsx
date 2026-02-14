@@ -45,6 +45,23 @@ interface RemoteModels {
   source: 'remote' | 'static' | null
 }
 
+interface ModelPurpose {
+  id: string
+  label: string
+}
+
+interface ActivePurposeModel {
+  provider_id: string
+  provider_name: string
+  model: string
+}
+
+interface PurposeRoute {
+  provider_id: string | null
+  model: string | null
+  base_url: string | null
+}
+
 interface Props {
   open: boolean
   onClose: () => void
@@ -216,9 +233,14 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
   const setPreferredProvider = useStore((s) => s.setPreferredProvider)
 
   // 从 activeModel 中获取当前全局首选
-  const defaultProvider = activeModel?.preferred_provider || null
+  const [routingPreferredProvider, setRoutingPreferredProvider] = useState<string | null>(null)
+  const defaultProvider = routingPreferredProvider ?? activeModel?.preferred_provider ?? null
 
   const [providers, setProviders] = useState<ModelProvider[]>([])
+  const [purposes, setPurposes] = useState<ModelPurpose[]>([])
+  const [purposeRoutes, setPurposeRoutes] = useState<Record<string, PurposeRoute>>({})
+  const [activeByPurpose, setActiveByPurpose] = useState<Record<string, ActivePurposeModel>>({})
+  const [purposeSaving, setPurposeSaving] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(false)
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({})
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -242,14 +264,35 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
     }
   }, [])
 
+  const fetchRouting = useCallback(async () => {
+    try {
+      const resp = await fetch('/api/models/routing')
+      const data = await resp.json()
+      if (!data.success || !data.data) return
+      const payload = data.data as {
+        preferred_provider?: string | null
+        purpose_routes?: Record<string, PurposeRoute>
+        active_by_purpose?: Record<string, ActivePurposeModel>
+        purposes?: ModelPurpose[]
+      }
+      setRoutingPreferredProvider(payload.preferred_provider || null)
+      setPurposeRoutes(payload.purpose_routes || {})
+      setActiveByPurpose(payload.active_by_purpose || {})
+      setPurposes(Array.isArray(payload.purposes) ? payload.purposes : [])
+    } catch (e) {
+      console.error('获取用途模型路由失败:', e)
+    }
+  }, [])
+
   useEffect(() => {
     if (open) {
       fetchModels()
+      fetchRouting()
       setTestResults({})
       setEditingId(null)
       setSaveStatus({})
     }
-  }, [open, fetchModels])
+  }, [open, fetchModels, fetchRouting])
 
   const handleTest = useCallback(async (providerId: string) => {
     setTestResults((prev) => ({
@@ -319,6 +362,7 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
         // 刷新列表
         await fetchModels()
         await fetchActiveModel()
+        await fetchRouting()
         window.dispatchEvent(new Event('nini:model-config-updated'))
       } else {
         setSaveStatus((prev) => ({
@@ -332,25 +376,73 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
         [providerId]: { loading: false, success: false, message: `请求失败: ${e}` },
       }))
     }
-  }, [editForm, fetchActiveModel, fetchModels])
+  }, [editForm, fetchActiveModel, fetchModels, fetchRouting])
 
   const handleSetDefault = useCallback(async (providerId: string) => {
     setDefaultLoading(providerId)
     try {
       await setPreferredProvider(providerId)
+      await fetchRouting()
     } finally {
       setDefaultLoading(null)
     }
-  }, [setPreferredProvider])
+  }, [fetchRouting, setPreferredProvider])
 
   const handleClearDefault = useCallback(async () => {
     setDefaultLoading('clear')
     try {
       await setPreferredProvider('')
+      await fetchRouting()
     } finally {
       setDefaultLoading(null)
     }
-  }, [setPreferredProvider])
+  }, [fetchRouting, setPreferredProvider])
+
+  const handlePurposeFieldChange = useCallback(
+    (purposeId: string, patch: Partial<PurposeRoute>) => {
+      setPurposeRoutes((prev) => {
+        const current = prev[purposeId] || { provider_id: null, model: null, base_url: null }
+        const next: PurposeRoute = { ...current, ...patch }
+        if (!next.provider_id) {
+          next.model = null
+          next.base_url = null
+        }
+        return { ...prev, [purposeId]: next }
+      })
+    },
+    [],
+  )
+
+  const handleSavePurposeRoute = useCallback(async (purposeId: string) => {
+    const route = purposeRoutes[purposeId] || { provider_id: null, model: null, base_url: null }
+    setPurposeSaving((prev) => ({ ...prev, [purposeId]: true }))
+    try {
+      const resp = await fetch('/api/models/routing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          purpose_routes: {
+            [purposeId]: {
+              provider_id: route.provider_id,
+              model: route.model,
+              base_url: route.base_url,
+            },
+          },
+        }),
+      })
+      const data = await resp.json()
+      if (!data.success) {
+        console.error(`保存用途模型路由失败(${purposeId}):`, data.error)
+      }
+      await fetchRouting()
+      await fetchActiveModel()
+      window.dispatchEvent(new Event('nini:model-config-updated'))
+    } catch (e) {
+      console.error(`保存用途模型路由失败(${purposeId}):`, e)
+    } finally {
+      setPurposeSaving((prev) => ({ ...prev, [purposeId]: false }))
+    }
+  }, [fetchActiveModel, fetchRouting, purposeRoutes])
 
   if (!open) return null
 
@@ -370,7 +462,14 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
             <h2 className="text-lg font-semibold text-gray-800">模型配置</h2>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={fetchModels} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500" title="刷新">
+            <button
+              onClick={() => {
+                fetchModels()
+                fetchRouting()
+              }}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
+              title="刷新"
+            >
               <RefreshCw size={16} />
             </button>
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">
@@ -391,7 +490,82 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
               无法获取模型列表，请检查服务是否正常运行
             </div>
           ) : (
-            providers.map((p) => {
+            <>
+              <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+                <div className="text-sm font-medium text-gray-800">用途模型路由</div>
+                <div className="text-xs text-gray-500 mt-1 mb-3">
+                  可为不同用途选择不同提供商；未设置时将自动跟随全局默认或系统优先级。
+                </div>
+                <div className="space-y-2">
+                  {purposes.map((purpose) => {
+                    const route = purposeRoutes[purpose.id] || { provider_id: null, model: null, base_url: null }
+                    const selectedProvider = route.provider_id || ''
+                    const selectedModel = route.model || ''
+                    const providerModels =
+                      providers.find((item) => item.id === selectedProvider)?.available_models || []
+                    const active = activeByPurpose[purpose.id]
+                    return (
+                      <div key={purpose.id} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-center">
+                        <div className="text-xs text-gray-700">{purpose.label}</div>
+                        <div>
+                          <select
+                            value={selectedProvider}
+                            onChange={(e) =>
+                              handlePurposeFieldChange(purpose.id, { provider_id: e.target.value || null })
+                            }
+                            disabled={!!purposeSaving[purpose.id]}
+                            className="w-full px-2 py-1.5 text-xs border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:opacity-60"
+                          >
+                            <option value="">自动（跟随全局）</option>
+                            {providers
+                              .filter((item) => item.configured)
+                              .map((item) => (
+                                <option key={item.id} value={item.id}>
+                                  {item.name}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                        <div>
+                          {selectedProvider ? (
+                            <ModelCombobox
+                              value={selectedModel}
+                              onChange={(val) =>
+                                handlePurposeFieldChange(purpose.id, { model: val || null })
+                              }
+                              staticModels={providerModels}
+                              providerId={selectedProvider}
+                            />
+                          ) : (
+                            <input
+                              value=""
+                              readOnly
+                              placeholder="先选择提供商"
+                              className="w-full px-2 py-1.5 text-xs border rounded-lg bg-gray-50 text-gray-400"
+                            />
+                          )}
+                        </div>
+                        <div className="text-[11px] text-gray-500 flex items-center gap-2">
+                          {purposeSaving[purpose.id] && <Loader2 size={11} className="animate-spin" />}
+                          <button
+                            type="button"
+                            onClick={() => handleSavePurposeRoute(purpose.id)}
+                            disabled={!!purposeSaving[purpose.id]}
+                            className="px-2 py-1 rounded border text-[11px] hover:bg-blue-50 disabled:opacity-50"
+                          >
+                            保存
+                          </button>
+                          <span>
+                            当前生效: {active?.provider_name || '未配置'}
+                            {active?.model ? ` / ${active.model}` : ''}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+              {providers.map((p) => {
               const test = testResults[p.id]
               const save = saveStatus[p.id]
               const isEditing = editingId === p.id
@@ -580,13 +754,14 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
                   )}
                 </div>
               )
-            })
+            })}
+            </>
           )}
         </div>
 
         {/* 底部提示 */}
         <div className="px-6 py-3 border-t text-xs text-gray-400 text-center">
-          点击展开配置卡片，编辑并保存 API Key。模型选择支持搜索过滤和自定义输入。
+          支持提供商配置与用途路由。图片识别可在“用途模型路由”中单独指定模型提供商。
         </div>
       </div>
     </div>

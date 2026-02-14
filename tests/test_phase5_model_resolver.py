@@ -30,10 +30,15 @@ class FakeClient(BaseLLMClient):
     def __init__(
         self,
         *,
+        provider_id: str = "fake",
+        model: str = "fake-model",
         available: bool,
         chunks: list[LLMChunk] | None = None,
         error: Exception | None = None,
     ):
+        self.provider_id = provider_id
+        self.provider_name = provider_id
+        self._model = model
         self.available = available
         self.chunks = chunks or []
         self.error = error
@@ -84,6 +89,93 @@ async def test_model_resolver_all_clients_failed_raises_runtime_error() -> None:
     with pytest.raises(RuntimeError) as exc:
         _ = [chunk async for chunk in resolver.chat([{"role": "user", "content": "hi"}])]
     assert "所有 LLM 客户端均失败" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_model_resolver_supports_purpose_routing() -> None:
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(
+                provider_id="openai",
+                available=True,
+                chunks=[LLMChunk(text="from-openai", finish_reason="stop")],
+            ),
+            FakeClient(
+                provider_id="zhipu",
+                available=True,
+                chunks=[LLMChunk(text="from-zhipu", finish_reason="stop")],
+            ),
+        ]
+    )
+    resolver.set_preferred_provider("openai")
+    resolver.set_preferred_provider("zhipu", purpose="title_generation")
+
+    default_chunks = [chunk async for chunk in resolver.chat([{"role": "user", "content": "hi"}])]
+    title_chunks = [
+        chunk
+        async for chunk in resolver.chat(
+            [{"role": "user", "content": "hi"}],
+            purpose="title_generation",
+        )
+    ]
+
+    assert "".join(c.text for c in default_chunks) == "from-openai"
+    assert "".join(c.text for c in title_chunks) == "from-zhipu"
+    assert resolver.get_preferred_provider() == "openai"
+    assert resolver.get_preferred_provider(purpose="title_generation") == "zhipu"
+
+
+def test_model_resolver_get_active_model_info_by_purpose() -> None:
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="openai", model="gpt-4o", available=True),
+            FakeClient(provider_id="zhipu", model="glm-4", available=True),
+        ]
+    )
+    resolver.set_preferred_provider("openai")
+    resolver.set_preferred_provider("zhipu", purpose="image_analysis")
+
+    chat_info = resolver.get_active_model_info()
+    image_info = resolver.get_active_model_info(purpose="image_analysis")
+
+    assert chat_info["provider_id"] == "openai"
+    assert image_info["provider_id"] == "zhipu"
+    assert image_info["model"] == "glm-4"
+
+
+def test_model_resolver_builds_purpose_model_override_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="zhipu", model="glm-default", available=True),
+        ]
+    )
+    resolver.set_purpose_route(
+        "title_generation",
+        provider_id="zhipu",
+        model="glm-4.7-flash",
+    )
+
+    captured: dict[str, str | None] = {}
+
+    def _fake_build(provider_id: str, *, model: str | None = None, base_url: str | None = None):  # type: ignore[no-untyped-def]
+        captured["provider_id"] = provider_id
+        captured["model"] = model
+        captured["base_url"] = base_url
+        return FakeClient(
+            provider_id=provider_id,
+            model=model or "fallback-model",
+            available=True,
+            chunks=[LLMChunk(text="from-purpose-override", finish_reason="stop")],
+        )
+
+    monkeypatch.setattr(resolver, "_build_client_for_provider", _fake_build)
+
+    ordered = resolver._get_ordered_clients(purpose="title_generation")  # noqa: SLF001
+
+    assert captured["provider_id"] == "zhipu"
+    assert captured["model"] == "glm-4.7-flash"
+    assert ordered[0].provider_id == "zhipu"
+    assert ordered[0].get_model_name() == "glm-4.7-flash"
 
 
 def test_model_resolver_get_active_client() -> None:

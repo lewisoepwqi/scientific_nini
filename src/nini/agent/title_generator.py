@@ -21,11 +21,13 @@ _TITLE_PROMPT = (
 
 
 _EDGE_CHARS = " \t\r\n\"'“”‘’《》【】()（）[]「」"
-_TITLE_PREFIX_RE = re.compile(r"^(标题|会话标题|主题|title)[:：\\s-]*", re.IGNORECASE)
+_TITLE_PREFIX_RE = re.compile(r"^(标题|会话标题|主题|title)[:：\s-]*", re.IGNORECASE)
 _CODE_BLOCK_RE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`[^`]+`")
-_URL_RE = re.compile(r"https?://\\S+")
+_URL_RE = re.compile(r"https?://\S+")
 _SENTENCE_SPLIT_RE = re.compile(r"[。！？.!?\n]+")
+_TITLE_MAX_TOKENS = 50
+_TITLE_RETRY_MAX_TOKENS = 120
 
 
 def _collect_relevant_messages(messages: list[dict[str, Any]]) -> list[tuple[str, str]]:
@@ -95,6 +97,29 @@ def _fallback_title(messages: list[dict[str, Any]]) -> str | None:
     return cleaned
 
 
+def _preview_text(text: str, max_len: int = 120) -> str:
+    """生成单行预览文本，避免日志被长内容刷屏。"""
+    single_line = text.replace("\r", " ").replace("\n", " ")
+    compact = re.sub(r"\s+", " ", single_line).strip()
+    if len(compact) > max_len:
+        return compact[:max_len] + "..."
+    return compact
+
+
+def _build_title_prompt(
+    relevant_msgs: list[tuple[str, str]],
+    *,
+    max_messages: int = 4,
+    max_content_chars: int = 200,
+) -> str:
+    """构建标题生成提示词。"""
+    relevant: list[str] = []
+    for role, content in relevant_msgs[:max_messages]:
+        prefix = "用户" if role == "user" else "助手"
+        relevant.append(f"{prefix}: {content[:max_content_chars]}")
+    return _TITLE_PROMPT + "\n".join(relevant)
+
+
 async def generate_title(messages: list[dict[str, Any]]) -> str | None:
     """根据对话消息生成会话标题。
 
@@ -108,37 +133,88 @@ async def generate_title(messages: list[dict[str, Any]]) -> str | None:
 
     # 提取前 4 条有内容的消息用于生成标题
     relevant_msgs = _collect_relevant_messages(messages)
-    relevant: list[str] = []
-    for role, content in relevant_msgs:
-        prefix = "用户" if role == "user" else "助手"
-        # 截取前 200 字避免过长
-        relevant.append(f"{prefix}: {content[:200]}")
+    logger.debug("过滤后的相关消息数: %d", len(relevant_msgs))
 
-    logger.debug("过滤后的相关消息数: %d", len(relevant))
-
-    if not relevant:
+    if not relevant_msgs:
         logger.debug("没有可用的消息内容，跳过标题生成")
         return None
 
-    prompt = _TITLE_PROMPT + "\n".join(relevant)
-    logger.debug("标题生成提示词长度: %d 字符", len(prompt))
+    default_prompt = _build_title_prompt(relevant_msgs, max_messages=4, max_content_chars=200)
+    retry_prompt = _build_title_prompt(relevant_msgs, max_messages=2, max_content_chars=100)
+    strategies = [
+        ("default", default_prompt, _TITLE_MAX_TOKENS),
+        ("length_retry", retry_prompt, _TITLE_RETRY_MAX_TOKENS),
+    ]
+    logger.debug("标题生成默认提示词长度: %d 字符", len(default_prompt))
 
     try:
-        response = await model_resolver.chat_complete(
-            [{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=50,
-        )
-        title = _normalize_title(response.text)
-        # 限制标题长度
-        if len(title) > 30:
-            title = title[:30]
-        if title:
-            logger.info("会话标题生成成功: %s", title)
-            return title
+        last_empty_reason = "unknown"
+        last_finish_reason: str | None = None
+        for idx, (strategy_name, prompt, max_tokens) in enumerate(strategies):
+            response = await model_resolver.chat_complete(
+                [{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=max_tokens,
+                purpose="title_generation",
+            )
+            raw_title = response.text or ""
+            finish_reason = getattr(response, "finish_reason", None)
+            finish_reasons = getattr(response, "finish_reasons", [])
+            usage = getattr(response, "usage", {})
+            tool_calls = getattr(response, "tool_calls", [])
+            title = _normalize_title(raw_title)
+            # 限制标题长度
+            if len(title) > 30:
+                title = title[:30]
+            if title:
+                logger.info(
+                    "会话标题生成成功: %s (strategy=%s, raw_len=%d, finish_reason=%s)",
+                    title,
+                    strategy_name,
+                    len(raw_title),
+                    finish_reason,
+                )
+                return title
+            if tool_calls:
+                empty_reason = "tool_calls_only"
+            elif not raw_title.strip():
+                empty_reason = "raw_empty"
+            else:
+                empty_reason = "normalized_empty"
+            last_empty_reason = empty_reason
+            last_finish_reason = str(finish_reason) if finish_reason is not None else None
+            logger.warning(
+                "会话标题为空: reason=%s, finish_reason=%s, finish_reasons=%s, usage=%s, "
+                "raw_len=%d, raw_preview=%s, strategy=%s",
+                empty_reason,
+                finish_reason,
+                finish_reasons,
+                usage,
+                len(raw_title),
+                _preview_text(raw_title),
+                strategy_name,
+            )
+            should_retry = (
+                idx == 0
+                and empty_reason == "raw_empty"
+                and str(finish_reason or "").lower() == "length"
+            )
+            if should_retry:
+                logger.info(
+                    "检测到标题输出被长度限制截断，触发重试: next_strategy=%s, next_max_tokens=%d",
+                    strategies[idx + 1][0],
+                    strategies[idx + 1][2],
+                )
+                continue
+            break
         fallback = _fallback_title(messages)
         if fallback:
-            logger.info("LLM 标题为空，已使用回退标题: %s", fallback)
+            logger.info(
+                "LLM 标题为空，已使用回退标题: %s (reason=%s, finish_reason=%s)",
+                fallback,
+                last_empty_reason,
+                last_finish_reason,
+            )
             return fallback
         logger.warning("LLM 返回空标题，且回退失败")
         return None

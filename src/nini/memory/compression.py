@@ -126,6 +126,7 @@ async def _llm_summarize(messages: list[dict[str, Any]]) -> str | None:
             [{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=800,
+            purpose="chat",
         )
         summary = response.text.strip()
         if summary:
