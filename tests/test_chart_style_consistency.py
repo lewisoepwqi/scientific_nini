@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import io
+import multiprocessing as mp
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -170,6 +172,69 @@ def _compute_ssim(values_a: np.ndarray, values_b: np.ndarray) -> float:
     return float(numerator / denominator)
 
 
+def _render_plotly_png_worker(
+    queue: Any,
+    payload: dict[str, Any],
+    *,
+    width: int,
+    height: int,
+    scale: int,
+) -> None:
+    """子进程渲染 Plotly PNG，结果通过队列回传。"""
+    try:
+        import plotly.graph_objects as go
+
+        fig = go.Figure(payload)
+        png_bytes = fig.to_image(
+            format="png",
+            width=width,
+            height=height,
+            scale=scale,
+        )
+        queue.put(("ok", png_bytes))
+    except Exception as exc:  # pragma: no cover - 环境依赖路径
+        queue.put(("err", str(exc)))
+
+
+def _render_plotly_png(
+    fig: Any,
+    *,
+    width: int,
+    height: int,
+    scale: int,
+    timeout_seconds: float = 20.0,
+) -> bytes:
+    """在限定时间内导出 Plotly PNG，超时抛出 TimeoutError。"""
+    ctx = mp.get_context("spawn")
+    queue: Any = ctx.Queue()
+    payload = cast(dict[str, Any], fig.to_plotly_json())
+    process = ctx.Process(
+        target=_render_plotly_png_worker,
+        kwargs={
+            "queue": queue,
+            "payload": payload,
+            "width": width,
+            "height": height,
+            "scale": scale,
+        },
+        daemon=True,
+    )
+    process.start()
+    process.join(timeout_seconds)
+    if process.is_alive():
+        process.terminate()
+        process.join(3)
+        raise TimeoutError("Plotly PNG 导出超时")
+
+    try:
+        status, value = queue.get_nowait()
+    except Exception as exc:  # pragma: no cover - 异常路径
+        raise RuntimeError("Plotly PNG 导出失败：无返回结果") from exc
+    if status == "ok":
+        return cast(bytes, value)
+    raise RuntimeError(f"Plotly PNG 导出失败: {value}")
+
+
 def test_cross_engine_visual_similarity_ssim_threshold() -> None:
     """同图跨引擎输出在可用环境下满足 SSIM 阈值。"""
     spec = build_style_spec("nature")
@@ -181,8 +246,8 @@ def test_cross_engine_visual_similarity_ssim_threshold() -> None:
     plotly_fig = skill._create_plotly_figure(df, "line", kwargs, list(spec.colors))
     apply_plotly_style(plotly_fig, spec, "trend")
     try:
-        plotly_png = plotly_fig.to_image(
-            format="png",
+        plotly_png = _render_plotly_png(
+            plotly_fig,
             width=900,
             height=600,
             scale=max(1, int(spec.dpi / 150)),
