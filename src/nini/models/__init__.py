@@ -8,30 +8,8 @@ from nini.models.execution_plan import (
     PlanStatus,
     PhaseType,
 )
+from nini.models.schemas import APIResponse, DatasetInfo, UploadResponse
 from nini.models.user_profile import UserProfile
-
-# Database models（如果存在）
-try:
-    from nini.models.database import (
-        AnalysisHistoryModel,
-        ChartConfigModel,
-        DatasetModel,
-        UserModel,
-    )
-except ImportError:
-    pass
-
-# Schemas（如果存在）
-try:
-    from nini.models.schemas import (
-        AnalysisRequest,
-        AnalysisResult,
-        ChartConfig,
-        DatasetInfo,
-        DatasetUploadResponse,
-    )
-except ImportError:
-    pass
 
 __all__ = [
     # Execution plan
@@ -43,4 +21,8 @@ __all__ = [
     "PhaseType",
     # User profile
     "UserProfile",
+    # HTTP schemas
+    "APIResponse",
+    "DatasetInfo",
+    "UploadResponse",
 ]

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 class PlanStatus(str, Enum):
     """计划状态。"""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -24,28 +25,24 @@ class PlanStatus(str, Enum):
 
 class PlanAction(BaseModel):
     """计划中的单个动作。"""
+
     action_type: str = Field(description="动作类型，如 statistical_analysis、visualization 等")
     skill: str = Field(description="要调用的技能名称")
     parameters: dict[str, Any] = Field(default_factory=dict, description="技能参数")
     description: str = Field(default="", description="动作描述")
     depends_on: list[str] = Field(default_factory=list, description="依赖的动作 ID")
 
-    class Config:
-        json_encoders = {
-            # 确保枚举正确序列化
-        }
-
 
 class PlanPhase(BaseModel):
     """计划中的一个阶段。"""
-    phase_type: str = Field(description="阶段类型，如 data_check、statistical_test、visualization 等")
+
+    phase_type: str = Field(
+        description="阶段类型，如 data_check、statistical_test、visualization 等"
+    )
     description: str = Field(description="阶段描述")
     actions: list[PlanAction] = Field(default_factory=list, description="该阶段的动作列表")
     status: PlanStatus = Field(default=PlanStatus.PENDING, description="阶段状态")
     order: int = Field(default=0, description="执行顺序")
-
-    class Config:
-        json_encoders = {}
 
 
 class ExecutionPlan(BaseModel):
@@ -63,21 +60,23 @@ class ExecutionPlan(BaseModel):
     current_phase_index: int = Field(default=0, description="当前执行到的阶段索引")
 
     # 元数据
-    plan_id: str = Field(default_factory=lambda: f"plan_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
-                         description="计划唯一标识")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc),
-                                 description="创建时间")
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc),
-                                 description="更新时间")
+    plan_id: str = Field(
+        default_factory=lambda: f"plan_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
+        description="计划唯一标识",
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), description="创建时间"
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), description="更新时间"
+    )
 
     # 验证结果
     validation_errors: list[str] = Field(default_factory=list, description="验证错误列表")
     suggestions: list[str] = Field(default_factory=list, description="改进建议")
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
     def model_post_init(self, __context: Any) -> None:
         """初始化后验证。"""
@@ -121,6 +120,7 @@ class ExecutionPlan(BaseModel):
 # 预定义的阶段类型
 class PhaseType(str, Enum):
     """标准阶段类型。"""
+
     DATA_LOADING = "data_loading"
     DATA_CHECK = "data_check"
     ASSUMPTION_TEST = "assumption_test"
@@ -134,6 +134,7 @@ class PhaseType(str, Enum):
 # 预定义的动作类型
 class ActionType(str, Enum):
     """标准动作类型。"""
+
     LOAD_DATA = "load_data"
     SUMMARY = "summary"
     NORMALITY_TEST = "normality_test"

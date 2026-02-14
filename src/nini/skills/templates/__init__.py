@@ -49,14 +49,12 @@ def get_template(name: str):
         复合技能返回实例，期刊模板返回配置字典，不存在返回 None
     """
     # 首先检查复合技能模板
-    skill_templates = {
-        "complete_comparison": CompleteComparisonSkill,
-        "complete_anova": CompleteANOVASkill,
-        "correlation_analysis": CorrelationAnalysisSkill,
-    }
-    template_class = skill_templates.get(name)
-    if template_class:
-        return template_class()
+    if name == "complete_comparison":
+        return CompleteComparisonSkill()
+    if name == "complete_anova":
+        return CompleteANOVASkill()
+    if name == "correlation_analysis":
+        return CorrelationAnalysisSkill()
 
     # 然后检查期刊样式模板
     from nini.skills.templates.journal_styles import get_template as get_journal_template
