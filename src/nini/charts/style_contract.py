@@ -7,7 +7,7 @@ from typing import Any
 
 from nini.config import settings
 from nini.skills.templates.journal_styles import get_template, get_template_names
-from nini.utils.chart_fonts import CJK_FONT_FAMILY, with_cjk_font_fallback
+from nini.utils.chart_fonts import CJK_FONT_FAMILY, get_matplotlib_font_list, with_cjk_font_fallback
 
 _SUPPORTED_ENGINES = {"auto", "plotly", "matplotlib"}
 
@@ -79,9 +79,7 @@ class ChartStyleSpec:
     def apply_matplotlib_rc(self, rc_params: Any) -> None:
         """应用 Matplotlib rcParams。"""
         rc_params["font.family"] = "sans-serif"
-        rc_params["font.sans-serif"] = [
-            part.strip() for part in with_cjk_font_fallback(self.font_family).split(",")
-        ]
+        rc_params["font.sans-serif"] = get_matplotlib_font_list(self.font_family)
         rc_params["font.size"] = self.font_size
         rc_params["axes.titlesize"] = max(9, self.font_size)
         rc_params["axes.labelsize"] = max(8, self.font_size - 1)

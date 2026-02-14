@@ -435,9 +435,9 @@ class CreateChartSkill(Skill):
 
         fig, ax = plt.subplots(figsize=style_spec.figure_size)
         plt.rcParams["font.family"] = "sans-serif"
-        plt.rcParams["font.sans-serif"] = [
-            part.strip() for part in style_spec.font_family.split(",")
-        ]
+        from nini.utils.chart_fonts import get_matplotlib_font_list
+
+        plt.rcParams["font.sans-serif"] = get_matplotlib_font_list(style_spec.font_family)
         plt.rcParams["font.size"] = style_spec.font_size
 
         if chart_type == "scatter":
