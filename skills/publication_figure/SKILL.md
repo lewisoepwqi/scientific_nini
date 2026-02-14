@@ -1,3 +1,9 @@
+---
+name: publication_figure
+description: 生成符合顶级学术期刊（Nature、Science、Cell 等）发表标准的科研图表
+category: visualization
+---
+
 # 顶级期刊图表制作技能 (Publication-Quality Figure Skill)
 
 ## 概述
