@@ -53,10 +53,26 @@ class SkillRegistry:
         self._fallback_manager = get_fallback_manager()
         self._diagnostics = DataDiagnostics()
 
-    def register(self, skill: Skill) -> None:
-        """注册一个技能。"""
+    def register(self, skill: Skill, *, allow_override: bool = False) -> None:
+        """注册一个技能。
+
+        Args:
+            skill: 要注册的技能实例。
+            allow_override: 若为 True，允许覆盖同名技能；否则抛出 ValueError。
+        """
         if skill.name in self._skills:
-            logger.warning("技能 %s 已存在，将被覆盖", skill.name)
+            existing = self._skills[skill.name]
+            existing_loc = f"{existing.__class__.__module__}.{existing.__class__.__name__}"
+            new_loc = f"{skill.__class__.__module__}.{skill.__class__.__name__}"
+            if allow_override:
+                logger.warning(
+                    "技能 %s 已存在（%s），将被覆盖为 %s", skill.name, existing_loc, new_loc
+                )
+            else:
+                raise ValueError(
+                    f"技能名称冲突: '{skill.name}' 已由 {existing_loc} 注册，"
+                    f"新注册来源 {new_loc}。如需覆盖请传入 allow_override=True"
+                )
         self._skills[skill.name] = skill
         logger.info("注册技能: %s", skill.name)
 
@@ -132,6 +148,10 @@ class SkillRegistry:
         """获取暴露给 LLM 的技能工具定义（过滤 expose_to_llm=False）。"""
         return [s.get_tool_definition() for s in self._skills.values() if s.expose_to_llm]
 
+    def _is_markdown_skill(self, skill_name: str) -> bool:
+        """检查给定名称是否为已注册的 Markdown 技能。"""
+        return any(m.get("name") == skill_name for m in self._markdown_skills)
+
     async def execute(
         self,
         skill_name: str,
@@ -141,6 +161,14 @@ class SkillRegistry:
         """执行技能并返回结果字典。"""
         skill = self._skills.get(skill_name)
         if skill is None:
+            if self._is_markdown_skill(skill_name):
+                return {
+                    "success": False,
+                    "message": (
+                        f"'{skill_name}' 是提示词类型技能（Markdown Skill），"
+                        "不支持直接调用执行。请参考该技能的文档内容来指导后续操作。"
+                    ),
+                }
             return {"success": False, "message": f"未知技能: {skill_name}"}
 
         try:

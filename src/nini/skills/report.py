@@ -220,9 +220,18 @@ def _recent_findings(messages: list[dict[str, Any]], max_items: int = 12) -> str
 
         # 按工具类型分类
         tool_name = msg.get("name", "unknown")
-        if tool_name in ("t_test", "anova", "correlation", "regression", "mann_whitney", "kruskal_wallis"):
+        if tool_name in (
+            "t_test",
+            "anova",
+            "correlation",
+            "regression",
+            "mann_whitney",
+            "kruskal_wallis",
+        ):
             stats_results.append(f"- {message[:200]}")
-        elif tool_name in ("create_chart", "run_code") and ("chart" in message.lower() or "图" in message):
+        elif tool_name in ("create_chart", "run_code") and (
+            "chart" in message.lower() or "图" in message
+        ):
             viz_results.append(f"- {message[:120]}")
         else:
             findings.append(f"- {message[:150]}")
@@ -280,10 +289,12 @@ def _session_statistics(session: Session) -> str:
         tool_details = ", ".join([f"{name}×{count}" for name, count in top_tools])
         lines.append(f"  - 常用工具: {tool_details}")
 
-    lines.extend([
-        f"- **数据集**: {dataset_count} 个，总计 {total_rows:,} 行数据",
-        f"- **生成产物**: {artifact_count} 个",
-    ])
+    lines.extend(
+        [
+            f"- **数据集**: {dataset_count} 个，总计 {total_rows:,} 行数据",
+            f"- **生成产物**: {artifact_count} 个",
+        ]
+    )
 
     return "\n".join(lines)
 
@@ -291,6 +302,7 @@ def _session_statistics(session: Session) -> str:
 def _strip_leading_h2(text: str) -> str:
     """移除文本开头的 H2 标题（避免与模板重复）。"""
     import re
+
     # 匹配开头的 "## 标题\n"
     return re.sub(r"^##\s+[^\n]+\n+", "", text.strip(), count=1)
 
@@ -405,7 +417,7 @@ class GenerateReportSkill(Skill):
 
     @property
     def category(self) -> str:
-        return "export"
+        return "report"
 
     @property
     def description(self) -> str:

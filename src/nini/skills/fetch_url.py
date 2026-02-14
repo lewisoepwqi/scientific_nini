@@ -45,7 +45,7 @@ class FetchURLSkill(Skill):
 
     @property
     def category(self) -> str:
-        return "other"
+        return "utility"
 
     @property
     def description(self) -> str:

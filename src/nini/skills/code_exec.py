@@ -44,7 +44,7 @@ class RunCodeSkill(Skill):
 
     @property
     def category(self) -> str:
-        return "code"
+        return "utility"
 
     @property
     def description(self) -> str:

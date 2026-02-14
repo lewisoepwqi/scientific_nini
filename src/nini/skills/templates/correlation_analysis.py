@@ -33,7 +33,7 @@ class CorrelationAnalysisSkill(Skill):
 
     @property
     def category(self) -> str:
-        return "composite"
+        return "workflow"
 
     @property
     def description(self) -> str:

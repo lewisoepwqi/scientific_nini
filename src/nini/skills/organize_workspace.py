@@ -18,7 +18,7 @@ class OrganizeWorkspaceSkill(Skill):
 
     @property
     def category(self) -> str:
-        return "other"
+        return "utility"
 
     @property
     def description(self) -> str:
@@ -79,7 +79,9 @@ class OrganizeWorkspaceSkill(Skill):
         auto_create = bool(kwargs.get("auto_create_folder", False))
 
         if not isinstance(create_folders, list) or not isinstance(moves, list):
-            return SkillResult(success=False, message="参数格式错误：create_folders 与 moves 必须为数组")
+            return SkillResult(
+                success=False, message="参数格式错误：create_folders 与 moves 必须为数组"
+            )
         if not create_folders and not moves:
             return SkillResult(success=False, message="请至少提供 create_folders 或 moves 中的一项")
 
@@ -110,7 +112,11 @@ class OrganizeWorkspaceSkill(Skill):
                 continue
             name = raw_name.strip()
             raw_parent = item.get("parent")
-            parent = str(raw_parent).strip() if isinstance(raw_parent, str) and raw_parent.strip() else None
+            parent = (
+                str(raw_parent).strip()
+                if isinstance(raw_parent, str) and raw_parent.strip()
+                else None
+            )
             key = (name, parent)
             exists = folder_by_name.get(key)
             if exists:
@@ -161,11 +167,13 @@ class OrganizeWorkspaceSkill(Skill):
             if updated is None:
                 errors.append(f"moves[{idx}] 文件不存在: {file_id}")
                 continue
-            moved.append({
-                "file_id": file_id.strip(),
-                "folder_id": folder_id,
-                "file_name": updated.get("name"),
-            })
+            moved.append(
+                {
+                    "file_id": file_id.strip(),
+                    "folder_id": folder_id,
+                    "file_name": updated.get("name"),
+                }
+            )
 
         summary = (
             f"已创建 {len(created)} 个文件夹，"
@@ -185,4 +193,3 @@ class OrganizeWorkspaceSkill(Skill):
                 "errors": errors,
             },
         )
-
