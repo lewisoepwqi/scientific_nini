@@ -299,11 +299,23 @@ def _recent_findings(messages: list[dict[str, Any]], max_items: int = 12) -> str
         if not message or _is_noise(message):
             continue
 
-        key = (tool_name, message)
-        if key in seen:
-            continue
-        seen.add(key)
-        findings.append(f"- {message[:220]}")
+        # 按工具类型分类
+        tool_name = msg.get("name", "unknown")
+        if tool_name in (
+            "t_test",
+            "anova",
+            "correlation",
+            "regression",
+            "mann_whitney",
+            "kruskal_wallis",
+        ):
+            stats_results.append(f"- {message[:200]}")
+        elif tool_name in ("create_chart", "run_code") and (
+            "chart" in message.lower() or "图" in message
+        ):
+            viz_results.append(f"- {message[:120]}")
+        else:
+            findings.append(f"- {message[:150]}")
 
         if len(findings) >= max_items:
             break

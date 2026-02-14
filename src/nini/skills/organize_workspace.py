@@ -170,7 +170,7 @@ class OrganizeWorkspaceSkill(Skill):
             moved.append(
                 {
                     "file_id": file_id.strip(),
-                    "folder_id": move_folder_id,
+                    "folder_id": folder_id,
                     "file_name": updated.get("name"),
                 }
             )
