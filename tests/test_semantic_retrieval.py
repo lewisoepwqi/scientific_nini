@@ -100,12 +100,22 @@ class TestHybridRetrieval:
         from nini.knowledge.loader import KnowledgeLoader
 
         vector_hits = [
-            {"source": "vector_result.md", "score": 0.8, "snippet": "向量检索结果...", "method": "vector"},
+            {
+                "source": "vector_result.md",
+                "score": 0.8,
+                "snippet": "向量检索结果...",
+                "method": "vector",
+            },
             {"source": "b.md", "score": 0.95, "snippet": "B", "method": "vector"},
         ]
 
         keyword_hits = [
-            {"source": "keyword_result.md", "score": 3.0, "snippet": "关键词检索结果...", "method": "keyword"},
+            {
+                "source": "keyword_result.md",
+                "score": 3.0,
+                "snippet": "关键词检索结果...",
+                "method": "keyword",
+            },
         ]
 
         text, hits = KnowledgeLoader._merge_results(
@@ -213,10 +223,7 @@ class TestIntegrationWithVectorStore:
         # 返回布尔值
         assert isinstance(loader.vector_available, bool)
 
-    @pytest.mark.skipif(
-        True,  # 默认跳过，除非有向量索引
-        reason="需要预先构建向量索引"
-    )
+    @pytest.mark.skipif(True, reason="需要预先构建向量索引")  # 默认跳过，除非有向量索引
     def test_hybrid_retrieval_end_to_end(self):
         """测试端到端混合检索。"""
         from nini.knowledge.loader import KnowledgeLoader
@@ -248,19 +255,13 @@ class TestIntegrationWithVectorStore:
 class TestRetrievalAccuracy:
     """测试检索准确性。"""
 
-    @pytest.mark.skipif(
-        True,  # 需要实际知识文件
-        reason="需要预先准备测试数据"
-    )
+    @pytest.mark.skipif(True, reason="需要预先准备测试数据")  # 需要实际知识文件
     def test_semantic_similarity_matching(self):
         """测试语义相似性匹配。"""
         # 这个测试需要实际的知识文件来验证语义检索准确性
         pass
 
-    @pytest.mark.skipif(
-        True,
-        reason="需要实际知识文件"
-    )
+    @pytest.mark.skipif(True, reason="需要实际知识文件")
     def test_fuzzy_matching(self):
         """测试模糊匹配能力。"""
         # 测试对相似查询的匹配能力

@@ -147,10 +147,12 @@ class TestReasoningEventEmission:
         registry = create_default_registry()
 
         # 创建 3 组数据（应该触发 ANOVA 选择）
-        test_data = pd.DataFrame({
-            "value": [10, 11, 12] + [20, 21, 22] + [30, 31, 32],
-            "group": ["A"] * 3 + ["B"] * 3 + ["C"] * 3,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [10, 11, 12] + [20, 21, 22] + [30, 31, 32],
+                "group": ["A"] * 3 + ["B"] * 3 + ["C"] * 3,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         # 执行分析
@@ -176,10 +178,12 @@ class TestReasoningEventEmission:
         registry = create_default_registry()
 
         # 创建非正态数据（应该触发非参数方法建议）
-        test_data = pd.DataFrame({
-            "value": [1, 1, 1, 2, 2, 100, 150, 200, 250, 300],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [1, 1, 1, 2, 2, 100, 150, 200, 250, 300],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         # 执行带降级的分析

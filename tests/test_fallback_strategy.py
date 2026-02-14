@@ -27,10 +27,12 @@ class TestSkillFallbackStrategy:
         session = Session()
 
         # 创建明显偏态的数据
-        test_data = pd.DataFrame({
-            "value": [1, 1, 1, 2, 2, 100, 150, 200, 250, 300],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [1, 1, 1, 2, 2, 100, 150, 200, 250, 300],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         # 执行带降级的 t 检验
@@ -53,10 +55,12 @@ class TestSkillFallbackStrategy:
         session = Session()
 
         # 创建方差异常的数据
-        test_data = pd.DataFrame({
-            "value": [10, 11, 10, 12] + [100, 110, 100, 120] + [20, 21, 20, 22],
-            "group": ["A"] * 4 + ["B"] * 4 + ["C"] * 4,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [10, 11, 10, 12] + [100, 110, 100, 120] + [20, 21, 20, 22],
+                "group": ["A"] * 4 + ["B"] * 4 + ["C"] * 4,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await registry.execute_with_fallback(
@@ -75,10 +79,12 @@ class TestSkillFallbackStrategy:
         registry = create_default_registry()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "value": [1, 1, 1, 2, 2, 100, 150, 200, 250, 300],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [1, 1, 1, 2, 2, 100, 150, 200, 250, 300],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await registry.execute_with_fallback(
@@ -100,10 +106,12 @@ class TestSkillFallbackStrategy:
 
         # 创建正态分布数据
         np.random.seed(42)
-        test_data = pd.DataFrame({
-            "value": list(np.random.normal(10, 2, 5)) + list(np.random.normal(12, 2, 5)),
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": list(np.random.normal(10, 2, 5)) + list(np.random.normal(12, 2, 5)),
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await registry.execute_with_fallback(
@@ -122,10 +130,12 @@ class TestSkillFallbackStrategy:
         registry = create_default_registry()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "value": [1, 1, 1, 2, 2, 100, 150, 200, 250, 300],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [1, 1, 1, 2, 2, 100, 150, 200, 250, 300],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await registry.execute_with_fallback(
@@ -151,10 +161,12 @@ class TestDataDiagnostics:
         registry = create_default_registry()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "value": [1.0, 2.0, None, 4.0, 5.0, 6.0, None, 8.0, 9.0, 10.0],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [1.0, 2.0, None, 4.0, 5.0, 6.0, None, 8.0, 9.0, 10.0],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         diagnosis = await registry.diagnose_data_problem(
@@ -172,10 +184,12 @@ class TestDataDiagnostics:
         registry = create_default_registry()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "value": [10, 11, 12, 13, 14, 1000],  # 1000 是异常值
-            "group": ["A"] * 3 + ["B"] * 3,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [10, 11, 12, 13, 14, 1000],  # 1000 是异常值
+                "group": ["A"] * 3 + ["B"] * 3,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         diagnosis = await registry.diagnose_data_problem(
@@ -192,10 +206,12 @@ class TestDataDiagnostics:
         registry = create_default_registry()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "value": [1, 2],
-            "group": ["A", "B"],
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [1, 2],
+                "group": ["A", "B"],
+            }
+        )
         session.datasets["test_data"] = test_data
 
         diagnosis = await registry.diagnose_data_problem(
@@ -214,10 +230,12 @@ class TestDataDiagnostics:
         session = Session()
 
         # 数值列存储为字符串
-        test_data = pd.DataFrame({
-            "value": ["1.5", "2.3", "3.1", "4.2", "5.0"],
-            "group": ["A"] * 3 + ["B"] * 2,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": ["1.5", "2.3", "3.1", "4.2", "5.0"],
+                "group": ["A"] * 3 + ["B"] * 2,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         diagnosis = await registry.diagnose_data_problem(
@@ -240,10 +258,12 @@ class TestFallbackIntegration:
         session = Session()
 
         # 创建同时违反正态性和方差齐性的数据
-        test_data = pd.DataFrame({
-            "value": [1, 1, 2, 100, 150, 200, 201, 202, 203],
-            "group": ["A"] * 3 + ["B"] * 3 + ["C"] * 3,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [1, 1, 2, 100, 150, 200, 201, 202, 203],
+                "group": ["A"] * 3 + ["B"] * 3 + ["C"] * 3,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await registry.execute_with_fallback(
@@ -263,10 +283,12 @@ class TestFallbackIntegration:
         session = Session()
 
         # 设置用户偏好：不自动降级
-        test_data = pd.DataFrame({
-            "value": [1, 1, 1, 2, 2, 100, 150, 200, 250, 300],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [1, 1, 1, 2, 2, 100, 150, 200, 250, 300],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await registry.execute_with_fallback(
@@ -291,10 +313,12 @@ class TestNonParametricSkills:
         registry = create_default_registry()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "value": [1, 2, 3, 100, 150],
-            "group": ["A"] * 3 + ["B"] * 2,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [1, 2, 3, 100, 150],
+                "group": ["A"] * 3 + ["B"] * 2,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await registry.execute(
@@ -313,10 +337,12 @@ class TestNonParametricSkills:
         registry = create_default_registry()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "value": [1, 2, 3, 100, 150, 200],
-            "group": ["A"] * 2 + ["B"] * 2 + ["C"] * 2,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [1, 2, 3, 100, 150, 200],
+                "group": ["A"] * 2 + ["B"] * 2 + ["C"] * 2,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await registry.execute(

@@ -220,9 +220,7 @@ class TestMemoryFileSize:
         # 创建多个大型图表
         for i in range(4):
             large_chart = {
-                "data": [
-                    {"x": list(range(1000)), "y": list(range(1000))} for _ in range(5)
-                ],
+                "data": [{"x": list(range(1000)), "y": list(range(1000))} for _ in range(5)],
                 "layout": {"title": f"Chart {i}" * 50},
             }
             entry = {
@@ -242,7 +240,9 @@ class TestMemoryFileSize:
         assert memory_size < 10 * 1024  # 小于 10 KB
 
         # 验证 payloads 目录存在且包含文件
-        payloads_dir = settings.sessions_dir / session_id / "workspace" / "artifacts" / "memory-payloads"
+        payloads_dir = (
+            settings.sessions_dir / session_id / "workspace" / "artifacts" / "memory-payloads"
+        )
         assert payloads_dir.exists()
         payload_files = list(payloads_dir.glob("*.json"))
         assert len(payload_files) == 4  # 4 个图表文件

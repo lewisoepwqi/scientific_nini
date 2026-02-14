@@ -16,9 +16,7 @@ async def save_template(template: WorkflowTemplate) -> None:
     """保存工作流模板到数据库。"""
     db = await get_db()
     try:
-        steps_json = json.dumps(
-            [s.to_dict() for s in template.steps], ensure_ascii=False
-        )
+        steps_json = json.dumps([s.to_dict() for s in template.steps], ensure_ascii=False)
         params_json = json.dumps(template.parameters, ensure_ascii=False)
 
         await db.execute(
@@ -82,9 +80,7 @@ async def delete_template(template_id: str) -> bool:
     """删除指定模板。"""
     db = await get_db()
     try:
-        cursor = await db.execute(
-            "DELETE FROM workflow_templates WHERE id = ?", (template_id,)
-        )
+        cursor = await db.execute("DELETE FROM workflow_templates WHERE id = ?", (template_id,))
         await db.commit()
         return cursor.rowcount > 0
     finally:

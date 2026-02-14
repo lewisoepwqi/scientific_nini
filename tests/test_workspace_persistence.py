@@ -114,9 +114,7 @@ def test_workspace_save_text_and_download_note(client: LocalASGIClient) -> None:
     assert note_item is not None
     assert note_item["name"] == "analysis_snippet.md"
 
-    download_resp = client.get(
-        f"/api/workspace/{session_id}/notes/analysis_snippet.md"
-    )
+    download_resp = client.get(f"/api/workspace/{session_id}/notes/analysis_snippet.md")
     assert download_resp.status_code == 200
     assert "print('hello')" in download_resp.text
 
