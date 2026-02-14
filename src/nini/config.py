@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     chart_bitmap_dpi: int = 300
     chart_default_export_formats: str = "pdf,svg,png"
     chart_similarity_threshold: float = 0.96
+    font_fallback_url: str = ""  # 自定义字体下载 URL，空串使用内置镜像列表
+    font_auto_download: bool = True  # 是否启用运行时自动下载字体
 
     # ---- 知识库 ----
     knowledge_max_entries: int = 3  # 每次注入最多几个知识条目
