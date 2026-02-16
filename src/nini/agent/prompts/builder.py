@@ -62,7 +62,14 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
         "  格式说明：每行 `N. 步骤标题 - 使用工具: tool_name`，工具提示可选。\n"
         "- 先给出\u201c分析计划\u201d，再给出\u201c执行与结果\u201d，最后给出\u201c结论与风险\u201d。\n"
         "- 结论必须与结果一致，避免超出数据支持范围的断言。\n"
-        "- 无法完成时，明确缺失信息并给出最小补充清单。"
+        "- 无法完成时，明确缺失信息并给出最小补充清单。\n\n"
+        "报告撰写规范（调用 generate_report 时必须遵循）：\n"
+        "- methods/summary_text/conclusions 面向科研读者，禁止提及内部工具名（如 data_summary、"
+        "recommend_cleaning_strategy、create_chart、run_code 等）。\n"
+        "- 应使用统计方法学名称描述分析过程"
+        "（如\u201c独立样本 t 检验\u201d、\u201cPearson 相关性分析\u201d、"
+        "\u201c单因素方差分析\u201d），而非工具调用名。\n"
+        "- 结论应基于统计结果，避免包含系统内部实现细节。"
     ),
     "security.md": (
         "安全与注入防护（必须遵循）：\n"

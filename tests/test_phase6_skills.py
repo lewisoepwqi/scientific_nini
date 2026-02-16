@@ -95,13 +95,11 @@ def test_generate_report_writes_artifact_and_knowledge() -> None:
     text = report_path.read_text(encoding="utf-8")
     assert "# 测试报告" in text
     assert "药物组优于对照组。" in text
-    assert "## 图表预览" in text
-    assert (
-        f"![phase6_chart.plotly.json](/api/artifacts/{session.id}/phase6_chart.plotly.json)" in text
-    )
-    assert "## 图表清单" in text
-    assert "`phase6_chart.plotly.json`" in text
-    assert f"/api/artifacts/{session.id}/phase6_chart.plotly.json" in text
+    # 下载版报告：图表 section 存在，但不含冗余的"图表清单"表格
+    assert "## 图表" in text
+    assert "## 图表清单" not in text
+    # 下载版中 plotly.json 应被替换（PNG 或注释）
+    assert ".plotly.json" not in text
     assert "## 分析统计" not in text
 
     knowledge_text = session.knowledge_memory.read()
@@ -168,12 +166,13 @@ def test_generate_report_chart_preview_deduplicates_multi_format_artifacts() -> 
 
     report_path = Path(result.artifacts[0]["path"])
     text = report_path.read_text(encoding="utf-8")
-    assert "![trend.png]" in text
-    assert "![trend.svg]" not in text
-    assert "### 图 1：trend.png" in text
+    # 下载版使用相对路径，友好标题（不含扩展名）
+    assert "![trend](./trend.png)" in text
+    assert "trend.svg" not in text
+    assert "### 图 1：trend" in text
     assert "### 图 2：" not in text
-    assert "`trend.svg`" in text
-    assert "`trend.pdf`" in text
+    # 不再有图表清单表格
+    assert "## 图表清单" not in text
 
 
 def test_generate_report_default_filename_is_unique_and_not_overwritten() -> None:
