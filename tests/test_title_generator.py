@@ -112,8 +112,16 @@ async def test_generate_title_retry_once_when_length_raw_empty(
     monkeypatch.setattr(title_generator.model_resolver, "chat_complete", _fake_chat_complete)
 
     messages = [
-        {"role": "user", "content": "请对这一组实验样本做完整统计分析并给出图表。"},
-        {"role": "assistant", "content": "好的，我先进行数据清洗和描述统计。"},
+        {
+            "role": "user",
+            "content": "请对这一组实验样本做完整统计分析并给出图表。"
+            + "这是一段很长的补充说明文字用于测试截断逻辑。" * 10,
+        },
+        {
+            "role": "assistant",
+            "content": "好的，我先进行数据清洗和描述统计。"
+            + "接下来我会逐步分析每一列数据的分布特征。" * 10,
+        },
     ]
 
     title = await title_generator.generate_title(messages)

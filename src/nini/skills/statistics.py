@@ -226,18 +226,22 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 # ---- 工具函数 ----
 
 
-def _safe_float(value: float | None) -> float | None:
+def _safe_float(value: object) -> float | None:
     if value is None:
         return None
-    if not math.isfinite(value):
+    fval = float(value)  # type: ignore[arg-type]
+    if not math.isfinite(fval):
         return None
-    return float(value)
+    return fval
 
 
-def _ensure_finite(value: float, label: str) -> float:
-    if value is None or not math.isfinite(value):
+def _ensure_finite(value: object, label: str) -> float:
+    if value is None:
         raise ValueError(f"{label} 计算结果无效，请检查数据")
-    return float(value)
+    fval = float(value)  # type: ignore[arg-type]
+    if not math.isfinite(fval):
+        raise ValueError(f"{label} 计算结果无效，请检查数据")
+    return fval
 
 
 def _get_df(session: Session, name: str) -> pd.DataFrame | None:
@@ -338,9 +342,11 @@ class TTestSkill(Skill):
                 if paired:
                     if len(g1) != len(g2):
                         return SkillResult(success=False, message="配对检验要求两组样本量相等")
-                    stat, pval = ttest_rel(g1, g2, alternative=alternative)
+                    stat_raw, pval_raw = ttest_rel(g1, g2, alternative=alternative)
                 else:
-                    stat, pval = ttest_ind(g1, g2, alternative=alternative, equal_var=False)
+                    stat_raw, pval_raw = ttest_ind(g1, g2, alternative=alternative, equal_var=False)
+                stat = float(stat_raw)  # type: ignore[arg-type]
+                pval = float(pval_raw)  # type: ignore[arg-type]
 
                 # Cohen's d
                 mean_diff = g1.mean() - g2.mean()
@@ -385,7 +391,9 @@ class TTestSkill(Skill):
                 if len(data) < 2:
                     return SkillResult(success=False, message="至少需要 2 个观测值")
 
-                stat, pval = ttest_1samp(data, test_value, alternative=alternative)
+                stat_raw, pval_raw = ttest_1samp(data, test_value, alternative=alternative)
+                stat = float(stat_raw)  # type: ignore[arg-type]
+                pval = float(pval_raw)  # type: ignore[arg-type]
                 mean = data.mean()
                 se = data.std() / np.sqrt(len(data))
                 df_degrees = len(data) - 1
@@ -608,8 +616,12 @@ class CorrelationSkill(Skill):
 
         # 计算 p 值矩阵
         pvalue_matrix: dict[str, dict[str, float]] = {}
-        func_map = {"pearson": pearsonr, "spearman": spearmanr, "kendall": kendalltau}
-        corr_func = func_map.get(method, pearsonr)
+        func_map: dict[str, Any] = {
+            "pearson": pearsonr,
+            "spearman": spearmanr,
+            "kendall": kendalltau,
+        }
+        corr_func: Any = func_map.get(method, pearsonr)
 
         for col1 in columns:
             pvalue_matrix[col1] = {}

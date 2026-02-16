@@ -260,7 +260,7 @@ def calculate_accuracy_score(df: pd.DataFrame) -> DimensionScore:
 
     if outlier_columns:
         suggestions.append(f"发现 {len(outlier_columns)} 列存在异常值，建议检查数据录入质量")
-        high_outlier_cols = [c["column"] for c in outlier_columns if c["outlier_ratio"] > 0.05]
+        high_outlier_cols = [str(c["column"]) for c in outlier_columns if float(c["outlier_ratio"]) > 0.05]  # type: ignore[arg-type]
         if high_outlier_cols:
             suggestions.append(
                 f"列 {', '.join(high_outlier_cols)} 异常值比例较高，建议使用缩尾或截断处理"
@@ -313,7 +313,7 @@ def calculate_validity_score(df: pd.DataFrame) -> DimensionScore:
 
     # 检查日期有效性
     date_issues = []
-    for col in df.select_dtypes(include=["datetime64"]):
+    for col in df.select_dtypes(include=["datetime64"]).columns:
         series = df[col]
         future_dates = series > pd.Timestamp.now()
         if future_dates.any():
@@ -416,7 +416,7 @@ def calculate_uniqueness_score(df: pd.DataFrame) -> DimensionScore:
             {
                 "type": "id_column_duplicates",
                 "columns": [i["column"] for i in id_column_issues],
-                "message": f"ID 列存在重复值: {', '.join(i['column'] for i in id_column_issues)}",
+                "message": f"ID 列存在重复值: {', '.join(str(i['column']) for i in id_column_issues)}",
             }
         )
         suggestions.append("ID 列应该具有唯一性，请检查数据完整性")

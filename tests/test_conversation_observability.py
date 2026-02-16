@@ -17,7 +17,7 @@ from tests.client_utils import LocalASGIClient
 
 
 class _DummyResolver:
-    async def chat(self, messages, tools=None, temperature=None, max_tokens=None):
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
         class _Chunk:
             text = "已完成分析。"
             tool_calls = []
@@ -45,7 +45,7 @@ class _ReportResolver:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def chat(self, messages, tools=None, temperature=None, max_tokens=None):
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
         self.calls += 1
 
         class _Chunk:
@@ -131,7 +131,7 @@ class _TwoStepToolResolver:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def chat(self, messages, tools=None, temperature=None, max_tokens=None):
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
         self.calls += 1
 
         class _Chunk:
