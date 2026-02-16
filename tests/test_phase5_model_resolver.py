@@ -143,7 +143,9 @@ def test_model_resolver_get_active_model_info_by_purpose() -> None:
     assert image_info["model"] == "glm-4"
 
 
-def test_model_resolver_builds_purpose_model_override_client(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_model_resolver_builds_purpose_model_override_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     resolver = ModelResolver(
         clients=[
             FakeClient(provider_id="zhipu", model="glm-default", available=True),

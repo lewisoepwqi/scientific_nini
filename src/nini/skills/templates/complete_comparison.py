@@ -255,17 +255,20 @@ class CompleteComparisonSkill(Skill):
     ) -> dict[str, Any]:
         """执行 t 检验。"""
         if paired:
-            stat, pval = stats.ttest_rel(data1, data2)
+            stat_raw, pval_raw = stats.ttest_rel(data1, data2)
             test_type = "配对样本 t 检验"
         else:
-            stat, pval = stats.ttest_ind(data1, data2, equal_var=False)
+            stat_raw, pval_raw = stats.ttest_ind(data1, data2, equal_var=False)
             test_type = "独立样本 t 检验（Welch 校正）"
+        stat = float(stat_raw)  # type: ignore[arg-type]
+        pval = float(pval_raw)  # type: ignore[arg-type]
 
-        mean1, mean2 = float(data1.mean()), float(data2.mean())
+        mean1 = float(data1.mean())  # type: ignore[arg-type]
+        mean2 = float(data2.mean())  # type: ignore[arg-type]
         mean_diff = mean1 - mean2
 
         # 计算置信区间
-        se = np.sqrt(data1.var() / len(data1) + data2.var() / len(data2))
+        se = float(np.sqrt(float(data1.var()) / len(data1) + float(data2.var()) / len(data2)))
         df_degrees = len(data1) + len(data2) - 2
         t_crit = stats.t.ppf(0.975, df_degrees)
 

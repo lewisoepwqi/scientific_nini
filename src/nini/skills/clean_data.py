@@ -148,7 +148,7 @@ def analyze_outlier_pattern(series: pd.Series) -> tuple[OutlierPattern, int, tup
 
     if outlier_ratio > 0.1:
         pattern = OutlierPattern.EXTREME
-    elif abs(skewness) > 1.5:
+    elif abs(float(skewness)) > 1.5:  # type: ignore[arg-type]
         pattern = OutlierPattern.SKEWED
     else:
         pattern = OutlierPattern.NORMAL
@@ -182,9 +182,10 @@ def analyze_column_profile(df: pd.DataFrame, column: str) -> ColumnProfile:
         if len(clean_data) > 0:
             profile.mean = float(clean_data.mean())
             profile.median = float(clean_data.median())
-            profile.std = float(clean_data.std()) if clean_data.std() is not None else 0.0
-            profile.skewness = float(clean_data.skew())
-            profile.kurtosis = float(clean_data.kurtosis())
+            std_val = clean_data.std()
+            profile.std = float(std_val) if std_val is not None else 0.0
+            profile.skewness = float(clean_data.skew())  # type: ignore[arg-type]
+            profile.kurtosis = float(clean_data.kurtosis())  # type: ignore[arg-type]
 
             outlier_pattern, outlier_count, bounds = analyze_outlier_pattern(clean_data)
             profile.outlier_count = outlier_count
@@ -599,10 +600,10 @@ class CleanDataSkill(Skill):
             return
 
         if strategy == "ffill":
-            df.fillna(method="ffill", inplace=True)
+            df.ffill(inplace=True)
             return
         if strategy == "bfill":
-            df.fillna(method="bfill", inplace=True)
+            df.bfill(inplace=True)
             return
 
         numeric_cols = df.select_dtypes(include="number").columns.tolist()
@@ -725,9 +726,9 @@ class CleanDataSkill(Skill):
                 if len(mode) > 0:
                     df[col] = df[col].fillna(mode.iloc[0])
             elif strategy == "ffill":
-                df[col] = df[col].fillna(method="ffill")
+                df[col] = df[col].ffill()
             elif strategy == "bfill":
-                df[col] = df[col].fillna(method="bfill")
+                df[col] = df[col].bfill()
             elif strategy == "zero":
                 if pd.api.types.is_numeric_dtype(df[col]):
                     df[col] = df[col].fillna(0)

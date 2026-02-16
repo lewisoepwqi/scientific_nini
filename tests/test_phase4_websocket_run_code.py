@@ -29,7 +29,7 @@ def test_websocket_run_code_event_flow(
     """验证 run_code 的 tool_call -> tool_result -> text -> done 事件流（探索性代码不生成 artifact）。"""
     call_state = {"count": 0}
 
-    async def fake_chat(messages, tools=None, temperature=None, max_tokens=None):
+    async def fake_chat(messages, tools=None, temperature=None, max_tokens=None, **kwargs):
         call_state["count"] += 1
         if call_state["count"] == 1:
             yield LLMChunk(
@@ -83,7 +83,7 @@ def test_websocket_stop_can_interrupt_and_continue(
     """生成中点击 stop 后可继续发起新请求。"""
     call_state = {"count": 0}
 
-    async def fake_chat(messages, tools=None, temperature=None, max_tokens=None):
+    async def fake_chat(messages, tools=None, temperature=None, max_tokens=None, **kwargs):
         call_state["count"] += 1
         if call_state["count"] == 1:
             for idx in range(40):
@@ -134,7 +134,7 @@ def test_websocket_retry_clears_last_agent_turn_and_regenerates(
     """retry 应回滚上一轮 Agent 输出并重新生成。"""
     call_state = {"count": 0}
 
-    async def fake_chat(messages, tools=None, temperature=None, max_tokens=None):
+    async def fake_chat(messages, tools=None, temperature=None, max_tokens=None, **kwargs):
         call_state["count"] += 1
         if call_state["count"] == 1:
             yield LLMChunk(text="第一次回答")
@@ -198,7 +198,7 @@ def test_websocket_emits_retrieval_event(
         encoding="utf-8",
     )
 
-    async def fake_chat(messages, tools=None, temperature=None, max_tokens=None):
+    async def fake_chat(messages, tools=None, temperature=None, max_tokens=None, **kwargs):
         yield LLMChunk(text="收到检索上下文。")
 
     monkeypatch.setattr(model_resolver, "chat", fake_chat)

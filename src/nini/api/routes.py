@@ -1128,20 +1128,21 @@ async def set_model_routing(req: ModelRoutingRequest):
 
     # 更新用途路由（增量）
     merged_routes = await set_model_purpose_routes(updates)
-    for purpose, route in merged_routes.items():
+    for purpose_key, merged_route in merged_routes.items():
         model_resolver.set_purpose_route(
-            purpose,
-            provider_id=route.get("provider_id"),
-            model=route.get("model"),
-            base_url=route.get("base_url"),
+            purpose_key,
+            provider_id=merged_route.get("provider_id"),
+            model=merged_route.get("model"),
+            base_url=merged_route.get("base_url"),
         )
 
     active_by_purpose: dict[str, dict[str, str]] = {}
     purpose_providers: dict[str, str | None] = {}
     for item in _MODEL_PURPOSES:
-        purpose = item["id"]
-        purpose_providers[purpose] = merged_routes.get(purpose, {}).get("provider_id")
-        active_by_purpose[purpose] = model_resolver.get_active_model_info(purpose=purpose)
+        purpose_id: str = item["id"]  # type: ignore[assignment]
+        merged_r = merged_routes.get(purpose_id)
+        purpose_providers[purpose_id] = merged_r.get("provider_id") if merged_r else None
+        active_by_purpose[purpose_id] = model_resolver.get_active_model_info(purpose=purpose_id)
 
     return APIResponse(
         data={

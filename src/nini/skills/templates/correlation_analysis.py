@@ -144,12 +144,12 @@ class CorrelationAnalysisSkill(Skill):
     ) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, float]]]:
         """计算相关矩阵和 p 值矩阵。"""
         # 选择相关函数
-        func_map = {
+        func_map: dict[str, Any] = {
             "pearson": pearsonr,
             "spearman": spearmanr,
             "kendall": kendalltau,
         }
-        corr_func = func_map.get(method, pearsonr)
+        corr_func: Any = func_map.get(method, pearsonr)
 
         # 计算相关矩阵
         corr_matrix: dict[str, dict[str, float]] = {}
