@@ -159,6 +159,23 @@ class _TwoStepToolResolver:
         yield _Chunk(text="最终回复", tool_calls=[])
 
 
+class _ContextOverflowThenSuccessResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("maximum context length exceeded")
+
+        class _Chunk:
+            text = "自动压缩后继续完成。"
+            tool_calls = []
+            usage = None
+
+        yield _Chunk()
+
+
 class _EchoSkillRegistry:
     def get_tool_definitions(self) -> list[dict[str, object]]:
         return [
@@ -265,6 +282,49 @@ async def test_runner_unlimited_iterations_when_max_is_zero(
     assert "error" not in event_types
     assert session.messages[-1]["role"] == "assistant"
     assert session.messages[-1]["content"] == "最终回复"
+
+
+@pytest.mark.asyncio
+async def test_runner_auto_compresses_and_retries_on_context_overflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = Session()
+    for i in range(6):
+        role = "user" if i % 2 == 0 else "assistant"
+        session.add_message(role, f"历史消息-{i}")
+
+    resolver = _ContextOverflowThenSuccessResolver()
+    runner = AgentRunner(
+        resolver=resolver,
+        skill_registry=_EchoSkillRegistry(),
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    async def _fake_compress(session_obj: Session, ratio: float = 0.5, min_messages: int = 4):
+        archived_count = max(len(session_obj.messages) - 2, 0)
+        session_obj.messages = session_obj.messages[-2:]
+        session_obj.set_compressed_context("自动压缩摘要")
+        return {
+            "success": True,
+            "archived_count": archived_count,
+            "remaining_count": len(session_obj.messages),
+        }
+
+    monkeypatch.setattr("nini.agent.runner.compress_session_history_with_llm", _fake_compress)
+
+    events = []
+    async for event in runner.run(session, "继续分析"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    event_types = [e.type.value for e in events]
+    assert resolver.calls == 2
+    assert "context_compressed" in event_types
+    assert "text" in event_types
+    assert "done" in event_types
+    assert "error" not in event_types
+    assert session.messages[-1]["content"] == "自动压缩后继续完成。"
 
 
 def test_compress_session_history_archives_and_updates_context() -> None:

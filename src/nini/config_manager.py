@@ -30,6 +30,18 @@ VALID_PROVIDERS = {
     "ollama",
 }
 
+# 默认提供商优先级（数值越小优先级越高）
+PROVIDER_PRIORITY_ORDER: tuple[str, ...] = (
+    "openai",
+    "anthropic",
+    "moonshot",
+    "kimi_coding",
+    "zhipu",
+    "deepseek",
+    "dashscope",
+    "ollama",
+)
+
 # 支持的模型用途
 MODEL_PURPOSES: tuple[str, ...] = ("chat", "title_generation", "image_analysis")
 VALID_MODEL_PURPOSES = set(MODEL_PURPOSES)
@@ -50,6 +62,7 @@ async def save_model_config(
     api_key: str | None = None,
     model: str | None = None,
     base_url: str | None = None,
+    priority: int | None = None,
     is_active: bool = True,
 ) -> dict[str, Any]:
     """保存模型配置到数据库。
@@ -59,6 +72,7 @@ async def save_model_config(
         api_key: 明文 API Key（将加密存储）
         model: 模型名称
         base_url: 自定义 API 端点
+        priority: 优先级（数值越小越优先）
         is_active: 是否启用
 
     Returns:
@@ -66,6 +80,8 @@ async def save_model_config(
     """
     if provider not in VALID_PROVIDERS:
         raise ValueError(f"不支持的模型提供商: {provider}")
+    if priority is not None and priority < 0:
+        raise ValueError("优先级不能小于 0")
 
     # 统一规范：None / 空字符串 / 全空白均视为“未提供新 Key”
     normalized_api_key = api_key.strip() if isinstance(api_key, str) else None
@@ -80,7 +96,7 @@ async def save_model_config(
     try:
         # 先查询是否已存在该 provider 的记录
         cursor = await db.execute(
-            "SELECT id, encrypted_api_key, api_key_hint FROM model_configs WHERE provider = ?",
+            "SELECT id, encrypted_api_key, api_key_hint, priority FROM model_configs WHERE provider = ?",
             (provider,),
         )
         existing = await cursor.fetchone()
@@ -89,11 +105,12 @@ async def save_model_config(
             # 更新：如果未提供新 Key 则保留旧值
             final_encrypted_key = encrypted_key if has_new_key else existing[1]
             final_key_hint = key_hint if has_new_key else (existing[2] or "")
+            final_priority = priority if priority is not None else int(existing[3] or 0)
             await db.execute(
                 """
                 UPDATE model_configs
                 SET model = ?, encrypted_api_key = ?, api_key_hint = ?,
-                    base_url = ?, is_active = ?, updated_at = datetime('now')
+                    base_url = ?, priority = ?, is_active = ?, updated_at = datetime('now')
                 WHERE provider = ?
                 """,
                 (
@@ -101,6 +118,7 @@ async def save_model_config(
                     final_encrypted_key,
                     final_key_hint,
                     base_url,
+                    final_priority,
                     int(is_active),
                     provider,
                 ),
@@ -108,10 +126,14 @@ async def save_model_config(
         else:
             # 插入新记录
             final_key_hint = key_hint
+            default_priorities = {pid: idx for idx, pid in enumerate(PROVIDER_PRIORITY_ORDER)}
+            final_priority = priority if priority is not None else default_priorities.get(provider, 0)
             await db.execute(
                 """
-                INSERT INTO model_configs (provider, model, encrypted_api_key, api_key_hint, base_url, is_active, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                INSERT INTO model_configs (
+                    provider, model, encrypted_api_key, api_key_hint, base_url, priority, is_active, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 """,
                 (
                     provider,
@@ -119,6 +141,7 @@ async def save_model_config(
                     encrypted_key,
                     key_hint,
                     base_url,
+                    final_priority,
                     int(is_active),
                 ),
             )
@@ -130,6 +153,7 @@ async def save_model_config(
             "model": model or "",
             "api_key_hint": final_key_hint,
             "base_url": base_url,
+            "priority": final_priority,
             "is_active": is_active,
         }
     finally:
@@ -145,7 +169,7 @@ async def load_all_model_configs() -> dict[str, dict[str, Any]]:
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT provider, model, encrypted_api_key, api_key_hint, base_url, is_active "
+            "SELECT provider, model, encrypted_api_key, api_key_hint, base_url, priority, is_active "
             "FROM model_configs WHERE is_active = 1"
         )
         rows = await cursor.fetchall()
@@ -162,7 +186,8 @@ async def load_all_model_configs() -> dict[str, dict[str, Any]]:
                 "api_key": api_key,
                 "api_key_hint": row[3] or "",
                 "base_url": row[4],
-                "is_active": bool(row[5]),
+                "priority": int(row[5] or 0),
+                "is_active": bool(row[6]),
             }
         return configs
     finally:
@@ -239,9 +264,62 @@ async def get_effective_config(provider: str) -> dict[str, Any]:
 async def get_all_effective_configs() -> dict[str, dict[str, Any]]:
     """获取所有 provider 的有效配置。"""
     result: dict[str, dict[str, Any]] = {}
-    for provider in VALID_PROVIDERS:
+    for provider in PROVIDER_PRIORITY_ORDER:
         result[provider] = await get_effective_config(provider)
     return result
+
+
+async def get_model_priorities() -> dict[str, int]:
+    """读取所有提供商优先级（数值越小越优先）。"""
+    priorities = {provider: idx for idx, provider in enumerate(PROVIDER_PRIORITY_ORDER)}
+
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT provider, priority FROM model_configs")
+        rows = await cursor.fetchall()
+        for row in rows:
+            provider = row[0]
+            if provider not in VALID_PROVIDERS:
+                continue
+            try:
+                parsed = int(row[1])
+            except (TypeError, ValueError):
+                continue
+            priorities[provider] = max(0, parsed)
+        return priorities
+    finally:
+        await db.close()
+
+
+async def set_model_priorities(priorities: dict[str, int]) -> dict[str, int]:
+    """批量设置提供商优先级。"""
+    if not priorities:
+        return await get_model_priorities()
+
+    for provider, priority in priorities.items():
+        if provider not in VALID_PROVIDERS:
+            raise ValueError(f"不支持的模型提供商: {provider}")
+        if priority < 0:
+            raise ValueError("优先级不能小于 0")
+
+    db = await get_db()
+    try:
+        for provider, priority in priorities.items():
+            await db.execute(
+                """
+                INSERT INTO model_configs (provider, model, priority, is_active, updated_at)
+                VALUES (?, '', ?, 1, datetime('now'))
+                ON CONFLICT(provider) DO UPDATE SET
+                    priority = excluded.priority,
+                    updated_at = excluded.updated_at
+                """,
+                (provider, int(priority)),
+            )
+        await db.commit()
+    finally:
+        await db.close()
+
+    return await get_model_priorities()
 
 
 async def get_default_provider() -> str | None:

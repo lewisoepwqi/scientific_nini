@@ -81,7 +81,14 @@ class ModelConfigRequest(BaseModel):
     api_key: Optional[str] = None
     model: Optional[str] = None
     base_url: Optional[str] = None
+    priority: Optional[int] = None
     is_active: bool = True
+
+
+class ModelPrioritiesRequest(BaseModel):
+    """模型优先级批量更新请求。"""
+
+    priorities: dict[str, int] = Field(default_factory=dict)
 
 
 class SetActiveModelRequest(BaseModel):

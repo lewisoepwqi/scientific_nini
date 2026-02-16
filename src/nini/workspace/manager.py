@@ -469,7 +469,7 @@ class WorkspaceManager:
         """获取文件预览内容。
 
         - 图片（PNG/JPEG/SVG/GIF）：返回 base64 编码
-        - 文本类（TXT/CSV/TSV/JSON/MD/PY 等）：返回前 50 行文本
+        - 文本类（TXT/CSV/TSV/JSON/MD/PY 等）：返回完整文本
         - HTML：返回完整内容（用于 iframe 渲染）
         - 其他：返回文件基本信息
         """
@@ -559,13 +559,8 @@ class WorkspaceManager:
             "cfg",
         }
         if ext in text_exts:
-            lines = []
             try:
-                with open(path, "r", encoding="utf-8", errors="replace") as f:
-                    for i, line in enumerate(f):
-                        if i >= 50:
-                            break
-                        lines.append(line.rstrip("\n"))
+                content = path.read_text(encoding="utf-8", errors="replace")
             except Exception:
                 return {
                     "id": file_id,
@@ -573,15 +568,16 @@ class WorkspaceManager:
                     "preview_type": "error",
                     "message": "无法读取文件",
                 }
+            total_lines = len(content.splitlines())
             return {
                 "id": file_id,
                 "kind": kind,
                 "preview_type": "text",
                 "name": record.get("name", ""),
                 "ext": ext,
-                "content": "\n".join(lines),
-                "total_lines": sum(1 for _ in open(path, "r", encoding="utf-8", errors="replace")),
-                "preview_lines": len(lines),
+                "content": content,
+                "total_lines": total_lines,
+                "preview_lines": total_lines,
             }
 
         # PDF 类型

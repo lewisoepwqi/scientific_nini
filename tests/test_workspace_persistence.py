@@ -116,6 +116,7 @@ def test_workspace_save_text_and_download_note(client: LocalASGIClient) -> None:
 
     download_resp = client.get(f"/api/workspace/{session_id}/notes/analysis_snippet.md")
     assert download_resp.status_code == 200
+    assert download_resp.headers["content-disposition"].startswith("attachment;")
     assert "print('hello')" in download_resp.text
 
 
@@ -135,7 +136,24 @@ def test_download_artifact_supports_double_encoded_filename(
     encoded_twice = quote(encoded_once, safe="")
     download_resp = client.get(f"/api/artifacts/{session_id}/{encoded_twice}")
     assert download_resp.status_code == 200
+    assert download_resp.headers["content-disposition"].startswith("attachment;")
     assert download_resp.content == b"PNG"
+
+
+def test_download_artifact_supports_inline_disposition(client: LocalASGIClient) -> None:
+    create_resp = client.post("/api/sessions")
+    session_id = create_resp.json()["data"]["session_id"]
+
+    manager = WorkspaceManager(session_id)
+    manager.ensure_dirs()
+    filename = "report.pdf"
+    artifact_path = manager.artifacts_dir / filename
+    artifact_path.write_bytes(b"%PDF-1.4")
+
+    inline_resp = client.get(f"/api/artifacts/{session_id}/{filename}?inline=1")
+    assert inline_resp.status_code == 200
+    assert inline_resp.headers["content-disposition"].startswith("inline;")
+    assert inline_resp.content == b"%PDF-1.4"
 
 
 def test_workspace_artifact_download_url_not_double_encoded() -> None:

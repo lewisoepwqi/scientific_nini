@@ -24,6 +24,17 @@ interface PreviewData {
   message?: string
 }
 
+function toInlinePreviewUrl(url: string): string {
+  const hashIndex = url.indexOf('#')
+  const hash = hashIndex >= 0 ? url.slice(hashIndex) : ''
+  const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url
+  if (/(?:\?|&)inline=/.test(base)) {
+    return url
+  }
+  const sep = base.includes('?') ? '&' : '?'
+  return `${base}${sep}inline=1${hash}`
+}
+
 export default function FilePreviewPane() {
   const sessionId = useStore((s) => s.sessionId)
   const previewFileId = useStore((s) => s.previewFileId)
@@ -215,7 +226,7 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
       if (preview.download_url) {
         return (
           <iframe
-            src={preview.download_url}
+            src={toInlinePreviewUrl(preview.download_url)}
             className="w-full h-[72vh] border rounded-lg"
             title={preview.name}
           />

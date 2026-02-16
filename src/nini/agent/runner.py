@@ -49,6 +49,20 @@ _SUSPICIOUS_CONTEXT_PATTERNS = (
     "token",
 )
 _NON_DIALOG_EVENT_TYPES = {"chart", "data", "artifact", "image"}
+_CONTEXT_LIMIT_ERROR_PATTERNS = (
+    "maximum context length",
+    "context length",
+    "context window",
+    "too many tokens",
+    "token limit",
+    "prompt is too long",
+    "exceeds the context",
+    "input is too long",
+    "超出上下文",
+    "上下文长度",
+    "超过最大 token",
+    "超过最大token",
+)
 
 
 # ---- Agent Runner ----
@@ -120,43 +134,72 @@ class AgentRunner:
                     data=retrieval_event,
                     turn_id=turn_id,
                 )
+            # 基于完整上下文再次检查 token（含系统提示、知识注入与压缩摘要）
+            compress_event = await self._maybe_auto_compress(
+                session,
+                current_tokens=count_messages_tokens(messages),
+            )
+            if compress_event is not None:
+                yield compress_event
+                messages, _ = self._build_messages_and_retrieval(session)
 
             # 获取工具定义
             tools = self._get_tool_definitions()
 
-            # 调用 LLM（流式）
+            # 调用 LLM（流式）；若遇到上下文超限错误，自动压缩后重试一次
             full_text = ""
             tool_calls: list[dict[str, Any]] = []
             usage: dict[str, int] = {}
+            retried_after_compress = False
 
-            try:
-                async for chunk in self._resolver.chat(
-                    messages,
-                    tools or None,
-                    purpose="chat",
-                ):
-                    if should_stop():
-                        yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
-                        return
+            while True:
+                full_text = ""
+                tool_calls = []
+                usage = {}
+                try:
+                    async for chunk in self._resolver.chat(
+                        messages,
+                        tools or None,
+                        purpose="chat",
+                    ):
+                        if should_stop():
+                            yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
+                            return
 
-                    # 流式推送文本
-                    if chunk.text:
-                        full_text += chunk.text
-                        yield AgentEvent(type=EventType.TEXT, data=chunk.text, turn_id=turn_id)
+                        # 流式推送文本
+                        if chunk.text:
+                            full_text += chunk.text
+                            yield AgentEvent(type=EventType.TEXT, data=chunk.text, turn_id=turn_id)
 
-                    if chunk.tool_calls:
-                        tool_calls.extend(chunk.tool_calls)
+                        if chunk.tool_calls:
+                            tool_calls.extend(chunk.tool_calls)
 
-                    if chunk.usage:
-                        usage = chunk.usage
-
-            except asyncio.CancelledError:
-                logger.info("Agent 运行被取消: session=%s", session.id)
-                raise
-            except Exception as e:
-                logger.error("LLM 调用失败: %s", e)
-                yield AgentEvent(type=EventType.ERROR, data=str(e), turn_id=turn_id)
-                return
+                        if chunk.usage:
+                            usage = chunk.usage
+                except asyncio.CancelledError:
+                    logger.info("Agent 运行被取消: session=%s", session.id)
+                    raise
+                except Exception as e:
+                    # 仅在无输出且尚未重试时触发自动压缩重试，避免重复流式片段。
+                    if (
+                        not retried_after_compress
+                        and not full_text
+                        and not tool_calls
+                        and self._is_context_limit_error(e)
+                    ):
+                        forced_event = await self._force_auto_compress(
+                            session,
+                            current_tokens=count_messages_tokens(messages),
+                        )
+                        if forced_event is not None:
+                            retried_after_compress = True
+                            yield forced_event
+                            messages, _ = self._build_messages_and_retrieval(session)
+                            continue
+                    logger.error("LLM 调用失败: %s", e)
+                    yield AgentEvent(type=EventType.ERROR, data=str(e), turn_id=turn_id)
+                    return
+                break
 
             # 记录 token 消耗
             if usage:
@@ -815,17 +858,24 @@ class AgentRunner:
             logger.error("工具 %s 执行失败: %s", name, e, exc_info=True)
             return {"error": f"工具 {name} 执行失败: {e}"}
 
-    async def _maybe_auto_compress(self, session: Session) -> AgentEvent | None:
-        """检查上下文 token 数，超过阈值时自动压缩。"""
-        if not settings.auto_compress_enabled:
-            return None
-        threshold = settings.auto_compress_threshold_tokens
-        current_tokens = count_messages_tokens(session.messages)
-        if current_tokens <= threshold:
-            return None
+    @staticmethod
+    def _is_context_limit_error(error: Exception) -> bool:
+        """判断异常是否属于上下文长度超限。"""
+        text = str(error).lower()
+        return any(pattern in text for pattern in _CONTEXT_LIMIT_ERROR_PATTERNS)
 
+    async def _compress_session_context(
+        self,
+        session: Session,
+        *,
+        current_tokens: int,
+        trigger: str,
+    ) -> AgentEvent | None:
+        """执行一次上下文压缩并构造事件。"""
+        threshold = settings.auto_compress_threshold_tokens
         logger.info(
-            "自动压缩触发: 当前 %d tokens, 阈值 %d tokens",
+            "自动压缩触发(%s): 当前 %d tokens, 阈值 %d tokens",
+            trigger,
             current_tokens,
             threshold,
         )
@@ -834,18 +884,62 @@ class AgentRunner:
             if result.get("success"):
                 archived_count = result.get("archived_count", 0)
                 remaining_count = result.get("remaining_count", 0)
+                message = (
+                    f"检测到上下文超限，已自动压缩，归档了 {archived_count} 条消息"
+                    if trigger == "context_limit_error"
+                    else f"上下文已自动压缩，归档了 {archived_count} 条消息"
+                )
                 return AgentEvent(
                     type=EventType.CONTEXT_COMPRESSED,
                     data={
                         "archived_count": archived_count,
                         "remaining_count": remaining_count,
                         "previous_tokens": current_tokens,
-                        "message": f"上下文已自动压缩，归档了 {archived_count} 条消息",
+                        "trigger": trigger,
+                        "message": message,
                     },
                 )
         except Exception as exc:
-            logger.warning("自动压缩失败: %s", exc, exc_info=True)
+            logger.warning("自动压缩失败(%s): %s", trigger, exc, exc_info=True)
         return None
+
+    async def _maybe_auto_compress(
+        self,
+        session: Session,
+        *,
+        current_tokens: int | None = None,
+    ) -> AgentEvent | None:
+        """检查上下文 token 数，超过阈值时自动压缩。"""
+        if not settings.auto_compress_enabled:
+            return None
+        threshold = settings.auto_compress_threshold_tokens
+        measured_tokens = (
+            int(current_tokens)
+            if current_tokens is not None
+            else count_messages_tokens(session.messages)
+        )
+        if measured_tokens <= threshold:
+            return None
+        return await self._compress_session_context(
+            session,
+            current_tokens=measured_tokens,
+            trigger="threshold",
+        )
+
+    async def _force_auto_compress(
+        self,
+        session: Session,
+        *,
+        current_tokens: int,
+    ) -> AgentEvent | None:
+        """忽略阈值强制尝试自动压缩（用于上下文超限恢复）。"""
+        if not settings.auto_compress_enabled:
+            return None
+        return await self._compress_session_context(
+            session,
+            current_tokens=int(current_tokens),
+            trigger="context_limit_error",
+        )
 
     @staticmethod
     def _sliding_window_trim(

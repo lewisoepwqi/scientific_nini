@@ -9,9 +9,11 @@ import pytest
 from nini.config import settings
 from nini.config_manager import (
     get_effective_config,
+    get_model_priorities,
     get_model_purpose_routes,
     get_purpose_provider_routes,
     save_model_config,
+    set_model_priorities,
     set_model_purpose_routes,
     set_purpose_provider_routes,
 )
@@ -132,3 +134,35 @@ async def test_set_model_purpose_routes_supports_model_override() -> None:
     assert routes["chat"]["model"] == "glm-5"
     assert routes["title_generation"]["provider_id"] == "zhipu"
     assert routes["title_generation"]["model"] == "glm-4.7-flash"
+
+
+@pytest.mark.asyncio
+async def test_save_model_config_supports_priority() -> None:
+    """保存模型配置时应支持优先级。"""
+    await init_db()
+
+    await save_model_config(
+        provider="zhipu",
+        model="glm-5",
+        priority=1,
+    )
+    priorities = await get_model_priorities()
+
+    assert priorities["zhipu"] == 1
+
+
+@pytest.mark.asyncio
+async def test_set_model_priorities_batch_update() -> None:
+    """应支持批量更新提供商优先级。"""
+    await init_db()
+
+    await set_model_priorities(
+        {
+            "deepseek": 0,
+            "openai": 6,
+        }
+    )
+    priorities = await get_model_priorities()
+
+    assert priorities["deepseek"] == 0
+    assert priorities["openai"] == 6
