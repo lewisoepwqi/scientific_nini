@@ -52,6 +52,11 @@ def _default_env_content() -> str:
         "NINI_SANDBOX_TIMEOUT=30\n"
         "NINI_SANDBOX_MAX_MEMORY_MB=512\n"
         "NINI_SANDBOX_IMAGE_EXPORT_TIMEOUT=60\n"
+        "NINI_R_ENABLED=true\n"
+        "NINI_R_SANDBOX_TIMEOUT=120\n"
+        "NINI_R_SANDBOX_MAX_MEMORY_MB=1024\n"
+        "NINI_R_PACKAGE_INSTALL_TIMEOUT=300\n"
+        "NINI_R_AUTO_INSTALL_PACKAGES=true\n"
     )
 
 
@@ -210,6 +215,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
     from nini.config import settings
+    from nini.sandbox.r_executor import detect_r_installation
 
     checks: list[tuple[str, bool, str, bool]] = []
 
@@ -299,6 +305,15 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     except ImportError:
         kaleido_msg = "kaleido 未安装（pip install kaleido）"
     checks.append(("kaleido + Chrome（图片导出，可选）", kaleido_ok, kaleido_msg, False))
+
+    r_info = detect_r_installation()
+    r_ok = bool(r_info.get("available"))
+    r_detail = str(r_info.get("version") or r_info.get("message") or "未知")
+    if not settings.r_enabled:
+        r_detail = "已禁用（NINI_R_ENABLED=false）"
+    checks.append(
+        ("Rscript（run_r_code，可选）", r_ok if settings.r_enabled else True, r_detail, False)
+    )
 
     web_dist = Path(__file__).resolve().parent.parent.parent / "web" / "dist"
     checks.append(("前端构建产物存在（可选）", web_dist.exists(), str(web_dist), False))

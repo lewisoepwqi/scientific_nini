@@ -9,6 +9,7 @@ from typing import Any, cast
 from nini.agent.lane_queue import lane_queue
 from nini.agent.session import Session
 from nini.config import settings
+from nini.sandbox.r_executor import detect_r_installation
 from nini.skills.base import Skill, SkillResult
 from nini.skills.clean_data import CleanDataSkill, RecommendCleaningStrategySkill
 from nini.skills.code_exec import RunCodeSkill
@@ -20,6 +21,7 @@ from nini.skills.fallback import get_fallback_manager
 from nini.skills.fetch_url import FetchURLSkill
 from nini.skills.organize_workspace import OrganizeWorkspaceSkill
 from nini.skills.report import GenerateReportSkill
+from nini.skills.r_code_exec import RunRCodeSkill
 from nini.skills.statistics import (
     ANOVASkill,
     CorrelationSkill,
@@ -326,6 +328,12 @@ def create_default_registry() -> SkillRegistry:
     registry.register(RegressionSkill())
     registry.register(MultipleComparisonCorrectionSkill())
     registry.register(RunCodeSkill())
+    if settings.r_enabled:
+        r_info = detect_r_installation()
+        if bool(r_info.get("available")):
+            registry.register(RunRCodeSkill())
+        else:
+            logger.info("R 环境不可用，跳过 run_r_code 注册: %s", r_info.get("message", "未知原因"))
     registry.register(CreateChartSkill())
     registry.register(ExportChartSkill())
     registry.register(CleanDataSkill())

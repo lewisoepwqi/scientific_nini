@@ -76,6 +76,56 @@ def test_websocket_run_code_event_flow(
     assert tool_result_event["data"]["result"]["data"]["result"] == 42
 
 
+def test_websocket_run_r_code_emits_code_execution_with_r_language(
+    app_with_temp_data,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """验证 run_r_code 也会进入代码执行历史，并标记 language=r。"""
+    call_state = {"count": 0}
+
+    async def fake_chat(messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        call_state["count"] += 1
+        if call_state["count"] == 1:
+            yield LLMChunk(
+                tool_calls=[
+                    {
+                        "id": "tool-call-r-1",
+                        "type": "function",
+                        "function": {
+                            "name": "run_r_code",
+                            "arguments": json.dumps({"code": "result <- 2 + 3"}),
+                        },
+                    }
+                ],
+                finish_reason="tool_calls",
+            )
+            return
+        yield LLMChunk(text="R 代码调用完成。")
+
+    monkeypatch.setattr(model_resolver, "chat", fake_chat)
+
+    with live_websocket_connect(app_with_temp_data, "/ws") as ws:
+        ws.send_text(json.dumps({"type": "chat", "content": "请执行 R 代码"}))
+
+        events = []
+        for _ in range(20):
+            evt = ws.receive_json()
+            events.append(evt)
+            if evt["type"] in {"done", "error"}:
+                break
+
+    event_types = [e["type"] for e in events]
+    assert "tool_call" in event_types
+    assert "tool_result" in event_types
+    assert "code_execution" in event_types
+    assert "done" in event_types
+    assert "error" not in event_types
+
+    code_exec = next(e for e in events if e["type"] == "code_execution")
+    assert code_exec["data"]["tool_name"] == "run_r_code"
+    assert code_exec["data"]["language"] == "r"
+
+
 def test_websocket_stop_can_interrupt_and_continue(
     app_with_temp_data,
     monkeypatch: pytest.MonkeyPatch,
