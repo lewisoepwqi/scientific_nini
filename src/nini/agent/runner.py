@@ -29,6 +29,7 @@ from nini.workspace import WorkspaceManager
 
 # 导入事件模块
 from nini.agent.events import EventType, AgentEvent, create_reasoning_event
+from nini.agent.plan_parser import AnalysisPlan, parse_analysis_plan
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,8 @@ class AgentRunner:
         turn_id = uuid.uuid4().hex[:12]
         should_stop = stop_event.is_set if stop_event else (lambda: False)
         report_markdown_for_turn: str | None = None
+        active_plan: AnalysisPlan | None = None
+        next_step_idx: int = 0
         iteration = 0
 
         # 自动上下文压缩检查
@@ -180,6 +183,17 @@ class AgentRunner:
             # 文本部分视为"分析思路"，发出 REASONING 事件并保存到工作空间
             if iteration == 0 and full_text and full_text.strip():
                 reasoning_text = full_text.strip()
+                # 尝试解析结构化分析计划
+                parsed_plan = parse_analysis_plan(reasoning_text)
+                if parsed_plan is not None:
+                    active_plan = parsed_plan
+                    next_step_idx = 0
+                    yield AgentEvent(
+                        type=EventType.ANALYSIS_PLAN,
+                        data=active_plan.to_dict(),
+                        turn_id=turn_id,
+                    )
+                # 始终发出 REASONING 事件（向后兼容）
                 yield AgentEvent(
                     type=EventType.REASONING,
                     data={"content": reasoning_text},
@@ -233,6 +247,21 @@ class AgentRunner:
                     except Exception:
                         pass
 
+                # 匹配分析计划步骤 → in_progress
+                matched_step_idx: int | None = None
+                if active_plan is not None and next_step_idx < len(active_plan.steps):
+                    step = active_plan.steps[next_step_idx]
+                    # 优先匹配下一个 pending 步骤
+                    if step.status == "pending":
+                        step.status = "in_progress"
+                        matched_step_idx = next_step_idx
+                        next_step_idx += 1
+                        yield AgentEvent(
+                            type=EventType.PLAN_STEP_UPDATE,
+                            data=step.to_dict(),
+                            turn_id=turn_id,
+                        )
+
                 yield AgentEvent(
                     type=EventType.TOOL_CALL,
                     data={"name": func_name, "arguments": func_args},
@@ -270,6 +299,17 @@ class AgentRunner:
                     result.get("error") or result.get("success") is False
                 )
                 status = "error" if has_error else "success"
+
+                # 更新分析计划步骤状态 → completed/error
+                if active_plan is not None and matched_step_idx is not None:
+                    step = active_plan.steps[matched_step_idx]
+                    step.status = "error" if has_error else "completed"
+                    yield AgentEvent(
+                        type=EventType.PLAN_STEP_UPDATE,
+                        data=step.to_dict(),
+                        turn_id=turn_id,
+                    )
+
                 if func_name == "generate_report" and not has_error and isinstance(result, dict):
                     data_obj = result.get("data")
                     if isinstance(data_obj, dict):
