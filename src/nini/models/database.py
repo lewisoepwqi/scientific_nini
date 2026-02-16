@@ -183,6 +183,10 @@ async def _migrate_model_configs(db: AsyncSQLiteConnection) -> None:
             "is_default",
             "ALTER TABLE model_configs ADD COLUMN is_default INTEGER DEFAULT 0",
         ),
+        (
+            "priority",
+            "ALTER TABLE model_configs ADD COLUMN priority INTEGER DEFAULT 0",
+        ),
     ]
     for col_name, sql in migrations:
         if col_name not in columns:

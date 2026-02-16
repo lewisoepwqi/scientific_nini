@@ -25,6 +25,7 @@ from nini.models.schemas import (
     DatasetInfo,
     FileRenameRequest,
     ModelConfigRequest,
+    ModelPrioritiesRequest,
     ModelRoutingRequest,
     SaveWorkspaceTextRequest,
     SessionInfo,
@@ -85,17 +86,21 @@ def _fix_excel_serial_dates(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _build_download_response(path: Path, filename: str) -> Response:
-    """构造下载响应（避免 FileResponse 在线程池路径上的阻塞）。"""
+def _build_download_response(path: Path, filename: str, *, inline: bool = False) -> Response:
+    """构造文件响应（支持 attachment/inline，避免 FileResponse 在线程池路径上的阻塞）。"""
     media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    disposition_type = "inline" if inline else "attachment"
     # RFC 5987 / RFC 6266: 非 ASCII 文件名用 filename* 编码，ASCII 用 filename 降级
     try:
         filename.encode("latin-1")
-        disposition = f'attachment; filename="{filename}"'
+        disposition = f'{disposition_type}; filename="{filename}"'
     except UnicodeEncodeError:
         ascii_fallback = filename.encode("ascii", errors="replace").decode("ascii")
         utf8_encoded = quote(filename, safe="")
-        disposition = f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{utf8_encoded}"
+        disposition = (
+            f"{disposition_type}; "
+            f"filename=\"{ascii_fallback}\"; filename*=UTF-8''{utf8_encoded}"
+        )
     return Response(
         content=path.read_bytes(),
         media_type=media_type,
@@ -628,7 +633,7 @@ async def batch_download(session_id: str, req: dict[str, Any]):
 
 
 @router.get("/artifacts/{session_id}/{filename}")
-async def download_artifact(session_id: str, filename: str):
+async def download_artifact(session_id: str, filename: str, inline: bool = False):
     """下载会话产物（.plotly.json 自动转 PNG）。"""
     # 兼容已编码/双重编码文件名（如 %25E8...），统一解码一次后再做安全裁剪。
     safe_name = Path(unquote(filename)).name
@@ -657,27 +662,27 @@ async def download_artifact(session_id: str, filename: str):
             # 降级：返回原始 JSON
 
     # 普通文件下载
-    return _build_download_response(artifact_path, safe_name)
+    return _build_download_response(artifact_path, safe_name, inline=inline)
 
 
 @router.get("/workspace/{session_id}/uploads/{filename}")
-async def download_workspace_upload(session_id: str, filename: str):
+async def download_workspace_upload(session_id: str, filename: str, inline: bool = False):
     """下载会话工作空间中的上传文件。"""
     safe_name = Path(filename).name
     path = settings.sessions_dir / session_id / "workspace" / "uploads" / safe_name
     if not path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
-    return _build_download_response(path, safe_name)
+    return _build_download_response(path, safe_name, inline=inline)
 
 
 @router.get("/workspace/{session_id}/notes/{filename}")
-async def download_workspace_note(session_id: str, filename: str):
+async def download_workspace_note(session_id: str, filename: str, inline: bool = False):
     """下载会话工作空间中的文本文件。"""
     safe_name = Path(filename).name
     path = settings.sessions_dir / session_id / "workspace" / "notes" / safe_name
     if not path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
-    return _build_download_response(path, safe_name)
+    return _build_download_response(path, safe_name, inline=inline)
 
 
 def _extract_image_urls(md_content: str, session_id: str) -> list[dict[str, str]]:
@@ -989,7 +994,7 @@ async def list_available_models_endpoint(provider_id: str):
 @router.get("/models", response_model=APIResponse)
 async def list_models():
     """获取所有模型提供商及其配置状态（合并 DB 与 .env 配置）。"""
-    from nini.config_manager import load_all_model_configs
+    from nini.config_manager import get_model_priorities, load_all_model_configs
     from nini.utils.crypto import mask_api_key
 
     # 从 DB 加载用户保存的配置
@@ -997,6 +1002,10 @@ async def list_models():
         db_configs = await load_all_model_configs()
     except Exception:
         db_configs = {}
+    try:
+        priorities = await get_model_priorities()
+    except Exception:
+        priorities = {p["id"]: idx for idx, p in enumerate(_MODEL_PROVIDERS)}
 
     result = []
     for idx, provider in enumerate(_MODEL_PROVIDERS):
@@ -1039,12 +1048,32 @@ async def list_models():
                 "available_models": provider["models"],
                 "api_key_hint": db_cfg.get("api_key_hint") or mask_api_key(env_key or ""),
                 "base_url": effective_base_url,
-                "priority": idx,
+                "priority": int(priorities.get(pid, idx)),
                 "config_source": config_source,
             }
         )
 
+    default_idx_map = {provider["id"]: idx for idx, provider in enumerate(_MODEL_PROVIDERS)}
+    result.sort(key=lambda item: (item["priority"], default_idx_map.get(item["id"], 999)))
+
     return APIResponse(data=result)
+
+
+@router.post("/models/priorities", response_model=APIResponse)
+async def set_model_priorities_endpoint(req: ModelPrioritiesRequest):
+    """批量更新模型提供商优先级，并立即生效。"""
+    from nini.agent.model_resolver import reload_model_resolver
+    from nini.config_manager import set_model_priorities
+
+    try:
+        normalized: dict[str, int] = {provider: int(priority) for provider, priority in req.priorities.items()}
+        priorities = await set_model_priorities(normalized)
+        await reload_model_resolver()
+        return APIResponse(data={"priorities": priorities})
+    except ValueError as e:
+        return APIResponse(success=False, error=str(e))
+    except Exception as e:
+        return APIResponse(success=False, error=f"保存优先级失败: {e}")
 
 
 @router.get("/models/routing", response_model=APIResponse)
@@ -1167,6 +1196,7 @@ async def save_model_config_endpoint(req: ModelConfigRequest):
             api_key=req.api_key,
             model=req.model,
             base_url=req.base_url,
+            priority=req.priority,
             is_active=req.is_active,
         )
         # 立即重载模型客户端，使配置生效

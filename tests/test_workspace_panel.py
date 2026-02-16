@@ -215,6 +215,21 @@ class TestWorkspaceManagerFilePreview:
         manager = WorkspaceManager(session_id)
         assert manager.get_file_preview("nonexistent_id") is None
 
+    def test_preview_text_not_truncated(self, client: LocalASGIClient):
+        resp = client.post("/api/sessions")
+        session_id = resp.json()["data"]["session_id"]
+        manager = WorkspaceManager(session_id)
+        content = "\n".join([f"line-{i}" for i in range(1, 81)])
+        note = manager.save_text_note(content, "long_note.txt")
+
+        preview = manager.get_file_preview(note["id"])
+        assert preview is not None
+        assert preview["preview_type"] == "text"
+        assert "line-1" in preview["content"]
+        assert "line-80" in preview["content"]
+        assert preview["total_lines"] == 80
+        assert preview["preview_lines"] == 80
+
 
 # ---- API 端点测试 ----
 

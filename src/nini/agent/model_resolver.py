@@ -881,13 +881,18 @@ class ModelResolver:
         """判断是否为临时用途客户端。"""
         return all(client is not base for base in self._clients)
 
-    def reload_clients(self, config_overrides: dict[str, dict[str, Any]] | None = None) -> None:
+    def reload_clients(
+        self,
+        config_overrides: dict[str, dict[str, Any]] | None = None,
+        priorities: dict[str, int] | None = None,
+    ) -> None:
         """使用新配置重新初始化所有客户端。
 
         Args:
             config_overrides: 以 provider 为键的配置字典，
                 每个值包含 api_key、model、base_url 等字段。
                 DB 配置已合并 .env 后传入。
+            priorities: provider -> priority 映射，值越小优先级越高。
         """
         overrides = config_overrides or {}
         self._config_overrides = overrides
@@ -895,7 +900,7 @@ class ModelResolver:
         def _get(provider: str, key: str) -> str | None:
             return overrides.get(provider, {}).get(key)
 
-        self._clients = [
+        clients = [
             OpenAIClient(
                 api_key=_get("openai", "api_key"),
                 base_url=_get("openai", "base_url"),
@@ -933,6 +938,15 @@ class ModelResolver:
                 model=_get("ollama", "model"),
             ),
         ]
+        default_order = {client.provider_id: idx for idx, client in enumerate(clients)}
+        priority_map = priorities or {}
+        clients.sort(
+            key=lambda client: (
+                int(priority_map.get(client.provider_id, default_order.get(client.provider_id, 999))),
+                default_order.get(client.provider_id, 999),
+            )
+        )
+        self._clients = clients
         logger.info(
             "模型客户端已重新加载，可用客户端: %s",
             [type(c).__name__ for c in self._clients if c.is_available()],
@@ -1037,11 +1051,13 @@ async def reload_model_resolver() -> None:
     from nini.config_manager import (
         get_all_effective_configs,
         get_default_provider,
+        get_model_priorities,
         get_model_purpose_routes,
     )
 
     configs = await get_all_effective_configs()
-    model_resolver.reload_clients(configs)
+    priorities = await get_model_priorities()
+    model_resolver.reload_clients(configs, priorities=priorities)
 
     # 加载默认提供商设置
     default_provider = await get_default_provider()

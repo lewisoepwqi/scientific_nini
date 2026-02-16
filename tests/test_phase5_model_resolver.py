@@ -193,6 +193,21 @@ def test_model_resolver_get_active_client() -> None:
     assert active.is_available() is True
 
 
+def test_model_resolver_reload_clients_respects_priority_order() -> None:
+    resolver = ModelResolver()
+    resolver.reload_clients(
+        config_overrides={},
+        priorities={
+            "zhipu": 0,
+            "openai": 10,
+        },
+    )
+
+    ordered_providers = [client.provider_id for client in resolver._clients]  # noqa: SLF001
+    assert ordered_providers[0] == "zhipu"
+    assert ordered_providers.index("openai") > ordered_providers.index("anthropic")
+
+
 def test_ollama_client_openai_compat_base_url() -> None:
     client = OllamaClient(base_url="http://localhost:11434", model="qwen2.5:7b")
     assert client.is_available() is True
