@@ -26,6 +26,8 @@ class EventType(str, Enum):
     DONE = "done"
     ERROR = "error"
     REASONING = "reasoning"  # 推理事件，展示决策过程
+    ANALYSIS_PLAN = "analysis_plan"  # 结构化分析步骤列表
+    PLAN_STEP_UPDATE = "plan_step_update"  # 单步状态变更
     CONTEXT_COMPRESSED = "context_compressed"  # 上下文自动压缩通知
 
 
