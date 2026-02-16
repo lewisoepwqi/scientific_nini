@@ -22,6 +22,8 @@ def test_cli_init_creates_env_file(tmp_path: Path) -> None:
     assert "NINI_OLLAMA_BASE_URL=" in text
     assert "NINI_KIMI_CODING_API_KEY=" in text
     assert "NINI_ZHIPU_BASE_URL=" in text
+    assert "NINI_R_ENABLED=" in text
+    assert "NINI_R_SANDBOX_TIMEOUT=" in text
 
 
 def test_cli_init_without_force_refuses_overwrite(tmp_path: Path) -> None:

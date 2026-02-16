@@ -235,7 +235,7 @@ class AgentRunner:
                 func_name = tc["function"]["name"]
                 func_args = tc["function"]["arguments"]
                 tool_call_metadata: dict[str, Any] = {}
-                if func_name == "run_code":
+                if func_name in {"run_code", "run_r_code"}:
                     try:
                         parsed_args = json.loads(func_args)
                         if isinstance(parsed_args, dict):
@@ -272,7 +272,7 @@ class AgentRunner:
                 )
 
                 # 智能体生成的代码自动沉淀为工作空间产物
-                code_artifact = self._persist_run_code_source(
+                code_artifact = self._persist_code_source(
                     session=session,
                     func_name=func_name,
                     func_args=func_args,
@@ -897,19 +897,19 @@ class AgentRunner:
 
         return [m for i, m in enumerate(messages) if i not in removed]
 
-    def _persist_run_code_source(
+    def _persist_code_source(
         self,
         *,
         session: Session,
         func_name: str,
         func_args: str,
     ) -> dict[str, Any] | None:
-        """将 run_code 的代码片段自动保存到工作空间。
+        """将代码执行技能片段自动保存到工作空间。
 
         仅在 purpose 为 visualization 或 export 时保存为可交付产物；
         exploration/transformation 的代码只记录到 executions/ 目录。
         """
-        if func_name != "run_code":
+        if func_name not in {"run_code", "run_r_code"}:
             return None
 
         try:
@@ -925,22 +925,33 @@ class AgentRunner:
 
         purpose = str(args.get("purpose", "exploration")).strip()
         label = args.get("label") or None
+        is_r_code = func_name == "run_r_code"
+        file_ext = "R" if is_r_code else "py"
+        language = "r" if is_r_code else "python"
 
         # exploration/transformation 的代码只写入 executions/，不生成产物
         if purpose not in ("visualization", "export"):
             ws = WorkspaceManager(session.id)
-            ws.save_code_execution(code=code.rstrip(), output="", status="pending")
+            ws.save_code_execution(
+                code=code.rstrip(),
+                output="",
+                status="pending",
+                language=language,
+                tool_name=func_name,
+                tool_args=args,
+                intent=str(args.get("intent") or args.get("label") or "").strip() or None,
+            )
             return None
 
         # visualization/export 保存为可交付产物，使用 label 命名
         ws = WorkspaceManager(session.id)
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         if label:
-            filename = ws.sanitize_filename(f"{label}.py", default_name="code.py")
+            filename = ws.sanitize_filename(f"{label}.{file_ext}", default_name=f"code.{file_ext}")
         else:
             filename = ws.sanitize_filename(
-                f"run_code_{ts}.py",
-                default_name="run_code.py",
+                f"{func_name}_{ts}.{file_ext}",
+                default_name=f"{func_name}.{file_ext}",
             )
 
         storage = ArtifactStorage(session.id)
@@ -949,12 +960,12 @@ class AgentRunner:
             name=filename,
             artifact_type="code",
             file_path=path,
-            format_hint="py",
+            format_hint=file_ext.lower(),
         )
         return {
             "name": filename,
             "type": "code",
-            "format": "py",
+            "format": file_ext.lower(),
             "path": str(path),
             "download_url": f"/api/artifacts/{session.id}/{filename}",
         }

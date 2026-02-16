@@ -89,7 +89,7 @@ async def websocket_agent(ws: WebSocket):
             session.workspace_hydrated = True
 
         # 缓存代码执行工具的输入代码，用于配对 tool_call → tool_result
-        _code_exec_tools = ("run_code", "execute_code", "code_exec")
+        _code_exec_tools = ("run_code", "run_r_code", "execute_code", "code_exec")
         _pending_code: dict[str, str] = {}
         _pending_tool_args: dict[str, dict] = {}
 
@@ -177,6 +177,11 @@ async def websocket_agent(ws: WebSocket):
                             code=paired_code,
                             output=str(result_data.get("message", result_data.get("output", ""))),
                             status=str(result_data.get("status", "success")),
+                            language=(
+                                "r"
+                                if str(tool_info.get("tool_name", "")) == "run_r_code"
+                                else "python"
+                            ),
                             tool_name=tool_info.get("tool_name"),
                             tool_args=tool_info.get("tool_args"),
                             context_token_count=ctx_tokens,

@@ -76,6 +76,11 @@ class Settings(BaseSettings):
     sandbox_timeout: int = 60  # 秒（含代码执行 + DataFrame 跨进程序列化时间）
     sandbox_max_memory_mb: int = 512
     sandbox_image_export_timeout: int = 60  # 图片导出专用超时（秒），kaleido 渲染较慢
+    r_enabled: bool = True
+    r_sandbox_timeout: int = 120
+    r_sandbox_max_memory_mb: int = 1024
+    r_package_install_timeout: int = 300
+    r_auto_install_packages: bool = True
 
     # ---- Plotly 图表导出配置 ----
     plotly_export_width: int = 1400

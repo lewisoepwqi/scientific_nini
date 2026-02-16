@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn
 
 import numpy as np
 import pandas as pd
@@ -37,7 +37,7 @@ def _missing_excel_dependency_error(ext_norm: str, exc: ImportError) -> ValueErr
     )
 
 
-def _excel_engine(ext_norm: str) -> str:
+def _excel_engine(ext_norm: str) -> Literal["openpyxl", "xlrd"]:
     if ext_norm == "xlsx":
         return "openpyxl"
     if ext_norm == "xls":
@@ -45,7 +45,12 @@ def _excel_engine(ext_norm: str) -> str:
     raise ValueError(f"不支持的 Excel 扩展名: {ext_norm}")
 
 
-def _read_excel(path: Path, ext_norm: str, *, sheet_name: Any = 0) -> Any:
+def _read_excel(
+    path: Path,
+    ext_norm: str,
+    *,
+    sheet_name: int | str | None | list[int | str] = 0,
+) -> Any:
     engine = _excel_engine(ext_norm)
     try:
         return pd.read_excel(path, engine=engine, sheet_name=sheet_name)
@@ -149,7 +154,7 @@ def dataframe_to_json_safe(
     for record in records:
         safe_record: dict[str, Any] = {}
         for key, value in record.items():
-            safe_record[key] = _convert_value_to_json_safe(value, handle_non_finite)
+            safe_record[str(key)] = _convert_value_to_json_safe(value, handle_non_finite)
         result.append(safe_record)
 
     return result

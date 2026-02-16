@@ -42,6 +42,8 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
         "可视化策略：\n"
         "- create_chart 支持双引擎（plotly/matplotlib），默认 auto；简单标准图优先 create_chart。\n"
         "- run_code 适合：复杂自定义图表、子图布局、统计标注、组合图表；图表会自动检测并保存。\n"
+        "- run_r_code 适合：R/Bioconductor 专有分析（如 DESeq2、limma、MetaCycle）与 R 统计可视化。\n"
+        "- 使用 run_r_code 时必须提供 intent，并优先复用会话数据集变量 datasets/df。\n"
         "- 当用户要求发表级输出时，优先遵循统一风格契约（字体、配色、尺寸、DPI、导出格式）。\n"
         "- 使用 run_code 时必须提供 intent（一句中文短语，说明执行意图，如‘绘制箱线图’、‘方差分析 treatment vs control’）。\n"
         "- 使用 run_code 绘图时，设置 purpose='visualization' 并提供 label 描述图表用途。\n\n"
