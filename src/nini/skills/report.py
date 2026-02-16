@@ -89,6 +89,78 @@ _NOISE_PATTERNS = (
     "deprecationwarning",
 )
 
+# 已知内部技能名称，用于从报告文本中过滤工具提及
+_KNOWN_SKILL_NAMES: set[str] = {
+    "load_dataset",
+    "preview_data",
+    "data_summary",
+    "clean_data",
+    "recommend_cleaning_strategy",
+    "evaluate_data_quality",
+    "generate_quality_report",
+    "create_chart",
+    "export_chart",
+    "run_code",
+    "run_r_code",
+    "generate_report",
+    "organize_workspace",
+    "save_workflow",
+    "list_workflows",
+    "apply_workflow",
+    "fetch_url",
+    "image_analysis",
+    "interpret_statistical_result",
+    "t_test",
+    "anova",
+    "correlation",
+    "regression",
+    "mann_whitney",
+    "kruskal_wallis",
+    "multiple_comparison_correction",
+    "complete_comparison",
+    "complete_anova",
+    "correlation_analysis",
+}
+
+
+def _strip_tool_mentions(text: str) -> str:
+    """移除文本中对内部工具/技能名称的提及。
+
+    匹配模式：
+    - "使用 xxx 工具"、"调用 xxx 工具"、"通过 xxx 工具"
+    - "使用 xxx 和 yyy 工具"（多工具连用）
+    - 工具名出现在反引号中
+    """
+    import re
+
+    if not text:
+        return text
+
+    # 构建工具名正则模式（按长度降序，避免短名称误匹配子串）
+    sorted_names = sorted(_KNOWN_SKILL_NAMES, key=len, reverse=True)
+    names_pattern = "|".join(re.escape(n) for n in sorted_names)
+
+    # 匹配 "使用/调用/通过 tool_a (和/、/及 tool_b)* 工具/技能 (进行/来/做)? XXX"
+    pattern = (
+        r"(?:使用|调用|通过)\s*"
+        r"`?(?:" + names_pattern + r")`?"
+        r"(?:\s*(?:和|、|及|与|,)\s*`?(?:" + names_pattern + r")`?)*"
+        r"\s*(?:工具|技能|skill)"
+        r"(?:\s*(?:进行|来|做))?"
+    )
+    result = re.sub(pattern, "", text)
+
+    # 移除反引号包裹的工具名单独出现的情况（如 "`data_summary`"）
+    result = re.sub(r"`(?:" + names_pattern + r")`", "", result)
+
+    # 清理多余空格和标点
+    result = re.sub(r"[ \t]{2,}", " ", result)
+    result = re.sub(r"^\s*[，,、]\s*", "", result, flags=re.MULTILINE)
+    result = re.sub(r"\s+([，,。；;])", r"\1", result)
+
+    return result.strip()
+
+
 _PREVIEW_FORMAT_PRIORITY = {
     "png": 0,
     "jpg": 1,
@@ -232,14 +304,20 @@ def _chart_preview_markdown(session_id: str) -> str:
         url = chart["download_url"]
         suffix = Path(name).suffix.lower()
 
-        lines.append(f"### 图 {idx}：{name}")
+        # 友好标题：去掉文件扩展名和技术后缀
+        friendly_name = name
+        if friendly_name.lower().endswith(".plotly.json"):
+            friendly_name = friendly_name[: -len(".plotly.json")]
+        else:
+            friendly_name = Path(friendly_name).stem
+        lines.append(f"### 图 {idx}：{friendly_name}")
+
         # 统一使用 Markdown 图片语法：图片文件直接显示；
         # .plotly.json 由前端自定义渲染器转为交互图。
         if suffix in {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}:
-            lines.append(f"![{name}]({url})")
+            lines.append(f"![{friendly_name}]({url})")
         elif name.lower().endswith(".plotly.json") or fmt == "json":
-            lines.append(f"![{name}]({url})")
-            lines.append(f"[下载图表数据]({url})")
+            lines.append(f"![{friendly_name}]({url})")
         elif suffix in {".html", ".htm"} or fmt in {"html", "htm"}:
             lines.append(f"[打开交互图表（HTML）]({url})")
         else:
@@ -407,14 +485,11 @@ def _build_markdown(
         cleaned_summary = _strip_leading_h2(summary_text.strip())
         sections.extend(["", "## 分析摘要", cleaned_summary])
 
-    # 图表清单（可选）
+    # 图表预览（可选，不再附加冗余的图表清单表格）
     if include_charts:
         chart_preview_md = _chart_preview_markdown(session.id)
         if chart_preview_md:
-            sections.extend(["", "## 图表预览", chart_preview_md])
-        chart_md = _chart_artifacts_markdown(session.id)
-        if chart_md:
-            sections.extend(["", "## 图表清单", chart_md])
+            sections.extend(["", "## 图表", chart_preview_md])
 
     # 关键发现（从工具结果提取，过滤噪声）
     if include_recent_messages:
@@ -470,6 +545,77 @@ def _resolve_output_name(
         candidate = f"{stem}_{counter}{suffix}"
         counter += 1
     return candidate
+
+
+def _make_downloadable_markdown(preview_md: str, session_id: str) -> str:
+    """将前端预览 Markdown 转换为可下载版本。
+
+    主要变换：
+    1. 将 plotly.json 图片引用替换为同名 PNG（如果存在），使外部编辑器可渲染
+    2. 将内部 API 路径 (/api/artifacts/...) 替换为相对路径 (./filename)
+    3. 不存在 PNG 时添加注释提示
+    """
+    import re
+
+    if not preview_md:
+        return preview_md
+
+    storage = ArtifactStorage(session_id)
+
+    def _replace_image_ref(match: re.Match) -> str:  # type: ignore[type-arg]
+        alt_text = match.group(1)
+        url = match.group(2)
+
+        # 提取文件名
+        filename = url.rsplit("/", 1)[-1] if "/" in url else url
+
+        # plotly.json → 尝试替换为 PNG
+        if filename.lower().endswith(".plotly.json"):
+            base_name = filename[: -len(".plotly.json")]
+            png_name = f"{base_name}.png"
+            if storage.get_path(png_name).exists():
+                return f"![{alt_text}](./{png_name})"
+            # 尝试用 kaleido 导出
+            png_path = _try_export_plotly_to_png(storage, filename, png_name)
+            if png_path:
+                return f"![{alt_text}](./{png_name})"
+            return f"<!-- 图表 {base_name} 需在应用内查看（Plotly 交互图） -->"
+
+        # 非 plotly：内部 API 路径 → 相对路径
+        if url.startswith("/api/artifacts/"):
+            return f"![{alt_text}](./{filename})"
+
+        return str(match.group(0))
+
+    result = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", _replace_image_ref, preview_md)
+    return result
+
+
+def _try_export_plotly_to_png(
+    storage: ArtifactStorage,
+    plotly_filename: str,
+    png_filename: str,
+) -> Path | None:
+    """尝试将 plotly.json 文件导出为 PNG。失败时返回 None。"""
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    plotly_path = storage.get_path(plotly_filename)
+    if not plotly_path.exists():
+        return None
+
+    try:
+        import plotly.io as pio
+
+        fig_json = plotly_path.read_text(encoding="utf-8")
+        fig = pio.from_json(fig_json)
+        png_path = storage.get_path(png_filename)
+        fig.write_image(str(png_path), format="png", width=1200, height=800, scale=2)
+        return png_path
+    except Exception:
+        logger.debug("Plotly PNG 导出失败: %s", plotly_filename, exc_info=True)
+        return None
 
 
 class GenerateReportSkill(Skill):
@@ -548,9 +694,9 @@ class GenerateReportSkill(Skill):
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
         title = str(kwargs.get("title", "科研数据分析报告")).strip() or "科研数据分析报告"
-        summary_text = str(kwargs.get("summary_text", "") or "")
-        methods = str(kwargs.get("methods", "") or "")
-        conclusions = str(kwargs.get("conclusions", "") or "")
+        summary_text = _strip_tool_mentions(str(kwargs.get("summary_text", "") or ""))
+        methods = _strip_tool_mentions(str(kwargs.get("methods", "") or ""))
+        conclusions = _strip_tool_mentions(str(kwargs.get("conclusions", "") or ""))
         dataset_names = kwargs.get("dataset_names") or None
         include_recent_messages = bool(kwargs.get("include_recent_messages", True))
         include_charts = bool(kwargs.get("include_charts", True))
@@ -558,7 +704,8 @@ class GenerateReportSkill(Skill):
         save_to_knowledge = bool(kwargs.get("save_to_knowledge", True))
         filename = kwargs.get("filename")
 
-        markdown = _build_markdown(
+        # 前端预览版（保留 plotly.json 引用，前端可交互渲染）
+        preview_md = _build_markdown(
             session,
             title=title,
             dataset_names=dataset_names,
@@ -570,6 +717,9 @@ class GenerateReportSkill(Skill):
             include_session_stats=include_session_stats,
         )
 
+        # 可下载版（plotly.json → PNG，内部路径 → 相对路径）
+        download_md = _make_downloadable_markdown(preview_md, session.id)
+
         storage = ArtifactStorage(session.id)
         output_name = _resolve_output_name(
             session,
@@ -577,10 +727,11 @@ class GenerateReportSkill(Skill):
             filename=filename,
             title=title,
         )
-        path = storage.save_text(markdown, output_name)
+        # 保存可下载版到文件系统
+        path = storage.save_text(download_md, output_name)
 
         if save_to_knowledge:
-            session.knowledge_memory.append(title, markdown)
+            session.knowledge_memory.append(title, download_md)
 
         artifact = {
             "name": output_name,
@@ -602,7 +753,7 @@ class GenerateReportSkill(Skill):
             data={
                 "title": title,
                 "filename": output_name,
-                "report_markdown": markdown,
+                "report_markdown": preview_md,
             },
             artifacts=[artifact],
         )
