@@ -544,6 +544,16 @@ def remove_analysis_memory(session_id: str, dataset_name: str) -> None:
     _analysis_memories.pop(key, None)
 
 
+def list_session_analysis_memories(session_id: str) -> list[AnalysisMemory]:
+    """列出会话的所有分析记忆（非空的）。"""
+    result: list[AnalysisMemory] = []
+    prefix = f"{session_id}:"
+    for key, mem in _analysis_memories.items():
+        if key.startswith(prefix) and (mem.findings or mem.statistics or mem.decisions):
+            result.append(mem)
+    return result
+
+
 def clear_session_analysis_memories(session_id: str) -> None:
     """清除会话的所有分析记忆。"""
     keys_to_remove = [k for k in _analysis_memories if k.startswith(f"{session_id}:")]

@@ -131,7 +131,11 @@ class Session:
             self.conversation_memory.append(entry)
 
     def set_compressed_context(self, summary: str) -> None:
-        """更新压缩上下文，并记录压缩次数。"""
+        """更新压缩上下文，并记录压缩次数。
+
+        追加后如果超过 compressed_context_max_chars 上限，
+        按 ``---`` 分段丢弃最旧的段，直到总长度不超限。
+        """
         summary = summary.strip()
         if not summary:
             return
@@ -139,6 +143,18 @@ class Session:
             self.compressed_context = f"{self.compressed_context}\n\n---\n\n{summary}"
         else:
             self.compressed_context = summary
+
+        # 截断：超出上限时按 --- 分段丢弃最旧段
+        max_chars = settings.compressed_context_max_chars
+        if max_chars > 0 and len(self.compressed_context) > max_chars:
+            segments = self.compressed_context.split("\n\n---\n\n")
+            while len(segments) > 1 and len("\n\n---\n\n".join(segments)) > max_chars:
+                segments.pop(0)
+            self.compressed_context = "\n\n---\n\n".join(segments)
+            # 极端情况：单段仍超限，硬截断保留尾部
+            if len(self.compressed_context) > max_chars:
+                self.compressed_context = self.compressed_context[-max_chars:]
+
         self.compressed_rounds += 1
         self.last_compressed_at = datetime.now(timezone.utc).isoformat()
 

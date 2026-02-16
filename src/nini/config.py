@@ -116,6 +116,7 @@ class Settings(BaseSettings):
     memory_auto_compress: bool = True
     memory_compress_threshold_kb: int = 500
     memory_keep_recent_messages: int = 20
+    compressed_context_max_chars: int = 2000  # 压缩上下文累积上限，超出后丢弃最旧段
 
     # ---- 派生属性 ----
     @property
