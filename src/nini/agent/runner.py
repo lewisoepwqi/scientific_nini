@@ -32,7 +32,8 @@ from nini.workspace import WorkspaceManager
 
 # 导入事件模块
 from nini.agent.events import EventType, AgentEvent, create_reasoning_event
-from nini.agent.plan_parser import AnalysisPlan, parse_analysis_plan
+from nini.agent.plan_parser import AnalysisPlan, AnalysisStep, parse_analysis_plan
+from nini.agent.planner import PlannerAgent
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,77 @@ class AgentRunner:
         next_step_idx: int = 0
         plan_event_seq: int = 0
         iteration = 0
+        planner = PlannerAgent(resolver=self._resolver)
+        structured_plan = None
+        action_trackers: dict[str, dict[str, int | str]] = {}
+        step_action_map: dict[int, str] = {}
+
+        def _build_display_plan_from_execution_plan(plan: Any) -> AnalysisPlan | None:
+            """将结构化执行计划转换为前端可展示的步骤列表。"""
+            try:
+                steps = []
+                step_id = 1
+                for phase_idx, phase in enumerate(plan.phases):
+                    if phase.actions:
+                        for action_idx, action in enumerate(phase.actions):
+                            action_id = f"p{phase_idx + 1}_a{action_idx + 1}"
+                            title = action.description.strip() or phase.description.strip()
+                            steps.append(
+                                {
+                                    "id": step_id,
+                                    "title": title or f"步骤 {step_id}",
+                                    "tool_hint": action.skill,
+                                    "status": "pending",
+                                    "action_id": action_id,
+                                }
+                            )
+                            action_trackers[action_id] = {
+                                "status": "pending",
+                                "retry_count": 0,
+                                "max_retries": 1,
+                            }
+                            step_action_map[step_id] = action_id
+                            step_id += 1
+                    else:
+                        action_id = f"p{phase_idx + 1}_a0"
+                        steps.append(
+                            {
+                                "id": step_id,
+                                "title": phase.description.strip() or f"步骤 {step_id}",
+                                "tool_hint": None,
+                                "status": "pending",
+                                "action_id": action_id,
+                            }
+                        )
+                        action_trackers[action_id] = {
+                            "status": "pending",
+                            "retry_count": 0,
+                            "max_retries": 0,
+                        }
+                        step_action_map[step_id] = action_id
+                        step_id += 1
+
+                if len(steps) < 2:
+                    return None
+
+                raw_text = "\n".join(
+                    f"{item['id']}. {item['title']}"
+                    + (f" - 使用工具: {item['tool_hint']}" if item.get("tool_hint") else "")
+                    for item in steps
+                )
+                parsed_steps: list[AnalysisStep] = []
+                for item in steps:
+                    parsed_steps.append(
+                        AnalysisStep(
+                            id=int(item["id"]),
+                            title=str(item["title"]),
+                            tool_hint=(str(item["tool_hint"]) if item.get("tool_hint") else None),
+                            status="pending",
+                        )
+                    )
+                return AnalysisPlan(steps=parsed_steps, raw_text=raw_text)
+            except Exception:
+                return None
 
         def _to_plan_status(raw_status: str) -> str:
             """将历史计划状态映射为前端统一状态。"""
@@ -204,6 +276,22 @@ class AgentRunner:
         compress_event = await self._maybe_auto_compress(session)
         if compress_event is not None:
             yield compress_event
+
+        # 预先创建结构化计划（Plan-as-Data），用于后续执行追踪与展示。
+        try:
+            structured_plan = await planner.create_plan(session, user_message)
+            validation_result = await planner.validate_plan(session, structured_plan)
+            if not validation_result.get("is_valid", True):
+                structured_plan = await planner.revise_plan(
+                    session,
+                    structured_plan,
+                    "计划校验未通过，已自动标记为需修订",
+                )
+            display_plan = _build_display_plan_from_execution_plan(structured_plan)
+            if display_plan is not None:
+                active_plan = display_plan
+        except Exception as exc:
+            logger.debug("创建结构化计划失败，回退文本解析: %s", exc)
 
         while max_iter <= 0 or iteration < max_iter:
             if should_stop():
@@ -319,9 +407,10 @@ class AgentRunner:
                 reasoning_text = full_text.strip()
                 # 尝试解析结构化分析计划
                 parsed_plan = parse_analysis_plan(reasoning_text)
-                if parsed_plan is not None:
+                if active_plan is None and parsed_plan is not None:
                     active_plan = parsed_plan
                     next_step_idx = 0
+                if active_plan is not None:
                     yield AgentEvent(
                         type=EventType.ANALYSIS_PLAN,
                         data=active_plan.to_dict(),
@@ -390,13 +479,38 @@ class AgentRunner:
 
                 # 匹配分析计划步骤 → in_progress
                 matched_step_idx: int | None = None
+                matched_action_id: str | None = None
                 if active_plan is not None and next_step_idx < len(active_plan.steps):
                     step = active_plan.steps[next_step_idx]
                     # 优先匹配下一个 pending 步骤
                     if step.status == "pending":
+                        if step.tool_hint and step.tool_hint != func_name:
+                            found_match = False
+                            for lookup_idx in range(next_step_idx + 1, len(active_plan.steps)):
+                                candidate = active_plan.steps[lookup_idx]
+                                if (
+                                    candidate.status == "pending"
+                                    and candidate.tool_hint == func_name
+                                ):
+                                    step = candidate
+                                    matched_step_idx = lookup_idx
+                                    found_match = True
+                                    break
+                            if not found_match:
+                                matched_step_idx = next_step_idx
+                        else:
+                            matched_step_idx = next_step_idx
+
+                        if matched_step_idx is not None:
+                            step = active_plan.steps[matched_step_idx]
+                            action_id = step_action_map.get(step.id)
+                            if action_id:
+                                matched_action_id = action_id
+                                tracker = action_trackers.get(action_id, {})
+                                tracker["status"] = "in_progress"
+                                action_trackers[action_id] = tracker
                         step.status = "in_progress"
-                        matched_step_idx = next_step_idx
-                        next_step_idx += 1
+                        next_step_idx = max(next_step_idx, (matched_step_idx or 0) + 1)
                         yield AgentEvent(
                             type=EventType.PLAN_STEP_UPDATE,
                             data=step.to_dict(),
@@ -413,7 +527,17 @@ class AgentRunner:
                     tool_call_id=tc_id,
                     tool_name=func_name,
                     turn_id=turn_id,
-                    metadata=tool_call_metadata,
+                    metadata={
+                        **tool_call_metadata,
+                        **(
+                            {
+                                "action_id": matched_action_id,
+                                "retry_policy": action_trackers.get(matched_action_id),
+                            }
+                            if matched_action_id
+                            else {}
+                        ),
+                    },
                 )
 
                 # 智能体生成的代码自动沉淀为工作空间产物
@@ -437,7 +561,30 @@ class AgentRunner:
                     )
 
                 # 执行工具
-                result = await self._execute_tool(session, func_name, func_args)
+                retry_attempt = 0
+                max_retries = int(
+                    (action_trackers.get(matched_action_id, {}).get("max_retries", 0))
+                    if matched_action_id
+                    else 0
+                )
+                while True:
+                    result = await self._execute_tool(session, func_name, func_args)
+                    has_error = isinstance(result, dict) and (
+                        result.get("error") or result.get("success") is False
+                    )
+                    if not has_error or retry_attempt >= max_retries:
+                        break
+                    retry_attempt += 1
+                    if matched_action_id:
+                        action_trackers[matched_action_id]["retry_count"] = retry_attempt
+                    logger.warning(
+                        "工具执行失败，触发自动重试: session=%s tool=%s action_id=%s attempt=%d/%d",
+                        session.id,
+                        func_name,
+                        matched_action_id,
+                        retry_attempt,
+                        max_retries,
+                    )
 
                 # 判断执行状态
                 has_error = isinstance(result, dict) and (
@@ -449,6 +596,10 @@ class AgentRunner:
                 if active_plan is not None and matched_step_idx is not None:
                     step = active_plan.steps[matched_step_idx]
                     step.status = "error" if has_error else "completed"
+                    if matched_action_id and matched_action_id in action_trackers:
+                        action_trackers[matched_action_id]["status"] = (
+                            "failed" if has_error else "completed"
+                        )
                     yield AgentEvent(
                         type=EventType.PLAN_STEP_UPDATE,
                         data=step.to_dict(),
@@ -494,6 +645,14 @@ class AgentRunner:
                     execution_id=execution_id,
                 )
 
+                if matched_action_id:
+                    result_metadata = {
+                        **result_metadata,
+                        "action_id": matched_action_id,
+                        "retry_count": retry_attempt,
+                        "max_retries": max_retries,
+                    }
+
                 try:
                     yield AgentEvent(
                         type=EventType.TOOL_RESULT,
@@ -511,7 +670,6 @@ class AgentRunner:
                         turn_id=turn_id,
                         metadata=result_metadata if isinstance(result_metadata, dict) else {},
                     )
-
                     # 检查是否有图表数据
                     if isinstance(result, dict) and result.get("has_chart"):
                         raw_chart_data = result.get("chart_data")
