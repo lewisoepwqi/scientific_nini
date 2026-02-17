@@ -99,3 +99,60 @@ def test_configure_chart_defaults_logs_warning_for_plotly_failure(
         _configure_chart_defaults()
 
     assert "配置 Plotly 默认样式失败" in caplog.text
+
+
+def test_set_resource_limits_applies_low_memory_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """低于 1GB 的内存限制配置也应调用 RLIMIT_AS。"""
+    calls: list[tuple[int, tuple[int, int]]] = []
+
+    class _FakeResource:
+        RLIMIT_CPU = 1
+        RLIMIT_AS = 2
+        RUSAGE_SELF = 3
+
+        @staticmethod
+        def setrlimit(kind: int, value: tuple[int, int]) -> None:
+            calls.append((kind, value))
+
+        @staticmethod
+        def getrusage(_kind: int) -> SimpleNamespace:
+            # 约 100MB (KB 单位)
+            return SimpleNamespace(ru_maxrss=1024 * 100)
+
+    monkeypatch.setattr("nini.sandbox.executor.resource", _FakeResource)
+
+    from nini.sandbox.executor import _set_resource_limits
+
+    _set_resource_limits(timeout_seconds=5, max_memory_mb=512)
+
+    as_calls = [item for item in calls if item[0] == _FakeResource.RLIMIT_AS]
+    assert as_calls, "应设置 RLIMIT_AS"
+    _, (soft, hard) = as_calls[-1]
+    assert soft == hard
+    assert soft >= 512 * 1024 * 1024
+
+
+def test_collect_figures_logs_debug_for_plotly_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Plotly 序列化异常应记录 debug 日志而不是静默吞掉。"""
+
+    class _FakeFigure:
+        def __init__(self) -> None:
+            self.layout = None
+
+        def to_json(self) -> str:
+            raise RuntimeError("to_json failed")
+
+    fake_go = ModuleType("plotly.graph_objects")
+    fake_go.Figure = _FakeFigure
+    monkeypatch.setitem(sys.modules, "plotly.graph_objects", fake_go)
+
+    from nini.sandbox.executor import _collect_figures
+
+    with caplog.at_level(logging.DEBUG):
+        figures = _collect_figures({"broken": _FakeFigure()}, {})
+
+    assert figures == []
+    assert "Plotly 图表序列化失败（变量 broken）" in caplog.text
