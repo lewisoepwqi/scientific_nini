@@ -59,16 +59,34 @@ export interface WorkspaceFolder {
   created_at: string;
 }
 
+export type PlanStepStatus =
+  | "not_started"
+  | "in_progress"
+  | "done"
+  | "blocked"
+  | "failed";
+
 export interface AnalysisStep {
   id: number;
   title: string;
   tool_hint: string | null;
-  status: "pending" | "in_progress" | "completed" | "error";
+  status: PlanStepStatus;
+  raw_status?: string;
 }
 
 export interface AnalysisPlanData {
   steps: AnalysisStep[];
   raw_text: string;
+}
+
+export interface AnalysisPlanProgress {
+  steps: AnalysisStep[];
+  current_step_index: number;
+  total_steps: number;
+  step_title: string;
+  step_status: PlanStepStatus;
+  next_hint: string | null;
+  block_reason: string | null;
 }
 
 export interface Message {
@@ -194,6 +212,8 @@ interface AppState {
   _currentTurnId: string | null;
   _reconnectAttempts: number;
   _activePlanMsgId: string | null;
+  analysisPlanProgress: AnalysisPlanProgress | null;
+  _analysisPlanOrder: number;
 
   // 操作
   connect: () => void;
@@ -262,6 +282,280 @@ function normalizeMemoryTimestamp(value: unknown): string {
     if (!Number.isNaN(parsed)) return new Date(parsed).toISOString();
   }
   return new Date().toISOString();
+}
+
+function normalizePlanStepStatus(raw: unknown): PlanStepStatus {
+  if (typeof raw !== "string") return "not_started";
+  const normalized = raw.trim().toLowerCase();
+  switch (normalized) {
+    case "pending":
+    case "not_started":
+      return "not_started";
+    case "in_progress":
+      return "in_progress";
+    case "completed":
+    case "done":
+      return "done";
+    case "error":
+    case "failed":
+      return "failed";
+    case "blocked":
+      return "blocked";
+    default:
+      return "not_started";
+  }
+}
+
+function planStatusRank(status: PlanStepStatus): number {
+  switch (status) {
+    case "done":
+      return 4;
+    case "failed":
+      return 3;
+    case "blocked":
+      return 2;
+    case "in_progress":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function mergePlanStepStatus(current: PlanStepStatus, incoming: PlanStepStatus): PlanStepStatus {
+  return planStatusRank(incoming) >= planStatusRank(current) ? incoming : current;
+}
+
+function clampStepIndex(index: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.max(1, Math.min(index, total));
+}
+
+function truncatePlanText(text: string, maxLen = 72): string {
+  const normalized = text.trim();
+  if (normalized.length <= maxLen) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLen - 1)).trimEnd()}…`;
+}
+
+function createDefaultPlanSteps(total: number): AnalysisStep[] {
+  const safeTotal = Math.max(0, total);
+  return Array.from({ length: safeTotal }, (_, idx) => ({
+    id: idx + 1,
+    title: `步骤 ${idx + 1}`,
+    tool_hint: null,
+    status: "not_started",
+  }));
+}
+
+function inferCurrentStepIndex(steps: AnalysisStep[]): number {
+  const inProgress = steps.find((step) => step.status === "in_progress");
+  if (inProgress) return inProgress.id;
+  const failed = steps.find((step) => step.status === "failed" || step.status === "blocked");
+  if (failed) return failed.id;
+  const nextPending = steps.find((step) => step.status === "not_started");
+  if (nextPending) return nextPending.id;
+  const lastDone = [...steps].reverse().find((step) => step.status === "done");
+  return lastDone?.id ?? 0;
+}
+
+function deriveNextHint(
+  steps: AnalysisStep[],
+  currentStepIndex: number,
+  currentStatus: PlanStepStatus,
+): string {
+  if (steps.length === 0) return "";
+  const safeIndex = clampStepIndex(currentStepIndex, steps.length);
+  const nextStep = steps[safeIndex];
+
+  if (currentStatus === "failed" || currentStatus === "blocked") {
+    return "可尝试重试当前步骤或补充输入后继续。";
+  }
+  if (currentStatus === "done" && safeIndex >= steps.length) {
+    return "全部步骤已完成。";
+  }
+  if (currentStatus === "done" && nextStep) {
+    return `下一步：${truncatePlanText(nextStep.title)}`;
+  }
+  if (currentStatus === "in_progress" && nextStep) {
+    return `完成后将进入：${truncatePlanText(nextStep.title)}`;
+  }
+  return `下一步：${truncatePlanText(steps[safeIndex - 1]?.title || "继续执行")}`;
+}
+
+function normalizeAnalysisSteps(rawSteps: unknown): AnalysisStep[] {
+  if (!Array.isArray(rawSteps)) return [];
+  return rawSteps
+    .filter((item): item is Record<string, unknown> => isRecord(item))
+    .map((item, idx) => {
+      const idRaw = item.id;
+      const id =
+        typeof idRaw === "number" && Number.isFinite(idRaw) && idRaw > 0
+          ? Math.floor(idRaw)
+          : idx + 1;
+      const title =
+        typeof item.title === "string" && item.title.trim()
+          ? item.title.trim()
+          : `步骤 ${id}`;
+      const toolHint =
+        typeof item.tool_hint === "string" && item.tool_hint.trim()
+          ? item.tool_hint.trim()
+          : null;
+      const status = normalizePlanStepStatus(item.status);
+      return {
+        id,
+        title,
+        tool_hint: toolHint,
+        status,
+        raw_status: typeof item.status === "string" ? item.status : undefined,
+      };
+    })
+    .sort((a, b) => a.id - b.id);
+}
+
+function extractPlanEventOrder(evt: WSEvent, payload?: Record<string, unknown> | null): number {
+  const seqBase = 1_000_000_000_000_000;
+  const seq = evt.metadata?.seq;
+  if (typeof seq === "number" && Number.isFinite(seq)) return seqBase + seq;
+  if (payload) {
+    const payloadSeq = payload.seq;
+    if (typeof payloadSeq === "number" && Number.isFinite(payloadSeq)) {
+      return seqBase + payloadSeq;
+    }
+    const updatedAt = payload.updated_at;
+    if (typeof updatedAt === "string" && updatedAt.trim()) {
+      const parsed = Date.parse(updatedAt);
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+  }
+  return Date.now();
+}
+
+function makePlanProgressFromSteps(
+  steps: AnalysisStep[],
+  rawText = "",
+  nextHint: string | null = null,
+  blockReason: string | null = null,
+): AnalysisPlanProgress | null {
+  if (steps.length === 0) return null;
+  const currentStepIndex = clampStepIndex(inferCurrentStepIndex(steps), steps.length);
+  const currentStep = steps[currentStepIndex - 1];
+  const stepStatus = currentStep?.status || "not_started";
+  return {
+    steps,
+    current_step_index: currentStepIndex,
+    total_steps: steps.length,
+    step_title: currentStep?.title || truncatePlanText(rawText, 48),
+    step_status: stepStatus,
+    next_hint: nextHint ?? deriveNextHint(steps, currentStepIndex, stepStatus),
+    block_reason: blockReason,
+  };
+}
+
+function areAllPlanStepsDone(steps: AnalysisStep[]): boolean {
+  return steps.length > 0 && steps.every((step) => step.status === "done");
+}
+
+function applyPlanStepUpdateToProgress(
+  progress: AnalysisPlanProgress | null,
+  stepId: number,
+  rawStatus: unknown,
+): AnalysisPlanProgress | null {
+  if (!progress) return null;
+  if (stepId <= 0 || stepId > progress.steps.length) return progress;
+
+  const incomingStatus = normalizePlanStepStatus(rawStatus);
+  const steps = progress.steps.map((step) => {
+    if (step.id !== stepId) return step;
+    return {
+      ...step,
+      status: mergePlanStepStatus(step.status, incomingStatus),
+      raw_status: typeof rawStatus === "string" ? rawStatus : step.raw_status,
+    };
+  });
+
+  const currentStep = steps[stepId - 1];
+  const currentStatus = currentStep?.status || incomingStatus;
+  return {
+    ...progress,
+    steps,
+    current_step_index: stepId,
+    total_steps: steps.length,
+    step_title: currentStep?.title || progress.step_title,
+    step_status: currentStatus,
+    next_hint:
+      progress.next_hint && progress.next_hint.trim()
+        ? progress.next_hint
+        : deriveNextHint(steps, stepId, currentStatus),
+    block_reason: currentStatus === "failed" ? progress.block_reason : null,
+  };
+}
+
+function applyPlanProgressPayload(
+  existing: AnalysisPlanProgress | null,
+  payload: Record<string, unknown>,
+): AnalysisPlanProgress | null {
+  const totalRaw = payload.total_steps;
+  const total =
+    typeof totalRaw === "number" && Number.isFinite(totalRaw) && totalRaw > 0
+      ? Math.floor(totalRaw)
+      : existing?.total_steps || 0;
+  if (total <= 0) return existing;
+
+  const currentRaw = payload.current_step_index;
+  const currentStepIndex =
+    typeof currentRaw === "number" && Number.isFinite(currentRaw)
+      ? clampStepIndex(Math.floor(currentRaw), total)
+      : existing?.current_step_index
+        ? clampStepIndex(existing.current_step_index, total)
+        : 1;
+
+  const incomingStatus = normalizePlanStepStatus(payload.step_status);
+  const stepTitleRaw = payload.step_title;
+  const incomingStepTitle =
+    typeof stepTitleRaw === "string" && stepTitleRaw.trim()
+      ? stepTitleRaw.trim()
+      : existing?.step_title || `步骤 ${currentStepIndex}`;
+  const incomingNextHint =
+    typeof payload.next_hint === "string" && payload.next_hint.trim()
+      ? payload.next_hint.trim()
+      : null;
+  const blockReason =
+    typeof payload.block_reason === "string" && payload.block_reason.trim()
+      ? payload.block_reason.trim()
+      : null;
+
+  const baseSteps =
+    existing && existing.steps.length > 0
+      ? [...existing.steps]
+      : createDefaultPlanSteps(total);
+  const steps = Array.from({ length: total }, (_, idx) => {
+    const existingStep = baseSteps[idx];
+    const fallbackStep: AnalysisStep = {
+      id: idx + 1,
+      title: `步骤 ${idx + 1}`,
+      tool_hint: null,
+      status: "not_started",
+    };
+    return existingStep ? { ...existingStep, id: idx + 1 } : fallbackStep;
+  });
+
+  const targetIdx = currentStepIndex - 1;
+  const targetStep = steps[targetIdx];
+  const mergedStatus = mergePlanStepStatus(targetStep.status, incomingStatus);
+  steps[targetIdx] = {
+    ...targetStep,
+    title: incomingStepTitle,
+    status: mergedStatus,
+  };
+
+  return {
+    steps,
+    current_step_index: currentStepIndex,
+    total_steps: total,
+    step_title: incomingStepTitle,
+    step_status: mergedStatus,
+    next_hint: incomingNextHint ?? deriveNextHint(steps, currentStepIndex, mergedStatus),
+    block_reason: blockReason,
+  };
 }
 
 function getWsUrl(): string {
@@ -340,6 +634,8 @@ export const useStore = create<AppState>((set, get) => ({
   _currentTurnId: null,
   _reconnectAttempts: 0,
   _activePlanMsgId: null,
+  analysisPlanProgress: null,
+  _analysisPlanOrder: 0,
 
   connect() {
     const existing = get().ws;
@@ -381,6 +677,7 @@ export const useStore = create<AppState>((set, get) => ({
         isStreaming: false,
         _streamingText: "",
         _currentTurnId: null,
+        _activePlanMsgId: null,
       });
 
       // 指数退避重连：1s, 2s, 4s, 8s, 16s, 30s(max)
@@ -426,6 +723,8 @@ export const useStore = create<AppState>((set, get) => ({
       _reconnectAttempts: 0,
       isStreaming: false,
       _streamingText: "",
+      _currentTurnId: null,
+      _activePlanMsgId: null,
     });
   },
 
@@ -477,7 +776,12 @@ export const useStore = create<AppState>((set, get) => ({
       }),
     );
 
-    set({ isStreaming: true, _streamingText: "" });
+    set({
+      isStreaming: true,
+      _streamingText: "",
+      _analysisPlanOrder: 0,
+      analysisPlanProgress: null,
+    });
   },
 
   stopStreaming() {
@@ -494,7 +798,12 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     // 立即停止前端流式状态，避免继续渲染后续 token
-    set({ isStreaming: false, _streamingText: "", _currentTurnId: null });
+    set({
+      isStreaming: false,
+      _streamingText: "",
+      _currentTurnId: null,
+      _activePlanMsgId: null,
+    });
   },
 
   retryLastTurn() {
@@ -521,6 +830,9 @@ export const useStore = create<AppState>((set, get) => ({
       isStreaming: true,
       _streamingText: "",
       _currentTurnId: null,
+      _activePlanMsgId: null,
+      _analysisPlanOrder: 0,
+      analysisPlanProgress: null,
     });
 
     ws.send(
@@ -624,6 +936,9 @@ export const useStore = create<AppState>((set, get) => ({
       workspaceFiles: [],
       previewTabs: [],
       previewFileId: null,
+      _activePlanMsgId: null,
+      _analysisPlanOrder: 0,
+      analysisPlanProgress: null,
     });
   },
 
@@ -765,6 +1080,9 @@ export const useStore = create<AppState>((set, get) => ({
         previewFileId: null,
         _streamingText: "",
         isStreaming: false,
+        _activePlanMsgId: null,
+        _analysisPlanOrder: 0,
+        analysisPlanProgress: null,
       });
       // 清除保存的 session_id（新会话不需要恢复）
       localStorage.removeItem("nini_last_session_id");
@@ -792,6 +1110,9 @@ export const useStore = create<AppState>((set, get) => ({
           previewFileId: null,
           _streamingText: "",
           isStreaming: false,
+          _activePlanMsgId: null,
+          _analysisPlanOrder: 0,
+          analysisPlanProgress: null,
         });
         await get().fetchDatasets();
         await get().fetchWorkspaceFiles();
@@ -815,6 +1136,9 @@ export const useStore = create<AppState>((set, get) => ({
         previewFileId: null,
         _streamingText: "",
         isStreaming: false,
+        _activePlanMsgId: null,
+        _analysisPlanOrder: 0,
+        analysisPlanProgress: null,
       });
       // 保存当前会话 ID 到 localStorage
       localStorage.setItem("nini_last_session_id", targetSessionId);
@@ -843,6 +1167,9 @@ export const useStore = create<AppState>((set, get) => ({
           previewFileId: null,
           _streamingText: "",
           isStreaming: false,
+          _activePlanMsgId: null,
+          _analysisPlanOrder: 0,
+          analysisPlanProgress: null,
         });
       }
       // 刷新会话列表
@@ -1398,11 +1725,10 @@ function handleEvent(
     case "analysis_plan": {
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) break;
-      const steps = Array.isArray(data.steps)
-        ? (data.steps as AnalysisStep[])
-        : [];
+      const steps = normalizeAnalysisSteps(data.steps);
       const rawText = typeof data.raw_text === "string" ? data.raw_text : "";
       if (steps.length === 0) break;
+      const eventOrder = extractPlanEventOrder(evt, data);
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
       const msgId = nextId();
       const msg: Message = {
@@ -1414,7 +1740,15 @@ function handleEvent(
         turnId,
         timestamp: Date.now(),
       };
-      set((s) => ({ messages: [...s.messages, msg], _activePlanMsgId: msgId }));
+      set((s) => {
+        if (eventOrder < s._analysisPlanOrder) return {};
+        return {
+          messages: [...s.messages, msg],
+          _activePlanMsgId: msgId,
+          analysisPlanProgress: makePlanProgressFromSteps(steps, rawText),
+          _analysisPlanOrder: eventOrder,
+        };
+      });
       break;
     }
 
@@ -1427,23 +1761,71 @@ function handleEvent(
       )
         break;
       const stepId = data.id as number;
-      const stepStatus = data.status as AnalysisStep["status"];
+      const stepStatus = data.status;
+      const eventOrder = extractPlanEventOrder(evt, data);
       const planMsgId = get()._activePlanMsgId;
-      if (!planMsgId) break;
 
       set((s) => {
+        if (eventOrder < s._analysisPlanOrder) return {};
         const msgs = [...s.messages];
-        const idx = msgs.findIndex((m) => m.id === planMsgId);
-        if (idx < 0 || !msgs[idx].analysisPlan) return {};
-        const plan = msgs[idx].analysisPlan!;
-        const updatedSteps = plan.steps.map((step) =>
-          step.id === stepId ? { ...step, status: stepStatus } : step,
-        );
-        msgs[idx] = {
-          ...msgs[idx],
-          analysisPlan: { ...plan, steps: updatedSteps },
+        let updatedSteps: AnalysisStep[] = [];
+        let rawText = "";
+        if (planMsgId) {
+          const idx = msgs.findIndex((m) => m.id === planMsgId);
+          if (idx >= 0 && msgs[idx].analysisPlan) {
+            const plan = msgs[idx].analysisPlan!;
+            rawText = plan.raw_text;
+            updatedSteps = plan.steps.map((step) =>
+              step.id === stepId
+                ? {
+                    ...step,
+                    status: mergePlanStepStatus(
+                      step.status,
+                      normalizePlanStepStatus(stepStatus),
+                    ),
+                    raw_status:
+                      typeof stepStatus === "string" ? stepStatus : step.raw_status,
+                  }
+                : step,
+            );
+            msgs[idx] = {
+              ...msgs[idx],
+              analysisPlan: { ...plan, steps: updatedSteps },
+            };
+          }
+        }
+
+        const currentProgress =
+          s.analysisPlanProgress ??
+          (updatedSteps.length > 0
+            ? makePlanProgressFromSteps(updatedSteps, rawText)
+            : null);
+
+        return {
+          messages: updatedSteps.length > 0 ? msgs : s.messages,
+          analysisPlanProgress: applyPlanStepUpdateToProgress(
+            currentProgress,
+            stepId,
+            stepStatus,
+          ),
+          _analysisPlanOrder: eventOrder,
         };
-        return { messages: msgs };
+      });
+      break;
+    }
+
+    case "plan_progress": {
+      const data = isRecord(evt.data) ? evt.data : null;
+      if (!data) break;
+      const eventOrder = extractPlanEventOrder(evt, data);
+      set((s) => {
+        if (eventOrder < s._analysisPlanOrder) return {};
+        const nextProgress = applyPlanProgressPayload(s.analysisPlanProgress, data);
+        if (!nextProgress) return {};
+        return {
+          analysisPlanProgress: nextProgress,
+          _analysisPlanOrder: eventOrder,
+        };
       });
       break;
     }
@@ -1718,22 +2100,58 @@ function handleEvent(
     }
 
     case "done":
-      set({
-        isStreaming: false,
-        _streamingText: "",
-        _currentTurnId: null,
-        _activePlanMsgId: null,
+      set((s) => {
+        let progress = s.analysisPlanProgress;
+        if (progress && progress.step_status === "in_progress") {
+          progress = applyPlanStepUpdateToProgress(
+            progress,
+            progress.current_step_index,
+            "done",
+          );
+        }
+        if (progress && areAllPlanStepsDone(progress.steps)) {
+          progress = {
+            ...progress,
+            step_status: "done",
+            next_hint: "全部步骤已完成。",
+            block_reason: null,
+          };
+        }
+        return {
+          isStreaming: false,
+          _streamingText: "",
+          _currentTurnId: null,
+          _activePlanMsgId: null,
+          analysisPlanProgress: progress,
+        };
       });
       // 对话结束后刷新会话列表（更新消息计数）
       get().fetchSessions();
       break;
 
     case "stopped":
-      set({
-        isStreaming: false,
-        _streamingText: "",
-        _currentTurnId: null,
-        _activePlanMsgId: null,
+      set((s) => {
+        let progress = s.analysisPlanProgress;
+        if (progress && progress.step_status === "in_progress") {
+          const idx = progress.current_step_index - 1;
+          const steps: AnalysisStep[] = progress.steps.map((step, stepIdx) =>
+            stepIdx === idx ? { ...step, status: "blocked" } : step,
+          );
+          progress = {
+            ...progress,
+            step_status: "blocked",
+            next_hint: "你可以重新发送请求继续当前流程。",
+            block_reason: "用户手动停止当前请求",
+            steps,
+          };
+        }
+        return {
+          isStreaming: false,
+          _streamingText: "",
+          _currentTurnId: null,
+          _activePlanMsgId: null,
+          analysisPlanProgress: progress,
+        };
       });
       break;
 
@@ -1749,6 +2167,21 @@ function handleEvent(
         isStreaming: false,
         _streamingText: "",
         _currentTurnId: null,
+        _activePlanMsgId: null,
+        analysisPlanProgress: (() => {
+          const progress = s.analysisPlanProgress;
+          if (!progress || progress.step_status !== "in_progress") return progress;
+          const failedIndex = progress.current_step_index - 1;
+          return {
+            ...progress,
+            step_status: "failed",
+            block_reason: typeof evt.data === "string" ? evt.data : "执行失败",
+            next_hint: "请检查错误信息后重试。",
+            steps: progress.steps.map((step, idx) =>
+              idx === failedIndex ? { ...step, status: "failed" } : step,
+            ),
+          };
+        })(),
       }));
       break;
     }

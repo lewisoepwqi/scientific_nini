@@ -24,9 +24,10 @@ function StepIcon({ status }: { status: string }) {
   switch (status) {
     case 'in_progress':
       return <Loader2 size={16} className="text-blue-500 animate-spin" />
-    case 'completed':
+    case 'done':
       return <CheckCircle2 size={16} className="text-green-500" />
-    case 'error':
+    case 'failed':
+    case 'blocked':
       return <XCircle size={16} className="text-red-500" />
     default:
       return <Circle size={16} className="text-gray-300" />
@@ -37,9 +38,7 @@ export default function AnalysisPlanCard({ content, analysisPlan }: Props) {
   const [expanded, setExpanded] = useState(true)
 
   const steps = analysisPlan?.steps
-  const completedCount = steps?.filter(
-    (s) => s.status === 'completed',
-  ).length ?? 0
+  const completedCount = steps?.filter((s) => s.status === 'done').length ?? 0
   const totalCount = steps?.length ?? 0
 
   return (
@@ -78,9 +77,9 @@ export default function AnalysisPlanCard({ content, analysisPlan }: Props) {
                       </span>
                       <span
                         className={
-                          step.status === 'completed'
+                          step.status === 'done'
                             ? 'text-gray-500 line-through'
-                            : step.status === 'error'
+                            : step.status === 'failed' || step.status === 'blocked'
                               ? 'text-red-700'
                               : step.status === 'in_progress'
                                 ? 'text-indigo-900 font-medium'

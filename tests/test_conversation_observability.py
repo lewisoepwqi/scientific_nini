@@ -159,6 +159,41 @@ class _TwoStepToolResolver:
         yield _Chunk(text="最终回复", tool_calls=[])
 
 
+class _PlanAwareToolResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, tool_calls: list[dict[str, object]]):
+                self.text = text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls == 1:
+            yield _Chunk(
+                text=(
+                    "1. 加载并检查数据集 - 使用工具: echo_tool\n"
+                    "2. 汇总分析结论 - 使用工具: echo_tool"
+                ),
+                tool_calls=[
+                    {
+                        "id": "call_plan_1",
+                        "type": "function",
+                        "function": {
+                            "name": "echo_tool",
+                            "arguments": json.dumps({"value": "ok"}, ensure_ascii=False),
+                        },
+                    }
+                ],
+            )
+            return
+
+        yield _Chunk(text="计划执行完成", tool_calls=[])
+
+
 class _ContextOverflowThenSuccessResolver:
     def __init__(self) -> None:
         self.calls = 0
@@ -282,6 +317,56 @@ async def test_runner_unlimited_iterations_when_max_is_zero(
     assert "error" not in event_types
     assert session.messages[-1]["role"] == "assistant"
     assert session.messages[-1]["content"] == "最终回复"
+
+
+@pytest.mark.asyncio
+async def test_runner_emits_plan_progress_with_required_fields() -> None:
+    session = Session()
+    session.add_message("user", "请按步骤执行分析")
+
+    resolver = _PlanAwareToolResolver()
+    runner = AgentRunner(
+        resolver=resolver,
+        skill_registry=_EchoSkillRegistry(),
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    events = []
+    async for event in runner.run(session, "继续", append_user_message=False):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    event_types = [event.type.value for event in events]
+    assert "analysis_plan" in event_types
+    assert "plan_step_update" in event_types
+    assert "plan_progress" in event_types
+
+    progress_events = [event for event in events if event.type == EventType.PLAN_PROGRESS]
+    assert len(progress_events) >= 3
+
+    required_keys = {
+        "current_step_index",
+        "total_steps",
+        "step_title",
+        "step_status",
+        "next_hint",
+    }
+    for event in progress_events:
+        payload = event.data if isinstance(event.data, dict) else {}
+        assert required_keys.issubset(payload.keys())
+
+    seq_values = [
+        int(event.metadata.get("seq", 0))
+        for event in progress_events
+        if isinstance(event.metadata, dict)
+    ]
+    assert seq_values == sorted(seq_values)
+    assert all(value > 0 for value in seq_values)
+
+    statuses = [str((event.data or {}).get("step_status")) for event in progress_events]
+    assert "in_progress" in statuses
+    assert "done" in statuses
 
 
 @pytest.mark.asyncio

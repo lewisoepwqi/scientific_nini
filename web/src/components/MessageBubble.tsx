@@ -18,6 +18,7 @@ import DataViewer from "./DataViewer";
 import ArtifactDownload from "./ArtifactDownload";
 import AnalysisPlanCard from "./AnalysisPlanCard";
 import MarkdownContent from "./MarkdownContent";
+import { isAnalysisPlanHeaderV2Enabled } from "../featureFlags";
 
 interface Props {
   message: Message;
@@ -37,6 +38,7 @@ function MessageBubble({
   const isUser = message.role === "user";
   const isTool = message.role === "tool";
   const isReasoning = !!message.isReasoning;
+  const planHeaderEnabled = isAnalysisPlanHeaderV2Enabled();
   const hasEmbeddedPlotly =
     typeof message.content === "string" &&
     message.content.includes(".plotly.json");
@@ -56,6 +58,9 @@ function MessageBubble({
 
   // 分析思路消息使用专用卡片
   if (isReasoning) {
+    if (planHeaderEnabled && message.analysisPlan) {
+      return null;
+    }
     return (
       <AnalysisPlanCard
         content={message.content}
