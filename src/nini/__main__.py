@@ -490,17 +490,10 @@ def _cmd_skills_create(args: argparse.Namespace) -> int:
     return _create_function_skill(name, description, args.category)
 
 
-def _create_function_skill(name: str, description: str, category: str) -> int:
-    """创建 Function Tool 脚手架。"""
-    # 类名：snake_case → PascalCase + "Skill"
+def _render_function_skill_template(name: str, description: str, category: str) -> str:
+    """渲染 Function Tool 脚手架内容。"""
     class_name = "".join(word.capitalize() for word in name.split("_")) + "Skill"
-    target = Path(__file__).resolve().parent / "tools" / f"{name}.py"
-
-    if target.exists():
-        print(f"错误：文件已存在 {target}")
-        return 1
-
-    content = f'''"""工具：{description}"""
+    return f'''"""工具：{description}"""
 
 from __future__ import annotations
 
@@ -530,15 +523,30 @@ class {class_name}(Skill):
         return {{
             "type": "object",
             "properties": {{
-                # TODO: 定义参数
+                "input_text": {{
+                    "type": "string",
+                    "description": "输入文本（请替换为实际参数）",
+                }},
             }},
-            "required": [],
+            "required": ["input_text"],
         }}
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
-        # TODO: 实现工具逻辑
-        return SkillResult(success=True, message="{name} 执行完成")
+        input_text = kwargs.get("input_text", "")
+        # 在此实现工具逻辑，处理输入参数并返回结果
+        return SkillResult(success=True, message="{name} 执行完成", data={{"input": input_text}})
 '''
+
+
+def _create_function_skill(name: str, description: str, category: str) -> int:
+    """创建 Function Tool 脚手架。"""
+    target = Path(__file__).resolve().parent / "tools" / f"{name}.py"
+
+    if target.exists():
+        print(f"错误：文件已存在 {target}")
+        return 1
+
+    content = _render_function_skill_template(name, description, category)
     target.write_text(content, encoding="utf-8")
     print(f"已创建 Function Tool 脚手架：{target}")
     print(f"下一步：")

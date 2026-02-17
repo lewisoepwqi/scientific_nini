@@ -8,7 +8,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from nini.__main__ import _detect_kaleido_chrome_status, _render_markdown_skill_template, main
+from nini.__main__ import (
+    _detect_kaleido_chrome_status,
+    _render_function_skill_template,
+    _render_markdown_skill_template,
+    main,
+)
 from nini.config import settings
 
 
@@ -73,6 +78,21 @@ def test_render_markdown_skill_template_removes_todo_placeholders() -> None:
     assert "## 注意事项" in content
     assert "name: demo_skill" in content
     assert "category: report" in content
+
+
+def test_render_function_skill_template_removes_todo_placeholders() -> None:
+    content = _render_function_skill_template(
+        name="demo_tool",
+        description="演示工具描述",
+        category="other",
+    )
+
+    assert "TODO" not in content
+    assert "class DemoToolSkill(Skill):" in content
+    assert 'return "demo_tool"' in content
+    assert 'return "other"' in content
+    assert '"properties"' in content
+    assert "async def execute" in content
 
 
 def test_detect_kaleido_chrome_status_when_kaleido_missing(
