@@ -289,14 +289,14 @@ async def compress_session(session_id: str, mode: str = "auto"):
 
 @router.get("/skills", response_model=APIResponse)
 async def list_skills(skill_type: str | None = None):
-    """获取技能目录（Function + Markdown）。"""
+    """获取能力目录（Function Tool + Markdown Skill）。"""
     from nini.api.websocket import get_skill_registry
 
     registry = get_skill_registry()
     if registry is None:
         return APIResponse(data={"skills": []})
 
-    # 每次请求都刷新 Markdown 技能快照，确保前端看到最新状态
+    # 每次请求都刷新 Markdown Skills 快照，确保前端看到最新状态
     registry.reload_markdown_skills()
     registry.write_skills_snapshot()
 

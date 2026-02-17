@@ -14,7 +14,7 @@ from scipy import stats
 
 if TYPE_CHECKING:
     from nini.agent.session import Session
-    from nini.skills.base import Skill
+    from nini.tools.base import Skill
 
 logger = logging.getLogger(__name__)
 

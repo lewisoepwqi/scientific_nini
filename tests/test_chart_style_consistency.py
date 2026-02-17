@@ -15,9 +15,9 @@ from nini.agent.session import Session
 from nini.charts.style_contract import build_style_spec, normalize_render_engine
 from nini.charts.renderers import apply_plotly_style
 from nini.config import settings
-from nini.skills.markdown_scanner import scan_markdown_skills
-from nini.skills.registry import create_default_registry
-from nini.skills.visualization import CreateChartSkill
+from nini.tools.markdown_scanner import scan_markdown_skills
+from nini.tools.registry import create_default_registry
+from nini.tools.visualization import CreateChartSkill
 
 
 def test_build_style_spec_from_template() -> None:

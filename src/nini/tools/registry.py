@@ -10,20 +10,20 @@ from nini.agent.lane_queue import lane_queue
 from nini.agent.session import Session
 from nini.config import settings
 from nini.sandbox.r_executor import detect_r_installation
-from nini.skills.base import Skill, SkillResult
-from nini.skills.clean_data import CleanDataSkill, RecommendCleaningStrategySkill
-from nini.skills.code_exec import RunCodeSkill
-from nini.skills.data_ops import DataSummarySkill, LoadDatasetSkill, PreviewDataSkill
-from nini.skills.data_quality import DataQualitySkill, DataQualityReportSkill
-from nini.skills.diagnostics import DataDiagnostics
-from nini.skills.export import ExportChartSkill
-from nini.skills.export_report import ExportReportSkill
-from nini.skills.fallback import get_fallback_manager
-from nini.skills.fetch_url import FetchURLSkill
-from nini.skills.organize_workspace import OrganizeWorkspaceSkill
-from nini.skills.report import GenerateReportSkill
-from nini.skills.r_code_exec import RunRCodeSkill
-from nini.skills.statistics import (
+from nini.tools.base import Skill, SkillResult
+from nini.tools.clean_data import CleanDataSkill, RecommendCleaningStrategySkill
+from nini.tools.code_exec import RunCodeSkill
+from nini.tools.data_ops import DataSummarySkill, LoadDatasetSkill, PreviewDataSkill
+from nini.tools.data_quality import DataQualitySkill, DataQualityReportSkill
+from nini.tools.diagnostics import DataDiagnostics
+from nini.tools.export import ExportChartSkill
+from nini.tools.export_report import ExportReportSkill
+from nini.tools.fallback import get_fallback_manager
+from nini.tools.fetch_url import FetchURLSkill
+from nini.tools.organize_workspace import OrganizeWorkspaceSkill
+from nini.tools.report import GenerateReportSkill
+from nini.tools.r_code_exec import RunRCodeSkill
+from nini.tools.statistics import (
     ANOVASkill,
     CorrelationSkill,
     KruskalWallisSkill,
@@ -32,13 +32,13 @@ from nini.skills.statistics import (
     RegressionSkill,
     TTestSkill,
 )
-from nini.skills.interpretation import InterpretStatisticalResultSkill
-from nini.skills.visualization import CreateChartSkill
-from nini.skills.workflow_skill import ApplyWorkflowSkill, ListWorkflowsSkill, SaveWorkflowSkill
-from nini.skills.markdown_scanner import render_skills_snapshot, scan_markdown_skills
+from nini.tools.interpretation import InterpretStatisticalResultSkill
+from nini.tools.visualization import CreateChartSkill
+from nini.tools.workflow_skill import ApplyWorkflowSkill, ListWorkflowsSkill, SaveWorkflowSkill
+from nini.tools.markdown_scanner import render_skills_snapshot, scan_markdown_skills
 
 # 复合技能模板
-from nini.skills.templates import (
+from nini.tools.templates import (
     CompleteANOVASkill,
     CompleteComparisonSkill,
     CorrelationAnalysisSkill,

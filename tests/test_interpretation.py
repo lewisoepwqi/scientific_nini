@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from nini.skills.interpretation import (
+from nini.tools.interpretation import (
     ResultInterpreter,
     interpret_result,
 )

@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 
 from nini.agent.session import Session
-from nini.skills.base import SkillResult
+from nini.tools.base import SkillResult
 
 # 创建一个简单的测试图片（1x1 PNG 的 base64）
 # 这是一个最小的 PNG 图片
@@ -62,20 +62,20 @@ class TestImageAnalysisSkill:
 
     def test_skill_exists(self):
         """测试技能类存在。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         assert ImageAnalysisSkill is not None
 
     def test_skill_name(self):
         """测试技能名称。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         skill = ImageAnalysisSkill()
         assert skill.name == "image_analysis"
 
     def test_skill_description(self):
         """测试技能描述。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         skill = ImageAnalysisSkill()
         assert skill.description != ""
@@ -83,7 +83,7 @@ class TestImageAnalysisSkill:
 
     def test_skill_parameters(self):
         """测试技能参数。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         skill = ImageAnalysisSkill()
         params = skill.parameters
@@ -94,7 +94,7 @@ class TestImageAnalysisSkill:
 
     def test_parameter_required_fields(self):
         """测试参数定义。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         skill = ImageAnalysisSkill()
         params = skill.parameters
@@ -110,7 +110,7 @@ class TestImageAnalysisExecution:
     @pytest.mark.asyncio
     async def test_analyze_from_url_with_error(self):
         """测试从无效 URL 分析图片时的错误处理。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         session = Session()
         skill = ImageAnalysisSkill()
@@ -130,7 +130,7 @@ class TestImageAnalysisExecution:
     @pytest.mark.asyncio
     async def test_analyze_from_url(self, mock_image_data):
         """测试从 URL 分析图片（使用 mock）。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         session = Session()
         skill = ImageAnalysisSkill()
@@ -159,7 +159,7 @@ class TestImageAnalysisExecution:
     @pytest.mark.asyncio
     async def test_analyze_with_base64_data(self, mock_image_data, mock_vision_response):
         """测试使用 base64 数据分析图片。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         session = Session()
         skill = ImageAnalysisSkill()
@@ -184,7 +184,7 @@ class TestImageAnalysisExecution:
     @pytest.mark.asyncio
     async def test_analyze_extract_data(self, mock_image_data):
         """测试从图片提取数据。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         session = Session()
         skill = ImageAnalysisSkill()
@@ -203,7 +203,7 @@ class TestImageAnalysisExecution:
     @pytest.mark.asyncio
     async def test_analyze_chart_info(self, mock_image_data):
         """测试提取图表信息。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         session = Session()
         skill = ImageAnalysisSkill()
@@ -223,7 +223,7 @@ class TestImageToDataset:
     @pytest.mark.asyncio
     async def test_save_extracted_data_as_dataset(self, mock_image_data, mock_data_response):
         """测试将提取的数据保存为新数据集。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         session = Session()
         skill = ImageAnalysisSkill()
@@ -250,7 +250,7 @@ class TestImageToDataset:
     @pytest.mark.asyncio
     async def test_extracted_dataframe_structure(self, mock_image_data, mock_data_response):
         """测试提取的 DataFrame 结构正确。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         session = Session()
         skill = ImageAnalysisSkill()
@@ -282,7 +282,7 @@ class TestChartInfoExtraction:
     @pytest.mark.asyncio
     async def test_detect_chart_type(self, mock_image_data, mock_vision_response):
         """测试检测图表类型。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         session = Session()
         skill = ImageAnalysisSkill()
@@ -308,7 +308,7 @@ class TestChartInfoExtraction:
     @pytest.mark.asyncio
     async def test_extract_chart_data(self, mock_image_data, mock_vision_response):
         """测试提取图表数据。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         session = Session()
         skill = ImageAnalysisSkill()
@@ -339,7 +339,7 @@ class TestImageAnalysisIntegration:
     @pytest.mark.asyncio
     async def test_skill_registered_in_registry(self):
         """测试技能已注册。"""
-        from nini.skills.registry import SkillRegistry
+        from nini.tools.registry import SkillRegistry
 
         registry = SkillRegistry()
 
@@ -351,7 +351,7 @@ class TestImageAnalysisIntegration:
     @pytest.mark.asyncio
     async def test_image_analysis_with_file_upload(self, mock_image_data):
         """测试文件上传后的图片分析。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         session = Session()
         skill = ImageAnalysisSkill()
@@ -372,7 +372,7 @@ class TestVisionModelIntegration:
     @pytest.mark.asyncio
     async def test_gpt4v_integration(self):
         """测试 GPT-4V 集成（如果可用）。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
         from nini.config import settings
 
         # 检查是否有配置
@@ -397,7 +397,7 @@ class TestVisionModelIntegration:
     @pytest.mark.asyncio
     async def test_fallback_on_model_unavailable(self, mock_image_data):
         """测试模型不可用时的降级处理。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         session = Session()
         skill = ImageAnalysisSkill()
@@ -415,7 +415,7 @@ class TestVisionModelIntegration:
     @pytest.mark.asyncio
     async def test_call_vision_model_uses_image_analysis_purpose(self, mock_image_data):
         """视觉模型调用应走 image_analysis 用途路由。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         skill = ImageAnalysisSkill()
         called_kwargs: dict[str, Any] = {}
@@ -424,7 +424,7 @@ class TestVisionModelIntegration:
             called_kwargs.update(kwargs)
             return _DummyLLMResponse('{"chart_type":"bar"}')
 
-        with patch("nini.skills.image_analysis.model_resolver.chat_complete", _fake_chat_complete):
+        with patch("nini.tools.image_analysis.model_resolver.chat_complete", _fake_chat_complete):
             result = await skill._call_vision_model(  # noqa: SLF001
                 {"data": mock_image_data, "media_type": "image/png"},
                 "请分析图表",
@@ -440,7 +440,7 @@ class TestDataFormatSupport:
     @pytest.mark.asyncio
     async def test_supports_csv_output(self, mock_image_data):
         """测试支持 CSV 格式输出。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         session = Session()
         skill = ImageAnalysisSkill()
@@ -457,7 +457,7 @@ class TestDataFormatSupport:
     @pytest.mark.asyncio
     async def test_supports_json_output(self, mock_image_data):
         """测试支持 JSON 格式输出。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         session = Session()
         skill = ImageAnalysisSkill()
@@ -474,7 +474,7 @@ class TestDataFormatSupport:
     @pytest.mark.asyncio
     async def test_supports_dataframe_output(self, mock_image_data):
         """测试支持 DataFrame 输出。"""
-        from nini.skills.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisSkill
 
         session = Session()
         skill = ImageAnalysisSkill()

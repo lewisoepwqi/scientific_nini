@@ -109,7 +109,7 @@ class DataDiagnostics:
         # 集成质量评分
         if self.include_quality_score:
             try:
-                from nini.skills.data_quality import evaluate_data_quality
+                from nini.tools.data_quality import evaluate_data_quality
 
                 quality_report = evaluate_data_quality(df, dataset_name)
                 result.quality_score = {

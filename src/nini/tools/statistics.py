@@ -26,7 +26,7 @@ import statsmodels.api as sm
 
 from nini.agent.session import Session
 from nini.memory.compression import StatisticResult, get_analysis_memory
-from nini.skills.base import Skill, SkillResult
+from nini.tools.base import Skill, SkillResult
 
 # ---- 多重比较校正 ----
 

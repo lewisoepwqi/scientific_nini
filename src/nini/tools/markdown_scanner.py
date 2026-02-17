@@ -9,7 +9,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from nini.skills.manifest import SkillManifest
+    from nini.tools.manifest import SkillManifest
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class MarkdownSkill:
 
     def to_manifest(self) -> "SkillManifest":
         """导出为统一技能清单，与 Function Skill 保持一致的接口。"""
-        from nini.skills.manifest import SkillManifest
+        from nini.tools.manifest import SkillManifest
 
         return SkillManifest(
             name=self.name,

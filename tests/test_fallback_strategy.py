@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 from nini.agent.session import Session
-from nini.skills.registry import create_default_registry, SkillRegistry
+from nini.tools.registry import create_default_registry, SkillRegistry
 
 logger = logging.getLogger(__name__)
 

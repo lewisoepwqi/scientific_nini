@@ -9,8 +9,8 @@ import pytest
 
 from nini.agent.session import Session
 from nini.sandbox.r_executor import detect_r_installation
-from nini.skills.r_code_exec import RunRCodeSkill
-from nini.skills.registry import create_default_registry
+from nini.tools.r_code_exec import RunRCodeSkill
+from nini.tools.registry import create_default_registry
 
 
 def test_registry_registers_run_r_code_conditionally() -> None:

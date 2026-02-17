@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from nini.agent.session import Session
 
 if TYPE_CHECKING:
-    from nini.skills.manifest import SkillManifest
+    from nini.tools.manifest import SkillManifest
 
 
 @dataclass
@@ -94,7 +94,7 @@ class Skill(ABC):
 
     def to_manifest(self) -> "SkillManifest":
         """导出为统一技能清单（用于跨平台技能描述）。"""
-        from nini.skills.manifest import SkillManifest
+        from nini.tools.manifest import SkillManifest
 
         return SkillManifest(
             name=self.name,

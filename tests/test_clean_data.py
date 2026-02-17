@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from nini.agent.session import Session
-from nini.skills.clean_data import (
+from nini.tools.clean_data import (
     MissingPattern,
     OutlierPattern,
     analyze_column_profile,
@@ -20,7 +20,7 @@ from nini.skills.clean_data import (
     recommend_outlier_strategy,
     recommend_normalization,
 )
-from nini.skills.registry import create_default_registry
+from nini.tools.registry import create_default_registry
 
 
 class TestMissingPatternAnalysis:
@@ -127,7 +127,7 @@ class TestRecommendationStrategies:
     """测试策略推荐。"""
 
     def test_no_missing_recommendation(self):
-        from nini.skills.clean_data import ColumnProfile
+        from nini.tools.clean_data import ColumnProfile
 
         profile = ColumnProfile(
             column="test",
@@ -144,7 +144,7 @@ class TestRecommendationStrategies:
         assert "无缺失值" in reason
 
     def test_high_missing_recommendation(self):
-        from nini.skills.clean_data import ColumnProfile
+        from nini.tools.clean_data import ColumnProfile
 
         profile = ColumnProfile(
             column="test",
@@ -161,7 +161,7 @@ class TestRecommendationStrategies:
         assert "缺失率" in reason
 
     def test_skewed_data_recommendation(self):
-        from nini.skills.clean_data import ColumnProfile
+        from nini.tools.clean_data import ColumnProfile
 
         profile = ColumnProfile(
             column="test",
@@ -180,7 +180,7 @@ class TestRecommendationStrategies:
         assert "偏态" in reason
 
     def test_outlier_recommendation(self):
-        from nini.skills.clean_data import ColumnProfile
+        from nini.tools.clean_data import ColumnProfile
 
         profile = ColumnProfile(
             column="test",

@@ -12,7 +12,7 @@ import pandas as pd
 from nini.agent.session import Session
 from nini.memory.storage import ArtifactStorage
 from nini.sandbox.r_executor import RSandboxPolicyError, r_sandbox_executor
-from nini.skills.base import Skill, SkillResult
+from nini.tools.base import Skill, SkillResult
 from nini.utils.dataframe_io import dataframe_to_json_safe
 from nini.workspace import WorkspaceManager
 

@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from nini.skills.base import Skill
-from nini.skills.manifest import SkillManifest, export_to_claude_code
-from nini.skills.markdown_scanner import MarkdownSkill
+from nini.tools.base import Skill
+from nini.tools.manifest import SkillManifest, export_to_claude_code
+from nini.tools.markdown_scanner import MarkdownSkill
 
 # ---------------------------------------------------------------------------
 # OpenAI Function Calling 格式
@@ -155,6 +155,6 @@ class ToolAdapter:
                     )
                 )
 
-        from nini.skills.manifest import export_all_skills_markdown
+        from nini.tools.manifest import export_all_skills_markdown
 
         return export_all_skills_markdown(manifests)

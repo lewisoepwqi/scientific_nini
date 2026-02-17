@@ -7,7 +7,7 @@ import asyncio
 import pandas as pd
 
 from nini.agent.session import Session
-from nini.skills.registry import create_default_registry
+from nini.tools.registry import create_default_registry
 
 
 def test_registry_contains_run_code() -> None:

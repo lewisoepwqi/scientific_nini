@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from nini.agent.session import Session
-from nini.skills.data_quality import (
+from nini.tools.data_quality import (
     DataQualityReportSkill,
     DataQualitySkill,
     DimensionScore,
@@ -22,7 +22,7 @@ from nini.skills.data_quality import (
     evaluate_data_quality,
     generate_quality_summary,
 )
-from nini.skills.registry import create_default_registry
+from nini.tools.registry import create_default_registry
 
 
 class TestCompletenessScore:

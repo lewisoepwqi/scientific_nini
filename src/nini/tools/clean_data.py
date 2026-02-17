@@ -12,7 +12,7 @@ import pandas as pd
 from scipy import stats
 
 from nini.agent.session import Session
-from nini.skills.base import Skill, SkillResult
+from nini.tools.base import Skill, SkillResult
 from nini.utils.dataframe_io import dataframe_to_json_safe
 
 

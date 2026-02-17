@@ -14,7 +14,7 @@ import pytest
 from nini.agent.session import Session
 from nini.config import settings
 from nini.memory.conversation import ConversationMemory
-from nini.skills.data_ops import PreviewDataSkill
+from nini.tools.data_ops import PreviewDataSkill
 
 
 class TestDataframePreviewLimit:

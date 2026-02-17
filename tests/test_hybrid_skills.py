@@ -10,7 +10,7 @@ from nini.agent.session import session_manager
 from nini.app import create_app
 from nini.config import settings
 from nini.api.websocket import set_skill_registry
-from nini.skills.registry import create_default_registry
+from nini.tools.registry import create_default_registry
 from tests.client_utils import LocalASGIClient
 
 

@@ -9,7 +9,7 @@ import pytest
 
 from nini.agent.session import Session, session_manager
 from nini.config import settings
-from nini.skills.registry import create_default_registry
+from nini.tools.registry import create_default_registry
 from nini.workspace import WorkspaceManager
 
 

@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from nini.agent.session import Session
-from nini.skills.base import Skill, SkillResult
+from nini.tools.base import Skill, SkillResult
 from nini.workflow.extractor import extract_workflow_from_session
 from nini.workflow.store import (
     delete_template,

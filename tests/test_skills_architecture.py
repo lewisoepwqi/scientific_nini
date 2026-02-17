@@ -16,14 +16,14 @@ import pytest
 
 from nini.agent.session import Session, session_manager
 from nini.config import settings
-from nini.skills.base import Skill, SkillResult
-from nini.skills.markdown_scanner import (
+from nini.tools.base import Skill, SkillResult
+from nini.tools.markdown_scanner import (
     VALID_CATEGORIES,
     MarkdownSkill,
     render_skills_snapshot,
     scan_markdown_skills,
 )
-from nini.skills.registry import SkillRegistry, create_default_registry
+from nini.tools.registry import SkillRegistry, create_default_registry
 
 
 @pytest.fixture(autouse=True)
@@ -291,7 +291,7 @@ def test_snapshot_includes_category() -> None:
             "category": "statistics",
             "enabled": True,
             "description": "t 检验",
-            "location": "nini.skills.statistics.TTestSkill",
+            "location": "nini.tools.statistics.TTestSkill",
         },
         {
             "name": "pub_fig",
@@ -412,7 +412,7 @@ def test_tool_adapter_to_openai_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """ToolAdapter 应能导出 OpenAI 工具列表。"""
-    from nini.skills.tool_adapter import ToolAdapter
+    from nini.tools.tool_adapter import ToolAdapter
 
     monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
     (tmp_path / "empty").mkdir()
@@ -434,7 +434,7 @@ def test_tool_adapter_to_mcp_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """ToolAdapter 应能导出 MCP 工具列表。"""
-    from nini.skills.tool_adapter import ToolAdapter
+    from nini.tools.tool_adapter import ToolAdapter
 
     skills_dir = tmp_path / "skills"
     _write_skill_md(
@@ -465,7 +465,7 @@ def test_tool_adapter_to_claude_code_markdown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """ToolAdapter 应能导出 Claude Code Markdown 格式。"""
-    from nini.skills.tool_adapter import ToolAdapter
+    from nini.tools.tool_adapter import ToolAdapter
 
     monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
     (tmp_path / "empty").mkdir()
@@ -480,7 +480,7 @@ def test_tool_adapter_to_claude_code_markdown(
 
 def test_to_mcp_tool_single_skill() -> None:
     """to_mcp_tool 应正确转换单个技能。"""
-    from nini.skills.tool_adapter import to_mcp_tool
+    from nini.tools.tool_adapter import to_mcp_tool
 
     skill = _DummySkill("test_mcp")
     mcp = to_mcp_tool(skill)
@@ -492,7 +492,7 @@ def test_to_mcp_tool_single_skill() -> None:
 
 def test_to_openai_tool_single_skill() -> None:
     """to_openai_tool 应正确转换单个技能。"""
-    from nini.skills.tool_adapter import to_openai_tool
+    from nini.tools.tool_adapter import to_openai_tool
 
     skill = _DummySkill("test_openai")
     oai = to_openai_tool(skill)

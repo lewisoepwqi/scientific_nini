@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from nini.skills.statistics import (
+from nini.tools.statistics import (
     MultipleComparisonCorrectionSkill,
     bonferroni_correction,
     fdr_correction,

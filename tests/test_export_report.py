@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nini.skills.export_report import (
+from nini.tools.export_report import (
     ExportReportSkill,
     _md_to_html,
     _resolve_images_to_base64,
@@ -108,7 +108,7 @@ def test_resolve_images_base64(tmp_path: Path):
     (artifacts_dir / "chart.png").write_bytes(png_bytes)
 
     html = '<img src="/api/artifacts/sess-123/chart.png" alt="chart">'
-    with patch("nini.skills.export_report.settings") as mock_settings:
+    with patch("nini.tools.export_report.settings") as mock_settings:
         mock_settings.sessions_dir = sessions_dir
         result = _resolve_images_to_base64(html, "sess-123")
 
@@ -122,7 +122,7 @@ def test_resolve_images_missing_file(tmp_path: Path):
     artifacts_dir.mkdir(parents=True)
 
     html = '<img src="/api/artifacts/sess-123/missing.png" alt="missing">'
-    with patch("nini.skills.export_report.settings") as mock_settings:
+    with patch("nini.tools.export_report.settings") as mock_settings:
         mock_settings.sessions_dir = sessions_dir
         result = _resolve_images_to_base64(html, "sess-123")
 
@@ -143,8 +143,8 @@ async def test_export_report_without_weasyprint(
 ):
     """weasyprint 不可用时，返回友好错误。"""
     with (
-        patch("nini.skills.export_report.settings") as mock_settings,
-        patch("nini.skills.export_report.ArtifactStorage") as MockStorage,
+        patch("nini.tools.export_report.settings") as mock_settings,
+        patch("nini.tools.export_report.ArtifactStorage") as MockStorage,
         patch.dict("sys.modules", {"weasyprint": None}),
         patch("builtins.__import__", side_effect=_import_without_weasyprint),
     ):
@@ -187,9 +187,9 @@ async def test_export_report_with_mock_weasyprint(
     mock_weasyprint.HTML.return_value = mock_html_inst
 
     with (
-        patch("nini.skills.export_report.settings") as mock_settings,
-        patch("nini.skills.export_report.ArtifactStorage") as MockStorage,
-        patch("nini.skills.export_report.WorkspaceManager") as MockWM,
+        patch("nini.tools.export_report.settings") as mock_settings,
+        patch("nini.tools.export_report.ArtifactStorage") as MockStorage,
+        patch("nini.tools.export_report.WorkspaceManager") as MockWM,
         patch.dict("sys.modules", {"weasyprint": mock_weasyprint}),
     ):
         mock_settings.sessions_dir = setup_report
@@ -241,9 +241,9 @@ async def test_export_report_uses_latest_report(
     mock_weasyprint.HTML.return_value = mock_html_inst
 
     with (
-        patch("nini.skills.export_report.settings") as mock_settings,
-        patch("nini.skills.export_report.ArtifactStorage") as MockStorage,
-        patch("nini.skills.export_report.WorkspaceManager"),
+        patch("nini.tools.export_report.settings") as mock_settings,
+        patch("nini.tools.export_report.ArtifactStorage") as MockStorage,
+        patch("nini.tools.export_report.WorkspaceManager"),
         patch.dict("sys.modules", {"weasyprint": mock_weasyprint}),
     ):
         mock_settings.sessions_dir = setup_report
@@ -276,9 +276,9 @@ async def test_export_report_custom_filename(
     mock_weasyprint.HTML.return_value = mock_html_inst
 
     with (
-        patch("nini.skills.export_report.settings") as mock_settings,
-        patch("nini.skills.export_report.ArtifactStorage") as MockStorage,
-        patch("nini.skills.export_report.WorkspaceManager"),
+        patch("nini.tools.export_report.settings") as mock_settings,
+        patch("nini.tools.export_report.ArtifactStorage") as MockStorage,
+        patch("nini.tools.export_report.WorkspaceManager"),
         patch.dict("sys.modules", {"weasyprint": mock_weasyprint}),
     ):
         mock_settings.sessions_dir = setup_report

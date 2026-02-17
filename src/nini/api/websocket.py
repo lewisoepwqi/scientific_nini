@@ -18,7 +18,7 @@ from nini.agent.runner import AgentRunner, EventType
 from nini.agent.session import session_manager
 from nini.agent.title_generator import generate_title
 from nini.models.schemas import WSEvent
-from nini.skills.registry import SkillRegistry
+from nini.tools.registry import SkillRegistry
 from nini.workspace import WorkspaceManager
 
 logger = logging.getLogger(__name__)

@@ -12,7 +12,7 @@ from nini.agent.model_resolver import model_resolver
 from nini.agent.session import session_manager
 from nini.app import create_app
 from nini.config import settings
-from nini.skills.registry import create_default_registry
+from nini.tools.registry import create_default_registry
 from tests.client_utils import LocalASGIClient, live_websocket_connect
 
 

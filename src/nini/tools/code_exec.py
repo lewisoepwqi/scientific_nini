@@ -18,7 +18,7 @@ from nini.config import settings
 from nini.memory.storage import ArtifactStorage
 from nini.sandbox.executor import sandbox_executor
 from nini.sandbox.policy import SandboxPolicyError
-from nini.skills.base import Skill, SkillResult
+from nini.tools.base import Skill, SkillResult
 from nini.utils.chart_fonts import apply_plotly_cjk_font_fallback
 from nini.utils.dataframe_io import dataframe_to_json_safe
 from nini.workspace import WorkspaceManager
