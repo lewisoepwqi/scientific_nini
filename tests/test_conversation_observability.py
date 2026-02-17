@@ -230,6 +230,23 @@ class _EchoSkillRegistry:
         return {"success": True, "message": "echo ok", "data": {"value": kwargs.get("value")}}
 
 
+class _RetryEchoSkillRegistry(_EchoSkillRegistry):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def execute(self, skill_name: str, session: Session, **kwargs):
+        self.calls += 1
+        if skill_name != "echo_tool":
+            return {"error": f"unknown skill: {skill_name}"}
+        if self.calls == 1:
+            return {"success": False, "error": "temporary failure"}
+        return {
+            "success": True,
+            "message": "echo ok after retry",
+            "data": {"value": kwargs.get("value")},
+        }
+
+
 @pytest.fixture(autouse=True)
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
@@ -367,6 +384,40 @@ async def test_runner_emits_plan_progress_with_required_fields() -> None:
     statuses = [str((event.data or {}).get("step_status")) for event in progress_events]
     assert "in_progress" in statuses
     assert "done" in statuses
+
+
+@pytest.mark.asyncio
+async def test_runner_attaches_action_tracking_metadata_and_retries_once() -> None:
+    session = Session()
+    session.add_message("user", "按计划执行并自动重试")
+
+    resolver = _TwoStepToolResolver()
+    registry = _RetryEchoSkillRegistry()
+    runner = AgentRunner(
+        resolver=resolver,
+        skill_registry=registry,
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    events = []
+    async for event in runner.run(session, "继续", append_user_message=False):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    tool_call_event = next(event for event in events if event.type == EventType.TOOL_CALL)
+    assert isinstance(tool_call_event.metadata, dict)
+    assert isinstance(tool_call_event.metadata.get("action_id"), str)
+    retry_policy = tool_call_event.metadata.get("retry_policy")
+    assert isinstance(retry_policy, dict)
+    assert retry_policy.get("max_retries") == 1
+
+    tool_result_event = next(event for event in events if event.type == EventType.TOOL_RESULT)
+    assert isinstance(tool_result_event.metadata, dict)
+    assert tool_result_event.metadata.get("action_id") == tool_call_event.metadata.get("action_id")
+    assert tool_result_event.metadata.get("retry_count") == 1
+    assert tool_result_event.metadata.get("max_retries") == 1
+    assert registry.calls == 2
 
 
 @pytest.mark.asyncio
