@@ -1,4 +1,4 @@
-"""报告生成技能测试 — 去噪、图表预览、双轨输出。"""
+"""报告生成技能测试 — 去噪、图表预览、保存 preview_md。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import pytest
 from nini.skills.report import (
     _build_markdown,
     _chart_preview_markdown,
-    _make_downloadable_markdown,
     _strip_tool_mentions,
 )
 
@@ -56,57 +55,6 @@ class TestStripToolMentions:
         result = _strip_tool_mentions(text)
         assert "load_dataset" not in result
         assert "Pearson 相关性分析" in result
-
-
-# ---------------------------------------------------------------------------
-# _make_downloadable_markdown
-# ---------------------------------------------------------------------------
-
-
-class TestMakeDownloadableMarkdown:
-    def test_replaces_plotly_with_png_when_exists(self, tmp_path: Path):
-        session_id = "test-session"
-        md = "![scatter](/api/artifacts/test-session/scatter.plotly.json)"
-
-        with patch("nini.skills.report.ArtifactStorage") as MockStorage:
-            mock_storage = MockStorage.return_value
-            png_path = tmp_path / "scatter.png"
-            png_path.write_bytes(b"fake png")
-            mock_storage.get_path.side_effect = lambda name: (
-                png_path if name == "scatter.png" else tmp_path / name
-            )
-
-            result = _make_downloadable_markdown(md, session_id)
-            assert "scatter.png" in result
-            assert "plotly.json" not in result
-
-    def test_adds_comment_when_no_png(self, tmp_path: Path):
-        session_id = "test-session"
-        md = "![chart](/api/artifacts/test-session/chart.plotly.json)"
-
-        with patch("nini.skills.report.ArtifactStorage") as MockStorage:
-            mock_storage = MockStorage.return_value
-            # get_path returns non-existent paths
-            mock_storage.get_path.return_value = tmp_path / "nonexistent"
-
-            with patch("nini.skills.report._try_export_plotly_to_png", return_value=None):
-                result = _make_downloadable_markdown(md, session_id)
-                assert "<!-- 图表 chart 需在应用内查看" in result
-                assert "plotly.json" not in result
-
-    def test_converts_api_paths_to_relative(self, tmp_path: Path):
-        session_id = "test-session"
-        md = "![boxplot](/api/artifacts/test-session/boxplot.png)"
-
-        with patch("nini.skills.report.ArtifactStorage") as MockStorage:
-            mock_storage = MockStorage.return_value
-            mock_storage.get_path.return_value = tmp_path / "nonexistent"
-
-            result = _make_downloadable_markdown(md, session_id)
-            assert result == "![boxplot](./boxplot.png)"
-
-    def test_empty_input(self):
-        assert _make_downloadable_markdown("", "s") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -162,16 +110,16 @@ class TestBuildMarkdownNoChartList:
 
 
 # ---------------------------------------------------------------------------
-# execute() dual-track output
+# execute() saves preview_md with API paths (bundle handles conversion)
 # ---------------------------------------------------------------------------
 
 
-class TestExecuteDualTrack:
+class TestExecuteSavesPreviewMd:
     @pytest.mark.asyncio
-    async def test_preview_vs_download_differ(self, tmp_path: Path):
-        """execute() 返回的 preview_md 保留 plotly.json，保存的文件使用 PNG/相对路径。"""
+    async def test_saved_file_contains_api_paths(self, tmp_path: Path):
+        """execute() 保存的文件保留 /api/artifacts/ 路径，由 bundle 端点负责转换。"""
         session = MagicMock()
-        session.id = "dual-track-test"
+        session.id = "save-test"
         session.datasets = {}
         session.messages = []
         session.artifacts = {}
@@ -181,18 +129,14 @@ class TestExecuteDualTrack:
 
         skill = GenerateReportSkill()
 
-        # 模拟图表产物
         charts = [
             {
                 "name": "scatter.plotly.json",
                 "type": "chart",
                 "format": "json",
-                "download_url": "/api/artifacts/dual-track-test/scatter.plotly.json",
+                "download_url": "/api/artifacts/save-test/scatter.plotly.json",
             }
         ]
-
-        png_path = tmp_path / "scatter.png"
-        png_path.write_bytes(b"fake png data")
 
         with (
             patch("nini.skills.report._collect_chart_artifacts", return_value=charts),
@@ -200,14 +144,12 @@ class TestExecuteDualTrack:
             patch("nini.skills.report.WorkspaceManager"),
         ):
             mock_storage = MockStorage.return_value
-            mock_storage.get_path.side_effect = lambda name: (
-                png_path if name == "scatter.png" else tmp_path / name
-            )
+            mock_storage.get_path.return_value = tmp_path / "dummy"
             mock_storage.save_text.return_value = tmp_path / "report.md"
 
             result = await skill.execute(
                 session,
-                title="双轨测试",
+                title="保存测试",
                 methods="独立样本 t 检验",
                 include_charts=True,
                 include_session_stats=False,
@@ -216,10 +158,10 @@ class TestExecuteDualTrack:
 
             assert result.success
             preview_md = result.data["report_markdown"]
-            # 预览版保留 plotly.json
+            # 预览版保留 plotly.json API 路径
             assert "plotly.json" in preview_md
+            assert "/api/artifacts/" in preview_md
 
-            # 保存版使用 PNG
+            # 保存的内容与预览版一致（不再做 downloadable 转换）
             saved_content = mock_storage.save_text.call_args[0][0]
-            assert "scatter.png" in saved_content
-            assert "plotly.json" not in saved_content
+            assert saved_content == preview_md

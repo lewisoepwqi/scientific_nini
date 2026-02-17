@@ -1,7 +1,7 @@
 /**
  * 消息气泡组件 —— 渲染用户和 AI 消息，支持工具消息折叠和产物下载。
  */
-import { Suspense, lazy, useEffect, useState } from "react";
+import React, { Suspense, lazy, useEffect, useState } from "react";
 import { type Message } from "../store";
 import {
   Bot,
@@ -28,7 +28,7 @@ interface Props {
 
 const ChartViewer = lazy(() => import("./ChartViewer"));
 
-export default function MessageBubble({
+function MessageBubble({
   message,
   showRetry = false,
   onRetry,
@@ -316,3 +316,5 @@ export default function MessageBubble({
     </div>
   );
 }
+
+export default React.memo(MessageBubble);

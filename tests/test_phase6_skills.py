@@ -95,11 +95,11 @@ def test_generate_report_writes_artifact_and_knowledge() -> None:
     text = report_path.read_text(encoding="utf-8")
     assert "# 测试报告" in text
     assert "药物组优于对照组。" in text
-    # 下载版报告：图表 section 存在，但不含冗余的"图表清单"表格
+    # 报告保留 API 路径（bundle 端点负责下载时转换）
     assert "## 图表" in text
     assert "## 图表清单" not in text
-    # 下载版中 plotly.json 应被替换（PNG 或注释）
-    assert ".plotly.json" not in text
+    # 保存版保留 plotly.json API 路径
+    assert "/api/artifacts/" in text
     assert "## 分析统计" not in text
 
     knowledge_text = session.knowledge_memory.read()
@@ -166,9 +166,9 @@ def test_generate_report_chart_preview_deduplicates_multi_format_artifacts() -> 
 
     report_path = Path(result.artifacts[0]["path"])
     text = report_path.read_text(encoding="utf-8")
-    # 下载版使用相对路径，友好标题（不含扩展名）
-    assert "![trend](./trend.png)" in text
-    assert "trend.svg" not in text
+    # 保存版保留 API 路径，友好标题（不含扩展名）
+    assert "trend.png" in text
+    assert "/api/artifacts/" in text
     assert "### 图 1：trend" in text
     assert "### 图 2：" not in text
     # 不再有图表清单表格

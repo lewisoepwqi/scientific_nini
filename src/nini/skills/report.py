@@ -547,77 +547,6 @@ def _resolve_output_name(
     return candidate
 
 
-def _make_downloadable_markdown(preview_md: str, session_id: str) -> str:
-    """将前端预览 Markdown 转换为可下载版本。
-
-    主要变换：
-    1. 将 plotly.json 图片引用替换为同名 PNG（如果存在），使外部编辑器可渲染
-    2. 将内部 API 路径 (/api/artifacts/...) 替换为相对路径 (./filename)
-    3. 不存在 PNG 时添加注释提示
-    """
-    import re
-
-    if not preview_md:
-        return preview_md
-
-    storage = ArtifactStorage(session_id)
-
-    def _replace_image_ref(match: re.Match) -> str:  # type: ignore[type-arg]
-        alt_text = match.group(1)
-        url = match.group(2)
-
-        # 提取文件名
-        filename = url.rsplit("/", 1)[-1] if "/" in url else url
-
-        # plotly.json → 尝试替换为 PNG
-        if filename.lower().endswith(".plotly.json"):
-            base_name = filename[: -len(".plotly.json")]
-            png_name = f"{base_name}.png"
-            if storage.get_path(png_name).exists():
-                return f"![{alt_text}](./{png_name})"
-            # 尝试用 kaleido 导出
-            png_path = _try_export_plotly_to_png(storage, filename, png_name)
-            if png_path:
-                return f"![{alt_text}](./{png_name})"
-            return f"<!-- 图表 {base_name} 需在应用内查看（Plotly 交互图） -->"
-
-        # 非 plotly：内部 API 路径 → 相对路径
-        if url.startswith("/api/artifacts/"):
-            return f"![{alt_text}](./{filename})"
-
-        return str(match.group(0))
-
-    result = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", _replace_image_ref, preview_md)
-    return result
-
-
-def _try_export_plotly_to_png(
-    storage: ArtifactStorage,
-    plotly_filename: str,
-    png_filename: str,
-) -> Path | None:
-    """尝试将 plotly.json 文件导出为 PNG。失败时返回 None。"""
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    plotly_path = storage.get_path(plotly_filename)
-    if not plotly_path.exists():
-        return None
-
-    try:
-        import plotly.io as pio
-
-        fig_json = plotly_path.read_text(encoding="utf-8")
-        fig = pio.from_json(fig_json)
-        png_path = storage.get_path(png_filename)
-        fig.write_image(str(png_path), format="png", width=1200, height=800, scale=2)
-        return png_path
-    except Exception:
-        logger.debug("Plotly PNG 导出失败: %s", plotly_filename, exc_info=True)
-        return None
-
-
 class GenerateReportSkill(Skill):
     """生成 Markdown 分析报告并保存为产物。"""
 
@@ -704,7 +633,6 @@ class GenerateReportSkill(Skill):
         save_to_knowledge = bool(kwargs.get("save_to_knowledge", True))
         filename = kwargs.get("filename")
 
-        # 前端预览版（保留 plotly.json 引用，前端可交互渲染）
         preview_md = _build_markdown(
             session,
             title=title,
@@ -717,9 +645,6 @@ class GenerateReportSkill(Skill):
             include_session_stats=include_session_stats,
         )
 
-        # 可下载版（plotly.json → PNG，内部路径 → 相对路径）
-        download_md = _make_downloadable_markdown(preview_md, session.id)
-
         storage = ArtifactStorage(session.id)
         output_name = _resolve_output_name(
             session,
@@ -727,11 +652,11 @@ class GenerateReportSkill(Skill):
             filename=filename,
             title=title,
         )
-        # 保存可下载版到文件系统
-        path = storage.save_text(download_md, output_name)
+        # 保存预览版（保留 /api/artifacts/ 路径），bundle 端点负责下载时转换
+        path = storage.save_text(preview_md, output_name)
 
         if save_to_knowledge:
-            session.knowledge_memory.append(title, download_md)
+            session.knowledge_memory.append(title, preview_md)
 
         artifact = {
             "name": output_name,
