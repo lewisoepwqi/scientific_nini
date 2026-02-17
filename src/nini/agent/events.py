@@ -28,6 +28,7 @@ class EventType(str, Enum):
     REASONING = "reasoning"  # 推理事件，展示决策过程
     ANALYSIS_PLAN = "analysis_plan"  # 结构化分析步骤列表
     PLAN_STEP_UPDATE = "plan_step_update"  # 单步状态变更
+    PLAN_PROGRESS = "plan_progress"  # 顶部计划进度（含当前步骤/下一步提示）
     CONTEXT_COMPRESSED = "context_compressed"  # 上下文自动压缩通知
 
 

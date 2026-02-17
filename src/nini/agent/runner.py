@@ -110,7 +110,95 @@ class AgentRunner:
         report_markdown_for_turn: str | None = None
         active_plan: AnalysisPlan | None = None
         next_step_idx: int = 0
+        plan_event_seq: int = 0
         iteration = 0
+
+        def _to_plan_status(raw_status: str) -> str:
+            """将历史计划状态映射为前端统一状态。"""
+            mapping = {
+                "pending": "not_started",
+                "in_progress": "in_progress",
+                "completed": "done",
+                "error": "failed",
+                "not_started": "not_started",
+                "done": "done",
+                "failed": "failed",
+                "blocked": "blocked",
+            }
+            return mapping.get(raw_status, "not_started")
+
+        def _build_plan_progress_payload(
+            *,
+            current_idx: int,
+            step_status: str,
+            next_hint: str | None = None,
+            block_reason: str | None = None,
+        ) -> dict[str, Any]:
+            """构建 plan_progress 标准载荷。"""
+            if active_plan is None or not active_plan.steps:
+                return {
+                    "current_step_index": 0,
+                    "total_steps": 0,
+                    "step_title": "",
+                    "step_status": "not_started",
+                    "next_hint": next_hint,
+                }
+
+            safe_idx = max(0, min(current_idx, len(active_plan.steps) - 1))
+            current_step = active_plan.steps[safe_idx]
+            total_steps = len(active_plan.steps)
+            resolved_status = _to_plan_status(step_status)
+
+            auto_next_hint = next_hint
+            if auto_next_hint is None:
+                next_idx = safe_idx + 1
+                if resolved_status in {"failed", "blocked"}:
+                    auto_next_hint = "可尝试重试当前步骤或补充输入后继续。"
+                elif resolved_status == "done" and next_idx < total_steps:
+                    auto_next_hint = f"下一步：{active_plan.steps[next_idx].title}"
+                elif resolved_status == "done" and next_idx >= total_steps:
+                    auto_next_hint = "全部步骤已完成。"
+                elif resolved_status == "in_progress":
+                    auto_next_hint = (
+                        f"完成后将进入：{active_plan.steps[next_idx].title}"
+                        if next_idx < total_steps
+                        else "当前为最后一步，完成后将结束流程。"
+                    )
+                else:
+                    auto_next_hint = f"下一步：{current_step.title}"
+
+            payload: dict[str, Any] = {
+                "current_step_index": safe_idx + 1,
+                "total_steps": total_steps,
+                "step_title": current_step.title,
+                "step_status": resolved_status,
+                "next_hint": auto_next_hint,
+            }
+            if block_reason:
+                payload["block_reason"] = block_reason
+            return payload
+
+        def _new_plan_progress_event(
+            *,
+            current_idx: int,
+            step_status: str,
+            next_hint: str | None = None,
+            block_reason: str | None = None,
+        ) -> AgentEvent:
+            """创建带序号的计划进度事件，便于前端乱序保护。"""
+            nonlocal plan_event_seq
+            plan_event_seq += 1
+            return AgentEvent(
+                type=EventType.PLAN_PROGRESS,
+                data=_build_plan_progress_payload(
+                    current_idx=current_idx,
+                    step_status=step_status,
+                    next_hint=next_hint,
+                    block_reason=block_reason,
+                ),
+                turn_id=turn_id,
+                metadata={"seq": plan_event_seq},
+            )
 
         # 自动上下文压缩检查
         compress_event = await self._maybe_auto_compress(session)
@@ -239,6 +327,13 @@ class AgentRunner:
                         data=active_plan.to_dict(),
                         turn_id=turn_id,
                     )
+                    yield _new_plan_progress_event(
+                        current_idx=0,
+                        step_status="pending",
+                        next_hint=(
+                            f"下一步：{active_plan.steps[0].title}" if active_plan.steps else None
+                        ),
+                    )
                 # 始终发出 REASONING 事件（向后兼容）
                 yield AgentEvent(
                     type=EventType.REASONING,
@@ -307,6 +402,10 @@ class AgentRunner:
                             data=step.to_dict(),
                             turn_id=turn_id,
                         )
+                        yield _new_plan_progress_event(
+                            current_idx=matched_step_idx,
+                            step_status="in_progress",
+                        )
 
                 yield AgentEvent(
                     type=EventType.TOOL_CALL,
@@ -354,6 +453,16 @@ class AgentRunner:
                         type=EventType.PLAN_STEP_UPDATE,
                         data=step.to_dict(),
                         turn_id=turn_id,
+                    )
+                    error_reason: str | None = None
+                    if has_error and isinstance(result, dict):
+                        reason = result.get("error") or result.get("message")
+                        if isinstance(reason, str) and reason.strip():
+                            error_reason = reason.strip()
+                    yield _new_plan_progress_event(
+                        current_idx=matched_step_idx,
+                        step_status=step.status,
+                        block_reason=error_reason,
                     )
 
                 if func_name == "generate_report" and not has_error and isinstance(result, dict):

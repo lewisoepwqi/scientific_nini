@@ -4,7 +4,7 @@
 TBD - created by archiving change add-conversation-observability-and-hybrid-skills. Update Purpose after archive.
 ## Requirements
 ### Requirement: 可观测的流式对话事件
-系统 SHALL 提供可观测的流式对话事件契约，至少包括 `iteration_start`、`text`、`tool_call`、`tool_result`、`retrieval`、`done`、`error`，并为同一轮对话提供稳定的 `turn_id` 关联。
+系统 SHALL 提供可观测的流式对话事件契约，至少包括 `iteration_start`、`text`、`tool_call`、`tool_result`、`retrieval`、`plan_progress`、`done`、`error`，并为同一轮对话提供稳定的 `turn_id` 关联。
 
 #### Scenario: 多段响应可被正确分段
 - **WHEN** Agent 在一次用户请求中发生“文本输出 → 工具调用 → 再次文本输出”
@@ -15,6 +15,12 @@ TBD - created by archiving change add-conversation-observability-and-hybrid-skil
 - **WHEN** Agent 发起工具调用并收到结果
 - **THEN** `tool_result` 事件必须携带与 `tool_call` 一致的 `tool_call_id`
 - **AND** 会话持久化中保留工具调用与结果的关联记录
+
+#### Scenario: 计划进度事件可驱动顶部任务列表
+- **WHEN** 分析流程进入新步骤、更新步骤状态或出现阻塞/失败
+- **THEN** 服务端输出 `plan_progress` 事件
+- **AND** 事件至少包含 `current_step_index`、`total_steps`、`step_title`、`step_status`
+- **AND** 在存在下一步提示时附带 `next_hint`
 
 ### Requirement: 检索结果可视化输出
 系统 SHALL 在启用检索增强上下文时输出 `retrieval` 事件，向客户端提供可视化所需字段（查询、命中片段、来源、相关分数）。
@@ -80,3 +86,28 @@ TBD - created by archiving change add-conversation-observability-and-hybrid-skil
 - **THEN** 系统返回可识别降级信息
 - **AND** 不影响其他消息加载
 
+### Requirement: 支持按用途选择模型提供商
+系统 SHALL 支持对至少 `chat`、`title_generation`、`image_analysis` 三种用途独立配置首选模型提供商，并在运行时按用途应用。
+
+#### Scenario: 用途首选优先于全局首选
+- **WHEN** 用户为 `title_generation` 设置了用途首选提供商，且同时存在全局首选
+- **THEN** 标题生成请求优先使用 `title_generation` 的首选提供商
+- **AND** 仅在该提供商不可用时才按故障转移顺序降级
+
+#### Scenario: 用途未配置时回退全局首选
+- **WHEN** 用户未配置 `chat` 用途首选提供商，但配置了全局首选
+- **THEN** 对话请求使用全局首选提供商
+- **AND** 若全局首选不可用，继续按默认优先级降级
+
+### Requirement: 用途路由配置可通过 API 查询与保存
+系统 SHALL 提供用途路由配置 API，支持读取当前用途配置与保存更新，并在保存后即时生效。
+
+#### Scenario: 查询用途路由
+- **WHEN** 客户端请求用途路由查询接口
+- **THEN** 返回全局首选提供商、各用途首选提供商
+- **AND** 返回每个用途当前生效的模型信息
+
+#### Scenario: 保存用途路由
+- **WHEN** 客户端提交用途到提供商的映射更新
+- **THEN** 服务端完成合法性校验并持久化到数据库
+- **AND** 更新内存路由器并立即生效

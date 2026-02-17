@@ -9,6 +9,8 @@ import MessageBubble from './MessageBubble'
 import AgentTurnGroup from './AgentTurnGroup'
 import ChatInputArea from './ChatInputArea'
 import { Loader2 } from 'lucide-react'
+import AnalysisPlanHeader from './AnalysisPlanHeader'
+import { isAnalysisPlanHeaderV2Enabled } from '../featureFlags'
 
 /** 消息分组：用户消息独立，同一 turnId 的 agent 消息合并为一组 */
 interface MessageGroup {
@@ -62,8 +64,15 @@ function groupMessages(messages: Message[]): MessageGroup[] {
 export default function ChatPanel() {
   const messages = useStore((s) => s.messages)
   const isStreaming = useStore((s) => s.isStreaming)
+  const analysisPlanProgress = useStore((s) => s.analysisPlanProgress)
   const retryLastTurn = useStore((s) => s.retryLastTurn)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const planHeaderEnabled = useMemo(() => isAnalysisPlanHeaderV2Enabled(), [])
+  const showPlanHeader = Boolean(
+    planHeaderEnabled &&
+      analysisPlanProgress &&
+      analysisPlanProgress.total_steps > 0,
+  )
 
   const messageGroups = useMemo(() => groupMessages(messages), [messages])
   const lastUserMessageId = useMemo(() => {
@@ -98,6 +107,10 @@ export default function ChatPanel() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
+      {showPlanHeader && analysisPlanProgress && (
+        <AnalysisPlanHeader plan={analysisPlanProgress} />
+      )}
+
       {/* 消息列表 */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         <div className="max-w-3xl mx-auto">
