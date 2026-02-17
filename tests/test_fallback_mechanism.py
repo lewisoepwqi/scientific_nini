@@ -11,7 +11,7 @@ import pytest
 
 from nini.agent.session import Session
 from nini.config import settings
-from nini.skills.registry import SkillRegistry, create_default_registry
+from nini.tools.registry import SkillRegistry, create_default_registry
 
 
 @pytest.fixture(autouse=True)

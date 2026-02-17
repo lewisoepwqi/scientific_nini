@@ -13,7 +13,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from nini.agent.session import Session
-from nini.skills.base import Skill, SkillResult
+from nini.tools.base import Skill, SkillResult
 
 logger = logging.getLogger(__name__)
 

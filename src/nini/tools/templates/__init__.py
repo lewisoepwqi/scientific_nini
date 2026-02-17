@@ -4,12 +4,12 @@
 同时提供期刊样式模板（Nature, Science, Cell 等）的动态加载功能。
 """
 
-from nini.skills.templates.complete_anova import CompleteANOVASkill
-from nini.skills.templates.complete_comparison import CompleteComparisonSkill
-from nini.skills.templates.correlation_analysis import CorrelationAnalysisSkill
+from nini.tools.templates.complete_anova import CompleteANOVASkill
+from nini.tools.templates.complete_comparison import CompleteComparisonSkill
+from nini.tools.templates.correlation_analysis import CorrelationAnalysisSkill
 
 # 导入期刊样式模板功能
-from nini.skills.templates.journal_styles import (
+from nini.tools.templates.journal_styles import (
     delete_custom_template,
     get_template_info,
     get_template_names,
@@ -57,7 +57,7 @@ def get_template(name: str):
         return CorrelationAnalysisSkill()
 
     # 然后检查期刊样式模板
-    from nini.skills.templates.journal_styles import get_template as get_journal_template
+    from nini.tools.templates.journal_styles import get_template as get_journal_template
 
     journal_template = get_journal_template(name)
     # 如果返回的是默认模板且请求的不是 default，说明没找到

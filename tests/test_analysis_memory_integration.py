@@ -22,7 +22,7 @@ from nini.memory.compression import (
     get_analysis_memory,
     list_session_analysis_memories,
 )
-from nini.skills.statistics import _record_stat_result
+from nini.tools.statistics import _record_stat_result
 
 # ---- compressed_context 上限截断 ----
 
@@ -218,7 +218,7 @@ class TestStatSkillWritesKnowledge:
 
     @pytest.mark.asyncio
     async def test_ttest_writes_knowledge(self) -> None:
-        from nini.skills.statistics import TTestSkill
+        from nini.tools.statistics import TTestSkill
 
         skill = TTestSkill()
         result = await skill.execute(
@@ -233,7 +233,7 @@ class TestStatSkillWritesKnowledge:
 
     @pytest.mark.asyncio
     async def test_mann_whitney_writes_knowledge(self) -> None:
-        from nini.skills.statistics import MannWhitneySkill
+        from nini.tools.statistics import MannWhitneySkill
 
         skill = MannWhitneySkill()
         result = await skill.execute(

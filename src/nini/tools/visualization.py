@@ -19,8 +19,8 @@ from nini.charts.renderers import (
     apply_plotly_style,
 )
 from nini.memory.storage import ArtifactStorage
-from nini.skills.base import Skill, SkillResult
-from nini.skills.templates.journal_styles import get_template_names
+from nini.tools.base import Skill, SkillResult
+from nini.tools.templates.journal_styles import get_template_names
 from nini.workspace import WorkspaceManager
 
 

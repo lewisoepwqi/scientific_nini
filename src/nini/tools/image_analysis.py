@@ -12,7 +12,7 @@ import pandas as pd
 
 from nini.agent.model_resolver import model_resolver
 from nini.agent.session import Session
-from nini.skills.base import Skill, SkillResult
+from nini.tools.base import Skill, SkillResult
 
 
 class ImageAnalysisSkill(Skill):

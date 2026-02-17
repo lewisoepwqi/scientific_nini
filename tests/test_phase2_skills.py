@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from nini.agent.session import Session
-from nini.skills.registry import create_default_registry
+from nini.tools.registry import create_default_registry
 
 
 def test_default_registry_contains_phase2_skills() -> None:

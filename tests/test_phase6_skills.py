@@ -13,10 +13,10 @@ import pytest
 
 from nini.agent.session import Session
 from nini.config import settings
-from nini.skills.base import Skill, SkillResult
-from nini.skills.report import GenerateReportSkill
-from nini.skills.registry import SkillRegistry
-from nini.skills.registry import create_default_registry
+from nini.tools.base import Skill, SkillResult
+from nini.tools.report import GenerateReportSkill
+from nini.tools.registry import SkillRegistry
+from nini.tools.registry import create_default_registry
 from nini.workspace import WorkspaceManager
 
 

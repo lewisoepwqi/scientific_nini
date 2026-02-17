@@ -15,7 +15,7 @@ import pandas as pd
 from scipy import stats
 
 from nini.agent.session import Session
-from nini.skills.base import Skill, SkillResult
+from nini.tools.base import Skill, SkillResult
 
 
 class QualityDimension(Enum):

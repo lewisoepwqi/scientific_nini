@@ -140,7 +140,7 @@ class TestReasoningEventEmission:
     async def test_agent_emits_reasoning_on_method_selection(self):
         """测试 Agent 在方法选择时发射推理事件。"""
         from nini.agent.session import Session
-        from nini.skills.registry import create_default_registry
+        from nini.tools.registry import create_default_registry
         import pandas as pd
 
         session = Session()
@@ -171,7 +171,7 @@ class TestReasoningEventEmission:
     async def test_agent_emits_reasoning_on_assumption_failure(self):
         """测试 Agent 在前提检验失败时发射推理事件。"""
         from nini.agent.session import Session
-        from nini.skills.registry import create_default_registry
+        from nini.tools.registry import create_default_registry
         import pandas as pd
 
         session = Session()

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from nini.skills.templates.journal_styles import (
+from nini.tools.templates.journal_styles import (
     TEMPLATES,
     _DEFAULT_TEMPLATES,
     _ensure_templates_loaded,
@@ -137,7 +137,7 @@ class TestCustomTemplates:
     def test_save_custom_template(self, tmp_path, monkeypatch):
         """测试保存自定义模板。"""
         # 使用临时目录作为用户模板目录
-        import nini.skills.templates.journal_styles as js
+        import nini.tools.templates.journal_styles as js
 
         monkeypatch.setattr(js, "_USER_TEMPLATES_DIR", tmp_path)
         monkeypatch.setattr(js, "_TEMPLATES_CACHE", None)
@@ -166,7 +166,7 @@ class TestCustomTemplates:
 
     def test_delete_custom_template(self, tmp_path, monkeypatch):
         """测试删除自定义模板。"""
-        import nini.skills.templates.journal_styles as js
+        import nini.tools.templates.journal_styles as js
 
         monkeypatch.setattr(js, "_USER_TEMPLATES_DIR", tmp_path)
         monkeypatch.setattr(js, "_TEMPLATES_CACHE", None)
@@ -184,7 +184,7 @@ class TestCustomTemplates:
 
     def test_delete_nonexistent_template(self, tmp_path, monkeypatch):
         """测试删除不存在的模板。"""
-        import nini.skills.templates.journal_styles as js
+        import nini.tools.templates.journal_styles as js
 
         monkeypatch.setattr(js, "_USER_TEMPLATES_DIR", tmp_path)
 
@@ -193,7 +193,7 @@ class TestCustomTemplates:
 
     def test_custom_template_override_builtin(self, tmp_path, monkeypatch):
         """测试用户模板可以覆盖内置模板。"""
-        import nini.skills.templates.journal_styles as js
+        import nini.tools.templates.journal_styles as js
 
         monkeypatch.setattr(js, "_USER_TEMPLATES_DIR", tmp_path)
         monkeypatch.setattr(js, "_TEMPLATES_CACHE", None)
@@ -213,7 +213,7 @@ class TestCustomTemplates:
 
     def test_get_template_info_custom(self, tmp_path, monkeypatch):
         """测试获取自定义模板的详细信息。"""
-        import nini.skills.templates.journal_styles as js
+        import nini.tools.templates.journal_styles as js
 
         monkeypatch.setattr(js, "_USER_TEMPLATES_DIR", tmp_path)
         monkeypatch.setattr(js, "_TEMPLATES_CACHE", None)
@@ -234,7 +234,7 @@ class TestTemplateReload:
 
     def test_reload_clears_cache(self, monkeypatch):
         """测试重载清除缓存。"""
-        import nini.skills.templates.journal_styles as js
+        import nini.tools.templates.journal_styles as js
 
         # 先加载一次
         _ensure_templates_loaded()
@@ -253,7 +253,7 @@ class TestBackwardCompatibility:
 
     def test_templates_module_import(self):
         """测试从 templates.py 导入。"""
-        from nini.skills import templates
+        from nini.tools import templates
 
         # 应该可以访问所有主要函数
         assert hasattr(templates, "get_template")
@@ -266,7 +266,7 @@ class TestBackwardCompatibility:
 
     def test_templates_package_import(self):
         """测试从 templates 包导入。"""
-        from nini.skills import templates
+        from nini.tools import templates
 
         # 应该可以访问期刊模板函数
         assert hasattr(templates, "get_templates")
@@ -275,7 +275,7 @@ class TestBackwardCompatibility:
 
     def test_get_template_function(self):
         """测试 get_template 函数兼容性。"""
-        from nini.skills.templates import get_template
+        from nini.tools.templates import get_template
 
         # 可以获取期刊模板
         nature = get_template("nature")
@@ -284,7 +284,7 @@ class TestBackwardCompatibility:
 
     def test_templates_constant(self):
         """测试 TEMPLATES 常量向后兼容。"""
-        from nini.skills.templates import TEMPLATES
+        from nini.tools.templates import TEMPLATES
 
         assert isinstance(TEMPLATES, dict)
         assert "default" in TEMPLATES

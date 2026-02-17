@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nini.skills.report import (
+from nini.tools.report import (
     _build_markdown,
     _chart_preview_markdown,
     _strip_tool_mentions,
@@ -71,10 +71,10 @@ class TestBuildMarkdownNoChartList:
         return session
 
     @patch(
-        "nini.skills.report._chart_preview_markdown",
+        "nini.tools.report._chart_preview_markdown",
         return_value="### 图 1：scatter\n![scatter](/url)",
     )
-    @patch("nini.skills.report._chart_artifacts_markdown", return_value="| 图表文件 | ... |")
+    @patch("nini.tools.report._chart_artifacts_markdown", return_value="| 图表文件 | ... |")
     def test_no_chart_list_section(self, mock_chart_list, mock_preview):
         session = self._make_session()
         md = _build_markdown(
@@ -125,7 +125,7 @@ class TestExecuteSavesPreviewMd:
         session.artifacts = {}
         session.knowledge_memory = MagicMock()
 
-        from nini.skills.report import GenerateReportSkill
+        from nini.tools.report import GenerateReportSkill
 
         skill = GenerateReportSkill()
 
@@ -139,9 +139,9 @@ class TestExecuteSavesPreviewMd:
         ]
 
         with (
-            patch("nini.skills.report._collect_chart_artifacts", return_value=charts),
-            patch("nini.skills.report.ArtifactStorage") as MockStorage,
-            patch("nini.skills.report.WorkspaceManager"),
+            patch("nini.tools.report._collect_chart_artifacts", return_value=charts),
+            patch("nini.tools.report.ArtifactStorage") as MockStorage,
+            patch("nini.tools.report.WorkspaceManager"),
         ):
             mock_storage = MockStorage.return_value
             mock_storage.get_path.return_value = tmp_path / "dummy"

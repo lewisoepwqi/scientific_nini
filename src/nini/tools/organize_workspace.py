@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from nini.agent.session import Session
-from nini.skills.base import Skill, SkillResult
+from nini.tools.base import Skill, SkillResult
 from nini.workspace import WorkspaceManager
 
 

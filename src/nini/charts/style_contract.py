@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from nini.config import settings
-from nini.skills.templates.journal_styles import get_template, get_template_names
+from nini.tools.templates.journal_styles import get_template, get_template_names
 from nini.utils.chart_fonts import CJK_FONT_FAMILY, get_matplotlib_font_list, with_cjk_font_fallback
 
 _SUPPORTED_ENGINES = {"auto", "plotly", "matplotlib"}

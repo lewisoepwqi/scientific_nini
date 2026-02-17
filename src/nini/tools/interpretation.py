@@ -474,7 +474,7 @@ def interpret_result(test_type: str, result: dict[str, Any]) -> str:
 # ---- Skill 接口 ----
 
 from nini.agent.session import Session
-from nini.skills.base import Skill, SkillResult
+from nini.tools.base import Skill, SkillResult
 
 
 class InterpretStatisticalResultSkill(Skill):

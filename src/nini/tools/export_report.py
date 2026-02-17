@@ -13,7 +13,7 @@ from typing import Any
 from nini.agent.session import Session
 from nini.config import settings
 from nini.memory.storage import ArtifactStorage
-from nini.skills.base import Skill, SkillResult
+from nini.tools.base import Skill, SkillResult
 from nini.utils.chart_fonts import CJK_FONT_FAMILY, apply_plotly_cjk_font_fallback
 from nini.workspace import WorkspaceManager
 
