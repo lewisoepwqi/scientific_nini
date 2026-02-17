@@ -188,13 +188,16 @@ def _set_resource_limits(timeout_seconds: int, max_memory_mb: int) -> None:
         if hasattr(resource, "RLIMIT_CPU"):
             cpu_limit = max(1, int(timeout_seconds))
             resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit))
-        if hasattr(resource, "RLIMIT_AS") and int(max_memory_mb) >= 1024:
+        if hasattr(resource, "RLIMIT_AS") and int(max_memory_mb) > 0:
             usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
             # Linux ru_maxrss 单位是 KB，macOS 是 Byte；统一转换为 MB
             usage_mb = usage / 1024 if usage > 10_000 else usage / (1024 * 1024)
-            # 给运行时和序列化留出缓冲，避免进程尚未执行业务代码就触发 OOM
-            # 经验上低于 1GB 在科学计算栈中容易误杀，因此设置下限为 1024MB。
-            effective_limit_mb = max(int(max_memory_mb), 1024, int(usage_mb) + 512)
+            # 给运行时和序列化留出缓冲，避免进程尚未执行业务代码就触发 OOM。
+            # 低于 1GB 的配置也应生效：当请求上限较小时，至少保证当前占用 + 256MB 缓冲。
+            if int(max_memory_mb) < 1024:
+                effective_limit_mb = max(int(max_memory_mb), int(usage_mb) + 256)
+            else:
+                effective_limit_mb = max(int(max_memory_mb), int(usage_mb) + 512)
             mem_limit = effective_limit_mb * 1024 * 1024
             resource.setrlimit(resource.RLIMIT_AS, (mem_limit, mem_limit))
     except Exception:
@@ -372,8 +375,8 @@ def _collect_figures(
                         "title": title,
                     }
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Plotly 图表序列化失败（变量 %s）: %s", var_name, exc)
             continue
 
         # Matplotlib Figure
@@ -412,8 +415,8 @@ def _collect_figures(
                 entry["png_data"] = base64.b64encode(png_buf.getvalue()).decode("ascii")
 
                 figures.append(entry)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Matplotlib 图表序列化失败（变量 %s）: %s", var_name, exc)
             continue
 
     # 检测 gcf（当前活跃图表），如果尚未被收集
@@ -447,8 +450,8 @@ def _collect_figures(
             entry["png_data"] = base64.b64encode(png_buf.getvalue()).decode("ascii")
 
             figures.append(entry)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Matplotlib 当前活动图表序列化失败: %s", exc)
 
     return figures
 
