@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import builtins as py_builtins
 import io
+import logging
 import multiprocessing
 from multiprocessing.connection import Connection
 import os
@@ -32,6 +33,8 @@ try:
     import resource  # type: ignore[attr-defined]
 except Exception:  # pragma: no cover - Windows 等平台可能不存在
     resource = None  # type: ignore[assignment]
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -96,7 +99,11 @@ def _apply_matplotlib_cjk_font_fallback(fig: Any) -> None:
 
         for text_obj in fig.findobj(match=Text):
             text_obj.set_fontfamily(get_available_cjk_fonts() or CJK_FONT_CANDIDATES)
-    except Exception:
+    except ImportError:
+        logger.debug("Matplotlib 不可用，跳过中文字体回退配置。")
+        return
+    except Exception as exc:
+        logger.debug("应用 Matplotlib 中文字体回退失败: %s", exc)
         return
 
 
@@ -119,8 +126,10 @@ def _configure_chart_defaults() -> None:
         rcParams["axes.unicode_minus"] = False
         rcParams["axes.prop_cycle"] = cycler(color=list(style.colors))
         rcParams["lines.linewidth"] = style.line_width
-    except Exception:
-        pass
+    except ImportError as exc:
+        logger.debug("Matplotlib 相关依赖不可用，跳过默认样式配置: %s", exc)
+    except Exception as exc:
+        logger.warning("配置 Matplotlib 默认样式失败，使用库默认配置: %s", exc)
 
     # Plotly 默认样式
     try:
@@ -158,8 +167,10 @@ def _configure_chart_defaults() -> None:
         pio.templates.default = "nini_science"
         px.defaults.template = "nini_science"
         px.defaults.color_discrete_sequence = list(style.colors)
-    except Exception:
-        pass
+    except ImportError as exc:
+        logger.debug("Plotly 相关依赖不可用，跳过默认样式配置: %s", exc)
+    except Exception as exc:
+        logger.warning("配置 Plotly 默认样式失败，使用库默认配置: %s", exc)
 
 
 def _safe_copy_datasets(datasets: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
