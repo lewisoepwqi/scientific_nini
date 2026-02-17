@@ -942,7 +942,9 @@ class ModelResolver:
         priority_map = priorities or {}
         clients.sort(
             key=lambda client: (
-                int(priority_map.get(client.provider_id, default_order.get(client.provider_id, 999))),
+                int(
+                    priority_map.get(client.provider_id, default_order.get(client.provider_id, 999))
+                ),
                 default_order.get(client.provider_id, 999),
             )
         )

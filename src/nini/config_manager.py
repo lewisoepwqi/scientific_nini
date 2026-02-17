@@ -127,7 +127,9 @@ async def save_model_config(
             # 插入新记录
             final_key_hint = key_hint
             default_priorities = {pid: idx for idx, pid in enumerate(PROVIDER_PRIORITY_ORDER)}
-            final_priority = priority if priority is not None else default_priorities.get(provider, 0)
+            final_priority = (
+                priority if priority is not None else default_priorities.get(provider, 0)
+            )
             await db.execute(
                 """
                 INSERT INTO model_configs (

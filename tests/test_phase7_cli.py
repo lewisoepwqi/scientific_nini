@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from nini.__main__ import main
+from nini.__main__ import _detect_kaleido_chrome_status, _render_markdown_skill_template, main
 from nini.config import settings
 
 
@@ -58,3 +58,56 @@ def test_cli_doctor_returns_success_with_default_config(
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
     ret = main(["doctor"])
     assert ret == 0
+
+
+def test_render_markdown_skill_template_removes_todo_placeholders() -> None:
+    content = _render_markdown_skill_template(
+        name="demo_skill",
+        description="测试技能描述",
+        category="report",
+    )
+
+    assert "TODO" not in content
+    assert "## 适用场景" in content
+    assert "## 步骤" in content
+    assert "## 注意事项" in content
+    assert "name: demo_skill" in content
+    assert "category: report" in content
+
+
+def test_detect_kaleido_chrome_status_when_kaleido_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_import(name: str):
+        if name == "kaleido":
+            raise ImportError("no kaleido")
+        raise AssertionError(f"unexpected import: {name}")
+
+    monkeypatch.setattr("nini.__main__.importlib.import_module", fake_import)
+    ok, msg = _detect_kaleido_chrome_status()
+    assert ok is False
+    assert "kaleido 未安装" in msg
+
+
+def test_detect_kaleido_chrome_status_when_chromium_probe_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _ChromiumModule:
+        chromium_based_browsers = ["chrome"]
+
+        @staticmethod
+        def get_browser_path(_browsers: list[str]) -> str:
+            raise RuntimeError("probe failed")
+
+    def fake_import(name: str):
+        if name == "kaleido":
+            return object()
+        if name == "choreographer.browsers.chromium":
+            return _ChromiumModule()
+        raise AssertionError(f"unexpected import: {name}")
+
+    monkeypatch.setattr("nini.__main__.importlib.import_module", fake_import)
+    ok, msg = _detect_kaleido_chrome_status()
+    assert ok is False
+    assert "Chrome 状态未知" in msg
+    assert "RuntimeError" in msg

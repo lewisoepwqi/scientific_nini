@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 from pathlib import Path
 import sys
 from typing import Sequence
@@ -58,6 +59,69 @@ def _default_env_content() -> str:
         "NINI_R_PACKAGE_INSTALL_TIMEOUT=300\n"
         "NINI_R_AUTO_INSTALL_PACKAGES=true\n"
     )
+
+
+def _render_markdown_skill_template(name: str, description: str, category: str) -> str:
+    """渲染 Markdown Skill 脚手架内容。"""
+    return f"""---
+name: {name}
+description: {description}
+category: {category}
+---
+
+# {name}
+
+{description}
+
+## 适用场景
+
+- 说明该技能适用于哪些问题类型、输入条件与预期输出。
+- 如果有前置依赖（数据、工具、权限），在此明确标注。
+
+## 步骤
+
+1. 描述执行前的准备动作（如读取上下文、校验输入）。
+2. 描述核心执行流程（调用哪些工具、按何顺序执行）。
+3. 描述输出要求（结果格式、产物命名、失败时回退策略）。
+
+## 注意事项
+
+- 明确边界条件和风险点（如大数据集、长耗时、外部依赖失败）。
+- 明确不可执行动作或必须人工确认的步骤。
+"""
+
+
+def _detect_kaleido_chrome_status() -> tuple[bool, str]:
+    """检测 kaleido 与 Chrome 可用性。"""
+    try:
+        importlib.import_module("kaleido")
+    except ImportError:
+        return False, "kaleido 未安装（pip install kaleido）"
+
+    try:
+        chromium_module = importlib.import_module("choreographer.browsers.chromium")
+    except ImportError as exc:
+        return False, f"kaleido 已安装，Chrome 状态未知（{exc}）（运行 `kaleido_get_chrome` 安装）"
+
+    get_browser_path = getattr(chromium_module, "get_browser_path", None)
+    chromium_based_browsers = getattr(chromium_module, "chromium_based_browsers", None)
+    if not callable(get_browser_path) or chromium_based_browsers is None:
+        return (
+            False,
+            "kaleido 已安装，Chrome 状态未知（choreographer API 不兼容）（运行 `kaleido_get_chrome` 安装）",
+        )
+
+    try:
+        chrome_path = get_browser_path(chromium_based_browsers)
+    except Exception as exc:  # pragma: no cover - 防止环境差异导致 doctor 直接失败
+        return (
+            False,
+            f"kaleido 已安装，Chrome 状态未知（{type(exc).__name__}: {exc}）（运行 `kaleido_get_chrome` 安装）",
+        )
+
+    if chrome_path:
+        return True, f"Chrome: {chrome_path}"
+    return False, "Chrome 未安装（运行 `kaleido_get_chrome` 安装）"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -281,29 +345,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     )
 
     # kaleido + Chrome 检查（图片导出依赖）
-    kaleido_ok = False
-    kaleido_msg = ""
-    try:
-        import kaleido  # noqa: F401
-
-        # 通过 choreographer 检测 Chrome 是否已安装（不触发下载）
-        try:
-            from choreographer.browsers.chromium import (
-                get_browser_path,
-                chromium_based_browsers,
-            )
-
-            chrome_path = get_browser_path(chromium_based_browsers)
-            kaleido_ok = chrome_path is not None
-            kaleido_msg = f"Chrome: {chrome_path}" if kaleido_ok else "Chrome 未安装"
-        except Exception:
-            # choreographer API 可能不同版本有差异，降级检测
-            kaleido_msg = "kaleido 已安装，Chrome 状态未知"
-            kaleido_ok = False
-        if not kaleido_ok:
-            kaleido_msg += "（运行 `kaleido_get_chrome` 安装）"
-    except ImportError:
-        kaleido_msg = "kaleido 未安装（pip install kaleido）"
+    kaleido_ok, kaleido_msg = _detect_kaleido_chrome_status()
     checks.append(("kaleido + Chrome（图片导出，可选）", kaleido_ok, kaleido_msg, False))
 
     r_info = detect_r_installation()
@@ -507,28 +549,7 @@ def _create_markdown_skill(name: str, description: str, category: str) -> int:
         return 1
 
     target_dir.mkdir(parents=True, exist_ok=True)
-    content = f"""---
-name: {name}
-description: {description}
-category: {category}
----
-
-# {name}
-
-{description}
-
-## 适用场景
-
-- TODO: 描述适用场景
-
-## 步骤
-
-1. TODO: 定义工作流步骤
-
-## 注意事项
-
-- TODO: 补充注意事项
-"""
+    content = _render_markdown_skill_template(name, description, category)
     target.write_text(content, encoding="utf-8")
     print(f"已创建 Markdown Skill 脚手架：{target}")
     print(f"下一步：编辑 {target} 完善技能内容")

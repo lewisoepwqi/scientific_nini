@@ -1066,7 +1066,9 @@ async def set_model_priorities_endpoint(req: ModelPrioritiesRequest):
     from nini.config_manager import set_model_priorities
 
     try:
-        normalized: dict[str, int] = {provider: int(priority) for provider, priority in req.priorities.items()}
+        normalized: dict[str, int] = {
+            provider: int(priority) for provider, priority in req.priorities.items()
+        }
         priorities = await set_model_priorities(normalized)
         await reload_model_resolver()
         return APIResponse(data={"priorities": priorities})
