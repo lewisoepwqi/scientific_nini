@@ -77,7 +77,7 @@ class SkillRegistry:
                     f"新注册来源 {new_loc}。如需覆盖请传入 allow_override=True"
                 )
         self._skills[skill.name] = skill
-        logger.info("注册技能: %s", skill.name)
+        logger.info("注册工具: %s", skill.name)
 
     def unregister(self, name: str) -> None:
         """注销一个技能。"""
