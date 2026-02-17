@@ -670,7 +670,8 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
   const configuredProviders = providers.filter((p) => p.configured)
   const providerOptions = providers.map((item) => ({ id: item.id, name: item.name }))
   const defaultProviderInfo = providers.find((p) => p.id === defaultProvider) || null
-  const purposeOverrideCount = purposes.filter((purpose) =>
+  const routingPurposes = purposes.filter((purpose) => purpose.id !== 'chat')
+  const purposeOverrideCount = routingPurposes.filter((purpose) =>
     Boolean(purposeRoutes[purpose.id]?.provider_id),
   ).length
   const providerQueryText = providerQuery.trim().toLowerCase()
@@ -780,7 +781,7 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
                   <div className="text-xs text-gray-500">用途路由覆盖</div>
                   <div className="text-2xl font-semibold text-gray-800 mt-1">
                     {purposeOverrideCount}
-                    <span className="text-sm font-normal text-gray-400 ml-1">/ {purposes.length}</span>
+                    <span className="text-sm font-normal text-gray-400 ml-1">/ {routingPurposes.length}</span>
                   </div>
                 </div>
               </div>
@@ -832,10 +833,10 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
               <div className="rounded-xl border border-gray-200 bg-white p-4">
                 <div className="text-sm font-medium text-gray-800">用途模型路由</div>
                 <div className="text-xs text-gray-500 mt-1 mb-3">
-                  可针对特定用途绑定不同提供商与模型，提升稳定性与成本控制。
+                  主对话请使用输入框旁模型下拉或上方“全局默认提供商”；此处仅配置非主对话用途。
                 </div>
                 <div className="space-y-2">
-                  {purposes.map((purpose) => {
+                  {routingPurposes.map((purpose) => {
                     const route = purposeRoutes[purpose.id] || {
                       provider_id: null,
                       model: null,
