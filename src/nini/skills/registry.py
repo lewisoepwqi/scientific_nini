@@ -17,6 +17,7 @@ from nini.skills.data_ops import DataSummarySkill, LoadDatasetSkill, PreviewData
 from nini.skills.data_quality import DataQualitySkill, DataQualityReportSkill
 from nini.skills.diagnostics import DataDiagnostics
 from nini.skills.export import ExportChartSkill
+from nini.skills.export_report import ExportReportSkill
 from nini.skills.fallback import get_fallback_manager
 from nini.skills.fetch_url import FetchURLSkill
 from nini.skills.organize_workspace import OrganizeWorkspaceSkill
@@ -341,6 +342,7 @@ def create_default_registry() -> SkillRegistry:
     registry.register(DataQualitySkill())
     registry.register(DataQualityReportSkill())
     registry.register(GenerateReportSkill())
+    registry.register(ExportReportSkill())
     registry.register(SaveWorkflowSkill())
     registry.register(ListWorkflowsSkill())
     registry.register(ApplyWorkflowSkill())

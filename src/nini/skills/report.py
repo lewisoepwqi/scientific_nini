@@ -120,6 +120,7 @@ _KNOWN_SKILL_NAMES: set[str] = {
     "complete_comparison",
     "complete_anova",
     "correlation_analysis",
+    "export_report",
 }
 
 
