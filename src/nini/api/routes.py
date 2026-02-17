@@ -713,6 +713,24 @@ def _extract_image_urls(md_content: str, session_id: str) -> list[dict[str, str]
     return results
 
 
+def _plotly_json_to_png_bytes(json_path: Path) -> bytes | None:
+    """将 Plotly JSON 文件转换为 PNG 字节。失败返回 None。"""
+    import json as _json
+
+    import plotly.graph_objects as go
+    from nini.utils.chart_fonts import apply_plotly_cjk_font_fallback
+
+    try:
+        chart_data = _json.loads(json_path.read_text(encoding="utf-8"))
+        fig = go.Figure(chart_data)
+        apply_plotly_cjk_font_fallback(fig)
+        png_data: bytes = fig.to_image(format="png", width=1400, height=900, scale=2)  # type: ignore[assignment]
+        return png_data
+    except Exception as exc:
+        logger.debug("Plotly PNG 转换失败 (%s): %s", json_path.name, exc)
+        return None
+
+
 def _bundle_markdown_with_images(
     md_path: Path,
     image_urls: list[dict[str, str]],
@@ -724,27 +742,60 @@ def _bundle_markdown_with_images(
         report.md          # 修改后的 Markdown（图片路径改为相对路径）
         images/
             chart1.png
-            chart2.plotly.json
+            chart2.plotly.json  (仅在 PNG 转换失败时)
+
+    对于 .plotly.json 文件，尝试转换为 PNG；
+    成功则打包 PNG 并更新 Markdown 路径，失败则保留原始 JSON。
     """
     buf = io.BytesIO()
     md_content = md_path.read_text(encoding="utf-8")
 
-    # 修改 Markdown 中的图片路径为相对路径
+    # 修改 Markdown 中的图片路径为相对路径，并处理 plotly.json → PNG
     updated_md = md_content
+    png_cache: dict[str, bytes] = {}  # filename → png bytes
+
     for img in image_urls:
         old_url = img["url"]
-        new_url = f"images/{img['filename']}"
+        filename = img["filename"]
+
+        if filename.lower().endswith(".plotly.json"):
+            img_path = Path(img["path"])
+            png_data = _plotly_json_to_png_bytes(img_path) if img_path.exists() else None
+            if png_data:
+                # 成功：替换为 PNG
+                png_name = filename[: -len(".plotly.json")] + ".png"
+                png_cache[png_name] = png_data
+                new_url = f"images/{png_name}"
+            else:
+                # 失败：保留原始 JSON
+                new_url = f"images/{filename}"
+        else:
+            new_url = f"images/{filename}"
+
         updated_md = updated_md.replace(f"]({old_url})", f"]({new_url})")
 
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         # 添加修改后的 Markdown
         zf.writestr(md_path.name, updated_md.encode("utf-8"))
 
-        # 添加图片文件
+        # 添加转换后的 PNG 文件
+        for png_name, png_data in png_cache.items():
+            zf.writestr(f"images/{png_name}", png_data)
+
+        # 添加原始图片文件（跳过已转换为 PNG 的 plotly.json）
+        converted_plotly_names = set()
+        for png_name in png_cache:
+            # 反推原始 plotly.json 名称
+            base = png_name[: -len(".png")]
+            converted_plotly_names.add(f"{base}.plotly.json")
+
         for img in image_urls:
+            filename = img["filename"]
+            if filename in converted_plotly_names:
+                continue  # 已转为 PNG，跳过
             img_path = Path(img["path"])
             if img_path.exists():
-                zf.write(img_path, f"images/{img['filename']}")
+                zf.write(img_path, f"images/{filename}")
 
     return buf.getvalue()
 
