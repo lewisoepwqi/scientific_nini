@@ -25,6 +25,7 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 import statsmodels.api as sm
 
 from nini.agent.session import Session
+from nini.memory.compression import StatisticResult, get_analysis_memory
 from nini.skills.base import Skill, SkillResult
 
 # ---- 多重比较校正 ----
@@ -249,6 +250,37 @@ def _get_df(session: Session, name: str) -> pd.DataFrame | None:
     return session.datasets.get(name)
 
 
+def _record_stat_result(
+    session: Session,
+    dataset_name: str,
+    *,
+    test_name: str,
+    message: str,
+    test_statistic: float | None = None,
+    p_value: float | None = None,
+    degrees_of_freedom: int | None = None,
+    effect_size: float | None = None,
+    effect_type: str = "",
+    significant: bool = False,
+) -> None:
+    """将统计结果记录到 AnalysisMemory 和 KnowledgeMemory。"""
+    # AnalysisMemory
+    mem = get_analysis_memory(session.id, dataset_name)
+    mem.add_statistic(
+        StatisticResult(
+            test_name=test_name,
+            test_statistic=test_statistic,
+            p_value=p_value,
+            degrees_of_freedom=degrees_of_freedom,
+            effect_size=effect_size,
+            effect_type=effect_type,
+            significant=significant,
+        )
+    )
+    # KnowledgeMemory
+    session.knowledge_memory.append(test_name, message)
+
+
 # ---- T 检验 ----
 
 
@@ -384,6 +416,18 @@ class TTestSkill(Skill):
                     f"t({df_degrees:.0f}) = {stat:.3f}, p = {pval:.4f} ({sig}), "
                     f"Cohen's d = {cohens_d:.3f}"
                 )
+                _record_stat_result(
+                    session,
+                    name,
+                    test_name=str(result["test_type"]),
+                    message=msg,
+                    test_statistic=stat,
+                    p_value=pval,
+                    degrees_of_freedom=int(df_degrees),
+                    effect_size=_safe_float(cohens_d),
+                    effect_type="cohens_d",
+                    significant=bool(pval < 0.05),
+                )
 
             elif test_value is not None:
                 # 单样本 t 检验
@@ -414,6 +458,16 @@ class TTestSkill(Skill):
 
                 sig = "显著" if pval < 0.05 else "不显著"
                 msg = f"单样本 t 检验: t({df_degrees}) = {stat:.3f}, p = {pval:.4f} ({sig})"
+                _record_stat_result(
+                    session,
+                    name,
+                    test_name="单样本 t 检验",
+                    message=msg,
+                    test_statistic=stat,
+                    p_value=pval,
+                    degrees_of_freedom=int(df_degrees),
+                    significant=bool(pval < 0.05),
+                )
 
             else:
                 return SkillResult(
@@ -541,6 +595,18 @@ class ANOVASkill(Skill):
 
             sig = "显著" if pval < 0.05 else "不显著"
             msg = f"ANOVA: F({df_between}, {df_within}) = {f_stat:.3f}, p = {pval:.4f} ({sig}), η² = {eta_sq:.3f}"
+            _record_stat_result(
+                session,
+                name,
+                test_name="ANOVA",
+                message=msg,
+                test_statistic=_safe_float(f_stat),
+                p_value=_safe_float(pval),
+                degrees_of_freedom=df_between,
+                effect_size=_safe_float(eta_sq),
+                effect_type="eta_squared",
+                significant=bool(pval < 0.05),
+            )
 
             return SkillResult(success=True, data=result, message=msg)
 
@@ -642,11 +708,15 @@ class CorrelationSkill(Skill):
             "pvalue_matrix": pvalue_matrix,
         }
 
-        return SkillResult(
-            success=True,
-            data=result,
-            message=f"{method.title()} 相关性分析完成（{len(columns)} 个变量, n={len(data)}）",
+        msg = f"{method.title()} 相关性分析完成（{len(columns)} 个变量, n={len(data)}）"
+        _record_stat_result(
+            session,
+            name,
+            test_name=f"{method.title()} 相关性分析",
+            message=msg,
         )
+
+        return SkillResult(success=True, data=result, message=msg)
 
 
 # ---- 线性回归 ----
@@ -732,6 +802,17 @@ class RegressionSkill(Skill):
             msg = (
                 f"回归分析: R² = {model.rsquared:.4f}, "
                 f"F = {model.fvalue:.3f}, p = {model.f_pvalue:.4f}"
+            )
+            _record_stat_result(
+                session,
+                name,
+                test_name="线性回归",
+                message=msg,
+                test_statistic=_safe_float(model.fvalue),
+                p_value=_safe_float(model.f_pvalue),
+                effect_size=_safe_float(model.rsquared),
+                effect_type="r_squared",
+                significant=bool(model.f_pvalue < 0.05) if model.f_pvalue is not None else False,
             )
             return SkillResult(success=True, data=result, message=msg)
 
@@ -839,6 +920,17 @@ class MannWhitneySkill(Skill):
                 f"p = {pval:.4f} ({sig}), "
                 f"r = {r_effect:.3f}"
             )
+            _record_stat_result(
+                session,
+                name,
+                test_name="Mann-Whitney U 检验",
+                message=msg,
+                test_statistic=float(stat),
+                p_value=float(pval),
+                effect_size=_safe_float(r_effect),
+                effect_type="r",
+                significant=bool(pval < 0.05),
+            )
 
             return SkillResult(success=True, data=result, message=msg)
 
@@ -929,6 +1021,18 @@ class KruskalWallisSkill(Skill):
             msg = (
                 f"Kruskal-Wallis H 检验: H({k-1}) = {h_stat:.3f}, "
                 f"p = {pval:.4f} ({sig}), η² = {eta_squared:.3f}"
+            )
+            _record_stat_result(
+                session,
+                name,
+                test_name="Kruskal-Wallis H 检验",
+                message=msg,
+                test_statistic=float(h_stat),
+                p_value=float(pval),
+                degrees_of_freedom=k - 1,
+                effect_size=_safe_float(eta_squared),
+                effect_type="eta_squared",
+                significant=bool(pval < 0.05),
             )
 
             return SkillResult(success=True, data=result, message=msg)

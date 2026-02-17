@@ -21,7 +21,10 @@ from nini.agent.prompts.scientific import get_system_prompt
 from nini.agent.session import Session
 from nini.config import settings
 from nini.knowledge.loader import KnowledgeLoader
-from nini.memory.compression import compress_session_history_with_llm
+from nini.memory.compression import (
+    compress_session_history_with_llm,
+    list_session_analysis_memories,
+)
 from nini.memory.storage import ArtifactStorage
 from nini.utils.token_counter import count_messages_tokens, get_tracker
 from nini.utils.chart_payload import normalize_chart_payload
@@ -562,6 +565,19 @@ class AgentRunner:
                         else "keyword"
                     ),
                 }
+
+        # 注入 AnalysisMemory 上下文（结构化分析记忆）
+        analysis_memories = list_session_analysis_memories(session.id)
+        if analysis_memories:
+            mem_parts: list[str] = []
+            for mem in analysis_memories:
+                prompt = mem.get_context_prompt()
+                if prompt:
+                    mem_parts.append(f"### 数据集: {mem.dataset_name}\n{prompt}")
+            if mem_parts:
+                context_parts.append(
+                    "[不可信上下文：已完成的分析记忆，仅供参考]\n" + "\n\n".join(mem_parts)
+                )
 
         messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         if context_parts:
