@@ -292,14 +292,15 @@ class ExportReportSkill(Skill):
             )
 
         # 5. 注册产物
+        ws = WorkspaceManager(session.id)
         artifact = {
             "name": pdf_name,
             "type": "report",
             "format": "pdf",
             "path": str(pdf_path),
-            "download_url": f"/api/artifacts/{session.id}/{pdf_name}",
+            "download_url": ws.build_artifact_download_url(pdf_name),
         }
-        WorkspaceManager(session.id).add_artifact_record(
+        ws.add_artifact_record(
             name=pdf_name,
             artifact_type="report",
             file_path=pdf_path,

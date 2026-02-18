@@ -20,6 +20,17 @@ from nini.tools.registry import create_default_registry
 from nini.tools.visualization import CreateChartSkill
 
 
+@pytest.fixture(autouse=True)
+def _cleanup_event_loop() -> None:
+    """清理模块内可能残留的默认事件循环，避免 ResourceWarning。"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    yield
+    if not loop.is_closed():
+        loop.close()
+    asyncio.set_event_loop(None)
+
+
 def test_build_style_spec_from_template() -> None:
     """模板应正确映射到统一风格契约。"""
     spec = build_style_spec("nature")

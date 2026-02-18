@@ -214,7 +214,12 @@ def _collect_chart_artifacts(session_id: str, max_items: int = 12) -> list[dict[
             continue
         seen_names.add(dedupe_key)
 
-        url = str(item.get("download_url", "")).strip() or f"/api/artifacts/{session_id}/{name}"
+        url = str(item.get("download_url", "")).strip()
+        if not url:
+            url = manager.build_artifact_download_url(name)
+        elif url.startswith(f"/api/artifacts/{session_id}/"):
+            suffix = url.split(f"/api/artifacts/{session_id}/", 1)[-1]
+            url = manager.build_artifact_download_url(suffix)
         results.append(
             {
                 "name": name,
@@ -659,13 +664,14 @@ class GenerateReportSkill(Skill):
         if save_to_knowledge:
             session.knowledge_memory.append(title, preview_md)
 
+        ws = WorkspaceManager(session.id)
         artifact = {
             "name": output_name,
             "type": "report",
             "path": str(path),
-            "download_url": f"/api/artifacts/{session.id}/{output_name}",
+            "download_url": ws.build_artifact_download_url(output_name),
         }
-        WorkspaceManager(session.id).add_artifact_record(
+        ws.add_artifact_record(
             name=output_name,
             artifact_type="report",
             file_path=path,

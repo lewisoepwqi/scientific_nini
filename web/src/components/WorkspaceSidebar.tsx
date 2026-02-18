@@ -1,5 +1,5 @@
 /**
- * 独立工作区侧边栏 —— 右侧面板，包含 Tab 切换（文件 / 执行历史），支持列表/树状视图切换。
+ * 独立工作区侧边栏 —— 右侧面板，包含 Tab 切换（文件 / 执行历史 / 任务），支持列表/树状视图切换。
  */
 import { useState, useMemo, useCallback } from 'react'
 import { useStore } from '../store'
@@ -8,6 +8,7 @@ import FileTreeView from './FileTreeView'
 import ArtifactGallery from './ArtifactGallery'
 import CodeExecutionPanel from './CodeExecutionPanel'
 import FilePreviewPane from './FilePreviewPane'
+import AnalysisTasksPanel from './AnalysisTasksPanel'
 import {
   FolderOpen,
   Terminal,
@@ -19,12 +20,14 @@ import {
   LayoutGrid,
   Download,
   Loader2,
+  ListChecks,
 } from 'lucide-react'
 
 export default function WorkspaceSidebar() {
   const sessionId = useStore((s) => s.sessionId)
   const workspaceFiles = useStore((s) => s.workspaceFiles)
   const workspacePanelTab = useStore((s) => s.workspacePanelTab)
+  const analysisTasks = useStore((s) => s.analysisTasks)
   const previewTabs = useStore((s) => s.previewTabs)
   const previewFileId = useStore((s) => s.previewFileId)
   const fileSearchQuery = useStore((s) => s.fileSearchQuery)
@@ -202,6 +205,25 @@ export default function WorkspaceSidebar() {
           <Terminal size={13} />
           执行历史
         </button>
+        <button
+          onClick={() => {
+            setWorkspacePanelTab('tasks')
+            setActivePreview(null)
+          }}
+          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${
+            workspacePanelTab === 'tasks' && !previewFileId
+              ? 'text-blue-600 border-b-2 border-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <ListChecks size={13} />
+          任务
+          {analysisTasks.length > 0 && (
+            <span className="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full text-[10px] bg-blue-100 text-blue-700">
+              {analysisTasks.length}
+            </span>
+          )}
+        </button>
         {previewTabs.map((id) => (
           <button
             key={id}
@@ -317,6 +339,10 @@ export default function WorkspaceSidebar() {
 
         {!previewFileId && workspacePanelTab === 'executions' && (
           <CodeExecutionPanel />
+        )}
+
+        {!previewFileId && workspacePanelTab === 'tasks' && (
+          <AnalysisTasksPanel />
         )}
       </div>
     </div>

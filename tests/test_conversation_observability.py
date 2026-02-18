@@ -417,6 +417,21 @@ async def test_runner_attaches_action_tracking_metadata_and_retries_once() -> No
     assert tool_result_event.metadata.get("action_id") == tool_call_event.metadata.get("action_id")
     assert tool_result_event.metadata.get("retry_count") == 1
     assert tool_result_event.metadata.get("max_retries") == 1
+
+    attempt_events = [event for event in events if event.type == EventType.TASK_ATTEMPT]
+    assert len(attempt_events) >= 4
+    attempt_statuses = [
+        str(event.data.get("status")) for event in attempt_events if isinstance(event.data, dict)
+    ]
+    assert "in_progress" in attempt_statuses
+    assert "retrying" in attempt_statuses
+    assert "success" in attempt_statuses
+    latest_attempt_payload = (
+        attempt_events[-1].data if isinstance(attempt_events[-1].data, dict) else {}
+    )
+    assert latest_attempt_payload.get("attempt") == 2
+    assert latest_attempt_payload.get("max_attempts") == 2
+
     assert registry.calls == 2
 
 

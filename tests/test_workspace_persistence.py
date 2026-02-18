@@ -156,6 +156,23 @@ def test_download_artifact_supports_inline_disposition(client: LocalASGIClient) 
     assert inline_resp.content == b"%PDF-1.4"
 
 
+def test_download_plotly_artifact_supports_raw_json(client: LocalASGIClient) -> None:
+    create_resp = client.post("/api/sessions")
+    session_id = create_resp.json()["data"]["session_id"]
+
+    manager = WorkspaceManager(session_id)
+    manager.ensure_dirs()
+    filename = "带 空格.plotly.json"
+    artifact_path = manager.artifacts_dir / filename
+    artifact_path.write_text('{"data":[{"type":"bar","x":["A"],"y":[1]}]}', encoding="utf-8")
+
+    encoded = quote(filename, safe="")
+    raw_resp = client.get(f"/api/artifacts/{session_id}/{encoded}?raw=1")
+    assert raw_resp.status_code == 200
+    assert raw_resp.headers["content-disposition"].startswith("attachment;")
+    assert raw_resp.text == '{"data":[{"type":"bar","x":["A"],"y":[1]}]}'
+
+
 def test_workspace_artifact_download_url_not_double_encoded() -> None:
     session = session_manager.create_session()
     manager = WorkspaceManager(session.id)
@@ -180,3 +197,23 @@ def test_workspace_artifact_download_url_not_double_encoded() -> None:
     url = str(artifact["download_url"])
     assert "%E8%A1%80" in url
     assert "%25E8%A1%80" not in url
+
+
+def test_workspace_artifact_download_url_encodes_spaces() -> None:
+    session = session_manager.create_session()
+    manager = WorkspaceManager(session.id)
+    manager.ensure_dirs()
+    filename = "chart with 空格.plotly.json"
+    artifact_path = manager.artifacts_dir / filename
+    artifact_path.write_text("{}", encoding="utf-8")
+    record = manager.add_artifact_record(
+        name=filename,
+        artifact_type="chart",
+        file_path=artifact_path,
+        format_hint="json",
+    )
+
+    url = str(record["download_url"])
+    assert "/api/artifacts/" in url
+    assert "%20" in url
+    assert " " not in url

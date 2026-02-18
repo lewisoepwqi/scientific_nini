@@ -26,6 +26,33 @@ function normalizePathSegment(name: string): string {
   }
 }
 
+function normalizeArtifactUrl(url: string): string {
+  if (!url.startsWith('/api/artifacts/')) {
+    return url
+  }
+
+  const trimmed = url.trim()
+  const [withoutHash, hash = ''] = trimmed.split('#', 2)
+  const [withoutQuery, query = ''] = withoutHash.split('?', 2)
+  const match = withoutQuery.match(/^\/api\/artifacts\/([^/]+)\/(.+)$/)
+  if (!match) {
+    return trimmed
+  }
+  const [, sessionId, filename] = match
+  const normalizedPath = `/api/artifacts/${sessionId}/${normalizePathSegment(filename)}`
+  const queryPart = query ? `?${query}` : ''
+  const hashPart = hash ? `#${hash}` : ''
+  return `${normalizedPath}${queryPart}${hashPart}`
+}
+
+function normalizeMarkdownArtifactLinks(content: string): string {
+  // 修复 markdown 中未编码的 /api/artifacts/ 链接（中文/空格会导致解析失败，整行按文本显示）。
+  return content.replace(/(!?\[[^\]]*\])\((\/api\/artifacts\/[^)\n]+)\)/g, (_, label, rawUrl) => {
+    const normalizedUrl = normalizeArtifactUrl(rawUrl)
+    return `${label}(${normalizedUrl})`
+  })
+}
+
 /**
  * 转换图片路径为正确的 URL。
  * - 相对路径如 ./产物/xxx.png → /api/artifacts/{sessionId}/xxx.png
@@ -35,7 +62,7 @@ function normalizePathSegment(name: string): string {
 function resolveImageUrl(src: string, sessionId: string | null): string {
   // 已经是绝对 URL，直接返回
   if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('/')) {
-    return src
+    return normalizeArtifactUrl(src)
   }
 
   // 需要 sessionId 来转换相对路径
@@ -152,11 +179,12 @@ function checkForPlotly(node: ReactNode): boolean {
 export default function MarkdownContent({ content, className }: Props) {
   const sessionId = useStore((s) => s.sessionId)
   const components = useMemo(() => createMarkdownComponents(sessionId), [sessionId])
+  const normalizedContent = useMemo(() => normalizeMarkdownArtifactLinks(content), [content])
 
   return (
     <div className={className}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {content}
+        {normalizedContent}
       </ReactMarkdown>
     </div>
   )

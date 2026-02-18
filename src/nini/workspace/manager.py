@@ -58,6 +58,14 @@ class WorkspaceManager:
         cleaned = _SAFE_FILENAME_PATTERN.sub("_", raw).strip(" .")
         return cleaned or default_name
 
+    def build_artifact_download_url(self, filename: str) -> str:
+        """构建产物下载 URL（文件名统一做单次编码）。"""
+        try:
+            normalized = quote(unquote(filename), safe="")
+        except Exception:
+            normalized = quote(filename, safe="")
+        return f"/api/artifacts/{self.session_id}/{normalized}"
+
     def unique_dataset_name(self, preferred_name: str) -> str:
         entries = self.list_datasets()
         existing = {str(item.get("name", "")) for item in entries}
@@ -221,7 +229,7 @@ class WorkspaceManager:
             "type": artifact_type,
             "format": format_hint,
             "path": str(file_path),
-            "download_url": f"/api/artifacts/{self.session_id}/{name}",
+            "download_url": self.build_artifact_download_url(name),
             "created_at": _now_iso(),
             "visibility": visibility,
         }
@@ -323,12 +331,7 @@ class WorkspaceManager:
             download_url = raw_url
             if raw_url.startswith(f"/api/artifacts/{self.session_id}/"):
                 suffix = raw_url.split(f"/api/artifacts/{self.session_id}/", 1)[-1]
-                # 统一归一化为“编码一次”的文件名，避免 %25 双重编码。
-                try:
-                    normalized_suffix = quote(unquote(suffix), safe="")
-                except Exception:
-                    normalized_suffix = quote(suffix, safe="")
-                download_url = f"/api/artifacts/{self.session_id}/{normalized_suffix}"
+                download_url = self.build_artifact_download_url(suffix)
             files.append(
                 {
                     "id": item.get("id"),
@@ -454,7 +457,7 @@ class WorkspaceManager:
                         f"/api/workspace/{self.session_id}/uploads/{quote(fname)}"
                     )
                 elif kind == "artifacts":
-                    item["download_url"] = f"/api/artifacts/{self.session_id}/{quote(safe_name)}"
+                    item["download_url"] = self.build_artifact_download_url(safe_name)
                 elif kind == "notes":
                     item["download_url"] = (
                         f"/api/workspace/{self.session_id}/notes/{quote(safe_name)}"

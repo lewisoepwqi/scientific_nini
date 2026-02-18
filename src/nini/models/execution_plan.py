@@ -75,9 +75,6 @@ class ExecutionPlan(BaseModel):
     validation_errors: list[str] = Field(default_factory=list, description="验证错误列表")
     suggestions: list[str] = Field(default_factory=list, description="改进建议")
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
-
     def model_post_init(self, __context: Any) -> None:
         """初始化后验证。"""
         super().model_post_init(__context)

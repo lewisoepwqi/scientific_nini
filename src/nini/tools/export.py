@@ -207,14 +207,15 @@ class ExportChartSkill(Skill):
         fallback_message: str | None = None,
     ) -> SkillResult:
         """构建统一的导出结果。"""
+        ws = WorkspaceManager(session.id)
         artifact = {
             "name": full_name,
             "type": "chart",
             "format": fmt,
             "path": str(path),
-            "download_url": f"/api/artifacts/{session.id}/{full_name}",
+            "download_url": ws.build_artifact_download_url(full_name),
         }
-        WorkspaceManager(session.id).add_artifact_record(
+        ws.add_artifact_record(
             name=full_name,
             artifact_type="chart",
             file_path=path,
