@@ -126,13 +126,37 @@ class LocalWebSocketClient:
         if self._closed:
             return
         self._closed = True
-        self._loop.run_until_complete(self._ws.client_close())
-        if self._task is not None:
-            with suppress(asyncio.TimeoutError):
-                self._loop.run_until_complete(asyncio.wait_for(self._task, timeout=2.0))
-        if self._lifespan_cm is not None:
-            self._loop.run_until_complete(self._lifespan_cm.__aexit__(None, None, None))
-        self._loop.close()
+        try:
+            with suppress(Exception):
+                self._loop.run_until_complete(self._ws.client_close())
+
+            if self._task is not None:
+                if not self._task.done():
+                    self._task.cancel()
+                with suppress(asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                    self._loop.run_until_complete(asyncio.wait_for(self._task, timeout=2.0))
+
+            if self._lifespan_cm is not None:
+                with suppress(Exception):
+                    self._loop.run_until_complete(self._lifespan_cm.__aexit__(None, None, None))
+        finally:
+            if not self._loop.is_closed():
+                # 清理残留任务，防止事件循环泄漏告警
+                pending = asyncio.all_tasks(self._loop)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    with suppress(Exception):
+                        self._loop.run_until_complete(
+                            asyncio.gather(*pending, return_exceptions=True)
+                        )
+                with suppress(Exception):
+                    self._loop.run_until_complete(self._loop.shutdown_asyncgens())
+                self._loop.close()
+
+    def __del__(self) -> None:
+        with suppress(Exception):
+            self.close()
 
 
 @contextmanager

@@ -17,6 +17,26 @@ test.beforeEach(async ({ page }) => {
       fetchSent.push({ url, method: init?.method || 'GET' })
 
       if (url.startsWith('/api/')) {
+        if (url.startsWith('/api/artifacts/') && url.includes('.plotly.json')) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  type: 'bar',
+                  x: ['1h', '8h', '23h'],
+                  y: [3.2, 0.2, 3.4],
+                },
+              ],
+              layout: {
+                title: 'Plotly Markdown Chart',
+              },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          )
+        }
         if (url === '/api/sessions' && (!init?.method || init.method === 'GET')) {
           return new Response(JSON.stringify({ success: true, data: [] }), {
             status: 200,
@@ -98,6 +118,13 @@ test.beforeEach(async ({ page }) => {
             const content = String(payload.content ?? '')
             if (content.includes('slow')) {
               this.startSlowStream()
+            } else if (content.includes('plotly-markdown')) {
+              this.emit({
+                type: 'text',
+                data:
+                  '图表如下：\n\n![CCA1 基因表达量在不同样本类型中的分布](/api/artifacts/sess-e2e/CCA1 基因表达量在不同样本类型中的分布.plotly.json)\n',
+              })
+              this.emit({ type: 'done' })
             } else if (content.includes('retrieval')) {
               this.emit({
                 type: 'retrieval',
@@ -312,6 +339,16 @@ test('图表气泡应使用宽布局，不随文字长度收缩', async ({ page 
   expect(widths.chartWidth).toBeGreaterThan(0)
   // 图表气泡应显著宽于普通文本气泡，避免仅微小浮动导致误判
   expect(widths.chartWidth).toBeGreaterThan(widths.textWidth + 80)
+})
+
+test('markdown 中含空格的 plotly.json 链接应渲染图表而非原始文本', async ({ page }) => {
+  const input = page.getByPlaceholder('描述你的分析需求...')
+  await input.fill('plotly-markdown e2e test')
+  await input.press('Enter')
+
+  await expect(page.getByText('图表如下：')).toBeVisible()
+  await expect(page.locator('svg.main-svg').first()).toBeVisible()
+  await expect(page.getByText(/!\[CCA1 基因表达量在不同样本类型中的分布]/)).toHaveCount(0)
 })
 
 test('旧图表协议（figure 包装）应正常渲染且不显示空数据提示', async ({ page }) => {

@@ -200,7 +200,7 @@ class CreateChartSkill(Skill):
                 "type": "chart",
                 "format": "json",
                 "path": str(path),
-                "download_url": f"/api/artifacts/{session.id}/{output_name}",
+                "download_url": ws.build_artifact_download_url(output_name),
                 "render_engine": "plotly",
                 "style_key": style_spec.style_key,
             }
@@ -406,7 +406,7 @@ class CreateChartSkill(Skill):
                     "type": "chart",
                     "format": fmt,
                     "path": str(path),
-                    "download_url": f"/api/artifacts/{session.id}/{filename}",
+                    "download_url": ws.build_artifact_download_url(filename),
                     "render_engine": "matplotlib",
                     "style_key": style_spec.style_key,
                 }

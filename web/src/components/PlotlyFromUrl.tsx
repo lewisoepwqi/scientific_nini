@@ -11,6 +11,26 @@ interface Props {
   alt?: string
 }
 
+function buildPlotlyFetchUrl(url: string): string {
+  const clean = url.split('#')[0]?.split('?')[0]?.toLowerCase() || ''
+  if (!clean.endsWith('.plotly.json')) {
+    return url
+  }
+  try {
+    const parsed = new URL(url, window.location.origin)
+    if (!parsed.searchParams.has('raw')) {
+      parsed.searchParams.set('raw', '1')
+    }
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return parsed.toString()
+    }
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`
+  } catch {
+    const separator = url.includes('?') ? '&' : '?'
+    return `${url}${separator}raw=1`
+  }
+}
+
 export default function PlotlyFromUrl({ url, alt }: Props) {
   const [chartData, setChartData] = useState<unknown>(null)
   const [loading, setLoading] = useState(true)
@@ -31,7 +51,8 @@ export default function PlotlyFromUrl({ url, alt }: Props) {
     setLoading(true)
     setError(null)
 
-    fetch(url, { signal: controller.signal })
+    const fetchUrl = buildPlotlyFetchUrl(url)
+    fetch(fetchUrl, { signal: controller.signal })
       .then(async (resp) => {
         if (!resp.ok) {
           throw new Error(`HTTP ${resp.status}`)

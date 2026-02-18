@@ -10,6 +10,7 @@ import multiprocessing
 from multiprocessing.connection import Connection
 import os
 import pickle
+import sys
 import time
 import traceback
 from typing import Any
@@ -35,6 +36,14 @@ except Exception:  # pragma: no cover - Windows 等平台可能不存在
     resource = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
+
+
+def _format_exception_detail(exc: Exception) -> str:
+    """格式化异常信息，避免日志出现空白错误内容。"""
+    message = str(exc).strip()
+    if message:
+        return f"{exc.__class__.__name__}: {message}"
+    return repr(exc)
 
 
 def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -128,49 +137,83 @@ def _configure_chart_defaults() -> None:
         rcParams["lines.linewidth"] = style.line_width
     except ImportError as exc:
         logger.debug("Matplotlib 相关依赖不可用，跳过默认样式配置: %s", exc)
+    except MemoryError:
+        logger.debug("沙箱内存不足，跳过 Matplotlib 默认样式配置。")
     except Exception as exc:
-        logger.warning("配置 Matplotlib 默认样式失败，使用库默认配置: %s", exc)
+        logger.warning(
+            "配置 Matplotlib 默认样式失败，使用库默认配置: %s",
+            _format_exception_detail(exc),
+        )
+        logger.debug("Matplotlib 默认样式异常详情", exc_info=True)
 
-    # Plotly 默认样式
-    try:
-        import plotly.express as px
-        import plotly.graph_objects as go
-        import plotly.io as pio
+    # Plotly 默认样式（仅在 Plotly 已预加载时配置，避免低内存沙箱每次强行导入）
+    if any(
+        name in sys.modules
+        for name in ("plotly", "plotly.graph_objects", "plotly.express", "plotly.io")
+    ):
+        try:
+            import plotly.express as px
+            import plotly.graph_objects as go
+            import plotly.io as pio
 
-        template = go.layout.Template(pio.templates["plotly_white"])
-        template.layout.font = {
-            "family": CJK_FONT_FAMILY,
-            "size": style.font_size,
-            "color": style.text_color,
-        }
-        template.layout.colorway = list(style.colors)
-        template.layout.paper_bgcolor = style.background_color
-        template.layout.plot_bgcolor = style.background_color
-        template.layout.xaxis = {
-            "showline": True,
-            "linecolor": style.axis_color,
-            "ticks": "outside",
-            "tickcolor": style.axis_color,
-            "gridcolor": style.grid_color,
-            "zeroline": False,
-        }
-        template.layout.yaxis = {
-            "showline": True,
-            "linecolor": style.axis_color,
-            "ticks": "outside",
-            "tickcolor": style.axis_color,
-            "gridcolor": style.grid_color,
-            "zeroline": False,
-        }
+            base_template = (
+                pio.templates.get("plotly_white") if hasattr(pio.templates, "get") else None
+            )
+            if base_template is None:
+                base_template = getattr(pio.templates, "default", None)
+            try:
+                template = go.layout.Template(base_template)
+            except Exception:
+                template = go.layout.Template()
+            template.layout.font = {
+                "family": CJK_FONT_FAMILY,
+                "size": style.font_size,
+                "color": style.text_color,
+            }
+            template.layout.colorway = list(style.colors)
+            template.layout.paper_bgcolor = style.background_color
+            template.layout.plot_bgcolor = style.background_color
+            template.layout.xaxis = {
+                "showline": True,
+                "linecolor": style.axis_color,
+                "ticks": "outside",
+                "tickcolor": style.axis_color,
+                "gridcolor": style.grid_color,
+                "zeroline": False,
+            }
+            template.layout.yaxis = {
+                "showline": True,
+                "linecolor": style.axis_color,
+                "ticks": "outside",
+                "tickcolor": style.axis_color,
+                "gridcolor": style.grid_color,
+                "zeroline": False,
+            }
 
-        pio.templates["nini_science"] = template
-        pio.templates.default = "nini_science"
-        px.defaults.template = "nini_science"
-        px.defaults.color_discrete_sequence = list(style.colors)
-    except ImportError as exc:
-        logger.debug("Plotly 相关依赖不可用，跳过默认样式配置: %s", exc)
-    except Exception as exc:
-        logger.warning("配置 Plotly 默认样式失败，使用库默认配置: %s", exc)
+            pio.templates["nini_science"] = template
+            pio.templates.default = "nini_science"
+            px.defaults.template = "nini_science"
+            px.defaults.color_discrete_sequence = list(style.colors)
+        except ImportError as exc:
+            logger.debug("Plotly 相关依赖不可用，跳过默认样式配置: %s", exc)
+        except MemoryError:
+            # 在低内存沙箱中，Plotly 初始化可能触发 MemoryError；此时直接降级静默跳过。
+            logger.debug("沙箱内存不足，跳过 Plotly 默认样式配置。")
+        except OSError as exc:
+            if getattr(exc, "errno", None) == 12:
+                logger.debug("沙箱内存不足（OSError 12），跳过 Plotly 默认样式配置。")
+            else:
+                logger.warning(
+                    "配置 Plotly 默认样式失败，使用库默认配置: %s",
+                    _format_exception_detail(exc),
+                )
+                logger.debug("Plotly 默认样式异常详情", exc_info=True)
+        except Exception as exc:
+            logger.warning(
+                "配置 Plotly 默认样式失败，使用库默认配置: %s",
+                _format_exception_detail(exc),
+            )
+            logger.debug("Plotly 默认样式异常详情", exc_info=True)
 
 
 def _safe_copy_datasets(datasets: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
@@ -192,12 +235,9 @@ def _set_resource_limits(timeout_seconds: int, max_memory_mb: int) -> None:
             usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
             # Linux ru_maxrss 单位是 KB，macOS 是 Byte；统一转换为 MB
             usage_mb = usage / 1024 if usage > 10_000 else usage / (1024 * 1024)
-            # 给运行时和序列化留出缓冲，避免进程尚未执行业务代码就触发 OOM。
-            # 低于 1GB 的配置也应生效：当请求上限较小时，至少保证当前占用 + 256MB 缓冲。
-            if int(max_memory_mb) < 1024:
-                effective_limit_mb = max(int(max_memory_mb), int(usage_mb) + 256)
-            else:
-                effective_limit_mb = max(int(max_memory_mb), int(usage_mb) + 512)
+            # 给运行时、动态库加载和序列化留出充足缓冲，避免导入科学计算库时误触 OOM。
+            # AS 限制对共享库映射较敏感：在 spawn 子进程中需预留更大虚拟内存缓冲。
+            effective_limit_mb = max(int(max_memory_mb), int(usage_mb) + 4096)
             mem_limit = effective_limit_mb * 1024 * 1024
             resource.setrlimit(resource.RLIMIT_AS, (mem_limit, mem_limit))
     except Exception:
@@ -235,7 +275,7 @@ def _build_exec_globals(datasets: dict[str, pd.DataFrame]) -> dict[str, Any]:
     try:
         import matplotlib.pyplot as plt
         import matplotlib
-    except ImportError:
+    except Exception:
         pass
 
     sns: Any | None = None
@@ -243,19 +283,17 @@ def _build_exec_globals(datasets: dict[str, pd.DataFrame]) -> dict[str, Any]:
         import seaborn as _sns
 
         sns = _sns
-    except ImportError:
+    except Exception:
         pass
 
     go: Any | None = None
     px: Any | None = None
-    try:
-        import plotly.graph_objects as _go
-        import plotly.express as _px
-
-        go = _go
-        px = _px
-    except ImportError:
-        pass
+    # 仅在 Plotly 已被预加载时注入快捷别名，避免每次执行都导入大型依赖。
+    _go_mod = sys.modules.get("plotly.graph_objects")
+    _px_mod = sys.modules.get("plotly.express")
+    if _go_mod is not None and _px_mod is not None:
+        go = _go_mod
+        px = _px_mod
 
     globals_dict: dict[str, Any] = {
         "__builtins__": SAFE_BUILTINS,
@@ -315,21 +353,15 @@ def _collect_figures(
     # 尝试导入图表库（子进程启动代码不受 AST 白名单限制）
     plotly_figure_cls = None
     mpl_figure_cls = None
-    try:
-        import plotly.graph_objects as go
-
-        plotly_figure_cls = go.Figure
-    except Exception:
-        pass
+    go_mod = sys.modules.get("plotly.graph_objects")
+    if go_mod is not None:
+        plotly_figure_cls = getattr(go_mod, "Figure", None)
     try:
         import matplotlib.figure
 
         mpl_figure_cls = matplotlib.figure.Figure
     except Exception:
         pass
-
-    if plotly_figure_cls is None and mpl_figure_cls is None:
-        return figures
 
     # 合并两个命名空间，优先 exec_locals
     combined: dict[str, Any] = {}
@@ -356,8 +388,19 @@ def _collect_figures(
         if obj_id in seen_ids:
             continue
 
-        # Plotly Figure
-        if plotly_figure_cls is not None and isinstance(obj, plotly_figure_cls):
+        # Plotly Figure（避免主动导入 plotly，基于对象特征检测）
+        obj_module = getattr(getattr(obj, "__class__", None), "__module__", "")
+        is_plotly_figure = (
+            (plotly_figure_cls is not None and isinstance(obj, plotly_figure_cls))
+            or
+            (
+            isinstance(obj_module, str)
+            and obj_module.startswith("plotly")
+            and hasattr(obj, "to_json")
+            and hasattr(obj, "layout")
+            )
+        )
+        if is_plotly_figure:
             seen_ids.add(obj_id)
             try:
                 apply_plotly_cjk_font_fallback(obj)

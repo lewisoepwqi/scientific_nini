@@ -72,6 +72,7 @@ export interface AnalysisStep {
   tool_hint: string | null;
   status: PlanStepStatus;
   raw_status?: string;
+  action_id?: string | null;
 }
 
 export interface AnalysisPlanData {
@@ -87,6 +88,39 @@ export interface AnalysisPlanProgress {
   step_status: PlanStepStatus;
   next_hint: string | null;
   block_reason: string | null;
+}
+
+export type AnalysisTaskAttemptStatus =
+  | "in_progress"
+  | "retrying"
+  | "success"
+  | "failed";
+
+export interface AnalysisTaskAttempt {
+  id: string;
+  tool_name: string;
+  attempt: number;
+  max_attempts: number;
+  status: AnalysisTaskAttemptStatus;
+  note: string | null;
+  error: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AnalysisTaskItem {
+  id: string;
+  plan_step_id: number;
+  action_id: string | null;
+  title: string;
+  tool_hint: string | null;
+  status: PlanStepStatus;
+  raw_status?: string;
+  current_activity: string | null;
+  last_error: string | null;
+  attempts: AnalysisTaskAttempt[];
+  created_at: number;
+  updated_at: number;
 }
 
 export interface Message {
@@ -192,12 +226,13 @@ interface AppState {
 
   // 工作区面板状态
   workspacePanelOpen: boolean;
-  workspacePanelTab: "files" | "executions";
+  workspacePanelTab: "files" | "executions" | "tasks";
   fileSearchQuery: string;
   previewTabs: string[];
   previewFileId: string | null;
   codeExecutions: CodeExecution[];
   workspaceFolders: WorkspaceFolder[];
+  analysisTasks: AnalysisTaskItem[];
   isUploading: boolean;
   uploadProgress: number;
   uploadingFileName: string | null;
@@ -214,6 +249,8 @@ interface AppState {
   _activePlanMsgId: string | null;
   analysisPlanProgress: AnalysisPlanProgress | null;
   _analysisPlanOrder: number;
+  _activePlanTaskIds: Array<string | null>;
+  _planActionTaskMap: Record<string, string>;
 
   // 操作
   connect: () => void;
@@ -240,8 +277,10 @@ interface AppState {
 
   // 工作区面板操作
   toggleWorkspacePanel: () => void;
-  setWorkspacePanelTab: (tab: "files" | "executions") => void;
+  setWorkspacePanelTab: (tab: "files" | "executions" | "tasks") => void;
   setFileSearchQuery: (query: string) => void;
+  deleteAnalysisTask: (taskId: string) => void;
+  clearAnalysisTasks: () => void;
   deleteWorkspaceFile: (fileId: string) => Promise<void>;
   renameWorkspaceFile: (fileId: string, newName: string) => Promise<void>;
   openPreview: (fileId: string) => void;
@@ -259,6 +298,16 @@ interface AppState {
 let msgCounter = 0;
 function nextId(): string {
   return `msg-${Date.now()}-${++msgCounter}`;
+}
+
+let analysisTaskCounter = 0;
+function nextAnalysisTaskId(): string {
+  return `task-${Date.now()}-${++analysisTaskCounter}`;
+}
+
+let analysisAttemptCounter = 0;
+function nextAnalysisAttemptId(): string {
+  return `attempt-${Date.now()}-${++analysisAttemptCounter}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -303,6 +352,23 @@ function normalizePlanStepStatus(raw: unknown): PlanStepStatus {
       return "blocked";
     default:
       return "not_started";
+  }
+}
+
+function normalizeTaskAttemptStatus(raw: unknown): AnalysisTaskAttemptStatus {
+  if (typeof raw !== "string") return "in_progress";
+  const normalized = raw.trim().toLowerCase();
+  switch (normalized) {
+    case "retrying":
+      return "retrying";
+    case "success":
+    case "done":
+      return "success";
+    case "failed":
+    case "error":
+      return "failed";
+    default:
+      return "in_progress";
   }
 }
 
@@ -406,6 +472,10 @@ function normalizeAnalysisSteps(rawSteps: unknown): AnalysisStep[] {
         tool_hint: toolHint,
         status,
         raw_status: typeof item.status === "string" ? item.status : undefined,
+        action_id:
+          typeof item.action_id === "string" && item.action_id.trim()
+            ? item.action_id.trim()
+            : null,
       };
     })
     .sort((a, b) => a.id - b.id);
@@ -452,6 +522,107 @@ function makePlanProgressFromSteps(
 
 function areAllPlanStepsDone(steps: AnalysisStep[]): boolean {
   return steps.length > 0 && steps.every((step) => step.status === "done");
+}
+
+function updateAnalysisTaskById(
+  tasks: AnalysisTaskItem[],
+  taskId: string | null | undefined,
+  patch: Partial<
+    Pick<
+      AnalysisTaskItem,
+      "title" | "status" | "raw_status" | "action_id" | "current_activity" | "last_error"
+    >
+  >,
+): AnalysisTaskItem[] {
+  if (!taskId) return tasks;
+  const idx = tasks.findIndex((task) => task.id === taskId);
+  if (idx < 0) return tasks;
+  const next = [...tasks];
+  const normalizedPatch = Object.fromEntries(
+    Object.entries(patch).filter(([, value]) => value !== undefined),
+  ) as Partial<AnalysisTaskItem>;
+  next[idx] = {
+    ...next[idx],
+    ...normalizedPatch,
+    updated_at: Date.now(),
+  };
+  return next;
+}
+
+function updateAnalysisTaskWithAttempt(
+  tasks: AnalysisTaskItem[],
+  taskId: string | null | undefined,
+  payload: {
+    action_id?: string | null;
+    tool_name: string;
+    attempt: number;
+    max_attempts: number;
+    status: AnalysisTaskAttemptStatus;
+    note?: string | null;
+    error?: string | null;
+  },
+): AnalysisTaskItem[] {
+  if (!taskId) return tasks;
+  const idx = tasks.findIndex((task) => task.id === taskId);
+  if (idx < 0) return tasks;
+
+  const task = tasks[idx];
+  const now = Date.now();
+  const existingAttemptIdx = task.attempts.findIndex(
+    (item) => item.attempt === payload.attempt,
+  );
+  const attempts = [...task.attempts];
+  if (existingAttemptIdx >= 0) {
+    attempts[existingAttemptIdx] = {
+      ...attempts[existingAttemptIdx],
+      tool_name: payload.tool_name,
+      max_attempts: payload.max_attempts,
+      status: payload.status,
+      note:
+        payload.note !== undefined
+          ? payload.note
+          : attempts[existingAttemptIdx].note,
+      error:
+        payload.error !== undefined
+          ? payload.error
+          : attempts[existingAttemptIdx].error,
+      updated_at: now,
+    };
+  } else {
+    attempts.push({
+      id: nextAnalysisAttemptId(),
+      tool_name: payload.tool_name,
+      attempt: payload.attempt,
+      max_attempts: payload.max_attempts,
+      status: payload.status,
+      note: payload.note ?? null,
+      error: payload.error ?? null,
+      created_at: now,
+      updated_at: now,
+    });
+    attempts.sort((a, b) => a.attempt - b.attempt);
+  }
+
+  const nextStatus: PlanStepStatus =
+    payload.status === "failed"
+      ? "failed"
+      : payload.status === "success"
+        ? "in_progress"
+        : "in_progress";
+
+  const next = [...tasks];
+  next[idx] = {
+    ...task,
+    action_id: payload.action_id ?? task.action_id,
+    status: mergePlanStepStatus(task.status, nextStatus),
+    current_activity:
+      payload.note ??
+      `正在执行 ${payload.tool_name}（第 ${payload.attempt}/${payload.max_attempts} 次）`,
+    last_error: payload.error ?? (payload.status === "success" ? null : task.last_error),
+    attempts,
+    updated_at: now,
+  };
+  return next;
 }
 
 function applyPlanStepUpdateToProgress(
@@ -624,6 +795,7 @@ export const useStore = create<AppState>((set, get) => ({
   previewFileId: null,
   codeExecutions: [],
   workspaceFolders: [],
+  analysisTasks: [],
   isUploading: false,
   uploadProgress: 0,
   uploadingFileName: null,
@@ -636,6 +808,8 @@ export const useStore = create<AppState>((set, get) => ({
   _activePlanMsgId: null,
   analysisPlanProgress: null,
   _analysisPlanOrder: 0,
+  _activePlanTaskIds: [],
+  _planActionTaskMap: {},
 
   connect() {
     const existing = get().ws;
@@ -781,6 +955,8 @@ export const useStore = create<AppState>((set, get) => ({
       _streamingText: "",
       _analysisPlanOrder: 0,
       analysisPlanProgress: null,
+      _activePlanTaskIds: [],
+      _planActionTaskMap: {},
     });
   },
 
@@ -803,6 +979,8 @@ export const useStore = create<AppState>((set, get) => ({
       _streamingText: "",
       _currentTurnId: null,
       _activePlanMsgId: null,
+      _activePlanTaskIds: [],
+      _planActionTaskMap: {},
     });
   },
 
@@ -833,6 +1011,8 @@ export const useStore = create<AppState>((set, get) => ({
       _activePlanMsgId: null,
       _analysisPlanOrder: 0,
       analysisPlanProgress: null,
+      _activePlanTaskIds: [],
+      _planActionTaskMap: {},
     });
 
     ws.send(
@@ -939,6 +1119,9 @@ export const useStore = create<AppState>((set, get) => ({
       _activePlanMsgId: null,
       _analysisPlanOrder: 0,
       analysisPlanProgress: null,
+      _activePlanTaskIds: [],
+      _planActionTaskMap: {},
+      analysisTasks: [],
     });
   },
 
@@ -1083,6 +1266,9 @@ export const useStore = create<AppState>((set, get) => ({
         _activePlanMsgId: null,
         _analysisPlanOrder: 0,
         analysisPlanProgress: null,
+        _activePlanTaskIds: [],
+        _planActionTaskMap: {},
+        analysisTasks: [],
       });
       // 清除保存的 session_id（新会话不需要恢复）
       localStorage.removeItem("nini_last_session_id");
@@ -1113,6 +1299,9 @@ export const useStore = create<AppState>((set, get) => ({
           _activePlanMsgId: null,
           _analysisPlanOrder: 0,
           analysisPlanProgress: null,
+          _activePlanTaskIds: [],
+          _planActionTaskMap: {},
+          analysisTasks: [],
         });
         await get().fetchDatasets();
         await get().fetchWorkspaceFiles();
@@ -1139,6 +1328,9 @@ export const useStore = create<AppState>((set, get) => ({
         _activePlanMsgId: null,
         _analysisPlanOrder: 0,
         analysisPlanProgress: null,
+        _activePlanTaskIds: [],
+        _planActionTaskMap: {},
+        analysisTasks: [],
       });
       // 保存当前会话 ID 到 localStorage
       localStorage.setItem("nini_last_session_id", targetSessionId);
@@ -1170,6 +1362,9 @@ export const useStore = create<AppState>((set, get) => ({
           _activePlanMsgId: null,
           _analysisPlanOrder: 0,
           analysisPlanProgress: null,
+          _activePlanTaskIds: [],
+          _planActionTaskMap: {},
+          analysisTasks: [],
         });
       }
       // 刷新会话列表
@@ -1273,12 +1468,39 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => ({ workspacePanelOpen: !s.workspacePanelOpen }));
   },
 
-  setWorkspacePanelTab(tab: "files" | "executions") {
+  setWorkspacePanelTab(tab: "files" | "executions" | "tasks") {
     set({ workspacePanelTab: tab });
   },
 
   setFileSearchQuery(query: string) {
     set({ fileSearchQuery: query });
+  },
+
+  deleteAnalysisTask(taskId: string) {
+    set((s) => {
+      const nextTasks = s.analysisTasks.filter((task) => task.id !== taskId);
+      if (nextTasks.length === s.analysisTasks.length) return {};
+      const nextActionMap = Object.fromEntries(
+        Object.entries(s._planActionTaskMap).filter(([, mappedTaskId]) => mappedTaskId !== taskId),
+      );
+      return {
+        analysisTasks: nextTasks,
+        _activePlanTaskIds: s._activePlanTaskIds.map((id) =>
+          id === taskId ? null : id,
+        ),
+        _planActionTaskMap: nextActionMap,
+      };
+    });
+  },
+
+  clearAnalysisTasks() {
+    set({
+      analysisTasks: [],
+      _activePlanTaskIds: [],
+      _planActionTaskMap: {},
+      analysisPlanProgress: null,
+      _activePlanMsgId: null,
+    });
   },
 
   async deleteWorkspaceFile(fileId: string) {
@@ -1742,10 +1964,39 @@ function handleEvent(
       };
       set((s) => {
         if (eventOrder < s._analysisPlanOrder) return {};
+        const now = Date.now();
+        const appendedTasks: AnalysisTaskItem[] = steps.map((step) => ({
+          id: nextAnalysisTaskId(),
+          plan_step_id: step.id,
+          action_id: step.action_id ?? null,
+          title: step.title,
+          tool_hint: step.tool_hint,
+          status: step.status,
+          raw_status: step.raw_status,
+          current_activity: null,
+          last_error: null,
+          attempts: [],
+          created_at: now,
+          updated_at: now,
+        }));
+        const actionMap = {
+          ...s._planActionTaskMap,
+          ...Object.fromEntries(
+            appendedTasks
+              .filter((task) => typeof task.action_id === "string" && task.action_id)
+              .map((task) => [task.action_id as string, task.id]),
+          ),
+        };
         return {
           messages: [...s.messages, msg],
           _activePlanMsgId: msgId,
           analysisPlanProgress: makePlanProgressFromSteps(steps, rawText),
+          analysisTasks: [...s.analysisTasks, ...appendedTasks],
+          _activePlanTaskIds: appendedTasks.map((task) => task.id),
+          _planActionTaskMap: actionMap,
+          workspacePanelOpen: true,
+          workspacePanelTab: "tasks",
+          previewFileId: null,
           _analysisPlanOrder: eventOrder,
         };
       });
@@ -1770,6 +2021,7 @@ function handleEvent(
         const msgs = [...s.messages];
         let updatedSteps: AnalysisStep[] = [];
         let rawText = "";
+        const normalizedStatus = normalizePlanStepStatus(stepStatus);
         if (planMsgId) {
           const idx = msgs.findIndex((m) => m.id === planMsgId);
           if (idx >= 0 && msgs[idx].analysisPlan) {
@@ -1779,10 +2031,7 @@ function handleEvent(
               step.id === stepId
                 ? {
                     ...step,
-                    status: mergePlanStepStatus(
-                      step.status,
-                      normalizePlanStepStatus(stepStatus),
-                    ),
+                    status: mergePlanStepStatus(step.status, normalizedStatus),
                     raw_status:
                       typeof stepStatus === "string" ? stepStatus : step.raw_status,
                   }
@@ -1794,6 +2043,35 @@ function handleEvent(
             };
           }
         }
+
+        const taskId =
+          stepId > 0 && stepId <= s._activePlanTaskIds.length
+            ? s._activePlanTaskIds[stepId - 1]
+            : null;
+        const currentTask = taskId
+          ? s.analysisTasks.find((task) => task.id === taskId)
+          : undefined;
+        const mergedTaskStatus = currentTask
+          ? mergePlanStepStatus(currentTask.status, normalizedStatus)
+          : normalizedStatus;
+        const nextTasks = updateAnalysisTaskById(s.analysisTasks, taskId, {
+          status: mergedTaskStatus,
+          raw_status: typeof stepStatus === "string" ? stepStatus : undefined,
+          current_activity:
+            normalizedStatus === "done"
+              ? "步骤已完成"
+              : normalizedStatus === "failed"
+                ? "步骤执行失败"
+                : normalizedStatus === "blocked"
+                  ? "步骤已阻塞"
+                  : "步骤执行中",
+          last_error:
+            normalizedStatus === "failed" && typeof data.error === "string"
+              ? data.error
+              : normalizedStatus === "done"
+                ? null
+                : undefined,
+        });
 
         const currentProgress =
           s.analysisPlanProgress ??
@@ -1808,6 +2086,7 @@ function handleEvent(
             stepId,
             stepStatus,
           ),
+          analysisTasks: nextTasks,
           _analysisPlanOrder: eventOrder,
         };
       });
@@ -1822,9 +2101,107 @@ function handleEvent(
         if (eventOrder < s._analysisPlanOrder) return {};
         const nextProgress = applyPlanProgressPayload(s.analysisPlanProgress, data);
         if (!nextProgress) return {};
+        const stepId = nextProgress.current_step_index;
+        const taskId =
+          stepId > 0 && stepId <= s._activePlanTaskIds.length
+            ? s._activePlanTaskIds[stepId - 1]
+            : null;
+        const currentTask = taskId
+          ? s.analysisTasks.find((task) => task.id === taskId)
+          : undefined;
+        const mergedTaskStatus = currentTask
+          ? mergePlanStepStatus(currentTask.status, nextProgress.step_status)
+          : nextProgress.step_status;
+        const nextTasks = updateAnalysisTaskById(s.analysisTasks, taskId, {
+          title: nextProgress.step_title,
+          status: mergedTaskStatus,
+          current_activity:
+            nextProgress.step_status === "done"
+              ? "步骤已完成"
+              : nextProgress.step_status === "failed"
+                ? "步骤执行失败"
+                : nextProgress.step_status === "blocked"
+                  ? "步骤已阻塞"
+                  : nextProgress.step_status === "in_progress"
+                    ? "步骤执行中"
+                    : "等待执行",
+          last_error:
+            nextProgress.step_status === "failed"
+              ? nextProgress.block_reason || undefined
+              : nextProgress.step_status === "done"
+                ? null
+                : undefined,
+        });
         return {
           analysisPlanProgress: nextProgress,
+          analysisTasks: nextTasks,
           _analysisPlanOrder: eventOrder,
+        };
+      });
+      break;
+    }
+
+    case "task_attempt": {
+      const data = isRecord(evt.data) ? evt.data : null;
+      if (!data) break;
+      set((s) => {
+        const actionId =
+          typeof data.action_id === "string" && data.action_id.trim()
+            ? data.action_id.trim()
+            : null;
+        const stepId =
+          typeof data.step_id === "number" && Number.isFinite(data.step_id)
+            ? Math.floor(data.step_id)
+            : null;
+        const toolName =
+          typeof data.tool_name === "string" && data.tool_name.trim()
+            ? data.tool_name.trim()
+            : evt.tool_name || "tool";
+        const attempt =
+          typeof data.attempt === "number" && Number.isFinite(data.attempt) && data.attempt > 0
+            ? Math.floor(data.attempt)
+            : 1;
+        const maxAttempts =
+          typeof data.max_attempts === "number" &&
+          Number.isFinite(data.max_attempts) &&
+          data.max_attempts > 0
+            ? Math.floor(data.max_attempts)
+            : Math.max(attempt, 1);
+        const attemptStatus = normalizeTaskAttemptStatus(data.status);
+        const note =
+          typeof data.note === "string" && data.note.trim() ? data.note.trim() : null;
+        const error =
+          typeof data.error === "string" && data.error.trim() ? data.error.trim() : null;
+
+        let taskId: string | null = null;
+        if (actionId && s._planActionTaskMap[actionId]) {
+          taskId = s._planActionTaskMap[actionId];
+        } else if (stepId && stepId > 0 && stepId <= s._activePlanTaskIds.length) {
+          taskId = s._activePlanTaskIds[stepId - 1] ?? null;
+        } else if (stepId) {
+          const fallback = [...s.analysisTasks]
+            .reverse()
+            .find((task) => task.plan_step_id === stepId);
+          taskId = fallback?.id || null;
+        }
+        if (!taskId) return {};
+
+        const nextTasks = updateAnalysisTaskWithAttempt(s.analysisTasks, taskId, {
+          action_id: actionId,
+          tool_name: toolName,
+          attempt,
+          max_attempts: maxAttempts,
+          status: attemptStatus,
+          note,
+          error,
+        });
+        const nextActionMap =
+          actionId && actionId !== ""
+            ? { ...s._planActionTaskMap, [actionId]: taskId }
+            : s._planActionTaskMap;
+        return {
+          analysisTasks: nextTasks,
+          _planActionTaskMap: nextActionMap,
         };
       });
       break;
@@ -2102,7 +2479,24 @@ function handleEvent(
     case "done":
       set((s) => {
         let progress = s.analysisPlanProgress;
+        let tasks = s.analysisTasks;
         if (progress && progress.step_status === "in_progress") {
+          const taskId =
+            progress.current_step_index > 0 &&
+            progress.current_step_index <= s._activePlanTaskIds.length
+              ? s._activePlanTaskIds[progress.current_step_index - 1]
+              : null;
+          const currentTask = taskId
+            ? tasks.find((task) => task.id === taskId)
+            : undefined;
+          const mergedStatus = currentTask
+            ? mergePlanStepStatus(currentTask.status, "done")
+            : "done";
+          tasks = updateAnalysisTaskById(tasks, taskId, {
+            status: mergedStatus,
+            current_activity: "步骤已完成",
+            last_error: null,
+          });
           progress = applyPlanStepUpdateToProgress(
             progress,
             progress.current_step_index,
@@ -2122,7 +2516,10 @@ function handleEvent(
           _streamingText: "",
           _currentTurnId: null,
           _activePlanMsgId: null,
+          _activePlanTaskIds: [],
+          _planActionTaskMap: {},
           analysisPlanProgress: progress,
+          analysisTasks: tasks,
         };
       });
       // 对话结束后刷新会话列表（更新消息计数）
@@ -2132,7 +2529,23 @@ function handleEvent(
     case "stopped":
       set((s) => {
         let progress = s.analysisPlanProgress;
+        let tasks = s.analysisTasks;
         if (progress && progress.step_status === "in_progress") {
+          const taskId =
+            progress.current_step_index > 0 &&
+            progress.current_step_index <= s._activePlanTaskIds.length
+              ? s._activePlanTaskIds[progress.current_step_index - 1]
+              : null;
+          const currentTask = taskId
+            ? tasks.find((task) => task.id === taskId)
+            : undefined;
+          const mergedStatus = currentTask
+            ? mergePlanStepStatus(currentTask.status, "blocked")
+            : "blocked";
+          tasks = updateAnalysisTaskById(tasks, taskId, {
+            status: mergedStatus,
+            current_activity: "步骤已阻塞",
+          });
           const idx = progress.current_step_index - 1;
           const steps: AnalysisStep[] = progress.steps.map((step, stepIdx) =>
             stepIdx === idx ? { ...step, status: "blocked" } : step,
@@ -2150,7 +2563,10 @@ function handleEvent(
           _streamingText: "",
           _currentTurnId: null,
           _activePlanMsgId: null,
+          _activePlanTaskIds: [],
+          _planActionTaskMap: {},
           analysisPlanProgress: progress,
+          analysisTasks: tasks,
         };
       });
       break;
@@ -2168,6 +2584,30 @@ function handleEvent(
         _streamingText: "",
         _currentTurnId: null,
         _activePlanMsgId: null,
+        _activePlanTaskIds: [],
+        _planActionTaskMap: {},
+        analysisTasks: (() => {
+          const progress = s.analysisPlanProgress;
+          if (!progress || progress.step_status !== "in_progress") {
+            return s.analysisTasks;
+          }
+          const taskId =
+            progress.current_step_index > 0 &&
+            progress.current_step_index <= s._activePlanTaskIds.length
+              ? s._activePlanTaskIds[progress.current_step_index - 1]
+              : null;
+          const currentTask = taskId
+            ? s.analysisTasks.find((task) => task.id === taskId)
+            : undefined;
+          const mergedStatus = currentTask
+            ? mergePlanStepStatus(currentTask.status, "failed")
+            : "failed";
+          return updateAnalysisTaskById(s.analysisTasks, taskId, {
+            status: mergedStatus,
+            current_activity: "步骤执行失败",
+            last_error: typeof evt.data === "string" ? evt.data : undefined,
+          });
+        })(),
         analysisPlanProgress: (() => {
           const progress = s.analysisPlanProgress;
           if (!progress || progress.step_status !== "in_progress") return progress;

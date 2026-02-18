@@ -272,6 +272,39 @@ class AgentRunner:
                 metadata={"seq": plan_event_seq},
             )
 
+        def _new_task_attempt_event(
+            *,
+            step_id: int | None,
+            action_id: str | None,
+            tool_name: str,
+            attempt: int,
+            max_attempts: int,
+            status: str,
+            error: str | None = None,
+            note: str | None = None,
+        ) -> AgentEvent:
+            """创建任务尝试事件（attempt 级别），用于前端展示重试轨迹。"""
+            nonlocal plan_event_seq
+            plan_event_seq += 1
+            payload: dict[str, Any] = {
+                "step_id": step_id,
+                "action_id": action_id,
+                "tool_name": tool_name,
+                "attempt": attempt,
+                "max_attempts": max_attempts,
+                "status": status,
+            }
+            if error:
+                payload["error"] = error
+            if note:
+                payload["note"] = note
+            return AgentEvent(
+                type=EventType.TASK_ATTEMPT,
+                data=payload,
+                turn_id=turn_id,
+                metadata={"seq": plan_event_seq},
+            )
+
         # 自动上下文压缩检查
         compress_event = await self._maybe_auto_compress(session)
         if compress_event is not None:
@@ -567,13 +600,71 @@ class AgentRunner:
                     if matched_action_id
                     else 0
                 )
+                max_attempts = max_retries + 1
+                matched_step_id = (
+                    active_plan.steps[matched_step_idx].id
+                    if active_plan is not None and matched_step_idx is not None
+                    else None
+                )
                 while True:
+                    attempt_no = retry_attempt + 1
+                    yield _new_task_attempt_event(
+                        step_id=matched_step_id,
+                        action_id=matched_action_id,
+                        tool_name=func_name,
+                        attempt=attempt_no,
+                        max_attempts=max_attempts,
+                        status="in_progress",
+                        note=f"第 {attempt_no}/{max_attempts} 次尝试执行 {func_name}",
+                    )
+
                     result = await self._execute_tool(session, func_name, func_args)
                     has_error = isinstance(result, dict) and (
                         result.get("error") or result.get("success") is False
                     )
-                    if not has_error or retry_attempt >= max_retries:
+
+                    error_reason: str | None = None
+                    if has_error and isinstance(result, dict):
+                        reason = result.get("error") or result.get("message")
+                        if isinstance(reason, str) and reason.strip():
+                            error_reason = reason.strip()
+
+                    if not has_error:
+                        yield _new_task_attempt_event(
+                            step_id=matched_step_id,
+                            action_id=matched_action_id,
+                            tool_name=func_name,
+                            attempt=attempt_no,
+                            max_attempts=max_attempts,
+                            status="success",
+                            note=f"第 {attempt_no}/{max_attempts} 次尝试成功",
+                        )
                         break
+
+                    if retry_attempt >= max_retries:
+                        yield _new_task_attempt_event(
+                            step_id=matched_step_id,
+                            action_id=matched_action_id,
+                            tool_name=func_name,
+                            attempt=attempt_no,
+                            max_attempts=max_attempts,
+                            status="failed",
+                            error=error_reason,
+                            note=f"第 {attempt_no}/{max_attempts} 次尝试失败，已达到最大尝试次数",
+                        )
+                        break
+
+                    yield _new_task_attempt_event(
+                        step_id=matched_step_id,
+                        action_id=matched_action_id,
+                        tool_name=func_name,
+                        attempt=attempt_no,
+                        max_attempts=max_attempts,
+                        status="retrying",
+                        error=error_reason,
+                        note=f"第 {attempt_no}/{max_attempts} 次尝试失败，准备重试",
+                    )
+
                     retry_attempt += 1
                     if matched_action_id:
                         action_trackers[matched_action_id]["retry_count"] = retry_attempt
@@ -1344,5 +1435,5 @@ class AgentRunner:
             "type": "code",
             "format": file_ext.lower(),
             "path": str(path),
-            "download_url": f"/api/artifacts/{session.id}/{filename}",
+            "download_url": ws.build_artifact_download_url(filename),
         }

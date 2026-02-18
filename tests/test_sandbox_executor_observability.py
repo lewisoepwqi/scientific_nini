@@ -145,8 +145,10 @@ def test_collect_figures_logs_debug_for_plotly_failure(
         def to_json(self) -> str:
             raise RuntimeError("to_json failed")
 
+    fake_plotly = ModuleType("plotly")
     fake_go = ModuleType("plotly.graph_objects")
     fake_go.Figure = _FakeFigure
+    monkeypatch.setitem(sys.modules, "plotly", fake_plotly)
     monkeypatch.setitem(sys.modules, "plotly.graph_objects", fake_go)
 
     from nini.sandbox.executor import _collect_figures

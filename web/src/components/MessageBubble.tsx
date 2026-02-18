@@ -18,7 +18,6 @@ import DataViewer from "./DataViewer";
 import ArtifactDownload from "./ArtifactDownload";
 import AnalysisPlanCard from "./AnalysisPlanCard";
 import MarkdownContent from "./MarkdownContent";
-import { isAnalysisPlanHeaderV2Enabled } from "../featureFlags";
 
 interface Props {
   message: Message;
@@ -38,7 +37,6 @@ function MessageBubble({
   const isUser = message.role === "user";
   const isTool = message.role === "tool";
   const isReasoning = !!message.isReasoning;
-  const planHeaderEnabled = isAnalysisPlanHeaderV2Enabled();
   const hasEmbeddedPlotly =
     typeof message.content === "string" &&
     message.content.includes(".plotly.json");
@@ -58,7 +56,8 @@ function MessageBubble({
 
   // 分析思路消息使用专用卡片
   if (isReasoning) {
-    if (planHeaderEnabled && message.analysisPlan) {
+    // 结构化分析计划已迁移到工作区「任务」Tab，不在对话区重复展示
+    if (message.analysisPlan) {
       return null;
     }
     return (

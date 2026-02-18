@@ -29,6 +29,7 @@ class EventType(str, Enum):
     ANALYSIS_PLAN = "analysis_plan"  # 结构化分析步骤列表
     PLAN_STEP_UPDATE = "plan_step_update"  # 单步状态变更
     PLAN_PROGRESS = "plan_progress"  # 顶部计划进度（含当前步骤/下一步提示）
+    TASK_ATTEMPT = "task_attempt"  # 任务执行尝试（含重试轨迹）
     CONTEXT_COMPRESSED = "context_compressed"  # 上下文自动压缩通知
 
 

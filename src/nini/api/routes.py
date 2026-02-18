@@ -633,8 +633,13 @@ async def batch_download(session_id: str, req: dict[str, Any]):
 
 
 @router.get("/artifacts/{session_id}/{filename}")
-async def download_artifact(session_id: str, filename: str, inline: bool = False):
-    """下载会话产物（.plotly.json 自动转 PNG）。"""
+async def download_artifact(
+    session_id: str,
+    filename: str,
+    inline: bool = False,
+    raw: bool = False,
+):
+    """下载会话产物（.plotly.json 默认自动转 PNG；raw=1 时返回原始 JSON）。"""
     # 兼容已编码/双重编码文件名（如 %25E8...），统一解码一次后再做安全裁剪。
     safe_name = Path(unquote(filename)).name
     artifact_path = settings.sessions_dir / session_id / "workspace" / "artifacts" / safe_name
@@ -645,7 +650,7 @@ async def download_artifact(session_id: str, filename: str, inline: bool = False
         raise HTTPException(status_code=404, detail="文件不存在")
 
     # 检测是否为 Plotly JSON
-    if safe_name.lower().endswith(".plotly.json"):
+    if safe_name.lower().endswith(".plotly.json") and not raw:
         logger.info(f"检测到 Plotly JSON，尝试转换为 PNG: {safe_name}")
         png_response = await _convert_plotly_json_to_png(
             artifact_path,
