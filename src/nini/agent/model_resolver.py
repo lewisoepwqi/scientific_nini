@@ -1,6 +1,6 @@
 """多模型路由与故障转移。
 
-统一 LLM 调用协议，支持 OpenAI / Anthropic / Ollama，
+统一 LLM 调用协议，支持 OpenAI / Anthropic / 国产与本地模型，
 按优先级尝试，失败自动降级。
 """
 
@@ -26,6 +26,9 @@ class LLMChunk:
     """LLM 流式输出单元。"""
 
     text: str = ""
+    reasoning: str = ""
+    # 保留供应商原始输出文本（可能包含 <think> 标签），用于工具调用上下文回放
+    raw_text: str = ""
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     finish_reason: str | None = None
     usage: dict[str, int] | None = None
@@ -49,6 +52,216 @@ class PurposeRoute(TypedDict):
     provider_id: str | None
     model: str | None
     base_url: str | None
+
+
+class ReasoningStreamParser:
+    """统一解析各供应商“思考内容”输出并处理流式累计片段。"""
+
+    _TAG_PAIRS: tuple[tuple[str, str], ...] = (
+        ("<think>", "</think>"),
+        ("<thinking>", "</thinking>"),
+        ("◁think▷", "◁/think▷"),
+    )
+
+    def __init__(self, *, enable_tag_split: bool = False):
+        self._enable_tag_split = enable_tag_split
+        self._raw_snapshot = ""
+        self._text_snapshot = ""
+        self._reasoning_snapshot = ""
+        self._pending = ""
+        self._tag_state: tuple[str, str] | None = None
+
+    @staticmethod
+    def _normalize_stream_piece(piece: str, snapshot: str) -> tuple[str, str]:
+        """兼容增量流和累计流两种分片格式。"""
+        if not piece:
+            return "", snapshot
+
+        # 累计片段：当前值是历史完整前缀，返回增量部分
+        if snapshot and piece.startswith(snapshot):
+            return piece[len(snapshot) :], piece
+
+        # 默认按“增量分片”处理
+        return piece, snapshot + piece
+
+    @staticmethod
+    def _to_text(value: Any) -> str:
+        """将 reasoning 相关字段统一转成文本。"""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (int, float, bool)):
+            return str(value)
+        if isinstance(value, dict):
+            for key in ("text", "content", "reasoning_content", "reasoning"):
+                nested = value.get(key)
+                if isinstance(nested, str) and nested:
+                    return nested
+            try:
+                return json.dumps(value, ensure_ascii=False)
+            except Exception:
+                return str(value)
+        if isinstance(value, list):
+            parts = [ReasoningStreamParser._to_text(item) for item in value]
+            return "".join(part for part in parts if part)
+        return str(value)
+
+    @classmethod
+    def extract_reasoning_from_delta(cls, delta: Any) -> str:
+        """从 OpenAI 兼容 delta 中提取 reasoning 相关字段。"""
+        parts: list[str] = []
+
+        reasoning_content = getattr(delta, "reasoning_content", None)
+        if reasoning_content:
+            parts.append(cls._to_text(reasoning_content))
+
+        reasoning = getattr(delta, "reasoning", None)
+        if reasoning:
+            parts.append(cls._to_text(reasoning))
+
+        details = getattr(delta, "reasoning_details", None)
+        if details:
+            if isinstance(details, list):
+                detail_parts: list[str] = []
+                for item in details:
+                    if isinstance(item, dict):
+                        text = item.get("text")
+                        if isinstance(text, str) and text:
+                            detail_parts.append(text)
+                            continue
+                    text = getattr(item, "text", None)
+                    if isinstance(text, str) and text:
+                        detail_parts.append(text)
+                        continue
+                    detail_parts.append(cls._to_text(item))
+                parts.append("".join(detail_parts))
+            else:
+                parts.append(cls._to_text(details))
+
+        return "".join(part for part in parts if part)
+
+    @classmethod
+    def _pending_prefix_len(cls, text: str) -> int:
+        """识别结尾是否是标签前缀，避免跨 chunk 标签被截断。"""
+        if not text:
+            return 0
+
+        candidates = [token for pair in cls._TAG_PAIRS for token in pair]
+        max_len = 0
+        for token in candidates:
+            max_check = min(len(token) - 1, len(text))
+            for i in range(1, max_check + 1):
+                if text.endswith(token[:i]):
+                    max_len = max(max_len, i)
+        return max_len
+
+    @classmethod
+    def _find_next_tag(cls, text: str) -> tuple[int, tuple[str, str]] | None:
+        best_index: int | None = None
+        best_pair: tuple[str, str] | None = None
+        for pair in cls._TAG_PAIRS:
+            idx = text.find(pair[0])
+            if idx < 0:
+                continue
+            if best_index is None or idx < best_index:
+                best_index = idx
+                best_pair = pair
+        if best_index is None or best_pair is None:
+            return None
+        return best_index, best_pair
+
+    @classmethod
+    def strip_reasoning_markers(cls, text: str) -> str:
+        """移除思考标签标记，仅保留可展示正文。"""
+        cleaned = text
+        for open_tag, close_tag in cls._TAG_PAIRS:
+            cleaned = cleaned.replace(open_tag, "")
+            cleaned = cleaned.replace(close_tag, "")
+        return cleaned
+
+    def _split_reasoning_tags(self, raw_piece: str) -> tuple[str, str]:
+        """从 content 中拆分思考标签和正式回答。"""
+        if not raw_piece:
+            return "", ""
+
+        text_out: list[str] = []
+        reasoning_out: list[str] = []
+        cursor = self._pending + raw_piece
+        self._pending = ""
+
+        while cursor:
+            if self._tag_state is None:
+                tag_hit = self._find_next_tag(cursor)
+                if tag_hit is None:
+                    hold = self._pending_prefix_len(cursor)
+                    if hold > 0:
+                        text_out.append(cursor[:-hold])
+                        self._pending = cursor[-hold:]
+                    else:
+                        text_out.append(cursor)
+                    break
+
+                open_idx, pair = tag_hit
+                if open_idx > 0:
+                    text_out.append(cursor[:open_idx])
+                cursor = cursor[open_idx + len(pair[0]) :]
+                self._tag_state = pair
+                continue
+
+            _, close_tag = self._tag_state
+            close_idx = cursor.find(close_tag)
+            if close_idx < 0:
+                hold = self._pending_prefix_len(cursor)
+                if hold > 0:
+                    reasoning_out.append(cursor[:-hold])
+                    self._pending = cursor[-hold:]
+                else:
+                    reasoning_out.append(cursor)
+                break
+
+            if close_idx > 0:
+                reasoning_out.append(cursor[:close_idx])
+            cursor = cursor[close_idx + len(close_tag) :]
+            self._tag_state = None
+
+        return "".join(text_out), "".join(reasoning_out)
+
+    def consume(
+        self, *, raw_piece: str, explicit_reasoning_piece: str = ""
+    ) -> tuple[str, str, str]:
+        """消费一次 chunk，返回（text_delta, reasoning_delta, raw_delta）。"""
+        raw_delta, self._raw_snapshot = self._normalize_stream_piece(raw_piece, self._raw_snapshot)
+        explicit_reasoning_delta, self._reasoning_snapshot = self._normalize_stream_piece(
+            explicit_reasoning_piece,
+            self._reasoning_snapshot,
+        )
+
+        text_candidate = raw_delta
+        tagged_reasoning = ""
+        if self._enable_tag_split and raw_delta:
+            text_candidate, tagged_reasoning = self._split_reasoning_tags(raw_delta)
+            if tagged_reasoning and self._reasoning_snapshot:
+                tagged_reasoning = self.strip_reasoning_markers(tagged_reasoning)
+
+        if self._reasoning_snapshot:
+            # 当供应商已返回 reasoning 字段时，content 中出现的 think 标记属于冗余噪音
+            text_candidate = self.strip_reasoning_markers(text_candidate)
+
+        reasoning_candidate = explicit_reasoning_delta or tagged_reasoning
+        text_delta, self._text_snapshot = self._normalize_stream_piece(
+            text_candidate,
+            self._text_snapshot,
+        )
+        if explicit_reasoning_delta and tagged_reasoning:
+            # 少数模型会同时返回 reasoning_content + 带标签 content，此时避免重复叠加
+            tagged_reasoning = ""
+        if tagged_reasoning:
+            reasoning_candidate = tagged_reasoning
+        reasoning_delta = reasoning_candidate
+        if explicit_reasoning_delta and tagged_reasoning:
+            reasoning_delta = explicit_reasoning_delta
+        return text_delta, reasoning_delta, raw_delta
 
 
 # ---- 抽象客户端 ----
@@ -158,6 +371,7 @@ class OpenAICompatibleClient(BaseLLMClient):
             kwargs["tool_choice"] = "auto"
 
         stream = await self._client.chat.completions.create(**kwargs)
+        parser = ReasoningStreamParser(enable_tag_split=self._supports_reasoning_tags())
 
         # 聚合 tool_calls 片段
         pending_tool_calls: dict[int, dict[str, Any]] = {}
@@ -167,10 +381,17 @@ class OpenAICompatibleClient(BaseLLMClient):
             finish = chunk.choices[0].finish_reason if chunk.choices else None
 
             text = ""
+            reasoning = ""
+            raw_text = ""
             tool_calls_out: list[dict[str, Any]] = []
 
             if delta:
-                text = delta.content or ""
+                raw_piece = getattr(delta, "content", "") or ""
+                explicit_reasoning = ReasoningStreamParser.extract_reasoning_from_delta(delta)
+                text, reasoning, raw_text = parser.consume(
+                    raw_piece=str(raw_piece),
+                    explicit_reasoning_piece=explicit_reasoning,
+                )
 
                 # 聚合 tool_calls 的分段
                 if delta.tool_calls:
@@ -205,6 +426,8 @@ class OpenAICompatibleClient(BaseLLMClient):
 
             yield LLMChunk(
                 text=text,
+                reasoning=reasoning,
+                raw_text=raw_text,
                 tool_calls=tool_calls_out,
                 finish_reason=finish,
                 usage=usage,
@@ -229,6 +452,38 @@ class OpenAICompatibleClient(BaseLLMClient):
     def _supports_stream_usage(self) -> bool:
         """是否支持 stream_options.include_usage。"""
         return True
+
+    def _supports_reasoning_tags(self) -> bool:
+        """是否启用 `<think>` 等标签解析（用于兼容国产推理模型）。"""
+        model = (self._model or "").lower()
+        if any(
+            key in model
+            for key in (
+                "qwen",
+                "qwq",
+                "deepseek",
+                "r1",
+                "reasoner",
+                "kimi",
+                "moonshot",
+                "glm",
+                "chatglm",
+                "minimax",
+                "m1",
+                "m2",
+                "think",
+            )
+        ):
+            return True
+        return self.provider_id in {
+            "moonshot",
+            "kimi_coding",
+            "zhipu",
+            "deepseek",
+            "dashscope",
+            "minimax",
+            "ollama",
+        }
 
 
 # ---- OpenAI 客户端 ----
@@ -311,11 +566,20 @@ class AnthropicClient(BaseLLMClient):
         response = await self._client.messages.create(**kwargs)
 
         text_parts: list[str] = []
+        reasoning_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
         for block in getattr(response, "content", []) or []:
             b_type = getattr(block, "type", "")
             if b_type == "text":
                 text_parts.append(getattr(block, "text", ""))
+            elif b_type in {"thinking", "reasoning"}:
+                reasoning_text = (
+                    getattr(block, "thinking", None)
+                    or getattr(block, "text", None)
+                    or getattr(block, "content", None)
+                )
+                if isinstance(reasoning_text, str) and reasoning_text:
+                    reasoning_parts.append(reasoning_text)
             elif b_type == "tool_use":
                 tool_calls.append(
                     {
@@ -340,8 +604,11 @@ class AnthropicClient(BaseLLMClient):
             }
 
         finish_reason = getattr(response, "stop_reason", None)
+        text = "".join(text_parts)
         yield LLMChunk(
-            text="".join(text_parts),
+            text=text,
+            reasoning="".join(reasoning_parts),
+            raw_text=text,
             tool_calls=tool_calls,
             finish_reason=finish_reason,
             usage=usage,
@@ -657,6 +924,28 @@ class DashScopeClient(OpenAICompatibleClient):
         )
 
 
+# ---- MiniMax 客户端 ----
+
+
+class MiniMaxClient(OpenAICompatibleClient):
+    """MiniMax 文本模型适配器，兼容 OpenAI 协议。"""
+
+    provider_id = "minimax"
+    provider_name = "MiniMax"
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
+    ):
+        super().__init__(
+            api_key=api_key or settings.minimax_api_key,
+            base_url=base_url or settings.minimax_base_url,
+            model=model or settings.minimax_model,
+        )
+
+
 # ---- Model Resolver ----
 
 
@@ -679,6 +968,7 @@ class ModelResolver:
             ZhipuClient(),
             DeepSeekClient(),
             DashScopeClient(),
+            MiniMaxClient(),
             OllamaClient(),
         ]
         # 用户首选的提供商 ID（None 表示使用默认优先级）
@@ -873,6 +1163,12 @@ class ModelResolver:
             return DeepSeekClient(api_key=api_key, model=effective_model)
         if provider_id == "dashscope":
             return DashScopeClient(api_key=api_key, model=effective_model)
+        if provider_id == "minimax":
+            return MiniMaxClient(
+                api_key=api_key,
+                base_url=effective_base_url,
+                model=effective_model,
+            )
         if provider_id == "ollama":
             return OllamaClient(base_url=effective_base_url, model=effective_model)
         return None
@@ -933,6 +1229,11 @@ class ModelResolver:
                 api_key=_get("dashscope", "api_key"),
                 model=_get("dashscope", "model"),
             ),
+            MiniMaxClient(
+                api_key=_get("minimax", "api_key"),
+                base_url=_get("minimax", "base_url"),
+                model=_get("minimax", "model"),
+            ),
             OllamaClient(
                 base_url=_get("ollama", "base_url"),
                 model=_get("ollama", "model"),
@@ -962,7 +1263,8 @@ class ModelResolver:
         raise RuntimeError(
             "没有可用的 LLM 客户端。请配置 NINI_OPENAI_API_KEY / NINI_ANTHROPIC_API_KEY / "
             "NINI_MOONSHOT_API_KEY / NINI_KIMI_CODING_API_KEY / NINI_ZHIPU_API_KEY / "
-            "NINI_DEEPSEEK_API_KEY / NINI_DASHSCOPE_API_KEY 或检查 NINI_OLLAMA_BASE_URL。"
+            "NINI_DEEPSEEK_API_KEY / NINI_DASHSCOPE_API_KEY / NINI_MINIMAX_API_KEY "
+            "或检查 NINI_OLLAMA_BASE_URL。"
         )
 
     async def chat(

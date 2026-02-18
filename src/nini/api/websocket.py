@@ -111,7 +111,11 @@ async def websocket_agent(ws: WebSocket):
                     metadata=event.metadata,
                 )
                 # 分析思路事件：通知前端刷新工作区（已保存为产物）
-                if event.type == EventType.REASONING:
+                if (
+                    event.type == EventType.REASONING
+                    and isinstance(event.metadata, dict)
+                    and event.metadata.get("workspace_update") == "add"
+                ):
                     await _send_event(
                         ws,
                         "workspace_update",

@@ -372,6 +372,14 @@ function normalizeTaskAttemptStatus(raw: unknown): AnalysisTaskAttemptStatus {
   }
 }
 
+const REASONING_MARKER_PATTERN =
+  /<\/?think>|<\/?thinking>|◁think▷|◁\/think▷/gi;
+
+function stripReasoningMarkers(text: string): string {
+  if (!text) return text;
+  return text.replace(REASONING_MARKER_PATTERN, "");
+}
+
 function planStatusRank(status: PlanStepStatus): number {
   switch (status) {
     case "done":
@@ -1811,10 +1819,14 @@ function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Message[] {
       }
 
       if (typeof raw.content === "string" && raw.content) {
+        const cleanedContent = stripReasoningMarkers(raw.content);
+        if (!cleanedContent.trim()) {
+          continue;
+        }
         messages.push({
           id: nextId(),
           role: "assistant",
-          content: raw.content,
+          content: cleanedContent,
           timestamp: nextTimestamp(),
         });
       }
@@ -1914,7 +1926,8 @@ function handleEvent(
     }
 
     case "text": {
-      const text = evt.data as string;
+      const text = stripReasoningMarkers((evt.data as string) || "");
+      if (!text) break;
       const newStreamText = get()._streamingText + text;
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
 
@@ -1948,7 +1961,10 @@ function handleEvent(
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) break;
       const steps = normalizeAnalysisSteps(data.steps);
-      const rawText = typeof data.raw_text === "string" ? data.raw_text : "";
+      const rawText =
+        typeof data.raw_text === "string"
+          ? stripReasoningMarkers(data.raw_text)
+          : "";
       if (steps.length === 0) break;
       const eventOrder = extractPlanEventOrder(evt, data);
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
@@ -2218,7 +2234,9 @@ function handleEvent(
       }
       const data = isRecord(evt.data) ? evt.data : null;
       const content =
-        data && typeof data.content === "string" ? data.content : "";
+        data && typeof data.content === "string"
+          ? stripReasoningMarkers(data.content)
+          : "";
       if (!content) break;
       const msg: Message = {
         id: nextId(),

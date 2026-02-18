@@ -1017,6 +1017,13 @@ _MODEL_PROVIDERS = [
         "model_field": "dashscope_model",
     },
     {
+        "id": "minimax",
+        "name": "MiniMax",
+        "models": ["MiniMax-M2.5", "MiniMax-M2.1", "abab6.5s-chat"],
+        "key_field": "minimax_api_key",
+        "model_field": "minimax_model",
+    },
+    {
         "id": "ollama",
         "name": "Ollama（本地）",
         "models": ["qwen2.5:7b", "llama3:8b", "mistral:7b"],
@@ -1278,6 +1285,7 @@ async def test_model_connection(provider_id: str):
         ZhipuClient,
         DeepSeekClient,
         DashScopeClient,
+        MiniMaxClient,
     )
     from nini.config_manager import get_effective_config
 
@@ -1289,6 +1297,7 @@ async def test_model_connection(provider_id: str):
         "zhipu": ZhipuClient,
         "deepseek": DeepSeekClient,
         "dashscope": DashScopeClient,
+        "minimax": MiniMaxClient,
         "ollama": OllamaClient,
     }
 
@@ -1302,6 +1311,12 @@ async def test_model_connection(provider_id: str):
     # 使用有效配置创建客户端实例
     if provider_id == "ollama":
         client = client_cls(base_url=cfg.get("base_url"), model=cfg.get("model"))
+    elif provider_id in {"openai", "moonshot", "kimi_coding", "zhipu", "minimax"}:
+        client = client_cls(
+            api_key=cfg.get("api_key"),
+            base_url=cfg.get("base_url"),
+            model=cfg.get("model"),
+        )
     elif provider_id == "anthropic":
         client = client_cls(api_key=cfg.get("api_key"), model=cfg.get("model"))
     else:

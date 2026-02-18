@@ -7,6 +7,7 @@ import {
   Bot,
   User,
   Wrench,
+  Lightbulb,
   ChevronDown,
   ChevronRight,
   Play,
@@ -16,7 +17,6 @@ import {
 } from "lucide-react";
 import DataViewer from "./DataViewer";
 import ArtifactDownload from "./ArtifactDownload";
-import AnalysisPlanCard from "./AnalysisPlanCard";
 import MarkdownContent from "./MarkdownContent";
 
 interface Props {
@@ -54,17 +54,29 @@ function MessageBubble({
     }
   }, [message.toolStatus]);
 
-  // 分析思路消息使用专用卡片
+  // 思考过程消息使用独立气泡样式，区别于正式回复
   if (isReasoning) {
     // 结构化分析计划已迁移到工作区「任务」Tab，不在对话区重复展示
     if (message.analysisPlan) {
       return null;
     }
     return (
-      <AnalysisPlanCard
-        content={message.content}
-        analysisPlan={message.analysisPlan}
-      />
+      <div className="flex gap-3 mb-4">
+        <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-amber-100 text-amber-700">
+          <Lightbulb size={16} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="max-w-[85%] lg:max-w-2xl rounded-2xl rounded-tl-md border border-amber-300/90 bg-gradient-to-br from-amber-50 to-orange-50 px-4 py-3 shadow-sm">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold tracking-wide text-amber-700">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" />
+              模型思考过程
+            </div>
+            <div className="markdown-body reasoning-markdown prose prose-sm max-w-none text-amber-950">
+              <MarkdownContent content={message.content} />
+            </div>
+          </div>
+        </div>
+      </div>
     );
   }
 

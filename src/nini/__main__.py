@@ -48,6 +48,11 @@ def _default_env_content() -> str:
         "NINI_DASHSCOPE_API_KEY=\n"
         "NINI_DASHSCOPE_MODEL=qwen-plus\n"
         "\n"
+        "# 可选：MiniMax\n"
+        "NINI_MINIMAX_API_KEY=\n"
+        "NINI_MINIMAX_BASE_URL=https://api.minimaxi.com/v1\n"
+        "NINI_MINIMAX_MODEL=MiniMax-M2.5\n"
+        "\n"
         "# Agent / 沙箱\n"
         "NINI_AGENT_MAX_ITERATIONS=0\n"
         "NINI_SANDBOX_TIMEOUT=30\n"
@@ -324,6 +329,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         or settings.zhipu_api_key
         or settings.deepseek_api_key
         or settings.dashscope_api_key
+        or settings.minimax_api_key
         or (settings.ollama_base_url and settings.ollama_model)
     )
     # 收集已配置的提供商名称
@@ -342,6 +348,8 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         configured_providers.append("DeepSeek")
     if settings.dashscope_api_key:
         configured_providers.append("阿里百炼")
+    if settings.minimax_api_key:
+        configured_providers.append("MiniMax")
     if settings.ollama_base_url and settings.ollama_model:
         configured_providers.append("Ollama")
     model_detail = ", ".join(configured_providers) if configured_providers else "未配置任何模型"

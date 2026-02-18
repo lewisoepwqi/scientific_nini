@@ -17,9 +17,11 @@ from nini.agent.model_resolver import (
     DeepSeekClient,
     KimiCodingClient,
     LLMChunk,
+    MiniMaxClient,
     ModelResolver,
     MoonshotClient,
     OllamaClient,
+    ReasoningStreamParser,
     ZhipuClient,
 )
 
@@ -422,6 +424,7 @@ def test_model_resolver_includes_domestic_clients() -> None:
     assert "ZhipuClient" in client_types
     assert "DeepSeekClient" in client_types
     assert "DashScopeClient" in client_types
+    assert "MiniMaxClient" in client_types
 
 
 @pytest.mark.asyncio
@@ -445,7 +448,7 @@ async def test_domestic_client_fallback_in_resolver() -> None:
 def test_all_domestic_clients_support_stream_usage() -> None:
     """国产模型客户端 stream_options.include_usage 支持情况。"""
     # 支持 stream_options 的提供商
-    for cls in [DeepSeekClient, DashScopeClient]:
+    for cls in [DeepSeekClient, DashScopeClient, MiniMaxClient]:
         client = cls(api_key="test-key", model="test-model")
         assert client._supports_stream_usage() is True  # noqa: SLF001
 
@@ -457,6 +460,77 @@ def test_all_domestic_clients_support_stream_usage() -> None:
     ]:
         client = cls(**kwargs)
         assert client._supports_stream_usage() is False  # noqa: SLF001
+
+
+def test_minimax_client_base_url_and_availability() -> None:
+    """MiniMax 客户端：可设置 base_url，且有 API Key 时可用。"""
+    client = MiniMaxClient(
+        api_key="sk-minimax-test",
+        base_url="https://api.minimax.chat/v1",
+        model="MiniMax-M2.5",
+    )
+    assert client.is_available() is True
+    assert client._base_url == "https://api.minimax.chat/v1"  # noqa: SLF001
+    assert client._model == "MiniMax-M2.5"  # noqa: SLF001
+
+
+def test_minimax_client_unavailable_without_key() -> None:
+    """MiniMax 客户端：无 API Key 时不可用。"""
+    client = MiniMaxClient(api_key=None, model="MiniMax-M2.5")
+    client._api_key = None  # noqa: SLF001
+    assert client.is_available() is False
+
+
+def test_reasoning_stream_parser_splits_think_tags_across_chunks() -> None:
+    """应能跨 chunk 拆分 `<think>` 思考内容。"""
+    parser = ReasoningStreamParser(enable_tag_split=True)
+
+    t1, r1, raw1 = parser.consume(raw_piece="<think>先思", explicit_reasoning_piece="")
+    t2, r2, raw2 = parser.consume(raw_piece="考后答</think>最终答案", explicit_reasoning_piece="")
+
+    assert t1 == ""
+    assert r1 == "先思"
+    assert raw1 == "<think>先思"
+    assert t2 == "最终答案"
+    assert r2 == "考后答"
+    assert raw2 == "考后答</think>最终答案"
+
+
+def test_reasoning_stream_parser_handles_cumulative_reasoning_content() -> None:
+    """应兼容累计流（每个 chunk 返回完整 reasoning 前缀）。"""
+    parser = ReasoningStreamParser(enable_tag_split=False)
+
+    t1, r1, raw1 = parser.consume(raw_piece="", explicit_reasoning_piece="step-1")
+    t2, r2, raw2 = parser.consume(raw_piece="", explicit_reasoning_piece="step-1 + step-2")
+
+    assert t1 == ""
+    assert raw1 == ""
+    assert r1 == "step-1"
+
+    assert t2 == ""
+    assert raw2 == ""
+    assert r2 == " + step-2"
+
+
+def test_reasoning_stream_parser_strips_orphan_think_close_tag_when_reasoning_field_exists() -> (
+    None
+):
+    """当 reasoning 字段已存在时，正文中的孤立 </think> 不应泄漏到 UI。"""
+    parser = ReasoningStreamParser(enable_tag_split=True)
+
+    t1, r1, _ = parser.consume(
+        raw_piece="",
+        explicit_reasoning_piece="先做分析",
+    )
+    t2, r2, _ = parser.consume(
+        raw_piece="结论如下。</think>",
+        explicit_reasoning_piece="先做分析",
+    )
+
+    assert t1 == ""
+    assert r1 == "先做分析"
+    assert t2 == "结论如下。"
+    assert r2 == ""
 
 
 @pytest.mark.asyncio
