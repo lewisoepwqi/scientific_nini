@@ -27,6 +27,7 @@ VALID_PROVIDERS = {
     "zhipu",
     "deepseek",
     "dashscope",
+    "minimax",
     "ollama",
 }
 
@@ -39,6 +40,7 @@ PROVIDER_PRIORITY_ORDER: tuple[str, ...] = (
     "zhipu",
     "deepseek",
     "dashscope",
+    "minimax",
     "ollama",
 )
 
@@ -245,6 +247,11 @@ async def get_effective_config(provider: str) -> dict[str, Any]:
             "api_key": settings.dashscope_api_key,
             "model": settings.dashscope_model,
             "base_url": None,
+        },
+        "minimax": {
+            "api_key": settings.minimax_api_key,
+            "model": settings.minimax_model,
+            "base_url": settings.minimax_base_url,
         },
         "ollama": {
             "api_key": None,

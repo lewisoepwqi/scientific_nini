@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     dashscope_api_key: Optional[str] = None
     dashscope_model: str = "qwen-plus"
 
+    # MiniMax
+    minimax_api_key: Optional[str] = None
+    minimax_base_url: str = "https://api.minimaxi.com/v1"
+    minimax_model: str = "MiniMax-M2.5"
+
     # LLM 通用
     llm_temperature: float = 0.3
     llm_max_tokens: int = 4096

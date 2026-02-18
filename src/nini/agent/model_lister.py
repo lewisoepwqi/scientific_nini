@@ -67,6 +67,10 @@ _PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "static": ["qwen-plus", "qwen-turbo", "qwen-max"],
     },
+    "minimax": {
+        "base_url": settings.minimax_base_url,
+        "static": ["MiniMax-M2.5", "MiniMax-M2.1", "abab6.5s-chat"],
+    },
     "ollama": {
         "base_url": None,  # 由用户配置
         "static": ["qwen2.5:7b", "llama3:8b", "mistral:7b"],

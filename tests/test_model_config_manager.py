@@ -166,3 +166,21 @@ async def test_set_model_priorities_batch_update() -> None:
 
     assert priorities["deepseek"] == 0
     assert priorities["openai"] == 6
+
+
+@pytest.mark.asyncio
+async def test_get_effective_config_supports_minimax_provider() -> None:
+    """应支持读取 MiniMax 的有效配置。"""
+    await init_db()
+
+    await save_model_config(
+        provider="minimax",
+        api_key="sk-minimax-test-12345678",
+        model="MiniMax-M2.5",
+        base_url="https://api.minimax.chat/v1",
+    )
+    cfg = await get_effective_config("minimax")
+
+    assert cfg["api_key"] == "sk-minimax-test-12345678"
+    assert cfg["model"] == "MiniMax-M2.5"
+    assert cfg["base_url"] == "https://api.minimax.chat/v1"

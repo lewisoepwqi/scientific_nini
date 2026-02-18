@@ -211,6 +211,54 @@ class _ContextOverflowThenSuccessResolver:
         yield _Chunk()
 
 
+class _ReasoningOnlyResolver:
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        class _Chunk:
+            text = "最终答案"
+            reasoning = "先检查数据分布。"
+            raw_text = "<think>先检查数据分布。</think>最终答案"
+            tool_calls = []
+            usage = None
+
+        yield _Chunk()
+
+
+class _ReasoningToolResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, reasoning: str, raw_text: str, tool_calls):
+                self.text = text
+                self.reasoning = reasoning
+                self.raw_text = raw_text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls == 1:
+            yield _Chunk(
+                text="执行步骤",
+                reasoning="先规划执行步骤。",
+                raw_text="<think>先规划执行步骤。</think>执行步骤",
+                tool_calls=[
+                    {
+                        "id": "call_reasoning_1",
+                        "type": "function",
+                        "function": {
+                            "name": "echo_tool",
+                            "arguments": json.dumps({"value": "ok"}, ensure_ascii=False),
+                        },
+                    }
+                ],
+            )
+            return
+
+        yield _Chunk(text="已完成", reasoning="", raw_text="已完成", tool_calls=[])
+
+
 class _EchoSkillRegistry:
     def get_tool_definitions(self) -> list[dict[str, object]]:
         return [
@@ -476,6 +524,54 @@ async def test_runner_auto_compresses_and_retries_on_context_overflow(
     assert "done" in event_types
     assert "error" not in event_types
     assert session.messages[-1]["content"] == "自动压缩后继续完成。"
+
+
+@pytest.mark.asyncio
+async def test_runner_emits_reasoning_event_and_keeps_final_answer_clean() -> None:
+    session = Session()
+    runner = AgentRunner(
+        resolver=_ReasoningOnlyResolver(),
+        skill_registry=_EchoSkillRegistry(),
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    events = []
+    async for event in runner.run(session, "继续分析"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    reasoning_payloads = [e.data for e in events if e.type == EventType.REASONING]
+    assert any(
+        isinstance(payload, dict) and payload.get("content") == "先检查数据分布。"
+        for payload in reasoning_payloads
+    )
+    assert session.messages[-1]["role"] == "assistant"
+    assert session.messages[-1]["content"] == "最终答案"
+
+
+@pytest.mark.asyncio
+async def test_runner_preserves_raw_assistant_content_for_tool_calls() -> None:
+    session = Session()
+    resolver = _ReasoningToolResolver()
+    runner = AgentRunner(
+        resolver=resolver,
+        skill_registry=_EchoSkillRegistry(),
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    async for event in runner.run(session, "执行带工具调用的推理"):
+        if event.type == EventType.DONE:
+            break
+
+    assistant_tool_msgs = [
+        msg for msg in session.messages if msg.get("role") == "assistant" and msg.get("tool_calls")
+    ]
+    assert len(assistant_tool_msgs) == 1
+    content = assistant_tool_msgs[0].get("content")
+    assert isinstance(content, str)
+    assert "<think>" in content
+    assert "</think>" in content
 
 
 def test_compress_session_history_archives_and_updates_context() -> None:

@@ -105,3 +105,22 @@ body {
   background: #f8fafc;
   font-weight: 600;
 }
+
+/* 思考过程气泡专用样式 */
+.reasoning-markdown pre {
+  background: #422006;
+  color: #fffbeb;
+  border: 1px solid #d97706;
+}
+
+.reasoning-markdown code {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.reasoning-markdown h1,
+.reasoning-markdown h2,
+.reasoning-markdown h3,
+.reasoning-markdown h4 {
+  color: #92400e;
+}

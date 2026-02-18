@@ -16,7 +16,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, AsyncGenerator, Callable, Coroutine
 
-from nini.agent.model_resolver import LLMChunk, ModelResolver, model_resolver
+from nini.agent.model_resolver import (
+    LLMChunk,
+    ModelResolver,
+    ReasoningStreamParser,
+    model_resolver,
+)
 from nini.agent.prompts.scientific import get_system_prompt
 from nini.agent.session import Session
 from nini.config import settings
@@ -360,12 +365,16 @@ class AgentRunner:
 
             # 调用 LLM（流式）；若遇到上下文超限错误，自动压缩后重试一次
             full_text = ""
+            full_reasoning = ""
+            raw_full_text = ""
             tool_calls: list[dict[str, Any]] = []
             usage: dict[str, int] = {}
             retried_after_compress = False
 
             while True:
                 full_text = ""
+                full_reasoning = ""
+                raw_full_text = ""
                 tool_calls = []
                 usage = {}
                 try:
@@ -378,10 +387,30 @@ class AgentRunner:
                             yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
                             return
 
+                        chunk_reasoning = getattr(chunk, "reasoning", "")
+                        if chunk_reasoning:
+                            full_reasoning += ReasoningStreamParser.strip_reasoning_markers(
+                                str(chunk_reasoning)
+                            )
+
+                        chunk_raw_text = getattr(chunk, "raw_text", "")
+                        if chunk_raw_text:
+                            raw_full_text += chunk_raw_text
+
                         # 流式推送文本
                         if chunk.text:
-                            full_text += chunk.text
-                            yield AgentEvent(type=EventType.TEXT, data=chunk.text, turn_id=turn_id)
+                            display_text = ReasoningStreamParser.strip_reasoning_markers(
+                                str(chunk.text)
+                            )
+                            if display_text:
+                                full_text += display_text
+                                if not chunk_raw_text:
+                                    raw_full_text += chunk.text
+                                yield AgentEvent(
+                                    type=EventType.TEXT,
+                                    data=display_text,
+                                    turn_id=turn_id,
+                                )
 
                         if chunk.tool_calls:
                             tool_calls.extend(chunk.tool_calls)
@@ -396,6 +425,8 @@ class AgentRunner:
                     if (
                         not retried_after_compress
                         and not full_text
+                        and not full_reasoning
+                        and not raw_full_text
                         and not tool_calls
                         and self._is_context_limit_error(e)
                     ):
@@ -413,6 +444,13 @@ class AgentRunner:
                     return
                 break
 
+            if full_reasoning.strip():
+                yield AgentEvent(
+                    type=EventType.REASONING,
+                    data={"content": full_reasoning.strip()},
+                    turn_id=turn_id,
+                )
+
             # 记录 token 消耗
             if usage:
                 model_info = self._resolver.get_active_model_info(purpose="chat")
@@ -429,7 +467,8 @@ class AgentRunner:
 
             # 如果没有 tool_calls → 纯文本回复，结束循环
             if not tool_calls:
-                session.add_message("assistant", full_text)
+                final_text = full_text or raw_full_text
+                session.add_message("assistant", final_text)
                 yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
                 return
 
@@ -461,6 +500,7 @@ class AgentRunner:
                     type=EventType.REASONING,
                     data={"content": reasoning_text},
                     turn_id=turn_id,
+                    metadata={"workspace_update": "add"},
                 )
                 # 保存分析思路到工作空间（标记为内部产物）
                 try:
@@ -483,7 +523,7 @@ class AgentRunner:
             # 先把 assistant 带 tool_calls 的消息加入会话
             assistant_tool_msg = {
                 "role": "assistant",
-                "content": full_text or None,
+                "content": raw_full_text or full_text or None,
                 "tool_calls": tool_calls,
             }
             session.messages.append(assistant_tool_msg)
