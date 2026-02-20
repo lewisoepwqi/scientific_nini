@@ -36,6 +36,7 @@ from nini.tools.interpretation import InterpretStatisticalResultSkill
 from nini.tools.visualization import CreateChartSkill
 from nini.tools.workflow_skill import ApplyWorkflowSkill, ListWorkflowsSkill, SaveWorkflowSkill
 from nini.tools.markdown_scanner import render_skills_snapshot, scan_markdown_skills
+from nini.tools.task_write import TaskWriteSkill
 
 # 复合技能模板
 from nini.tools.templates import (
@@ -318,6 +319,8 @@ class SkillRegistry:
 def create_default_registry() -> SkillRegistry:
     """创建并注册默认技能集。"""
     registry = SkillRegistry()
+    # 任务规划工具（优先注册，确保 LLM 优先看到）
+    registry.register(TaskWriteSkill())
     registry.register(LoadDatasetSkill())
     registry.register(PreviewDataSkill())
     registry.register(DataSummarySkill())

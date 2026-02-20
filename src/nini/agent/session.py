@@ -11,6 +11,7 @@ from typing import Any
 
 import pandas as pd
 
+from nini.agent.task_manager import TaskManager
 from nini.config import settings
 from nini.memory.conversation import ConversationMemory
 from nini.memory.knowledge import KnowledgeMemory
@@ -32,10 +33,12 @@ class Session:
     load_persisted_messages: bool = False
     conversation_memory: ConversationMemory = field(init=False, repr=False)
     knowledge_memory: KnowledgeMemory = field(init=False, repr=False)
+    task_manager: TaskManager = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.conversation_memory = ConversationMemory(self.id)
         self.knowledge_memory = KnowledgeMemory(self.id)
+        self.task_manager = TaskManager()
         if self.load_persisted_messages and not self.messages:
             self.messages.extend(self.conversation_memory.load_messages(resolve_refs=True))
 
