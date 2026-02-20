@@ -8,7 +8,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from nini.sandbox.executor import _configure_chart_defaults
+from nini.sandbox.executor import _configure_chart_defaults, _strip_benign_stderr
 
 
 def _mock_style() -> SimpleNamespace:
@@ -158,3 +158,13 @@ def test_collect_figures_logs_debug_for_plotly_failure(
 
     assert figures == []
     assert "Plotly 图表序列化失败（变量 broken）" in caplog.text
+
+
+def test_strip_benign_stderr_removes_non_interactive_warning() -> None:
+    raw = (
+        "<sandbox>:53: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown\n"
+        "RuntimeError: real failure\n"
+    )
+    cleaned = _strip_benign_stderr(raw)
+    assert "FigureCanvasAgg is non-interactive" not in cleaned
+    assert "RuntimeError: real failure" in cleaned

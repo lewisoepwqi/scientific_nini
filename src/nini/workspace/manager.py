@@ -222,24 +222,79 @@ class WorkspaceManager:
         visibility: str = "deliverable",
     ) -> dict[str, Any]:
         index = self._load_index()
-        record = {
+        artifacts = index.get("artifacts", [])
+        if not isinstance(artifacts, list):
+            artifacts = []
+        normalized_path = str(file_path)
+        now = _now_iso()
+        record: dict[str, Any] = {
             "id": uuid.uuid4().hex[:12],
             "session_id": self.session_id,
             "name": name,
             "type": artifact_type,
             "format": format_hint,
-            "path": str(file_path),
+            "path": normalized_path,
             "download_url": self.build_artifact_download_url(name),
-            "created_at": _now_iso(),
+            "created_at": now,
             "visibility": visibility,
         }
-        artifacts = index.get("artifacts", [])
-        if not isinstance(artifacts, list):
-            artifacts = []
-        artifacts.append(record)
+
+        # 同一路径（或同名同类型同格式）重复写入时执行 upsert，避免工作区出现重复条目。
+        matched = False
+        for item in artifacts:
+            if not isinstance(item, dict):
+                continue
+            same_path = str(item.get("path", "")) == normalized_path
+            same_identity = (
+                str(item.get("name", "")) == name
+                and str(item.get("type", "")) == artifact_type
+                and str(item.get("format", "")) == str(format_hint)
+            )
+            if not same_path and not same_identity:
+                continue
+            item["name"] = name
+            item["type"] = artifact_type
+            item["format"] = format_hint
+            item["path"] = normalized_path
+            item["download_url"] = self.build_artifact_download_url(name)
+            item["created_at"] = now
+            item["visibility"] = visibility
+            record = item
+            matched = True
+            break
+
+        if not matched:
+            artifacts.append(record)
+
+        artifacts = self._deduplicate_artifacts(artifacts)
         index["artifacts"] = artifacts
         self._save_index(index)
         return record
+
+    def _artifact_dedup_key(self, item: dict[str, Any]) -> str:
+        path_key = str(item.get("path", "")).strip()
+        if path_key:
+            return f"path:{path_key}"
+        name_key = str(item.get("name", "")).strip()
+        type_key = str(item.get("type", "")).strip()
+        fmt_key = str(item.get("format", "")).strip()
+        return f"identity:{name_key}|{type_key}|{fmt_key}"
+
+    def _deduplicate_artifacts(self, artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        unique: dict[str, dict[str, Any]] = {}
+        for item in artifacts:
+            if not isinstance(item, dict):
+                continue
+            key = self._artifact_dedup_key(item)
+            current = unique.get(key)
+            if current is None:
+                unique[key] = item
+                continue
+            old_ts = str(current.get("created_at", ""))
+            new_ts = str(item.get("created_at", ""))
+            if new_ts >= old_ts:
+                unique[key] = item
+        return list(unique.values())
 
     def list_artifacts(self) -> list[dict[str, Any]]:
         index = self._load_index()
@@ -250,6 +305,7 @@ class WorkspaceManager:
         for item in artifacts:
             if isinstance(item, dict):
                 result.append(item)
+        result = self._deduplicate_artifacts(result)
         return sorted(
             result,
             key=lambda item: str(item.get("created_at", "")),
