@@ -87,6 +87,80 @@ function resolveImageUrl(src: string, sessionId: string | null): string {
  */
 function createMarkdownComponents(sessionId: string | null): Components {
   return {
+    table({ node: _node, className, children, ...props }) {
+      return (
+        <div className="markdown-table-wrap">
+          <table className={className} {...props}>
+            {children}
+          </table>
+        </div>
+      )
+    },
+    thead({ node: _node, className, children, ...props }) {
+      return (
+        <thead className={className} {...props}>
+          {children}
+        </thead>
+      )
+    },
+    tbody({ node: _node, className, children, ...props }) {
+      return (
+        <tbody className={className} {...props}>
+          {children}
+        </tbody>
+      )
+    },
+    tr({ node: _node, className, children, ...props }) {
+      return (
+        <tr className={className} {...props}>
+          {children}
+        </tr>
+      )
+    },
+    th({ node: _node, className, children, ...props }) {
+      return (
+        <th className={className} {...props}>
+          {children}
+        </th>
+      )
+    },
+    td({ node: _node, className, children, ...props }) {
+      return (
+        <td className={className} {...props}>
+          {children}
+        </td>
+      )
+    },
+    blockquote({ node: _node, className, children, ...props }) {
+      return (
+        <blockquote className={className} {...props}>
+          {children}
+        </blockquote>
+      )
+    },
+    hr({ node: _node, className, ...props }) {
+      return <hr className={className} {...props} />
+    },
+    a({ node: _node, className, href, children, ...props }) {
+      const safeHref = typeof href === 'string' ? normalizeArtifactUrl(href) : href
+      return (
+        <a
+          className={className}
+          href={safeHref}
+          target={safeHref?.startsWith('#') ? undefined : '_blank'}
+          rel={safeHref?.startsWith('#') ? undefined : 'noreferrer noopener'}
+          {...props}
+        >
+          {children}
+        </a>
+      )
+    },
+    input({ node: _node, className, type, ...props }) {
+      if (type === 'checkbox') {
+        return <input className={className} type="checkbox" disabled {...props} />
+      }
+      return <input className={className} type={type} {...props} />
+    },
     img({ src, alt }) {
       if (!src) return null
       // 转换路径

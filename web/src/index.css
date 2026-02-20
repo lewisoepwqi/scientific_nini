@@ -89,21 +89,94 @@ body {
   margin: 0.2rem 0;
 }
 
-.markdown-body table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 0.5rem 0;
-}
-
-.markdown-body th, .markdown-body td {
+.markdown-body .markdown-table-wrap {
+  margin: 0.65rem 0;
   border: 1px solid #e2e8f0;
-  padding: 0.5rem;
-  text-align: left;
+  border-radius: 0.6rem;
+  overflow-x: auto;
+  background: #ffffff;
 }
 
-.markdown-body th {
+.markdown-body .markdown-table-wrap table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 0;
+}
+
+.markdown-body .markdown-table-wrap th,
+.markdown-body .markdown-table-wrap td {
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+}
+
+.markdown-body .markdown-table-wrap th:last-child,
+.markdown-body .markdown-table-wrap td:last-child {
+  border-right: none;
+}
+
+.markdown-body .markdown-table-wrap tr:last-child td {
+  border-bottom: none;
+}
+
+.markdown-body .markdown-table-wrap th {
   background: #f8fafc;
   font-weight: 600;
+}
+
+.markdown-body blockquote {
+  margin: 0.6rem 0;
+  padding: 0.4rem 0.8rem;
+  border-left: 3px solid #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.markdown-body hr {
+  margin: 0.9rem 0;
+  border: none;
+  border-top: 1px solid #e2e8f0;
+}
+
+.markdown-body a {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-all;
+}
+
+.markdown-body a:hover {
+  color: #1d4ed8;
+}
+
+.markdown-body strong {
+  font-weight: 600;
+}
+
+.markdown-body del {
+  color: #64748b;
+}
+
+.markdown-body input[type="checkbox"] {
+  margin-right: 0.45rem;
+  vertical-align: middle;
+  pointer-events: none;
+}
+
+.markdown-body ul.contains-task-list,
+.markdown-body ol.contains-task-list {
+  list-style: none;
+  padding-left: 0.2rem;
+}
+
+.markdown-body ul.contains-task-list li,
+.markdown-body ol.contains-task-list li {
+  padding-left: 0.2rem;
 }
 
 /* 思考过程气泡专用样式 */
@@ -122,5 +195,38 @@ body {
 .reasoning-markdown h2,
 .reasoning-markdown h3,
 .reasoning-markdown h4 {
+  color: #92400e;
+}
+
+.reasoning-markdown .markdown-table-wrap {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.reasoning-markdown .markdown-table-wrap th,
+.reasoning-markdown .markdown-table-wrap td {
+  border-color: #fcd34d;
+  color: #78350f;
+}
+
+.reasoning-markdown .markdown-table-wrap th {
+  background: #fef3c7;
+}
+
+.reasoning-markdown blockquote {
+  border-left-color: #f59e0b;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.reasoning-markdown hr {
+  border-top-color: #fcd34d;
+}
+
+.reasoning-markdown a {
+  color: #b45309;
+}
+
+.reasoning-markdown a:hover {
   color: #92400e;
 }

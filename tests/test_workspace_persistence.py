@@ -217,3 +217,39 @@ def test_workspace_artifact_download_url_encodes_spaces() -> None:
     assert "/api/artifacts/" in url
     assert "%20" in url
     assert " " not in url
+
+
+def test_workspace_artifact_record_upsert_by_path_and_identity() -> None:
+    session = session_manager.create_session()
+    manager = WorkspaceManager(session.id)
+    manager.ensure_dirs()
+
+    filename = "重复产物.py"
+    artifact_path = manager.artifacts_dir / filename
+    artifact_path.write_text("print('v1')\n", encoding="utf-8")
+
+    first = manager.add_artifact_record(
+        name=filename,
+        artifact_type="code",
+        file_path=artifact_path,
+        format_hint="py",
+    )
+    second = manager.add_artifact_record(
+        name=filename,
+        artifact_type="code",
+        file_path=artifact_path,
+        format_hint="py",
+    )
+
+    # 同一路径重复写入应复用同一条记录（upsert），避免工作区列表重复。
+    assert second["id"] == first["id"]
+    artifacts = manager.list_artifacts()
+    matched = [item for item in artifacts if item.get("path") == str(artifact_path)]
+    assert len(matched) == 1
+
+    files = manager.list_workspace_files()
+    # list_workspace_files 不包含 path 字段，按名称统计重复项即可。
+    same_name = [
+        item for item in files if item.get("kind") == "artifact" and item.get("name") == filename
+    ]
+    assert len(same_name) == 1

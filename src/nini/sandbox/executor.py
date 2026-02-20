@@ -37,6 +37,8 @@ except Exception:  # pragma: no cover - Windows 等平台可能不存在
 
 logger = logging.getLogger(__name__)
 
+_BENIGN_STDERR_PATTERNS = ("FigureCanvasAgg is non-interactive, and thus cannot be shown",)
+
 
 def _format_exception_detail(exc: Exception) -> str:
     """格式化异常信息，避免日志出现空白错误内容。"""
@@ -44,6 +46,19 @@ def _format_exception_detail(exc: Exception) -> str:
     if message:
         return f"{exc.__class__.__name__}: {message}"
     return repr(exc)
+
+
+def _strip_benign_stderr(stderr_text: str) -> str:
+    """过滤已知无害 stderr 噪声，避免误导为执行失败。"""
+    if not stderr_text:
+        return stderr_text
+    kept_lines: list[str] = []
+    for raw_line in stderr_text.splitlines():
+        line = raw_line.strip()
+        if any(pattern in line for pattern in _BENIGN_STDERR_PATTERNS):
+            continue
+        kept_lines.append(raw_line)
+    return "\n".join(kept_lines).strip()
 
 
 def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -391,14 +406,12 @@ def _collect_figures(
         # Plotly Figure（避免主动导入 plotly，基于对象特征检测）
         obj_module = getattr(getattr(obj, "__class__", None), "__module__", "")
         is_plotly_figure = (
-            (plotly_figure_cls is not None and isinstance(obj, plotly_figure_cls))
-            or
-            (
+            plotly_figure_cls is not None and isinstance(obj, plotly_figure_cls)
+        ) or (
             isinstance(obj_module, str)
             and obj_module.startswith("plotly")
             and hasattr(obj, "to_json")
             and hasattr(obj, "layout")
-            )
         )
         if is_plotly_figure:
             seen_ids.add(obj_id)
@@ -535,7 +548,7 @@ def _sandbox_worker(
             # 不是 child_process.exec，代码已通过 validate_code() 策略校验。
             exec(compiled, exec_globals)  # noqa: S102
             stdout_text = stdout_buf.getvalue()
-            stderr_text = stderr_buf.getvalue()
+            stderr_text = _strip_benign_stderr(stderr_buf.getvalue())
 
         result_obj = exec_globals.get("result")
         output_df = exec_globals.get("output_df")

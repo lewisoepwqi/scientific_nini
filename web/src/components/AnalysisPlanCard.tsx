@@ -11,9 +11,8 @@ import {
   CheckCircle2,
   XCircle,
 } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import type { AnalysisPlanData } from '../store'
+import MarkdownContent from './MarkdownContent'
 
 interface Props {
   content: string
@@ -93,7 +92,7 @@ export default function AnalysisPlanCard({ content, analysisPlan }: Props) {
                 </ul>
               ) : (
                 <div className="mt-2 text-sm text-indigo-900 markdown-body prose prose-sm max-w-none prose-headings:text-indigo-900 prose-strong:text-indigo-900">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+                  <MarkdownContent content={content} />
                 </div>
               )}
             </div>
