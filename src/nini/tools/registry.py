@@ -14,7 +14,7 @@ from nini.tools.base import Skill, SkillResult
 from nini.tools.clean_data import CleanDataSkill, RecommendCleaningStrategySkill
 from nini.tools.code_exec import RunCodeSkill
 from nini.tools.data_ops import DataSummarySkill, LoadDatasetSkill, PreviewDataSkill
-from nini.tools.data_quality import DataQualitySkill, DataQualityReportSkill
+from nini.tools.data_quality import DataQualitySkill
 from nini.tools.diagnostics import DataDiagnostics
 from nini.tools.export import ExportChartSkill
 from nini.tools.export_report import ExportReportSkill
@@ -34,7 +34,6 @@ from nini.tools.statistics import (
 )
 from nini.tools.interpretation import InterpretStatisticalResultSkill
 from nini.tools.visualization import CreateChartSkill
-from nini.tools.workflow_skill import ApplyWorkflowSkill, ListWorkflowsSkill, SaveWorkflowSkill
 from nini.tools.markdown_scanner import render_skills_snapshot, scan_markdown_skills
 from nini.tools.task_write import TaskWriteSkill
 
@@ -343,12 +342,8 @@ def create_default_registry() -> SkillRegistry:
     registry.register(CleanDataSkill())
     registry.register(RecommendCleaningStrategySkill())
     registry.register(DataQualitySkill())
-    registry.register(DataQualityReportSkill())
     registry.register(GenerateReportSkill())
     registry.register(ExportReportSkill())
-    registry.register(SaveWorkflowSkill())
-    registry.register(ListWorkflowsSkill())
-    registry.register(ApplyWorkflowSkill())
     registry.register(OrganizeWorkspaceSkill())
     registry.register(FetchURLSkill())
     # 复合技能模板（P0 优化）

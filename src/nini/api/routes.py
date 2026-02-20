@@ -1410,59 +1410,6 @@ async def get_default_model():
     return APIResponse(data={"default_provider": provider_id})
 
 
-# ---- 工作流模板管理 ----
-
-
-@router.get("/workflows", response_model=APIResponse)
-async def list_workflows():
-    """获取所有工作流模板。"""
-    from nini.workflow.store import list_templates
-
-    templates = await list_templates()
-    return APIResponse(data=templates)
-
-
-@router.post("/workflows/{template_id}/run", response_model=APIResponse)
-async def run_workflow(template_id: str, session_id: str | None = None):
-    """通过 HTTP 触发工作流执行（非 WebSocket 场景的简易版本）。
-
-    实际的流式执行推荐通过 WebSocket 触发，此接口用于验证和启动。
-    """
-    from nini.workflow.store import get_template
-
-    template = await get_template(template_id)
-    if template is None:
-        raise HTTPException(status_code=404, detail="工作流模板不存在")
-
-    if session_id:
-        if not session_manager.session_exists(session_id):
-            raise HTTPException(status_code=404, detail="会话不存在")
-        session = session_manager.get_or_create(session_id)
-        if not session.workspace_hydrated:
-            WorkspaceManager(session_id).hydrate_session_datasets(session)
-            session.workspace_hydrated = True
-        if not session.datasets:
-            return APIResponse(success=False, error="当前会话无已加载的数据集，请先上传数据")
-
-    return APIResponse(
-        data={
-            "template": template.to_dict(),
-            "message": f"工作流「{template.name}」已准备好执行（{len(template.steps)} 步）",
-        }
-    )
-
-
-@router.delete("/workflows/{template_id}", response_model=APIResponse)
-async def delete_workflow(template_id: str):
-    """删除工作流模板。"""
-    from nini.workflow.store import delete_template
-
-    deleted = await delete_template(template_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="工作流模板不存在")
-    return APIResponse(data={"deleted": template_id})
-
-
 # ---- Token 统计 ----
 
 

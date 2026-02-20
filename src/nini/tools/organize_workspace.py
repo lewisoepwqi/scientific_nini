@@ -21,6 +21,10 @@ class OrganizeWorkspaceSkill(Skill):
         return "utility"
 
     @property
+    def expose_to_llm(self) -> bool:
+        return False
+
+    @property
     def description(self) -> str:
         return "创建工作区文件夹并移动文件，用于整理数据集/产物/笔记。"
 

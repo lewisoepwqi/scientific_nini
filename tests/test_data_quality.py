@@ -324,7 +324,9 @@ class TestDataQualityReportSkill:
     """测试详细质量报告技能。"""
 
     async def test_detailed_report(self):
-        registry = create_default_registry()
+        from nini.tools.data_quality import DataQualityReportSkill
+
+        skill = DataQualityReportSkill()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame(
             {
@@ -333,27 +335,19 @@ class TestDataQualityReportSkill:
             }
         )
 
-        result = await registry.execute(
-            "generate_quality_report",
-            session=session,
-            dataset_name="test.csv",
-            include_recommendations=True,
-        )
+        result = (await skill.execute(session=session, dataset_name="test.csv", include_recommendations=True)).to_dict()
 
         assert result["success"] is True
         assert "cleaning_recommendations" in result["data"]
 
     async def test_report_without_recommendations(self):
-        registry = create_default_registry()
+        from nini.tools.data_quality import DataQualityReportSkill
+
+        skill = DataQualityReportSkill()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame({"a": [1, 2, 3]})
 
-        result = await registry.execute(
-            "generate_quality_report",
-            session=session,
-            dataset_name="test.csv",
-            include_recommendations=False,
-        )
+        result = (await skill.execute(session=session, dataset_name="test.csv", include_recommendations=False)).to_dict()
 
         assert result["success"] is True
         assert "cleaning_recommendations" not in result["data"]

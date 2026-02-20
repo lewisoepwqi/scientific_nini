@@ -1,63 +1,68 @@
 /**
  * 应用根组件 —— 三栏布局（会话列表 + 对话面板 + 工作区面板），支持移动端响应式。
  */
-import { useCallback, useEffect, useState } from 'react'
-import { useStore } from './store'
-import ChatPanel from './components/ChatPanel'
-import SessionList from './components/SessionList'
-import ModelConfigPanel from './components/ModelConfigPanel'
-import WorkflowPanel from './components/WorkflowPanel'
-import SkillCatalogPanel from './components/SkillCatalogPanel'
-import WorkspaceSidebar from './components/WorkspaceSidebar'
-import MemoryPanel from './components/MemoryPanel'
-import { Wifi, WifiOff, Settings, Menu, Zap, Wrench, PanelRightOpen, PanelRightClose } from 'lucide-react'
+import { useCallback, useEffect, useState } from "react";
+import { useStore } from "./store";
+import ChatPanel from "./components/ChatPanel";
+import SessionList from "./components/SessionList";
+import ModelConfigPanel from "./components/ModelConfigPanel";
+import SkillCatalogPanel from "./components/SkillCatalogPanel";
+import WorkspaceSidebar from "./components/WorkspaceSidebar";
+import MemoryPanel from "./components/MemoryPanel";
+import {
+  Wifi,
+  WifiOff,
+  Settings,
+  Menu,
+  Wrench,
+  PanelRightOpen,
+  PanelRightClose,
+} from "lucide-react";
 
 export default function App() {
-  const connect = useStore((s) => s.connect)
-  const initApp = useStore((s) => s.initApp)
-  const wsConnected = useStore((s) => s.wsConnected)
-  const workspacePanelOpen = useStore((s) => s.workspacePanelOpen)
-  const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel)
-  const [showSettings, setShowSettings] = useState(false)
-  const [showWorkflows, setShowWorkflows] = useState(false)
-  const [showSkills, setShowSkills] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [workspacePanelWidth, setWorkspacePanelWidth] = useState(420)
-  const [resizingWorkspace, setResizingWorkspace] = useState(false)
-  const sendMessage = useStore((s) => s.sendMessage)
+  const connect = useStore((s) => s.connect);
+  const initApp = useStore((s) => s.initApp);
+  const wsConnected = useStore((s) => s.wsConnected);
+  const workspacePanelOpen = useStore((s) => s.workspacePanelOpen);
+  const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showSkills, setShowSkills] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [workspacePanelWidth, setWorkspacePanelWidth] = useState(420);
+  const [resizingWorkspace, setResizingWorkspace] = useState(false);
 
   // 应用初始化：恢复会话并建立 WebSocket 连接
   useEffect(() => {
     // 先初始化应用（恢复会话），然后建立 WebSocket 连接
     initApp().then(() => {
-      connect()
-    })
-  }, [initApp, connect])
+      connect();
+    });
+  }, [initApp, connect]);
 
   const handleWorkspaceResizeStart = useCallback(() => {
-    setResizingWorkspace(true)
-  }, [])
+    setResizingWorkspace(true);
+  }, []);
 
   useEffect(() => {
-    if (!resizingWorkspace) return
+    if (!resizingWorkspace) return;
     const onMouseMove = (event: MouseEvent) => {
-      const width = window.innerWidth - event.clientX
-      const clamped = Math.max(340, Math.min(960, width))
-      setWorkspacePanelWidth(clamped)
-    }
-    const onMouseUp = () => setResizingWorkspace(false)
+      const width = window.innerWidth - event.clientX;
+      const clamped = Math.max(340, Math.min(960, width));
+      setWorkspacePanelWidth(clamped);
+    };
+    const onMouseUp = () => setResizingWorkspace(false);
 
-    document.body.style.userSelect = 'none'
-    document.body.style.cursor = 'col-resize'
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseup', onMouseUp)
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
     return () => {
-      document.body.style.userSelect = ''
-      document.body.style.cursor = ''
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup', onMouseUp)
-    }
-  }, [resizingWorkspace])
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [resizingWorkspace]);
 
   return (
     <div className="flex h-screen bg-white">
@@ -95,16 +100,9 @@ export default function App() {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowWorkflows(true)}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
-              title="工作流模板"
-            >
-              <Zap size={16} />
-            </button>
-            <button
               onClick={() => setShowSkills(true)}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
-              title="技能清单"
+              title="工具清单"
             >
               <Wrench size={16} />
             </button>
@@ -118,22 +116,32 @@ export default function App() {
             <button
               onClick={toggleWorkspacePanel}
               className={`p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${
-                workspacePanelOpen ? 'text-blue-600 bg-blue-50' : 'text-gray-500'
+                workspacePanelOpen
+                  ? "text-blue-600 bg-blue-50"
+                  : "text-gray-500"
               }`}
-              title={workspacePanelOpen ? '关闭工作区' : '打开工作区'}
+              title={workspacePanelOpen ? "关闭工作区" : "打开工作区"}
             >
-              {workspacePanelOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+              {workspacePanelOpen ? (
+                <PanelRightClose size={16} />
+              ) : (
+                <PanelRightOpen size={16} />
+              )}
             </button>
             <div className="flex items-center gap-1.5 text-xs">
               {wsConnected ? (
                 <>
                   <Wifi size={12} className="text-emerald-500" />
-                  <span className="text-emerald-600 hidden sm:inline">已连接</span>
+                  <span className="text-emerald-600 hidden sm:inline">
+                    已连接
+                  </span>
                 </>
               ) : (
                 <>
                   <WifiOff size={12} className="text-red-400" />
-                  <span className="text-red-500 hidden sm:inline">连接中...</span>
+                  <span className="text-red-500 hidden sm:inline">
+                    连接中...
+                  </span>
                 </>
               )}
             </div>
@@ -179,19 +187,15 @@ export default function App() {
       )}
 
       {/* 模型配置弹窗 */}
-      <ModelConfigPanel open={showSettings} onClose={() => setShowSettings(false)} />
-
-      {/* 工作流模板弹窗 */}
-      <WorkflowPanel
-        open={showWorkflows}
-        onClose={() => setShowWorkflows(false)}
-        onApply={(templateId) => {
-          setShowWorkflows(false)
-          sendMessage(`应用工作流模板 ${templateId}`)
-        }}
+      <ModelConfigPanel
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
       />
 
-      <SkillCatalogPanel open={showSkills} onClose={() => setShowSkills(false)} />
+      <SkillCatalogPanel
+        open={showSkills}
+        onClose={() => setShowSkills(false)}
+      />
     </div>
-  )
+  );
 }
