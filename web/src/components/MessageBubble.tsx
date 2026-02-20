@@ -43,6 +43,9 @@ function MessageBubble({
   const [toolExpanded, setToolExpanded] = useState(
     message.toolStatus === "error",
   );
+  const [reasoningDisplay, setReasoningDisplay] = useState(
+    isReasoning && message.reasoningLive ? "" : message.content,
+  );
   const hasWideContent =
     !!message.chartData ||
     (!!message.images && message.images.length > 0) ||
@@ -53,6 +56,41 @@ function MessageBubble({
       setToolExpanded(true);
     }
   }, [message.toolStatus]);
+
+  useEffect(() => {
+    if (!isReasoning) return;
+    setReasoningDisplay(message.reasoningLive ? "" : message.content);
+  }, [isReasoning, message.id, message.reasoningLive]);
+
+  useEffect(() => {
+    if (!isReasoning) return;
+    if (!message.reasoningLive) {
+      setReasoningDisplay(message.content);
+      return;
+    }
+    if (!message.content.startsWith(reasoningDisplay)) {
+      setReasoningDisplay(message.content);
+      return;
+    }
+    if (reasoningDisplay.length >= message.content.length) {
+      return;
+    }
+    const remain = message.content.length - reasoningDisplay.length;
+    const step = remain > 30 ? 4 : remain > 12 ? 2 : 1;
+    const timer = window.setTimeout(() => {
+      const nextLen = Math.min(
+        message.content.length,
+        reasoningDisplay.length + step,
+      );
+      setReasoningDisplay(message.content.slice(0, nextLen));
+    }, 16);
+    return () => window.clearTimeout(timer);
+  }, [isReasoning, message.content, reasoningDisplay, message.reasoningLive]);
+
+  const showTypingCursor =
+    isReasoning &&
+    message.reasoningLive &&
+    reasoningDisplay.length < message.content.length;
 
   // 思考过程消息使用独立气泡样式，区别于正式回复
   if (isReasoning) {
@@ -69,10 +107,16 @@ function MessageBubble({
           <div className="max-w-[85%] lg:max-w-2xl rounded-2xl rounded-tl-md border border-amber-300/90 bg-gradient-to-br from-amber-50 to-orange-50 px-4 py-3 shadow-sm">
             <div className="mb-2 flex items-center gap-2 text-xs font-semibold tracking-wide text-amber-700">
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" />
-              模型思考过程
+              Thinking
             </div>
             <div className="markdown-body reasoning-markdown prose prose-sm max-w-none text-amber-950">
-              <MarkdownContent content={message.content} />
+              <MarkdownContent content={reasoningDisplay} />
+              {showTypingCursor && (
+                <span
+                  className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-amber-700 align-middle"
+                  aria-hidden="true"
+                />
+              )}
             </div>
           </div>
         </div>

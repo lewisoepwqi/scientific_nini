@@ -134,7 +134,7 @@ export default function ChatPanel() {
           {isStreaming && (
             <div className="flex items-center gap-2 text-gray-400 text-sm ml-11">
               <Loader2 size={14} className="animate-spin" />
-              思考中...
+              Thinking...
             </div>
           )}
 

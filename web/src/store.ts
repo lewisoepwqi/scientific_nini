@@ -139,6 +139,7 @@ export interface Message {
   images?: string[]; // 图片 URL 列表
   retrievals?: RetrievalItem[]; // 检索命中结果
   isReasoning?: boolean; // 分析思路消息标记
+  reasoningLive?: boolean; // 思考内容流式渲染标记（仅前端会话态）
   analysisPlan?: AnalysisPlanData; // 结构化分析计划
   turnId?: string; // Agent 回合 ID，用于消息分组
   timestamp: number;
@@ -378,6 +379,15 @@ const REASONING_MARKER_PATTERN =
 function stripReasoningMarkers(text: string): string {
   if (!text) return text;
   return text.replace(REASONING_MARKER_PATTERN, "");
+}
+
+function mergeReasoningContent(previous: string, incoming: string): string {
+  if (!previous) return incoming;
+  if (!incoming) return previous;
+  // 兼容累计流（新内容包含旧内容前缀）
+  if (incoming.startsWith(previous)) return incoming;
+  // 兼容增量流（新内容仅为 delta）
+  return previous + incoming;
 }
 
 function planStatusRank(status: PlanStepStatus): number {
@@ -2238,15 +2248,40 @@ function handleEvent(
           ? stripReasoningMarkers(data.content)
           : "";
       if (!content) break;
-      const msg: Message = {
-        id: nextId(),
-        role: "assistant",
-        content,
-        isReasoning: true,
-        turnId,
-        timestamp: Date.now(),
-      };
-      set((s) => ({ messages: [...s.messages, msg] }));
+      set((s) => {
+        const msgs = [...s.messages];
+        const lastReasoningIndex = [...msgs]
+          .reverse()
+          .findIndex(
+            (m) =>
+              m.isReasoning &&
+              !m.analysisPlan &&
+              (m.turnId || undefined) === turnId,
+          );
+
+        if (lastReasoningIndex >= 0) {
+          const idx = msgs.length - 1 - lastReasoningIndex;
+          const target = msgs[idx];
+          const merged = mergeReasoningContent(target.content, content);
+          msgs[idx] = {
+            ...target,
+            content: merged,
+            reasoningLive: true,
+          };
+          return { messages: msgs };
+        }
+
+        const msg: Message = {
+          id: nextId(),
+          role: "assistant",
+          content,
+          isReasoning: true,
+          reasoningLive: true,
+          turnId,
+          timestamp: Date.now(),
+        };
+        return { messages: [...s.messages, msg] };
+      });
       break;
     }
 
