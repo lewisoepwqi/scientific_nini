@@ -38,7 +38,7 @@ from nini.workspace import WorkspaceManager
 # 导入事件模块
 from nini.agent.events import EventType, AgentEvent, create_reasoning_event
 from nini.agent.plan_parser import AnalysisPlan, AnalysisStep, parse_analysis_plan
-from nini.agent.planner import PlannerAgent
+from nini.agent.task_manager import TaskManager
 
 logger = logging.getLogger(__name__)
 
@@ -118,77 +118,6 @@ class AgentRunner:
         next_step_idx: int = 0
         plan_event_seq: int = 0
         iteration = 0
-        planner = PlannerAgent(resolver=self._resolver)
-        structured_plan = None
-        action_trackers: dict[str, dict[str, int | str]] = {}
-        step_action_map: dict[int, str] = {}
-
-        def _build_display_plan_from_execution_plan(plan: Any) -> AnalysisPlan | None:
-            """将结构化执行计划转换为前端可展示的步骤列表。"""
-            try:
-                steps = []
-                step_id = 1
-                for phase_idx, phase in enumerate(plan.phases):
-                    if phase.actions:
-                        for action_idx, action in enumerate(phase.actions):
-                            action_id = f"p{phase_idx + 1}_a{action_idx + 1}"
-                            title = action.description.strip() or phase.description.strip()
-                            steps.append(
-                                {
-                                    "id": step_id,
-                                    "title": title or f"步骤 {step_id}",
-                                    "tool_hint": action.skill,
-                                    "status": "pending",
-                                    "action_id": action_id,
-                                }
-                            )
-                            action_trackers[action_id] = {
-                                "status": "pending",
-                                "retry_count": 0,
-                                "max_retries": 1,
-                            }
-                            step_action_map[step_id] = action_id
-                            step_id += 1
-                    else:
-                        action_id = f"p{phase_idx + 1}_a0"
-                        steps.append(
-                            {
-                                "id": step_id,
-                                "title": phase.description.strip() or f"步骤 {step_id}",
-                                "tool_hint": None,
-                                "status": "pending",
-                                "action_id": action_id,
-                            }
-                        )
-                        action_trackers[action_id] = {
-                            "status": "pending",
-                            "retry_count": 0,
-                            "max_retries": 0,
-                        }
-                        step_action_map[step_id] = action_id
-                        step_id += 1
-
-                if len(steps) < 2:
-                    return None
-
-                raw_text = "\n".join(
-                    f"{item['id']}. {item['title']}"
-                    + (f" - 使用工具: {item['tool_hint']}" if item.get("tool_hint") else "")
-                    for item in steps
-                )
-                parsed_steps: list[AnalysisStep] = []
-                for item in steps:
-                    parsed_steps.append(
-                        AnalysisStep(
-                            id=int(item["id"]),
-                            title=str(item["title"]),
-                            tool_hint=(str(item["tool_hint"]) if item.get("tool_hint") else None),
-                            status="pending",
-                        )
-                    )
-                return AnalysisPlan(steps=parsed_steps, raw_text=raw_text)
-            except Exception:
-                return None
 
         def _to_plan_status(raw_status: str) -> str:
             """将历史计划状态映射为前端统一状态。"""
@@ -314,22 +243,6 @@ class AgentRunner:
         compress_event = await self._maybe_auto_compress(session)
         if compress_event is not None:
             yield compress_event
-
-        # 预先创建结构化计划（Plan-as-Data），用于后续执行追踪与展示。
-        try:
-            structured_plan = await planner.create_plan(session, user_message)
-            validation_result = await planner.validate_plan(session, structured_plan)
-            if not validation_result.get("is_valid", True):
-                structured_plan = await planner.revise_plan(
-                    session,
-                    structured_plan,
-                    "计划校验未通过，已自动标记为需修订",
-                )
-            display_plan = _build_display_plan_from_execution_plan(structured_plan)
-            if display_plan is not None:
-                active_plan = display_plan
-        except Exception as exc:
-            logger.debug("创建结构化计划失败，回退文本解析: %s", exc)
 
         while max_iter <= 0 or iteration < max_iter:
             if should_stop():
@@ -477,24 +390,28 @@ class AgentRunner:
             # 文本部分视为"分析思路"，发出 REASONING 事件并保存到工作空间
             if iteration == 0 and full_text and full_text.strip():
                 reasoning_text = full_text.strip()
-                # 尝试解析结构化分析计划
-                parsed_plan = parse_analysis_plan(reasoning_text)
-                if active_plan is None and parsed_plan is not None:
-                    active_plan = parsed_plan
-                    next_step_idx = 0
-                if active_plan is not None:
-                    yield AgentEvent(
-                        type=EventType.ANALYSIS_PLAN,
-                        data=active_plan.to_dict(),
-                        turn_id=turn_id,
-                    )
-                    yield _new_plan_progress_event(
-                        current_idx=0,
-                        step_status="pending",
-                        next_hint=(
-                            f"下一步：{active_plan.steps[0].title}" if active_plan.steps else None
-                        ),
-                    )
+                # 仅当 LLM 未使用 task_write 初始化任务（task_manager 未初始化）时
+                # 才回退到文本解析模式（parse_analysis_plan 的 fallback 路径）
+                if not session.task_manager.initialized:
+                    parsed_plan = parse_analysis_plan(reasoning_text)
+                    if active_plan is None and parsed_plan is not None:
+                        active_plan = parsed_plan
+                        next_step_idx = 0
+                    if active_plan is not None:
+                        yield AgentEvent(
+                            type=EventType.ANALYSIS_PLAN,
+                            data=active_plan.to_dict(),
+                            turn_id=turn_id,
+                        )
+                        yield _new_plan_progress_event(
+                            current_idx=0,
+                            step_status="pending",
+                            next_hint=(
+                                f"下一步：{active_plan.steps[0].title}"
+                                if active_plan.steps
+                                else None
+                            ),
+                        )
                 # 始终发出 REASONING 事件（向后兼容）
                 yield AgentEvent(
                     type=EventType.REASONING,
@@ -550,49 +467,39 @@ class AgentRunner:
                     except Exception:
                         pass
 
-                # 匹配分析计划步骤 → in_progress
-                matched_step_idx: int | None = None
+                # 从 task_manager 获取当前 in_progress 任务（用于 TASK_ATTEMPT 事件关联）
+                # task_write 本身不计入任务执行轨迹
+                matched_step_id: int | None = None
                 matched_action_id: str | None = None
-                if active_plan is not None and next_step_idx < len(active_plan.steps):
+                if func_name != "task_write" and session.task_manager.has_tasks():
+                    in_progress_task = session.task_manager.current_in_progress()
+                    if in_progress_task:
+                        matched_action_id = in_progress_task.action_id
+                        matched_step_id = in_progress_task.id
+                # 兼容 fallback 模式（task_manager 未初始化时，仍沿用 active_plan 匹配）
+                elif func_name != "task_write" and active_plan is not None and next_step_idx < len(active_plan.steps):
                     step = active_plan.steps[next_step_idx]
-                    # 优先匹配下一个 pending 步骤
                     if step.status == "pending":
-                        if step.tool_hint and step.tool_hint != func_name:
-                            found_match = False
-                            for lookup_idx in range(next_step_idx + 1, len(active_plan.steps)):
-                                candidate = active_plan.steps[lookup_idx]
-                                if (
-                                    candidate.status == "pending"
-                                    and candidate.tool_hint == func_name
-                                ):
-                                    step = candidate
-                                    matched_step_idx = lookup_idx
-                                    found_match = True
-                                    break
-                            if not found_match:
-                                matched_step_idx = next_step_idx
-                        else:
-                            matched_step_idx = next_step_idx
-
-                        if matched_step_idx is not None:
-                            step = active_plan.steps[matched_step_idx]
-                            action_id = step_action_map.get(step.id)
-                            if action_id:
-                                matched_action_id = action_id
-                                tracker = action_trackers.get(action_id, {})
-                                tracker["status"] = "in_progress"
-                                action_trackers[action_id] = tracker
                         step.status = "in_progress"
-                        next_step_idx = max(next_step_idx, (matched_step_idx or 0) + 1)
+                        matched_step_id = step.id
+                        matched_action_id = f"fallback_{step.id}"
+                        next_step_idx += 1
                         yield AgentEvent(
                             type=EventType.PLAN_STEP_UPDATE,
                             data=step.to_dict(),
                             turn_id=turn_id,
                         )
                         yield _new_plan_progress_event(
-                            current_idx=matched_step_idx,
+                            current_idx=next_step_idx - 1,
                             step_status="in_progress",
                         )
+
+                # fallback 情况下确保非 task_write 工具始终有 action_id（用于关联重试轨迹）
+                if matched_action_id is None and func_name != "task_write":
+                    matched_action_id = tc_id
+                # 计算重试策略：task_write 模式由 LLM 自行决定，不自动重试；
+                # fallback 模式（task_manager 未初始化）始终允许 1 次自动重试
+                max_retries = 0 if session.task_manager.initialized else 1
 
                 yield AgentEvent(
                     type=EventType.TOOL_CALL,
@@ -605,13 +512,86 @@ class AgentRunner:
                         **(
                             {
                                 "action_id": matched_action_id,
-                                "retry_policy": action_trackers.get(matched_action_id),
+                                **(
+                                    {"retry_policy": {"max_retries": max_retries, "retry_count": 0}}
+                                    if max_retries > 0
+                                    else {}
+                                ),
                             }
                             if matched_action_id
                             else {}
                         ),
                     },
                 )
+
+                # ── task_write 特殊处理 ──────────────────────────────────────────
+                # task_write 由 LLM 调用来声明/更新任务列表，不走正常执行流程
+                if func_name == "task_write":
+                    result = await self._execute_tool(session, func_name, func_args)
+                    has_error = isinstance(result, dict) and (
+                        result.get("error") or result.get("success") is False
+                    )
+                    if not has_error:
+                        try:
+                            tw_args = json.loads(func_args)
+                            tw_mode = tw_args.get("mode", "init")
+                            if tw_mode == "init":
+                                yield AgentEvent(
+                                    type=EventType.ANALYSIS_PLAN,
+                                    data=session.task_manager.to_analysis_plan_dict(),
+                                    turn_id=turn_id,
+                                )
+                                yield _new_plan_progress_event(
+                                    current_idx=0,
+                                    step_status="pending",
+                                    next_hint=(
+                                        session.task_manager.tasks[0].title
+                                        if session.task_manager.tasks
+                                        else None
+                                    ),
+                                )
+                            else:  # update
+                                updated_ids = {
+                                    int(u["id"])
+                                    for u in tw_args.get("tasks", [])
+                                    if "id" in u
+                                }
+                                for t in session.task_manager.tasks:
+                                    if t.id in updated_ids:
+                                        yield AgentEvent(
+                                            type=EventType.PLAN_STEP_UPDATE,
+                                            data={
+                                                "id": t.id,
+                                                "title": t.title,
+                                                "tool_hint": t.tool_hint,
+                                                "status": t.status,
+                                                "action_id": t.action_id,
+                                            },
+                                            turn_id=turn_id,
+                                        )
+                        except Exception as exc:
+                            logger.debug("task_write 事件发射失败: %s", exc)
+
+                    result_str = self._serialize_tool_result_for_memory(result)
+                    session.add_tool_result(
+                        tc_id,
+                        result_str,
+                        tool_name=func_name,
+                        status="success" if not has_error else "error",
+                    )
+                    yield AgentEvent(
+                        type=EventType.TOOL_RESULT,
+                        data={
+                            "result": result,
+                            "status": "success" if not has_error else "error",
+                            "message": result.get("message", "") if isinstance(result, dict) else "",
+                        },
+                        tool_call_id=tc_id,
+                        tool_name=func_name,
+                        turn_id=turn_id,
+                    )
+                    continue  # 跳过正常执行流程
+                # ── task_write 特殊处理结束 ──────────────────────────────────────
 
                 # 智能体生成的代码自动沉淀为工作空间产物
                 code_artifact = self._persist_code_source(
@@ -633,19 +613,9 @@ class AgentRunner:
                         turn_id=turn_id,
                     )
 
-                # 执行工具
+                # 执行工具（max_retries 已在 TOOL_CALL 事件发出前计算）
                 retry_attempt = 0
-                max_retries = int(
-                    (action_trackers.get(matched_action_id, {}).get("max_retries", 0))
-                    if matched_action_id
-                    else 0
-                )
                 max_attempts = max_retries + 1
-                matched_step_id = (
-                    active_plan.steps[matched_step_idx].id
-                    if active_plan is not None and matched_step_idx is not None
-                    else None
-                )
                 while True:
                     attempt_no = retry_attempt + 1
                     yield _new_task_attempt_event(
@@ -706,8 +676,6 @@ class AgentRunner:
                     )
 
                     retry_attempt += 1
-                    if matched_action_id:
-                        action_trackers[matched_action_id]["retry_count"] = retry_attempt
                     logger.warning(
                         "工具执行失败，触发自动重试: session=%s tool=%s action_id=%s attempt=%d/%d",
                         session.id,
@@ -723,29 +691,22 @@ class AgentRunner:
                 )
                 status = "error" if has_error else "success"
 
-                # 更新分析计划步骤状态 → completed/error
-                if active_plan is not None and matched_step_idx is not None:
-                    step = active_plan.steps[matched_step_idx]
-                    step.status = "error" if has_error else "completed"
-                    if matched_action_id and matched_action_id in action_trackers:
-                        action_trackers[matched_action_id]["status"] = (
-                            "failed" if has_error else "completed"
-                        )
-                    yield AgentEvent(
-                        type=EventType.PLAN_STEP_UPDATE,
-                        data=step.to_dict(),
-                        turn_id=turn_id,
-                    )
-                    error_reason: str | None = None
-                    if has_error and isinstance(result, dict):
-                        reason = result.get("error") or result.get("message")
-                        if isinstance(reason, str) and reason.strip():
-                            error_reason = reason.strip()
-                    yield _new_plan_progress_event(
-                        current_idx=matched_step_idx,
-                        step_status=step.status,
-                        block_reason=error_reason,
-                    )
+                # 兼容 fallback 模式：active_plan 步骤状态更新（task_manager 未初始化时）
+                if not session.task_manager.initialized and active_plan is not None:
+                    # 找到刚完成的 in_progress 步骤并标记
+                    for _fb_idx, _fb_step in enumerate(active_plan.steps):
+                        if _fb_step.status == "in_progress":
+                            _fb_step.status = "error" if has_error else "completed"
+                            yield AgentEvent(
+                                type=EventType.PLAN_STEP_UPDATE,
+                                data=_fb_step.to_dict(),
+                                turn_id=turn_id,
+                            )
+                            yield _new_plan_progress_event(
+                                current_idx=_fb_idx,
+                                step_status=_fb_step.status,
+                            )
+                            break
 
                 if func_name == "generate_report" and not has_error and isinstance(result, dict):
                     data_obj = result.get("data")
