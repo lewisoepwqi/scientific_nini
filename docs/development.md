@@ -87,7 +87,7 @@ curl http://127.0.0.1:8011/api/health
 
 ## 6. 常见维护任务
 
-- 增加新技能：在 `src/nini/skills/` 实现并在 `create_default_registry()` 注册
+- 增加新技能：在 `src/nini/tools/` 继承 `Skill` 实现，并在 `tools/registry.py:create_default_registry()` 中注册
 - 扩展 WebSocket 事件：更新 `src/nini/agent/runner.py` 与 `web/src/store.ts`
 - 新增配置项：更新 `src/nini/config.py`、`nini init` 默认模板与文档
 - 升级模型路由：更新 `src/nini/agent/model_resolver.py` 与对应测试

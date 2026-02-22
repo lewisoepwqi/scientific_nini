@@ -6,14 +6,16 @@
 
 - Python `3.12+`
 - Node.js `18+`（仅前端构建需要）
-- 可用模型路由之一：
+- 可用模型路由之一（多选时按优先级自动降级）：
   - OpenAI API Key
   - Anthropic API Key
   - Moonshot AI (Kimi) API Key
+  - Kimi Coding API Key
   - 智谱 AI (GLM) API Key
   - DeepSeek API Key
   - 阿里百炼（通义千问）API Key
   - 本地 Ollama（默认地址 `http://localhost:11434`）
+- R 环境（可选，仅使用 `run_r_code` 技能时需要）
 
 ## 2. 安装
 

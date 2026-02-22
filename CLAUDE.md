@@ -10,10 +10,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Nini 是一个本地优先的科研数据分析 AI Agent。用户通过对话上传并分析数据，Agent 自动调用统计、作图、清洗、代码执行与报告生成技能。单进程同时提供 HTTP API、WebSocket Agent 交互和前端静态文件。
 
-## 项目语言要求
-文档、注释、用户交互默认使用中文；专业术语首次出现可保留英文并附中文解释。
-提交信息必须遵循 Conventional Commits；subject 可中文或英文，但同一仓库应保持风格一致。
-
 ## 常用命令
 
 ### 安装与启动
@@ -22,7 +18,8 @@ pip install -e .[dev]          # 安装后端及开发依赖
 nini init                      # 生成 .env 配置文件
 nini doctor                    # 检查运行环境
 nini start --reload            # 开发模式启动（热重载），等价于 python -m nini start --reload
-cd web && npm install && npm run build  # 构建前端
+cd web && npm run dev                   # 前端开发服务器（端口 3000，代理 /api 和 /ws 到后端 8000）
+cd web && npm install && npm run build  # 构建前端（生产）
 ```
 
 ### 格式化 / 类型检查 / 测试 / 构建（按顺序）
@@ -52,17 +49,19 @@ python -m build                # 打包到 dist/
 
 **多模型路由**：`agent/model_resolver.py` 中 `ModelResolver` 管理多 LLM 客户端（OpenAI、Anthropic、Ollama、Moonshot、Kimi Coding、智谱、DeepSeek、阿里百炼），统一为 `BaseLLMClient.chat()` 异步流式接口。按优先级尝试，失败自动降级到下一个可用提供商。
 
-**技能系统**：每个技能继承 `skills/base.py:Skill`，实现 `execute(session, **kwargs) -> SkillResult`。`skills/registry.py:SkillRegistry` 在启动时注册全部技能，并提供给 LLM 的 tools schema。技能分类：
-- 统计：`t_test`、`anova`、`correlation`、`regression`、`mann_whitney`、`kruskal_wallis`（含自动降级，如正态性不满足 t_test → mann_whitney）
+**技能系统**：每个技能继承 `tools/base.py:Skill`，实现 `execute(session, **kwargs) -> SkillResult`。`tools/registry.py:SkillRegistry` 在启动时注册全部技能，并提供给 LLM 的 tools schema。注意：`skills/` 目录仅存放提示词模板（`skills/templates/`），技能实现均在 `tools/`。技能分类：
+- 统计：`t_test`、`anova`、`correlation`、`regression`、`mann_whitney`、`kruskal_wallis`（含自动降级，如正态性不满足 t_test → mann_whitney）、`multiple_comparison`
 - 可视化：`create_chart`（7 种图表 + 6 种期刊风格）、`export_chart`
-- 数据操作：`load_dataset`、`preview_data`、`data_summary`、`clean_data`
-- 代码执行：`run_code`（通过 `sandbox/executor.py` 进程隔离执行，受限 builtins + 内存/时间限制）
-- 产物：`generate_report`、`organize_workspace`
-- 复合技能模板：`skills/templates.py` 中预定义多步分析流程
+- 数据操作：`load_dataset`、`preview_data`、`data_summary`、`clean_data`、`data_quality`、`diagnostics`
+- 代码执行：`run_code`（通过 `sandbox/executor.py` 进程隔离执行，受限 builtins + 内存/时间限制）；`run_r_code`（通过 `sandbox/r_executor.py` + `sandbox/r_policy.py`，需本地 R 环境）
+- 网络/多模态：`fetch_url`（网页抓取）、`image_analysis`（图像分析）、`interpretation`（统计结果解读）
+- 任务规划：`task_write`（LLM 驱动的任务列表生成，配合 `agent/task_manager.py` 使用）
+- 产物：`generate_report`、`export_report`、`organize_workspace`
+- 复合技能模板：`tools/templates.py` 中预定义多步分析流程
 
 **会话管理**：`agent/session.py` 管理会话状态（消息历史、已加载 DataFrame、产物列表）。会话持久化到 `data/sessions/{session_id}/`。
 
-**沙箱执行**：`sandbox/executor.py` 通过 `multiprocessing` 进程隔离执行用户代码，`sandbox/policy.py` 做静态代码审查（禁止危险导入/操作），`sandbox/capture.py` 捕获 stdout/stderr。
+**沙箱执行**：`sandbox/executor.py` 通过 `multiprocessing` 进程隔离执行用户代码，`sandbox/policy.py` 做静态代码审查（禁止危险导入/操作），`sandbox/capture.py` 捕获 stdout/stderr。R 代码执行由 `sandbox/r_executor.py` + `sandbox/r_policy.py` 提供，需本地安装 R 环境。
 
 **配置**：`config.py` 基于 `pydantic-settings`，环境变量前缀 `NINI_`，自动读取项目根 `.env` 文件。全局单例 `settings`。
 
@@ -70,11 +69,17 @@ python -m build                # 打包到 dist/
 
 **工作区**：`workspace/manager.py` 管理会话文件（数据集、产物、笔记），支持文件夹组织。
 
+**任务规划系统**：`agent/planner.py` 解析用户意图生成执行计划，`agent/plan_parser.py` 解析 LLM 输出，`agent/task_manager.py` 管理任务状态，配合 `tools/task_write.py` 向客户端推送任务事件。
+
+**图表渲染**：`charts/` 提供可扩展的渲染器架构（`charts/renderers/`）和风格契约（`charts/style_contract.py`），独立于可视化技能层。
+
+**数据模型**：`models/` 存放数据结构定义：`database.py`（数据库）、`execution_plan.py`（执行计划）、`schemas.py`（API Schema）、`user_profile.py`（用户画像）。
+
 ### 前端 (`web/`)
 
 React 18 + Vite + TypeScript + Tailwind CSS。状态管理使用 Zustand 单一 store（`store.ts`）。通过 WebSocket 与后端 Agent 交互，接收流式事件（text/chart/data/tool_call/done 等）。
 
-关键组件：`ChatPanel`（对话主界面）、`MessageBubble`（消息渲染）、`MarkdownContent`（Markdown + 代码高亮）、`ChartViewer`/`PlotlyFromUrl`（Plotly 图表）、`DataViewer`（表格预览）、`WorkspacePanel`/`WorkspaceSidebar`（文件管理）、`FileUpload`（数据上传）。
+关键组件：`ChatPanel`（对话主界面）、`MessageBubble`/`AgentTurnGroup`（消息渲染）、`MarkdownContent`（Markdown + 代码高亮）、`ChartViewer`/`PlotlyFromUrl`（Plotly 图表）、`DataViewer`（表格预览）、`WorkspacePanel`/`WorkspaceSidebar`（文件管理）、`FileUpload`（数据上传）、`AnalysisPlanCard`/`AnalysisTasksPanel`（任务规划展示）、`ArtifactGallery`（产物展示）、`CodeExecutionPanel`（代码执行结果）、`MemoryPanel`（记忆管理）、`ModelConfigPanel`/`ModelSelector`（模型配置）、`SkillCatalogPanel`（工具清单）。
 
 ### 数据流
 
@@ -158,8 +163,8 @@ React 18 + Vite + TypeScript + Tailwind CSS。状态管理使用 Zustand 单一 
 - 使用 `datetime.now(timezone.utc)` 代替 `datetime.utcnow()`。
 - Pydantic v2 使用 `model_validate()` / `model_dump()`。
 - 新能力优先补测试，再接入 WebSocket 事件流。
-- 添加新技能时：继承 `skills/base.py:Skill`，在 `skills/registry.py:create_default_registry()` 中注册。
-- 沙箱安全策略三重防护：AST 静态分析（`sandbox/policy.py`）+ 受限 builtins（`sandbox/executor.py`）+ 进程隔离（multiprocessing spawn）。修改白名单在 `sandbox/policy.py` 的 `ALLOWED_IMPORT_ROOTS`。
+- 添加新技能时：继承 `tools/base.py:Skill`，在 `tools/registry.py:create_default_registry()` 中注册。
+- 沙箱安全策略三重防护：AST 静态分析（`sandbox/policy.py`）+ 受限 builtins（`sandbox/executor.py`）+ 进程隔离（multiprocessing spawn）。修改白名单在 `sandbox/policy.py` 的 `ALLOWED_IMPORT_ROOTS`。R 代码对应 `sandbox/r_policy.py`。
 - 会话数据存储在 `data/sessions/{session_id}/`，包含 `meta.json`（标题）、`memory.jsonl`（对话历史，可能很大需分段读取）、`workspace/`（上传文件和产物）。
 - Black 行宽 100，目标版本 py312。
 - 测试使用 pytest + pytest-asyncio（`asyncio_mode = "auto"`），测试路径 `tests/`。
