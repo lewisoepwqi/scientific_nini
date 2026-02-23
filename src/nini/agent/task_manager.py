@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-TaskStatus = Literal["pending", "in_progress", "completed"]
+TaskStatus = Literal["pending", "in_progress", "completed", "failed", "skipped"]
 
 
 @dataclass(frozen=True)
@@ -81,8 +81,9 @@ class TaskManager:
         return TaskManager(tasks=new_tasks, initialized=self.initialized)
 
     def all_completed(self) -> bool:
-        """所有任务均已 completed（无任何 pending 或 in_progress）。"""
-        return bool(self.tasks) and all(t.status == "completed" for t in self.tasks)
+        """所有任务均已到达终态（completed/failed/skipped）。"""
+        terminal = {"completed", "failed", "skipped"}
+        return bool(self.tasks) and all(t.status in terminal for t in self.tasks)
 
     def has_tasks(self) -> bool:
         """是否已声明了任务。"""

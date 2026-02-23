@@ -9,6 +9,7 @@ import logging
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 from nini.agent.session import Session
 from nini.config import settings
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 # A4 科研论文风格 CSS
 _PDF_CSS_TEMPLATE = """\
+{font_face}
 @page {{
     size: A4;
     margin: 2cm;
@@ -91,8 +93,27 @@ code {{
 }}
 """
 
-# 匹配报告中的图片 src：/api/artifacts/{session_id}/filename
-_IMG_SRC_PATTERN = re.compile(r'(<img\s[^>]*?src=")(/api/artifacts/[^"]+)(")')
+# 匹配报告中的图片 src：/api/artifacts/{session_id}/filename（支持单双引号）
+_IMG_SRC_PATTERN = re.compile(r'(<img\s[^>]*?src=)(["\'])(/api/artifacts/[^"\']+)(\2)')
+
+
+def _build_pdf_font_css() -> tuple[str, str]:
+    """构建 PDF 导出的字体 CSS 与字体链。"""
+    fallback_font = settings.data_dir / "fonts" / "NotoSansCJKsc-Regular.otf"
+    if not fallback_font.exists():
+        return "", CJK_FONT_FAMILY
+
+    # 显式声明本地 CJK 字体，避免系统未安装中文字体时出现方框。
+    font_uri = fallback_font.resolve().as_uri()
+    font_face_css = (
+        "@font-face {\n"
+        "    font-family: 'Nini CJK';\n"
+        f"    src: url('{font_uri}') format('opentype');\n"
+        "    font-weight: normal;\n"
+        "    font-style: normal;\n"
+        "}\n"
+    )
+    return font_face_css, "'Nini CJK', " + CJK_FONT_FAMILY
 
 
 def _md_to_html(md_text: str, title: str) -> str:
@@ -104,7 +125,8 @@ def _md_to_html(md_text: str, title: str) -> str:
         extensions=["tables", "fenced_code", "toc"],
         output_format="html",
     )
-    css = _PDF_CSS_TEMPLATE.format(font_family=CJK_FONT_FAMILY)
+    font_face_css, font_family = _build_pdf_font_css()
+    css = _PDF_CSS_TEMPLATE.format(font_face=font_face_css, font_family=font_family)
     return (
         "<!DOCTYPE html>\n"
         '<html lang="zh-CN">\n'
@@ -118,44 +140,117 @@ def _md_to_html(md_text: str, title: str) -> str:
     )
 
 
-def _plotly_json_to_png_bytes(json_path: Path) -> bytes | None:
-    """将 Plotly JSON 文件转换为 PNG 字节。失败返回 None。"""
+def _normalize_plotly_figure_payload(chart_data: Any) -> dict[str, Any] | None:
+    """归一化 Plotly JSON 载荷，兼容 {figure, config, schema_version} 包装格式。"""
+    if not isinstance(chart_data, dict):
+        return None
+
+    figure: Any = chart_data.get("figure")
+    candidate = figure if isinstance(figure, dict) else chart_data
+    if not isinstance(candidate, dict):
+        return None
+
+    normalized: dict[str, Any] = {}
+    data = candidate.get("data")
+    layout = candidate.get("layout")
+    frames = candidate.get("frames")
+    if isinstance(data, list):
+        normalized["data"] = data
+    if isinstance(layout, dict):
+        normalized["layout"] = layout
+    if isinstance(frames, list):
+        normalized["frames"] = frames
+
+    return normalized or None
+
+
+def _plotly_json_to_png_bytes(json_path: Path) -> tuple[bytes | None, str | None]:
+    """将 Plotly JSON 文件转换为 PNG 字节。失败时返回错误原因。"""
     try:
         import plotly.graph_objects as go
 
-        chart_data = json.loads(json_path.read_text(encoding="utf-8"))
+        raw_chart_data = json.loads(json_path.read_text(encoding="utf-8"))
+        chart_data = _normalize_plotly_figure_payload(raw_chart_data)
+        if chart_data is None:
+            logger.debug("Plotly JSON 结构无法识别 (%s)", json_path.name)
+            return None, "Plotly JSON 结构无法识别"
         fig = go.Figure(chart_data)
         apply_plotly_cjk_font_fallback(fig)
         png_data: bytes = fig.to_image(format="png", width=1400, height=900, scale=2)  # type: ignore[assignment]
-        return png_data
+        return png_data, None
     except Exception as exc:
         logger.debug("Plotly PNG 转换失败 (%s): %s", json_path.name, exc)
-        return None
+        error_text = str(exc).strip() or exc.__class__.__name__
+        return None, error_text
 
 
 def _resolve_images_to_base64(html: str, session_id: str) -> str:
     """将 HTML 中的 /api/artifacts/ 图片引用替换为 base64 内联数据。"""
+    resolved_html, _ = _resolve_images_to_base64_with_stats(html, session_id)
+    return resolved_html
+
+
+def _resolve_images_to_base64_with_stats(
+    html: str,
+    session_id: str,
+) -> tuple[str, dict[str, Any]]:
+    """将 HTML 中的 /api/artifacts/ 图片内联，并返回转换统计。"""
     artifacts_dir = settings.sessions_dir / session_id / "workspace" / "artifacts"
+    artifacts_root = artifacts_dir.resolve()
+    stats: dict[str, Any] = {
+        "plotly_total": 0,
+        "plotly_converted": 0,
+        "plotly_failed": [],
+    }
 
     def _replace_match(match: re.Match[str]) -> str:
-        prefix, src_url, suffix = match.group(1), match.group(2), match.group(3)
+        prefix, quote, src_url, suffix = (
+            match.group(1),
+            match.group(2),
+            match.group(3),
+            match.group(4),
+        )
         # 从 URL 提取文件名：/api/artifacts/{session_id}/{filename}
-        parts = src_url.strip("/").split("/")
+        url_path = urlsplit(src_url).path
+        parts = url_path.strip("/").split("/")
         if len(parts) < 4:
             return match.group(0)
-        filename = "/".join(parts[3:])  # 支持子路径
-        file_path = artifacts_dir / filename
+        encoded_name = "/".join(parts[3:])  # 支持子路径
+        decoded_name = unquote(encoded_name).lstrip("/")
+        file_path = (artifacts_dir / decoded_name).resolve()
+        is_plotly_json = decoded_name.lower().endswith(".plotly.json")
+        if is_plotly_json:
+            stats["plotly_total"] = int(stats.get("plotly_total", 0)) + 1
+
+        # 安全兜底：防止构造路径逃逸到 artifacts 目录外
+        try:
+            file_path.relative_to(artifacts_root)
+        except ValueError:
+            if is_plotly_json:
+                stats["plotly_failed"].append(
+                    {"name": decoded_name, "error": "图表路径非法，超出 artifacts 目录"}
+                )
+            return match.group(0)
 
         if not file_path.exists():
+            if is_plotly_json:
+                stats["plotly_failed"].append({"name": decoded_name, "error": "图表文件不存在"})
             return match.group(0)
 
         try:
-            if filename.lower().endswith(".plotly.json"):
-                png_data = _plotly_json_to_png_bytes(file_path)
+            if is_plotly_json:
+                png_data, error_text = _plotly_json_to_png_bytes(file_path)
                 if png_data is None:
+                    stats["plotly_failed"].append(
+                        {
+                            "name": decoded_name,
+                            "error": error_text or "Plotly 转 PNG 失败",
+                        }
+                    )
                     return match.group(0)
                 b64 = base64.b64encode(png_data).decode("ascii")
-                return f"{prefix}data:image/png;base64,{b64}{suffix}"
+                stats["plotly_converted"] = int(stats.get("plotly_converted", 0)) + 1
+                return f"{prefix}{quote}data:image/png;base64,{b64}{suffix}"
 
             # 普通图片文件
             raw = file_path.read_bytes()
@@ -170,12 +265,23 @@ def _resolve_images_to_base64(html: str, session_id: str) -> str:
             }
             mime = mime_map.get(ext, "application/octet-stream")
             b64 = base64.b64encode(raw).decode("ascii")
-            return f"{prefix}data:{mime};base64,{b64}{suffix}"
+            return f"{prefix}{quote}data:{mime};base64,{b64}{suffix}"
         except Exception as exc:
-            logger.debug("图片 base64 转换失败 (%s): %s", filename, exc)
+            logger.debug("图片 base64 转换失败 (%s): %s", decoded_name, exc)
             return match.group(0)
 
-    return _IMG_SRC_PATTERN.sub(_replace_match, html)
+    return _IMG_SRC_PATTERN.sub(_replace_match, html), stats
+
+
+def _is_chrome_missing_error(error_text: str | None) -> bool:
+    if not error_text:
+        return False
+    normalized = error_text.lower()
+    return (
+        "requires google chrome" in normalized
+        or "kaleido requires google chrome" in normalized
+        or ("chrome" in normalized and "not found" in normalized)
+    )
 
 
 class ExportReportSkill(Skill):
@@ -194,7 +300,7 @@ class ExportReportSkill(Skill):
         return (
             "将已生成的 Markdown 分析报告导出为 PDF 文件。"
             "需要先调用 generate_report 生成报告，或指定 report_name 参数。"
-            "依赖可选包 weasyprint（pip install nini[pdf]）。"
+            "依赖可选包 weasyprint（源码环境: pip install -e .[dev] 或 pip install -e .[pdf]；发布包环境: pip install nini[pdf]）。"
         )
 
     @property
@@ -255,7 +361,38 @@ class ExportReportSkill(Skill):
 
         # 3. MD → HTML → 图片内联
         html = _md_to_html(md_text, title)
-        html = _resolve_images_to_base64(html, session.id)
+        html, image_stats = _resolve_images_to_base64_with_stats(html, session.id)
+        plotly_failed = image_stats.get("plotly_failed", [])
+        if isinstance(plotly_failed, list) and plotly_failed:
+            failed_items = [
+                item for item in plotly_failed if isinstance(item, dict) and item.get("name")
+            ]
+            failed_names = "、".join(str(item["name"]) for item in failed_items[:3])
+            if len(failed_items) > 3:
+                failed_names += " 等"
+            has_chrome_missing = any(
+                _is_chrome_missing_error(str(item.get("error", ""))) for item in failed_items
+            )
+            if has_chrome_missing:
+                return SkillResult(
+                    success=False,
+                    message=(
+                        "检测到报告包含 `.plotly.json` 图表，但当前环境缺少 Chrome，"
+                        "无法转换为 PDF 可嵌入图片。\n"
+                        "请先在当前 Python 环境安装 Chrome 后重试：\n"
+                        "- `plotly_get_chrome -y`\n"
+                        '- 或 `python -c "import plotly.io as pio; pio.get_chrome()"`\n'
+                        f"失败图表：{failed_names or '未知'}"
+                    ),
+                )
+            return SkillResult(
+                success=False,
+                message=(
+                    "报告中的 `.plotly.json` 图表转换失败，已中止导出以避免 PDF 退化为文本。\n"
+                    f"失败图表：{failed_names or '未知'}\n"
+                    "请先检查图表文件有效性或运行 `nini doctor` 后重试。"
+                ),
+            )
 
         # 4. HTML → PDF（weasyprint 懒导入）
         try:
@@ -265,7 +402,10 @@ class ExportReportSkill(Skill):
                 success=False,
                 message=(
                     "PDF 导出需要 weasyprint 库，当前未安装。\n"
-                    "请执行 `pip install nini[pdf]` 安装后重试。"
+                    "请执行以下命令之一安装后重试：\n"
+                    "- `pip install -e .[dev]`（源码开发环境，推荐）\n"
+                    "- `pip install -e .[pdf]`（源码开发环境，仅补装 PDF）\n"
+                    "- `pip install nini[pdf]`（已发布包环境）"
                 ),
             )
 

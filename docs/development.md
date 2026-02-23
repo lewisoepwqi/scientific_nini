@@ -11,6 +11,9 @@ pip install -e .[dev]
 cd web && npm install
 ```
 
+说明：`dev` 依赖组已包含报告 PDF 导出依赖 `weasyprint`。
+若当前环境仅需补装 PDF 导出能力，可执行 `pip install -e .[pdf]`。
+
 ### 启动方式
 
 - 后端（含静态站点挂载）：

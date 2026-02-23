@@ -211,7 +211,9 @@ class WebRExecutor:
         elif hasattr(webr, "Shelter"):
             self._session = webr.Shelter()
         else:
-            raise RuntimeError(f"未知的 webr API，请检查已安装版本（{getattr(webr, '__version__', '?')}）")
+            raise RuntimeError(
+                f"未知的 webr API，请检查已安装版本（{getattr(webr, '__version__', '?')}）"
+            )
         return self._session
 
     async def execute(

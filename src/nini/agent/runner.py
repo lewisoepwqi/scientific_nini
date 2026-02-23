@@ -129,6 +129,7 @@ class AgentRunner:
                 "not_started": "not_started",
                 "done": "done",
                 "failed": "failed",
+                "skipped": "skipped",
                 "blocked": "blocked",
             }
             return mapping.get(raw_status, "not_started")
@@ -476,30 +477,38 @@ class AgentRunner:
                     if in_progress_task:
                         matched_action_id = in_progress_task.action_id
                         matched_step_id = in_progress_task.id
-                # 兼容 fallback 模式（task_manager 未初始化时，仍沿用 active_plan 匹配）
-                elif func_name != "task_write" and active_plan is not None and next_step_idx < len(active_plan.steps):
-                    step = active_plan.steps[next_step_idx]
-                    if step.status == "pending":
-                        step.status = "in_progress"
-                        matched_step_id = step.id
-                        matched_action_id = f"fallback_{step.id}"
+                elif func_name != "task_write" and active_plan is not None:
+                    # 兼容 fallback 模式：未使用 task_write 时，最小化推进计划状态。
+                    while (
+                        next_step_idx < len(active_plan.steps)
+                        and active_plan.steps[next_step_idx].status != "pending"
+                    ):
                         next_step_idx += 1
+
+                    if next_step_idx < len(active_plan.steps):
+                        fallback_step = active_plan.steps[next_step_idx]
+                        fallback_action_id = f"fallback_{fallback_step.id}"
+                        fallback_step.status = "in_progress"
+                        matched_step_id = fallback_step.id
+                        matched_action_id = fallback_action_id
                         yield AgentEvent(
                             type=EventType.PLAN_STEP_UPDATE,
-                            data=step.to_dict(),
+                            data={
+                                **fallback_step.to_dict(),
+                                "action_id": fallback_action_id,
+                            },
                             turn_id=turn_id,
                         )
                         yield _new_plan_progress_event(
-                            current_idx=next_step_idx - 1,
+                            current_idx=next_step_idx,
                             step_status="in_progress",
                         )
-
-                # fallback 情况下确保非 task_write 工具始终有 action_id（用于关联重试轨迹）
+                        next_step_idx += 1
+                # 确保非 task_write 工具始终有 action_id（用于关联重试轨迹）
                 if matched_action_id is None and func_name != "task_write":
                     matched_action_id = tc_id
-                # 计算重试策略：task_write 模式由 LLM 自行决定，不自动重试；
-                # fallback 模式（task_manager 未初始化）始终允许 1 次自动重试
-                max_retries = 0 if session.task_manager.initialized else 1
+                # 重试策略：由 LLM 自行决定是否重试，不自动重试
+                max_retries = 0
 
                 yield AgentEvent(
                     type=EventType.TOOL_CALL,
@@ -552,9 +561,7 @@ class AgentRunner:
                                 )
                             else:  # update
                                 updated_ids = {
-                                    int(u["id"])
-                                    for u in tw_args.get("tasks", [])
-                                    if "id" in u
+                                    int(u["id"]) for u in tw_args.get("tasks", []) if "id" in u
                                 }
                                 for t in session.task_manager.tasks:
                                     if t.id in updated_ids:
@@ -584,7 +591,9 @@ class AgentRunner:
                         data={
                             "result": result,
                             "status": "success" if not has_error else "error",
-                            "message": result.get("message", "") if isinstance(result, dict) else "",
+                            "message": (
+                                result.get("message", "") if isinstance(result, dict) else ""
+                            ),
                         },
                         tool_call_id=tc_id,
                         tool_name=func_name,
@@ -691,22 +700,29 @@ class AgentRunner:
                 )
                 status = "error" if has_error else "success"
 
-                # 兼容 fallback 模式：active_plan 步骤状态更新（task_manager 未初始化时）
-                if not session.task_manager.initialized and active_plan is not None:
-                    # 找到刚完成的 in_progress 步骤并标记
-                    for _fb_idx, _fb_step in enumerate(active_plan.steps):
-                        if _fb_step.status == "in_progress":
-                            _fb_step.status = "error" if has_error else "completed"
-                            yield AgentEvent(
-                                type=EventType.PLAN_STEP_UPDATE,
-                                data=_fb_step.to_dict(),
-                                turn_id=turn_id,
-                            )
-                            yield _new_plan_progress_event(
-                                current_idx=_fb_idx,
-                                step_status=_fb_step.status,
-                            )
-                            break
+                if (
+                    func_name != "task_write"
+                    and not session.task_manager.initialized
+                    and active_plan is not None
+                    and matched_step_id is not None
+                ):
+                    for fallback_idx, fallback_step in enumerate(active_plan.steps):
+                        if fallback_step.id != matched_step_id:
+                            continue
+                        fallback_step.status = "error" if has_error else "completed"
+                        yield AgentEvent(
+                            type=EventType.PLAN_STEP_UPDATE,
+                            data={
+                                **fallback_step.to_dict(),
+                                "action_id": matched_action_id,
+                            },
+                            turn_id=turn_id,
+                        )
+                        yield _new_plan_progress_event(
+                            current_idx=fallback_idx,
+                            step_status=fallback_step.status,
+                        )
+                        break
 
                 if func_name == "generate_report" and not has_error and isinstance(result, dict):
                     data_obj = result.get("data")

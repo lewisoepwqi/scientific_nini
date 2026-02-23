@@ -386,6 +386,7 @@ async def test_runner_unlimited_iterations_when_max_is_zero(
 
 @pytest.mark.asyncio
 async def test_runner_emits_plan_progress_with_required_fields() -> None:
+    """验证 fallback 文本解析模式会推进计划状态并发出结构化进度事件。"""
     session = Session()
     session.add_message("user", "请按步骤执行分析")
 
@@ -403,11 +404,13 @@ async def test_runner_emits_plan_progress_with_required_fields() -> None:
             break
 
     event_types = [event.type.value for event in events]
+    # 文本解析会发出 analysis_plan/plan_progress，并产生 plan_step_update
     assert "analysis_plan" in event_types
-    assert "plan_step_update" in event_types
     assert "plan_progress" in event_types
+    assert "plan_step_update" in event_types
 
     progress_events = [event for event in events if event.type == EventType.PLAN_PROGRESS]
+    # 至少包含 pending -> in_progress -> done
     assert len(progress_events) >= 3
 
     required_keys = {
@@ -435,9 +438,10 @@ async def test_runner_emits_plan_progress_with_required_fields() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runner_attaches_action_tracking_metadata_and_retries_once() -> None:
+async def test_runner_attaches_action_tracking_metadata_no_auto_retry() -> None:
+    """验证 max_retries=0：工具失败后不自动重试，由 LLM 自行决定。"""
     session = Session()
-    session.add_message("user", "按计划执行并自动重试")
+    session.add_message("user", "按计划执行")
 
     resolver = _TwoStepToolResolver()
     registry = _RetryEchoSkillRegistry()
@@ -456,31 +460,28 @@ async def test_runner_attaches_action_tracking_metadata_and_retries_once() -> No
     tool_call_event = next(event for event in events if event.type == EventType.TOOL_CALL)
     assert isinstance(tool_call_event.metadata, dict)
     assert isinstance(tool_call_event.metadata.get("action_id"), str)
-    retry_policy = tool_call_event.metadata.get("retry_policy")
-    assert isinstance(retry_policy, dict)
-    assert retry_policy.get("max_retries") == 1
+    # max_retries=0 时不附加 retry_policy
+    assert tool_call_event.metadata.get("retry_policy") is None
 
     tool_result_event = next(event for event in events if event.type == EventType.TOOL_RESULT)
     assert isinstance(tool_result_event.metadata, dict)
     assert tool_result_event.metadata.get("action_id") == tool_call_event.metadata.get("action_id")
-    assert tool_result_event.metadata.get("retry_count") == 1
-    assert tool_result_event.metadata.get("max_retries") == 1
+    # 没有自动重试，retry_count 应为 0
+    assert tool_result_event.metadata.get("retry_count") == 0
+    assert tool_result_event.metadata.get("max_retries") == 0
 
     attempt_events = [event for event in events if event.type == EventType.TASK_ATTEMPT]
-    assert len(attempt_events) >= 4
+    # 仅 1 次尝试（in_progress + failed），不再有 retrying
+    assert len(attempt_events) == 2
     attempt_statuses = [
         str(event.data.get("status")) for event in attempt_events if isinstance(event.data, dict)
     ]
     assert "in_progress" in attempt_statuses
-    assert "retrying" in attempt_statuses
-    assert "success" in attempt_statuses
-    latest_attempt_payload = (
-        attempt_events[-1].data if isinstance(attempt_events[-1].data, dict) else {}
-    )
-    assert latest_attempt_payload.get("attempt") == 2
-    assert latest_attempt_payload.get("max_attempts") == 2
+    assert "failed" in attempt_statuses
+    assert "retrying" not in attempt_statuses
 
-    assert registry.calls == 2
+    # 工具只被调用 1 次（不自动重试）
+    assert registry.calls == 1
 
 
 @pytest.mark.asyncio

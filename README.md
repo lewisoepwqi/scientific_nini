@@ -65,6 +65,13 @@ scientific_nini/
 pip install -e .[dev]
 ```
 
+`dev` 依赖组已包含报告 PDF 导出依赖 `weasyprint`。
+若使用发布包安装并需要 PDF 导出，可执行：
+
+```bash
+pip install nini[pdf]
+```
+
 ### 2. 初始化配置
 
 ```bash
@@ -99,7 +106,7 @@ nini start --reload
    - `用 R 跑一下线性混合模型`
 3. 导出结果：
    - `帮我导出这张图为 SVG`
-   - `生成一份完整分析报告`
+   - `生成一份完整分析报告并导出 PDF`
 
 ## 开发验证
 

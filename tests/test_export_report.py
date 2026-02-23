@@ -12,7 +12,9 @@ import pytest
 from nini.tools.export_report import (
     ExportReportSkill,
     _md_to_html,
+    _normalize_plotly_figure_payload,
     _resolve_images_to_base64,
+    _resolve_images_to_base64_with_stats,
 )
 
 # ---------------------------------------------------------------------------
@@ -74,6 +76,22 @@ def test_md_to_html_includes_cjk_fonts():
     assert "SimHei" in html
 
 
+def test_md_to_html_embeds_local_cjk_font(tmp_path: Path):
+    data_dir = tmp_path / "data"
+    font_dir = data_dir / "fonts"
+    font_dir.mkdir(parents=True)
+    font_path = font_dir / "NotoSansCJKsc-Regular.otf"
+    font_path.write_bytes(b"fake-font-bytes")
+
+    with patch("nini.tools.export_report.settings") as mock_settings:
+        mock_settings.data_dir = data_dir
+        html = _md_to_html("# 中文测试", "中文标题")
+
+    assert "@font-face" in html
+    assert "Nini CJK" in html
+    assert font_path.resolve().as_uri() in html
+
+
 def test_md_to_html_tables():
     md = "| A | B |\n|---|---|\n| 1 | 2 |"
     html = _md_to_html(md, "Table Test")
@@ -85,6 +103,33 @@ def test_md_to_html_fenced_code():
     md = "```python\nprint('hello')\n```"
     html = _md_to_html(md, "Code Test")
     assert "<code" in html
+
+
+# ---------------------------------------------------------------------------
+# Tests: Plotly payload normalize
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_plotly_payload_supports_wrapper():
+    payload = {
+        "figure": {
+            "data": [{"type": "scatter", "x": [1, 2], "y": [3, 4]}],
+            "layout": {"title": {"text": "demo"}},
+            "frames": [],
+        },
+        "config": {"responsive": True},
+        "schema_version": "1.0",
+    }
+    normalized = _normalize_plotly_figure_payload(payload)
+    assert isinstance(normalized, dict)
+    assert "data" in normalized
+    assert "layout" in normalized
+    assert "frames" in normalized
+
+
+def test_normalize_plotly_payload_rejects_invalid():
+    assert _normalize_plotly_figure_payload("invalid") is None
+    assert _normalize_plotly_figure_payload({"config": {"responsive": True}}) is None
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +175,76 @@ def test_resolve_images_missing_file(tmp_path: Path):
     assert "/api/artifacts/sess-123/missing.png" in result
 
 
+def test_resolve_images_url_encoded_filename(tmp_path: Path):
+    sessions_dir = tmp_path / "sessions"
+    artifacts_dir = sessions_dir / "sess-123" / "workspace" / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+
+    import base64
+
+    png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4"
+        "nGNgYPgPAAEDAQAIicLsAAAABJRU5ErkJggg=="
+    )
+    (artifacts_dir / "中文图表.png").write_bytes(png_bytes)
+
+    html = (
+        '<img src="/api/artifacts/sess-123/%E4%B8%AD%E6%96%87%E5%9B%BE%E8%A1%A8.png" alt="chart">'
+    )
+    with patch("nini.tools.export_report.settings") as mock_settings:
+        mock_settings.sessions_dir = sessions_dir
+        result = _resolve_images_to_base64(html, "sess-123")
+
+    assert "data:image/png;base64," in result
+    assert "/api/artifacts/" not in result
+
+
+def test_resolve_plotly_json_url_with_query_and_single_quote(tmp_path: Path):
+    sessions_dir = tmp_path / "sessions"
+    artifacts_dir = sessions_dir / "sess-123" / "workspace" / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (artifacts_dir / "chart.plotly.json").write_text("{}", encoding="utf-8")
+
+    html = "<img src='/api/artifacts/sess-123/chart.plotly.json?raw=1' alt='chart'>"
+    with (
+        patch("nini.tools.export_report.settings") as mock_settings,
+        patch(
+            "nini.tools.export_report._plotly_json_to_png_bytes", return_value=(b"fake-png", None)
+        ),
+    ):
+        mock_settings.sessions_dir = sessions_dir
+        result = _resolve_images_to_base64(html, "sess-123")
+
+    assert "data:image/png;base64," in result
+    assert "/api/artifacts/" not in result
+
+
+def test_resolve_plotly_json_collects_failure_reason(tmp_path: Path):
+    sessions_dir = tmp_path / "sessions"
+    artifacts_dir = sessions_dir / "sess-123" / "workspace" / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (artifacts_dir / "chart.plotly.json").write_text("{}", encoding="utf-8")
+
+    html = '<img src="/api/artifacts/sess-123/chart.plotly.json" alt="chart">'
+    with (
+        patch("nini.tools.export_report.settings") as mock_settings,
+        patch(
+            "nini.tools.export_report._plotly_json_to_png_bytes",
+            return_value=(None, "Kaleido requires Google Chrome to be installed."),
+        ),
+    ):
+        mock_settings.sessions_dir = sessions_dir
+        resolved_html, stats = _resolve_images_to_base64_with_stats(html, "sess-123")
+
+    assert "/api/artifacts/sess-123/chart.plotly.json" in resolved_html
+    assert stats["plotly_total"] == 1
+    assert stats["plotly_converted"] == 0
+    failed = stats["plotly_failed"]
+    assert isinstance(failed, list) and failed
+    assert failed[0]["name"] == "chart.plotly.json"
+    assert "Chrome" in failed[0]["error"]
+
+
 # ---------------------------------------------------------------------------
 # Tests: ExportReportSkill.execute
 # ---------------------------------------------------------------------------
@@ -159,6 +274,8 @@ async def test_export_report_without_weasyprint(
     assert not result.success
     assert "weasyprint" in result.message.lower()
     assert "pip install" in result.message
+    assert "pip install -e .[pdf]" in result.message
+    assert "pip install nini[pdf]" in result.message
 
 
 def _import_without_weasyprint(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -297,6 +414,47 @@ async def test_export_report_custom_filename(
 
     assert result.success
     assert "my_output.pdf" in result.message
+
+
+@pytest.mark.asyncio
+async def test_export_report_fail_fast_when_plotly_chrome_missing(
+    skill: ExportReportSkill,
+    mock_session: MagicMock,
+    setup_report: Path,
+):
+    """存在 plotly 图表但无法转 PNG（缺少 Chrome）时，应显式失败并给出修复指引。"""
+    with (
+        patch("nini.tools.export_report.settings") as mock_settings,
+        patch("nini.tools.export_report.ArtifactStorage") as MockStorage,
+        patch(
+            "nini.tools.export_report._resolve_images_to_base64_with_stats",
+            return_value=(
+                "<html><body>demo</body></html>",
+                {
+                    "plotly_total": 1,
+                    "plotly_converted": 0,
+                    "plotly_failed": [
+                        {
+                            "name": "chart.plotly.json",
+                            "error": "Kaleido requires Google Chrome to be installed.",
+                        }
+                    ],
+                },
+            ),
+        ),
+    ):
+        mock_settings.sessions_dir = setup_report
+        storage_inst = MagicMock()
+        report_path = setup_report / mock_session.id / "workspace" / "artifacts" / "test_report.md"
+        storage_inst.get_path.return_value = report_path
+        MockStorage.return_value = storage_inst
+
+        result = await skill.execute(session=mock_session)
+
+    assert not result.success
+    assert ".plotly.json" in result.message
+    assert "Chrome" in result.message
+    assert "plotly_get_chrome -y" in result.message
 
 
 # ---------------------------------------------------------------------------
