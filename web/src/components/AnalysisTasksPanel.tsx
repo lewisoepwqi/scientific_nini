@@ -7,6 +7,7 @@ import {
   Circle,
   Loader2,
   RotateCcw,
+  SkipForward,
   Trash2,
   Wrench,
   XCircle,
@@ -29,6 +30,8 @@ function stepLabel(status: PlanStepStatus): string {
       return "已阻塞";
     case "failed":
       return "失败";
+    case "skipped":
+      return "已跳过";
     default:
       return "未开始";
   }
@@ -44,6 +47,8 @@ function stepBadgeClass(status: PlanStepStatus): string {
       return "bg-amber-100 text-amber-800 border-amber-200";
     case "failed":
       return "bg-red-100 text-red-700 border-red-200";
+    case "skipped":
+      return "bg-gray-100 text-gray-500 border-gray-200";
     default:
       return "bg-slate-100 text-slate-700 border-slate-200";
   }
@@ -59,6 +64,8 @@ function stepIcon(status: PlanStepStatus) {
       return <AlertTriangle size={14} className="text-amber-600" />;
     case "failed":
       return <XCircle size={14} className="text-red-600" />;
+    case "skipped":
+      return <SkipForward size={14} className="text-gray-400" />;
     default:
       return <Circle size={14} className="text-slate-400" />;
   }
@@ -130,11 +137,15 @@ function AttemptItem({ attempt }: { attempt: AnalysisTaskAttempt }) {
         </span>
       </div>
       {(attempt.note || attempt.error) && (
-        <p className={`mt-1 text-[11px] ${attempt.error ? "text-red-600" : "text-slate-500"}`}>
+        <p
+          className={`mt-1 text-[11px] ${attempt.error ? "text-red-600" : "text-slate-500"}`}
+        >
           {attempt.error || attempt.note}
         </p>
       )}
-      <p className="mt-1 text-[10px] text-slate-400">{formatTime(attempt.updated_at)}</p>
+      <p className="mt-1 text-[10px] text-slate-400">
+        {formatTime(attempt.updated_at)}
+      </p>
     </li>
   );
 }
@@ -159,7 +170,9 @@ function TaskItem({
             <span className="text-[11px] text-slate-400">{index + 1}.</span>
             <p
               className={`min-w-0 flex-1 text-xs font-medium text-slate-900 truncate ${
-                task.status === "done" ? "line-through opacity-75" : ""
+                task.status === "done" || task.status === "skipped"
+                  ? "line-through opacity-75"
+                  : ""
               }`}
               title={task.title}
             >
@@ -173,24 +186,35 @@ function TaskItem({
           </div>
 
           {task.current_activity && (
-            <p className="mt-1 text-[11px] text-slate-600 truncate" title={task.current_activity}>
+            <p
+              className="mt-1 text-[11px] text-slate-600 truncate"
+              title={task.current_activity}
+            >
               当前动作：{task.current_activity}
             </p>
           )}
           {task.last_error && (
-            <p className="mt-1 text-[11px] text-red-600 truncate" title={task.last_error}>
+            <p
+              className="mt-1 text-[11px] text-red-600 truncate"
+              title={task.last_error}
+            >
               最近错误：{task.last_error}
             </p>
           )}
           {task.tool_hint && (
-            <p className="mt-1 text-[11px] text-slate-500 truncate" title={task.tool_hint}>
+            <p
+              className="mt-1 text-[11px] text-slate-500 truncate"
+              title={task.tool_hint}
+            >
               计划工具：{task.tool_hint}
             </p>
           )}
           <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400">
             <span>添加于 {formatTime(task.created_at)}</span>
             <span>尝试 {task.attempts.length} 次</span>
-            {latestAttempt && <span>最近更新 {formatTime(latestAttempt.updated_at)}</span>}
+            {latestAttempt && (
+              <span>最近更新 {formatTime(latestAttempt.updated_at)}</span>
+            )}
           </div>
 
           {task.attempts.length > 0 && (
@@ -230,7 +254,9 @@ export default function AnalysisTasksPanel() {
       <div className="h-full flex flex-col items-center justify-center text-gray-400 text-xs px-4">
         <Circle size={20} className="mb-2 opacity-50" />
         <p>暂无分析任务</p>
-        <p className="text-[10px] mt-1">生成分析计划后会在这里展示任务与重试轨迹</p>
+        <p className="text-[10px] mt-1">
+          生成分析计划后会在这里展示任务与重试轨迹
+        </p>
       </div>
     );
   }
@@ -238,7 +264,9 @@ export default function AnalysisTasksPanel() {
   return (
     <div className="h-full flex flex-col">
       <div className="px-3 py-2 border-b flex items-center justify-between">
-        <span className="text-[11px] text-slate-500">会话任务数：{analysisTasks.length}</span>
+        <span className="text-[11px] text-slate-500">
+          会话任务数：{analysisTasks.length}
+        </span>
         <button
           onClick={clearAnalysisTasks}
           className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-200 text-[11px] text-slate-500 hover:bg-slate-50"
@@ -249,7 +277,12 @@ export default function AnalysisTasksPanel() {
       </div>
       <ul className="flex-1 overflow-y-auto p-2 space-y-2">
         {analysisTasks.map((task, idx) => (
-          <TaskItem key={task.id} task={task} index={idx} onDelete={deleteAnalysisTask} />
+          <TaskItem
+            key={task.id}
+            task={task}
+            index={idx}
+            onDelete={deleteAnalysisTask}
+          />
         ))}
       </ul>
     </div>

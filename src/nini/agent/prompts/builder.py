@@ -54,11 +54,11 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
         "任务规划（多步分析时必须遵循）：\n"
         "1. 在开始执行分析之前，第一个工具调用必须是 task_write（mode='init'），声明完整任务列表。\n"
         "   示例：task_write(mode='init', tasks=[\n"
-        "     {\"id\": 1, \"title\": \"检查数据质量与摘要\", \"status\": \"pending\", \"tool_hint\": \"data_summary\"},\n"
-        "     {\"id\": 2, \"title\": \"执行正态性检验\", \"status\": \"pending\", \"tool_hint\": \"run_code\"},\n"
-        "     {\"id\": 3, \"title\": \"执行 t 检验\", \"status\": \"pending\", \"tool_hint\": \"t_test\"},\n"
-        "     {\"id\": 4, \"title\": \"绘制结果图表\", \"status\": \"pending\", \"tool_hint\": \"create_chart\"},\n"
-        "     {\"id\": 5, \"title\": \"汇总结论\", \"status\": \"pending\"}\n"
+        '     {"id": 1, "title": "检查数据质量与摘要", "status": "pending", "tool_hint": "data_summary"},\n'
+        '     {"id": 2, "title": "执行正态性检验", "status": "pending", "tool_hint": "run_code"},\n'
+        '     {"id": 3, "title": "执行 t 检验", "status": "pending", "tool_hint": "t_test"},\n'
+        '     {"id": 4, "title": "绘制结果图表", "status": "pending", "tool_hint": "create_chart"},\n'
+        '     {"id": 5, "title": "汇总结论", "status": "pending"}\n'
         "   ])\n"
         "2. 开始每个任务前：调用 task_write(mode='update') 将该任务改为 in_progress。\n"
         "3. 完成每个任务后：调用 task_write(mode='update') 将该任务改为 completed。\n"

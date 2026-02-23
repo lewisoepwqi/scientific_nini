@@ -64,7 +64,8 @@ export type PlanStepStatus =
   | "in_progress"
   | "done"
   | "blocked"
-  | "failed";
+  | "failed"
+  | "skipped";
 
 export interface AnalysisStep {
   id: number;
@@ -141,6 +142,18 @@ export interface Message {
   isReasoning?: boolean; // 分析思路消息标记
   reasoningLive?: boolean; // 思考内容流式渲染标记（仅前端会话态）
   analysisPlan?: AnalysisPlanData; // 结构化分析计划
+  isError?: boolean; // 助手错误消息标记
+  errorKind?:
+    | "quota"
+    | "rate_limit"
+    | "context_limit"
+    | "request"
+    | "server"
+    | "unknown";
+  errorCode?: string | null;
+  errorHint?: string | null;
+  errorDetail?: string | null;
+  retryable?: boolean;
   turnId?: string; // Agent 回合 ID，用于消息分组
   timestamp: number;
 }
@@ -289,6 +302,7 @@ interface AppState {
   fetchMemoryFiles: () => Promise<void>;
   fetchActiveModel: () => Promise<void>;
   setPreferredProvider: (providerId: string) => Promise<void>;
+  setChatRoute: (providerId: string, model: string | null) => Promise<void>;
   fetchModelProviders: () => Promise<void>;
 
   // 工作区面板操作
@@ -366,6 +380,8 @@ function normalizePlanStepStatus(raw: unknown): PlanStepStatus {
       return "failed";
     case "blocked":
       return "blocked";
+    case "skipped":
+      return "skipped";
     default:
       return "not_started";
   }
@@ -407,8 +423,10 @@ function mergeReasoningContent(previous: string, incoming: string): string {
 function planStatusRank(status: PlanStepStatus): number {
   switch (status) {
     case "done":
-      return 4;
+      return 5;
     case "failed":
+      return 4;
+    case "skipped":
       return 3;
     case "blocked":
       return 2;
@@ -1532,6 +1550,33 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  async setChatRoute(providerId: string, model: string | null) {
+    try {
+      const body: Record<string, unknown> = {
+        preferred_provider: providerId || null,
+        purpose_routes: {
+          chat: {
+            provider_id: providerId || null,
+            model: model,
+            base_url: null,
+          },
+        },
+      };
+      const resp = await fetch("/api/models/routing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await resp.json();
+      if (!payload.success) {
+        console.error("设置 chat 路由失败:", payload.error);
+      }
+      await get().fetchActiveModel();
+    } catch (e) {
+      console.error("设置 chat 路由失败:", e);
+    }
+  },
+
   async fetchModelProviders() {
     set({ modelProvidersLoading: true });
     try {
@@ -1821,6 +1866,193 @@ function normalizeToolResult(rawContent: unknown): {
   return { message: rawContent, status: "success" };
 }
 
+interface NormalizedWsError {
+  message: string;
+  detail: string | null;
+  hint: string | null;
+  code: string | null;
+  kind:
+    | "quota"
+    | "rate_limit"
+    | "context_limit"
+    | "request"
+    | "server"
+    | "unknown";
+  retryable: boolean;
+}
+
+function stringifyUnknown(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Error) return value.message;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function detectErrorCode(text: string): string | null {
+  const matches = text.match(
+    /(insufficient_quota|rate_limit_exceeded|context_length_exceeded|invalid_request_error|access_terminated_error)/i,
+  );
+  if (matches && matches[1]) return matches[1].toLowerCase();
+  return null;
+}
+
+function normalizeWsError(data: unknown): NormalizedWsError {
+  let raw = "";
+  let explicitCode: string | null = null;
+  let explicitMessage: string | null = null;
+
+  if (typeof data === "string") {
+    raw = data.trim();
+  } else if (isRecord(data)) {
+    const topMessage =
+      typeof data.message === "string"
+        ? data.message
+        : typeof data.error === "string"
+          ? data.error
+          : typeof data.detail === "string"
+            ? data.detail
+            : null;
+    const topCode = typeof data.code === "string" ? data.code : null;
+    const nestedError = isRecord(data.error) ? data.error : null;
+    const nestedMessage =
+      nestedError && typeof nestedError.message === "string"
+        ? nestedError.message
+        : null;
+    const nestedCode =
+      nestedError && typeof nestedError.code === "string"
+        ? nestedError.code
+        : null;
+
+    explicitMessage = nestedMessage || topMessage;
+    explicitCode = nestedCode || topCode;
+    raw = (explicitMessage || stringifyUnknown(data)).trim();
+  } else {
+    raw = stringifyUnknown(data).trim();
+  }
+
+  const normalizedRaw = raw || "未知错误";
+  const lower = normalizedRaw.toLowerCase();
+  const code = (explicitCode || detectErrorCode(normalizedRaw) || null)?.toLowerCase() || null;
+
+  const isQuota =
+    code === "insufficient_quota" ||
+    lower.includes("insufficient_quota") ||
+    lower.includes("exceeded your current quota") ||
+    lower.includes("配额") ||
+    lower.includes("quota");
+  const isRateLimit =
+    lower.includes("429") ||
+    lower.includes("too many requests") ||
+    lower.includes("rate limit");
+  const isContextLimit =
+    code === "context_length_exceeded" ||
+    lower.includes("context length") ||
+    lower.includes("context window");
+  const isClientRequestError =
+    lower.includes("消息内容不能为空") ||
+    lower.includes("消息格式错误") ||
+    lower.includes("不支持的消息类型") ||
+    lower.includes("没有可重试的用户消息") ||
+    lower.includes("当前有进行中的请求");
+  const isServerError =
+    lower.includes("服务器错误") ||
+    lower.includes("server error") ||
+    lower.includes("internal error");
+
+  if (isQuota) {
+    return {
+      message: "模型服务额度不足，请检查配额/账单或切换模型后重试。",
+      hint: "检测到配额不足（insufficient_quota）。",
+      detail: normalizedRaw,
+      code: code || "insufficient_quota",
+      kind: "quota",
+      retryable: true,
+    };
+  }
+
+  if (isRateLimit) {
+    return {
+      message: "模型请求触发限流（HTTP 429），请稍后重试。",
+      hint: "请求过于频繁，触发模型限流。",
+      detail: normalizedRaw,
+      code,
+      kind: "rate_limit",
+      retryable: true,
+    };
+  }
+
+  if (isContextLimit) {
+    return {
+      message: "上下文超出模型限制，请重试或先压缩会话。",
+      hint: "可先点击“压缩会话”，再重试上一轮。",
+      detail: normalizedRaw,
+      code: code || "context_length_exceeded",
+      kind: "context_limit",
+      retryable: true,
+    };
+  }
+
+  if (isClientRequestError) {
+    return {
+      message: explicitMessage?.trim() || normalizedRaw,
+      hint: null,
+      detail: null,
+      code,
+      kind: "request",
+      retryable: false,
+    };
+  }
+
+  if (isServerError) {
+    return {
+      message: "服务端处理失败，请稍后重试。",
+      hint: "服务端异常，建议稍后重试。",
+      detail: normalizedRaw,
+      code,
+      kind: "server",
+      retryable: true,
+    };
+  }
+
+  return {
+    message: explicitMessage?.trim() || normalizedRaw,
+    hint: null,
+    detail: null,
+    code,
+    kind: "unknown",
+    retryable: true,
+  };
+}
+
+function buildErrorMeta(content: string): Partial<Message> {
+  const normalized = normalizeWsError(content.replace(/^错误[:：]\s*/u, ""));
+  return {
+    isError: true,
+    errorKind: normalized.kind,
+    errorCode: normalized.code,
+    errorHint: normalized.hint,
+    errorDetail: normalized.detail,
+    retryable: normalized.retryable,
+  };
+}
+
+function finalizeReasoningMessages(
+  messages: Message[],
+  turnId?: string | null,
+): Message[] {
+  let changed = false;
+  const next = messages.map((msg) => {
+    if (!msg.isReasoning || !msg.reasoningLive) return msg;
+    if (turnId && msg.turnId && msg.turnId !== turnId) return msg;
+    changed = true;
+    return { ...msg, reasoningLive: false };
+  });
+  return changed ? next : messages;
+}
+
 function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Message[] {
   const messages: Message[] = [];
   const toolCallMap = new Map<
@@ -1904,10 +2136,12 @@ function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Message[] {
         if (!cleanedContent.trim()) {
           continue;
         }
+        const isErrorText = /^错误[:：]\s*/u.test(cleanedContent);
         messages.push({
           id: nextId(),
           role: "assistant",
           content: cleanedContent,
+          ...(isErrorText ? buildErrorMeta(cleanedContent) : {}),
           timestamp: nextTimestamp(),
         });
       }
@@ -2625,6 +2859,7 @@ function handleEvent(
       set((s) => {
         let progress = s.analysisPlanProgress;
         let tasks = s.analysisTasks;
+        const turnId = s._currentTurnId;
         if (progress && progress.step_status === "in_progress") {
           const taskId =
             progress.current_step_index > 0 &&
@@ -2657,6 +2892,7 @@ function handleEvent(
           };
         }
         return {
+          messages: finalizeReasoningMessages(s.messages, turnId),
           isStreaming: false,
           _streamingText: "",
           _currentTurnId: null,
@@ -2675,6 +2911,7 @@ function handleEvent(
       set((s) => {
         let progress = s.analysisPlanProgress;
         let tasks = s.analysisTasks;
+        const turnId = s._currentTurnId;
         if (progress && progress.step_status === "in_progress") {
           const taskId =
             progress.current_step_index > 0 &&
@@ -2704,6 +2941,7 @@ function handleEvent(
           };
         }
         return {
+          messages: finalizeReasoningMessages(s.messages, turnId),
           isStreaming: false,
           _streamingText: "",
           _currentTurnId: null,
@@ -2717,14 +2955,26 @@ function handleEvent(
       break;
 
     case "error": {
+      const normalizedError = normalizeWsError(evt.data);
+      const turnId = get()._currentTurnId || evt.turn_id || undefined;
       const errMsg: Message = {
         id: nextId(),
         role: "assistant",
-        content: `错误: ${evt.data}`,
+        content: `错误: ${normalizedError.message}`,
+        isError: true,
+        errorKind: normalizedError.kind,
+        errorCode: normalizedError.code,
+        errorHint: normalizedError.hint,
+        errorDetail: normalizedError.detail,
+        retryable: normalizedError.retryable,
+        turnId,
         timestamp: Date.now(),
       };
       set((s) => ({
-        messages: [...s.messages, errMsg],
+        messages: [
+          ...finalizeReasoningMessages(s.messages, turnId),
+          errMsg,
+        ],
         isStreaming: false,
         _streamingText: "",
         _currentTurnId: null,
@@ -2750,7 +3000,7 @@ function handleEvent(
           return updateAnalysisTaskById(s.analysisTasks, taskId, {
             status: mergedStatus,
             current_activity: "步骤执行失败",
-            last_error: typeof evt.data === "string" ? evt.data : undefined,
+            last_error: normalizedError.detail || normalizedError.message,
           });
         })(),
         analysisPlanProgress: (() => {
@@ -2761,7 +3011,7 @@ function handleEvent(
           return {
             ...progress,
             step_status: "failed",
-            block_reason: typeof evt.data === "string" ? evt.data : "执行失败",
+            block_reason: normalizedError.detail || normalizedError.message,
             next_hint: "请检查错误信息后重试。",
             steps: progress.steps.map((step, idx) =>
               idx === failedIndex ? { ...step, status: "failed" } : step,

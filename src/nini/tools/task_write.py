@@ -22,7 +22,9 @@ class TaskWriteSkill(Skill):
     - 开始分析前：mode="init" 声明全部任务（status 全为 pending）
     - 开始每个任务前：mode="update" 将该任务改为 in_progress
     - 完成每个任务后：mode="update" 将该任务改为 completed
-    - 全部 completed 后：输出最终总结，不再调用任何工具
+    - 确认无法完成时：mode="update" 将该任务改为 failed
+    - 受 failed 任务影响而无法执行时：mode="update" 将该任务改为 skipped
+    - 全部任务到达终态后：输出最终总结，不再调用任何工具
     """
 
     @property
@@ -33,8 +35,8 @@ class TaskWriteSkill(Skill):
     def description(self) -> str:
         return (
             "管理分析任务列表。在开始多步分析前，用 mode='init' 声明全部任务；"
-            "执行过程中用 mode='update' 实时更新任务状态（pending/in_progress/completed）。"
-            "全部任务 completed 后，直接输出最终总结，不再调用其他工具。"
+            "执行过程中用 mode='update' 实时更新任务状态（pending/in_progress/completed/failed/skipped）。"
+            "全部任务到达终态（completed/failed/skipped）后，直接输出最终总结，不再调用其他工具。"
         )
 
     @property
@@ -65,8 +67,14 @@ class TaskWriteSkill(Skill):
                             },
                             "status": {
                                 "type": "string",
-                                "enum": ["pending", "in_progress", "completed"],
-                                "description": "任务状态",
+                                "enum": [
+                                    "pending",
+                                    "in_progress",
+                                    "completed",
+                                    "failed",
+                                    "skipped",
+                                ],
+                                "description": "任务状态：pending=待执行, in_progress=执行中, completed=已完成, failed=确认失败, skipped=因依赖失败跳过",
                             },
                             "tool_hint": {
                                 "type": "string",
@@ -157,9 +165,7 @@ class TaskWriteSkill(Skill):
         )
 
         if all_done:
-            message = (
-                "所有任务已完成。请直接向用户输出最终分析总结，不要再调用任何工具。"
-            )
+            message = "所有任务已完成。请直接向用户输出最终分析总结，不要再调用任何工具。"
         else:
             message = f"任务状态已更新，还有 {pending} 个任务待完成。"
 

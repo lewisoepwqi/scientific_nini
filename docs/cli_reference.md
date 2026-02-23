@@ -50,7 +50,12 @@ nini init --env-file .env.dev --force
 - Python 版本（`>=3.12`）
 - 数据目录可写
 - 至少一条模型路由可用
+- weasyprint（可选，用于报告 PDF 导出）
 - 前端构建产物存在（可选，仅 `WARN`）
+
+若 `weasyprint` 显示 `WARN`：
+- 源码环境建议执行 `pip install -e .[dev]`（或仅补装 `pip install -e .[pdf]`）
+- 发布包环境建议执行 `pip install nini[pdf]`
 
 示例：
 

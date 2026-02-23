@@ -8,7 +8,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from nini.__main__ import _detect_kaleido_chrome_status, _render_markdown_skill_template, main
+from nini.__main__ import (
+    _detect_kaleido_chrome_status,
+    _detect_weasyprint_status,
+    _render_markdown_skill_template,
+    main,
+)
 from nini.config import settings
 
 
@@ -111,3 +116,34 @@ def test_detect_kaleido_chrome_status_when_chromium_probe_failed(
     assert ok is False
     assert "Chrome 状态未知" in msg
     assert "RuntimeError" in msg
+
+
+def test_detect_weasyprint_status_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_import(name: str):
+        if name == "weasyprint":
+            raise ImportError("no weasyprint")
+        raise AssertionError(f"unexpected import: {name}")
+
+    monkeypatch.setattr("nini.__main__.importlib.import_module", fake_import)
+    ok, msg = _detect_weasyprint_status()
+    assert ok is False
+    assert "weasyprint 未安装" in msg
+
+
+def test_detect_weasyprint_status_when_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _WeasyprintModule:
+        __version__ = "99.9"
+
+    def fake_import(name: str):
+        if name == "weasyprint":
+            return _WeasyprintModule()
+        raise AssertionError(f"unexpected import: {name}")
+
+    monkeypatch.setattr("nini.__main__.importlib.import_module", fake_import)
+    ok, msg = _detect_weasyprint_status()
+    assert ok is True
+    assert "99.9" in msg

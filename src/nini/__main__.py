@@ -129,6 +129,27 @@ def _detect_kaleido_chrome_status() -> tuple[bool, str]:
     return False, "Chrome 未安装（运行 `kaleido_get_chrome` 安装）"
 
 
+def _detect_weasyprint_status() -> tuple[bool, str]:
+    """检测 weasyprint 可用性。"""
+    try:
+        weasyprint = importlib.import_module("weasyprint")
+    except ImportError:
+        return (
+            False,
+            "weasyprint 未安装（源码环境执行 pip install -e .[dev] 或 pip install -e .[pdf]；发布包执行 pip install nini[pdf]）",
+        )
+    except Exception as exc:  # pragma: no cover - 防止环境差异导致 doctor 直接失败
+        return (
+            False,
+            f"weasyprint 导入失败（{type(exc).__name__}: {exc}）（请检查图形库依赖并重装 nini[pdf]）",
+        )
+
+    version = getattr(weasyprint, "__version__", None)
+    if isinstance(version, str) and version.strip():
+        return True, f"weasyprint {version}"
+    return True, "weasyprint 已安装"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Nini - 科研数据分析 AI Agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -365,6 +386,10 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     # kaleido + Chrome 检查（图片导出依赖）
     kaleido_ok, kaleido_msg = _detect_kaleido_chrome_status()
     checks.append(("kaleido + Chrome（图片导出，可选）", kaleido_ok, kaleido_msg, False))
+
+    # weasyprint 检查（报告 PDF 导出依赖）
+    weasy_ok, weasy_msg = _detect_weasyprint_status()
+    checks.append(("weasyprint（报告 PDF 导出，可选）", weasy_ok, weasy_msg, False))
 
     r_info = detect_r_installation()
     r_ok = bool(r_info.get("available"))

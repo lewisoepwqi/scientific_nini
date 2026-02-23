@@ -74,6 +74,7 @@ dev = [
     "pandas-stubs>=2.2.0",
     "scipy-stubs>=1.14.0",
     "types-PyYAML>=6.0.12",
+    "weasyprint>=62.0",
 ]
 
 [project.scripts]

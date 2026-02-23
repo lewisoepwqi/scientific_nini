@@ -23,6 +23,8 @@
 pip install -e .[dev]
 ```
 
+`dev` 依赖组已包含报告 PDF 导出依赖 `weasyprint`。
+
 ## 3. 初始化 `.env`
 
 ```bash
@@ -82,6 +84,7 @@ nini doctor
 - `至少一个模型路由可用` 为 `OK`
 
 `前端构建产物存在` 是可选项，缺失会显示 `WARN`，不阻塞服务启动。
+`weasyprint（报告 PDF 导出，可选）` 是可选项，缺失会显示 `WARN`，仅影响报告 PDF 导出。
 
 ## 6. 启动
 
@@ -106,3 +109,4 @@ nini start --reload
 - 提示没有可用模型：检查 `.env` 是否设置 API Key，或确认 Ollama 已启动。
 - 上传失败：检查文件扩展名是否为 `csv/xlsx/xls/tsv/txt`。
 - 图表导出失败：确认安装了 `kaleido`（已包含在依赖中）。
+- 报告 PDF 导出失败：源码环境优先执行 `pip install -e .[dev]`（如仅补装可用 `pip install -e .[pdf]`）；发布包环境执行 `pip install nini[pdf]`。

@@ -1365,7 +1365,7 @@ async def get_active_model():
     """获取当前活跃的模型信息（提供商 + 模型名称）。"""
     from nini.agent.model_resolver import model_resolver
 
-    info: dict[str, Any] = model_resolver.get_active_model_info()
+    info: dict[str, Any] = model_resolver.get_active_model_info(purpose="chat")
     info["preferred_provider"] = model_resolver.get_preferred_provider()
     info["purpose_preferred_providers"] = model_resolver.get_preferred_providers_by_purpose()
     info["purpose_routes"] = model_resolver.get_purpose_routes()

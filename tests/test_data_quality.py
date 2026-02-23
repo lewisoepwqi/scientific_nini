@@ -335,7 +335,11 @@ class TestDataQualityReportSkill:
             }
         )
 
-        result = (await skill.execute(session=session, dataset_name="test.csv", include_recommendations=True)).to_dict()
+        result = (
+            await skill.execute(
+                session=session, dataset_name="test.csv", include_recommendations=True
+            )
+        ).to_dict()
 
         assert result["success"] is True
         assert "cleaning_recommendations" in result["data"]
@@ -347,7 +351,11 @@ class TestDataQualityReportSkill:
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame({"a": [1, 2, 3]})
 
-        result = (await skill.execute(session=session, dataset_name="test.csv", include_recommendations=False)).to_dict()
+        result = (
+            await skill.execute(
+                session=session, dataset_name="test.csv", include_recommendations=False
+            )
+        ).to_dict()
 
         assert result["success"] is True
         assert "cleaning_recommendations" not in result["data"]

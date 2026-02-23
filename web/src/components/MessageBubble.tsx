@@ -46,6 +46,9 @@ function MessageBubble({
   const [reasoningDisplay, setReasoningDisplay] = useState(
     isReasoning && message.reasoningLive ? "" : message.content,
   );
+  const [reasoningExpanded, setReasoningExpanded] = useState(
+    isReasoning ? message.reasoningLive || message.content.length <= 160 : true,
+  );
   const hasWideContent =
     !!message.chartData ||
     (!!message.images && message.images.length > 0) ||
@@ -61,6 +64,16 @@ function MessageBubble({
     if (!isReasoning) return;
     setReasoningDisplay(message.reasoningLive ? "" : message.content);
   }, [isReasoning, message.id, message.reasoningLive]);
+
+  useEffect(() => {
+    if (!isReasoning) return;
+    setReasoningExpanded(message.reasoningLive || message.content.length <= 160);
+  }, [isReasoning, message.id, message.reasoningLive, message.content.length]);
+
+  useEffect(() => {
+    if (!isReasoning || !message.reasoningLive) return;
+    setReasoningExpanded(true);
+  }, [isReasoning, message.reasoningLive]);
 
   useEffect(() => {
     if (!isReasoning) return;
@@ -105,17 +118,39 @@ function MessageBubble({
         </div>
         <div className="flex-1 min-w-0">
           <div className="max-w-[85%] lg:max-w-2xl rounded-2xl rounded-tl-md border border-amber-300/90 bg-gradient-to-br from-amber-50 to-orange-50 px-4 py-3 shadow-sm">
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold tracking-wide text-amber-700">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" />
-              Thinking
-            </div>
+            <button
+              type="button"
+              onClick={() => setReasoningExpanded((prev) => !prev)}
+              className="mb-2 flex w-full items-center justify-between text-left text-xs font-semibold tracking-wide text-amber-700 hover:text-amber-800"
+            >
+              <span className="flex items-center gap-2">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" />
+                思考过程
+              </span>
+              <span className="flex items-center gap-1">
+                {reasoningExpanded ? "收起" : "展开"}
+                {reasoningExpanded ? (
+                  <ChevronDown size={14} />
+                ) : (
+                  <ChevronRight size={14} />
+                )}
+              </span>
+            </button>
             <div className="markdown-body reasoning-markdown prose prose-sm max-w-none text-amber-950">
-              <MarkdownContent content={reasoningDisplay} />
-              {showTypingCursor && (
-                <span
-                  className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-amber-700 align-middle"
-                  aria-hidden="true"
-                />
+              {reasoningExpanded ? (
+                <>
+                  <MarkdownContent content={reasoningDisplay} />
+                  {showTypingCursor && (
+                    <span
+                      className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-amber-700 align-middle"
+                      aria-hidden="true"
+                    />
+                  )}
+                </>
+              ) : (
+                <p className="m-0 text-xs text-amber-700/90">
+                  已折叠，点击“展开”查看完整思考过程。
+                </p>
               )}
             </div>
           </div>
@@ -290,6 +325,28 @@ function MessageBubble({
           ) : (
             <>
               <div className="markdown-body prose prose-sm max-w-none">
+                {message.isError && (
+                  <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                    <div className="font-medium">
+                      {message.errorHint || "模型调用异常，可重试上一轮。"}
+                    </div>
+                    {message.errorCode && (
+                      <div className="mt-1 text-[11px] text-red-700">
+                        错误码：{message.errorCode}
+                      </div>
+                    )}
+                    {message.errorDetail && (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-[11px] text-red-700 hover:text-red-800">
+                          查看详细错误
+                        </summary>
+                        <div className="mt-1 whitespace-pre-wrap text-[11px] text-red-700">
+                          {message.errorDetail}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                )}
                 <MarkdownContent content={message.content} />
               </div>
               {message.retrievals && message.retrievals.length > 0 && (
@@ -358,16 +415,20 @@ function MessageBubble({
           )}
         </div>
 
-        {isUser && showRetry && (
+        {showRetry && (isUser || message.isError) && (
           <button
             onClick={onRetry}
             disabled={retryDisabled}
-            title="重试上一轮"
-            className="w-7 h-7 rounded-full border border-gray-200 text-gray-500
+            title={isUser ? "重试上一轮" : "重试本次请求"}
+            className={`w-7 h-7 rounded-full border
                        flex items-center justify-center
-                       hover:bg-gray-50 hover:text-gray-700
+                       ${
+                         message.isError
+                           ? "border-red-200 text-red-500 hover:bg-red-50 hover:text-red-700"
+                           : "border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                       }
                        disabled:opacity-40 disabled:cursor-not-allowed
-                       transition-colors mb-0.5"
+                       transition-colors mb-0.5`}
           >
             <RotateCcw size={12} />
           </button>

@@ -66,23 +66,34 @@ export default function ChatPanel() {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const messageGroups = useMemo(() => groupMessages(messages), [messages])
-  const lastUserMessageId = useMemo(() => {
+  const lastUserIndex = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === 'user') return messages[i].id
+      if (messages[i].role === 'user') return i
     }
-    return null
+    return -1
   }, [messages])
+  const lastUserMessageId = useMemo(() => {
+    if (lastUserIndex < 0) return null
+    return messages[lastUserIndex]?.id || null
+  }, [messages, lastUserIndex])
   const canRetry = useMemo(() => {
-    let lastUserIndex = -1
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === 'user') {
-        lastUserIndex = i
-        break
-      }
-    }
     if (lastUserIndex < 0) return false
     return messages.slice(lastUserIndex + 1).some((m) => m.role !== 'user')
-  }, [messages])
+  }, [messages, lastUserIndex])
+  const lastRetryableAssistantError = useMemo(() => {
+    if (lastUserIndex < 0) return null
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (i <= lastUserIndex) break
+      const msg = messages[i]
+      if (msg.role !== 'assistant') continue
+      const isErrorMessage = msg.isError || /^错误[:：]\s*/u.test(msg.content)
+      if (!isErrorMessage) continue
+      if (msg.retryable === false) continue
+      return msg
+    }
+    return null
+  }, [messages, lastUserIndex])
+  const lastRetryableAssistantErrorId = lastRetryableAssistantError?.id || null
 
   // 自动滚动到底部
   useEffect(() => {
@@ -116,7 +127,10 @@ export default function ChatPanel() {
           {messageGroups.map((group) => {
             if (group.type === 'user') {
               const userMessage = group.messages[0]
-              const showRetry = userMessage.id === lastUserMessageId && canRetry
+              const showRetry =
+                userMessage.id === lastUserMessageId &&
+                canRetry &&
+                !lastRetryableAssistantErrorId
               return (
                 <MessageBubble
                   key={group.key}
@@ -128,13 +142,34 @@ export default function ChatPanel() {
               )
             }
             // Agent turn 分组
-            return <AgentTurnGroup key={group.key} messages={group.messages} />
+            return (
+              <AgentTurnGroup
+                key={group.key}
+                messages={group.messages}
+                retryMessageId={lastRetryableAssistantErrorId}
+                onRetry={handleRetry}
+                retryDisabled={isStreaming}
+              />
+            )
           })}
 
           {isStreaming && (
             <div className="flex items-center gap-2 text-gray-400 text-sm ml-11">
               <Loader2 size={14} className="animate-spin" />
-              Thinking...
+              Nini is working...
+            </div>
+          )}
+          {!isStreaming && lastRetryableAssistantError && (
+            <div className="ml-11 mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm">
+              <div className="font-medium text-red-700">
+                {lastRetryableAssistantError.errorHint || '模型调用异常，请稍后重试。'}
+              </div>
+              <button
+                onClick={handleRetry}
+                className="mt-2 inline-flex items-center rounded-lg border border-red-200 bg-white px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 transition-colors"
+              >
+                重试上一轮
+              </button>
             </div>
           )}
 

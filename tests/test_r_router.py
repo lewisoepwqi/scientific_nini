@@ -13,7 +13,12 @@ from nini.sandbox.r_router import HybridRExecutor, detect_r_backend
 
 _WEBR_OK = {"available": True, "path": "webr (wasm)", "version": "0.3.0", "message": "webr 可用"}
 _WEBR_NA = {"available": False, "path": None, "version": None, "message": "webr 未安装"}
-_NATIVE_OK = {"available": True, "path": "/usr/bin/Rscript", "version": "R 4.3.0", "message": "Rscript 可用"}
+_NATIVE_OK = {
+    "available": True,
+    "path": "/usr/bin/Rscript",
+    "version": "R 4.3.0",
+    "message": "Rscript 可用",
+}
 _NATIVE_NA = {"available": False, "path": None, "version": None, "message": "未检测到 Rscript"}
 
 _WEBR_RESULT_OK: dict[str, Any] = {

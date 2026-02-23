@@ -9,9 +9,17 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 
 interface Props {
   messages: Message[];
+  retryMessageId?: string | null;
+  onRetry?: () => void;
+  retryDisabled?: boolean;
 }
 
-function AgentTurnGroup({ messages }: Props) {
+function AgentTurnGroup({
+  messages,
+  retryMessageId = null,
+  onRetry,
+  retryDisabled = false,
+}: Props) {
   const [expanded, setExpanded] = useState(false);
 
   // 找到最终回复：最后一条 assistant 消息（非 tool 角色）
@@ -24,7 +32,13 @@ function AgentTurnGroup({ messages }: Props) {
     return (
       <>
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            showRetry={msg.id === retryMessageId}
+            onRetry={onRetry}
+            retryDisabled={retryDisabled}
+          />
         ))}
       </>
     );
@@ -51,7 +65,13 @@ function AgentTurnGroup({ messages }: Props) {
     <div>
       {/* 分析思路始终显示 */}
       {reasoningMessages.map((msg) => (
-        <MessageBubble key={msg.id} message={msg} />
+        <MessageBubble
+          key={msg.id}
+          message={msg}
+          showRetry={msg.id === retryMessageId}
+          onRetry={onRetry}
+          retryDisabled={retryDisabled}
+        />
       ))}
 
       {/* 折叠的中间步骤 */}
@@ -69,7 +89,13 @@ function AgentTurnGroup({ messages }: Props) {
           {expanded && (
             <div className="ml-3 pl-3 border-l-2 border-gray-200 mt-1 space-y-1">
               {intermediateMessages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
+                <MessageBubble
+                  key={msg.id}
+                  message={msg}
+                  showRetry={msg.id === retryMessageId}
+                  onRetry={onRetry}
+                  retryDisabled={retryDisabled}
+                />
               ))}
             </div>
           )}
@@ -78,7 +104,13 @@ function AgentTurnGroup({ messages }: Props) {
 
       {/* 最终回复 */}
       {finalMessages.map((msg) => (
-        <MessageBubble key={msg.id} message={msg} />
+        <MessageBubble
+          key={msg.id}
+          message={msg}
+          showRetry={msg.id === retryMessageId}
+          onRetry={onRetry}
+          retryDisabled={retryDisabled}
+        />
       ))}
     </div>
   );

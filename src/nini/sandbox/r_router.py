@@ -78,9 +78,7 @@ class HybridRExecutor(RSandboxExecutor):
         max_memory_mb: int | None = None,
     ):
         super().__init__(timeout_seconds=timeout_seconds, max_memory_mb=max_memory_mb)
-        self._webr = WebRExecutor(
-            timeout_seconds=timeout_seconds or int(settings.r_webr_timeout)
-        )
+        self._webr = WebRExecutor(timeout_seconds=timeout_seconds or int(settings.r_webr_timeout))
 
     def _execute_sync(
         self,
