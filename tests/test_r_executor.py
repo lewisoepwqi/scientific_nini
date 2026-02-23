@@ -6,7 +6,8 @@ import pandas as pd
 import pytest
 
 from nini.agent.session import Session
-from nini.sandbox.r_executor import RSandboxPolicyError, detect_r_installation, r_sandbox_executor
+from nini.sandbox.r_executor import RSandboxPolicyError, detect_r_installation
+from nini.sandbox.r_router import r_sandbox_executor
 
 _R_AVAILABLE = bool(detect_r_installation().get("available"))
 pytestmark = pytest.mark.skipif(not _R_AVAILABLE, reason="Rscript 不可用，跳过 R 执行器测试")
