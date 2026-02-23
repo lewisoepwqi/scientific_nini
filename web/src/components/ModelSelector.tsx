@@ -1,16 +1,11 @@
 /**
  * 模型选择器 —— 下拉点选后设为全局首选模型（持久化）。
+ * 数据从 store.modelProviders 读取，与 ModelConfigPanel 共享同一数据源。
  */
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { useStore } from '../store'
 import { ChevronDown, Check, Bot } from 'lucide-react'
-
-interface ProviderOption {
-  id: string
-  name: string
-  configured: boolean
-  current_model: string
-}
 
 interface ModelSelectorProps {
   compact?: boolean
@@ -26,52 +21,23 @@ export default function ModelSelector({
   const activeModel = useStore((s) => s.activeModel)
   const fetchActiveModel = useStore((s) => s.fetchActiveModel)
   const setPreferredProvider = useStore((s) => s.setPreferredProvider)
+  const modelProviders = useStore((s) => s.modelProviders)
+  const fetchModelProviders = useStore((s) => s.fetchModelProviders)
 
   const [open, setOpen] = useState(false)
-  const [providers, setProviders] = useState<ProviderOption[]>([])
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // 初始化：获取当前活跃模型
   useEffect(() => {
-    fetchActiveModel()
+    void fetchActiveModel()
   }, [fetchActiveModel])
 
-  // 获取可用提供商列表
-  const fetchProviders = useCallback(async () => {
-    try {
-      const resp = await fetch('/api/models')
-      const data = await resp.json()
-      if (data.success && Array.isArray(data.data)) {
-        setProviders(
-          data.data.map((p: Record<string, unknown>) => ({
-            id: p.id as string,
-            name: p.name as string,
-            configured: p.configured as boolean,
-            current_model: p.current_model as string,
-          }))
-        )
-      }
-    } catch (e) {
-      console.error('获取模型提供商列表失败:', e)
-    }
-  }, [])
-
-  // 打开下拉时加载提供商列表
+  // 打开下拉时：若 providers 为空则触发加载
   useEffect(() => {
-    if (open) fetchProviders()
-  }, [open, fetchProviders])
-
-  // 模型配置更新后同步刷新显示与下拉数据
-  useEffect(() => {
-    const handleModelConfigUpdated = () => {
-      void fetchActiveModel()
-      if (open) {
-        void fetchProviders()
-      }
+    if (open && modelProviders.length === 0) {
+      void fetchModelProviders()
     }
-    window.addEventListener('nini:model-config-updated', handleModelConfigUpdated)
-    return () => window.removeEventListener('nini:model-config-updated', handleModelConfigUpdated)
-  }, [fetchActiveModel, fetchProviders, open])
+  }, [open, modelProviders.length, fetchModelProviders])
 
   // 点击外部关闭下拉
   useEffect(() => {
@@ -96,7 +62,7 @@ export default function ModelSelector({
     ? activeModel.model || activeModel.provider_name || '未知模型'
     : '加载中...'
 
-  const configuredProviders = providers.filter((p) => p.configured)
+  const configuredProviders = modelProviders.filter((p) => p.configured)
   const triggerClass = compact
     ? 'h-8 px-2.5 text-xs border-gray-200 text-gray-600'
     : 'px-2.5 py-1 text-xs border-gray-200 text-gray-600'

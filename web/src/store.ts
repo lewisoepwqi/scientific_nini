@@ -159,6 +159,18 @@ export interface ActiveModelInfo {
   preferred_provider: string | null;
 }
 
+export interface ModelProviderInfo {
+  id: string;
+  name: string;
+  configured: boolean;
+  current_model: string;
+  available_models: string[];
+  api_key_hint: string;
+  base_url: string;
+  priority: number;
+  config_source: "db" | "env" | "none";
+}
+
 export interface CodeExecution {
   id: string;
   session_id: string;
@@ -224,6 +236,8 @@ interface AppState {
 
   // 模型选择（统一为全局首选）
   activeModel: ActiveModelInfo | null;
+  modelProviders: ModelProviderInfo[];
+  modelProvidersLoading: boolean;
 
   // 工作区面板状态
   workspacePanelOpen: boolean;
@@ -275,6 +289,7 @@ interface AppState {
   fetchMemoryFiles: () => Promise<void>;
   fetchActiveModel: () => Promise<void>;
   setPreferredProvider: (providerId: string) => Promise<void>;
+  fetchModelProviders: () => Promise<void>;
 
   // 工作区面板操作
   toggleWorkspacePanel: () => void;
@@ -373,8 +388,7 @@ function normalizeTaskAttemptStatus(raw: unknown): AnalysisTaskAttemptStatus {
   }
 }
 
-const REASONING_MARKER_PATTERN =
-  /<\/?think>|<\/?thinking>|◁think▷|◁\/think▷/gi;
+const REASONING_MARKER_PATTERN = /<\/?think>|<\/?thinking>|◁think▷|◁\/think▷/gi;
 
 function stripReasoningMarkers(text: string): string {
   if (!text) return text;
@@ -405,8 +419,13 @@ function planStatusRank(status: PlanStepStatus): number {
   }
 }
 
-function mergePlanStepStatus(current: PlanStepStatus, incoming: PlanStepStatus): PlanStepStatus {
-  return planStatusRank(incoming) >= planStatusRank(current) ? incoming : current;
+function mergePlanStepStatus(
+  current: PlanStepStatus,
+  incoming: PlanStepStatus,
+): PlanStepStatus {
+  return planStatusRank(incoming) >= planStatusRank(current)
+    ? incoming
+    : current;
 }
 
 function clampStepIndex(index: number, total: number): number {
@@ -433,7 +452,9 @@ function createDefaultPlanSteps(total: number): AnalysisStep[] {
 function inferCurrentStepIndex(steps: AnalysisStep[]): number {
   const inProgress = steps.find((step) => step.status === "in_progress");
   if (inProgress) return inProgress.id;
-  const failed = steps.find((step) => step.status === "failed" || step.status === "blocked");
+  const failed = steps.find(
+    (step) => step.status === "failed" || step.status === "blocked",
+  );
   if (failed) return failed.id;
   const nextPending = steps.find((step) => step.status === "not_started");
   if (nextPending) return nextPending.id;
@@ -499,7 +520,10 @@ function normalizeAnalysisSteps(rawSteps: unknown): AnalysisStep[] {
     .sort((a, b) => a.id - b.id);
 }
 
-function extractPlanEventOrder(evt: WSEvent, payload?: Record<string, unknown> | null): number {
+function extractPlanEventOrder(
+  evt: WSEvent,
+  payload?: Record<string, unknown> | null,
+): number {
   const seqBase = 1_000_000_000_000_000;
   const seq = evt.metadata?.seq;
   if (typeof seq === "number" && Number.isFinite(seq)) return seqBase + seq;
@@ -524,7 +548,10 @@ function makePlanProgressFromSteps(
   blockReason: string | null = null,
 ): AnalysisPlanProgress | null {
   if (steps.length === 0) return null;
-  const currentStepIndex = clampStepIndex(inferCurrentStepIndex(steps), steps.length);
+  const currentStepIndex = clampStepIndex(
+    inferCurrentStepIndex(steps),
+    steps.length,
+  );
   const currentStep = steps[currentStepIndex - 1];
   const stepStatus = currentStep?.status || "not_started";
   return {
@@ -548,7 +575,12 @@ function updateAnalysisTaskById(
   patch: Partial<
     Pick<
       AnalysisTaskItem,
-      "title" | "status" | "raw_status" | "action_id" | "current_activity" | "last_error"
+      | "title"
+      | "status"
+      | "raw_status"
+      | "action_id"
+      | "current_activity"
+      | "last_error"
     >
   >,
 ): AnalysisTaskItem[] {
@@ -636,7 +668,8 @@ function updateAnalysisTaskWithAttempt(
     current_activity:
       payload.note ??
       `正在执行 ${payload.tool_name}（第 ${payload.attempt}/${payload.max_attempts} 次）`,
-    last_error: payload.error ?? (payload.status === "success" ? null : task.last_error),
+    last_error:
+      payload.error ?? (payload.status === "success" ? null : task.last_error),
     attempts,
     updated_at: now,
   };
@@ -742,7 +775,8 @@ function applyPlanProgressPayload(
     total_steps: total,
     step_title: incomingStepTitle,
     step_status: mergedStatus,
-    next_hint: incomingNextHint ?? deriveNextHint(steps, currentStepIndex, mergedStatus),
+    next_hint:
+      incomingNextHint ?? deriveNextHint(steps, currentStepIndex, mergedStatus),
     block_reason: blockReason,
   };
 }
@@ -806,6 +840,8 @@ export const useStore = create<AppState>((set, get) => ({
   skills: [],
   memoryFiles: [],
   activeModel: null,
+  modelProviders: [],
+  modelProvidersLoading: false,
   workspacePanelOpen: false,
   workspacePanelTab: "files",
   fileSearchQuery: "",
@@ -924,6 +960,20 @@ export const useStore = create<AppState>((set, get) => ({
     // 1. 获取会话列表
     await get().fetchSessions();
     await get().fetchSkills();
+
+    // 注册全局模型配置更新监听（使用有名函数防止重复绑定）
+    const handleModelConfigUpdated = () => {
+      void get().fetchActiveModel();
+      void get().fetchModelProviders();
+    };
+    window.removeEventListener(
+      "nini:model-config-updated",
+      handleModelConfigUpdated,
+    );
+    window.addEventListener(
+      "nini:model-config-updated",
+      handleModelConfigUpdated,
+    );
 
     // 2. 尝试恢复上次使用的会话
     const savedSessionId = localStorage.getItem("nini_last_session_id");
@@ -1482,6 +1532,25 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  async fetchModelProviders() {
+    set({ modelProvidersLoading: true });
+    try {
+      const resp = await fetch("/api/models");
+      const data = await resp.json();
+      if (data.success && Array.isArray(data.data)) {
+        set({
+          modelProviders: data.data as ModelProviderInfo[],
+          modelProvidersLoading: false,
+        });
+      } else {
+        set({ modelProvidersLoading: false });
+      }
+    } catch (e) {
+      console.error("获取模型提供商列表失败:", e);
+      set({ modelProvidersLoading: false });
+    }
+  },
+
   toggleWorkspacePanel() {
     set((s) => ({ workspacePanelOpen: !s.workspacePanelOpen }));
   },
@@ -1499,7 +1568,9 @@ export const useStore = create<AppState>((set, get) => ({
       const nextTasks = s.analysisTasks.filter((task) => task.id !== taskId);
       if (nextTasks.length === s.analysisTasks.length) return {};
       const nextActionMap = Object.fromEntries(
-        Object.entries(s._planActionTaskMap).filter(([, mappedTaskId]) => mappedTaskId !== taskId),
+        Object.entries(s._planActionTaskMap).filter(
+          ([, mappedTaskId]) => mappedTaskId !== taskId,
+        ),
       );
       return {
         analysisTasks: nextTasks,
@@ -2009,7 +2080,9 @@ function handleEvent(
           ...s._planActionTaskMap,
           ...Object.fromEntries(
             appendedTasks
-              .filter((task) => typeof task.action_id === "string" && task.action_id)
+              .filter(
+                (task) => typeof task.action_id === "string" && task.action_id,
+              )
               .map((task) => [task.action_id as string, task.id]),
           ),
         };
@@ -2059,7 +2132,9 @@ function handleEvent(
                     ...step,
                     status: mergePlanStepStatus(step.status, normalizedStatus),
                     raw_status:
-                      typeof stepStatus === "string" ? stepStatus : step.raw_status,
+                      typeof stepStatus === "string"
+                        ? stepStatus
+                        : step.raw_status,
                   }
                 : step,
             );
@@ -2125,7 +2200,10 @@ function handleEvent(
       const eventOrder = extractPlanEventOrder(evt, data);
       set((s) => {
         if (eventOrder < s._analysisPlanOrder) return {};
-        const nextProgress = applyPlanProgressPayload(s.analysisPlanProgress, data);
+        const nextProgress = applyPlanProgressPayload(
+          s.analysisPlanProgress,
+          data,
+        );
         if (!nextProgress) return {};
         const stepId = nextProgress.current_step_index;
         const taskId =
@@ -2184,7 +2262,9 @@ function handleEvent(
             ? data.tool_name.trim()
             : evt.tool_name || "tool";
         const attempt =
-          typeof data.attempt === "number" && Number.isFinite(data.attempt) && data.attempt > 0
+          typeof data.attempt === "number" &&
+          Number.isFinite(data.attempt) &&
+          data.attempt > 0
             ? Math.floor(data.attempt)
             : 1;
         const maxAttempts =
@@ -2195,14 +2275,22 @@ function handleEvent(
             : Math.max(attempt, 1);
         const attemptStatus = normalizeTaskAttemptStatus(data.status);
         const note =
-          typeof data.note === "string" && data.note.trim() ? data.note.trim() : null;
+          typeof data.note === "string" && data.note.trim()
+            ? data.note.trim()
+            : null;
         const error =
-          typeof data.error === "string" && data.error.trim() ? data.error.trim() : null;
+          typeof data.error === "string" && data.error.trim()
+            ? data.error.trim()
+            : null;
 
         let taskId: string | null = null;
         if (actionId && s._planActionTaskMap[actionId]) {
           taskId = s._planActionTaskMap[actionId];
-        } else if (stepId && stepId > 0 && stepId <= s._activePlanTaskIds.length) {
+        } else if (
+          stepId &&
+          stepId > 0 &&
+          stepId <= s._activePlanTaskIds.length
+        ) {
           taskId = s._activePlanTaskIds[stepId - 1] ?? null;
         } else if (stepId) {
           const fallback = [...s.analysisTasks]
@@ -2212,15 +2300,19 @@ function handleEvent(
         }
         if (!taskId) return {};
 
-        const nextTasks = updateAnalysisTaskWithAttempt(s.analysisTasks, taskId, {
-          action_id: actionId,
-          tool_name: toolName,
-          attempt,
-          max_attempts: maxAttempts,
-          status: attemptStatus,
-          note,
-          error,
-        });
+        const nextTasks = updateAnalysisTaskWithAttempt(
+          s.analysisTasks,
+          taskId,
+          {
+            action_id: actionId,
+            tool_name: toolName,
+            attempt,
+            max_attempts: maxAttempts,
+            status: attemptStatus,
+            note,
+            error,
+          },
+        );
         const nextActionMap =
           actionId && actionId !== ""
             ? { ...s._planActionTaskMap, [actionId]: taskId }
@@ -2663,7 +2755,8 @@ function handleEvent(
         })(),
         analysisPlanProgress: (() => {
           const progress = s.analysisPlanProgress;
-          if (!progress || progress.step_status !== "in_progress") return progress;
+          if (!progress || progress.step_status !== "in_progress")
+            return progress;
           const failedIndex = progress.current_step_index - 1;
           return {
             ...progress,
