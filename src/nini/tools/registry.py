@@ -9,7 +9,7 @@ from typing import Any, cast
 from nini.agent.lane_queue import lane_queue
 from nini.agent.session import Session
 from nini.config import settings
-from nini.sandbox.r_executor import detect_r_installation
+from nini.sandbox.r_router import detect_r_backend
 from nini.tools.base import Skill, SkillResult
 from nini.tools.clean_data import CleanDataSkill, RecommendCleaningStrategySkill
 from nini.tools.code_exec import RunCodeSkill
@@ -332,11 +332,12 @@ def create_default_registry() -> SkillRegistry:
     registry.register(MultipleComparisonCorrectionSkill())
     registry.register(RunCodeSkill())
     if settings.r_enabled:
-        r_info = detect_r_installation()
-        if bool(r_info.get("available")):
+        backend = detect_r_backend()
+        if backend["available"]:
             registry.register(RunRCodeSkill())
+            logger.info("run_r_code 已注册（%s）", backend["message"])
         else:
-            logger.info("R 环境不可用，跳过 run_r_code 注册: %s", r_info.get("message", "未知原因"))
+            logger.info("R 环境不可用，跳过 run_r_code 注册: %s", backend["message"])
     registry.register(CreateChartSkill())
     registry.register(ExportChartSkill())
     registry.register(CleanDataSkill())

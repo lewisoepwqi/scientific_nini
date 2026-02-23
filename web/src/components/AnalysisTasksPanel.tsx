@@ -124,7 +124,7 @@ function AttemptItem({ attempt }: { attempt: AnalysisTaskAttempt }) {
           #{attempt.attempt}/{attempt.max_attempts} · {attempt.tool_name}
         </span>
         <span
-          className={`ml-auto inline-flex items-center px-1.5 py-0.5 text-[10px] rounded-full border ${attemptBadgeClass(attempt.status)}`}
+          className={`ml-auto inline-flex shrink-0 items-center whitespace-nowrap px-1.5 py-0.5 text-[10px] rounded-full border ${attemptBadgeClass(attempt.status)}`}
         >
           {attemptLabel(attempt.status)}
         </span>
@@ -155,10 +155,10 @@ function TaskItem({
       <div className="flex items-start gap-2">
         <span className="mt-0.5">{stepIcon(task.status)}</span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <span className="text-[11px] text-slate-400">{index + 1}.</span>
             <p
-              className={`text-xs font-medium text-slate-900 truncate ${
+              className={`min-w-0 flex-1 text-xs font-medium text-slate-900 truncate ${
                 task.status === "done" ? "line-through opacity-75" : ""
               }`}
               title={task.title}
@@ -166,7 +166,7 @@ function TaskItem({
               {task.title}
             </p>
             <span
-              className={`ml-auto inline-flex items-center px-1.5 py-0.5 text-[10px] rounded-full border ${stepBadgeClass(task.status)}`}
+              className={`ml-auto inline-flex shrink-0 items-center whitespace-nowrap px-1.5 py-0.5 text-[10px] rounded-full border ${stepBadgeClass(task.status)}`}
             >
               {stepLabel(task.status)}
             </span>

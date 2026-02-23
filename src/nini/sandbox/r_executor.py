@@ -587,15 +587,12 @@ class RSandboxExecutor:
         return payload
 
 
-r_sandbox_executor = RSandboxExecutor()
-
-
 __all__ = [
     "BIOC_PACKAGES",
     "RSandboxExecutor",
     "check_r_packages",
     "detect_r_installation",
     "install_r_packages",
-    "r_sandbox_executor",
+    "_extract_required_packages",
     "RSandboxPolicyError",
 ]

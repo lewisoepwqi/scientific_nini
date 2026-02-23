@@ -59,6 +59,7 @@ export default function WorkspaceSidebar() {
     }
     return names
   }, [workspaceFiles])
+  const hasPreviewTabs = previewTabs.length > 0
 
   const handleDownloadAllFiles = useCallback(async () => {
     if (!sessionId) return
@@ -176,13 +177,21 @@ export default function WorkspaceSidebar() {
       )}
 
       {/* Tab 切换 */}
-      <div className="flex border-b flex-shrink-0 overflow-x-auto">
+      <div
+        className={`flex border-b flex-shrink-0 ${
+          hasPreviewTabs
+            ? 'no-scrollbar overflow-x-auto overflow-y-hidden'
+            : 'overflow-x-hidden'
+        }`}
+      >
         <button
           onClick={() => {
             setWorkspacePanelTab('files')
             setActivePreview(null)
           }}
-          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${
+          className={`${
+            hasPreviewTabs ? 'inline-flex shrink-0 min-w-[82px]' : 'flex flex-1 min-w-0'
+          } items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
             workspacePanelTab === 'files' && !previewFileId
               ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -196,7 +205,9 @@ export default function WorkspaceSidebar() {
             setWorkspacePanelTab('executions')
             setActivePreview(null)
           }}
-          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${
+          className={`${
+            hasPreviewTabs ? 'inline-flex shrink-0 min-w-[98px]' : 'flex flex-1 min-w-0'
+          } items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
             workspacePanelTab === 'executions' && !previewFileId
               ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -210,7 +221,9 @@ export default function WorkspaceSidebar() {
             setWorkspacePanelTab('tasks')
             setActivePreview(null)
           }}
-          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${
+          className={`${
+            hasPreviewTabs ? 'inline-flex shrink-0 min-w-[86px]' : 'flex flex-1 min-w-0'
+          } items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
             workspacePanelTab === 'tasks' && !previewFileId
               ? 'text-blue-600 border-b-2 border-blue-600'
               : 'text-gray-500 hover:text-gray-700'
@@ -228,13 +241,13 @@ export default function WorkspaceSidebar() {
           <button
             key={id}
             onClick={() => setActivePreview(id)}
-            className={`flex items-center gap-1 px-2 py-2 text-xs border-l transition-colors ${
+            className={`inline-flex shrink-0 items-center gap-1 px-2 py-2 text-xs border-l whitespace-nowrap transition-colors ${
               previewFileId === id
                 ? 'text-blue-600 bg-blue-50 border-b-2 border-blue-600'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            <span className="max-w-[90px] truncate" title={previewTabNames[id] || id}>
+            <span className="max-w-[120px] truncate" title={previewTabNames[id] || id}>
               {previewTabNames[id] || '预览文件'}
             </span>
             <span
@@ -251,7 +264,7 @@ export default function WorkspaceSidebar() {
                   closePreview(id)
                 }
               }}
-              className="p-0.5 rounded hover:bg-gray-200"
+              className="shrink-0 p-0.5 rounded hover:bg-gray-200"
               title="关闭标签"
             >
               <X size={11} />

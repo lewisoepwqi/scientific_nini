@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     r_sandbox_max_memory_mb: int = 1024
     r_package_install_timeout: int = 300
     r_auto_install_packages: bool = True
+    r_webr_enabled: bool = True  # 允许 webr（WebAssembly R）作为执行后端，无需本地 R
+    r_webr_timeout: int = 60  # webr 执行超时（秒），WASM 比原生 R 慢，可适当放宽
 
     # ---- Plotly 图表导出配置 ----
     plotly_export_width: int = 1400
