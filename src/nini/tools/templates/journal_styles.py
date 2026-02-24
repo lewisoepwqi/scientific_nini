@@ -84,8 +84,10 @@ _DEFAULT_TEMPLATES: dict[str, dict[str, Any]] = {
     },
 }
 
-# 项目根目录（pyproject.toml 所在位置）
-_ROOT = Path(__file__).resolve().parents[4]
+# 项目/bundle 根目录（支持冻结模式）
+from nini.config import _get_bundle_root
+
+_ROOT = _get_bundle_root()
 
 # 内置模板目录
 _BUILTIN_TEMPLATES_DIR = _ROOT / "templates" / "journal_styles"

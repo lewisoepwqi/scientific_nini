@@ -20,15 +20,15 @@ from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 from starlette.responses import Response
 
-from nini.config import settings
+from nini.config import settings, _get_bundle_root
 from nini.models.database import init_db
 from nini.tools.registry import create_default_registry
 from nini.api.websocket import set_skill_registry
 
 logger = logging.getLogger(__name__)
 
-# 前端构建产物目录
-_WEB_DIST = Path(__file__).resolve().parent.parent.parent / "web" / "dist"
+# 前端构建产物目录（冻结模式下从 bundle 内读取）
+_WEB_DIST = _get_bundle_root() / "web" / "dist"
 
 
 @asynccontextmanager
