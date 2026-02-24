@@ -36,7 +36,7 @@ echo [2/4] Done.
 echo.
 
 echo [3/4] Running PyInstaller...
-pyinstaller nini.spec --noconfirm
+python -m PyInstaller nini.spec --noconfirm
 if !errorlevel! neq 0 (
     echo [FAIL] PyInstaller failed.
     goto :error
