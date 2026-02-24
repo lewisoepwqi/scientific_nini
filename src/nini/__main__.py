@@ -167,10 +167,11 @@ def _build_parser() -> argparse.ArgumentParser:
     start_parser.set_defaults(func=_cmd_start)
 
     init_parser = subparsers.add_parser("init", help="生成首次运行配置文件")
+    _default_env = str(Path.home() / ".nini" / ".env") if getattr(sys, "frozen", False) else ".env"
     init_parser.add_argument(
         "--env-file",
-        default=".env",
-        help="配置文件路径，默认当前目录 .env",
+        default=_default_env,
+        help="配置文件路径（打包模式默认 ~/.nini/.env，开发模式默认当前目录 .env）",
     )
     init_parser.add_argument("--force", action="store_true", help="覆盖已存在的配置文件")
     init_parser.set_defaults(func=_cmd_init)
@@ -400,7 +401,9 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         ("Rscript（run_r_code，可选）", r_ok if settings.r_enabled else True, r_detail, False)
     )
 
-    web_dist = Path(__file__).resolve().parent.parent.parent / "web" / "dist"
+    from nini.config import _get_bundle_root
+
+    web_dist = _get_bundle_root() / "web" / "dist"
     checks.append(("前端构建产物存在（可选）", web_dist.exists(), str(web_dist), False))
 
     print("Nini 环境检查:")
@@ -525,6 +528,12 @@ def _cmd_skills_create(args: argparse.Namespace) -> int:
 
 def _create_function_skill(name: str, description: str, category: str) -> int:
     """创建 Function Tool 脚手架。"""
+    from nini.config import IS_FROZEN
+
+    if IS_FROZEN:
+        print("错误：打包模式下不支持创建 Function Tool 脚手架。")
+        return 1
+
     # 类名：snake_case → PascalCase + "Skill"
     class_name = "".join(word.capitalize() for word in name.split("_")) + "Skill"
     target = Path(__file__).resolve().parent / "tools" / f"{name}.py"
@@ -583,7 +592,9 @@ class {class_name}(Skill):
 
 def _create_markdown_skill(name: str, description: str, category: str) -> int:
     """创建 Markdown Skill 脚手架。"""
-    skills_dir = Path(__file__).resolve().parent.parent.parent / "skills"
+    from nini.config import _get_bundle_root
+
+    skills_dir = _get_bundle_root() / "skills"
     target_dir = skills_dir / name
     target = target_dir / "SKILL.md"
 
@@ -639,4 +650,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    import multiprocessing
+
+    multiprocessing.freeze_support()  # Windows 冻结环境必须在 __main__ 最早调用
     raise SystemExit(main())

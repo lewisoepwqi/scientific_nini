@@ -1,19 +1,50 @@
 """应用配置，基于 Pydantic Settings。"""
 
+import sys
 from pathlib import Path
 from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# 项目根目录（pyproject.toml 所在位置）
-_ROOT = Path(__file__).resolve().parent.parent.parent
+# ---------- 冻结环境（PyInstaller）路径解析 ----------
+
+# PyInstaller 打包后 sys.frozen == True，sys._MEIPASS 指向解压的 bundle 目录
+IS_FROZEN = getattr(sys, "frozen", False)
+
+
+def _get_bundle_root() -> Path:
+    """获取 bundle 资源根目录。
+
+    - 开发模式：项目根目录（pyproject.toml 所在位置）
+    - 冻结模式：PyInstaller 解压目录（sys._MEIPASS）
+    """
+    if IS_FROZEN:
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def _get_user_data_dir() -> Path:
+    """获取运行时可写数据目录。
+
+    - 开发模式：项目根 / data
+    - 冻结模式：~/.nini（用户主目录下，可写）
+    """
+    if IS_FROZEN:
+        return Path.home() / ".nini"
+    return _get_bundle_root() / "data"
+
+
+# 项目/bundle 根目录
+_ROOT = _get_bundle_root()
 
 
 class Settings(BaseSettings):
     """全局配置，支持 .env 文件和环境变量。"""
 
     model_config = SettingsConfigDict(
-        env_file=str(_ROOT / ".env"),
+        # 冻结模式：优先读用户数据目录的 .env，其次读 bundle/.env
+        # 开发模式：两者指向同一个项目根目录
+        env_file=(str(_get_user_data_dir() / ".env"), str(_ROOT / ".env")),
         env_file_encoding="utf-8",
         env_prefix="NINI_",
         extra="ignore",
@@ -22,7 +53,7 @@ class Settings(BaseSettings):
     # ---- 基础 ----
     app_name: str = "Nini"
     debug: bool = False
-    data_dir: Path = _ROOT / "data"
+    data_dir: Path = _get_user_data_dir()
 
     # ---- LLM ----
     openai_api_key: Optional[str] = None
@@ -111,7 +142,7 @@ class Settings(BaseSettings):
     knowledge_local_embedding_model: str = "BAAI/bge-small-zh-v1.5"
     prompt_component_max_chars: int = 20000
     prompt_total_max_chars: int = 60000
-    skills_dir_path: Path = _ROOT / "skills"
+    skills_dir_path: Path = _get_bundle_root() / "skills"
 
     # ---- 自动上下文压缩 ----
     auto_compress_enabled: bool = True
