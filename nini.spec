@@ -15,23 +15,33 @@ block_cipher = None
 # 项目根目录
 ROOT = Path(SPECPATH)
 
+# 构建 datas 列表：只包含实际存在的目录，避免打包时报错
+_candidate_datas = [
+    # (源路径, bundle 内目标路径, 是否必须)
+    (ROOT / "web" / "dist", "web/dist", True),
+    (ROOT / "data" / "fonts", "data/fonts", False),
+    (ROOT / "data" / "prompt_components", "data/prompt_components", False),
+    (ROOT / "templates" / "journal_styles", "templates/journal_styles", False),
+    (ROOT / "skills", "skills", False),
+]
+
+_datas = []
+for src, dest, required in _candidate_datas:
+    if src.exists():
+        _datas.append((str(src), dest))
+    elif required:
+        raise FileNotFoundError(
+            f"Required data directory not found: {src}\n"
+            f"Please build the frontend first: cd web && npm install && npm run build"
+        )
+    else:
+        print(f"  WARN: Optional data directory not found, skipping: {src}")
+
 a = Analysis(
     [str(ROOT / "src" / "nini" / "__main__.py")],
     pathex=[str(ROOT / "src")],
     binaries=[],
-    datas=[
-        # 前端构建产物
-        (str(ROOT / "web" / "dist"), "web/dist"),
-        # 内置字体
-        (str(ROOT / "data" / "fonts"), "data/fonts"),
-        # 系统提示词模板
-        (str(ROOT / "data" / "prompt_components"), "data/prompt_components"),
-        # 期刊样式模板
-        (str(ROOT / "templates" / "journal_styles"), "templates/journal_styles"),
-        # Markdown 技能定义
-        (str(ROOT / "skills"), "skills"),
-        # .env 模板（首次运行用）
-    ],
+    datas=_datas,
     hiddenimports=[
         # ----- nini 自身模块 -----
         "nini",
