@@ -1,3 +1,9 @@
-# 忽略本地数据文件
+# 忽略运行时数据文件
 *
 !.gitignore
+
+# 保留打包需要的静态资源目录
+!fonts/
+!fonts/**
+!prompt_components/
+!prompt_components/**
