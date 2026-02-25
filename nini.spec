@@ -75,20 +75,8 @@ a = Analysis(
         # ----- tiktoken 编码注册表 -----
         "tiktoken_ext",
         "tiktoken_ext.openai_public",
-        # ----- 科学计算隐式依赖 -----
-        "scipy.special._cdflib",
-        "scipy.special._ufuncs",
-        "scipy.linalg._fblas",
-        "scipy.linalg._flapack",
-        "scipy.sparse.csgraph._shortest_path",
-        "scipy.sparse.csgraph._tools",
+        # ----- 科学计算（PyInstaller 自带 hook 已覆盖大部分） -----
         "statsmodels.tsa",
-        "statsmodels.tsa.statespace._initialization",
-        "statsmodels.tsa.statespace._representation",
-        "statsmodels.tsa.statespace._statespace",
-        "statsmodels.tsa.statespace._kalman_filter",
-        "statsmodels.tsa.statespace._kalman_smoother",
-        "statsmodels.tsa.statespace._simulation_smoother",
         # ----- 可视化 -----
         "matplotlib.backends.backend_agg",
         "matplotlib.backends.backend_svg",
