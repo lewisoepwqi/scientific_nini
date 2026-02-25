@@ -337,7 +337,11 @@ def create_default_registry() -> SkillRegistry:
             registry.register(RunRCodeSkill())
             logger.info("run_r_code 已注册（%s）", backend["message"])
         else:
-            logger.info("R 环境不可用，跳过 run_r_code 注册: %s", backend["message"])
+            logger.warning(
+                "R 环境不可用，跳过 run_r_code 注册: %s。"
+                "请运行 pip install webr 或安装本地 R 环境。",
+                backend["message"],
+            )
     registry.register(CreateChartSkill())
     registry.register(ExportChartSkill())
     registry.register(CleanDataSkill())
