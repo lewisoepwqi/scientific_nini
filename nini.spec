@@ -18,6 +18,8 @@ ROOT = Path(SPECPATH)
 # ── 自动检测 choreographer 的 Chrome 下载目录 ──────────────────────────────
 # kaleido 使用 choreographer 库调用 Chromium 来导出图表为图片。
 # 运行 `kaleido_get_chrome -y` 后，Chrome 会下载到 choreographer/cli/browser_exe/。
+# 如果命令不在 PATH，可改用：
+# `python -c "from choreographer.cli._cli_utils import get_chrome_sync; print(get_chrome_sync())"`。
 # 打包时需要将该目录一起包含，否则打包产物无法使用图片导出功能。
 _choreo_chrome_dir = None
 try:
@@ -29,6 +31,7 @@ try:
     else:
         print(f"  WARN: choreographer Chrome dir empty or missing: {_choreo_browser_exe}")
         print("        Run `kaleido_get_chrome -y` before packaging to enable chart export.")
+        print("        If command not found, use: python -c \"from choreographer.cli._cli_utils import get_chrome_sync; print(get_chrome_sync())\"")
 except Exception as e:
     print(f"  WARN: Cannot detect choreographer Chrome path: {e}")
     print("        Chart image export may not work in packaged app.")

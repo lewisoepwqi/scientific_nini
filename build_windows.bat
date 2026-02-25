@@ -14,9 +14,40 @@ echo [1/4] Done.
 echo.
 
 echo [1.5/4] Downloading Chromium for kaleido chart export...
-kaleido_get_chrome -y
-if !errorlevel! neq 0 (
-    echo [WARN] kaleido_get_chrome failed. Chart image export may not work in packaged app.
+set "KALEIDO_CHROME_OK=0"
+
+where kaleido_get_chrome >nul 2>nul
+if !errorlevel! equ 0 (
+    call kaleido_get_chrome -y
+    if !errorlevel! equ 0 (
+        set "KALEIDO_CHROME_OK=1"
+    )
+)
+
+if !KALEIDO_CHROME_OK! neq 1 (
+    for /f "delims=" %%I in ('python -c "import sys; print(sys.executable)" 2^>nul') do set "PYTHON_EXE=%%I"
+    if defined PYTHON_EXE (
+        for %%I in ("!PYTHON_EXE!") do set "PYTHON_DIR=%%~dpI"
+        if exist "!PYTHON_DIR!kaleido_get_chrome.exe" (
+            call "!PYTHON_DIR!kaleido_get_chrome.exe" -y
+            if !errorlevel! equ 0 (
+                set "KALEIDO_CHROME_OK=1"
+            )
+        )
+    )
+)
+
+if !KALEIDO_CHROME_OK! neq 1 (
+    python -c "from choreographer.cli._cli_utils import get_chrome_sync; print(get_chrome_sync())"
+    if !errorlevel! equ 0 (
+        set "KALEIDO_CHROME_OK=1"
+    )
+)
+
+if !KALEIDO_CHROME_OK! neq 1 (
+    echo [WARN] Cannot download Chromium automatically. Chart image export may not work in packaged app.
+    echo        Try: kaleido_get_chrome -y
+    echo        Or : python -c "from choreographer.cli._cli_utils import get_chrome_sync; print(get_chrome_sync())"
 )
 echo [1.5/4] Done.
 echo.
