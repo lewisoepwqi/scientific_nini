@@ -1,5 +1,6 @@
 """应用配置，基于 Pydantic Settings。"""
 
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -21,6 +22,45 @@ def _get_bundle_root() -> Path:
     if IS_FROZEN:
         return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
     return Path(__file__).resolve().parent.parent.parent
+
+
+def _setup_frozen_chrome_path() -> None:
+    """在打包模式下设置 BROWSER_PATH 环境变量，让 choreographer 找到打包的 Chrome。"""
+    if not IS_FROZEN:
+        return
+    if os.environ.get("BROWSER_PATH"):
+        return  # 用户已手动设置
+    bundle = _get_bundle_root()
+    # Windows: chrome-win64/chrome.exe; Linux: chrome-linux64/chrome
+    for candidate in [
+        bundle / "choreographer" / "cli" / "browser_exe" / "chrome-win64" / "chrome.exe",
+        bundle / "choreographer" / "cli" / "browser_exe" / "chrome-win32" / "chrome.exe",
+        bundle / "choreographer" / "cli" / "browser_exe" / "chrome-linux64" / "chrome",
+        bundle
+        / "choreographer"
+        / "cli"
+        / "browser_exe"
+        / "chrome-mac-x64"
+        / "Google Chrome for Testing.app"
+        / "Contents"
+        / "MacOS"
+        / "Google Chrome for Testing",
+        bundle
+        / "choreographer"
+        / "cli"
+        / "browser_exe"
+        / "chrome-mac-arm64"
+        / "Google Chrome for Testing.app"
+        / "Contents"
+        / "MacOS"
+        / "Google Chrome for Testing",
+    ]:
+        if candidate.exists():
+            os.environ["BROWSER_PATH"] = str(candidate)
+            break
+
+
+_setup_frozen_chrome_path()
 
 
 def _get_user_data_dir() -> Path:

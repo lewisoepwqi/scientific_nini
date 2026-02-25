@@ -83,7 +83,7 @@ dir web\dist\index.html
 build_windows.bat
 ```
 
-脚本会自动完成：安装依赖 → 构建前端 → PyInstaller 打包 → 生成安装包（如果已安装 NSIS）。
+脚本会自动完成：安装依赖 → 下载 Chromium（图表导出用） → 构建前端 → PyInstaller 打包 → 生成安装包（如果已安装 NSIS）。
 
 ### 方式二：手动分步执行
 
@@ -235,3 +235,4 @@ signtool sign /f cert.pfx /p password /t http://timestamp.digicert.com dist\Nini
 | 端口 8000 被占用 | 使用 `nini.exe start --port 9000` |
 | scipy/numpy 报错 | 可能需在 spec 中补充 `scipy.special._cdflib` 等隐式依赖 |
 | 数据库错误 | 删除 `%USERPROFILE%\.nini\db\nini.db` 重新初始化 |
+| 图表导出失败（Chrome not found） | 打包前确保运行了 `kaleido_get_chrome -y`；或手动设置环境变量 `BROWSER_PATH` 指向 Chrome 可执行文件 |

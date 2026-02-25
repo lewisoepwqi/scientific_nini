@@ -15,6 +15,24 @@ block_cipher = None
 # 项目根目录
 ROOT = Path(SPECPATH)
 
+# ── 自动检测 choreographer 的 Chrome 下载目录 ──────────────────────────────
+# kaleido 使用 choreographer 库调用 Chromium 来导出图表为图片。
+# 运行 `kaleido_get_chrome -y` 后，Chrome 会下载到 choreographer/cli/browser_exe/。
+# 打包时需要将该目录一起包含，否则打包产物无法使用图片导出功能。
+_choreo_chrome_dir = None
+try:
+    import choreographer.cli._cli_utils as _cli
+    _choreo_browser_exe = Path(_cli.default_download_path)
+    if _choreo_browser_exe.exists() and any(_choreo_browser_exe.iterdir()):
+        _choreo_chrome_dir = _choreo_browser_exe
+        print(f"  INFO: Found choreographer Chrome at: {_choreo_chrome_dir}")
+    else:
+        print(f"  WARN: choreographer Chrome dir empty or missing: {_choreo_browser_exe}")
+        print("        Run `kaleido_get_chrome -y` before packaging to enable chart export.")
+except Exception as e:
+    print(f"  WARN: Cannot detect choreographer Chrome path: {e}")
+    print("        Chart image export may not work in packaged app.")
+
 # 构建 datas 列表：只包含实际存在的目录，避免打包时报错
 _candidate_datas = [
     # (源路径, bundle 内目标路径, 是否必须)
@@ -24,6 +42,12 @@ _candidate_datas = [
     (ROOT / "templates" / "journal_styles", "templates/journal_styles", False),
     (ROOT / "skills", "skills", False),
 ]
+
+# 添加 choreographer Chrome 到打包数据
+if _choreo_chrome_dir is not None:
+    _candidate_datas.append(
+        (_choreo_chrome_dir, "choreographer/cli/browser_exe", False),
+    )
 
 _datas = []
 for src, dest, required in _candidate_datas:

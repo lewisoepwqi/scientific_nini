@@ -60,10 +60,9 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
         '     {"id": 4, "title": "绘制结果图表", "status": "pending", "tool_hint": "create_chart"},\n'
         '     {"id": 5, "title": "汇总结论", "status": "pending"}\n'
         "   ])\n"
-        "2. 开始每个任务前：调用 task_write(mode='update') 将该任务改为 in_progress。\n"
-        "3. 完成每个任务后：调用 task_write(mode='update') 将该任务改为 completed。\n"
-        "4. 所有任务 completed 后：直接输出最终分析总结，不要再调用任何工具。\n"
-        "5. 简单问答（无需多步分析，如仅解释概念或单步查询）可跳过 task_write 直接回答。\n\n"
+        "2. 开始每个任务时：调用 task_write(mode='update', tasks=[{id:N, status:'in_progress'}])。前一个 in_progress 的任务会自动标记为 completed，无需手动更新。\n"
+        "3. 所有任务完成后：直接输出最终分析总结，不要再调用任何工具。\n"
+        "4. 简单问答（无需多步分析，如仅解释概念或单步查询）可跳过 task_write 直接回答。\n\n"
         "- 结论必须与结果一致，避免超出数据支持范围的断言。\n"
         "- 无法完成时，明确缺失信息并给出最小补充清单。\n\n"
         "报告撰写规范（调用 generate_report 时必须遵循）：\n"
