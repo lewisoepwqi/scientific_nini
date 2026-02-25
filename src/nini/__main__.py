@@ -164,6 +164,11 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["critical", "error", "warning", "info", "debug", "trace"],
         help="日志级别",
     )
+    start_parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="不自动打开浏览器",
+    )
     start_parser.set_defaults(func=_cmd_start)
 
     init_parser = subparsers.add_parser("init", help="生成首次运行配置文件")
@@ -278,12 +283,44 @@ def _normalize_argv(argv: Sequence[str]) -> list[str]:
     return list(argv)
 
 
+def _wait_and_open_browser(host: str, port: int, timeout: float = 30.0) -> None:
+    """后台线程：等待服务就绪后自动打开浏览器。"""
+    import socket
+    import time
+    import webbrowser
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                break
+        except OSError:
+            time.sleep(0.5)
+    else:
+        return  # 超时，不打开
+
+    url = f"http://{host}:{port}"
+    print(f"\n  Nini 已启动，正在打开浏览器: {url}\n")
+    webbrowser.open(url)
+
+
 def _cmd_start(args: argparse.Namespace) -> int:
     try:
         import uvicorn
     except ImportError:
         print("缺少依赖，请先运行: pip install -e .[dev]")
         return 1
+
+    # 自动打开浏览器（打包模式默认开启，开发模式也开启，--no-open 可禁用）
+    if not args.no_open and not args.reload:
+        import threading
+
+        t = threading.Thread(
+            target=_wait_and_open_browser,
+            args=(args.host, args.port),
+            daemon=True,
+        )
+        t.start()
 
     uvicorn.run(
         "nini.app:create_app",

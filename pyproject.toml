@@ -59,11 +59,13 @@ dependencies = [
 
     # Markdown 处理
     "markdown>=3.7",
+
+    # R 语言执行（WebAssembly，无需本地 R 环境）
+    "webr>=0.3.0",
 ]
 
 [project.optional-dependencies]
 pdf = ["weasyprint>=62.0"]
-webr = ["webr>=0.3.0"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",
