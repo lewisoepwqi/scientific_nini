@@ -207,6 +207,28 @@ class AgentRunner:
                 metadata={"seq": plan_event_seq},
             )
 
+        def _new_analysis_plan_event(plan_data: dict[str, Any]) -> AgentEvent:
+            """创建带序号的分析计划事件，确保前端按同一时钟域处理。"""
+            nonlocal plan_event_seq
+            plan_event_seq += 1
+            return AgentEvent(
+                type=EventType.ANALYSIS_PLAN,
+                data=plan_data,
+                turn_id=turn_id,
+                metadata={"seq": plan_event_seq},
+            )
+
+        def _new_plan_step_update_event(step_data: dict[str, Any]) -> AgentEvent:
+            """创建带序号的任务步骤更新事件，避免被前端乱序保护丢弃。"""
+            nonlocal plan_event_seq
+            plan_event_seq += 1
+            return AgentEvent(
+                type=EventType.PLAN_STEP_UPDATE,
+                data=step_data,
+                turn_id=turn_id,
+                metadata={"seq": plan_event_seq},
+            )
+
         def _new_task_attempt_event(
             *,
             step_id: int | None,
@@ -399,11 +421,7 @@ class AgentRunner:
                         active_plan = parsed_plan
                         next_step_idx = 0
                     if active_plan is not None:
-                        yield AgentEvent(
-                            type=EventType.ANALYSIS_PLAN,
-                            data=active_plan.to_dict(),
-                            turn_id=turn_id,
-                        )
+                        yield _new_analysis_plan_event(active_plan.to_dict())
                         yield _new_plan_progress_event(
                             current_idx=0,
                             step_status="pending",
@@ -491,13 +509,11 @@ class AgentRunner:
                         fallback_step.status = "in_progress"
                         matched_step_id = fallback_step.id
                         matched_action_id = fallback_action_id
-                        yield AgentEvent(
-                            type=EventType.PLAN_STEP_UPDATE,
-                            data={
+                        yield _new_plan_step_update_event(
+                            {
                                 **fallback_step.to_dict(),
                                 "action_id": fallback_action_id,
-                            },
-                            turn_id=turn_id,
+                            }
                         )
                         yield _new_plan_progress_event(
                             current_idx=next_step_idx,
@@ -545,10 +561,8 @@ class AgentRunner:
                             tw_args = json.loads(func_args)
                             tw_mode = tw_args.get("mode", "init")
                             if tw_mode == "init":
-                                yield AgentEvent(
-                                    type=EventType.ANALYSIS_PLAN,
-                                    data=session.task_manager.to_analysis_plan_dict(),
-                                    turn_id=turn_id,
+                                yield _new_analysis_plan_event(
+                                    session.task_manager.to_analysis_plan_dict()
                                 )
                                 yield _new_plan_progress_event(
                                     current_idx=0,
@@ -574,16 +588,14 @@ class AgentRunner:
                                 all_event_ids = updated_ids | auto_completed
                                 for t in session.task_manager.tasks:
                                     if t.id in all_event_ids:
-                                        yield AgentEvent(
-                                            type=EventType.PLAN_STEP_UPDATE,
-                                            data={
+                                        yield _new_plan_step_update_event(
+                                            {
                                                 "id": t.id,
                                                 "title": t.title,
                                                 "tool_hint": t.tool_hint,
                                                 "status": t.status,
                                                 "action_id": t.action_id,
-                                            },
-                                            turn_id=turn_id,
+                                            }
                                         )
                         except Exception as exc:
                             logger.debug("task_write 事件发射失败: %s", exc)
@@ -719,13 +731,11 @@ class AgentRunner:
                         if fallback_step.id != matched_step_id:
                             continue
                         fallback_step.status = "error" if has_error else "completed"
-                        yield AgentEvent(
-                            type=EventType.PLAN_STEP_UPDATE,
-                            data={
+                        yield _new_plan_step_update_event(
+                            {
                                 **fallback_step.to_dict(),
                                 "action_id": matched_action_id,
-                            },
-                            turn_id=turn_id,
+                            }
                         )
                         yield _new_plan_progress_event(
                             current_idx=fallback_idx,

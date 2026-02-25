@@ -410,8 +410,12 @@ async def test_runner_emits_plan_progress_with_required_fields() -> None:
     assert "plan_step_update" in event_types
 
     progress_events = [event for event in events if event.type == EventType.PLAN_PROGRESS]
+    step_update_events = [event for event in events if event.type == EventType.PLAN_STEP_UPDATE]
+    analysis_plan_events = [event for event in events if event.type == EventType.ANALYSIS_PLAN]
     # 至少包含 pending -> in_progress -> done
     assert len(progress_events) >= 3
+    assert len(step_update_events) >= 1
+    assert len(analysis_plan_events) >= 1
 
     required_keys = {
         "current_step_index",
@@ -431,6 +435,22 @@ async def test_runner_emits_plan_progress_with_required_fields() -> None:
     ]
     assert seq_values == sorted(seq_values)
     assert all(value > 0 for value in seq_values)
+
+    # 所有计划相关事件必须落在同一单调 seq 时钟域，避免前端乱序保护误丢事件
+    ordered_plan_events = [
+        event
+        for event in events
+        if event.type
+        in {EventType.ANALYSIS_PLAN, EventType.PLAN_PROGRESS, EventType.PLAN_STEP_UPDATE}
+    ]
+    ordered_seq_values = [
+        int(event.metadata.get("seq", 0))
+        for event in ordered_plan_events
+        if isinstance(event.metadata, dict)
+    ]
+    assert len(ordered_seq_values) == len(ordered_plan_events)
+    assert ordered_seq_values == sorted(ordered_seq_values)
+    assert all(value > 0 for value in ordered_seq_values)
 
     statuses = [str((event.data or {}).get("step_status")) for event in progress_events]
     assert "in_progress" in statuses

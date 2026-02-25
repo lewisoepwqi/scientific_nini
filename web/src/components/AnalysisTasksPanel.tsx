@@ -124,24 +124,29 @@ function formatTime(ts: number): string {
 
 function AttemptItem({ attempt }: { attempt: AnalysisTaskAttempt }) {
   return (
-    <li className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
+    <li
+      className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5"
+      data-testid={`analysis-task-attempt-${attempt.attempt}`}
+    >
       <div className="flex items-center gap-1.5 min-w-0">
         <AttemptIcon status={attempt.status} />
         <span className="text-[11px] text-slate-700 font-medium truncate">
           #{attempt.attempt}/{attempt.max_attempts} · {attempt.tool_name}
         </span>
-        <span
-          className={`ml-auto inline-flex shrink-0 items-center whitespace-nowrap px-1.5 py-0.5 text-[10px] rounded-full border ${attemptBadgeClass(attempt.status)}`}
-        >
-          {attemptLabel(attempt.status)}
-        </span>
-      </div>
+            <span
+              className={`ml-auto inline-flex shrink-0 items-center whitespace-nowrap px-1.5 py-0.5 text-[10px] rounded-full border ${attemptBadgeClass(attempt.status)}`}
+              data-testid={`analysis-task-attempt-status-${attempt.attempt}`}
+            >
+              {attemptLabel(attempt.status)}
+            </span>
+          </div>
       {(attempt.note || attempt.error) && (
-        <p
-          className={`mt-1 text-[11px] ${attempt.error ? "text-red-600" : "text-slate-500"}`}
-        >
-          {attempt.error || attempt.note}
-        </p>
+          <p
+            className={`mt-1 text-[11px] ${attempt.error ? "text-red-600" : "text-slate-500"}`}
+            data-testid={`analysis-task-attempt-note-${attempt.attempt}`}
+          >
+            {attempt.error || attempt.note}
+          </p>
       )}
       <p className="mt-1 text-[10px] text-slate-400">
         {formatTime(attempt.updated_at)}
@@ -162,7 +167,10 @@ function TaskItem({
   const latestAttempt = task.attempts[task.attempts.length - 1];
 
   return (
-    <li className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+    <li
+      className="rounded-lg border border-slate-200 bg-white px-3 py-2"
+      data-testid={`analysis-task-item-${task.plan_step_id}`}
+    >
       <div className="flex items-start gap-2">
         <span className="mt-0.5">{stepIcon(task.status)}</span>
         <div className="min-w-0 flex-1">
@@ -175,11 +183,13 @@ function TaskItem({
                   : ""
               }`}
               title={task.title}
+              data-testid={`analysis-task-title-${task.plan_step_id}`}
             >
               {task.title}
             </p>
             <span
               className={`ml-auto inline-flex shrink-0 items-center whitespace-nowrap px-1.5 py-0.5 text-[10px] rounded-full border ${stepBadgeClass(task.status)}`}
+              data-testid={`analysis-task-status-${task.plan_step_id}`}
             >
               {stepLabel(task.status)}
             </span>
@@ -189,6 +199,7 @@ function TaskItem({
             <p
               className="mt-1 text-[11px] text-slate-600 truncate"
               title={task.current_activity}
+              data-testid={`analysis-task-activity-${task.plan_step_id}`}
             >
               当前动作：{task.current_activity}
             </p>
@@ -197,6 +208,7 @@ function TaskItem({
             <p
               className="mt-1 text-[11px] text-red-600 truncate"
               title={task.last_error}
+              data-testid={`analysis-task-error-${task.plan_step_id}`}
             >
               最近错误：{task.last_error}
             </p>
