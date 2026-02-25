@@ -16,13 +16,13 @@ logger = logging.getLogger(__name__)
 
 
 class TaskWriteSkill(Skill):
-    """管理分析任务列表。
+    """管理分析任务列表（PDCA 闭环）。
 
-    使用规范（简化版）：
-    - 开始分析前：mode="init" 声明全部任务（status 全为 pending）
-    - 开始每个任务时：mode="update" 将该任务改为 in_progress（前一个 in_progress 的任务会自动标记为 completed）
-    - 最后一个任务完成后：mode="update" 将最后一个任务改为 completed
-    - 全部任务到达终态后：输出最终总结，不再调用任何工具
+    使用规范：
+    - Plan：mode="init" 声明全部任务（最后一个任务应为「复盘与检查」）
+    - Do：mode="update" 将当前任务标记为 in_progress（前一个会自动完成）
+    - Check：执行「复盘与检查」任务，回顾所有结果，发现问题则修正
+    - Act：复盘完成后输出最终总结
     """
 
     @property
@@ -32,9 +32,11 @@ class TaskWriteSkill(Skill):
     @property
     def description(self) -> str:
         return (
-            "管理分析任务列表。在开始多步分析前，用 mode='init' 声明全部任务；"
-            "执行过程中用 mode='update' 将当前任务标记为 in_progress（前一个任务会自动完成）。"
-            "全部任务到达终态后，直接输出最终总结，不再调用其他工具。"
+            "管理分析任务列表（PDCA 闭环）。"
+            "Plan：mode='init' 声明全部任务，最后一个任务应为「复盘与检查」；"
+            "Do：mode='update' 标记当前任务为 in_progress（前一个任务自动完成）；"
+            "Check：执行复盘任务时回顾所有结果并修正问题；"
+            "Act：复盘完成后输出最终总结。"
         )
 
     @property
@@ -131,7 +133,7 @@ class TaskWriteSkill(Skill):
 
         return SkillResult(
             success=True,
-            message=f"已声明 {task_count} 个分析任务，请按顺序执行并更新状态。",
+            message=f"已声明 {task_count} 个分析任务。请按顺序执行，最后通过复盘检查确认结果无误后再输出总结。",
             data={
                 "mode": "init",
                 "task_count": task_count,
@@ -176,7 +178,17 @@ class TaskWriteSkill(Skill):
             )
 
         if all_done:
-            message = "所有任务已完成。请直接向用户输出最终分析总结，不要再调用任何工具。"
+            message = (
+                "所有任务已完成。请输出最终分析总结，不要再调用任何工具。"
+                "注意：总结应基于复盘后的最终结论，确保结果准确无误。"
+            )
+        elif pending == 1:
+            # 只剩最后一个任务（通常是"复盘与检查"）
+            message = (
+                f"还有 {pending} 个任务待完成。"
+                "请开始最后的复盘检查：回顾前面所有步骤的结果，"
+                "检查方法选择、统计结果、图表和结论是否正确，发现问题立即修正。"
+            )
         else:
             message = f"任务状态已更新，还有 {pending} 个任务待完成。"
 

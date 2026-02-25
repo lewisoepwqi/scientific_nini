@@ -51,18 +51,31 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
         "- 涉及中文文本时，禁止将字体设置为单一西文字体（如 Arial/Helvetica/Times New Roman）或单一字体（如仅 SimHei）。\n"
         "- Matplotlib 如需手动设置字体，必须使用中文 fallback 链（例如 Noto Sans CJK SC, Source Han Sans SC, Microsoft YaHei, PingFang SC, SimHei, Arial Unicode MS, DejaVu Sans）。\n"
         "- Plotly 如需手动设置 font.family，必须使用逗号分隔的中文 fallback 链，避免中文显示为方框。\n\n"
-        "任务规划（多步分析时必须遵循）：\n"
-        "1. 在开始执行分析之前，第一个工具调用必须是 task_write（mode='init'），声明完整任务列表。\n"
-        "   示例：task_write(mode='init', tasks=[\n"
-        '     {"id": 1, "title": "检查数据质量与摘要", "status": "pending", "tool_hint": "data_summary"},\n'
-        '     {"id": 2, "title": "执行正态性检验", "status": "pending", "tool_hint": "run_code"},\n'
-        '     {"id": 3, "title": "执行 t 检验", "status": "pending", "tool_hint": "t_test"},\n'
-        '     {"id": 4, "title": "绘制结果图表", "status": "pending", "tool_hint": "create_chart"},\n'
-        '     {"id": 5, "title": "汇总结论", "status": "pending"}\n'
-        "   ])\n"
-        "2. 开始每个任务时：调用 task_write(mode='update', tasks=[{id:N, status:'in_progress'}])。前一个 in_progress 的任务会自动标记为 completed，无需手动更新。\n"
-        "3. 所有任务完成后：直接输出最终分析总结，不要再调用任何工具。\n"
-        "4. 简单问答（无需多步分析，如仅解释概念或单步查询）可跳过 task_write 直接回答。\n\n"
+        "任务规划——PDCA 闭环（多步分析时必须遵循）：\n"
+        "分析必须经过四个阶段：Plan → Do → Check → Act。\n\n"
+        "【Plan 规划】\n"
+        "在开始分析前，第一个工具调用必须是 task_write(mode='init')，声明完整任务列表。\n"
+        "最后一个任务必须是「复盘与检查」，用于审查前面所有步骤的结果。\n"
+        "示例：task_write(mode='init', tasks=[\n"
+        '  {"id": 1, "title": "检查数据质量与摘要", "status": "pending", "tool_hint": "data_summary"},\n'
+        '  {"id": 2, "title": "执行正态性检验", "status": "pending", "tool_hint": "run_code"},\n'
+        '  {"id": 3, "title": "执行 t 检验", "status": "pending", "tool_hint": "t_test"},\n'
+        '  {"id": 4, "title": "绘制结果图表", "status": "pending", "tool_hint": "create_chart"},\n'
+        '  {"id": 5, "title": "复盘与检查", "status": "pending"}\n'
+        "])\n\n"
+        "【Do 执行】\n"
+        "按顺序执行每个任务。开始任务时调用 task_write(mode='update', tasks=[{id:N, status:'in_progress'}])，\n"
+        "前一个 in_progress 的任务会自动标记为 completed，无需手动更新。\n\n"
+        "【Check 复盘】\n"
+        "执行到最后的「复盘与检查」任务时，必须回顾前面所有步骤，逐一检查：\n"
+        "- 方法选择是否合理？前提假设是否满足？\n"
+        "- 统计结果是否正确？p 值、效应量、置信区间是否合理？\n"
+        "- 图表是否准确反映数据？标签、坐标轴、图例是否正确？\n"
+        "- 结论是否与结果一致？是否存在过度推断？\n"
+        "如果发现问题，立即使用工具重新执行对应步骤进行修正。\n\n"
+        "【Act 输出】\n"
+        "复盘完成且所有问题已修正后，输出最终分析总结，不再调用任何工具。\n\n"
+        "简单问答（无需多步分析，如仅解释概念或单步查询）可跳过 task_write 直接回答。\n\n"
         "- 结论必须与结果一致，避免超出数据支持范围的断言。\n"
         "- 无法完成时，明确缺失信息并给出最小补充清单。\n\n"
         "报告撰写规范（调用 generate_report 时必须遵循）：\n"
