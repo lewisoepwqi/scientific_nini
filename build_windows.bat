@@ -47,7 +47,7 @@ echo.
 echo [4/4] Creating installer...
 where makensis >nul 2>nul
 if !errorlevel! equ 0 (
-    makensis packaging\installer.nsi
+    makensis /INPUTCHARSET UTF8 packaging\installer.nsi
     if !errorlevel! neq 0 (
         echo [WARN] makensis failed, but portable build is still available.
     )

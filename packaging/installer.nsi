@@ -1,6 +1,8 @@
+﻿Unicode true
+
 ; Nini Windows 安装脚本 (NSIS)
 ;
-; 使用方式：
+; 使用方式（需 NSIS 3.x）：
 ;   1. 先执行 pyinstaller nini.spec 生成 dist/nini/ 目录
 ;   2. 安装 NSIS (https://nsis.sourceforge.io/)
 ;   3. 执行 makensis packaging/installer.nsi
