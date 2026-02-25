@@ -133,7 +133,10 @@ class TaskWriteSkill(Skill):
 
         return SkillResult(
             success=True,
-            message=f"已声明 {task_count} 个分析任务。请按顺序执行，最后通过复盘检查确认结果无误后再输出总结。",
+            message=(
+                f"已声明 {task_count} 个分析任务。"
+                "请立即调用 task_write(mode='update') 开始第一个任务，不要输出文本。"
+            ),
             data={
                 "mode": "init",
                 "task_count": task_count,
