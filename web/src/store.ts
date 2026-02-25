@@ -420,30 +420,38 @@ function mergeReasoningContent(previous: string, incoming: string): string {
   return previous + incoming;
 }
 
-function planStatusRank(status: PlanStepStatus): number {
-  switch (status) {
-    case "done":
-      return 5;
-    case "failed":
-      return 4;
-    case "skipped":
-      return 3;
-    case "blocked":
-      return 2;
-    case "in_progress":
-      return 1;
-    default:
-      return 0;
-  }
+function isTerminalPlanStepStatus(status: PlanStepStatus): boolean {
+  return status === "done" || status === "skipped";
 }
 
 function mergePlanStepStatus(
   current: PlanStepStatus,
   incoming: PlanStepStatus,
 ): PlanStepStatus {
-  return planStatusRank(incoming) >= planStatusRank(current)
-    ? incoming
-    : current;
+  if (current === incoming) return current;
+  if (isTerminalPlanStepStatus(current)) return current;
+
+  // 显式终态可覆盖非终态
+  if (incoming === "done" || incoming === "skipped") {
+    return incoming;
+  }
+
+  // 允许失败/阻塞任务在重试时重新进入 in_progress
+  if (incoming === "in_progress") {
+    return "in_progress";
+  }
+
+  if (incoming === "failed") {
+    return "failed";
+  }
+
+  // failed 比 blocked 更“强”，避免被 block 反向覆盖
+  if (incoming === "blocked") {
+    return current === "failed" ? current : "blocked";
+  }
+
+  // not_started/pending 不应回退已有状态
+  return current;
 }
 
 function clampStepIndex(index: number, total: number): number {
@@ -671,21 +679,34 @@ function updateAnalysisTaskWithAttempt(
     attempts.sort((a, b) => a.attempt - b.attempt);
   }
 
-  const nextStatus: PlanStepStatus =
-    payload.status === "failed"
-      ? "failed"
-      : payload.status === "success"
-        ? "in_progress"
-        : "in_progress";
+  let nextStatus = task.status;
+  if (payload.status === "failed") {
+    nextStatus = mergePlanStepStatus(task.status, "failed");
+  } else if (
+    payload.status === "in_progress" ||
+    payload.status === "retrying"
+  ) {
+    nextStatus = mergePlanStepStatus(task.status, "in_progress");
+  } else if (payload.status === "success") {
+    // attempt 成功表示“工具层成功”，步骤最终 done 仍由 plan_step_update/plan_progress 决定。
+    // 但若此前处于 failed/blocked，先恢复到 in_progress，避免卡死在失败态。
+    if (task.status === "failed" || task.status === "blocked") {
+      nextStatus = mergePlanStepStatus(task.status, "in_progress");
+    }
+  }
 
   const next = [...tasks];
   next[idx] = {
     ...task,
     action_id: payload.action_id ?? task.action_id,
-    status: mergePlanStepStatus(task.status, nextStatus),
+    status: nextStatus,
     current_activity:
       payload.note ??
-      `正在执行 ${payload.tool_name}（第 ${payload.attempt}/${payload.max_attempts} 次）`,
+      (payload.status === "success"
+        ? `${payload.tool_name} 执行成功，等待步骤状态确认`
+        : payload.status === "failed"
+          ? `${payload.tool_name} 执行失败`
+          : `正在执行 ${payload.tool_name}（第 ${payload.attempt}/${payload.max_attempts} 次）`),
     last_error:
       payload.error ?? (payload.status === "success" ? null : task.last_error),
     attempts,
