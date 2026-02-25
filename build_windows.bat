@@ -13,6 +13,14 @@ if !errorlevel! neq 0 (
 echo [1/4] Done.
 echo.
 
+echo [1.5/4] Downloading Chromium for kaleido chart export...
+kaleido_get_chrome -y
+if !errorlevel! neq 0 (
+    echo [WARN] kaleido_get_chrome failed. Chart image export may not work in packaged app.
+)
+echo [1.5/4] Done.
+echo.
+
 echo [2/4] Building frontend...
 pushd web
 if !errorlevel! neq 0 (

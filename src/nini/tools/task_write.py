@@ -18,12 +18,10 @@ logger = logging.getLogger(__name__)
 class TaskWriteSkill(Skill):
     """管理分析任务列表。
 
-    使用规范：
+    使用规范（简化版）：
     - 开始分析前：mode="init" 声明全部任务（status 全为 pending）
-    - 开始每个任务前：mode="update" 将该任务改为 in_progress
-    - 完成每个任务后：mode="update" 将该任务改为 completed
-    - 确认无法完成时：mode="update" 将该任务改为 failed
-    - 受 failed 任务影响而无法执行时：mode="update" 将该任务改为 skipped
+    - 开始每个任务时：mode="update" 将该任务改为 in_progress（前一个 in_progress 的任务会自动标记为 completed）
+    - 最后一个任务完成后：mode="update" 将最后一个任务改为 completed
     - 全部任务到达终态后：输出最终总结，不再调用任何工具
     """
 
@@ -35,8 +33,8 @@ class TaskWriteSkill(Skill):
     def description(self) -> str:
         return (
             "管理分析任务列表。在开始多步分析前，用 mode='init' 声明全部任务；"
-            "执行过程中用 mode='update' 实时更新任务状态（pending/in_progress/completed/failed/skipped）。"
-            "全部任务到达终态（completed/failed/skipped）后，直接输出最终总结，不再调用其他工具。"
+            "执行过程中用 mode='update' 将当前任务标记为 in_progress（前一个任务会自动完成）。"
+            "全部任务到达终态后，直接输出最终总结，不再调用其他工具。"
         )
 
     @property
@@ -145,24 +143,37 @@ class TaskWriteSkill(Skill):
         )
 
     def _handle_update(self, session: Session, raw_tasks: list[dict[str, Any]]) -> SkillResult:
-        """更新任务状态。"""
+        """更新任务状态。
+
+        当某个任务被设为 in_progress 时，之前处于 in_progress 的任务会自动标记为 completed。
+        """
         if not session.task_manager.initialized:
             # 未初始化时，将 update 视为 init
             return self._handle_init(session, raw_tasks)
 
-        new_manager = session.task_manager.update_tasks(raw_tasks)
-        session.task_manager = new_manager
+        result = session.task_manager.update_tasks(raw_tasks)
+        session.task_manager = result.manager
 
         updated_ids = [t.get("id") for t in raw_tasks if "id" in t]
-        all_done = new_manager.all_completed()
-        pending = new_manager.pending_count()
+        all_ids = updated_ids + result.auto_completed_ids
+        all_done = result.manager.all_completed()
+        pending = result.manager.pending_count()
 
-        logger.info(
-            "task_write update: session=%s 更新任务 %s, all_completed=%s",
-            session.id,
-            updated_ids,
-            all_done,
-        )
+        if result.auto_completed_ids:
+            logger.info(
+                "task_write update: session=%s 更新任务 %s, 自动完成任务 %s, all_completed=%s",
+                session.id,
+                updated_ids,
+                result.auto_completed_ids,
+                all_done,
+            )
+        else:
+            logger.info(
+                "task_write update: session=%s 更新任务 %s, all_completed=%s",
+                session.id,
+                updated_ids,
+                all_done,
+            )
 
         if all_done:
             message = "所有任务已完成。请直接向用户输出最终分析总结，不要再调用任何工具。"
@@ -174,10 +185,11 @@ class TaskWriteSkill(Skill):
             message=message,
             data={
                 "mode": "update",
-                "updated_ids": updated_ids,
+                "updated_ids": all_ids,
+                "auto_completed_ids": result.auto_completed_ids,
                 "all_completed": all_done,
                 "pending_count": pending,
-                "tasks": [t.to_dict() for t in new_manager.tasks],
+                "tasks": [t.to_dict() for t in result.manager.tasks],
             },
             metadata={"is_task_write": True},
         )

@@ -560,11 +560,20 @@ class AgentRunner:
                                     ),
                                 )
                             else:  # update
+                                # 收集需要发送事件的任务 ID：包括显式更新的和自动完成的
                                 updated_ids = {
                                     int(u["id"]) for u in tw_args.get("tasks", []) if "id" in u
                                 }
+                                auto_completed: set[int] = set()
+                                if isinstance(result, dict):
+                                    result_data = result.get("data", {})
+                                    if isinstance(result_data, dict):
+                                        auto_completed = set(
+                                            result_data.get("auto_completed_ids", [])
+                                        )
+                                all_event_ids = updated_ids | auto_completed
                                 for t in session.task_manager.tasks:
-                                    if t.id in updated_ids:
+                                    if t.id in all_event_ids:
                                         yield AgentEvent(
                                             type=EventType.PLAN_STEP_UPDATE,
                                             data={
