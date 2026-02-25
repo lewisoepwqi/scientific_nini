@@ -5,7 +5,7 @@ echo === Nini Windows Build ===
 echo.
 
 echo [1/4] Installing dependencies...
-pip install -e .[packaging]
+pip install -e .[packaging,webr]
 if !errorlevel! neq 0 (
     echo [FAIL] pip install failed.
     goto :error
