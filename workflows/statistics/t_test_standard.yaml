@@ -1,0 +1,45 @@
+version: "1.0"
+kind: "WorkflowTemplate"
+
+metadata:
+  name: "标准双组比较流程"
+  id: "t_test_standard"
+  description: "先做数据质量检查，再执行双组差异检验。"
+  category: "statistics"
+
+parameters:
+  - name: dataset_name
+    type: string
+    required: true
+    description: "数据集名称"
+  - name: value_column
+    type: string
+    required: true
+    description: "数值列"
+  - name: group_column
+    type: string
+    required: true
+    description: "分组列（应为两组）"
+  - name: paired
+    type: boolean
+    required: false
+    default: false
+    description: "是否配对样本"
+
+steps:
+  - id: quality_check
+    skill: data_quality
+    description: "检查缺失值、异常值与分布特征"
+    parameters:
+      dataset_name: "${params.dataset_name}"
+
+  - id: run_t_test
+    skill: t_test
+    description: "执行 t 检验"
+    depends_on:
+      - quality_check
+    parameters:
+      dataset_name: "${params.dataset_name}"
+      value_column: "${params.value_column}"
+      group_column: "${params.group_column}"
+      paired: "${params.paired}"
