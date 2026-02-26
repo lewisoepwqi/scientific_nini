@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import warnings
 from typing import Any
@@ -27,6 +28,8 @@ import statsmodels.api as sm
 from nini.agent.session import Session
 from nini.memory.compression import StatisticResult, get_analysis_memory
 from nini.tools.base import Skill, SkillResult
+
+logger = logging.getLogger(__name__)
 
 # ---- 多重比较校正 ----
 
@@ -219,6 +222,19 @@ def recommend_correction_method(n_comparisons: int, context: str = "exploratory"
             return "fdr"
         else:
             return "holm"
+
+
+def get_correction_recommendation_reason(method: str, context: str = "exploratory") -> str:
+    """获取多重比较校正方法推荐理由。"""
+    reasons = {
+        ("bonferroni", "high_stakes"): "高风险场景（如临床试验）应使用最严格的 Bonferroni 校正",
+        ("bonferroni", "confirmatory"): "验证性研究建议使用 Bonferroni 或 Holm 方法",
+        ("holm", "confirmatory"): "Holm 方法在控制族错误率的同时提供更高的统计效能",
+        ("fdr", "exploratory"): "探索性分析建议使用 FDR 控制，以发现更多潜在关联",
+        ("holm", "exploratory"): "比较次数较少时，Holm 方法是 FDR 的良好替代",
+        ("none", "exploratory"): "单次比较不需要多重校正",
+    }
+    return reasons.get((method, context), f"基于 {context} 场景推荐 {method} 方法")
 
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -501,7 +517,7 @@ class ANOVASkill(Skill):
 
     @property
     def description(self) -> str:
-        return "执行单因素方差分析(ANOVA)，比较多个组的均值差异。当 p < 0.05 时自动执行 Tukey HSD 事后检验。"
+        return "执行单因素方差分析(ANOVA)，比较多个组的均值差异。" "当 p <= 0.05 且分组数 >= 3 时自动执行 Tukey HSD 事后检验。"
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -531,15 +547,27 @@ class ANOVASkill(Skill):
             # 分组数据
             group_names = df[group_col].dropna().unique()
             groups = []
+            valid_group_names = []
             for gn in group_names:
                 gdata = df[df[group_col] == gn][value_col].dropna()
                 if len(gdata) > 0:
                     groups.append(gdata)
+                    valid_group_names.append(gn)
 
             if len(groups) < 2:
-                return SkillResult(success=False, message="至少需要 2 个分组")
+                return SkillResult(
+                    success=False,
+                    message=(
+                        f"ANOVA 至少需要 2 个分组，当前只有 {len(groups)} 个。"
+                        "如只有 1 组请使用单样本 t 检验，如只有 2 组请使用 t_test 或 mann_whitney。"
+                    ),
+                )
+
+            if len(groups) == 2:
+                logger.info("检测到 2 个分组，建议使用 t_test 或 mann_whitney")
 
             f_stat, pval = f_oneway(*groups)
+            is_significant = bool(pval <= 0.05)
 
             n_total = sum(len(g) for g in groups)
             k = len(groups)
@@ -557,15 +585,18 @@ class ANOVASkill(Skill):
                 "df_within": df_within,
                 "eta_squared": _safe_float(eta_sq),
                 "n_groups": k,
-                "group_sizes": {str(gn): len(g) for gn, g in zip(group_names, groups)},
+                "group_sizes": {str(gn): len(g) for gn, g in zip(valid_group_names, groups)},
                 "group_means": {
-                    str(gn): _safe_float(g.mean()) for gn, g in zip(group_names, groups)
+                    str(gn): _safe_float(g.mean()) for gn, g in zip(valid_group_names, groups)
                 },
-                "significant": bool(pval < 0.05),
+                "significant": is_significant,
             }
 
+            if k == 2:
+                result["recommendation"] = "当前仅 2 个分组，通常优先使用 t_test（参数法）或 mann_whitney（非参数法）。"
+
             # 事后检验
-            if pval < 0.05:
+            if pval <= 0.05 and k >= 3:
                 try:
                     clean_df = df[[value_col, group_col]].dropna()
                     tukey = pairwise_tukeyhsd(
@@ -590,10 +621,22 @@ class ANOVASkill(Skill):
                                 )
                             idx += 1
                     result["post_hoc"] = post_hoc
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("ANOVA 事后检验失败: %s", e)
 
-            sig = "显著" if pval < 0.05 else "不显著"
+            if pval <= 0.05 and k >= 3:
+                n_comparisons = k * (k - 1) // 2
+                recommended_method = recommend_correction_method(n_comparisons, "exploratory")
+                result["post_hoc_recommendation"] = {
+                    "triggered": True,
+                    "n_comparisons": n_comparisons,
+                    "recommended_method": recommended_method,
+                    "reason": get_correction_recommendation_reason(
+                        recommended_method, "exploratory"
+                    ),
+                }
+
+            sig = "显著" if is_significant else "不显著"
             msg = f"ANOVA: F({df_between}, {df_within}) = {f_stat:.3f}, p = {pval:.4f} ({sig}), η² = {eta_sq:.3f}"
             _record_stat_result(
                 session,
@@ -605,7 +648,7 @@ class ANOVASkill(Skill):
                 degrees_of_freedom=df_between,
                 effect_size=_safe_float(eta_sq),
                 effect_type="eta_squared",
-                significant=bool(pval < 0.05),
+                significant=is_significant,
             )
 
             return SkillResult(success=True, data=result, message=msg)
@@ -634,9 +677,7 @@ class CorrelationSkill(Skill):
 
     @property
     def description(self) -> str:
-        return (
-            "计算多个数值列之间的相关性矩阵和 p 值矩阵。支持 Pearson、Spearman、Kendall 三种方法。"
-        )
+        return "计算多个数值列之间的相关性矩阵和 p 值矩阵。支持 Pearson、Spearman、Kendall 三种方法。"
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -840,10 +881,7 @@ class MannWhitneySkill(Skill):
 
     @property
     def description(self) -> str:
-        return (
-            "执行 Mann-Whitney U 检验（Wilcoxon 秩和检验）。"
-            "用于比较两组独立样本的分布差异，不需要正态性假设。"
-        )
+        return "执行 Mann-Whitney U 检验（Wilcoxon 秩和检验）。" "用于比较两组独立样本的分布差异，不需要正态性假设。"
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -1136,12 +1174,4 @@ class MultipleComparisonCorrectionSkill(Skill):
 
     def _get_recommendation_reason(self, method: str, context: str) -> str:
         """获取方法推荐理由。"""
-        reasons = {
-            ("bonferroni", "high_stakes"): "高风险场景（如临床试验）应使用最严格的 Bonferroni 校正",
-            ("bonferroni", "confirmatory"): "验证性研究建议使用 Bonferroni 或 Holm 方法",
-            ("holm", "confirmatory"): "Holm 方法在控制族错误率的同时提供更高的统计效能",
-            ("fdr", "exploratory"): "探索性分析建议使用 FDR 控制，以发现更多潜在关联",
-            ("holm", "exploratory"): "比较次数较少时，Holm 方法是 FDR 的良好替代",
-            ("none", "exploratory"): "单次比较不需要多重校正",
-        }
-        return reasons.get((method, context), f"基于 {context} 场景推荐 {method} 方法")
+        return get_correction_recommendation_reason(method, context)
