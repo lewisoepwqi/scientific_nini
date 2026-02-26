@@ -1,0 +1,51 @@
+version: "1.0"
+kind: "WorkflowTemplate"
+
+metadata:
+  name: "ANOVA 完整流程"
+  id: "anova_complete"
+  description: "先检查数据质量，再执行 ANOVA，并在显著时提示多重比较校正。"
+  category: "statistics"
+
+parameters:
+  - name: dataset_name
+    type: string
+    required: true
+    description: "数据集名称"
+  - name: value_column
+    type: string
+    required: true
+    description: "数值列"
+  - name: group_column
+    type: string
+    required: true
+    description: "分组列（推荐 3 组及以上）"
+
+steps:
+  - id: quality_check
+    skill: data_quality
+    description: "检查缺失值、异常值与分布前提"
+    parameters:
+      dataset_name: "${params.dataset_name}"
+
+  - id: run_anova
+    skill: anova
+    description: "执行单因素方差分析"
+    depends_on:
+      - quality_check
+    parameters:
+      dataset_name: "${params.dataset_name}"
+      value_column: "${params.value_column}"
+      group_column: "${params.group_column}"
+
+  - id: write_report
+    skill: generate_report
+    description: "生成结果总结"
+    depends_on:
+      - run_anova
+    parameters:
+      title: "ANOVA 分析报告"
+      methods: "单因素方差分析（ANOVA）"
+      summary_text: "F = ${outputs.run_anova.data.f_statistic}, p = ${outputs.run_anova.data.p_value}"
+      conclusions:
+        - "若 p <= 0.05 且分组数 >= 3，建议执行 Tukey HSD 并考虑多重比较校正。"
