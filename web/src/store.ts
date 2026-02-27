@@ -20,7 +20,7 @@ export interface RetrievalItem {
 }
 
 export interface SkillItem {
-  type: "function" | "markdown" | string;
+  type: "function" | "markdown" | string; // function=模型可调用工具，markdown=提示词技能
   name: string;
   description: string;
   category?: string;
@@ -28,6 +28,25 @@ export interface SkillItem {
   enabled: boolean;
   expose_to_llm?: boolean;
   metadata?: Record<string, unknown>;
+}
+
+export interface SkillDetail extends SkillItem {
+  content: string;
+}
+
+export interface SkillPathEntry {
+  path: string;
+  name: string;
+  type: "file" | "dir";
+  size: number;
+  updated_at?: string;
+}
+
+export interface SkillFileContent {
+  path: string;
+  is_text: boolean;
+  size: number;
+  content: string | null;
 }
 
 export interface DatasetItem {
@@ -293,6 +312,44 @@ interface AppState {
   fetchDatasets: () => Promise<void>;
   fetchWorkspaceFiles: () => Promise<void>;
   fetchSkills: () => Promise<void>;
+  uploadSkillFile: (file: File) => Promise<{ success: boolean; message: string }>;
+  getSkillDetail: (skillName: string) => Promise<{ success: boolean; skill?: SkillDetail; message: string }>;
+  updateSkill: (
+    skillName: string,
+    payload: { description: string; category: string; content: string },
+  ) => Promise<{ success: boolean; message: string }>;
+  toggleSkillEnabled: (
+    skillName: string,
+    enabled: boolean,
+  ) => Promise<{ success: boolean; message: string }>;
+  deleteSkill: (skillName: string) => Promise<{ success: boolean; message: string }>;
+  listSkillFiles: (
+    skillName: string,
+  ) => Promise<{ success: boolean; files?: SkillPathEntry[]; message: string }>;
+  getSkillFileContent: (
+    skillName: string,
+    path: string,
+  ) => Promise<{ success: boolean; file?: SkillFileContent; message: string }>;
+  saveSkillFileContent: (
+    skillName: string,
+    path: string,
+    content: string,
+  ) => Promise<{ success: boolean; message: string }>;
+  uploadSkillAttachment: (
+    skillName: string,
+    file: File,
+    dirPath?: string,
+    overwrite?: boolean,
+  ) => Promise<{ success: boolean; message: string }>;
+  createSkillDir: (
+    skillName: string,
+    path: string,
+  ) => Promise<{ success: boolean; message: string }>;
+  deleteSkillPath: (
+    skillName: string,
+    path: string,
+  ) => Promise<{ success: boolean; message: string }>;
+  downloadSkillBundle: (skillName: string) => Promise<{ success: boolean; message: string }>;
   loadDataset: (datasetId: string) => Promise<void>;
   compressCurrentSession: () => Promise<{ success: boolean; message: string }>;
   createNewSession: () => Promise<void>;
@@ -1288,6 +1345,312 @@ export const useStore = create<AppState>((set, get) => ({
       set({ skills: skills as SkillItem[] });
     } catch (e) {
       console.error("获取技能列表失败:", e);
+    }
+  },
+
+  async uploadSkillFile(file: File) {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const resp = await fetch("/api/skills/markdown/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const payload = await resp.json();
+      if (!resp.ok || !payload.success) {
+        const err =
+          typeof payload.error === "string"
+            ? payload.error
+            : `上传失败（HTTP ${resp.status}）`;
+        throw new Error(err);
+      }
+      await get().fetchSkills();
+      return { success: true, message: "上传成功" };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "上传失败";
+      console.error("上传技能失败:", e);
+      return { success: false, message };
+    }
+  },
+
+  async getSkillDetail(skillName: string) {
+    try {
+      const resp = await fetch(`/api/skills/markdown/${encodeURIComponent(skillName)}`);
+      const payload = await resp.json();
+      if (!resp.ok || !payload.success) {
+        const err =
+          typeof payload.error === "string"
+            ? payload.error
+            : `获取技能详情失败（HTTP ${resp.status}）`;
+        throw new Error(err);
+      }
+
+      const data = isRecord(payload.data) ? payload.data : null;
+      const rawSkill = data && isRecord(data.skill) ? data.skill : null;
+      if (!rawSkill) {
+        throw new Error("技能详情响应格式错误");
+      }
+      return {
+        success: true,
+        message: "ok",
+        skill: rawSkill as unknown as SkillDetail,
+      };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "获取技能详情失败";
+      console.error("获取技能详情失败:", e);
+      return { success: false, message };
+    }
+  },
+
+  async updateSkill(
+    skillName: string,
+    payload: { description: string; category: string; content: string },
+  ) {
+    try {
+      const resp = await fetch(`/api/skills/markdown/${encodeURIComponent(skillName)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await resp.json();
+      if (!resp.ok || !result.success) {
+        const err =
+          typeof result.error === "string"
+            ? result.error
+            : `保存失败（HTTP ${resp.status}）`;
+        throw new Error(err);
+      }
+      await get().fetchSkills();
+      return { success: true, message: "保存成功" };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "保存失败";
+      console.error("更新技能失败:", e);
+      return { success: false, message };
+    }
+  },
+
+  async toggleSkillEnabled(skillName: string, enabled: boolean) {
+    try {
+      const resp = await fetch(`/api/skills/markdown/${encodeURIComponent(skillName)}/enabled`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      const payload = await resp.json();
+      if (!resp.ok || !payload.success) {
+        const err =
+          typeof payload.error === "string"
+            ? payload.error
+            : `更新启用状态失败（HTTP ${resp.status}）`;
+        throw new Error(err);
+      }
+      await get().fetchSkills();
+      return { success: true, message: "更新成功" };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "更新启用状态失败";
+      console.error("更新启用状态失败:", e);
+      return { success: false, message };
+    }
+  },
+
+  async deleteSkill(skillName: string) {
+    try {
+      const resp = await fetch(`/api/skills/markdown/${encodeURIComponent(skillName)}`, {
+        method: "DELETE",
+      });
+      const payload = await resp.json();
+      if (!resp.ok || !payload.success) {
+        const err =
+          typeof payload.error === "string"
+            ? payload.error
+            : `删除技能失败（HTTP ${resp.status}）`;
+        throw new Error(err);
+      }
+      await get().fetchSkills();
+      return { success: true, message: "删除成功" };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "删除技能失败";
+      console.error("删除技能失败:", e);
+      return { success: false, message };
+    }
+  },
+
+  async listSkillFiles(skillName: string) {
+    try {
+      const resp = await fetch(`/api/skills/markdown/${encodeURIComponent(skillName)}/files`);
+      const payload = await resp.json();
+      if (!resp.ok || !payload.success) {
+        const err =
+          typeof payload.error === "string"
+            ? payload.error
+            : `获取技能文件失败（HTTP ${resp.status}）`;
+        throw new Error(err);
+      }
+      const data = isRecord(payload.data) ? payload.data : null;
+      const files = data && Array.isArray(data.files) ? data.files : [];
+      return {
+        success: true,
+        message: "ok",
+        files: files as SkillPathEntry[],
+      };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "获取技能文件失败";
+      console.error("获取技能文件失败:", e);
+      return { success: false, message };
+    }
+  },
+
+  async getSkillFileContent(skillName: string, path: string) {
+    try {
+      const resp = await fetch(
+        `/api/skills/markdown/${encodeURIComponent(skillName)}/files/content?path=${encodeURIComponent(path)}`,
+      );
+      const payload = await resp.json();
+      if (!resp.ok || !payload.success) {
+        const err =
+          typeof payload.error === "string"
+            ? payload.error
+            : `读取技能文件失败（HTTP ${resp.status}）`;
+        throw new Error(err);
+      }
+      const data = isRecord(payload.data) ? payload.data : null;
+      if (!data) {
+        throw new Error("技能文件响应格式错误");
+      }
+      return {
+        success: true,
+        message: "ok",
+        file: data as unknown as SkillFileContent,
+      };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "读取技能文件失败";
+      console.error("读取技能文件失败:", e);
+      return { success: false, message };
+    }
+  },
+
+  async saveSkillFileContent(skillName: string, path: string, content: string) {
+    try {
+      const resp = await fetch(`/api/skills/markdown/${encodeURIComponent(skillName)}/files/content`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, content }),
+      });
+      const payload = await resp.json();
+      if (!resp.ok || !payload.success) {
+        const err =
+          typeof payload.error === "string"
+            ? payload.error
+            : `保存技能文件失败（HTTP ${resp.status}）`;
+        throw new Error(err);
+      }
+      return { success: true, message: "保存成功" };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "保存技能文件失败";
+      console.error("保存技能文件失败:", e);
+      return { success: false, message };
+    }
+  },
+
+  async uploadSkillAttachment(
+    skillName: string,
+    file: File,
+    dirPath = "",
+    overwrite = false,
+  ) {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("dir_path", dirPath);
+      formData.append("overwrite", String(overwrite));
+
+      const resp = await fetch(`/api/skills/markdown/${encodeURIComponent(skillName)}/files/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      const payload = await resp.json();
+      if (!resp.ok || !payload.success) {
+        const err =
+          typeof payload.error === "string"
+            ? payload.error
+            : `上传附件失败（HTTP ${resp.status}）`;
+        throw new Error(err);
+      }
+      return { success: true, message: "上传成功" };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "上传附件失败";
+      console.error("上传技能附件失败:", e);
+      return { success: false, message };
+    }
+  },
+
+  async createSkillDir(skillName: string, path: string) {
+    try {
+      const resp = await fetch(`/api/skills/markdown/${encodeURIComponent(skillName)}/dirs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const payload = await resp.json();
+      if (!resp.ok || !payload.success) {
+        const err =
+          typeof payload.error === "string"
+            ? payload.error
+            : `创建目录失败（HTTP ${resp.status}）`;
+        throw new Error(err);
+      }
+      return { success: true, message: "创建成功" };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "创建目录失败";
+      console.error("创建技能目录失败:", e);
+      return { success: false, message };
+    }
+  },
+
+  async deleteSkillPath(skillName: string, path: string) {
+    try {
+      const resp = await fetch(`/api/skills/markdown/${encodeURIComponent(skillName)}/paths`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const payload = await resp.json();
+      if (!resp.ok || !payload.success) {
+        const err =
+          typeof payload.error === "string"
+            ? payload.error
+            : `删除路径失败（HTTP ${resp.status}）`;
+        throw new Error(err);
+      }
+      return { success: true, message: "删除成功" };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "删除路径失败";
+      console.error("删除技能路径失败:", e);
+      return { success: false, message };
+    }
+  },
+
+  async downloadSkillBundle(skillName: string) {
+    try {
+      const resp = await fetch(`/api/skills/markdown/${encodeURIComponent(skillName)}/bundle`);
+      if (!resp.ok) {
+        throw new Error(`下载失败（HTTP ${resp.status}）`);
+      }
+      const blob = await resp.blob();
+      const contentDisposition = resp.headers.get("Content-Disposition") || "";
+      const filenameMatch = contentDisposition.match(/filename=\"(.+?)\"/i);
+      const filename = filenameMatch?.[1] || `${skillName}.zip`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      return { success: true, message: "下载成功" };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "下载技能包失败";
+      console.error("下载技能包失败:", e);
+      return { success: false, message };
     }
   },
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any, cast
 
@@ -53,8 +54,50 @@ class SkillRegistry:
     def __init__(self):
         self._skills: dict[str, Skill] = {}
         self._markdown_skills: list[dict[str, Any]] = []
+        self._markdown_enabled_overrides = self._load_markdown_enabled_overrides()
         self._fallback_manager = get_fallback_manager()
         self._diagnostics = DataDiagnostics()
+
+    def _load_markdown_enabled_overrides(self) -> dict[str, bool]:
+        """加载 Markdown 技能启用状态覆盖。"""
+        path = settings.skills_state_path
+        if not path.exists():
+            return {}
+
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.warning("读取 skills 状态文件失败，将忽略覆盖配置: %s", exc)
+            return {}
+
+        if not isinstance(payload, dict):
+            return {}
+        raw = payload.get("markdown_enabled")
+        if not isinstance(raw, dict):
+            return {}
+
+        overrides: dict[str, bool] = {}
+        for key, value in raw.items():
+            if isinstance(key, str) and isinstance(value, bool):
+                overrides[key] = value
+        return overrides
+
+    def _save_markdown_enabled_overrides(self) -> None:
+        """持久化 Markdown 技能启用状态覆盖。"""
+        payload = {"markdown_enabled": self._markdown_enabled_overrides}
+        settings.skills_state_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def _prune_markdown_enabled_overrides(self, markdown_names: set[str]) -> bool:
+        """清理已不存在的 Markdown 技能覆盖项。"""
+        stale = [name for name in self._markdown_enabled_overrides if name not in markdown_names]
+        if not stale:
+            return False
+        for name in stale:
+            self._markdown_enabled_overrides.pop(name, None)
+        return True
 
     def register(self, skill: Skill, *, allow_override: bool = False) -> None:
         """注册一个技能。
@@ -115,6 +158,13 @@ class SkillRegistry:
     def list_markdown_skills(self) -> list[dict[str, Any]]:
         return list(self._markdown_skills)
 
+    def get_markdown_skill(self, name: str) -> dict[str, Any] | None:
+        """按名称获取 Markdown 技能目录项。"""
+        for item in self._markdown_skills:
+            if item.get("name") == name:
+                return dict(item)
+        return None
+
     def list_skill_catalog(self, skill_type: str | None = None) -> list[dict[str, Any]]:
         """返回聚合技能目录。"""
         all_items = self.list_function_skills() + self.list_markdown_skills()
@@ -126,20 +176,63 @@ class SkillRegistry:
 
     def reload_markdown_skills(self) -> list[dict[str, Any]]:
         """重新扫描 Markdown 技能并应用冲突策略。"""
-        markdown_skills = scan_markdown_skills(settings.skills_dir)
+        markdown_skills = scan_markdown_skills(settings.skills_search_dirs)
         function_names = set(self._skills.keys())
-        items: list[dict[str, Any]] = []
+        deduped: list[dict[str, Any]] = []
+        seen_markdown_names: set[str] = set()
+
+        # 同名 Markdown Skill 只保留优先级最高的一份（扫描顺序已按优先级）
         for skill in markdown_skills:
-            item = skill.to_dict()
-            if skill.name in function_names:
+            if skill.name in seen_markdown_names:
+                logger.warning(
+                    "检测到同名 Markdown 技能，低优先级版本将被忽略: %s (%s)",
+                    skill.name,
+                    skill.location,
+                )
+                continue
+            seen_markdown_names.add(skill.name)
+            deduped.append(skill.to_dict())
+
+        items: list[dict[str, Any]] = []
+        markdown_names: set[str] = set()
+        for item in deduped:
+            name = str(item.get("name", "")).strip()
+            if not name:
+                continue
+            markdown_names.add(name)
+            if name in function_names:
                 item["enabled"] = False
                 metadata = dict(item.get("metadata") or {})
                 metadata["conflict_with"] = "function"
                 item["metadata"] = metadata
-                logger.warning("Markdown 技能与 Function Skill 同名，已禁用: %s", skill.name)
+                logger.warning("Markdown 技能与 Function Skill 同名，已禁用: %s", name)
+            else:
+                override_enabled = self._markdown_enabled_overrides.get(name)
+                if isinstance(override_enabled, bool):
+                    item["enabled"] = override_enabled
             items.append(item)
+
+        if self._prune_markdown_enabled_overrides(markdown_names):
+            self._save_markdown_enabled_overrides()
+
         self._markdown_skills = items
         return self.list_markdown_skills()
+
+    def set_markdown_skill_enabled(self, name: str, enabled: bool) -> dict[str, Any] | None:
+        """设置 Markdown 技能启用状态。"""
+        if not self.get_markdown_skill(name):
+            return None
+        self._markdown_enabled_overrides[name] = bool(enabled)
+        self._save_markdown_enabled_overrides()
+        self.reload_markdown_skills()
+        self.write_skills_snapshot()
+        return self.get_markdown_skill(name)
+
+    def remove_markdown_skill_override(self, name: str) -> None:
+        """删除 Markdown 技能启用状态覆盖。"""
+        removed = self._markdown_enabled_overrides.pop(name, None)
+        if removed is not None:
+            self._save_markdown_enabled_overrides()
 
     def write_skills_snapshot(self) -> None:
         """将聚合技能目录写入快照文件。"""

@@ -3,7 +3,7 @@
  * 避免每次击键触发整个消息列表重渲染。
  */
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useStore, type Message } from "../store";
+import { useStore, type Message, type SkillItem } from "../store";
 import FileUpload from "./FileUpload";
 import ModelSelector from "./ModelSelector";
 import { Send, Square, Archive } from "lucide-react";
@@ -17,6 +17,92 @@ interface ContextSizeData {
   total_context_tokens?: number;
   compress_threshold_tokens?: number;
   compress_target_tokens?: number;
+}
+
+interface SlashContext {
+  start: number;
+  end: number;
+  query: string;
+}
+
+function resolveSlashContext(text: string, caretPos: number): SlashContext | null {
+  const caret = Math.max(0, Math.min(caretPos, text.length));
+  const beforeCaret = text.slice(0, caret);
+  const slashIndex = beforeCaret.lastIndexOf("/");
+  if (slashIndex < 0) return null;
+
+  const prevChar = slashIndex > 0 ? beforeCaret[slashIndex - 1] : "";
+  if (prevChar && !/\s/u.test(prevChar)) return null;
+
+  const cmd = beforeCaret.slice(slashIndex + 1);
+  if (/\s/u.test(cmd)) return null;
+  if (cmd.includes("/")) return null;
+
+  return {
+    start: slashIndex,
+    end: caret,
+    query: cmd.toLowerCase(),
+  };
+}
+
+function hasFunctionConflict(skill: SkillItem): boolean {
+  if (!skill.metadata || typeof skill.metadata !== "object") return false;
+  return (skill.metadata as Record<string, unknown>).conflict_with === "function";
+}
+
+function isUserInvocable(skill: SkillItem): boolean {
+  if (!skill.metadata || typeof skill.metadata !== "object") return true;
+  const value = (skill.metadata as Record<string, unknown>).user_invocable;
+  return value !== false;
+}
+
+function normalizeSkillToken(value: string): string {
+  return value.toLowerCase().replace(/[\s_-]+/gu, "");
+}
+
+function toStringArray(value: unknown): string[] {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  if (!Array.isArray(value)) return [];
+  const items: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const trimmed = item.trim();
+    if (trimmed) items.push(trimmed);
+  }
+  return items;
+}
+
+function getSkillAliases(skill: SkillItem): string[] {
+  if (!skill.metadata || typeof skill.metadata !== "object") return [];
+  const metadata = skill.metadata as Record<string, unknown>;
+  return toStringArray(metadata.aliases ?? metadata.alias ?? metadata.triggers);
+}
+
+function scoreSkillForQuery(skill: SkillItem, query: string): number {
+  const q = query.trim().toLowerCase();
+  if (!q) return 0;
+  const normalizedQuery = normalizeSkillToken(q);
+  if (!normalizedQuery) return 0;
+  const name = skill.name.toLowerCase();
+  const normalizedName = normalizeSkillToken(name);
+  if (name === q) return 500;
+  if (normalizedName === normalizedQuery) return 480;
+  if (name.startsWith(q)) return 300;
+
+  const aliases = getSkillAliases(skill).map((a) => a.toLowerCase());
+  if (aliases.some((a) => a === q)) return 450;
+  if (aliases.some((a) => normalizeSkillToken(a) === normalizedQuery)) return 430;
+  if (aliases.some((a) => a.startsWith(q))) return 280;
+  if (aliases.some((a) => a.includes(q))) return 220;
+
+  if (name.includes(q)) return 200;
+  if (normalizedName.includes(normalizedQuery)) return 180;
+  if (skill.description.toLowerCase().includes(q)) return 120;
+  if ((skill.category || "").toLowerCase().includes(q)) return 80;
+  return -1;
 }
 
 function computeRemainingRatio(
@@ -43,14 +129,67 @@ export default function ChatInputArea() {
   const uploadFile = useStore((s) => s.uploadFile);
   const compressCurrentSession = useStore((s) => s.compressCurrentSession);
   const isUploading = useStore((s) => s.isUploading);
+  const skills = useStore((s) => s.skills);
+  const fetchSkills = useStore((s) => s.fetchSkills);
 
   const [input, setInput] = useState("");
   const [isDragActive, setIsDragActive] = useState(false);
   const [isCompressing, setIsCompressing] = useState(false);
   const [contextRemainingRatio, setContextRemainingRatio] = useState(1);
   const [contextTokens, setContextTokens] = useState<number | null>(null);
+  const [slashContext, setSlashContext] = useState<SlashContext | null>(null);
+  const [slashActiveIndex, setSlashActiveIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dragDepthRef = useRef(0);
+
+  const availableSlashSkills = skills.filter(
+    (s) =>
+      s.type === "markdown" &&
+      s.enabled &&
+      !hasFunctionConflict(s) &&
+      isUserInvocable(s),
+  );
+  const filteredSlashSkills = slashContext
+    ? availableSlashSkills
+        .filter((s) => scoreSkillForQuery(s, slashContext.query) >= 0)
+        .sort((a, b) => {
+          const scoreDiff =
+            scoreSkillForQuery(b, slashContext.query) -
+            scoreSkillForQuery(a, slashContext.query);
+          if (scoreDiff !== 0) return scoreDiff;
+          return a.name.localeCompare(b.name);
+        })
+    : [];
+  const slashMenuOpen = slashContext !== null;
+
+  useEffect(() => {
+    if (skills.length > 0) return;
+    void fetchSkills();
+  }, [skills.length, fetchSkills]);
+
+  useEffect(() => {
+    if (!slashMenuOpen) return;
+    // 每次打开 slash 面板都刷新一次技能，避免页面常驻导致列表过期。
+    void fetchSkills();
+  }, [slashMenuOpen, fetchSkills]);
+
+  useEffect(() => {
+    setSlashActiveIndex(0);
+  }, [slashContext?.query]);
+
+  useEffect(() => {
+    if (filteredSlashSkills.length === 0) {
+      setSlashActiveIndex(0);
+      return;
+    }
+    if (slashActiveIndex >= filteredSlashSkills.length) {
+      setSlashActiveIndex(filteredSlashSkills.length - 1);
+    }
+  }, [filteredSlashSkills.length, slashActiveIndex]);
+
+  const syncSlashContext = useCallback((value: string, caretPos: number) => {
+    setSlashContext(resolveSlashContext(value, caretPos));
+  }, []);
 
   const refreshContextBudget = useCallback(async () => {
     if (!sessionId) {
@@ -119,20 +258,109 @@ export default function ChatInputArea() {
     if (!text || isStreaming) return;
     sendMessage(text);
     setInput("");
+    setSlashContext(null);
+    setSlashActiveIndex(0);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
   }, [input, isStreaming, sendMessage]);
 
+  const applySlashSkill = useCallback(
+    (skill: SkillItem) => {
+      if (!slashContext) return;
+      const before = input.slice(0, slashContext.start);
+      const after = input.slice(slashContext.end);
+      const inserted = `/${skill.name} `;
+      const nextInput = `${before}${inserted}${after}`;
+      const caret = before.length + inserted.length;
+      setInput(nextInput);
+      setSlashContext(null);
+      setSlashActiveIndex(0);
+
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(caret, caret);
+        adjustHeight();
+      });
+    },
+    [input, slashContext, adjustHeight],
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (slashMenuOpen) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          if (filteredSlashSkills.length === 0) return;
+          setSlashActiveIndex((idx) =>
+            idx >= filteredSlashSkills.length - 1 ? 0 : idx + 1,
+          );
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          if (filteredSlashSkills.length === 0) return;
+          setSlashActiveIndex((idx) =>
+            idx <= 0 ? filteredSlashSkills.length - 1 : idx - 1,
+          );
+          return;
+        }
+        if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
+          if (filteredSlashSkills.length > 0) {
+            e.preventDefault();
+            const target = filteredSlashSkills[slashActiveIndex] || filteredSlashSkills[0];
+            if (target) applySlashSkill(target);
+            return;
+          }
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setSlashContext(null);
+          setSlashActiveIndex(0);
+          return;
+        }
+      }
+
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSend();
       }
     },
-    [handleSend],
+    [slashMenuOpen, filteredSlashSkills, slashActiveIndex, applySlashSkill, handleSend],
   );
+
+  const handleInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const nextValue = e.target.value;
+      setInput(nextValue);
+      syncSlashContext(nextValue, e.target.selectionStart ?? nextValue.length);
+    },
+    [syncSlashContext],
+  );
+
+  const handleCaretUpdate = useCallback(
+    (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+      const el = e.currentTarget;
+      syncSlashContext(el.value, el.selectionStart ?? el.value.length);
+    },
+    [syncSlashContext],
+  );
+
+  const handleInputFocus = useCallback(() => {
+    if (skills.length === 0) {
+      void fetchSkills();
+    }
+    const el = textareaRef.current;
+    if (!el) return;
+    syncSlashContext(el.value, el.selectionStart ?? el.value.length);
+  }, [skills.length, fetchSkills, syncSlashContext]);
+
+  const handleInputBlur = useCallback(() => {
+    setSlashContext(null);
+    setSlashActiveIndex(0);
+  }, []);
 
   const handleStop = useCallback(() => {
     if (!isStreaming) return;
@@ -262,14 +490,60 @@ export default function ChatInputArea() {
           <textarea
             ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onKeyUp={handleCaretUpdate}
+            onClick={handleCaretUpdate}
+            onSelect={handleCaretUpdate}
+            onFocus={handleInputFocus}
+            onBlur={handleInputBlur}
             placeholder="描述你的分析需求..."
             rows={1}
             className="w-full resize-none border-0 bg-transparent px-1 py-1.5 text-sm
                        focus:outline-none placeholder:text-gray-400"
             style={{ minHeight: "42px" }}
           />
+
+          {slashMenuOpen && (
+            <div className="absolute left-3 right-3 bottom-[calc(100%+18px)] z-20 rounded-xl border border-gray-200 bg-white shadow-lg">
+              <div className="max-h-56 overflow-y-auto p-1.5">
+                {filteredSlashSkills.length === 0 ? (
+                  <div className="px-2.5 py-2 text-xs text-gray-400">
+                    未找到匹配技能
+                  </div>
+                ) : (
+                  filteredSlashSkills.map((skill, idx) => (
+                    <button
+                      key={skill.name}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => applySlashSkill(skill)}
+                      className={`w-full rounded-lg px-2.5 py-2 text-left transition-colors ${
+                        idx === slashActiveIndex ? "bg-blue-50" : "hover:bg-gray-50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-blue-700">/{skill.name}</span>
+                        {skill.category && (
+                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">
+                            {skill.category}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-gray-500">{skill.description}</div>
+                      {getSkillAliases(skill).length > 0 && (
+                        <div className="mt-0.5 text-[10px] text-gray-400">
+                          别名：{getSkillAliases(skill).slice(0, 3).join(" / ")}
+                        </div>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+              <div className="border-t px-2.5 py-1.5 text-[10px] text-gray-400">
+                ↑↓ 选择，Enter/Tab 插入，Esc 关闭
+              </div>
+            </div>
+          )}
 
           <div className="mt-2 flex items-center justify-between gap-2">
             <div className="min-w-0">
@@ -343,7 +617,7 @@ export default function ChatInputArea() {
         </div>
 
         <div className="mt-1 px-1 text-[11px] text-gray-400">
-          Enter 发送，Shift + Enter 换行，可直接拖拽文件到输入框
+          Enter 发送，Shift + Enter 换行，输入 / 快速插入技能，可直接拖拽文件到输入框
         </div>
       </div>
     </div>

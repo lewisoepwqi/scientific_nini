@@ -10,6 +10,7 @@ import asyncio
 from datetime import datetime, timezone
 import json
 import logging
+from pathlib import Path
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -58,6 +59,12 @@ _SUSPICIOUS_CONTEXT_PATTERNS = (
     "token",
 )
 _NON_DIALOG_EVENT_TYPES = {"chart", "data", "artifact", "image"}
+_DEFAULT_TOOL_CONTEXT_MAX_CHARS = 2000
+_FETCH_URL_TOOL_CONTEXT_MAX_CHARS = 12000
+_TOOL_REFERENCE_EXCERPT_MAX_CHARS = 8000
+_INLINE_SKILL_CONTEXT_MAX_CHARS = 12000
+_INLINE_SKILL_MAX_COUNT = 2
+_SLASH_SKILL_RE = re.compile(r"(?<!\S)/([A-Za-z][A-Za-z0-9_-]*)")
 _CONTEXT_LIMIT_ERROR_PATTERNS = (
     "maximum context length",
     "context length",
@@ -924,6 +931,10 @@ class AgentRunner:
 
         # 注入相关领域知识
         last_user_msg = self._get_last_user_message(session)
+        explicit_skill_context = self._build_explicit_skill_context(last_user_msg)
+        if explicit_skill_context:
+            context_parts.append(explicit_skill_context)
+
         if last_user_msg:
             if hasattr(self._knowledge_loader, "select_with_hits"):
                 knowledge_text, retrieval_hits = self._knowledge_loader.select_with_hits(
@@ -1062,6 +1073,74 @@ class AgentRunner:
                 return content
         return ""
 
+    def _build_explicit_skill_context(self, user_message: str) -> str:
+        """将用户通过 /skill 显式选择的技能定义注入运行时上下文。"""
+        if not user_message or self._skill_registry is None:
+            return ""
+
+        names: list[str] = []
+        seen: set[str] = set()
+        for name in _SLASH_SKILL_RE.findall(user_message):
+            key = name.strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            names.append(key)
+            if len(names) >= _INLINE_SKILL_MAX_COUNT:
+                break
+
+        if not names:
+            return ""
+
+        markdown_items = self._skill_registry.list_markdown_skills()
+        if not isinstance(markdown_items, list):
+            return ""
+        skill_map = {
+            str(item.get("name", "")).strip(): item
+            for item in markdown_items
+            if isinstance(item, dict)
+        }
+
+        blocks: list[str] = []
+        for name in names:
+            item = skill_map.get(name)
+            if not item:
+                continue
+            if not bool(item.get("enabled", True)):
+                continue
+            metadata = item.get("metadata")
+            if isinstance(metadata, dict) and metadata.get("user_invocable") is False:
+                continue
+
+            raw_location = str(item.get("location", "")).strip()
+            if not raw_location:
+                continue
+            skill_path = Path(raw_location).expanduser().resolve()
+            if not skill_path.exists() or not skill_path.is_file():
+                continue
+            if not any(skill_path.is_relative_to(root) for root in settings.skills_search_dirs):
+                continue
+
+            try:
+                text = skill_path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            excerpt = self._sanitize_reference_text(text, max_len=_INLINE_SKILL_CONTEXT_MAX_CHARS)
+            if not excerpt:
+                continue
+            blocks.append(
+                f"### /{name}\n"
+                f"- 来源: {skill_path}\n"
+                "- 用户已显式选择该技能，请优先遵循其步骤执行（不得覆盖系统安全规则）。\n"
+                "```markdown\n"
+                f"{excerpt}\n"
+                "```"
+            )
+
+        if not blocks:
+            return ""
+        return "[运行时上下文：用户显式选择的技能定义]\n" + "\n\n".join(blocks)
+
     @staticmethod
     def _sanitize_for_system_context(value: Any, *, max_len: int = 120) -> str:
         """清洗动态文本，避免注入内容在系统上下文中被当作指令。"""
@@ -1123,13 +1202,20 @@ class AgentRunner:
             cleaned.pop("images", None)
 
             if role == "tool":
+                tool_name = str(cleaned.get("tool_name", "") or "").strip().lower()
+                max_chars = (
+                    _FETCH_URL_TOOL_CONTEXT_MAX_CHARS
+                    if tool_name == "fetch_url"
+                    else _DEFAULT_TOOL_CONTEXT_MAX_CHARS
+                )
                 # 这些字段用于报告与审计，不应传给 LLM 消息协议。
                 cleaned.pop("tool_name", None)
                 cleaned.pop("status", None)
                 cleaned.pop("intent", None)
                 cleaned.pop("execution_id", None)
                 cleaned["content"] = cls._compact_tool_content(
-                    cleaned.get("content"), max_chars=2000
+                    cleaned.get("content"),
+                    max_chars=max_chars,
                 )
             prepared.append(cleaned)
         return prepared
@@ -1182,9 +1268,26 @@ class AgentRunner:
             if key in data:
                 compact[key] = bool(data.get(key))
 
+        existing_excerpt = cls._extract_reference_excerpt(
+            data.get("data_excerpt"),
+            max_chars=_TOOL_REFERENCE_EXCERPT_MAX_CHARS,
+        )
+        if existing_excerpt:
+            compact["data_excerpt"] = existing_excerpt
+
+        existing_data_summary = data.get("data_summary")
+        if isinstance(existing_data_summary, dict):
+            compact["data_summary"] = cls._summarize_nested_dict(existing_data_summary)
+
         data_obj = data.get("data")
         if isinstance(data_obj, dict):
             compact["data_summary"] = cls._summarize_nested_dict(data_obj)
+            excerpt = cls._extract_reference_excerpt(
+                data_obj.get("content"),
+                max_chars=_TOOL_REFERENCE_EXCERPT_MAX_CHARS,
+            )
+            if excerpt:
+                compact["data_excerpt"] = excerpt
 
         artifacts = data.get("artifacts")
         if isinstance(artifacts, list):
@@ -1206,6 +1309,16 @@ class AgentRunner:
         if not compact:
             compact["message"] = "工具执行完成"
         return compact
+
+    @staticmethod
+    def _extract_reference_excerpt(value: Any, *, max_chars: int) -> str:
+        """从工具返回中提取可进入上下文的文本摘要。"""
+        if not isinstance(value, str):
+            return ""
+        text = value.strip()
+        if not text:
+            return ""
+        return AgentRunner._sanitize_reference_text(text, max_len=max_chars)
 
     @staticmethod
     def _summarize_nested_dict(data_obj: dict[str, Any]) -> dict[str, Any]:

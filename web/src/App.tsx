@@ -7,9 +7,11 @@ import ChatPanel from "./components/ChatPanel";
 import SessionList from "./components/SessionList";
 import ModelConfigPanel from "./components/ModelConfigPanel";
 import SkillCatalogPanel from "./components/SkillCatalogPanel";
+import MarkdownSkillManagerPanel from "./components/MarkdownSkillManagerPanel";
 import WorkspaceSidebar from "./components/WorkspaceSidebar";
 import MemoryPanel from "./components/MemoryPanel";
 import {
+  BookOpen,
   Wifi,
   WifiOff,
   Settings,
@@ -26,7 +28,8 @@ export default function App() {
   const workspacePanelOpen = useStore((s) => s.workspacePanelOpen);
   const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel);
   const [showSettings, setShowSettings] = useState(false);
-  const [showSkills, setShowSkills] = useState(false);
+  const [showTools, setShowTools] = useState(false);
+  const [showSkillManager, setShowSkillManager] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workspacePanelWidth, setWorkspacePanelWidth] = useState(420);
   const [resizingWorkspace, setResizingWorkspace] = useState(false);
@@ -100,11 +103,18 @@ export default function App() {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowSkills(true)}
+              onClick={() => setShowTools(true)}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
               title="工具清单"
             >
               <Wrench size={16} />
+            </button>
+            <button
+              onClick={() => setShowSkillManager(true)}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+              title="技能管理"
+            >
+              <BookOpen size={16} />
             </button>
             <button
               onClick={() => setShowSettings(true)}
@@ -193,8 +203,12 @@ export default function App() {
       />
 
       <SkillCatalogPanel
-        open={showSkills}
-        onClose={() => setShowSkills(false)}
+        open={showTools}
+        onClose={() => setShowTools(false)}
+      />
+      <MarkdownSkillManagerPanel
+        open={showSkillManager}
+        onClose={() => setShowSkillManager(false)}
       />
     </div>
   );

@@ -332,6 +332,31 @@ def test_anthropic_convert_messages_maps_tool_to_assistant_summary() -> None:
     assert "chart_data" not in converted[1]["content"]
 
 
+def test_anthropic_convert_messages_keeps_tool_data_excerpt() -> None:
+    client = AnthropicClient(api_key="anthropic-key", model="claude-test")
+    _, converted = client._convert_messages(
+        [
+            {"role": "user", "content": "执行 /root-analysis"},
+            {
+                "role": "tool",
+                "content": json.dumps(
+                    {
+                        "success": True,
+                        "message": "已读取技能文档",
+                        "data_excerpt": "## 关键步骤\n1. validate_data.py\n2. generate_r_project.py",
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ]
+    )
+
+    assert converted[1]["role"] == "assistant"
+    assert "data_excerpt" in converted[1]["content"]
+    assert "validate_data.py" in converted[1]["content"]
+    assert "generate_r_project.py" in converted[1]["content"]
+
+
 # ---- 国产模型适配器测试 ----
 
 

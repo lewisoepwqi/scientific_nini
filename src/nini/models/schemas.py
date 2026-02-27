@@ -131,3 +131,36 @@ class FileRenameRequest(BaseModel):
     """文件重命名请求。"""
 
     name: str
+
+
+class MarkdownSkillUpdateRequest(BaseModel):
+    """Markdown Skill 编辑请求。"""
+
+    description: str = Field(min_length=1)
+    category: str = Field(default="other")
+    content: str = ""
+
+
+class MarkdownSkillEnabledRequest(BaseModel):
+    """Markdown Skill 启用状态更新请求。"""
+
+    enabled: bool
+
+
+class MarkdownSkillFileWriteRequest(BaseModel):
+    """Markdown Skill 文件写入请求。"""
+
+    path: str = Field(min_length=1)
+    content: str = ""
+
+
+class MarkdownSkillDirCreateRequest(BaseModel):
+    """Markdown Skill 目录创建请求。"""
+
+    path: str = Field(min_length=1)
+
+
+class MarkdownSkillPathDeleteRequest(BaseModel):
+    """Markdown Skill 文件/目录删除请求。"""
+
+    path: str = Field(min_length=1)
