@@ -65,6 +65,9 @@ _TOOL_REFERENCE_EXCERPT_MAX_CHARS = 8000
 _INLINE_SKILL_CONTEXT_MAX_CHARS = 12000
 _INLINE_SKILL_MAX_COUNT = 2
 _SLASH_SKILL_RE = re.compile(r"(?<!\S)/([A-Za-z][A-Za-z0-9_-]*)")
+_SLASH_SKILL_WITH_ARGS_RE = re.compile(
+    r"(?<!\S)/([A-Za-z][A-Za-z0-9_-]*)(?:\s+(.+?))?(?=\s*/[A-Za-z]|\s*$)", re.DOTALL
+)
 _CONTEXT_LIMIT_ERROR_PATTERNS = (
     "maximum context length",
     "context length",
@@ -81,11 +84,30 @@ _CONTEXT_LIMIT_ERROR_PATTERNS = (
 )
 
 
+_AUTO_SKILL_MAX_COUNT = 1
+
+
+def _replace_arguments(text: str, arguments: str) -> str:
+    """Replace $ARGUMENTS and $1, $2, ... placeholders in skill text."""
+    text = text.replace("$ARGUMENTS", arguments)
+    tokens = arguments.split() if arguments else []
+    # Replace $N placeholders (up to $9); reverse to avoid $1 replacing $10
+    for i in range(9, 0, -1):
+        placeholder = f"${i}"
+        replacement = tokens[i - 1] if i <= len(tokens) else ""
+        text = text.replace(placeholder, replacement)
+    return text
+
+
 # ---- Agent Runner ----
 
 
 class AgentRunner:
     """ReAct 循环执行器。"""
+
+    _AGENTS_MD_MAX_CHARS = 5000
+    _agents_md_cache: str | None = None  # None means not yet scanned
+    _agents_md_scanned: bool = False
 
     def __init__(
         self,
@@ -971,6 +993,16 @@ class AgentRunner:
                     ),
                 }
 
+        # Inject AGENTS.md project-level instructions
+        agents_md_content = self._discover_agents_md()
+        if agents_md_content:
+            sanitized_agents = self._sanitize_reference_text(
+                agents_md_content,
+                max_len=self._AGENTS_MD_MAX_CHARS,
+            )
+            if sanitized_agents:
+                context_parts.append("[不可信上下文：AGENTS.md 项目级指令]\n" + sanitized_agents)
+
         # 注入 AnalysisMemory 上下文（结构化分析记忆）
         analysis_memories = list_session_analysis_memories(session.id)
         if analysis_memories:
@@ -1078,20 +1110,21 @@ class AgentRunner:
         if not user_message or self._skill_registry is None:
             return ""
 
-        names: list[str] = []
+        # 提取斜杠技能名称及其参数
+        skill_args_map: dict[str, str] = {}
         seen: set[str] = set()
-        for name in _SLASH_SKILL_RE.findall(user_message):
-            key = name.strip()
-            if not key or key in seen:
+        for match in _SLASH_SKILL_WITH_ARGS_RE.finditer(user_message):
+            name = match.group(1).strip()
+            args = (match.group(2) or "").strip()
+            if not name or name in seen:
                 continue
-            seen.add(key)
-            names.append(key)
-            if len(names) >= _INLINE_SKILL_MAX_COUNT:
+            seen.add(name)
+            skill_args_map[name] = args
+            if len(skill_args_map) >= _INLINE_SKILL_MAX_COUNT:
                 break
 
-        if not names:
+        if not hasattr(self._skill_registry, "list_markdown_skills"):
             return ""
-
         markdown_items = self._skill_registry.list_markdown_skills()
         if not isinstance(markdown_items, list):
             return ""
@@ -1102,7 +1135,7 @@ class AgentRunner:
         }
 
         blocks: list[str] = []
-        for name in names:
+        for name, arguments in skill_args_map.items():
             item = skill_map.get(name)
             if not item:
                 continue
@@ -1125,21 +1158,176 @@ class AgentRunner:
                 text = skill_path.read_text(encoding="utf-8")
             except Exception:
                 continue
+
+            # 替换 $ARGUMENTS 和 $N 占位符
+            if arguments:
+                text = _replace_arguments(text, arguments)
+
             excerpt = self._sanitize_reference_text(text, max_len=_INLINE_SKILL_CONTEXT_MAX_CHARS)
             if not excerpt:
                 continue
+
+            # allowed-tools 推荐工具提示
+            allowed_tools_note = ""
+            if isinstance(metadata, dict):
+                allowed_tools = metadata.get("allowed_tools")
+                if isinstance(allowed_tools, list) and allowed_tools:
+                    tools_str = ", ".join(str(t) for t in allowed_tools)
+                    allowed_tools_note = (
+                        f"- 此技能声明的推荐工具: {tools_str}。请优先使用这些工具。\n"
+                    )
+
             blocks.append(
                 f"### /{name}\n"
                 f"- 来源: {skill_path}\n"
                 "- 用户已显式选择该技能，请优先遵循其步骤执行（不得覆盖系统安全规则）。\n"
+                f"{allowed_tools_note}"
                 "```markdown\n"
                 f"{excerpt}\n"
                 "```"
             )
 
+        # 无显式斜杠技能时，尝试上下文自动匹配
+        if not blocks:
+            auto_matches = self._match_skills_by_context(user_message)
+            for item in auto_matches:
+                raw_location = str(item.get("location", "")).strip()
+                if not raw_location:
+                    continue
+                skill_path = Path(raw_location).expanduser().resolve()
+                if not skill_path.exists() or not skill_path.is_file():
+                    continue
+                if not any(skill_path.is_relative_to(root) for root in settings.skills_search_dirs):
+                    continue
+                try:
+                    text = skill_path.read_text(encoding="utf-8")
+                except Exception:
+                    continue
+                excerpt = self._sanitize_reference_text(
+                    text, max_len=_INLINE_SKILL_CONTEXT_MAX_CHARS
+                )
+                if not excerpt:
+                    continue
+
+                # allowed-tools 推荐工具提示
+                allowed_tools_note = ""
+                auto_metadata = item.get("metadata")
+                if isinstance(auto_metadata, dict):
+                    allowed_tools = auto_metadata.get("allowed_tools")
+                    if isinstance(allowed_tools, list) and allowed_tools:
+                        tools_str = ", ".join(str(t) for t in allowed_tools)
+                        allowed_tools_note = (
+                            f"- 此技能声明的推荐工具: {tools_str}。请优先使用这些工具。\n"
+                        )
+
+                blocks.append(
+                    f"### {item.get('name', 'unknown')}\n"
+                    f"- 来源: {skill_path}\n"
+                    "- 此技能通过上下文匹配自动关联，可参考其步骤执行。\n"
+                    f"{allowed_tools_note}"
+                    "```markdown\n"
+                    f"{excerpt}\n"
+                    "```"
+                )
+
         if not blocks:
             return ""
         return "[运行时上下文：用户显式选择的技能定义]\n" + "\n\n".join(blocks)
+
+    def _match_skills_by_context(self, user_message: str) -> list[dict[str, Any]]:
+        """Match Markdown Skills by checking user message against skill aliases, tags, and name."""
+        if not user_message or self._skill_registry is None:
+            return []
+
+        user_lower = user_message.lower()
+        markdown_items = self._skill_registry.list_markdown_skills()
+        if not isinstance(markdown_items, list):
+            return []
+
+        scored: list[tuple[float, dict[str, Any]]] = []
+        for item in markdown_items:
+            if not isinstance(item, dict):
+                continue
+            if not bool(item.get("enabled", True)):
+                continue
+            metadata = item.get("metadata")
+            if isinstance(metadata, dict) and metadata.get("disable_model_invocation") is True:
+                continue
+
+            score = 0.0
+            name = str(item.get("name", "")).strip().lower()
+
+            # Check aliases
+            if isinstance(metadata, dict):
+                aliases = metadata.get("aliases", [])
+                if isinstance(aliases, list):
+                    for alias in aliases:
+                        if isinstance(alias, str) and alias.lower() in user_lower:
+                            score += 2.0
+                            break
+
+                # Check tags
+                tags = metadata.get("tags", [])
+                if isinstance(tags, list):
+                    tag_matches = sum(
+                        1 for tag in tags if isinstance(tag, str) and tag.lower() in user_lower
+                    )
+                    score += tag_matches * 0.5
+
+            # Check name
+            if name and name.replace("-", " ").replace("_", " ") in user_lower:
+                score += 1.5
+
+            if score > 0:
+                scored.append((score, item))
+
+        # Sort by score descending, take top N
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [item for _, item in scored[:_AUTO_SKILL_MAX_COUNT]]
+
+    @classmethod
+    def _discover_agents_md(cls) -> str:
+        """Discover and read AGENTS.md from project root."""
+        if cls._agents_md_scanned:
+            return cls._agents_md_cache or ""
+        cls._agents_md_scanned = True
+
+        from nini.config import _get_bundle_root
+
+        root = _get_bundle_root()
+        parts: list[str] = []
+
+        # Check project root
+        agents_file = root / "AGENTS.md"
+        if agents_file.exists() and agents_file.is_file():
+            try:
+                content = agents_file.read_text(encoding="utf-8")
+                if content.strip():
+                    parts.append(f"# {agents_file}\n\n{content.strip()}")
+            except Exception:
+                pass
+
+        # Check subdirectories (1 level deep)
+        try:
+            for subdir in sorted(root.iterdir()):
+                if not subdir.is_dir() or subdir.name.startswith("."):
+                    continue
+                sub_agents = subdir / "AGENTS.md"
+                if sub_agents.exists() and sub_agents.is_file():
+                    try:
+                        content = sub_agents.read_text(encoding="utf-8")
+                        if content.strip():
+                            parts.append(f"# {sub_agents}\n\n{content.strip()}")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        combined = "\n\n---\n\n".join(parts)
+        if len(combined) > cls._AGENTS_MD_MAX_CHARS:
+            combined = combined[: cls._AGENTS_MD_MAX_CHARS] + "...(截断)"
+        cls._agents_md_cache = combined if combined else None
+        return combined
 
     @staticmethod
     def _sanitize_for_system_context(value: Any, *, max_len: int = 120) -> str:
