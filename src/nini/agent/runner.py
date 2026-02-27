@@ -15,7 +15,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, AsyncGenerator, Callable, Coroutine
+from typing import Any, AsyncGenerator, Awaitable, Callable
 
 from nini.agent.model_resolver import (
     LLMChunk,
@@ -114,10 +114,14 @@ class AgentRunner:
         resolver: ModelResolver | None = None,
         skill_registry: Any = None,
         knowledge_loader: KnowledgeLoader | None = None,
+        ask_user_question_handler: (
+            Callable[[Session, str, dict[str, Any]], Awaitable[dict[str, str]]] | None
+        ) = None,
     ):
         self._resolver = resolver or model_resolver
         self._skill_registry = skill_registry
         self._knowledge_loader = knowledge_loader or KnowledgeLoader(settings.knowledge_dir)
+        self._ask_user_question_handler = ask_user_question_handler
 
     async def run(
         self,
@@ -147,6 +151,9 @@ class AgentRunner:
         next_step_idx: int = 0
         plan_event_seq: int = 0
         iteration = 0
+        allowed_tool_whitelist, allowed_tool_sources = self._resolve_allowed_tool_recommendations(
+            user_message
+        )
 
         def _to_plan_status(raw_status: str) -> str:
             """将历史计划状态映射为前端统一状态。"""
@@ -578,6 +585,19 @@ class AgentRunner:
                     },
                 )
 
+                # Markdown Skill 的 allowed_tools 仅作推荐提示，不做硬阻断。
+                if allowed_tool_whitelist is not None and func_name not in allowed_tool_whitelist:
+                    allowed_sorted = ", ".join(sorted(allowed_tool_whitelist))
+                    source_text = (
+                        ", ".join(allowed_tool_sources) if allowed_tool_sources else "当前技能"
+                    )
+                    logger.info(
+                        "工具 '%s' 不在技能推荐工具集合内（来源技能: %s；推荐工具: %s），继续执行。",
+                        func_name,
+                        source_text,
+                        allowed_sorted,
+                    )
+
                 # ── task_write 特殊处理 ──────────────────────────────────────────
                 # task_write 由 LLM 调用来声明/更新任务列表，不走正常执行流程
                 if func_name == "task_write":
@@ -651,6 +671,93 @@ class AgentRunner:
                     )
                     continue  # 跳过正常执行流程
                 # ── task_write 特殊处理结束 ──────────────────────────────────────
+
+                # ── ask_user_question 特殊处理 ─────────────────────────────────
+                # ask_user_question 会暂停当前回合，等待用户完成回答后继续。
+                if func_name == "ask_user_question":
+                    try:
+                        parsed_payload = json.loads(func_args)
+                    except json.JSONDecodeError:
+                        parsed_payload = None
+
+                    questions, question_error = self._normalize_ask_user_question_questions(
+                        parsed_payload
+                    )
+                    if question_error:
+                        result = {"success": False, "message": question_error}
+                    elif self._ask_user_question_handler is None:
+                        result = {
+                            "success": False,
+                            "message": "当前通道不支持 ask_user_question 交互。",
+                        }
+                    else:
+                        assert questions is not None
+                        yield AgentEvent(
+                            type=EventType.ASK_USER_QUESTION,
+                            data={"questions": questions},
+                            tool_call_id=tc_id,
+                            tool_name=func_name,
+                            turn_id=turn_id,
+                        )
+                        try:
+                            raw_answers = await self._ask_user_question_handler(
+                                session,
+                                tc_id,
+                                {"questions": questions},
+                            )
+                            normalized_answers = self._normalize_ask_user_question_answers(
+                                raw_answers
+                            )
+                            result = {
+                                "success": True,
+                                "message": "已收到用户回答。",
+                                "data": {
+                                    "questions": questions,
+                                    "answers": normalized_answers,
+                                },
+                            }
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc:
+                            logger.warning(
+                                "ask_user_question 等待用户回答失败: session=%s tc_id=%s err=%s",
+                                session.id,
+                                tc_id,
+                                exc,
+                            )
+                            result = {
+                                "success": False,
+                                "message": f"等待用户回答失败: {exc}",
+                            }
+
+                    has_error = isinstance(result, dict) and (
+                        result.get("error") or result.get("success") is False
+                    )
+                    status = "error" if has_error else "success"
+                    result_str = self._serialize_tool_result_for_memory(result)
+                    session.add_tool_result(
+                        tc_id,
+                        result_str,
+                        tool_name=func_name,
+                        status=status,
+                    )
+                    yield AgentEvent(
+                        type=EventType.TOOL_RESULT,
+                        data={
+                            "result": result,
+                            "status": status,
+                            "message": (
+                                result.get("error") or result.get("message", "工具执行失败")
+                                if has_error
+                                else result.get("message", "工具执行完成")
+                            ),
+                        },
+                        tool_call_id=tc_id,
+                        tool_name=func_name,
+                        turn_id=turn_id,
+                    )
+                    continue
+                # ── ask_user_question 特殊处理结束 ─────────────────────────────
 
                 # 智能体生成的代码自动沉淀为工作空间产物
                 code_artifact = self._persist_code_source(
@@ -857,19 +964,21 @@ class AgentRunner:
 
                     # 检查是否有产物（可下载文件）
                     if isinstance(result, dict) and result.get("artifacts"):
-                        for artifact in result["artifacts"]:
-                            session.add_assistant_event(
-                                "artifact",
-                                "产物已生成",
-                                artifacts=[artifact],
-                            )
-                            yield AgentEvent(
-                                type=EventType.ARTIFACT,
-                                data=artifact,
-                                tool_call_id=tc_id,
-                                tool_name=func_name,
-                                turn_id=turn_id,
-                            )
+                        artifacts_raw = result.get("artifacts")
+                        if isinstance(artifacts_raw, list):
+                            for artifact in artifacts_raw:
+                                session.add_assistant_event(
+                                    "artifact",
+                                    "产物已生成",
+                                    artifacts=[artifact],
+                                )
+                                yield AgentEvent(
+                                    type=EventType.ARTIFACT,
+                                    data=artifact,
+                                    tool_call_id=tc_id,
+                                    tool_name=func_name,
+                                    turn_id=turn_id,
+                                )
                     if isinstance(result, dict) and result.get("images"):
                         images_raw = result.get("images")
                         images: list[str]
@@ -1174,7 +1283,7 @@ class AgentRunner:
                 if isinstance(allowed_tools, list) and allowed_tools:
                     tools_str = ", ".join(str(t) for t in allowed_tools)
                     allowed_tools_note = (
-                        f"- 此技能声明的推荐工具: {tools_str}。请优先使用这些工具。\n"
+                        f"- 此技能声明的推荐工具: {tools_str}。" "可优先使用这些工具完成任务。\n"
                     )
 
             blocks.append(
@@ -1217,7 +1326,8 @@ class AgentRunner:
                     if isinstance(allowed_tools, list) and allowed_tools:
                         tools_str = ", ".join(str(t) for t in allowed_tools)
                         allowed_tools_note = (
-                            f"- 此技能声明的推荐工具: {tools_str}。请优先使用这些工具。\n"
+                            f"- 此技能声明的推荐工具: {tools_str}。"
+                            "可优先使用这些工具完成任务。\n"
                         )
 
                 blocks.append(
@@ -1284,6 +1394,79 @@ class AgentRunner:
         # Sort by score descending, take top N
         scored.sort(key=lambda x: x[0], reverse=True)
         return [item for _, item in scored[:_AUTO_SKILL_MAX_COUNT]]
+
+    def _select_active_markdown_skills(self, user_message: str) -> list[dict[str, Any]]:
+        """选择本轮激活的 Markdown Skills（显式 slash 优先，缺失时走自动匹配）。"""
+        if not user_message or self._skill_registry is None:
+            return []
+        if not hasattr(self._skill_registry, "list_markdown_skills"):
+            return []
+
+        markdown_items = self._skill_registry.list_markdown_skills()
+        if not isinstance(markdown_items, list):
+            return []
+        skill_map = {
+            str(item.get("name", "")).strip(): item
+            for item in markdown_items
+            if isinstance(item, dict)
+        }
+
+        explicit_items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for match in _SLASH_SKILL_WITH_ARGS_RE.finditer(user_message):
+            name = match.group(1).strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            item = skill_map.get(name)
+            if not isinstance(item, dict):
+                continue
+            if not bool(item.get("enabled", True)):
+                continue
+            metadata = item.get("metadata")
+            if isinstance(metadata, dict) and metadata.get("user_invocable") is False:
+                continue
+            explicit_items.append(item)
+            if len(explicit_items) >= _INLINE_SKILL_MAX_COUNT:
+                break
+
+        if explicit_items:
+            return explicit_items
+        return self._match_skills_by_context(user_message)
+
+    def _resolve_allowed_tool_recommendations(
+        self,
+        user_message: str,
+    ) -> tuple[set[str] | None, list[str]]:
+        """根据激活的 Markdown Skills 解析 allowed_tools 推荐集合。"""
+        items = self._select_active_markdown_skills(user_message)
+        if not items:
+            return None, []
+
+        allowed: set[str] = set()
+        sources: list[str] = []
+        for item in items:
+            metadata = item.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            raw_tools = metadata.get("allowed_tools")
+            if not isinstance(raw_tools, list):
+                continue
+
+            tool_names = [
+                str(name).strip()
+                for name in raw_tools
+                if isinstance(name, str) and str(name).strip()
+            ]
+            if not tool_names:
+                continue
+
+            allowed.update(tool_names)
+            sources.append(str(item.get("name", "")).strip() or "unknown")
+
+        if not allowed:
+            return None, []
+        return allowed, sources
 
     @classmethod
     def _discover_agents_md(cls) -> str:
@@ -1538,12 +1721,159 @@ class AgentRunner:
 
     def _get_tool_definitions(self) -> list[dict[str, Any]]:
         """获取所有已注册技能的工具定义。"""
-        if self._skill_registry is None:
-            return []
-        raw = self._skill_registry.get_tool_definitions()
-        if not isinstance(raw, list):
-            return []
-        return [item for item in raw if isinstance(item, dict)]
+        tools: list[dict[str, Any]] = []
+        if self._skill_registry is not None:
+            raw = self._skill_registry.get_tool_definitions()
+            if isinstance(raw, list):
+                tools = [item for item in raw if isinstance(item, dict)]
+
+        # 内建用户问答工具：允许模型暂停并向用户发起澄清问题。
+        has_ask_user_question = any(
+            isinstance(item, dict)
+            and isinstance(item.get("function"), dict)
+            and item["function"].get("name") == "ask_user_question"
+            for item in tools
+        )
+        if not has_ask_user_question:
+            tools.append(self._ask_user_question_tool_definition())
+        return tools
+
+    @staticmethod
+    def _ask_user_question_tool_definition() -> dict[str, Any]:
+        """ask_user_question 工具定义（Claude Code 兼容风格）。"""
+        return {
+            "type": "function",
+            "function": {
+                "name": "ask_user_question",
+                "description": ("向用户发起 1-4 个澄清问题，等待用户完成回答后继续任务。"),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "questions": {
+                            "type": "array",
+                            "description": "问题列表（每次 1-4 题）",
+                            "minItems": 1,
+                            "maxItems": 4,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "question": {"type": "string"},
+                                    "header": {"type": "string"},
+                                    "options": {
+                                        "type": "array",
+                                        "minItems": 2,
+                                        "maxItems": 4,
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "label": {"type": "string"},
+                                                "description": {"type": "string"},
+                                            },
+                                            "required": ["label", "description"],
+                                        },
+                                    },
+                                    "multiSelect": {"type": "boolean"},
+                                    "allowTextInput": {"type": "boolean"},
+                                },
+                                "required": ["question", "options"],
+                            },
+                        }
+                    },
+                    "required": ["questions"],
+                },
+            },
+        }
+
+    @staticmethod
+    def _normalize_ask_user_question_questions(
+        payload: Any,
+    ) -> tuple[list[dict[str, Any]] | None, str | None]:
+        """校验并标准化 ask_user_question 的问题列表。"""
+        if not isinstance(payload, dict):
+            return None, "ask_user_question 参数必须是对象。"
+
+        raw_questions = payload.get("questions")
+        if not isinstance(raw_questions, list):
+            return None, "ask_user_question 参数缺少 questions 数组。"
+        if len(raw_questions) < 1 or len(raw_questions) > 4:
+            return None, "ask_user_question 每次调用必须包含 1-4 个问题。"
+
+        normalized_questions: list[dict[str, Any]] = []
+        for q_idx, raw_question in enumerate(raw_questions, start=1):
+            if not isinstance(raw_question, dict):
+                return None, f"第 {q_idx} 个问题格式错误，必须是对象。"
+
+            question = str(raw_question.get("question") or "").strip()
+            if not question:
+                return None, f"第 {q_idx} 个问题缺少 question 文本。"
+
+            options_raw = raw_question.get("options")
+            if not isinstance(options_raw, list):
+                return None, f"第 {q_idx} 个问题缺少 options 数组。"
+            if len(options_raw) < 2 or len(options_raw) > 4:
+                return None, f"第 {q_idx} 个问题 options 数量必须为 2-4 个。"
+
+            normalized_options: list[dict[str, str]] = []
+            for opt_idx, raw_opt in enumerate(options_raw, start=1):
+                if not isinstance(raw_opt, dict):
+                    return None, f"第 {q_idx} 个问题的第 {opt_idx} 个选项格式错误。"
+                label = str(raw_opt.get("label") or "").strip()
+                description = str(raw_opt.get("description") or "").strip()
+                if not label:
+                    return None, f"第 {q_idx} 个问题的第 {opt_idx} 个选项缺少 label。"
+                if not description:
+                    return None, f"第 {q_idx} 个问题的第 {opt_idx} 个选项缺少 description。"
+                normalized_options.append(
+                    {
+                        "label": label,
+                        "description": description,
+                    }
+                )
+
+            normalized_item: dict[str, Any] = {
+                "question": question,
+                "options": normalized_options,
+                "multiSelect": bool(raw_question.get("multiSelect", False)),
+            }
+            header = raw_question.get("header")
+            if isinstance(header, str) and header.strip():
+                normalized_item["header"] = header.strip()
+
+            allow_text_input = raw_question.get("allowTextInput")
+            if isinstance(allow_text_input, bool):
+                normalized_item["allowTextInput"] = allow_text_input
+
+            normalized_questions.append(normalized_item)
+
+        return normalized_questions, None
+
+    @staticmethod
+    def _normalize_ask_user_question_answers(raw_answers: Any) -> dict[str, str]:
+        """标准化用户回答映射。"""
+        if not isinstance(raw_answers, dict):
+            return {}
+
+        normalized_answers: dict[str, str] = {}
+        for raw_key, raw_value in raw_answers.items():
+            if not isinstance(raw_key, str):
+                continue
+            key = raw_key.strip()
+            if not key:
+                continue
+
+            if isinstance(raw_value, str):
+                value = raw_value.strip()
+            elif isinstance(raw_value, (list, tuple)):
+                parts = [str(item).strip() for item in raw_value if str(item).strip()]
+                value = ", ".join(parts)
+            elif raw_value is None:
+                value = ""
+            else:
+                value = str(raw_value).strip()
+
+            normalized_answers[key] = value
+
+        return normalized_answers
 
     async def _execute_tool(
         self,

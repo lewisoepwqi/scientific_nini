@@ -147,6 +147,8 @@ def _infer_standards(path: Path) -> list[str]:
         standards.append("claude-code")
     if "/.codex/skills/" in normalized:
         standards.append("codex")
+    if "/.opencode/skills/" in normalized:
+        standards.append("opencode")
     if "/.agents/skills/" in normalized:
         standards.append("agent-skills")
     if not standards:
@@ -191,6 +193,7 @@ def scan_markdown_skills(skills_dir: Path | Iterable[Path]) -> list[MarkdownSkil
     - Nini 默认：`skills/*/SKILL.md`
     - Claude Code：`.claude/skills/*/SKILL.md`
     - Codex：`.codex/skills/*/SKILL.md`
+    - OpenCode：`.opencode/skills/*/SKILL.md`
     - Agent Skills：`.agents/skills/*/SKILL.md`（可选 `agents/openai.yaml`）
     """
     roots = [skills_dir] if isinstance(skills_dir, Path) else [Path(p) for p in skills_dir]
@@ -282,10 +285,14 @@ def scan_markdown_skills(skills_dir: Path | Iterable[Path]) -> list[MarkdownSkil
     return items
 
 
-def render_skills_snapshot(skills: list[dict[str, Any]]) -> str:
-    """生成可读的技能快照文本。"""
-    lines = ["# SKILLS_SNAPSHOT", "", "## available_skills", ""]
-    for skill in skills:
+def _render_snapshot_section(title: str, items: list[dict[str, Any]]) -> list[str]:
+    lines = [f"## {title}", ""]
+    if not items:
+        lines.append("- (none)")
+        lines.append("")
+        return lines
+
+    for skill in items:
         name = str(skill.get("name", "")).strip()
         if not name:
             continue
@@ -304,4 +311,26 @@ def render_skills_snapshot(skills: list[dict[str, Any]]) -> str:
             if isinstance(agents, list) and agents:
                 lines.append(f"  agents: {', '.join(str(s) for s in agents)}")
         lines.append("")
+    return lines
+
+
+def render_skills_snapshot(
+    skills_or_tools: list[dict[str, Any]],
+    markdown_skills: list[dict[str, Any]] | None = None,
+) -> str:
+    """生成可读的技能快照文本。
+
+    新格式会拆分为两个清单，避免将可执行工具与 Markdown Skill 混在同一节。
+    为了兼容旧调用，允许仅传入一个聚合列表，此时会按 type 自动分组。
+    """
+    if markdown_skills is None:
+        tools = [item for item in skills_or_tools if item.get("type") == "function"]
+        markdown = [item for item in skills_or_tools if item.get("type") == "markdown"]
+    else:
+        tools = list(skills_or_tools)
+        markdown = list(markdown_skills)
+
+    lines = ["# SKILLS_SNAPSHOT", ""]
+    lines.extend(_render_snapshot_section("available_tools", tools))
+    lines.extend(_render_snapshot_section("available_markdown_skills", markdown))
     return "\n".join(lines).strip() + "\n"

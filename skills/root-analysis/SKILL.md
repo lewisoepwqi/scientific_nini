@@ -21,6 +21,7 @@ aliases:
   - 根系分析
   - root length analysis
 allowed-tools:
+  - load_dataset
   - run_code
   - run_r_code
   - create_chart
@@ -199,7 +200,7 @@ python scripts/validate_data.py <您的文件>
 
 ### 步骤3：配置参数
 
-我会使用 AskUserQuestion 工具询问分析参数：
+我会使用 ask_user_question 工具询问分析参数：
 
 **问题1：颜色方案**
 

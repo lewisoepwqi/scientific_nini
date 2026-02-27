@@ -31,6 +31,7 @@ class EventType(str, Enum):
     PLAN_PROGRESS = "plan_progress"  # 顶部计划进度（含当前步骤/下一步提示）
     TASK_ATTEMPT = "task_attempt"  # 任务执行尝试（含重试轨迹）
     CONTEXT_COMPRESSED = "context_compressed"  # 上下文自动压缩通知
+    ASK_USER_QUESTION = "ask_user_question"  # 等待用户问答输入
 
 
 @dataclass

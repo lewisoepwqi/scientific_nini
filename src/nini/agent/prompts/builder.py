@@ -206,6 +206,7 @@ class PromptBuilder:
         skills_snapshot = settings.skills_snapshot_path
         if skills_snapshot.exists():
             snapshot_text = skills_snapshot.read_text(encoding="utf-8")
+            snapshot_text = self._extract_markdown_skills_snapshot(snapshot_text)
         else:
             snapshot_text = "当前无可用的 Markdown Skills 快照。"
         components.append(
@@ -231,6 +232,26 @@ class PromptBuilder:
                 )
             )
         return components
+
+    @staticmethod
+    def _extract_markdown_skills_snapshot(snapshot_text: str) -> str:
+        """从 SKILLS_SNAPSHOT 中提取 Markdown Skills 清单，避免混入可执行工具。"""
+        text = (snapshot_text or "").strip()
+        if not text:
+            return "当前无可用的 Markdown Skills 快照。"
+
+        marker = "## available_markdown_skills"
+        start = text.find(marker)
+        if start < 0:
+            # 兼容旧格式：无法定位分段时保留原文，避免意外丢失上下文。
+            return text
+
+        next_header = text.find("\n## ", start + len(marker))
+        section = text[start:] if next_header < 0 else text[start:next_header]
+        section = section.strip()
+        if not section:
+            return "## available_markdown_skills\n\n- (none)"
+        return section
 
     @staticmethod
     def _apply_budget_protection(

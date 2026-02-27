@@ -124,6 +124,7 @@ export default function ChatInputArea() {
   const messageCount = useStore((s) => s.messages.length);
   const contextCompressionTick = useStore((s) => s.contextCompressionTick);
   const isStreaming = useStore((s) => s.isStreaming);
+  const pendingAskUserQuestion = useStore((s) => s.pendingAskUserQuestion);
   const sendMessage = useStore((s) => s.sendMessage);
   const stopStreaming = useStore((s) => s.stopStreaming);
   const uploadFile = useStore((s) => s.uploadFile);
@@ -255,7 +256,7 @@ export default function ChatInputArea() {
 
   const handleSend = useCallback(() => {
     const text = input.trim();
-    if (!text || isStreaming) return;
+    if (!text || isStreaming || pendingAskUserQuestion) return;
     sendMessage(text);
     setInput("");
     setSlashContext(null);
@@ -263,7 +264,7 @@ export default function ChatInputArea() {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [input, isStreaming, sendMessage]);
+  }, [input, isStreaming, pendingAskUserQuestion, sendMessage]);
 
   const applySlashSkill = useCallback(
     (skill: SkillItem) => {
@@ -597,7 +598,7 @@ export default function ChatInputArea() {
               ) : (
                 <button
                   onClick={handleSend}
-                  disabled={!input.trim()}
+                  disabled={!input.trim() || Boolean(pendingAskUserQuestion)}
                   className="flex-shrink-0 w-10 h-10 rounded-2xl bg-blue-600 text-white
                              flex items-center justify-center
                              hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed

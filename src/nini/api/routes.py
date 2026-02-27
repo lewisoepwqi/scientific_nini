@@ -86,6 +86,8 @@ def _get_markdown_skill_item_or_404(registry: Any, skill_name: str) -> dict[str,
     item = registry.get_markdown_skill(skill_name)
     if item is None:
         raise HTTPException(status_code=404, detail=f"Markdown 技能 '{skill_name}' 不存在")
+    if not isinstance(item, dict):
+        raise HTTPException(status_code=500, detail="Markdown 技能索引格式错误")
     return item
 
 
@@ -378,12 +380,39 @@ async def compress_session(session_id: str, mode: str = "auto"):
     return APIResponse(data=result)
 
 
-@router.get("/skills", response_model=APIResponse)
-async def list_skills(skill_type: str | None = None):
-    """获取能力目录（Function Tool + Markdown Skill）。"""
+@router.get("/tools", response_model=APIResponse)
+async def list_tools():
+    """获取可执行工具目录（Function Tools）。"""
     registry = _get_skill_registry()
     _refresh_skill_registry(registry)
-    skills = registry.list_skill_catalog(skill_type)
+    tools = registry.list_tools_catalog()
+    return APIResponse(data={"tools": tools})
+
+
+@router.get("/skills", response_model=APIResponse)
+async def list_skills(skill_type: str | None = None):
+    """获取 Markdown Skills 目录。
+
+    兼容参数：
+    - 未传或 markdown：返回 Markdown Skills
+    - function：返回 Function Tools（兼容旧客户端）
+    - all：返回聚合目录（Function + Markdown，兼容旧客户端）
+    """
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+
+    normalized_type = (skill_type or "markdown").strip().lower()
+    if normalized_type == "markdown":
+        skills = registry.list_markdown_skill_catalog()
+    elif normalized_type == "function":
+        skills = registry.list_tools_catalog()
+    elif normalized_type == "all":
+        skills = registry.list_skill_catalog()
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="skill_type 仅支持 markdown/function/all",
+        )
     return APIResponse(data={"skills": skills})
 
 

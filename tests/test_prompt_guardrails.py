@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from nini.config import settings
+from nini.agent.prompts.builder import PromptBuilder
 from nini.agent.prompts.scientific import get_system_prompt
 from nini.agent.runner import AgentRunner
 from nini.agent.session import Session
@@ -161,7 +162,8 @@ def test_build_messages_injects_explicit_slash_skill_context(
     context_msg = next(
         m
         for m in messages
-        if m.get("role") == "assistant" and "运行时上下文：用户显式选择的技能定义" in str(m.get("content"))
+        if m.get("role") == "assistant"
+        and "运行时上下文：用户显式选择的技能定义" in str(m.get("content"))
     )
 
     content = str(context_msg.get("content", ""))
@@ -196,3 +198,20 @@ def test_prompt_component_truncation_marker(
 
     prompt = get_system_prompt()
     assert "...[truncated]" in prompt
+
+
+def test_prompt_builder_extracts_only_markdown_snapshot_section() -> None:
+    snapshot_text = (
+        "# SKILLS_SNAPSHOT\n\n"
+        "## available_tools\n\n"
+        "- name: run_code\n"
+        "  type: function\n\n"
+        "## available_markdown_skills\n\n"
+        "- name: root-analysis\n"
+        "  type: markdown\n"
+    )
+    extracted = PromptBuilder._extract_markdown_skills_snapshot(snapshot_text)
+    assert "available_markdown_skills" in extracted
+    assert "root-analysis" in extracted
+    assert "available_tools" not in extracted
+    assert "run_code" not in extracted

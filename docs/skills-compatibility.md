@@ -6,6 +6,7 @@
 
 - Claude Code Skills
 - OpenAI Codex Skills
+- OpenCode Skills
 - Agent Skills 开放规范
 - Cursor / Windsurf / Gemini CLI / GitHub Copilot 的仓库级指令体系（AGENTS/CLAUDE/GEMINI 等）
 
@@ -45,9 +46,10 @@
 
 1. `<repo>/.codex/skills`
 2. `<repo>/.claude/skills`
-3. `<repo>/.agents/skills`
-4. `skills/`（Nini 既有目录）
-5. `NINI_SKILLS_EXTRA_DIRS` 指定的附加目录（逗号分隔）
+3. `<repo>/.opencode/skills`
+4. `<repo>/.agents/skills`
+5. `skills/`（Nini 既有目录）
+6. `NINI_SKILLS_EXTRA_DIRS` 指定的附加目录（逗号分隔）
 
 同名 Skill 时，保留高优先级目录版本，低优先级版本忽略并记录告警。
 
@@ -75,7 +77,7 @@ Web 编辑 Markdown Skill 时：
 
 ## 配置项
 
-- `NINI_SKILLS_AUTO_DISCOVER_COMPAT_DIRS`：是否自动发现 `.codex/.claude/.agents`（默认 false）
+- `NINI_SKILLS_AUTO_DISCOVER_COMPAT_DIRS`：是否自动发现 `.codex/.claude/.opencode/.agents`（默认 false）
 - `NINI_SKILLS_DIR_PATH`：Nini 主 skills 目录（默认 `skills/`）
 - `NINI_SKILLS_EXTRA_DIRS`：额外扫描目录（逗号分隔）
 

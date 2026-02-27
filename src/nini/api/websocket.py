@@ -63,6 +63,34 @@ async def websocket_agent(ws: WebSocket):
     keepalive_task = asyncio.create_task(_keepalive(ws))
     active_chat_task: asyncio.Task[None] | None = None
     active_stop_event: asyncio.Event | None = None
+    pending_question_futures: dict[str, asyncio.Future[dict[str, str]]] = {}
+
+    def _cancel_pending_questions() -> None:
+        """取消所有等待中的 ask_user_question 回答。"""
+        for future in list(pending_question_futures.values()):
+            if not future.done():
+                future.cancel()
+        pending_question_futures.clear()
+
+    async def _wait_for_ask_user_question_answers(
+        session: Any,
+        tool_call_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, str]:
+        """挂起等待前端提交 ask_user_question 回答。"""
+        _ = session, payload
+        if not tool_call_id:
+            raise ValueError("ask_user_question 缺少 tool_call_id")
+
+        loop = asyncio.get_running_loop()
+        future = pending_question_futures.get(tool_call_id)
+        if future is None or future.done():
+            future = loop.create_future()
+            pending_question_futures[tool_call_id] = future
+        try:
+            return await future
+        finally:
+            pending_question_futures.pop(tool_call_id, None)
 
     async def _run_chat(
         session: Any,
@@ -71,7 +99,10 @@ async def websocket_agent(ws: WebSocket):
         append_user_message: bool,
     ) -> None:
         nonlocal active_chat_task, active_stop_event
-        runner = AgentRunner(skill_registry=_skill_registry)
+        runner = AgentRunner(
+            skill_registry=_skill_registry,
+            ask_user_question_handler=_wait_for_ask_user_question_answers,
+        )
         stop_event = active_stop_event or asyncio.Event()
 
         # 会话首次恢复时，从工作空间补齐已上传数据集
@@ -100,6 +131,12 @@ async def websocket_agent(ws: WebSocket):
                 append_user_message=append_user_message,
                 stop_event=stop_event,
             ):
+                if event.type == EventType.ASK_USER_QUESTION and event.tool_call_id:
+                    loop = asyncio.get_running_loop()
+                    future = pending_question_futures.get(event.tool_call_id)
+                    if future is None or future.done():
+                        pending_question_futures[event.tool_call_id] = loop.create_future()
+
                 await _send_event(
                     ws,
                     event.type.value,
@@ -218,11 +255,13 @@ async def websocket_agent(ws: WebSocket):
                 )
         except asyncio.CancelledError:
             logger.info("请求已取消: session_id=%s", session.id)
+            _cancel_pending_questions()
         except Exception as e:
             logger.error("WebSocket 聊天任务异常: %s", e, exc_info=True)
             with suppress(Exception):
                 await _send_event(ws, "error", data=f"服务器错误: {e}")
         finally:
+            _cancel_pending_questions()
             if active_chat_task is asyncio.current_task():
                 active_chat_task = None
                 active_stop_event = None
@@ -251,9 +290,49 @@ async def websocket_agent(ws: WebSocket):
                     task.cancel()
                     with suppress(asyncio.CancelledError):
                         await task
+                    _cancel_pending_questions()
                     await _send_event(ws, "stopped", data="已停止当前请求")
                 else:
                     await _send_event(ws, "stopped", data="当前没有进行中的请求")
+                continue
+
+            if msg_type == "ask_user_question_answer":
+                tool_call_id = msg.get("tool_call_id")
+                answers_raw = msg.get("answers")
+
+                if not isinstance(tool_call_id, str) or not tool_call_id.strip():
+                    await _send_event(ws, "error", data="ask_user_question_answer 缺少 tool_call_id")
+                    continue
+                if not isinstance(answers_raw, dict):
+                    await _send_event(ws, "error", data="ask_user_question_answer 缺少 answers 对象")
+                    continue
+
+                answers: dict[str, str] = {}
+                for raw_key, raw_value in answers_raw.items():
+                    if not isinstance(raw_key, str):
+                        continue
+                    key = raw_key.strip()
+                    if not key:
+                        continue
+
+                    if isinstance(raw_value, str):
+                        value = raw_value.strip()
+                    elif isinstance(raw_value, (list, tuple)):
+                        parts = [str(item).strip() for item in raw_value if str(item).strip()]
+                        value = ", ".join(parts)
+                    elif raw_value is None:
+                        value = ""
+                    else:
+                        value = str(raw_value).strip()
+
+                    answers[key] = value
+
+                future = pending_question_futures.get(tool_call_id)
+                if future is None or future.done():
+                    await _send_event(ws, "error", data="当前没有待回答的 ask_user_question 请求")
+                    continue
+
+                future.set_result(answers)
                 continue
 
             if msg_type == "retry":
@@ -334,6 +413,7 @@ async def websocket_agent(ws: WebSocket):
         except Exception:
             pass
     finally:
+        _cancel_pending_questions()
         if active_stop_event:
             active_stop_event.set()
         task = active_chat_task

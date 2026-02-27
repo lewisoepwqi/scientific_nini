@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 class WSMessage(BaseModel):
     """客户端发送的 WebSocket 消息。"""
 
-    type: str = "chat"  # chat / retry / stop / upload_complete / ping
+    type: str = "chat"  # chat / retry / stop / ask_user_question_answer / upload_complete / ping
     content: str = ""
     session_id: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -22,7 +22,7 @@ class WSMessage(BaseModel):
 class WSEvent(BaseModel):
     """服务端推送的 WebSocket 事件。"""
 
-    type: str  # text / tool_call / tool_result / retrieval / chart / data / analysis_plan / plan_step_update / plan_progress / task_attempt / done / stopped / error / iteration_start
+    type: str  # text / tool_call / tool_result / ask_user_question / retrieval / chart / data / analysis_plan / plan_step_update / plan_progress / task_attempt / done / stopped / error / iteration_start
     data: Any = None
     session_id: Optional[str] = None
     tool_call_id: Optional[str] = None

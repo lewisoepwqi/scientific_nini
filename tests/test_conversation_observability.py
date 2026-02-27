@@ -295,6 +295,141 @@ class _RetryEchoSkillRegistry(_EchoSkillRegistry):
         }
 
 
+class _BlockedByAllowedToolsResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, tool_calls):
+                self.text = text
+                self.reasoning = ""
+                self.raw_text = text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls == 1:
+            yield _Chunk(
+                text="尝试执行工具",
+                tool_calls=[
+                    {
+                        "id": "call_guard_1",
+                        "type": "function",
+                        "function": {
+                            "name": "echo_tool",
+                            "arguments": json.dumps({"value": "blocked"}, ensure_ascii=False),
+                        },
+                    }
+                ],
+            )
+            return
+
+        yield _Chunk(text="已结束", tool_calls=[])
+
+
+class _GuardedSkillRegistry(_EchoSkillRegistry):
+    def __init__(self) -> None:
+        self.execute_calls = 0
+
+    def list_markdown_skills(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "markdown",
+                "name": "guarded-skill",
+                "description": "受限技能",
+                "category": "workflow",
+                "location": "/tmp/guarded/SKILL.md",
+                "enabled": True,
+                "metadata": {
+                    "user_invocable": True,
+                    "allowed_tools": ["run_code"],
+                },
+            }
+        ]
+
+    async def execute(self, skill_name: str, session: Session, **kwargs):
+        self.execute_calls += 1
+        return await super().execute(skill_name, session, **kwargs)
+
+
+class _LoadDatasetBypassResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, tool_calls):
+                self.text = text
+                self.reasoning = ""
+                self.raw_text = text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls == 1:
+            yield _Chunk(
+                text="先加载数据",
+                tool_calls=[
+                    {
+                        "id": "call_load_1",
+                        "type": "function",
+                        "function": {
+                            "name": "load_dataset",
+                            "arguments": json.dumps(
+                                {"dataset_name": "all.xlsx"},
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+            )
+            return
+
+        yield _Chunk(text="加载完成", tool_calls=[])
+
+
+class _LoadDatasetGuardedSkillRegistry:
+    def __init__(self) -> None:
+        self.execute_calls = 0
+
+    def get_tool_definitions(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "load_dataset",
+                    "description": "加载数据集",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
+    def list_markdown_skills(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "markdown",
+                "name": "guarded-skill",
+                "description": "受限技能",
+                "category": "workflow",
+                "location": "/tmp/guarded/SKILL.md",
+                "enabled": True,
+                "metadata": {
+                    "user_invocable": True,
+                    "allowed_tools": ["run_code"],
+                },
+            }
+        ]
+
+    async def execute(self, skill_name: str, session: Session, **kwargs):
+        self.execute_calls += 1
+        if skill_name != "load_dataset":
+            return {"error": f"unknown skill: {skill_name}"}
+        return {"success": True, "message": "load ok"}
+
+
 @pytest.fixture(autouse=True)
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
@@ -593,6 +728,55 @@ async def test_runner_preserves_raw_assistant_content_for_tool_calls() -> None:
     assert isinstance(content, str)
     assert "<think>" in content
     assert "</think>" in content
+
+
+@pytest.mark.asyncio
+async def test_runner_does_not_block_tool_outside_allowed_tools_recommendation() -> None:
+    session = Session()
+    registry = _GuardedSkillRegistry()
+    runner = AgentRunner(
+        resolver=_BlockedByAllowedToolsResolver(),
+        skill_registry=registry,
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    events = []
+    async for event in runner.run(session, "/guarded-skill 执行流程"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    tool_results = [e for e in events if e.type == EventType.TOOL_RESULT]
+    assert tool_results
+    last_result = tool_results[-1]
+    assert isinstance(last_result.data, dict)
+    assert last_result.data.get("status") == "success"
+    assert registry.execute_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_runner_allows_load_dataset_when_not_in_allowed_tools() -> None:
+    session = Session()
+    registry = _LoadDatasetGuardedSkillRegistry()
+    runner = AgentRunner(
+        resolver=_LoadDatasetBypassResolver(),
+        skill_registry=registry,
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    events = []
+    async for event in runner.run(session, "/guarded-skill 先加载数据"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    tool_results = [
+        e for e in events if e.type == EventType.TOOL_RESULT and e.tool_name == "load_dataset"
+    ]
+    assert tool_results
+    assert isinstance(tool_results[-1].data, dict)
+    assert tool_results[-1].data.get("status") == "success"
+    assert registry.execute_calls == 1
 
 
 def test_compress_session_history_archives_and_updates_context() -> None:

@@ -8,6 +8,7 @@ import { useStore, type Message } from '../store'
 import MessageBubble from './MessageBubble'
 import AgentTurnGroup from './AgentTurnGroup'
 import ChatInputArea from './ChatInputArea'
+import AskUserQuestionPanel from './AskUserQuestionPanel'
 import { Loader2 } from 'lucide-react'
 
 /** 消息分组：用户消息独立，同一 turnId 的 agent 消息合并为一组 */
@@ -62,6 +63,8 @@ function groupMessages(messages: Message[]): MessageGroup[] {
 export default function ChatPanel() {
   const messages = useStore((s) => s.messages)
   const isStreaming = useStore((s) => s.isStreaming)
+  const pendingAskUserQuestion = useStore((s) => s.pendingAskUserQuestion)
+  const submitAskUserQuestionAnswers = useStore((s) => s.submitAskUserQuestionAnswers)
   const retryLastTurn = useStore((s) => s.retryLastTurn)
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -178,6 +181,12 @@ export default function ChatPanel() {
       </div>
 
       {/* 输入区 */}
+      {pendingAskUserQuestion && (
+        <AskUserQuestionPanel
+          pending={pendingAskUserQuestion}
+          onSubmit={submitAskUserQuestionAnswers}
+        />
+      )}
       <ChatInputArea />
     </div>
   )

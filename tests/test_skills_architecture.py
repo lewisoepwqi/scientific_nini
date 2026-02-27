@@ -330,6 +330,22 @@ def test_scan_supports_multiple_roots_with_priority(tmp_path: Path) -> None:
     assert results[1].metadata["discovery_priority"] == 1
 
 
+def test_scan_infers_opencode_source_standard(tmp_path: Path) -> None:
+    """扫描 .opencode/skills 目录时应标记 source_standard=opencode。"""
+    skill_file = tmp_path / ".opencode" / "skills" / "opskill" / "SKILL.md"
+    _write_skill_md(
+        skill_file,
+        name="opskill",
+        description="OpenCode 技能",
+        category="workflow",
+    )
+    results = scan_markdown_skills(tmp_path / ".opencode" / "skills")
+    assert len(results) == 1
+    standards = results[0].metadata.get("source_standard")
+    assert isinstance(standards, list)
+    assert "opencode" in standards
+
+
 # ---------------------------------------------------------------------------
 # 5. render_skills_snapshot() 包含 category
 # ---------------------------------------------------------------------------
@@ -357,6 +373,8 @@ def test_snapshot_includes_category() -> None:
     ]
     text = render_skills_snapshot(skills)
 
+    assert "## available_tools" in text
+    assert "## available_markdown_skills" in text
     assert "category: statistics" in text
     assert "category: visualization" in text
 

@@ -174,6 +174,14 @@ class SkillRegistry:
                 return [item for item in all_items if item.get("type") == skill_type]
         return all_items
 
+    def list_tools_catalog(self) -> list[dict[str, Any]]:
+        """返回可执行 Function Tools 目录。"""
+        return self.list_function_skills()
+
+    def list_markdown_skill_catalog(self) -> list[dict[str, Any]]:
+        """返回 Markdown Skills 目录。"""
+        return self.list_markdown_skills()
+
     def reload_markdown_skills(self) -> list[dict[str, Any]]:
         """重新扫描 Markdown 技能并应用冲突策略。"""
         markdown_skills = scan_markdown_skills(settings.skills_search_dirs)
@@ -236,8 +244,10 @@ class SkillRegistry:
 
     def write_skills_snapshot(self) -> None:
         """将聚合技能目录写入快照文件。"""
-        catalog = self.list_skill_catalog()
-        content = render_skills_snapshot(catalog)
+        content = render_skills_snapshot(
+            self.list_function_skills(),
+            self.list_markdown_skills(),
+        )
         settings.skills_snapshot_path.write_text(content, encoding="utf-8")
 
     def get_tool_definitions(self) -> list[dict[str, Any]]:

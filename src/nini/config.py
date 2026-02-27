@@ -255,6 +255,7 @@ class Settings(BaseSettings):
             # 项目级兼容目录（优先）
             _append(_ROOT / ".codex" / "skills")
             _append(_ROOT / ".claude" / "skills")
+            _append(_ROOT / ".opencode" / "skills")
             _append(_ROOT / ".agents" / "skills")
 
         # 现有默认目录

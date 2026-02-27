@@ -143,6 +143,25 @@ export interface AnalysisTaskItem {
   updated_at: number;
 }
 
+export interface AskUserQuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface AskUserQuestionItem {
+  question: string;
+  header?: string;
+  options: AskUserQuestionOption[];
+  multiSelect?: boolean;
+  allowTextInput?: boolean;
+}
+
+export interface PendingAskUserQuestion {
+  toolCallId: string;
+  questions: AskUserQuestionItem[];
+  createdAt: number;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant" | "tool";
@@ -288,6 +307,7 @@ interface AppState {
   ws: WebSocket | null;
   wsConnected: boolean;
   isStreaming: boolean;
+  pendingAskUserQuestion: PendingAskUserQuestion | null;
 
   // 当前流式文本的累积
   _streamingText: string;
@@ -304,6 +324,7 @@ interface AppState {
   disconnect: () => void;
   initApp: () => Promise<void>;
   sendMessage: (content: string) => void;
+  submitAskUserQuestionAnswers: (answers: Record<string, string>) => void;
   stopStreaming: () => void;
   retryLastTurn: () => void;
   uploadFile: (file: File) => Promise<void>;
@@ -952,6 +973,7 @@ export const useStore = create<AppState>((set, get) => ({
   ws: null,
   wsConnected: false,
   isStreaming: false,
+  pendingAskUserQuestion: null,
   _streamingText: "",
   _currentTurnId: null,
   _reconnectAttempts: 0,
@@ -999,6 +1021,7 @@ export const useStore = create<AppState>((set, get) => ({
         ws: null,
         wsConnected: false,
         isStreaming: false,
+        pendingAskUserQuestion: null,
         _streamingText: "",
         _currentTurnId: null,
         _activePlanMsgId: null,
@@ -1046,6 +1069,7 @@ export const useStore = create<AppState>((set, get) => ({
       wsConnected: false,
       _reconnectAttempts: 0,
       isStreaming: false,
+      pendingAskUserQuestion: null,
       _streamingText: "",
       _currentTurnId: null,
       _activePlanMsgId: null,
@@ -1093,8 +1117,9 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   sendMessage(content: string) {
-    const { ws, sessionId } = get();
+    const { ws, sessionId, pendingAskUserQuestion } = get();
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (pendingAskUserQuestion) return;
 
     // 添加用户消息
     const userMsg: Message = {
@@ -1116,12 +1141,38 @@ export const useStore = create<AppState>((set, get) => ({
 
     set({
       isStreaming: true,
+      pendingAskUserQuestion: null,
       _streamingText: "",
       _analysisPlanOrder: 0,
       analysisPlanProgress: null,
       _activePlanTaskIds: [],
       _planActionTaskMap: {},
     });
+  },
+
+  submitAskUserQuestionAnswers(answers: Record<string, string>) {
+    const { ws, sessionId, pendingAskUserQuestion } = get();
+    if (!pendingAskUserQuestion) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    const normalizedAnswers: Record<string, string> = {};
+    for (const [rawKey, rawValue] of Object.entries(answers)) {
+      const key = rawKey.trim();
+      if (!key) continue;
+      const value = String(rawValue ?? "").trim();
+      normalizedAnswers[key] = value;
+    }
+    if (Object.keys(normalizedAnswers).length === 0) return;
+
+    ws.send(
+      JSON.stringify({
+        type: "ask_user_question_answer",
+        session_id: sessionId,
+        tool_call_id: pendingAskUserQuestion.toolCallId,
+        answers: normalizedAnswers,
+      }),
+    );
+    set({ pendingAskUserQuestion: null });
   },
 
   stopStreaming() {
@@ -1140,6 +1191,7 @@ export const useStore = create<AppState>((set, get) => ({
     // 立即停止前端流式状态，避免继续渲染后续 token
     set({
       isStreaming: false,
+      pendingAskUserQuestion: null,
       _streamingText: "",
       _currentTurnId: null,
       _activePlanMsgId: null,
@@ -1170,6 +1222,7 @@ export const useStore = create<AppState>((set, get) => ({
     set({
       messages: trimmedMessages,
       isStreaming: true,
+      pendingAskUserQuestion: null,
       _streamingText: "",
       _currentTurnId: null,
       _activePlanMsgId: null,
@@ -1275,6 +1328,7 @@ export const useStore = create<AppState>((set, get) => ({
     set({
       messages: [],
       sessionId: null,
+      pendingAskUserQuestion: null,
       contextCompressionTick: 0,
       datasets: [],
       workspaceFiles: [],
@@ -1338,11 +1392,26 @@ export const useStore = create<AppState>((set, get) => ({
 
   async fetchSkills() {
     try {
-      const resp = await fetch("/api/skills");
-      const payload = await resp.json();
-      const data = isRecord(payload.data) ? payload.data : null;
-      const skills = data && Array.isArray(data.skills) ? data.skills : [];
-      set({ skills: skills as SkillItem[] });
+      const [skillsResp, toolsResp] = await Promise.all([
+        fetch("/api/skills"),
+        fetch("/api/tools"),
+      ]);
+      const [skillsPayload, toolsPayload] = await Promise.all([
+        skillsResp.json(),
+        toolsResp.json(),
+      ]);
+
+      const skillsData = isRecord(skillsPayload.data) ? skillsPayload.data : null;
+      const toolsData = isRecord(toolsPayload.data) ? toolsPayload.data : null;
+
+      const markdownSkills =
+        skillsData && Array.isArray(skillsData.skills) ? skillsData.skills : [];
+      const functionTools =
+        toolsData && Array.isArray(toolsData.tools) ? toolsData.tools : [];
+
+      set({
+        skills: [...(functionTools as SkillItem[]), ...(markdownSkills as SkillItem[])],
+      });
     } catch (e) {
       console.error("获取技能列表失败:", e);
     }
@@ -1726,6 +1795,7 @@ export const useStore = create<AppState>((set, get) => ({
       set({
         sessionId: newSessionId,
         messages: [],
+        pendingAskUserQuestion: null,
         contextCompressionTick: 0,
         datasets: [],
         workspaceFiles: [],
@@ -1761,6 +1831,7 @@ export const useStore = create<AppState>((set, get) => ({
         set({
           sessionId: targetSessionId,
           messages: [],
+          pendingAskUserQuestion: null,
           contextCompressionTick: 0,
           previewTabs: [],
           previewFileId: null,
@@ -1790,6 +1861,7 @@ export const useStore = create<AppState>((set, get) => ({
       set({
         sessionId: targetSessionId,
         messages,
+        pendingAskUserQuestion: null,
         contextCompressionTick: 0,
         previewTabs: [],
         previewFileId: null,
@@ -1822,6 +1894,7 @@ export const useStore = create<AppState>((set, get) => ({
         set({
           sessionId: null,
           messages: [],
+          pendingAskUserQuestion: null,
           contextCompressionTick: 0,
           datasets: [],
           workspaceFiles: [],
@@ -2943,6 +3016,56 @@ function handleEvent(
       break;
     }
 
+    case "ask_user_question": {
+      const data = isRecord(evt.data) ? evt.data : null;
+      const toolCallId =
+        typeof evt.tool_call_id === "string" && evt.tool_call_id.trim()
+          ? evt.tool_call_id.trim()
+          : "";
+      const rawQuestions =
+        data && Array.isArray(data.questions) ? data.questions : [];
+      if (!toolCallId || rawQuestions.length === 0) break;
+
+      const questions: AskUserQuestionItem[] = rawQuestions
+        .filter((item): item is Record<string, unknown> => isRecord(item))
+        .map((item) => {
+          const rawOptions = Array.isArray(item.options) ? item.options : [];
+          const options: AskUserQuestionOption[] = rawOptions
+            .filter((opt): opt is Record<string, unknown> => isRecord(opt))
+            .map((opt) => ({
+              label: typeof opt.label === "string" ? opt.label.trim() : "",
+              description:
+                typeof opt.description === "string"
+                  ? opt.description.trim()
+                  : "",
+            }))
+            .filter((opt) => opt.label && opt.description);
+
+          return {
+            question:
+              typeof item.question === "string" ? item.question.trim() : "",
+            header: typeof item.header === "string" ? item.header.trim() : "",
+            options,
+            multiSelect: item.multiSelect === true,
+            allowTextInput:
+              typeof item.allowTextInput === "boolean"
+                ? item.allowTextInput
+                : true,
+          };
+        })
+        .filter((item) => item.question && item.options.length >= 2);
+
+      if (questions.length === 0) break;
+      set({
+        pendingAskUserQuestion: {
+          toolCallId,
+          questions,
+          createdAt: Date.now(),
+        },
+      });
+      break;
+    }
+
     case "reasoning": {
       // 如果同一 turnId 已有 analysis_plan 消息，则跳过 reasoning（避免重复）
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
@@ -3038,6 +3161,7 @@ function handleEvent(
         (status === "error" ? "工具执行失败" : "工具执行完成");
       const toolCallId = evt.tool_call_id;
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
+      const shouldClearPendingQuestion = evt.tool_name === "ask_user_question";
 
       set((s) => {
         const msgs = [...s.messages];
@@ -3077,7 +3201,10 @@ function handleEvent(
             timestamp: Date.now(),
           });
         }
-        return { messages: msgs };
+        return {
+          messages: msgs,
+          ...(shouldClearPendingQuestion ? { pendingAskUserQuestion: null } : {}),
+        };
       });
       break;
     }
@@ -3278,6 +3405,7 @@ function handleEvent(
         return {
           messages: finalizeReasoningMessages(s.messages, turnId),
           isStreaming: false,
+          pendingAskUserQuestion: null,
           _streamingText: "",
           _currentTurnId: null,
           _activePlanMsgId: null,
@@ -3327,6 +3455,7 @@ function handleEvent(
         return {
           messages: finalizeReasoningMessages(s.messages, turnId),
           isStreaming: false,
+          pendingAskUserQuestion: null,
           _streamingText: "",
           _currentTurnId: null,
           _activePlanMsgId: null,
@@ -3360,6 +3489,7 @@ function handleEvent(
           errMsg,
         ],
         isStreaming: false,
+        pendingAskUserQuestion: null,
         _streamingText: "",
         _currentTurnId: null,
         _activePlanMsgId: null,

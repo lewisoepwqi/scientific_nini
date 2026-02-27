@@ -82,7 +82,7 @@ def test_markdown_skill_name_conflict_is_disabled(
     assert markdown[0]["metadata"]["conflict_with"] == "function"
 
 
-def test_api_skills_returns_hybrid_catalog(
+def test_api_skills_and_tools_split_catalog(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -101,15 +101,23 @@ def test_api_skills_returns_hybrid_catalog(
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["success"] is True
-        skills = payload["data"]["skills"]
-        assert any(item["type"] == "function" for item in skills)
-        assert any(item["type"] == "markdown" for item in skills)
-
-        markdown_resp = client.get("/api/skills", params={"skill_type": "markdown"})
-        markdown_payload = markdown_resp.json()
-        markdown_skills = markdown_payload["data"]["skills"]
+        markdown_skills = payload["data"]["skills"]
         assert markdown_skills
         assert all(item["type"] == "markdown" for item in markdown_skills)
+
+        tools_resp = client.get("/api/tools")
+        assert tools_resp.status_code == 200
+        tools_payload = tools_resp.json()
+        assert tools_payload["success"] is True
+        tools = tools_payload["data"]["tools"]
+        assert tools
+        assert all(item["type"] == "function" for item in tools)
+
+        all_resp = client.get("/api/skills", params={"skill_type": "all"})
+        all_payload = all_resp.json()
+        all_items = all_payload["data"]["skills"]
+        assert any(item["type"] == "function" for item in all_items)
+        assert any(item["type"] == "markdown" for item in all_items)
 
 
 def test_api_markdown_skill_upload(
