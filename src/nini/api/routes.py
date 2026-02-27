@@ -7,6 +7,7 @@ import io
 import logging
 import mimetypes
 import re
+import shutil
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -24,6 +25,11 @@ from nini.models.schemas import (
     APIResponse,
     DatasetInfo,
     FileRenameRequest,
+    MarkdownSkillDirCreateRequest,
+    MarkdownSkillEnabledRequest,
+    MarkdownSkillFileWriteRequest,
+    MarkdownSkillPathDeleteRequest,
+    MarkdownSkillUpdateRequest,
     ModelConfigRequest,
     ModelPrioritiesRequest,
     ModelRoutingRequest,
@@ -32,6 +38,14 @@ from nini.models.schemas import (
     SessionUpdateRequest,
     SetActiveModelRequest,
     UploadResponse,
+)
+from nini.tools.markdown_skill_admin import (
+    MarkdownSkillDocument,
+    guess_skill_name_from_filename,
+    normalize_category,
+    parse_skill_document,
+    render_skill_document,
+    validate_skill_name,
 )
 from nini.utils.chart_payload import normalize_chart_payload
 from nini.utils.dataframe_io import read_dataframe
@@ -43,6 +57,83 @@ logger = logging.getLogger(__name__)
 
 # Excel 序列日期关键词（用于启发式检测）
 _DATE_HINTS = {"日期", "时间", "时刻", "date", "time", "datetime", "timestamp"}
+_SKILL_UPLOAD_EXTENSIONS = {".md", ".markdown", ".txt"}
+
+
+def _get_skill_registry():
+    from nini.api.websocket import get_skill_registry
+
+    registry = get_skill_registry()
+    if registry is None:
+        raise HTTPException(status_code=503, detail="技能注册中心尚未初始化")
+    return registry
+
+
+def _refresh_skill_registry(registry: Any) -> None:
+    registry.reload_markdown_skills()
+    registry.write_skills_snapshot()
+
+
+def _resolve_skill_path_inside_root(path_str: str) -> Path:
+    path = Path(path_str).resolve()
+    allowed_roots = settings.skills_search_dirs
+    if not any(path.is_relative_to(root) for root in allowed_roots):
+        raise HTTPException(status_code=400, detail="非法技能路径（不在允许的 skills 目录中）")
+    return path
+
+
+def _get_markdown_skill_item_or_404(registry: Any, skill_name: str) -> dict[str, Any]:
+    item = registry.get_markdown_skill(skill_name)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"Markdown 技能 '{skill_name}' 不存在")
+    return item
+
+
+def _get_markdown_skill_dir_or_404(registry: Any, skill_name: str) -> Path:
+    """获取 Markdown Skill 所在目录。"""
+    item = _get_markdown_skill_item_or_404(registry, skill_name)
+    skill_path = _resolve_skill_path_inside_root(str(item.get("location", "")))
+    if not skill_path.exists():
+        raise HTTPException(status_code=404, detail=f"技能文件不存在: {skill_path}")
+    return skill_path.parent
+
+
+def _resolve_skill_relative_path(skill_dir: Path, relative_path: str) -> Path:
+    """将技能相对路径解析为安全绝对路径。"""
+    raw = relative_path.strip().replace("\\", "/")
+    if not raw:
+        raise HTTPException(status_code=400, detail="path 不能为空")
+
+    rel = Path(raw)
+    if rel.is_absolute():
+        raise HTTPException(status_code=400, detail="path 不能为绝对路径")
+    if any(part in (".", "..", "") for part in rel.parts):
+        raise HTTPException(status_code=400, detail="path 非法")
+
+    target = (skill_dir / rel).resolve()
+    if not target.is_relative_to(skill_dir):
+        raise HTTPException(status_code=400, detail="path 超出技能目录")
+    return target
+
+
+def _build_skill_file_entries(skill_dir: Path) -> list[dict[str, Any]]:
+    """构建技能目录的文件树（扁平列表）。"""
+    entries: list[dict[str, Any]] = []
+    for path in sorted(skill_dir.rglob("*")):
+        if path.name.startswith(".") and path.name != ".gitkeep":
+            continue
+        rel = path.relative_to(skill_dir).as_posix()
+        stat = path.stat()
+        entries.append(
+            {
+                "path": rel,
+                "name": path.name,
+                "type": "dir" if path.is_dir() else "file",
+                "size": stat.st_size if path.is_file() else 0,
+                "updated_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+            }
+        )
+    return entries
 
 
 def _fix_excel_serial_dates(df: pd.DataFrame) -> pd.DataFrame:
@@ -290,18 +381,388 @@ async def compress_session(session_id: str, mode: str = "auto"):
 @router.get("/skills", response_model=APIResponse)
 async def list_skills(skill_type: str | None = None):
     """获取能力目录（Function Tool + Markdown Skill）。"""
-    from nini.api.websocket import get_skill_registry
-
-    registry = get_skill_registry()
-    if registry is None:
-        return APIResponse(data={"skills": []})
-
-    # 每次请求都刷新 Markdown Skills 快照，确保前端看到最新状态
-    registry.reload_markdown_skills()
-    registry.write_skills_snapshot()
-
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
     skills = registry.list_skill_catalog(skill_type)
     return APIResponse(data={"skills": skills})
+
+
+@router.post("/skills/markdown/upload", response_model=APIResponse)
+async def upload_markdown_skill(file: UploadFile = File(...)):
+    """上传 Markdown Skill 文件。"""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="缺少文件名")
+
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in _SKILL_UPLOAD_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"仅支持上传 {sorted(_SKILL_UPLOAD_EXTENSIONS)}",
+        )
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="上传文件为空")
+    if len(raw) > settings.max_upload_size:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件过大（{len(raw)} 字节），最大 {settings.max_upload_size} 字节",
+        )
+
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"文件不是合法 UTF-8 编码: {exc}") from exc
+
+    fallback_name = guess_skill_name_from_filename(file.filename)
+    try:
+        document = parse_skill_document(text, fallback_name=fallback_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    if registry.get_markdown_skill(document.name):
+        raise HTTPException(status_code=409, detail=f"技能 '{document.name}' 已存在")
+
+    skill_dir = settings.skills_dir / document.name
+    target = skill_dir / "SKILL.md"
+    if target.exists():
+        raise HTTPException(status_code=409, detail=f"技能 '{document.name}' 已存在")
+
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    target.write_text(render_skill_document(document), encoding="utf-8")
+
+    _refresh_skill_registry(registry)
+    skill = registry.get_markdown_skill(document.name)
+    return APIResponse(data={"skill": skill})
+
+
+@router.get("/skills/markdown/{skill_name}", response_model=APIResponse)
+async def get_markdown_skill(skill_name: str):
+    """获取 Markdown Skill 详情（含全文内容）。"""
+    try:
+        validated_name = validate_skill_name(skill_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    item = _get_markdown_skill_item_or_404(registry, validated_name)
+    skill_path = _resolve_skill_path_inside_root(str(item.get("location", "")))
+    if not skill_path.exists():
+        raise HTTPException(status_code=404, detail=f"技能文件不存在: {skill_path}")
+
+    content = skill_path.read_text(encoding="utf-8")
+    parsed = parse_skill_document(content, fallback_name=validated_name)
+    return APIResponse(
+        data={
+            "skill": {
+                **item,
+                "description": parsed.description,
+                "category": parsed.category,
+                "content": content,
+            }
+        }
+    )
+
+
+@router.put("/skills/markdown/{skill_name}", response_model=APIResponse)
+async def update_markdown_skill(skill_name: str, req: MarkdownSkillUpdateRequest):
+    """编辑 Markdown Skill（描述/分类/正文）。"""
+    try:
+        validated_name = validate_skill_name(skill_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    description = req.description.strip()
+    if not description:
+        raise HTTPException(status_code=400, detail="描述不能为空")
+
+    try:
+        category = normalize_category(req.category, strict=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    item = _get_markdown_skill_item_or_404(registry, validated_name)
+    skill_path = _resolve_skill_path_inside_root(str(item.get("location", "")))
+    if not skill_path.exists():
+        raise HTTPException(status_code=404, detail=f"技能文件不存在: {skill_path}")
+
+    existing_content = skill_path.read_text(encoding="utf-8")
+    existing_document = parse_skill_document(existing_content, fallback_name=validated_name)
+    updated_document = MarkdownSkillDocument(
+        name=validated_name,
+        description=description,
+        category=category,
+        body=req.content.strip() or existing_document.body,
+        frontmatter=existing_document.frontmatter,
+    )
+    skill_path.write_text(render_skill_document(updated_document), encoding="utf-8")
+
+    _refresh_skill_registry(registry)
+    updated_item = _get_markdown_skill_item_or_404(registry, validated_name)
+    return APIResponse(
+        data={
+            "skill": {
+                **updated_item,
+                "content": skill_path.read_text(encoding="utf-8"),
+            }
+        }
+    )
+
+
+@router.patch("/skills/markdown/{skill_name}/enabled", response_model=APIResponse)
+async def update_markdown_skill_enabled(skill_name: str, req: MarkdownSkillEnabledRequest):
+    """切换 Markdown Skill 启用状态。"""
+    try:
+        validated_name = validate_skill_name(skill_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    registry = _get_skill_registry()
+    registry.reload_markdown_skills()
+    updated = registry.set_markdown_skill_enabled(validated_name, req.enabled)
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Markdown 技能 '{validated_name}' 不存在")
+    return APIResponse(data={"skill": updated})
+
+
+@router.delete("/skills/markdown/{skill_name}", response_model=APIResponse)
+async def delete_markdown_skill(skill_name: str):
+    """删除 Markdown Skill。"""
+    try:
+        validated_name = validate_skill_name(skill_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    item = _get_markdown_skill_item_or_404(registry, validated_name)
+    skill_path = _resolve_skill_path_inside_root(str(item.get("location", "")))
+    if not skill_path.exists():
+        raise HTTPException(status_code=404, detail=f"技能文件不存在: {skill_path}")
+
+    skill_dir = skill_path.parent
+    shutil.rmtree(skill_dir, ignore_errors=False)
+    registry.remove_markdown_skill_override(validated_name)
+    _refresh_skill_registry(registry)
+    return APIResponse(data={"deleted": validated_name})
+
+
+@router.get("/skills/markdown/{skill_name}/files", response_model=APIResponse)
+async def list_markdown_skill_files(skill_name: str):
+    """列出 Markdown Skill 目录内文件（含脚本/引用文档/资源）。"""
+    try:
+        validated_name = validate_skill_name(skill_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    skill_dir = _get_markdown_skill_dir_or_404(registry, validated_name)
+    files = _build_skill_file_entries(skill_dir)
+    return APIResponse(
+        data={
+            "skill_name": validated_name,
+            "root": str(skill_dir),
+            "files": files,
+        }
+    )
+
+
+@router.get("/skills/markdown/{skill_name}/files/content", response_model=APIResponse)
+async def get_markdown_skill_file_content(skill_name: str, path: str):
+    """读取 Markdown Skill 目录中的单个文件。"""
+    try:
+        validated_name = validate_skill_name(skill_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    skill_dir = _get_markdown_skill_dir_or_404(registry, validated_name)
+    target = _resolve_skill_relative_path(skill_dir, path)
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail=f"文件不存在: {path}")
+
+    raw = target.read_bytes()
+    is_text = True
+    content: str | None
+    try:
+        content = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        is_text = False
+        content = None
+
+    return APIResponse(
+        data={
+            "skill_name": validated_name,
+            "path": target.relative_to(skill_dir).as_posix(),
+            "is_text": is_text,
+            "size": len(raw),
+            "content": content,
+        }
+    )
+
+
+@router.put("/skills/markdown/{skill_name}/files/content", response_model=APIResponse)
+async def save_markdown_skill_file_content(skill_name: str, req: MarkdownSkillFileWriteRequest):
+    """保存 Markdown Skill 文本文件内容。"""
+    try:
+        validated_name = validate_skill_name(skill_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    skill_dir = _get_markdown_skill_dir_or_404(registry, validated_name)
+    target = _resolve_skill_relative_path(skill_dir, req.path)
+    if target.exists() and target.is_dir():
+        raise HTTPException(status_code=400, detail="目标路径是目录，不能写入文本")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(req.content, encoding="utf-8")
+    _refresh_skill_registry(registry)
+    return APIResponse(
+        data={
+            "skill_name": validated_name,
+            "path": target.relative_to(skill_dir).as_posix(),
+            "size": target.stat().st_size,
+        }
+    )
+
+
+@router.post("/skills/markdown/{skill_name}/files/upload", response_model=APIResponse)
+async def upload_markdown_skill_attachment(
+    skill_name: str,
+    file: UploadFile = File(...),
+    dir_path: str = Form(""),
+    overwrite: bool = Form(False),
+):
+    """上传 Markdown Skill 附属文件（脚本/引用文档/资源）。"""
+    try:
+        validated_name = validate_skill_name(skill_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="缺少文件名")
+
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    skill_dir = _get_markdown_skill_dir_or_404(registry, validated_name)
+
+    safe_filename = Path(file.filename).name
+    if not safe_filename:
+        raise HTTPException(status_code=400, detail="非法文件名")
+
+    target_relative = f"{dir_path.strip().strip('/')}/{safe_filename}".strip("/")
+    target = _resolve_skill_relative_path(skill_dir, target_relative)
+
+    content = await file.read()
+    if len(content) > settings.max_upload_size:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件过大（{len(content)} 字节），最大 {settings.max_upload_size} 字节",
+        )
+
+    if target.exists() and target.is_dir():
+        raise HTTPException(status_code=400, detail="目标路径是目录")
+    if target.exists() and not overwrite:
+        raise HTTPException(status_code=409, detail=f"文件已存在: {target_relative}")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(content)
+    _refresh_skill_registry(registry)
+    return APIResponse(
+        data={
+            "skill_name": validated_name,
+            "path": target.relative_to(skill_dir).as_posix(),
+            "size": len(content),
+        }
+    )
+
+
+@router.post("/skills/markdown/{skill_name}/dirs", response_model=APIResponse)
+async def create_markdown_skill_dir(skill_name: str, req: MarkdownSkillDirCreateRequest):
+    """创建 Markdown Skill 子目录。"""
+    try:
+        validated_name = validate_skill_name(skill_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    skill_dir = _get_markdown_skill_dir_or_404(registry, validated_name)
+    target = _resolve_skill_relative_path(skill_dir, req.path)
+    if target.exists() and target.is_file():
+        raise HTTPException(status_code=400, detail="同名文件已存在，无法创建目录")
+    target.mkdir(parents=True, exist_ok=True)
+    return APIResponse(
+        data={
+            "skill_name": validated_name,
+            "path": target.relative_to(skill_dir).as_posix(),
+        }
+    )
+
+
+@router.delete("/skills/markdown/{skill_name}/paths", response_model=APIResponse)
+async def delete_markdown_skill_path(skill_name: str, req: MarkdownSkillPathDeleteRequest):
+    """删除 Markdown Skill 目录内文件或子目录。"""
+    try:
+        validated_name = validate_skill_name(skill_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    skill_dir = _get_markdown_skill_dir_or_404(registry, validated_name)
+    target = _resolve_skill_relative_path(skill_dir, req.path)
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=f"路径不存在: {req.path}")
+
+    if target.resolve() == skill_dir.resolve():
+        raise HTTPException(status_code=400, detail="不能删除技能根目录")
+    if target.name.lower() == "skill.md":
+        raise HTTPException(status_code=400, detail="不能删除 SKILL.md，请使用技能删除接口")
+
+    relative = target.relative_to(skill_dir).as_posix()
+    if target.is_dir():
+        shutil.rmtree(target, ignore_errors=False)
+    else:
+        target.unlink(missing_ok=False)
+    _refresh_skill_registry(registry)
+    return APIResponse(data={"skill_name": validated_name, "deleted": relative})
+
+
+@router.get("/skills/markdown/{skill_name}/bundle")
+async def download_markdown_skill_bundle(skill_name: str):
+    """打包下载完整 Markdown Skill 目录。"""
+    try:
+        validated_name = validate_skill_name(skill_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    skill_dir = _get_markdown_skill_dir_or_404(registry, validated_name)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(skill_dir.rglob("*")):
+            if path.is_file():
+                arcname = f"{validated_name}/{path.relative_to(skill_dir).as_posix()}"
+                zf.write(path, arcname)
+
+    filename = f"{validated_name}.zip"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---- 文件上传 ----

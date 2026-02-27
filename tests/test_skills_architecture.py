@@ -277,6 +277,59 @@ def test_scan_nonexistent_dir(tmp_path: Path) -> None:
     assert scan_markdown_skills(tmp_path / "does_not_exist") == []
 
 
+def test_scan_parses_agent_skill_metadata(tmp_path: Path) -> None:
+    """应兼容解析 Agent Skills 扩展 frontmatter 字段。"""
+    _write_skill_md(
+        tmp_path / "compat_skill" / "SKILL.md",
+        name="compat_skill",
+        description="兼容技能",
+        category="workflow",
+        extra_frontmatter=(
+            "agents:\n"
+            "  - openai/codex\n"
+            "  - anthropic/claude-code\n"
+            "aliases:\n"
+            "  - 根长分析\n"
+            "  - root length analysis\n"
+            "allowed-tools:\n"
+            "  - read_file\n"
+            "  - run_tests\n"
+            "argument-hint: issue-id\n"
+            "user-invocable: true"
+        ),
+    )
+    results = scan_markdown_skills(tmp_path)
+
+    assert len(results) == 1
+    metadata = results[0].metadata
+    assert metadata.get("agents") == ["openai/codex", "anthropic/claude-code"]
+    assert metadata.get("aliases") == ["根长分析", "root length analysis"]
+    assert metadata.get("allowed_tools") == ["read_file", "run_tests"]
+    assert metadata.get("argument_hint") == "issue-id"
+    assert metadata.get("user_invocable") is True
+
+
+def test_scan_supports_multiple_roots_with_priority(tmp_path: Path) -> None:
+    """多目录扫描时应保留发现优先级信息。"""
+    high_root = tmp_path / "high"
+    low_root = tmp_path / "low"
+    _write_skill_md(
+        high_root / "same_skill" / "SKILL.md",
+        name="same_skill",
+        description="高优先级版本",
+    )
+    _write_skill_md(
+        low_root / "same_skill" / "SKILL.md",
+        name="same_skill",
+        description="低优先级版本",
+    )
+
+    results = scan_markdown_skills([high_root, low_root])
+    assert len(results) == 2
+    assert results[0].metadata["discovery_priority"] == 0
+    assert results[1].metadata["discovery_priority"] == 1
+
+
 # ---------------------------------------------------------------------------
 # 5. render_skills_snapshot() 包含 category
 # ---------------------------------------------------------------------------

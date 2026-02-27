@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""
+植物根长度分析 - Python版本
+
+自动生成的分析脚本
+数据文件: {{ data_file }}
+颜色方案: {{ color_scheme }}
+基线处理: {{ baseline_treatment }}
+"""
+
+import pandas as pd
+import sys
+from pathlib import Path
+
+# 添加模块路径
+sys.path.insert(0, str(Path(__file__).parent))
+
+from analysis import RootLengthAnalyzer
+from plotting import RootLengthPlotter
+
+
+def main():
+    """主分析流程"""
+
+    print("=" * 60)
+    print("植物根长度分析 - Python版本")
+    print("=" * 60)
+
+    # 创建输出目录
+    output_dir = Path("{{ output_dir }}")
+    (output_dir / "figures").mkdir(parents=True, exist_ok=True)
+    (output_dir / "records").mkdir(parents=True, exist_ok=True)
+
+    # 读取数据
+    print("\n>>> 读取数据...")
+    data_file = "{{ data_file }}"
+    print(f"数据文件: {data_file}")
+
+    try:
+        if data_file.endswith('.csv'):
+            data = pd.read_csv(data_file)
+        elif data_file.endswith(('.xlsx', '.xls')):
+            data = pd.read_excel(data_file)
+        else:
+            raise ValueError(f"不支持的文件格式: {data_file}")
+
+        print(f"成功读取 {len(data)} 行数据")
+        print(f"样本数: {data['sample'].nunique()}")
+        print(f"处理组: {', '.join(data['treatment'].unique())}")
+
+    except Exception as e:
+        print(f"错误: 无法读取数据文件: {e}")
+        sys.exit(1)
+
+    # 创建分析器
+    analyzer = RootLengthAnalyzer(data)
+
+    # 执行ANOVA分析
+    print("\n>>> 统计分析...")
+    anova_results = analyzer.perform_anova()
+
+    # 计算描述性统计
+    summary_stats = analyzer.calculate_summary_statistics()
+
+    # 保存统计摘要
+    summary_path = output_dir / "records" / "anova_summary.txt"
+    with open(summary_path, 'w', encoding='utf-8') as f:
+        f.write(analyzer.get_anova_summary_text())
+    print(f"\nANOVA摘要已保存: {summary_path}")
+
+    # 创建绘图器
+    plotter = RootLengthPlotter(color_scheme="{{ color_scheme }}")
+
+    # 样本排序
+    samples = data['sample'].unique()
+    {% if sample_order %}
+    ordered_samples = {{ sample_order }}
+    print(f"\n使用自定义样本排序")
+    {% else %}
+    ordered_samples = None
+    print(f"\n使用自动样本排序")
+    {% endif %}
+
+    # 创建颜色映射
+    color_map, sample_order = plotter.create_color_map(samples, ordered_samples)
+    print(f"样本顺序: {', '.join(sample_order)}")
+
+    # 保存颜色映射和样本顺序
+    plotter.save_color_mapping(
+        color_map, sample_order,
+        output_dir / "records" / "color_mapping.csv"
+    )
+    plotter.save_sample_order(
+        sample_order,
+        output_dir / "records" / "sample_order.txt"
+    )
+
+    # 绘制根长度图
+    print("\n>>> 生成根长度图...")
+    plotter.plot_root_length(
+        data, summary_stats, color_map, sample_order,
+        output_path=output_dir / "figures" / "root_length_plot.pdf",
+        figsize=({{ plot_width }}, {{ plot_height }})
+    )
+
+    # 比率分析
+    baseline_treatment = "{{ baseline_treatment }}"
+    if baseline_treatment in data['treatment'].unique():
+        print(f"\n>>> 比率分析 (基线: {baseline_treatment})...")
+
+        try:
+            ratio_df = analyzer.calculate_ratios(baseline_treatment)
+
+            if len(ratio_df) > 0:
+                ratio_analysis = analyzer.analyze_ratios(ratio_df)
+
+                # 保存比率数据
+                ratio_df.to_csv(
+                    output_dir / "records" / "ratio_data.csv",
+                    index=False
+                )
+
+                # 绘制比率图
+                print("\n>>> 生成比率图...")
+                plotter.plot_ratio(
+                    ratio_df,
+                    ratio_analysis['letters'],
+                    color_map,
+                    sample_order,
+                    output_path=output_dir / "figures" / "ratio_plot.pdf",
+                    figsize=({{ plot_width }}, {{ plot_height }})
+                )
+            else:
+                print("警告: 无法计算比率（数据不足）")
+
+        except Exception as e:
+            print(f"警告: 比率分析失败: {e}")
+    else:
+        print(f"\n跳过比率分析（基线处理组'{baseline_treatment}'不存在）")
+
+    # 完成
+    print("\n" + "=" * 60)
+    print("分析完成！")
+    print("=" * 60)
+    print(f"\n输出文件位置: {output_dir.absolute()}")
+    print(f"  - 图表: {output_dir / 'figures'}")
+    print(f"  - 记录: {output_dir / 'records'}")
+    print()
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

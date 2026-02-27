@@ -12,6 +12,7 @@ from nini.config import settings
 from nini.agent.prompts.scientific import get_system_prompt
 from nini.agent.runner import AgentRunner
 from nini.agent.session import Session
+from nini.tools.registry import create_default_registry
 
 
 class _DummyKnowledgeLoader:
@@ -91,6 +92,82 @@ def test_build_messages_filters_ui_events_and_large_tool_payloads() -> None:
     assert '"has_chart": true' in tool_content
     assert "chart_data" not in tool_content
     assert '"message": "图表已生成"' in tool_content
+
+
+def test_fetch_url_tool_result_keeps_skill_excerpt_for_llm_context() -> None:
+    session = Session()
+    session.add_message("user", "/root-analysis 使用技能")
+
+    skill_text = (
+        "# root-analysis\n\n"
+        + ("背景说明\n" * 600)
+        + "## 关键步骤\n"
+        + "1. 先执行 validate_data.py 校验输入文件。\n"
+        + "2. 再执行 generate_r_project.py 生成分析项目。\n"
+    )
+    serialized = AgentRunner._serialize_tool_result_for_memory(
+        {
+            "success": True,
+            "message": "已成功抓取 skill",
+            "data": {
+                "url": "file:///tmp/root-analysis/SKILL.md",
+                "content": skill_text,
+                "length": len(skill_text),
+            },
+        }
+    )
+    session.add_tool_result("call_fetch_skill", serialized, tool_name="fetch_url")
+
+    runner = AgentRunner()
+    messages = runner._build_messages(session)
+    tool_msg = next(m for m in messages if m.get("role") == "tool")
+    tool_content = str(tool_msg.get("content", ""))
+
+    assert '"data_excerpt"' in tool_content
+    assert "validate_data.py" in tool_content
+    assert "generate_r_project.py" in tool_content
+
+
+def test_build_messages_injects_explicit_slash_skill_context(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    skill_file = skills_dir / "root-analysis" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True, exist_ok=True)
+    skill_file.write_text(
+        (
+            "---\n"
+            "name: root-analysis\n"
+            "description: 根长度分析流程\n"
+            "category: statistics\n"
+            "---\n\n"
+            "## 关键步骤\n"
+            "1. validate_data.py\n"
+            "2. generate_r_project.py\n"
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+    monkeypatch.setattr(settings, "skills_extra_dirs", "")
+    monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
+
+    registry = create_default_registry()
+    session = Session()
+    session.add_message("user", "/root-analysis 帮我分析上传的数据")
+
+    runner = AgentRunner(skill_registry=registry)
+    messages = runner._build_messages(session)
+    context_msg = next(
+        m
+        for m in messages
+        if m.get("role") == "assistant" and "运行时上下文：用户显式选择的技能定义" in str(m.get("content"))
+    )
+
+    content = str(context_msg.get("content", ""))
+    assert "/root-analysis" in content
+    assert "validate_data.py" in content
+    assert "generate_r_project.py" in content
 
 
 def test_prompt_components_support_runtime_refresh(

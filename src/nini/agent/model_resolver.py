@@ -672,6 +672,7 @@ class AnthropicClient(BaseLLMClient):
         """将 tool 输出压缩为简短上下文，避免注入大体积 JSON。"""
         text = "" if content is None else str(content)
         compact: dict[str, Any] | None = None
+        has_reference_excerpt = False
 
         if isinstance(content, dict):
             payload = content
@@ -699,12 +700,22 @@ class AnthropicClient(BaseLLMClient):
             data_obj = payload.get("data")
             if isinstance(data_obj, dict):
                 compact["data_keys"] = list(data_obj.keys())[:8]
+                excerpt = data_obj.get("content")
+                if isinstance(excerpt, str) and excerpt.strip():
+                    compact["data_excerpt"] = excerpt.strip()[:6000]
+                    has_reference_excerpt = True
+
+            direct_excerpt = payload.get("data_excerpt")
+            if isinstance(direct_excerpt, str) and direct_excerpt.strip():
+                compact["data_excerpt"] = direct_excerpt.strip()[:6000]
+                has_reference_excerpt = True
 
         if compact is not None:
             text = json.dumps(compact, ensure_ascii=False, default=str)
 
-        if len(text) > 2000:
-            text = text[:2000] + "...(截断)"
+        max_chars = 12000 if has_reference_excerpt else 2000
+        if len(text) > max_chars:
+            text = text[:max_chars] + "...(截断)"
         return "[工具结果]\n" + text
 
     def _convert_tools(self, tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:

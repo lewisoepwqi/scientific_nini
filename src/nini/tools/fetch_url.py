@@ -9,10 +9,12 @@ from __future__ import annotations
 import ipaddress
 import logging
 import socket
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from nini.agent.session import Session
+from nini.config import settings
 from nini.tools.base import Skill, SkillResult
 
 logger = logging.getLogger(__name__)
@@ -24,7 +26,7 @@ _MAX_CHARS = 5000
 # URL 最大长度
 _MAX_URL_LENGTH = 2048
 # 允许的 URL scheme
-_ALLOWED_SCHEMES = {"http", "https"}
+_ALLOWED_SCHEMES = {"http", "https", "file"}
 # 禁止访问的域名（安全考虑）
 _BLOCKED_HOSTS = {
     "localhost",
@@ -33,6 +35,27 @@ _BLOCKED_HOSTS = {
     "::1",
     "metadata.google.internal",
     "169.254.169.254",
+}
+# 本地文件最大大小（字节）
+_MAX_LOCAL_FILE_BYTES = 2 * 1024 * 1024
+# file:// 允许读取的文本后缀
+_ALLOWED_LOCAL_FILE_SUFFIXES = {
+    ".md",
+    ".markdown",
+    ".txt",
+    ".py",
+    ".r",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".csv",
+    ".tsv",
+    ".ini",
+    ".cfg",
+    ".sql",
+    ".jinja",
+    ".j2",
 }
 
 
@@ -53,6 +76,7 @@ class FetchURLSkill(Skill):
             "抓取指定 URL 的网页内容并转换为 Markdown 格式。"
             "适用于查阅在线文档、论文摘要、统计方法参考等。"
             "自动处理 HTML→Markdown 转换，支持 JSON 响应的格式化输出。"
+            "同时支持读取白名单技能目录下的 file:// 本地文本文件。"
         )
 
     @property
@@ -62,7 +86,10 @@ class FetchURLSkill(Skill):
             "properties": {
                 "url": {
                     "type": "string",
-                    "description": "要抓取的网页 URL（支持 http/https）",
+                    "description": (
+                        "要抓取的 URL（支持 http/https，"
+                        "以及白名单技能目录下的 file:// 本地文本文件）"
+                    ),
                 },
             },
             "required": ["url"],
@@ -100,8 +127,12 @@ class FetchURLSkill(Skill):
         except Exception:
             return "无效的 URL 格式"
 
-        if parsed.scheme not in _ALLOWED_SCHEMES:
-            return f"不支持的协议: {parsed.scheme}，仅支持 http/https"
+        scheme = parsed.scheme.lower()
+        if scheme not in _ALLOWED_SCHEMES:
+            return f"不支持的协议: {parsed.scheme}，仅支持 http/https/file"
+
+        if scheme == "file":
+            return FetchURLSkill._validate_local_file_url(parsed)
 
         host = (parsed.hostname or "").lower()
         if not host:
@@ -134,8 +165,59 @@ class FetchURLSkill(Skill):
         return None
 
     @staticmethod
+    def _resolve_local_file_path(parsed: Any) -> Path:
+        """将 file URL 解析为本地绝对路径。"""
+        raw_path = unquote(parsed.path or "")
+        if raw_path.startswith("/") and len(raw_path) >= 3 and raw_path[2] == ":":
+            # 兼容 file:///C:/... 形式
+            raw_path = raw_path[1:]
+        return Path(raw_path).expanduser().resolve()
+
+    @staticmethod
+    def _validate_local_file_url(parsed: Any) -> str | None:
+        """校验 file:// URL 的安全性（仅允许 skills 目录文本文件）。"""
+        host = (parsed.netloc or "").strip().lower()
+        if host not in ("", "localhost"):
+            return f"不支持的 file 主机: {host}"
+
+        path = FetchURLSkill._resolve_local_file_path(parsed)
+        if not path.exists():
+            return f"本地文件不存在: {path}"
+        if not path.is_file():
+            return f"本地路径不是文件: {path}"
+
+        allowed_roots = [root.expanduser().resolve() for root in settings.skills_search_dirs]
+        if not any(path.is_relative_to(root) for root in allowed_roots):
+            return "禁止访问技能目录之外的本地文件"
+
+        suffix = path.suffix.lower()
+        if suffix and suffix not in _ALLOWED_LOCAL_FILE_SUFFIXES:
+            return f"不支持读取该文件类型: {suffix}"
+
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return f"无法读取本地文件: {path}"
+        if size > _MAX_LOCAL_FILE_BYTES:
+            return f"本地文件过大（{size} 字节），最大 {_MAX_LOCAL_FILE_BYTES} 字节"
+
+        return None
+
+    @staticmethod
     async def _fetch(url: str) -> str:
         """抓取 URL 内容并转换为文本。"""
+        parsed = urlparse(url)
+        if parsed.scheme.lower() == "file":
+            path = FetchURLSkill._resolve_local_file_path(parsed)
+            data = path.read_bytes()
+            try:
+                text = data.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError(f"本地文件不是 UTF-8 文本: {path}") from exc
+            if len(text) > _MAX_CHARS:
+                text = text[:_MAX_CHARS] + f"\n\n... (内容已截断，原文共 {len(text)} 字符)"
+            return text
+
         import httpx
 
         async with httpx.AsyncClient(

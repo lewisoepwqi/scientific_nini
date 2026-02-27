@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
+import zipfile
 
 import pytest
 
@@ -108,3 +110,192 @@ def test_api_skills_returns_hybrid_catalog(
         markdown_skills = markdown_payload["data"]["skills"]
         assert markdown_skills
         assert all(item["type"] == "markdown" for item in markdown_skills)
+
+
+def test_api_markdown_skill_upload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+
+    app = create_app()
+    set_skill_registry(create_default_registry())
+    upload_text = (
+        "---\n"
+        "name: custom_upload_skill\n"
+        "description: 上传后的技能\n"
+        "category: workflow\n"
+        "---\n\n"
+        "# custom_upload_skill\n\n"
+        "用于上传测试。\n"
+    )
+    with LocalASGIClient(app) as client:
+        resp = client.post(
+            "/api/skills/markdown/upload",
+            files={"file": ("custom_upload_skill.md", upload_text, "text/markdown")},
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["success"] is True
+        skill = payload["data"]["skill"]
+        assert skill["name"] == "custom_upload_skill"
+        assert skill["type"] == "markdown"
+
+    target = skills_dir / "custom_upload_skill" / "SKILL.md"
+    assert target.exists()
+    assert "上传后的技能" in target.read_text(encoding="utf-8")
+
+
+def test_api_markdown_skill_manage_flow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    _write_skill(
+        skills_dir / "report_polish" / "SKILL.md",
+        name="report_polish",
+        description="润色分析报告",
+    )
+    monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+
+    app = create_app()
+    set_skill_registry(create_default_registry())
+    with LocalASGIClient(app) as client:
+        disable_resp = client.patch(
+            "/api/skills/markdown/report_polish/enabled",
+            json={"enabled": False},
+        )
+        assert disable_resp.status_code == 200
+        disable_payload = disable_resp.json()
+        assert disable_payload["success"] is True
+        assert disable_payload["data"]["skill"]["enabled"] is False
+
+        detail_resp = client.get("/api/skills/markdown/report_polish")
+        assert detail_resp.status_code == 200
+        detail_payload = detail_resp.json()
+        assert detail_payload["data"]["skill"]["content"]
+
+        update_resp = client.request(
+            "PUT",
+            "/api/skills/markdown/report_polish",
+            json={
+                "description": "润色并补充参考文献",
+                "category": "report",
+                "content": "# report_polish\n\n更新后的内容。",
+            },
+        )
+        assert update_resp.status_code == 200
+        update_payload = update_resp.json()
+        assert update_payload["success"] is True
+        assert "更新后的内容" in update_payload["data"]["skill"]["content"]
+
+        delete_resp = client.delete("/api/skills/markdown/report_polish")
+        assert delete_resp.status_code == 200
+        delete_payload = delete_resp.json()
+        assert delete_payload["success"] is True
+        assert delete_payload["data"]["deleted"] == "report_polish"
+
+        list_resp = client.get("/api/skills", params={"skill_type": "markdown"})
+        list_payload = list_resp.json()
+        markdown_names = {item["name"] for item in list_payload["data"]["skills"]}
+        assert "report_polish" not in markdown_names
+
+
+def test_registry_markdown_skill_duplicate_prefers_higher_priority_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primary_dir = tmp_path / "primary"
+    secondary_dir = tmp_path / "secondary"
+
+    _write_skill(
+        primary_dir / "dup_skill" / "SKILL.md",
+        name="dup_skill",
+        description="高优先级目录",
+    )
+    _write_skill(
+        secondary_dir / "dup_skill" / "SKILL.md",
+        name="dup_skill",
+        description="低优先级目录",
+    )
+
+    monkeypatch.setattr(settings, "skills_dir_path", primary_dir)
+    monkeypatch.setattr(settings, "skills_extra_dirs", str(secondary_dir))
+    monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
+
+    registry = create_default_registry()
+    markdown = registry.get_markdown_skill("dup_skill")
+    assert markdown is not None
+    assert markdown["description"] == "高优先级目录"
+
+
+def test_api_markdown_skill_files_management(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skills_dir = tmp_path / "skills"
+    _write_skill(
+        skills_dir / "skill_with_files" / "SKILL.md",
+        name="skill_with_files",
+        description="带附属文件的技能",
+    )
+    monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+
+    app = create_app()
+    set_skill_registry(create_default_registry())
+    with LocalASGIClient(app) as client:
+        list_resp = client.get("/api/skills/markdown/skill_with_files/files")
+        assert list_resp.status_code == 200
+        list_payload = list_resp.json()
+        paths = {item["path"] for item in list_payload["data"]["files"]}
+        assert "SKILL.md" in paths
+
+        create_dir_resp = client.post(
+            "/api/skills/markdown/skill_with_files/dirs",
+            json={"path": "scripts"},
+        )
+        assert create_dir_resp.status_code == 200
+
+        upload_resp = client.post(
+            "/api/skills/markdown/skill_with_files/files/upload",
+            data={"dir_path": "scripts"},
+            files={"file": ("helper.py", "print('ok')\n", "text/plain")},
+        )
+        assert upload_resp.status_code == 200
+
+        save_resp = client.request(
+            "PUT",
+            "/api/skills/markdown/skill_with_files/files/content",
+            json={"path": "references/guide.md", "content": "# 引用文档\n"},
+        )
+        assert save_resp.status_code == 200
+
+        read_resp = client.get(
+            "/api/skills/markdown/skill_with_files/files/content",
+            params={"path": "references/guide.md"},
+        )
+        assert read_resp.status_code == 200
+        read_payload = read_resp.json()
+        assert read_payload["data"]["is_text"] is True
+        assert "# 引用文档" in read_payload["data"]["content"]
+
+        bundle_resp = client.get("/api/skills/markdown/skill_with_files/bundle")
+        assert bundle_resp.status_code == 200
+        assert bundle_resp.headers.get("content-type", "").startswith("application/zip")
+        with zipfile.ZipFile(io.BytesIO(bundle_resp.content), "r") as zf:
+            names = set(zf.namelist())
+            assert "skill_with_files/SKILL.md" in names
+            assert "skill_with_files/scripts/helper.py" in names
+            assert "skill_with_files/references/guide.md" in names
+
+        delete_path_resp = client.request(
+            "DELETE",
+            "/api/skills/markdown/skill_with_files/paths",
+            json={"path": "references/guide.md"},
+        )
+        assert delete_path_resp.status_code == 200
+
+        list_after_delete = client.get("/api/skills/markdown/skill_with_files/files").json()
+        paths_after_delete = {item["path"] for item in list_after_delete["data"]["files"]}
+        assert "references/guide.md" not in paths_after_delete

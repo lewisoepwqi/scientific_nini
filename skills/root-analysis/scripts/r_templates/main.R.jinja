@@ -1,0 +1,164 @@
+source("R/load_packages.R")
+source("R/data_processing.R")
+source("R/statistical_analysis.R")
+source("R/plotting.R")
+
+main <- function() {
+  # Create necessary output directories
+  dir.create("{{ output_dir }}/figures", recursive = TRUE, showWarnings = FALSE)
+  dir.create("{{ output_dir }}/records", recursive = TRUE, showWarnings = FALSE)
+
+  # Load required packages
+  load_required_packages()
+
+  # Read and process data
+  cat("Reading data from: {{ data_file }}\n")
+  data <- read_and_process_data("{{ data_file }}")
+
+  # Get actual sample names from data
+  actual_samples <- unique(data$sample)
+  cat("\nSamples found in data:\n")
+  print(actual_samples)
+
+  # Set up sample order
+  {% if sample_order %}
+  # User-specified sample order
+  preferred_order <- c({{ sample_order | map('tojson') | join(', ') }})
+  cat("\nUsing custom sample order\n")
+  {% else %}
+  # Automatic ordering: Col_0 first, non-OE samples, then OE samples
+  preferred_order <- NULL
+  cat("\nUsing automatic sample ordering\n")
+  {% endif %}
+
+  # Create color maps with chosen scheme
+  cat("\nColor scheme: {{ color_scheme }}\n")
+  color_maps <- create_color_maps(
+    sample_names = actual_samples,
+    color_scheme = "{{ color_scheme }}",
+    ordered_samples = preferred_order
+  )
+
+  # Save sample order and color mapping records
+  sample_order_path <- "{{ output_dir }}/records/sample_order.txt"
+  color_map_path <- "{{ output_dir }}/records/color_mapping.csv"
+
+  writeLines(
+    c(
+      "Sample Order (left to right in plots):",
+      paste0(seq_along(names(color_maps$column)), ". ", names(color_maps$column))
+    ),
+    con = sample_order_path
+  )
+
+  write.csv(
+    data.frame(
+      sample = names(color_maps$column),
+      color = unname(color_maps$column)
+    ),
+    file = color_map_path,
+    row.names = FALSE,
+    fileEncoding = "UTF-8"
+  )
+
+  cat("\n=== Performing Statistical Analysis ===\n")
+
+  # Perform ANOVA analysis
+  anova_results <- perform_anova_analysis(data)
+
+  # Extract Tukey letters
+  tukey_letters_df <- process_tukey_letters(anova_results)
+
+  # Calculate summary statistics
+  summary_stats <- calculate_summary_statistics(data)
+
+  # Merge significance letters with summary stats
+  summary_stats <- summary_stats %>%
+    left_join(tukey_letters_df, by = c("treatment", "sample"))
+
+  # Print ANOVA results
+  cat("\n=== ANOVA Results ===\n")
+  for (i in 1:nrow(anova_results)) {
+    treatment <- anova_results$treatment[i]
+    cat("\nTreatment:", treatment, "\n")
+    print(anova_results$anova_summary[[i]])
+    cat("\nTukey HSD Post-hoc Test:\n")
+    print(anova_results$tukey_result[[i]])
+    cat("\nSignificance Letters:\n")
+    print(anova_results$tukey_letters[[i]])
+    cat("\n", strrep("=", 50), "\n")
+  }
+
+  # Create root length plot
+  cat("\n=== Creating Root Length Plot ===\n")
+  plot <- create_root_length_plot(data, summary_stats, color_maps)
+
+  plot_path <- "{{ output_dir }}/figures/root_length_plot.pdf"
+  ggsave(plot_path, plot, width = {{ plot_width }}, height = {{ plot_height }})
+  cat("Saved to:", plot_path, "\n")
+
+  # Calculate ratios (if baseline treatment exists)
+  baseline_treatment <- "{{ baseline_treatment }}"
+  all_treatments <- unique(data$treatment)
+
+  if (baseline_treatment %in% all_treatments && length(all_treatments) >= 2) {
+    cat("\n=== Calculating Ratios (baseline:", baseline_treatment, ") ===\n")
+    ratios <- calculate_ratios(data, baseline_treatment = baseline_treatment)
+
+    # Only perform ratio analysis if there are multiple non-baseline treatments
+    if (nrow(ratios) > 0 && length(unique(ratios$treatment)) > 0) {
+      # Analyze ratios
+      ratio_analysis <- analyze_ratios(ratios)
+
+      cat("\n=== Ratio ANOVA Results ===\n")
+      print(summary(ratio_analysis$model))
+      cat("\nRatio Tukey HSD:\n")
+      print(ratio_analysis$tukey)
+      cat("\nRatio Significance Letters:\n")
+      print(ratio_analysis$letters)
+
+      # Create ratio plot
+      cat("\n=== Creating Ratio Plot ===\n")
+      ratio_plot <- create_ratio_plot_with_points(ratios, ratio_analysis$letters, color_maps)
+
+      ratio_plot_path <- "{{ output_dir }}/figures/ratio_plot.pdf"
+      ggsave(ratio_plot_path, ratio_plot, width = {{ plot_width }}, height = {{ plot_height }})
+      cat("Saved to:", ratio_plot_path, "\n")
+    } else {
+      cat("\nSkipping ratio analysis (no non-baseline treatments or insufficient data)\n")
+      ratios <- NULL
+      ratio_analysis <- NULL
+      ratio_plot <- NULL
+    }
+  } else {
+    cat("\nSkipping ratio analysis (baseline treatment '", baseline_treatment, "' not found or only one treatment group)\n")
+    ratios <- NULL
+    ratio_analysis <- NULL
+    ratio_plot <- NULL
+  }
+
+  cat("\n=== Analysis Complete ===\n")
+  cat("Output files saved to: {{ output_dir }}/\n")
+  cat("  - Plots: {{ output_dir }}/figures/\n")
+  if (!is.null(ratios)) {
+    cat("  - Ratio analysis included\n")
+  }
+  cat("  - Records: {{ output_dir }}/records/\n")
+
+  # Return results
+  return(list(
+    data = data,
+    summary_stats = summary_stats,
+    anova_results = anova_results,
+    ratios = ratios,
+    ratio_analysis = ratio_analysis,
+    color_maps = color_maps,
+    plots = list(
+      root_length = plot,
+      ratio = ratio_plot
+    )
+  ))
+}
+
+# Run main analysis
+results <- main()

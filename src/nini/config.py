@@ -183,6 +183,8 @@ class Settings(BaseSettings):
     prompt_component_max_chars: int = 20000
     prompt_total_max_chars: int = 60000
     skills_dir_path: Path = _get_bundle_root() / "skills"
+    skills_extra_dirs: str = ""
+    skills_auto_discover_compat_dirs: bool = False
 
     # ---- 自动上下文压缩 ----
     auto_compress_enabled: bool = True
@@ -237,8 +239,46 @@ class Settings(BaseSettings):
         return Path(self.skills_dir_path)
 
     @property
+    def skills_search_dirs(self) -> list[Path]:
+        """Markdown 技能发现目录（按优先级排序，前者优先）。"""
+        dirs: list[Path] = []
+        seen: set[Path] = set()
+
+        def _append(path: Path) -> None:
+            resolved = path.expanduser().resolve()
+            if resolved in seen:
+                return
+            seen.add(resolved)
+            dirs.append(resolved)
+
+        if self.skills_auto_discover_compat_dirs:
+            # 项目级兼容目录（优先）
+            _append(_ROOT / ".codex" / "skills")
+            _append(_ROOT / ".claude" / "skills")
+            _append(_ROOT / ".agents" / "skills")
+
+        # 现有默认目录
+        _append(self.skills_dir)
+
+        # 用户显式追加目录（最低优先）
+        for raw in self.skills_extra_dirs.split(","):
+            candidate = raw.strip()
+            if not candidate:
+                continue
+            _append(Path(candidate))
+
+        return dirs
+
+    @property
     def skills_snapshot_path(self) -> Path:
         p = self.data_dir / "SKILLS_SNAPSHOT.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def skills_state_path(self) -> Path:
+        """技能管理状态文件（如启用/禁用覆盖）。"""
+        p = self.data_dir / "skills_state.json"
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
 
