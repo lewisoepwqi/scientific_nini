@@ -263,6 +263,12 @@ def _build_parser() -> argparse.ArgumentParser:
         )
         export_cmd.set_defaults(func=_cmd_skills_export)
 
+    mcp_parser = subparsers.add_parser(
+        "mcp",
+        help="启动 MCP Server（stdio 传输，供 Claude Code / Codex 等集成）",
+    )
+    mcp_parser.set_defaults(func=_cmd_mcp)
+
     # 兼容旧命令：nini skills
     skills_parser = subparsers.add_parser("skills", help="管理能力（兼容命令）")
     _register_tool_subcommands(skills_parser, dest_name="skills_command")
@@ -499,6 +505,18 @@ def _cmd_export_memory(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"错误：{e}")
         return 1
+
+
+def _cmd_mcp(args: argparse.Namespace) -> int:
+    """启动 Nini MCP Server（stdio 传输）。"""
+    try:
+        from nini.mcp.server import main as mcp_main
+    except ImportError:
+        print("MCP SDK 未安装。请运行: pip install 'nini[mcp]' 或 pip install 'mcp>=1.0.0'")
+        return 1
+
+    mcp_main()
+    return 0
 
 
 def _cmd_skills_list(args: argparse.Namespace) -> int:
