@@ -184,6 +184,10 @@ def test_markdown_skill_to_manifest() -> None:
         description="生成期刊图表",
         location="/tmp/SKILL.md",
         category="visualization",
+        brief_description="生成科研期刊图表",
+        research_domain="biology",
+        difficulty_level="advanced",
+        typical_use_cases=["论文主图", "补充材料图表"],
     )
     manifest = skill.to_manifest()
 
@@ -191,6 +195,10 @@ def test_markdown_skill_to_manifest() -> None:
     assert manifest.description == "生成期刊图表"
     assert manifest.category == "visualization"
     assert manifest.parameters == {}
+    assert manifest.brief_description == "生成科研期刊图表"
+    assert manifest.research_domain == "biology"
+    assert manifest.difficulty_level == "advanced"
+    assert manifest.typical_use_cases == ["论文主图", "补充材料图表"]
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +218,32 @@ def test_scan_parses_category_from_frontmatter(tmp_path: Path) -> None:
 
     assert len(results) == 1
     assert results[0].category == "statistics"
+
+
+def test_scan_parses_enhanced_metadata_from_frontmatter(tmp_path: Path) -> None:
+    """扫描应解析增强元数据字段。"""
+    _write_skill_md(
+        tmp_path / "meta_skill" / "SKILL.md",
+        name="meta_skill",
+        description="带元数据的技能",
+        category="statistics",
+        extra_frontmatter=(
+            "brief_description: 用于快速理解技能用途\n"
+            "research_domain: ecology\n"
+            "difficulty_level: advanced\n"
+            "typical_use_cases:\n"
+            "  - 群落多样性比较\n"
+            "  - 野外实验差异分析"
+        ),
+    )
+    results = scan_markdown_skills(tmp_path)
+
+    assert len(results) == 1
+    assert results[0].brief_description == "用于快速理解技能用途"
+    assert results[0].research_domain == "ecology"
+    assert results[0].difficulty_level == "advanced"
+    assert results[0].typical_use_cases == ["群落多样性比较", "野外实验差异分析"]
+    assert results[0].metadata["research_domain"] == "ecology"
 
 
 def test_scan_defaults_category_to_other(tmp_path: Path) -> None:
@@ -416,6 +450,105 @@ def test_catalog_includes_category_for_both_types(
 
     for item in catalog:
         assert "category" in item, f"技能 {item['name']} 缺少 category 字段"
+        assert "brief_description" in item, f"技能 {item['name']} 缺少 brief_description 字段"
+        assert "research_domain" in item, f"技能 {item['name']} 缺少 research_domain 字段"
+        assert "difficulty_level" in item, f"技能 {item['name']} 缺少 difficulty_level 字段"
+        assert "typical_use_cases" in item, f"技能 {item['name']} 缺少 typical_use_cases 字段"
+
+
+def test_function_skill_catalog_exposes_default_enhanced_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Function Skill 目录应暴露增强元数据默认值。"""
+    monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
+    (tmp_path / "empty").mkdir()
+
+    registry = create_default_registry()
+    t_test_item = next(item for item in registry.list_function_skills() if item["name"] == "t_test")
+
+    assert t_test_item["brief_description"]
+    assert t_test_item["research_domain"] == "general"
+    assert t_test_item["difficulty_level"] == "intermediate"
+    assert isinstance(t_test_item["typical_use_cases"], list)
+    assert t_test_item["metadata"]["brief_description"] == t_test_item["brief_description"]
+
+
+def test_registry_progressive_disclosure_methods(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """注册中心应支持索引/说明/运行时资源三级披露。"""
+    skills_dir = tmp_path / "skills"
+    skill_dir = skills_dir / "analysis_guide"
+    _write_skill_md(
+        skill_dir / "SKILL.md",
+        name="analysis_guide",
+        description="用于测试三级披露",
+        category="workflow",
+    )
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: analysis_guide\n"
+        "description: 用于测试三级披露\n"
+        "category: workflow\n"
+        "---\n\n"
+        "# analysis_guide\n\n"
+        "## 步骤\n"
+        "1. 读取 data.csv\n",
+        encoding="utf-8",
+    )
+    (skill_dir / "scripts").mkdir(parents=True, exist_ok=True)
+    (skill_dir / "scripts" / "run.py").write_text("print('ok')\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+
+    registry = create_default_registry()
+
+    index_payload = registry.get_skill_index("analysis_guide")
+    assert index_payload is not None
+    assert index_payload["name"] == "analysis_guide"
+    assert "brief_description" in index_payload
+
+    instruction_payload = registry.get_skill_instruction("analysis_guide")
+    assert instruction_payload is not None
+    assert "## 步骤" in instruction_payload["instruction"]
+    assert "name:" not in instruction_payload["instruction"]
+
+    resources_payload = registry.get_runtime_resources("analysis_guide")
+    assert resources_payload is not None
+    paths = {item["path"] for item in resources_payload["resources"]}
+    assert "scripts/run.py" in paths
+
+
+def test_semantic_catalog_contains_matching_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """语义目录应包含匹配相关字段。"""
+    skills_dir = tmp_path / "skills"
+    _write_skill_md(
+        skills_dir / "root-analysis" / "SKILL.md",
+        name="root-analysis",
+        description="根长分析",
+        category="statistics",
+        extra_frontmatter=(
+            "aliases: [根长分析]\n"
+            "tags: [root-length, anova]\n"
+            "disable-model-invocation: true\n"
+            "user-invocable: false"
+        ),
+    )
+    monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+
+    registry = create_default_registry()
+    semantic_catalog = registry.get_semantic_catalog(skill_type="markdown")
+
+    entry = next(item for item in semantic_catalog if item["name"] == "root-analysis")
+    assert entry["aliases"] == ["根长分析"]
+    assert entry["tags"] == ["root-length", "anova"]
+    assert entry["disable_model_invocation"] is True
+    assert entry["user_invocable"] is False
+    assert entry["brief_description"]
 
 
 def test_valid_categories_constant() -> None:

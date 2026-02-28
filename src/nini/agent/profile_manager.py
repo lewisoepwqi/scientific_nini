@@ -35,6 +35,23 @@ class UserProfileManager:
         """获取用户画像文件路径。"""
         return self._profiles_dir / f"{user_id}.json"
 
+    @staticmethod
+    def _read_profile_data(path: Path) -> dict[str, Any]:
+        """读取画像原始数据。"""
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("画像文件内容不是对象")
+        return data
+
+    @staticmethod
+    def _write_profile_data(path: Path, data: dict[str, Any]) -> None:
+        """写入画像原始数据。"""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
     async def get_or_create(self, user_id: str) -> UserProfile:
         """获取或创建用户画像。
 
@@ -66,7 +83,7 @@ class UserProfileManager:
             return None
 
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = self._read_profile_data(path)
             return UserProfile.from_dict(data)
         except Exception as e:
             logger.error("加载用户画像失败 %s: %s", user_id, e)
@@ -80,10 +97,7 @@ class UserProfileManager:
         """
         path = self._get_profile_path(profile.user_id)
         try:
-            path.write_text(
-                json.dumps(profile.to_dict(), ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            self._write_profile_data(path, profile.to_dict())
             logger.debug("保存用户画像: %s", profile.user_id)
         except Exception as e:
             logger.error("保存用户画像失败 %s: %s", profile.user_id, e)

@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from nini.agent.session import Session
 from nini.config import settings
@@ -264,8 +266,18 @@ async def compress_session_history_with_llm(
 
 # ---- 结构化记忆压缩 ----
 
-from dataclasses import dataclass, field
-from typing import Any
+
+def _analysis_memory_dir(session_id: str) -> Path:
+    """返回会话的 AnalysisMemory 持久化目录。"""
+    path = settings.sessions_dir / session_id / "analysis_memories"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _analysis_memory_path(session_id: str, dataset_name: str) -> Path:
+    """返回指定数据集的 AnalysisMemory 文件路径。"""
+    safe_name = quote(dataset_name, safe="")
+    return _analysis_memory_dir(session_id) / f"{safe_name}.json"
 
 
 @dataclass
@@ -351,16 +363,19 @@ class AnalysisMemory:
         """添加发现记录。"""
         self.findings.append(finding)
         self.updated_at = __import__("time").time()
+        save_analysis_memory(self)
 
     def add_statistic(self, statistic: StatisticResult) -> None:
         """添加统计结果。"""
         self.statistics.append(statistic)
         self.updated_at = __import__("time").time()
+        save_analysis_memory(self)
 
     def add_decision(self, decision: Decision) -> None:
         """添加决策记录。"""
         self.decisions.append(decision)
         self.updated_at = __import__("time").time()
+        save_analysis_memory(self)
 
     def add_artifact(
         self,
@@ -378,6 +393,7 @@ class AnalysisMemory:
         )
         self.artifacts.append(artifact)
         self.updated_at = __import__("time").time()
+        save_analysis_memory(self)
 
     def summary(self) -> str:
         """生成摘要文本。"""
@@ -493,6 +509,81 @@ class AnalysisMemory:
             "updated_at": self.updated_at,
         }
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AnalysisMemory:
+        """从字典恢复 AnalysisMemory。"""
+        return cls(
+            session_id=str(data.get("session_id", "")).strip(),
+            dataset_name=str(data.get("dataset_name", "")).strip(),
+            findings=[
+                Finding(
+                    category=str(item.get("category", "")),
+                    summary=str(item.get("summary", "")),
+                    detail=str(item.get("detail", "")),
+                    confidence=float(item.get("confidence", 1.0)),
+                    timestamp=float(item.get("timestamp", 0.0)),
+                )
+                for item in data.get("findings", [])
+                if isinstance(item, dict)
+            ],
+            statistics=[
+                StatisticResult(
+                    test_name=str(item.get("test_name", "")),
+                    test_statistic=(
+                        float(item["test_statistic"])
+                        if item.get("test_statistic") is not None
+                        else None
+                    ),
+                    p_value=float(item["p_value"]) if item.get("p_value") is not None else None,
+                    degrees_of_freedom=(
+                        int(item["degrees_of_freedom"])
+                        if item.get("degrees_of_freedom") is not None
+                        else None
+                    ),
+                    effect_size=(
+                        float(item["effect_size"]) if item.get("effect_size") is not None else None
+                    ),
+                    effect_type=str(item.get("effect_type", "")),
+                    significant=bool(item.get("significant", False)),
+                )
+                for item in data.get("statistics", [])
+                if isinstance(item, dict)
+            ],
+            decisions=[
+                Decision(
+                    decision_type=str(item.get("decision_type", "")),
+                    chosen=str(item.get("chosen", "")),
+                    alternatives=[
+                        str(option)
+                        for option in item.get("alternatives", [])
+                        if isinstance(option, str)
+                    ],
+                    rationale=str(item.get("rationale", "")),
+                    confidence=float(item.get("confidence", 1.0)),
+                    timestamp=float(item.get("timestamp", 0.0)),
+                )
+                for item in data.get("decisions", [])
+                if isinstance(item, dict)
+            ],
+            artifacts=[
+                Artifact(
+                    artifact_type=str(item.get("artifact_type", "")),
+                    path=str(item.get("path", "")),
+                    description=str(item.get("description", "")),
+                    metadata=(
+                        dict(item.get("metadata", {}))
+                        if isinstance(item.get("metadata"), dict)
+                        else {}
+                    ),
+                    timestamp=float(item.get("timestamp", 0.0)),
+                )
+                for item in data.get("artifacts", [])
+                if isinstance(item, dict)
+            ],
+            created_at=float(data.get("created_at", __import__("time").time())),
+            updated_at=float(data.get("updated_at", __import__("time").time())),
+        )
+
     def get_context_prompt(self) -> str:
         """获取用于系统提示词的记忆描述。"""
         parts: list[str] = []
@@ -527,11 +618,41 @@ class AnalysisMemory:
 _analysis_memories: dict[str, AnalysisMemory] = {}
 
 
+def save_analysis_memory(memory: AnalysisMemory) -> None:
+    """将 AnalysisMemory 持久化到磁盘。"""
+    path = _analysis_memory_path(memory.session_id, memory.dataset_name)
+    path.write_text(
+        json.dumps(memory.to_dict(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def load_analysis_memory(session_id: str, dataset_name: str) -> AnalysisMemory | None:
+    """从磁盘加载 AnalysisMemory。"""
+    path = _analysis_memory_path(session_id, dataset_name)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.warning("读取 AnalysisMemory 失败: session=%s dataset=%s", session_id, dataset_name)
+        return None
+    if not isinstance(payload, dict):
+        return None
+    memory = AnalysisMemory.from_dict(payload)
+    if not memory.session_id:
+        memory.session_id = session_id
+    if not memory.dataset_name:
+        memory.dataset_name = dataset_name
+    return memory
+
+
 def get_analysis_memory(session_id: str, dataset_name: str) -> AnalysisMemory:
     """获取或创建分析记忆。"""
     key = f"{session_id}:{dataset_name}"
     if key not in _analysis_memories:
-        _analysis_memories[key] = AnalysisMemory(
+        loaded = load_analysis_memory(session_id, dataset_name)
+        _analysis_memories[key] = loaded or AnalysisMemory(
             session_id=session_id,
             dataset_name=dataset_name,
         )
@@ -542,10 +663,29 @@ def remove_analysis_memory(session_id: str, dataset_name: str) -> None:
     """移除分析记忆。"""
     key = f"{session_id}:{dataset_name}"
     _analysis_memories.pop(key, None)
+    path = _analysis_memory_path(session_id, dataset_name)
+    if path.exists():
+        path.unlink()
 
 
 def list_session_analysis_memories(session_id: str) -> list[AnalysisMemory]:
     """列出会话的所有分析记忆（非空的）。"""
+    memory_dir = _analysis_memory_dir(session_id)
+    for path in sorted(memory_dir.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            logger.warning("读取 AnalysisMemory 文件失败: %s", path)
+            continue
+        if not isinstance(payload, dict):
+            continue
+        dataset_name = str(payload.get("dataset_name", "")).strip()
+        if not dataset_name:
+            continue
+        key = f"{session_id}:{dataset_name}"
+        if key not in _analysis_memories:
+            _analysis_memories[key] = AnalysisMemory.from_dict(payload)
+
     result: list[AnalysisMemory] = []
     prefix = f"{session_id}:"
     for key, mem in _analysis_memories.items():
@@ -556,6 +696,16 @@ def list_session_analysis_memories(session_id: str) -> list[AnalysisMemory]:
 
 def clear_session_analysis_memories(session_id: str) -> None:
     """清除会话的所有分析记忆。"""
+    clear_session_analysis_memory_cache(session_id)
+    memory_dir = settings.sessions_dir / session_id / "analysis_memories"
+    if memory_dir.exists():
+        for path in memory_dir.glob("*.json"):
+            path.unlink()
+        memory_dir.rmdir()
+
+
+def clear_session_analysis_memory_cache(session_id: str) -> None:
+    """仅清除会话的 AnalysisMemory 内存缓存。"""
     keys_to_remove = [k for k in _analysis_memories if k.startswith(f"{session_id}:")]
     for key in keys_to_remove:
         _analysis_memories.pop(key, None)

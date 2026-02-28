@@ -23,6 +23,10 @@ class SkillManifest:
     parameters: dict[str, Any] = field(default_factory=dict)
     category: str = ""
     examples: list[str] = field(default_factory=list)
+    brief_description: str = ""
+    research_domain: str = "general"
+    difficulty_level: str = "intermediate"
+    typical_use_cases: list[str] = field(default_factory=list)
     # Nini 专有
     is_idempotent: bool = False
     output_types: list[str] = field(default_factory=list)  # chart, dataframe, report, artifact
@@ -44,6 +48,18 @@ def export_to_claude_code(manifest: SkillManifest) -> str:
         lines.append(f"**分类**: {manifest.category}")
         lines.append("")
 
+    if manifest.brief_description:
+        lines.append(f"**简述**: {manifest.brief_description}")
+        lines.append("")
+
+    if manifest.research_domain:
+        lines.append(f"**研究领域**: {manifest.research_domain}")
+        lines.append("")
+
+    if manifest.difficulty_level:
+        lines.append(f"**难度**: {manifest.difficulty_level}")
+        lines.append("")
+
     # 参数说明
     props = manifest.parameters.get("properties", {})
     required = set(manifest.parameters.get("required", []))
@@ -63,6 +79,13 @@ def export_to_claude_code(manifest: SkillManifest) -> str:
         lines.append("")
         for ex in manifest.examples:
             lines.append(f"- {ex}")
+        lines.append("")
+
+    if manifest.typical_use_cases:
+        lines.append("## 典型场景")
+        lines.append("")
+        for use_case in manifest.typical_use_cases:
+            lines.append(f"- {use_case}")
         lines.append("")
 
     # 输出类型
@@ -92,6 +115,10 @@ def import_from_markdown(md_content: str) -> SkillManifest:
     parameters: dict[str, Any] = {"type": "object", "properties": {}}
     examples: list[str] = []
     category = ""
+    brief_description = ""
+    research_domain = "general"
+    difficulty_level = "intermediate"
+    typical_use_cases: list[str] = []
     current_section = "description"
 
     for line in lines:
@@ -109,6 +136,8 @@ def import_from_markdown(md_content: str) -> SkillManifest:
                 current_section = "parameters"
             elif "示例" in section_name:
                 current_section = "examples"
+            elif "典型场景" in section_name or "使用场景" in section_name:
+                current_section = "typical_use_cases"
             else:
                 current_section = "other"
             continue
@@ -117,6 +146,18 @@ def import_from_markdown(md_content: str) -> SkillManifest:
         cat_match = re.match(r"\*\*分类\*\*:\s*(.+)", stripped)
         if cat_match:
             category = cat_match.group(1).strip()
+            continue
+        brief_match = re.match(r"\*\*简述\*\*:\s*(.+)", stripped)
+        if brief_match:
+            brief_description = brief_match.group(1).strip()
+            continue
+        domain_match = re.match(r"\*\*研究领域\*\*:\s*(.+)", stripped)
+        if domain_match:
+            research_domain = domain_match.group(1).strip()
+            continue
+        difficulty_match = re.match(r"\*\*难度\*\*:\s*(.+)", stripped)
+        if difficulty_match:
+            difficulty_level = difficulty_match.group(1).strip()
             continue
 
         # 参数段落
@@ -142,6 +183,10 @@ def import_from_markdown(md_content: str) -> SkillManifest:
             examples.append(stripped[2:])
             continue
 
+        if current_section == "typical_use_cases" and stripped.startswith("- "):
+            typical_use_cases.append(stripped[2:])
+            continue
+
         # 描述段落
         if current_section == "description" and stripped:
             description_lines.append(stripped)
@@ -152,6 +197,10 @@ def import_from_markdown(md_content: str) -> SkillManifest:
         parameters=parameters if parameters["properties"] else {},
         category=category,
         examples=examples,
+        brief_description=brief_description,
+        research_domain=research_domain,
+        difficulty_level=difficulty_level,
+        typical_use_cases=typical_use_cases,
     )
 
 

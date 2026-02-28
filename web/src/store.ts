@@ -30,6 +30,21 @@ export interface SkillItem {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Capability - 用户层面的能力封装
+ * 区别于 Tools（模型可调用的原子函数）
+ */
+export interface CapabilityItem {
+  name: string;
+  display_name: string;
+  description: string;
+  icon?: string;
+  required_tools: string[];
+  suggested_workflow: string[];
+  is_executable?: boolean;
+  execution_message?: string;
+}
+
 export interface SkillDetail extends SkillItem {
   content: string;
 }
@@ -162,6 +177,48 @@ export interface PendingAskUserQuestion {
   createdAt: number;
 }
 
+export interface IntentOption {
+  label: string;
+  description: string;
+}
+
+export interface IntentSkillCall {
+  name: string;
+  arguments: string;
+}
+
+export interface IntentSkillSummary {
+  name: string;
+  description: string;
+  category: string;
+  research_domain: string;
+  difficulty_level: string;
+  location: string;
+  allowed_tools: string[];
+}
+
+export interface IntentCandidateView {
+  name: string;
+  score: number;
+  reason: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface IntentAnalysisView {
+  query: string;
+  capability_candidates: IntentCandidateView[];
+  skill_candidates: IntentCandidateView[];
+  explicit_skill_calls: IntentSkillCall[];
+  active_skills: IntentSkillSummary[];
+  tool_hints: string[];
+  allowed_tools: string[];
+  allowed_tool_sources: string[];
+  clarification_needed: boolean;
+  clarification_question: string | null;
+  clarification_options: IntentOption[];
+  analysis_method: string;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant" | "tool";
@@ -281,6 +338,7 @@ interface AppState {
   datasets: DatasetItem[];
   workspaceFiles: WorkspaceFile[];
   skills: SkillItem[];
+  capabilities: CapabilityItem[];
 
   // 记忆面板
   memoryFiles: MemoryFile[];
@@ -308,6 +366,9 @@ interface AppState {
   wsConnected: boolean;
   isStreaming: boolean;
   pendingAskUserQuestion: PendingAskUserQuestion | null;
+  currentIntentAnalysis: IntentAnalysisView | null;
+  intentAnalysisLoading: boolean;
+  composerDraft: string;
 
   // 当前流式文本的累积
   _streamingText: string;
@@ -323,16 +384,19 @@ interface AppState {
   connect: () => void;
   disconnect: () => void;
   initApp: () => Promise<void>;
-  sendMessage: (content: string) => void;
+  sendMessage: (content: string) => Promise<void>;
   submitAskUserQuestionAnswers: (answers: Record<string, string>) => void;
   stopStreaming: () => void;
-  retryLastTurn: () => void;
+  retryLastTurn: () => Promise<void>;
+  setComposerDraft: (value: string) => void;
   uploadFile: (file: File) => Promise<void>;
   clearMessages: () => void;
   fetchSessions: () => Promise<void>;
   fetchDatasets: () => Promise<void>;
   fetchWorkspaceFiles: () => Promise<void>;
   fetchSkills: () => Promise<void>;
+  fetchCapabilities: () => Promise<void>;
+  analyzeIntent: (content: string) => Promise<void>;
   uploadSkillFile: (file: File) => Promise<{ success: boolean; message: string }>;
   getSkillDetail: (skillName: string) => Promise<{ success: boolean; skill?: SkillDetail; message: string }>;
   updateSkill: (
@@ -420,6 +484,109 @@ function nextAnalysisAttemptId(): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function normalizeIntentOption(raw: unknown): IntentOption | null {
+  if (!isRecord(raw)) return null;
+  const label = typeof raw.label === "string" ? raw.label.trim() : "";
+  const description =
+    typeof raw.description === "string" ? raw.description.trim() : "";
+  if (!label || !description) return null;
+  return { label, description };
+}
+
+function normalizeIntentCandidate(raw: unknown): IntentCandidateView | null {
+  if (!isRecord(raw)) return null;
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  const reason = typeof raw.reason === "string" ? raw.reason.trim() : "";
+  const score = typeof raw.score === "number" ? raw.score : 0;
+  if (!name) return null;
+  return {
+    name,
+    score,
+    reason,
+    payload: isRecord(raw.payload) ? raw.payload : undefined,
+  };
+}
+
+function normalizeIntentSkillCall(raw: unknown): IntentSkillCall | null {
+  if (!isRecord(raw)) return null;
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  if (!name) return null;
+  return {
+    name,
+    arguments: typeof raw.arguments === "string" ? raw.arguments.trim() : "",
+  };
+}
+
+function normalizeIntentSkillSummary(raw: unknown): IntentSkillSummary | null {
+  if (!isRecord(raw)) return null;
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  if (!name) return null;
+  const allowedTools = Array.isArray(raw.allowed_tools)
+    ? raw.allowed_tools
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter(Boolean)
+    : [];
+  return {
+    name,
+    description: typeof raw.description === "string" ? raw.description.trim() : "",
+    category: typeof raw.category === "string" ? raw.category.trim() || "other" : "other",
+    research_domain:
+      typeof raw.research_domain === "string"
+        ? raw.research_domain.trim() || "general"
+        : "general",
+    difficulty_level:
+      typeof raw.difficulty_level === "string"
+        ? raw.difficulty_level.trim() || "intermediate"
+        : "intermediate",
+    location: typeof raw.location === "string" ? raw.location.trim() : "",
+    allowed_tools: allowedTools,
+  };
+}
+
+function normalizeIntentAnalysis(raw: unknown): IntentAnalysisView | null {
+  if (!isRecord(raw)) return null;
+  return {
+    query: typeof raw.query === "string" ? raw.query.trim() : "",
+    capability_candidates: Array.isArray(raw.capability_candidates)
+      ? raw.capability_candidates.map(normalizeIntentCandidate).filter(Boolean) as IntentCandidateView[]
+      : [],
+    skill_candidates: Array.isArray(raw.skill_candidates)
+      ? raw.skill_candidates.map(normalizeIntentCandidate).filter(Boolean) as IntentCandidateView[]
+      : [],
+    explicit_skill_calls: Array.isArray(raw.explicit_skill_calls)
+      ? raw.explicit_skill_calls.map(normalizeIntentSkillCall).filter(Boolean) as IntentSkillCall[]
+      : [],
+    active_skills: Array.isArray(raw.active_skills)
+      ? raw.active_skills.map(normalizeIntentSkillSummary).filter(Boolean) as IntentSkillSummary[]
+      : [],
+    tool_hints: Array.isArray(raw.tool_hints)
+      ? raw.tool_hints.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)
+      : [],
+    allowed_tools: Array.isArray(raw.allowed_tools)
+      ? raw.allowed_tools
+          .map((item) => (typeof item === "string" ? item.trim() : ""))
+          .filter(Boolean)
+      : [],
+    allowed_tool_sources: Array.isArray(raw.allowed_tool_sources)
+      ? raw.allowed_tool_sources
+          .map((item) => (typeof item === "string" ? item.trim() : ""))
+          .filter(Boolean)
+      : [],
+    clarification_needed: raw.clarification_needed === true,
+    clarification_question:
+      typeof raw.clarification_question === "string"
+        ? raw.clarification_question.trim()
+        : null,
+    clarification_options: Array.isArray(raw.clarification_options)
+      ? raw.clarification_options.map(normalizeIntentOption).filter(Boolean) as IntentOption[]
+      : [],
+    analysis_method:
+      typeof raw.analysis_method === "string"
+        ? raw.analysis_method.trim() || "rule_based_v1"
+        : "rule_based_v1",
+  };
 }
 
 function inferMemoryFileType(name: string): MemoryFile["type"] {
@@ -955,6 +1122,7 @@ export const useStore = create<AppState>((set, get) => ({
   datasets: [],
   workspaceFiles: [],
   skills: [],
+  capabilities: [],
   memoryFiles: [],
   activeModel: null,
   modelProviders: [],
@@ -974,6 +1142,9 @@ export const useStore = create<AppState>((set, get) => ({
   wsConnected: false,
   isStreaming: false,
   pendingAskUserQuestion: null,
+  currentIntentAnalysis: null,
+  intentAnalysisLoading: false,
+  composerDraft: "",
   _streamingText: "",
   _currentTurnId: null,
   _reconnectAttempts: 0,
@@ -1116,7 +1287,7 @@ export const useStore = create<AppState>((set, get) => ({
     // 4. 如果没有现有会话，保持空状态，等待用户点击"新建会话"
   },
 
-  sendMessage(content: string) {
+  async sendMessage(content: string) {
     const { ws, sessionId, pendingAskUserQuestion } = get();
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     if (pendingAskUserQuestion) return;
@@ -1130,6 +1301,12 @@ export const useStore = create<AppState>((set, get) => ({
     };
     set((s) => ({ messages: [...s.messages, userMsg] }));
 
+    try {
+      await get().analyzeIntent(content);
+    } catch (e) {
+      console.error("分析意图失败:", e);
+    }
+
     // 发送到服务器
     ws.send(
       JSON.stringify({
@@ -1141,6 +1318,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     set({
       isStreaming: true,
+      composerDraft: "",
       pendingAskUserQuestion: null,
       _streamingText: "",
       _analysisPlanOrder: 0,
@@ -1175,6 +1353,10 @@ export const useStore = create<AppState>((set, get) => ({
     set({ pendingAskUserQuestion: null });
   },
 
+  setComposerDraft(value: string) {
+    set({ composerDraft: value });
+  },
+
   stopStreaming() {
     const { ws, isStreaming, sessionId } = get();
     if (!isStreaming) return;
@@ -1200,7 +1382,7 @@ export const useStore = create<AppState>((set, get) => ({
     });
   },
 
-  retryLastTurn() {
+  async retryLastTurn() {
     const { ws, sessionId, messages, isStreaming } = get();
     if (isStreaming) return;
     if (!sessionId || !ws || ws.readyState !== WebSocket.OPEN) return;
@@ -1222,6 +1404,8 @@ export const useStore = create<AppState>((set, get) => ({
     set({
       messages: trimmedMessages,
       isStreaming: true,
+      currentIntentAnalysis: null,
+      intentAnalysisLoading: false,
       pendingAskUserQuestion: null,
       _streamingText: "",
       _currentTurnId: null,
@@ -1231,6 +1415,12 @@ export const useStore = create<AppState>((set, get) => ({
       _activePlanTaskIds: [],
       _planActionTaskMap: {},
     });
+
+    try {
+      await get().analyzeIntent(retryContent);
+    } catch (e) {
+      console.error("重试前分析意图失败:", e);
+    }
 
     ws.send(
       JSON.stringify({
@@ -1340,6 +1530,9 @@ export const useStore = create<AppState>((set, get) => ({
       _activePlanTaskIds: [],
       _planActionTaskMap: {},
       analysisTasks: [],
+      currentIntentAnalysis: null,
+      intentAnalysisLoading: false,
+      composerDraft: "",
     });
   },
 
@@ -1414,6 +1607,52 @@ export const useStore = create<AppState>((set, get) => ({
       });
     } catch (e) {
       console.error("获取技能列表失败:", e);
+    }
+  },
+
+  async fetchCapabilities() {
+    try {
+      const resp = await fetch("/api/capabilities");
+      const payload = await resp.json();
+      if (!resp.ok || !payload.success) {
+        throw new Error("获取能力列表失败");
+      }
+      const data = isRecord(payload.data) ? payload.data : null;
+      const caps = data && Array.isArray(data.capabilities) ? data.capabilities : [];
+      set({ capabilities: caps as CapabilityItem[] });
+    } catch (e) {
+      console.error("获取能力列表失败:", e);
+    }
+  },
+
+  async analyzeIntent(content: string) {
+    const query = content.trim();
+    if (!query) {
+      set({ currentIntentAnalysis: null, intentAnalysisLoading: false });
+      return;
+    }
+
+    set({ intentAnalysisLoading: true });
+    try {
+      const url = new URL("/api/intent/analyze", window.location.origin);
+      url.searchParams.set("user_message", query);
+      const resp = await fetch(url.toString(), { method: "POST" });
+      const payload = await resp.json();
+      if (!resp.ok || payload.success !== true) {
+        throw new Error("意图分析失败");
+      }
+      const data = isRecord(payload.data) ? payload.data : null;
+      set({
+        currentIntentAnalysis: normalizeIntentAnalysis(data),
+        intentAnalysisLoading: false,
+      });
+    } catch (e) {
+      console.error("获取意图分析失败:", e);
+      set({
+      currentIntentAnalysis: null,
+      intentAnalysisLoading: false,
+      composerDraft: "",
+    });
     }
   },
 
@@ -1809,6 +2048,9 @@ export const useStore = create<AppState>((set, get) => ({
         _activePlanTaskIds: [],
         _planActionTaskMap: {},
         analysisTasks: [],
+        currentIntentAnalysis: null,
+        intentAnalysisLoading: false,
+        composerDraft: "",
       });
       // 清除保存的 session_id（新会话不需要恢复）
       localStorage.removeItem("nini_last_session_id");
@@ -1843,6 +2085,9 @@ export const useStore = create<AppState>((set, get) => ({
           _activePlanTaskIds: [],
           _planActionTaskMap: {},
           analysisTasks: [],
+          currentIntentAnalysis: null,
+          intentAnalysisLoading: false,
+          composerDraft: "",
         });
         await get().fetchDatasets();
         await get().fetchWorkspaceFiles();
@@ -1873,6 +2118,9 @@ export const useStore = create<AppState>((set, get) => ({
         _activePlanTaskIds: [],
         _planActionTaskMap: {},
         analysisTasks: [],
+        currentIntentAnalysis: null,
+        intentAnalysisLoading: false,
+        composerDraft: "",
       });
       // 保存当前会话 ID 到 localStorage
       localStorage.setItem("nini_last_session_id", targetSessionId);
@@ -1908,6 +2156,9 @@ export const useStore = create<AppState>((set, get) => ({
           _activePlanTaskIds: [],
           _planActionTaskMap: {},
           analysisTasks: [],
+          currentIntentAnalysis: null,
+          intentAnalysisLoading: false,
+          composerDraft: "",
         });
       }
       // 刷新会话列表

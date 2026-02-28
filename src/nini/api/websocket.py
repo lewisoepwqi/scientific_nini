@@ -18,24 +18,33 @@ from nini.agent.runner import AgentRunner, EventType
 from nini.agent.session import session_manager
 from nini.agent.title_generator import generate_title
 from nini.models.schemas import WSEvent
-from nini.tools.registry import SkillRegistry
+from nini.tools.registry import ToolRegistry
 from nini.workspace import WorkspaceManager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# 运行时注入的 skill_registry
-_skill_registry: SkillRegistry | None = None
+# 运行时注入的 tool_registry
+# 注意：虽然变量名保持 _skill_registry 以向后兼容，但类型是 ToolRegistry
+_tool_registry: ToolRegistry | None = None
 
 
-def set_skill_registry(registry: SkillRegistry) -> None:
-    global _skill_registry
-    _skill_registry = registry
+def set_skill_registry(registry: ToolRegistry) -> None:
+    """设置工具注册中心。
+
+    注意：函数名保持 set_skill_registry 以向后兼容，但参数类型是 ToolRegistry。
+    """
+    global _tool_registry
+    _tool_registry = registry
 
 
-def get_skill_registry() -> SkillRegistry | None:
-    return _skill_registry
+def get_skill_registry() -> ToolRegistry | None:
+    """获取工具注册中心。
+
+    注意：函数名保持 get_skill_registry 以向后兼容，但返回类型是 ToolRegistry。
+    """
+    return _tool_registry
 
 
 @router.websocket("/ws")

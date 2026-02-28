@@ -55,6 +55,10 @@ class MarkdownSkill:
     description: str
     location: str
     category: str = "other"
+    brief_description: str = ""
+    research_domain: str = "general"
+    difficulty_level: str = "intermediate"
+    typical_use_cases: list[str] = field(default_factory=list)
     enabled: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -64,6 +68,10 @@ class MarkdownSkill:
             "name": self.name,
             "description": self.description,
             "category": self.category,
+            "brief_description": self.brief_description,
+            "research_domain": self.research_domain,
+            "difficulty_level": self.difficulty_level,
+            "typical_use_cases": self.typical_use_cases,
             "location": self.location,
             "enabled": self.enabled,
             "metadata": self.metadata,
@@ -78,6 +86,10 @@ class MarkdownSkill:
             description=self.description,
             parameters={},
             category=self.category,
+            brief_description=self.brief_description,
+            research_domain=self.research_domain,
+            difficulty_level=self.difficulty_level,
+            typical_use_cases=self.typical_use_cases,
         )
 
 
@@ -97,12 +109,19 @@ def _parse_frontmatter(text: str) -> dict[str, Any]:
     return dict(parsed)
 
 
+def split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
+    """拆分 Frontmatter 与正文。"""
+    m = _FRONTMATTER_RE.match(text)
+    if not m:
+        return {}, text.strip()
+    meta = _parse_frontmatter(text)
+    body = text[m.end() :].strip()
+    return meta, body
+
+
 def _extract_description(text: str, fallback_name: str) -> str:
     """从正文提取描述首行。"""
-    body = text
-    frontmatter = _FRONTMATTER_RE.match(text)
-    if frontmatter:
-        body = text[frontmatter.end() :]
+    _, body = split_frontmatter(text)
 
     for line in body.splitlines():
         stripped = line.strip()
@@ -140,6 +159,21 @@ def _to_str_list(value: Any) -> list[str]:
     return []
 
 
+def _normalize_brief_description(raw_brief: Any, description: str) -> str:
+    brief = str(raw_brief or "").strip()
+    if brief:
+        return brief
+    single_line = " ".join(description.split())
+    if len(single_line) <= 80:
+        return single_line
+    return single_line[:77] + "..."
+
+
+def _normalize_difficulty(raw_value: Any) -> str:
+    difficulty = str(raw_value or "").strip().lower()
+    return difficulty or "intermediate"
+
+
 def _infer_standards(path: Path) -> list[str]:
     normalized = str(path).replace("\\", "/").lower()
     standards: list[str] = []
@@ -169,6 +203,49 @@ def _parse_openai_agent_config(skill_dir: Path) -> dict[str, Any] | None:
     if isinstance(data, dict):
         return {"path": str(cfg_path), "config": data}
     return {"path": str(cfg_path), "config": {}}
+
+
+def get_markdown_skill_instruction(
+    skill_path: Path,
+) -> dict[str, Any]:
+    """读取 Markdown Skill 的正文说明层。"""
+    text = skill_path.read_text(encoding="utf-8")
+    frontmatter, body = split_frontmatter(text)
+    return {
+        "path": str(skill_path),
+        "frontmatter": frontmatter,
+        "instruction": body,
+    }
+
+
+def list_markdown_skill_runtime_resources(skill_path: Path) -> list[dict[str, Any]]:
+    """列出 Skill 目录中除说明文件外的运行时资源。"""
+    skill_dir = skill_path.parent
+    resources: list[dict[str, Any]] = []
+    for path in sorted(skill_dir.rglob("*")):
+        if path == skill_path or path.name.startswith("."):
+            continue
+        rel_path = str(path.relative_to(skill_dir))
+        if path.is_dir():
+            child_count = sum(1 for child in path.iterdir())
+            resources.append(
+                {
+                    "path": rel_path,
+                    "type": "dir",
+                    "child_count": child_count,
+                }
+            )
+            continue
+        top_level = rel_path.split("/", 1)[0]
+        resources.append(
+            {
+                "path": rel_path,
+                "type": "file",
+                "size": path.stat().st_size,
+                "top_level": top_level,
+            }
+        )
+    return resources
 
 
 def _iter_skill_files(roots: list[Path]) -> Iterable[tuple[Path, Path, int]]:
@@ -234,12 +311,29 @@ def scan_markdown_skills(skills_dir: Path | Iterable[Path]) -> list[MarkdownSkil
 
             standards = _infer_standards(path)
             openai_cfg = _parse_openai_agent_config(path.parent)
+            brief_description = _normalize_brief_description(
+                meta.get("brief-description") or meta.get("brief_description"),
+                description,
+            )
+            research_domain = str(
+                meta.get("research-domain") or meta.get("research_domain") or "general"
+            ).strip() or "general"
+            difficulty_level = _normalize_difficulty(
+                meta.get("difficulty-level") or meta.get("difficulty_level")
+            )
+            typical_use_cases = _to_str_list(
+                meta.get("typical-use-cases") or meta.get("typical_use_cases")
+            )
             metadata: dict[str, Any] = {
                 "path": str(path),
                 "source_root": str(root),
                 "source_standard": standards,
                 "discovery_priority": priority,
                 "frontmatter": meta,
+                "brief_description": brief_description,
+                "research_domain": research_domain,
+                "difficulty_level": difficulty_level,
+                "typical_use_cases": typical_use_cases,
             }
             agents = _to_str_list(meta.get("agents"))
             if agents:
@@ -277,6 +371,10 @@ def scan_markdown_skills(skills_dir: Path | Iterable[Path]) -> list[MarkdownSkil
                     description=description,
                     location=str(path),
                     category=category,
+                    brief_description=brief_description,
+                    research_domain=research_domain,
+                    difficulty_level=difficulty_level,
+                    typical_use_cases=typical_use_cases,
                     metadata=metadata,
                 )
             )

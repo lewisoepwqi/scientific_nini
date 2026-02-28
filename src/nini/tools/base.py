@@ -83,6 +83,34 @@ class Skill(ABC):
         return "other"
 
     @property
+    def brief_description(self) -> str:
+        """技能简述，用于轻量目录与能力推荐。"""
+        first_line = " ".join(str(self.description).split())
+        if len(first_line) <= 80:
+            return first_line
+        return first_line[:77] + "..."
+
+    @property
+    def research_domain(self) -> str:
+        """技能所属科研领域。"""
+        return "general"
+
+    @property
+    def difficulty_level(self) -> str:
+        """技能使用难度。"""
+        return "intermediate"
+
+    @property
+    def typical_use_cases(self) -> list[str]:
+        """典型使用场景。"""
+        return []
+
+    @property
+    def output_types(self) -> list[str]:
+        """技能常见输出类型。"""
+        return []
+
+    @property
     def expose_to_llm(self) -> bool:
         """是否暴露给 LLM 作为可调用工具。设为 False 可减少工具数量。"""
         return True
@@ -102,6 +130,11 @@ class Skill(ABC):
             parameters=self.parameters,
             is_idempotent=self.is_idempotent,
             category=self.category,
+            brief_description=self.brief_description,
+            research_domain=self.research_domain,
+            difficulty_level=self.difficulty_level,
+            typical_use_cases=self.typical_use_cases,
+            output_types=self.output_types,
         )
 
     def get_tool_definition(self) -> dict[str, Any]:

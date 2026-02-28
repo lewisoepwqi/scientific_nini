@@ -21,6 +21,7 @@ from fastapi.responses import Response
 
 from nini.agent.session import session_manager
 from nini.config import settings
+from nini.intent import default_intent_analyzer
 from nini.models.schemas import (
     APIResponse,
     DatasetInfo,
@@ -416,6 +417,15 @@ async def list_skills(skill_type: str | None = None):
     return APIResponse(data={"skills": skills})
 
 
+@router.get("/skills/semantic-catalog", response_model=APIResponse)
+async def get_semantic_catalog(skill_type: str | None = None):
+    """获取面向检索与渐进式披露的轻量语义目录。"""
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    catalog = registry.get_semantic_catalog(skill_type=skill_type)
+    return APIResponse(data={"skills": catalog})
+
+
 @router.post("/skills/markdown/upload", response_model=APIResponse)
 async def upload_markdown_skill(file: UploadFile = File(...)):
     """上传 Markdown Skill 文件。"""
@@ -494,6 +504,40 @@ async def get_markdown_skill(skill_name: str):
             }
         }
     )
+
+
+@router.get("/skills/markdown/{skill_name}/instruction", response_model=APIResponse)
+async def get_markdown_skill_instruction(skill_name: str):
+    """获取 Markdown Skill 的说明层内容。"""
+    try:
+        validated_name = validate_skill_name(skill_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    _get_markdown_skill_item_or_404(registry, validated_name)
+    payload = registry.get_skill_instruction(validated_name)
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"技能 '{validated_name}' 的说明不存在")
+    return APIResponse(data=payload)
+
+
+@router.get("/skills/markdown/{skill_name}/runtime-resources", response_model=APIResponse)
+async def get_markdown_skill_runtime_resources(skill_name: str):
+    """获取 Markdown Skill 的运行时资源目录。"""
+    try:
+        validated_name = validate_skill_name(skill_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    _get_markdown_skill_item_or_404(registry, validated_name)
+    payload = registry.get_runtime_resources(validated_name)
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"技能 '{validated_name}' 的运行时资源不存在")
+    return APIResponse(data=payload)
 
 
 @router.put("/skills/markdown/{skill_name}", response_model=APIResponse)
@@ -2098,3 +2142,176 @@ async def get_session_context_size(session_id: str):
 @router.get("/health")
 async def health():
     return {"status": "ok", "version": "0.1.0"}
+
+
+# ---- Capabilities (用户层面的能力) ----
+
+from nini.capabilities import (
+    CapabilityExecutorNotConfiguredError,
+    CapabilityNotExecutableError,
+    CapabilityRegistry,
+    create_default_capabilities,
+)
+
+# 全局 CapabilityRegistry 实例（应用启动时初始化）
+_capability_registry: CapabilityRegistry | None = None
+
+
+def _get_capability_registry() -> CapabilityRegistry:
+    """获取或初始化 CapabilityRegistry。"""
+    global _capability_registry
+    if _capability_registry is None:
+        _capability_registry = CapabilityRegistry()
+        for cap in create_default_capabilities():
+            _capability_registry.register(cap)
+        logger.info(f"已注册 {len(_capability_registry.list_capabilities())} 个能力")
+    return _capability_registry
+
+
+@router.get("/capabilities", response_model=APIResponse)
+async def list_capabilities():
+    """
+    获取能力（Capabilities）列表。
+
+    三层架构：
+    - Tools: 模型可调用的原子函数（t_test, anova 等）
+    - Capabilities: 用户层面的能力元数据（如"差异分析"，用于前端展示和意图匹配）
+    - Skills: 完整工作流项目（含脚本、模板、文档，在 skills/ 目录）
+
+    前端技能面板应该展示 Capabilities 而非 Tools。
+    """
+    registry = _get_capability_registry()
+    return APIResponse(
+        success=True,
+        data={
+            "capabilities": registry.to_catalog()
+        }
+    )
+
+
+@router.get("/capabilities/{name}", response_model=APIResponse)
+async def get_capability(name: str):
+    """获取单个能力的详细信息。"""
+    registry = _get_capability_registry()
+    cap = registry.get(name)
+    if not cap:
+        raise HTTPException(status_code=404, detail=f"能力 '{name}' 不存在")
+
+    return APIResponse(
+        success=True,
+        data=cap.to_dict()
+    )
+
+
+@router.post("/capabilities/suggest", response_model=APIResponse)
+async def suggest_capabilities(user_message: str):
+    """
+    基于用户输入推荐相关能力。
+
+    Args:
+        user_message: 用户输入的消息
+
+    Returns:
+        推荐的能力列表
+    """
+    registry = _get_capability_registry()
+    analysis = registry.analyze_intent(user_message)
+    suggested = []
+    for candidate in analysis.capability_candidates:
+        cap = registry.get(candidate.name)
+        if cap is not None:
+            suggested.append(cap)
+
+    return APIResponse(
+        success=True,
+        data={
+            "suggestions": [cap.to_dict() for cap in suggested],
+            "query": user_message,
+            "tool_hints": analysis.tool_hints,
+            "clarification_needed": analysis.clarification_needed,
+            "clarification_question": analysis.clarification_question,
+            "clarification_options": analysis.clarification_options,
+            "analysis_method": analysis.analysis_method,
+        }
+    )
+
+
+@router.post("/intent/analyze", response_model=APIResponse)
+async def analyze_intent(user_message: str):
+    """分析用户意图，返回 capability 与 Markdown skill 候选。"""
+    capability_registry = _get_capability_registry()
+    capability_catalog = [cap.to_dict() for cap in capability_registry.list_capabilities()]
+
+    skill_registry = _get_skill_registry()
+    _refresh_skill_registry(skill_registry)
+    semantic_skills = skill_registry.get_semantic_catalog(skill_type="markdown")
+    analysis = default_intent_analyzer.analyze(
+        user_message,
+        capabilities=capability_catalog,
+        semantic_skills=semantic_skills,
+        skill_limit=3,
+    )
+    return APIResponse(
+        success=True,
+        data=analysis.to_dict(),
+    )
+
+
+@router.post("/capabilities/{name}/execute", response_model=APIResponse)
+async def execute_capability(
+    name: str,
+    session_id: str,
+    params: dict[str, Any],
+):
+    """
+    执行指定的 Capability。
+
+    当前支持:
+    - difference_analysis: 差异分析，params需包含 dataset_name, value_column, group_column
+
+    Args:
+        name: Capability 名称
+        session_id: 会话ID
+        params: 执行参数
+
+    Returns:
+        执行结果
+    """
+    from nini.agent.session import session_manager
+    from nini.tools.registry import create_default_tool_registry
+
+    capability_registry = _get_capability_registry()
+    capability = capability_registry.get(name)
+    if capability is None:
+        raise HTTPException(status_code=404, detail=f"能力 '{name}' 不存在")
+    if not capability.supports_direct_execution():
+        message = capability.execution_message or f"能力 '{name}' 暂不支持直接执行"
+        raise HTTPException(status_code=409, detail=message)
+
+    # 获取会话
+    session = session_manager.get_or_create(session_id)
+
+    # 获取 ToolRegistry（用于执行底层工具）
+    tool_registry = create_default_tool_registry()
+
+    capability_params = dict(params)
+    capability_params.setdefault("alpha", 0.05)
+    capability_params.setdefault("auto_select_method", True)
+
+    try:
+        result = await capability_registry.execute(
+            name,
+            session,
+            capability_params,
+            tool_registry=tool_registry,
+        )
+    except CapabilityNotExecutableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except CapabilityExecutorNotConfiguredError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+
+    return APIResponse(
+        success=result.success,
+        data=result.to_dict(),
+        message=result.message if not result.success else None,
+    )

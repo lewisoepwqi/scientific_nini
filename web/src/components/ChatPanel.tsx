@@ -9,6 +9,7 @@ import MessageBubble from './MessageBubble'
 import AgentTurnGroup from './AgentTurnGroup'
 import ChatInputArea from './ChatInputArea'
 import AskUserQuestionPanel from './AskUserQuestionPanel'
+import IntentSummaryCard from './IntentSummaryCard'
 import { Loader2 } from 'lucide-react'
 
 /** 消息分组：用户消息独立，同一 turnId 的 agent 消息合并为一组 */
@@ -64,6 +65,9 @@ export default function ChatPanel() {
   const messages = useStore((s) => s.messages)
   const isStreaming = useStore((s) => s.isStreaming)
   const pendingAskUserQuestion = useStore((s) => s.pendingAskUserQuestion)
+  const currentIntentAnalysis = useStore((s) => s.currentIntentAnalysis)
+  const intentAnalysisLoading = useStore((s) => s.intentAnalysisLoading)
+  const setComposerDraft = useStore((s) => s.setComposerDraft)
   const submitAskUserQuestionAnswers = useStore((s) => s.submitAskUserQuestionAnswers)
   const retryLastTurn = useStore((s) => s.retryLastTurn)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -115,6 +119,12 @@ export default function ChatPanel() {
       {/* 消息列表 */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         <div className="max-w-3xl mx-auto">
+          <IntentSummaryCard
+            analysis={currentIntentAnalysis}
+            loading={intentAnalysisLoading}
+            onApplySuggestion={setComposerDraft}
+          />
+
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-gray-400">
               <div className="text-5xl mb-4">🔬</div>
