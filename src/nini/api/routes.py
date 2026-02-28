@@ -196,8 +196,7 @@ def _build_download_response(path: Path, filename: str, *, inline: bool = False)
         ascii_fallback = filename.encode("ascii", errors="replace").decode("ascii")
         utf8_encoded = quote(filename, safe="")
         disposition = (
-            f"{disposition_type}; "
-            f'filename="{ascii_fallback}"; filename*=UTF-8''{utf8_encoded}'
+            f"{disposition_type}; " f'filename="{ascii_fallback}"; filename*=UTF-8' "{utf8_encoded}"
         )
     return Response(
         content=path.read_bytes(),
@@ -479,7 +478,7 @@ async def list_sessions() -> APIResponse:
 @router.get("/sessions/{session_id}", response_model=APIResponse)
 async def get_session(session_id: str) -> APIResponse:
     """获取单个会话信息。"""
-    session = session_manager.get_or_create(session_id, load_persisted_messages=True)
+    session = session_manager.get_or_create(session_id)
 
     return APIResponse(
         success=True,
@@ -562,7 +561,7 @@ async def delete_session(session_id: str) -> APIResponse:
 @router.post("/sessions/{session_id}/rollback", response_model=APIResponse)
 async def rollback_session(session_id: str) -> APIResponse:
     """回滚会话到上一用户消息（删除该消息后的所有模型输出）。"""
-    session = session_manager.get_or_create(session_id, load_persisted_messages=True)
+    session = session_manager.get_or_create(session_id)
     user_content = session.rollback_last_turn()
     if user_content is None:
         return APIResponse(success=False, error="没有可回滚的用户消息")
@@ -976,8 +975,6 @@ async def delete_markdown_skill(skill_name: str):
     return APIResponse(data={"deleted": validated_name})
 
 
-
-
 @router.get("/skills/markdown/{skill_name}/files/content", response_model=APIResponse)
 async def get_markdown_skill_file_content(skill_name: str, path: str):
     """读取 Markdown Skill 目录中的单个文件。"""
@@ -1092,9 +1089,7 @@ async def upload_markdown_skill_attachment(
 
 
 @router.post("/skills/markdown/{skill_name}/directories", response_model=APIResponse)
-async def create_markdown_skill_directory(
-    skill_name: str, request: MarkdownSkillDirCreateRequest
-):
+async def create_markdown_skill_directory(skill_name: str, request: MarkdownSkillDirCreateRequest):
     """在 Markdown Skill 内创建目录。"""
     registry = _get_skill_registry()
     skill_dir = _get_markdown_skill_dir_or_404(registry, skill_name)
@@ -1314,20 +1309,21 @@ async def analyze_intent(
             semantic_skills = skill_registry.get_semantic_catalog()
         except Exception:
             semantic_skills = []
-    
+
     if analysis_mode == "hybrid":
         # 使用增强版语义分析
         try:
             from nini.intent import get_enhanced_intent_analyzer
+
             enhanced = get_enhanced_intent_analyzer()
-            
+
             # 先获取规则分析结果
             rule_analysis = default_intent_analyzer.analyze(
                 user_message,
                 capabilities=capabilities,
                 semantic_skills=semantic_skills,
             )
-            
+
             # 应用语义增强
             analysis = enhanced.analyze(
                 user_message,
@@ -1359,20 +1355,21 @@ async def analyze_intent(
 @router.get("/intent/status", response_model=APIResponse)
 async def get_intent_analysis_status():
     """获取意图分析系统状态。
-    
+
     返回规则版和语义增强版的可用状态。
     """
     from nini.intent import default_intent_analyzer
-    
+
     # 检查语义增强版是否可用
     semantic_available = False
     try:
         from nini.intent import get_enhanced_intent_analyzer
+
         enhanced = get_enhanced_intent_analyzer()
         semantic_available = enhanced.is_semantic_available
     except Exception:
         pass
-    
+
     return APIResponse(
         success=True,
         data={
@@ -1383,7 +1380,9 @@ async def get_intent_analysis_status():
             },
             "semantic": {
                 "available": semantic_available,
-                "features": ["embedding 相似度", "语义检索", "规则+语义融合"] if semantic_available else [],
+                "features": (
+                    ["embedding 相似度", "语义检索", "规则+语义融合"] if semantic_available else []
+                ),
             },
             "default_mode": "rule",
         },
@@ -1724,14 +1723,16 @@ async def generate_report(
             "references": "参考文献",
         }.get(section_id, section_id.capitalize())
 
-        report_lines.extend([
-            f"## {section_title}",
-            "",
-            f"*{prompt}*",
-            "",
-            "（此章节内容由模型根据会话历史自动生成）",
-            "",
-        ])
+        report_lines.extend(
+            [
+                f"## {section_title}",
+                "",
+                f"*{prompt}*",
+                "",
+                "（此章节内容由模型根据会话历史自动生成）",
+                "",
+            ]
+        )
 
     # 合并为完整报告
     report_markdown = "\n".join(report_lines)
@@ -1803,8 +1804,7 @@ async def export_report(
     # 查找最新的报告文件
     artifacts = ws.list_artifacts()
     report_artifacts = [
-        a for a in artifacts
-        if isinstance(a, dict) and str(a.get("type", "")).lower() == "report"
+        a for a in artifacts if isinstance(a, dict) and str(a.get("type", "")).lower() == "report"
     ]
 
     if not report_artifacts:
@@ -1837,27 +1837,27 @@ async def export_report(
     # DOCX 或 PDF 格式转换
     try:
         from nini.tools.report_exporter import export_report as do_export
-        
+
         # 读取 Markdown 内容
         markdown_content = report_path.read_text(encoding="utf-8")
-        
+
         # 导出为指定格式
         exported_bytes = do_export(
             markdown_content,
             format=request.format,
             title=request.filename or report_name.replace(".md", ""),
         )
-        
+
         # 保存导出文件
         new_filename = report_name.replace(".md", f".{request.format}")
         if request.filename:
             new_filename = request.filename
             if not new_filename.endswith(f".{request.format}"):
                 new_filename += f".{request.format}"
-        
+
         export_path = storage.get_path(new_filename)
         export_path.write_bytes(exported_bytes)
-        
+
         # 添加到工作区
         ws.add_artifact_record(
             name=new_filename,
@@ -1865,7 +1865,7 @@ async def export_report(
             file_path=export_path,
             format_hint=request.format,
         )
-        
+
         return APIResponse(
             success=True,
             data={
@@ -1875,7 +1875,7 @@ async def export_report(
                 "download_url": ws.build_artifact_download_url(new_filename),
             },
         )
-        
+
     except ImportError as exc:
         # 缺少依赖
         logger.warning("导出 %s 失败: %s", request.format, exc)
@@ -1895,7 +1895,7 @@ async def export_report(
 @router.get("/report/preview", response_model=APIResponse)
 async def preview_report(
     session_id: str,
-    filename: Optional[str] = None,
+    filename: str | None = None,
 ):
     """预览报告内容。
 
@@ -1920,7 +1920,8 @@ async def preview_report(
         # 查找最新的报告
         artifacts = ws.list_artifacts()
         report_artifacts = [
-            a for a in artifacts
+            a
+            for a in artifacts
             if isinstance(a, dict) and str(a.get("type", "")).lower() == "report"
         ]
         if not report_artifacts:

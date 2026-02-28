@@ -64,10 +64,19 @@ class ReasoningData:
     alternatives: list[str] = field(default_factory=list)  # 考虑过的替代方案
     confidence: float = 1.0  # 决策置信度 (0-1)
     context: dict[str, Any] = field(default_factory=dict)  # 额外上下文信息
+    # 新增字段（向后兼容，可选）
+    reasoning_type: str | None = None  # "analysis" | "decision" | "planning" | "reflection"
+    reasoning_subtype: str | None = None  # 更细粒度的类型
+    confidence_score: float | None = None  # 0.0 - 1.0 的置信度分数
+    key_decisions: list[str] = field(default_factory=list)  # 关键决策点列表
+    parent_id: str | None = None  # 父推理节点 ID（用于链式关联）
+    references: list[dict[str, Any]] = field(default_factory=list)  # 引用数据来源
+    timestamp: str | None = None  # ISO 格式时间戳
+    tags: list[str] = field(default_factory=list)  # 标签，如 ["assumption_check", "fallback"]
 
     def to_dict(self) -> dict[str, Any]:
         """转换为字典。"""
-        return {
+        result = {
             "step": self.step,
             "thought": self.thought,
             "rationale": self.rationale,
@@ -75,6 +84,24 @@ class ReasoningData:
             "confidence": self.confidence,
             "context": self.context,
         }
+        # 添加新字段（如果存在）
+        if self.reasoning_type:
+            result["reasoning_type"] = self.reasoning_type
+        if self.reasoning_subtype:
+            result["reasoning_subtype"] = self.reasoning_subtype
+        if self.confidence_score is not None:
+            result["confidence_score"] = self.confidence_score
+        if self.key_decisions:
+            result["key_decisions"] = self.key_decisions
+        if self.parent_id:
+            result["parent_id"] = self.parent_id
+        if self.references:
+            result["references"] = self.references
+        if self.timestamp:
+            result["timestamp"] = self.timestamp
+        if self.tags:
+            result["tags"] = self.tags
+        return result
 
 
 class ReasoningStep:

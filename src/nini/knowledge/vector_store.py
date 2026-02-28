@@ -317,3 +317,121 @@ class VectorKnowledgeStore:
             logger.warning("无法创建本地 embedding 模型，已回退到关键词检索")
 
         return None
+
+    async def initialize(self) -> None:
+        """初始化向量存储（异步包装）.
+
+        实际调用 build_or_load 构建或加载索引。
+        """
+        self.build_or_load()
+
+    async def add_document(
+        self,
+        doc_id: str,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> bool:
+        """添加文档到向量存储.
+
+        注意：当前实现仅将文档保存到知识目录，
+        需要调用 build_or_load 重建索引才能检索。
+
+        Args:
+            doc_id: 文档 ID
+            content: 文档内容
+            metadata: 元数据
+
+        Returns:
+            是否成功
+        """
+        try:
+            doc_path = self._knowledge_dir / f"{doc_id}.txt"
+            doc_path.write_text(content, encoding="utf-8")
+
+            # 保存元数据
+            if metadata:
+                meta_path = self._storage_dir / f"{doc_id}_meta.json"
+                meta_path.write_text(
+                    json.dumps(metadata, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+
+            return True
+        except Exception as e:
+            logger.error(f"添加文档失败: {e}")
+            return False
+
+    async def remove_document(self, doc_id: str) -> bool:
+        """从向量存储中移除文档.
+
+        Args:
+            doc_id: 文档 ID
+
+        Returns:
+            是否成功
+        """
+        try:
+            doc_path = self._knowledge_dir / f"{doc_id}.txt"
+            meta_path = self._storage_dir / f"{doc_id}_meta.json"
+
+            if doc_path.exists():
+                doc_path.unlink()
+            if meta_path.exists():
+                meta_path.unlink()
+
+            return True
+        except Exception as e:
+            logger.error(f"移除文档失败: {e}")
+            return False
+
+    async def search(
+        self,
+        query: str,
+        top_k: int = 5,
+    ) -> list[tuple[str, float]]:
+        """搜索文档.
+
+        Args:
+            query: 查询文本
+            top_k: 返回结果数量
+
+        Returns:
+            (文档ID, 分数) 列表
+        """
+        _, hit_items = self.query(query, top_k=top_k)
+        return [(item.get("source", "unknown"), item.get("score", 0.0)) for item in hit_items]
+
+    async def get_document(self, doc_id: str) -> dict[str, Any] | None:
+        """获取文档信息.
+
+        Args:
+            doc_id: 文档 ID
+
+        Returns:
+            文档信息字典，不存在返回 None
+        """
+        try:
+            doc_path = self._knowledge_dir / f"{doc_id}.txt"
+            meta_path = self._storage_dir / f"{doc_id}_meta.json"
+
+            if not doc_path.exists():
+                return None
+
+            content = doc_path.read_text(encoding="utf-8")
+            metadata = {}
+            if meta_path.exists():
+                metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+
+            return {
+                "id": doc_id,
+                "content": content,
+                "metadata": metadata,
+            }
+        except Exception as e:
+            logger.error(f"获取文档失败: {e}")
+            return None
+
+    @property
+    def _initialized(self) -> bool:
+        """内部属性：检查是否已初始化."""
+        return self.is_available

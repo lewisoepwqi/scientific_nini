@@ -1,0 +1,169 @@
+# 模型定价配置
+# 价格单位：USD per 1K tokens
+# currency: USD
+# usd_to_cny_rate: 7.2
+
+usd_to_cny_rate: 7.2
+default_model: "gpt-4o"
+
+models:
+  # OpenAI 模型
+  gpt-4o:
+    input_price: 0.0025
+    output_price: 0.01
+    currency: USD
+    tier: "standard"
+
+  gpt-4o-mini:
+    input_price: 0.00015
+    output_price: 0.0006
+    currency: USD
+    tier: "economy"
+
+  gpt-4-turbo:
+    input_price: 0.01
+    output_price: 0.03
+    currency: USD
+    tier: "premium"
+
+  gpt-3.5-turbo:
+    input_price: 0.0005
+    output_price: 0.0015
+    currency: USD
+    tier: "economy"
+
+  # Anthropic 模型
+  claude-sonnet-4-20250514:
+    input_price: 0.003
+    output_price: 0.015
+    currency: USD
+    tier: "standard"
+
+  claude-3-5-sonnet-20241022:
+    input_price: 0.003
+    output_price: 0.015
+    currency: USD
+    tier: "standard"
+
+  claude-3-haiku-20240307:
+    input_price: 0.00025
+    output_price: 0.00125
+    currency: USD
+    tier: "economy"
+
+  # DeepSeek 模型
+  deepseek-chat:
+    input_price: 0.00014
+    output_price: 0.00028
+    currency: USD
+    tier: "economy"
+
+  deepseek-coder:
+    input_price: 0.00014
+    output_price: 0.00028
+    currency: USD
+    tier: "economy"
+
+  deepseek-reasoner:
+    input_price: 0.00055
+    output_price: 0.00219
+    currency: USD
+    tier: "standard"
+
+  # 阿里百炼 (Qwen)
+  qwen-plus:
+    input_price: 0.0008
+    output_price: 0.002
+    currency: USD
+    tier: "standard"
+
+  qwen-turbo:
+    input_price: 0.0003
+    output_price: 0.0006
+    currency: USD
+    tier: "economy"
+
+  qwen-max:
+    input_price: 0.005
+    output_price: 0.01
+    currency: USD
+    tier: "premium"
+
+  # 智谱 (GLM)
+  glm-4:
+    input_price: 0.001
+    output_price: 0.001
+    currency: USD
+    tier: "standard"
+
+  glm-4-flash:
+    input_price: 0.0001
+    output_price: 0.0001
+    currency: USD
+    tier: "economy"
+
+  glm-4-plus:
+    input_price: 0.005
+    output_price: 0.005
+    currency: USD
+    tier: "premium"
+
+  # Moonshot (Kimi)
+  moonshot-v1-8k:
+    input_price: 0.0006
+    output_price: 0.0006
+    currency: USD
+    tier: "standard"
+
+  moonshot-v1-32k:
+    input_price: 0.0006
+    output_price: 0.0006
+    currency: USD
+    tier: "standard"
+
+  moonshot-v1-128k:
+    input_price: 0.0006
+    output_price: 0.0006
+    currency: USD
+    tier: "standard"
+
+  # Kimi Coding
+  kimi-coding:
+    input_price: 0.0006
+    output_price: 0.0006
+    currency: USD
+    tier: "standard"
+
+  # MiniMax
+  minimax-text-01:
+    input_price: 0.0001
+    output_price: 0.0001
+    currency: USD
+    tier: "economy"
+
+  # Ollama (本地模型，免费)
+  ollama:
+    input_price: 0.0
+    output_price: 0.0
+    currency: USD
+    tier: "economy"
+
+# 价格等级定义（用于前端展示）
+tier_definitions:
+  economy:
+    label: "经济"
+    color: "#22c55e"  # green
+    description: "高性价比，适合日常任务"
+  standard:
+    label: "标准"
+    color: "#3b82f6"  # blue
+    description: "平衡性能与成本"
+  premium:
+    label: "高级"
+    color: "#f59e0b"  # amber
+    description: "最强性能，适合复杂任务"
+
+# 成本警告阈值
+cost_warnings:
+  high_cost_multiplier: 2.0  # 超过默认模型 2 倍价格时警告
+  daily_budget_limit: 10.0   # 每日预算限制（USD）

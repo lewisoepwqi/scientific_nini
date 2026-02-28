@@ -399,6 +399,10 @@ class SessionManager:
         meta.update(fields)
         meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
+    def save_session_token_usage(self, session_id: str, token_usage: dict[str, Any]) -> None:
+        """保存会话的 Token 使用统计到 meta.json。"""
+        self._save_session_meta_fields(session_id, {"token_usage": token_usage})
+
     def _session_exists_on_disk(self, session_id: str) -> bool:
         memory_path = settings.sessions_dir / session_id / "memory.jsonl"
         knowledge_path = settings.sessions_dir / session_id / "knowledge.md"

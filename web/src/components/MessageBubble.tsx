@@ -14,10 +14,12 @@ import {
   CheckCircle2,
   XCircle,
   RotateCcw,
+  BookOpen,
 } from "lucide-react";
 import DataViewer from "./DataViewer";
 import ArtifactDownload from "./ArtifactDownload";
 import MarkdownContent from "./MarkdownContent";
+import ReasoningPanel from "./ReasoningPanel";
 
 interface Props {
   message: Message;
@@ -27,6 +29,56 @@ interface Props {
 }
 
 const ChartViewer = lazy(() => import("./ChartViewer"));
+
+// 解析引用标记 [1], [2] 等
+function parseCitations(content: string): { text: string; citations: Array<{ index: number; text: string }> } {
+  const citations: Array<{ index: number; text: string }> = [];
+  let text = content;
+
+  // 查找所有引用标记
+  const citationRegex = /\[(\d+)\]/g;
+  let match;
+  while ((match = citationRegex.exec(content)) !== null) {
+    const index = parseInt(match[1], 10);
+    if (!citations.find((c) => c.index === index)) {
+      citations.push({ index, text: `[${index}]` });
+    }
+  }
+
+  return { text, citations };
+}
+
+// 解析结构化推理数据（如果消息包含）
+function parseReasoningData(content: string): {
+  step?: string;
+  thought: string;
+  rationale?: string;
+  alternatives?: string[];
+  confidence?: number;
+  reasoning_type?: "analysis" | "decision" | "planning" | "reflection";
+  key_decisions?: string[];
+  tags?: string[];
+} | null {
+  // 尝试解析 JSON 格式的推理数据
+  try {
+    const data = JSON.parse(content);
+    if (data.step || data.thought || data.reasoning_type) {
+      return {
+        step: data.step,
+        thought: data.thought || content,
+        rationale: data.rationale,
+        alternatives: data.alternatives,
+        confidence: data.confidence,
+        reasoning_type: data.reasoning_type,
+        key_decisions: data.key_decisions,
+        tags: data.tags,
+      };
+    }
+  } catch {
+    // 不是 JSON 格式，返回 null
+  }
+  return null;
+}
 
 function MessageBubble({
   message,
@@ -111,6 +163,37 @@ function MessageBubble({
     if (message.analysisPlan) {
       return null;
     }
+
+    // 尝试解析结构化推理数据
+    const reasoningData = parseReasoningData(message.content);
+
+    // 如果有结构化数据，使用 ReasoningPanel 组件
+    if (reasoningData && reasoningData.step) {
+      return (
+        <div className="flex gap-3 mb-4">
+          <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-amber-100 text-amber-700">
+            <Lightbulb size={16} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <ReasoningPanel
+              data={{
+                step: reasoningData.step,
+                thought: reasoningData.thought,
+                rationale: reasoningData.rationale || "",
+                alternatives: reasoningData.alternatives,
+                confidence: reasoningData.confidence,
+                reasoning_type: reasoningData.reasoning_type,
+                key_decisions: reasoningData.key_decisions,
+                tags: reasoningData.tags,
+              }}
+              defaultExpanded={reasoningExpanded}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // 默认使用简单的折叠显示
     return (
       <div className="flex gap-3 mb-4">
         <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-amber-100 text-amber-700">
@@ -149,7 +232,7 @@ function MessageBubble({
                 </>
               ) : (
                 <p className="m-0 text-xs text-amber-700/90">
-                  已折叠，点击“展开”查看完整思考过程。
+                  已折叠，点击"展开"查看完整思考过程。
                 </p>
               )}
             </div>
@@ -347,7 +430,7 @@ function MessageBubble({
                     )}
                   </div>
                 )}
-                <MarkdownContent content={message.content} />
+                <CitationContent content={message.content} />
               </div>
               {message.retrievals && message.retrievals.length > 0 && (
                 <div className="mt-2 space-y-2">
@@ -434,6 +517,79 @@ function MessageBubble({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+// 带引用标记的内容渲染组件
+function CitationContent({ content }: { content: string }) {
+  const [showCitations, setShowCitations] = useState(false);
+  const { citations } = parseCitations(content);
+
+  // 如果没有引用，直接渲染 Markdown
+  if (citations.length === 0) {
+    return <MarkdownContent content={content} />;
+  }
+
+  // 将引用标记转换为可点击的链接
+  const processedContent = content.replace(
+    /\[(\d+)\]/g,
+    (_, index) => {
+      return `<sup class="citation-marker" data-index="${index}">[${index}]</sup>`;
+    }
+  );
+
+  return (
+    <div>
+      <div
+        className="prose-content"
+        dangerouslySetInnerHTML={{
+          __html: processedContent,
+        }}
+      />
+      <style>{`
+        .citation-marker {
+          color: #3b82f6;
+          cursor: pointer;
+          font-weight: 500;
+          font-size: 0.75em;
+          vertical-align: super;
+          margin-left: 1px;
+        }
+        .citation-marker:hover {
+          color: #2563eb;
+          text-decoration: underline;
+        }
+      `}</style>
+
+      {/* 引用列表 */}
+      {citations.length > 0 && (
+        <button
+          onClick={() => setShowCitations(!showCitations)}
+          className="mt-2 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+        >
+          <BookOpen size={12} />
+          {showCitations ? "隐藏引用" : `查看 ${citations.length} 条引用`}
+        </button>
+      )}
+
+      {showCitations && (
+        <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
+          <div className="text-xs text-blue-700 dark:text-blue-300 font-medium mb-1">
+            知识引用
+          </div>
+          <ul className="space-y-1">
+            {citations.map((citation) => (
+              <li
+                key={citation.index}
+                className="text-xs text-blue-600 dark:text-blue-400"
+              >
+                [{citation.index}] 来自知识库
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

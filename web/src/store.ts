@@ -247,6 +247,73 @@ export interface ResearchProfile {
   research_notes: string;
 }
 
+// ---- Cost Transparency 成本透明化 ----
+
+export interface ModelTokenUsage {
+  model_id: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cost_cny: number;
+  cost_usd: number;
+  call_count: number;
+}
+
+export interface TokenUsage {
+  session_id: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  estimated_cost_cny: number;
+  estimated_cost_usd: number;
+  model_breakdown: Record<string, ModelTokenUsage>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SessionCostSummary {
+  session_id: string;
+  title: string;
+  total_tokens: number;
+  estimated_cost_cny: number;
+  model_count: number;
+}
+
+export interface AggregateCostSummary {
+  total_sessions: number;
+  total_tokens: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost_cny: number;
+  total_cost_usd: number;
+  average_cost_per_session: number;
+  most_used_model?: string;
+}
+
+export interface ModelPricing {
+  input_price: number;
+  output_price: number;
+  currency: string;
+  tier: "economy" | "standard" | "premium";
+}
+
+export interface PricingTierDefinition {
+  label: string;
+  color: string;
+  description: string;
+}
+
+export interface PricingConfig {
+  models: Record<string, ModelPricing>;
+  usd_to_cny_rate: number;
+  default_model: string;
+  tier_definitions: Record<string, PricingTierDefinition>;
+  cost_warnings: {
+    high_cost_multiplier: number;
+    daily_budget_limit: number;
+  };
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant" | "tool";
@@ -378,7 +445,7 @@ interface AppState {
 
   // 工作区面板状态
   workspacePanelOpen: boolean;
-  workspacePanelTab: "files" | "executions" | "tasks";
+  workspacePanelTab: "files" | "executions" | "tasks" | "knowledge";
   fileSearchQuery: string;
   previewTabs: string[];
   previewFileId: string | null;
@@ -411,6 +478,13 @@ interface AppState {
   // ResearchProfile
   researchProfile: ResearchProfile | null;
   researchProfileLoading: boolean;
+
+  // Cost Transparency 成本透明化
+  tokenUsage: TokenUsage | null;
+  costHistory: SessionCostSummary[];
+  aggregateCost: AggregateCostSummary | null;
+  pricingConfig: PricingConfig | null;
+  costPanelOpen: boolean;
 
   // 操作
   connect: () => void;
@@ -499,6 +573,13 @@ interface AppState {
   // ResearchProfile
   fetchResearchProfile: () => Promise<void>;
   updateResearchProfile: (updates: Partial<ResearchProfile>) => Promise<boolean>;
+
+  // Cost Transparency 成本透明化操作
+  fetchTokenUsage: (sessionId: string) => Promise<void>;
+  fetchCostHistory: () => Promise<void>;
+  fetchPricingConfig: () => Promise<void>;
+  toggleCostPanel: () => void;
+  setCostPanelOpen: (open: boolean) => void;
 }
 
 // ---- 工具函数 ----
@@ -1213,6 +1294,13 @@ export const useStore = create<AppState>((set, get) => ({
   // ResearchProfile
   researchProfile: null,
   researchProfileLoading: false,
+
+  // Cost Transparency 成本透明化
+  tokenUsage: null,
+  costHistory: [],
+  aggregateCost: null,
+  pricingConfig: null,
+  costPanelOpen: false,
 
   connect() {
     const existing = get().ws;
@@ -2531,6 +2619,52 @@ export const useStore = create<AppState>((set, get) => ({
       console.error("更新研究画像失败:", e);
       return false;
     }
+  },
+
+  // ---- Cost Transparency 成本透明化操作 ----
+
+  async fetchTokenUsage(sessionId: string) {
+    try {
+      const resp = await fetch(`/api/cost/session/${sessionId}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      set({ tokenUsage: data });
+    } catch (e) {
+      console.error("获取 Token 使用统计失败:", e);
+    }
+  },
+
+  async fetchCostHistory() {
+    try {
+      const resp = await fetch("/api/cost/sessions");
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      set({
+        costHistory: data.sessions || [],
+        aggregateCost: data.aggregate || null,
+      });
+    } catch (e) {
+      console.error("获取成本历史失败:", e);
+    }
+  },
+
+  async fetchPricingConfig() {
+    try {
+      const resp = await fetch("/api/cost/pricing");
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      set({ pricingConfig: data });
+    } catch (e) {
+      console.error("获取定价配置失败:", e);
+    }
+  },
+
+  toggleCostPanel() {
+    set((state) => ({ costPanelOpen: !state.costPanelOpen }));
+  },
+
+  setCostPanelOpen(open: boolean) {
+    set({ costPanelOpen: open });
   },
 }));
 

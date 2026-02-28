@@ -98,9 +98,13 @@ def create_app() -> FastAPI:
     # 注册路由（注意：API/WebSocket 路由必须先注册，确保优先级高于静态文件）
     from nini.api.routes import router as http_router
     from nini.api.websocket import router as ws_router
+    from nini.api.cost_routes import router as cost_router
+    from nini.api.knowledge_routes import router as knowledge_router
 
     app.include_router(http_router)
     app.include_router(ws_router)
+    app.include_router(cost_router)
+    app.include_router(knowledge_router)
 
     # 挂载前端静态文件（如果已构建）
     if _WEB_DIST.exists() and (_WEB_DIST / "index.html").exists():
