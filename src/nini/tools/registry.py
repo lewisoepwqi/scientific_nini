@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from pathlib import Path
 from typing import Any, cast
 
 from nini.agent.lane_queue import lane_queue
@@ -24,6 +25,7 @@ from nini.tools.fetch_url import FetchURLSkill
 from nini.tools.organize_workspace import OrganizeWorkspaceSkill
 from nini.tools.report import GenerateReportSkill
 from nini.tools.r_code_exec import RunRCodeSkill
+# 统计工具（全部从原位置导入，待后续逐步迁移到新子模块）
 from nini.tools.statistics import (
     ANOVASkill,
     CorrelationSkill,
@@ -35,7 +37,12 @@ from nini.tools.statistics import (
 )
 from nini.tools.interpretation import InterpretStatisticalResultSkill
 from nini.tools.visualization import CreateChartSkill
-from nini.tools.markdown_scanner import render_skills_snapshot, scan_markdown_skills
+from nini.tools.markdown_scanner import (
+    get_markdown_skill_instruction,
+    list_markdown_skill_runtime_resources,
+    render_skills_snapshot,
+    scan_markdown_skills,
+)
 from nini.tools.task_write import TaskWriteSkill
 
 # 复合技能模板
@@ -48,8 +55,13 @@ from nini.tools.templates import (
 logger = logging.getLogger(__name__)
 
 
-class SkillRegistry:
-    """管理所有已注册的技能。"""
+class ToolRegistry:
+    """管理所有已注册的工具(Tools)。
+
+    注意:本类管理的是模型可调用的原子函数(Tools),区别于:
+    - Skills:完整工作流项目(Markdown + 脚本 + 参考文档,在skills/目录)
+    - Capabilities:用户层面的能力元数据(在capabilities/模块定义)
+    """
 
     def __init__(self):
         self._skills: dict[str, Skill] = {}
@@ -138,18 +150,28 @@ class SkillRegistry:
         """列出 Function Skill 元数据。"""
         items: list[dict[str, Any]] = []
         for skill in self._skills.values():
+            manifest = skill.to_manifest()
             items.append(
                 {
                     "type": "function",
                     "name": skill.name,
                     "description": skill.description,
                     "category": skill.category,
+                    "brief_description": manifest.brief_description,
+                    "research_domain": manifest.research_domain,
+                    "difficulty_level": manifest.difficulty_level,
+                    "typical_use_cases": manifest.typical_use_cases,
                     "location": f"{skill.__class__.__module__}.{skill.__class__.__name__}",
                     "enabled": True,
                     "expose_to_llm": skill.expose_to_llm,
                     "metadata": {
                         "parameters": skill.parameters,
                         "is_idempotent": skill.is_idempotent,
+                        "brief_description": manifest.brief_description,
+                        "research_domain": manifest.research_domain,
+                        "difficulty_level": manifest.difficulty_level,
+                        "typical_use_cases": manifest.typical_use_cases,
+                        "output_types": manifest.output_types,
                     },
                 }
             )
@@ -164,6 +186,100 @@ class SkillRegistry:
             if item.get("name") == name:
                 return dict(item)
         return None
+
+    def get_skill_index(self, name: str) -> dict[str, Any] | None:
+        """获取 Markdown Skill 的索引层元数据。"""
+        item = self.get_markdown_skill(name)
+        if item is None:
+            return None
+        return {
+            "name": item.get("name"),
+            "type": item.get("type", "markdown"),
+            "description": item.get("description", ""),
+            "brief_description": item.get("brief_description", ""),
+            "category": item.get("category", "other"),
+            "research_domain": item.get("research_domain", "general"),
+            "difficulty_level": item.get("difficulty_level", "intermediate"),
+            "typical_use_cases": item.get("typical_use_cases", []),
+            "location": item.get("location", ""),
+            "enabled": bool(item.get("enabled", True)),
+            "metadata": dict(item.get("metadata") or {}),
+        }
+
+    def get_skill_instruction(self, name: str) -> dict[str, Any] | None:
+        """获取 Markdown Skill 的说明层内容。"""
+        item = self.get_markdown_skill(name)
+        if item is None:
+            return None
+        raw_location = str(item.get("location", "")).strip()
+        if not raw_location:
+            return None
+        skill_path = Path(raw_location).expanduser().resolve()
+        if not skill_path.exists() or not skill_path.is_file():
+            return None
+        payload = get_markdown_skill_instruction(skill_path)
+        return {
+            "name": item.get("name"),
+            "instruction": payload["instruction"],
+            "location": str(skill_path),
+            "metadata": dict(item.get("metadata") or {}),
+        }
+
+    def get_runtime_resources(self, name: str) -> dict[str, Any] | None:
+        """获取 Markdown Skill 的运行时资源目录。"""
+        item = self.get_markdown_skill(name)
+        if item is None:
+            return None
+        raw_location = str(item.get("location", "")).strip()
+        if not raw_location:
+            return None
+        skill_path = Path(raw_location).expanduser().resolve()
+        if not skill_path.exists() or not skill_path.is_file():
+            return None
+        resources = list_markdown_skill_runtime_resources(skill_path)
+        return {
+            "name": item.get("name"),
+            "resource_root": str(skill_path.parent),
+            "resources": resources,
+        }
+
+    def get_semantic_catalog(self, skill_type: str | None = None) -> list[dict[str, Any]]:
+        """返回适用于检索与匹配的轻量语义目录。"""
+        catalog = self.list_skill_catalog(skill_type=skill_type)
+        semantic_items: list[dict[str, Any]] = []
+        for item in catalog:
+            metadata = dict(item.get("metadata") or {})
+            semantic_items.append(
+                {
+                    "name": item.get("name", ""),
+                    "type": item.get("type", "unknown"),
+                    "description": item.get("description", ""),
+                    "brief_description": item.get("brief_description", ""),
+                    "category": item.get("category", "other"),
+                    "research_domain": item.get("research_domain", "general"),
+                    "difficulty_level": item.get("difficulty_level", "intermediate"),
+                    "typical_use_cases": item.get("typical_use_cases", []),
+                    "enabled": bool(item.get("enabled", True)),
+                    "expose_to_llm": bool(item.get("expose_to_llm", True)),
+                    "user_invocable": bool(
+                        item.get(
+                            "user_invocable",
+                            metadata.get("user_invocable", True),
+                        )
+                    ),
+                    "disable_model_invocation": bool(
+                        item.get(
+                            "disable_model_invocation",
+                            metadata.get("disable_model_invocation", False),
+                        )
+                    ),
+                    "aliases": metadata.get("aliases", []),
+                    "tags": metadata.get("tags", []),
+                    "allowed_tools": metadata.get("allowed_tools", []),
+                    "location": item.get("location", ""),
+                }
+            )
+        return semantic_items
 
     def list_skill_catalog(self, skill_type: str | None = None) -> list[dict[str, Any]]:
         """返回聚合技能目录。"""
@@ -418,9 +534,9 @@ class SkillRegistry:
         return asyncio.run(skill.execute(session=session, **kwargs))
 
 
-def create_default_registry() -> SkillRegistry:
-    """创建并注册默认技能集。"""
-    registry = SkillRegistry()
+def create_default_tool_registry() -> ToolRegistry:
+    """创建并注册默认工具集(Tools)。"""
+    registry = ToolRegistry()
     # 任务规划工具（优先注册，确保 LLM 优先看到）
     registry.register(TaskWriteSkill())
     registry.register(LoadDatasetSkill())
@@ -462,3 +578,8 @@ def create_default_registry() -> SkillRegistry:
     registry.reload_markdown_skills()
     registry.write_skills_snapshot()
     return registry
+
+
+# 向后兼容别名 - 保留旧名称以确保现有代码继续工作
+SkillRegistry = ToolRegistry
+create_default_registry = create_default_tool_registry

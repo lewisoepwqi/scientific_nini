@@ -29,6 +29,7 @@ class Session:
     compressed_context: str = ""
     compressed_rounds: int = 0
     last_compressed_at: str | None = None
+    research_profile_id: str = "default"
     workspace_hydrated: bool = False
     load_persisted_messages: bool = False
     conversation_memory: ConversationMemory = field(init=False, repr=False)
@@ -161,6 +162,11 @@ class Session:
         self.compressed_rounds += 1
         self.last_compressed_at = datetime.now(timezone.utc).isoformat()
 
+    def set_research_profile_id(self, profile_id: str) -> None:
+        """设置研究画像标识。"""
+        normalized = str(profile_id or "").strip() or "default"
+        self.research_profile_id = normalized
+
     def _check_auto_compress(self) -> None:
         """检查是否需要自动压缩 memory.jsonl。"""
         if not settings.memory_auto_compress:
@@ -232,6 +238,7 @@ class SessionManager:
         compressed_context = ""
         compressed_rounds = 0
         last_compressed_at: str | None = None
+        research_profile_id = "default"
         if load_persisted_messages:
             meta = self._load_session_meta(sid)
             loaded_title = str(meta.get("title", "")).strip()
@@ -242,6 +249,9 @@ class SessionManager:
             raw_last_compressed = meta.get("last_compressed_at")
             if isinstance(raw_last_compressed, str) and raw_last_compressed.strip():
                 last_compressed_at = raw_last_compressed
+            loaded_profile_id = str(meta.get("research_profile_id", "") or "").strip()
+            if loaded_profile_id:
+                research_profile_id = loaded_profile_id
 
         session = Session(
             id=sid,
@@ -249,6 +259,7 @@ class SessionManager:
             compressed_context=compressed_context,
             compressed_rounds=compressed_rounds,
             last_compressed_at=last_compressed_at,
+            research_profile_id=research_profile_id,
             load_persisted_messages=load_persisted_messages,
         )
         self._sessions[session.id] = session
@@ -276,9 +287,9 @@ class SessionManager:
         # 清理内存资源
         if session is not None:
             # 清理分析记忆
-            from nini.memory.compression import clear_session_analysis_memories
+            from nini.memory.compression import clear_session_analysis_memory_cache
 
-            clear_session_analysis_memories(session_id)
+            clear_session_analysis_memory_cache(session_id)
         # 清理会话 lane
         from nini.agent.lane_queue import lane_queue
 
@@ -355,6 +366,13 @@ class SessionManager:
                 "compressed_rounds": int(compressed_rounds),
                 "last_compressed_at": last_compressed_at,
             },
+        )
+
+    def save_session_research_profile(self, session_id: str, research_profile_id: str) -> None:
+        """持久化会话关联的研究画像标识。"""
+        self._save_session_meta_fields(
+            session_id,
+            {"research_profile_id": str(research_profile_id or "").strip() or "default"},
         )
 
     def _load_session_title(self, session_id: str) -> str:

@@ -152,6 +152,10 @@ class ToolAdapter:
                         name=md_dict["name"],
                         description=md_dict.get("description", ""),
                         category=md_dict.get("category", "other"),
+                        brief_description=md_dict.get("brief_description", ""),
+                        research_domain=md_dict.get("research_domain", "general"),
+                        difficulty_level=md_dict.get("difficulty_level", "intermediate"),
+                        typical_use_cases=md_dict.get("typical_use_cases", []),
                     )
                 )
 

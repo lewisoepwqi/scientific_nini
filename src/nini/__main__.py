@@ -521,9 +521,9 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
 
 def _cmd_skills_list(args: argparse.Namespace) -> int:
     """列出已注册能力。"""
-    from nini.tools.registry import create_default_registry
+    from nini.tools.registry import create_default_tool_registry
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     skill_type = None if args.type == "all" else args.type
     catalog = registry.list_skill_catalog(skill_type=skill_type)
 
@@ -640,7 +640,7 @@ class {class_name}(Skill):
     print(f"已创建 Function Tool 脚手架：{target}")
     print(f"下一步：")
     print(f"  1. 编辑 {target} 实现 execute() 逻辑")
-    print(f"  2. 在 registry.py 的 create_default_registry() 中注册")
+    print(f"  2. 在 registry.py 的 create_default_tool_registry() 中注册")
     print(f"  3. 添加测试 tests/test_{name}.py")
     return 0
 
@@ -669,10 +669,10 @@ def _cmd_skills_export(args: argparse.Namespace) -> int:
     """导出能力为指定格式。"""
     import json
 
-    from nini.tools.registry import create_default_registry
+    from nini.tools.registry import create_default_tool_registry
     from nini.tools.tool_adapter import ToolAdapter
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     adapter = ToolAdapter(registry)
 
     if args.export_format == "openai":

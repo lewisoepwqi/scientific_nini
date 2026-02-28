@@ -22,7 +22,7 @@ from starlette.responses import Response
 
 from nini.config import settings, _get_bundle_root
 from nini.models.database import init_db
-from nini.tools.registry import create_default_registry
+from nini.tools.registry import create_default_tool_registry
 from nini.api.websocket import set_skill_registry
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
         logger.warning("加载数据库模型配置失败（将使用 .env 配置）: %s", e)
 
     # 初始化工具注册中心
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     set_skill_registry(registry)
     logger.info("已注册 %d 个工具", len(registry.list_skills()))
 

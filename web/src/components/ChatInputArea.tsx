@@ -126,6 +126,8 @@ export default function ChatInputArea() {
   const isStreaming = useStore((s) => s.isStreaming);
   const pendingAskUserQuestion = useStore((s) => s.pendingAskUserQuestion);
   const sendMessage = useStore((s) => s.sendMessage);
+  const composerDraft = useStore((s) => s.composerDraft);
+  const setComposerDraft = useStore((s) => s.setComposerDraft);
   const stopStreaming = useStore((s) => s.stopStreaming);
   const uploadFile = useStore((s) => s.uploadFile);
   const compressCurrentSession = useStore((s) => s.compressCurrentSession);
@@ -254,17 +256,32 @@ export default function ChatInputArea() {
     adjustHeight();
   }, [input, adjustHeight]);
 
+  useEffect(() => {
+    if (composerDraft === input) return;
+    setInput(composerDraft);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      const caret = composerDraft.length;
+      el.setSelectionRange(caret, caret);
+      adjustHeight();
+      syncSlashContext(composerDraft, caret);
+    });
+  }, [composerDraft, input, adjustHeight, syncSlashContext]);
+
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text || isStreaming || pendingAskUserQuestion) return;
     sendMessage(text);
     setInput("");
+    setComposerDraft("");
     setSlashContext(null);
     setSlashActiveIndex(0);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [input, isStreaming, pendingAskUserQuestion, sendMessage]);
+  }, [input, isStreaming, pendingAskUserQuestion, sendMessage, setComposerDraft]);
 
   const applySlashSkill = useCallback(
     (skill: SkillItem) => {
@@ -275,6 +292,7 @@ export default function ChatInputArea() {
       const nextInput = `${before}${inserted}${after}`;
       const caret = before.length + inserted.length;
       setInput(nextInput);
+      setComposerDraft(nextInput);
       setSlashContext(null);
       setSlashActiveIndex(0);
 
@@ -286,7 +304,7 @@ export default function ChatInputArea() {
         adjustHeight();
       });
     },
-    [input, slashContext, adjustHeight],
+    [input, slashContext, adjustHeight, setComposerDraft],
   );
 
   const handleKeyDown = useCallback(
@@ -336,9 +354,10 @@ export default function ChatInputArea() {
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const nextValue = e.target.value;
       setInput(nextValue);
+      setComposerDraft(nextValue);
       syncSlashContext(nextValue, e.target.selectionStart ?? nextValue.length);
     },
-    [syncSlashContext],
+    [setComposerDraft, syncSlashContext],
   );
 
   const handleCaretUpdate = useCallback(

@@ -49,10 +49,10 @@ def _check_mcp_available() -> None:
 
 
 def _create_registry():  # noqa: ANN202
-    """延迟创建默认技能注册中心，避免模块加载时的循环依赖。"""
-    from nini.tools.registry import create_default_registry
+    """延迟创建默认工具注册中心，避免模块加载时的循环依赖。"""
+    from nini.tools.registry import create_default_tool_registry
 
-    return create_default_registry()
+    return create_default_tool_registry()
 
 
 def _create_session():  # noqa: ANN202

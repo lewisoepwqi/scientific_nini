@@ -71,6 +71,14 @@ class UserProfile:
     favorite_tests: list[str] = field(default_factory=list)
     recent_datasets: list[str] = field(default_factory=list)
 
+    # 科研画像扩展
+    research_domains: list[str] = field(default_factory=list)  # 多领域标签
+    preferred_methods: dict[str, float] = field(default_factory=dict)  # 方法偏好权重
+    output_language: str = "zh"  # 输出语言偏好
+    report_detail_level: str = "standard"  # brief / standard / detailed
+    typical_sample_size: str = ""  # 常见样本量范围描述
+    research_notes: str = ""  # 用户自定义研究备注
+
     # 时间戳
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -92,6 +100,14 @@ class UserProfile:
         self.favorite_tests = [
             test for test, _ in Counter(self._test_usage_counter).most_common(10)
         ]
+
+        # 同步更新方法偏好权重（归一化）
+        total = sum(self._test_usage_counter.values())
+        if total > 0:
+            self.preferred_methods = {
+                method: count / total
+                for method, count in Counter(self._test_usage_counter).most_common(10)
+            }
 
         self.updated_at = datetime.now(timezone.utc)
 
@@ -122,6 +138,14 @@ class UserProfile:
             self.significance_level = significance_level
         self.updated_at = datetime.now(timezone.utc)
 
+    def add_research_domain(self, domain: str, max_count: int = 5) -> None:
+        """添加研究领域标签。"""
+        if domain not in self.research_domains:
+            self.research_domains.append(domain)
+            if len(self.research_domains) > max_count:
+                self.research_domains = self.research_domains[-max_count:]
+            self.updated_at = datetime.now(timezone.utc)
+
     def to_dict(self) -> dict[str, Any]:
         """转换为字典。"""
         return {
@@ -143,6 +167,12 @@ class UserProfile:
             "total_analyses": self.total_analyses,
             "favorite_tests": self.favorite_tests,
             "recent_datasets": self.recent_datasets,
+            "research_domains": self.research_domains,
+            "preferred_methods": self.preferred_methods,
+            "output_language": self.output_language,
+            "report_detail_level": self.report_detail_level,
+            "typical_sample_size": self.typical_sample_size,
+            "research_notes": self.research_notes,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -182,6 +212,12 @@ class UserProfile:
             total_analyses=data.get("total_analyses", 0),
             favorite_tests=data.get("favorite_tests", []),
             recent_datasets=data.get("recent_datasets", []),
+            research_domains=data.get("research_domains", []),
+            preferred_methods=data.get("preferred_methods", {}),
+            output_language=data.get("output_language", "zh"),
+            report_detail_level=data.get("report_detail_level", "standard"),
+            typical_sample_size=data.get("typical_sample_size", ""),
+            research_notes=data.get("research_notes", ""),
             created_at=created_at or datetime.now(timezone.utc),
             updated_at=updated_at or datetime.now(timezone.utc),
         )

@@ -285,6 +285,39 @@ class TestAllowedToolsAdvisory:
         assert "run_code" in context
         assert "create_chart" in context
 
+    def test_runtime_resources_are_noted_in_context(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        from nini.agent.runner import AgentRunner
+
+        skills_dir = tmp_path / "skills"
+        skill_dir = skills_dir / "resource-skill"
+        skill_path = skill_dir / "SKILL.md"
+        _write_skill_md(
+            skill_path,
+            name="resource-skill",
+            description="带资源的技能",
+            category="workflow",
+            extra_frontmatter="user-invocable: true",
+            body="## 步骤\n1. 使用 references/protocol.md\n",
+        )
+        (skill_dir / "references").mkdir(parents=True, exist_ok=True)
+        (skill_dir / "references" / "protocol.md").write_text("protocol\n", encoding="utf-8")
+
+        monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+        monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
+
+        registry = SkillRegistry()
+        from nini.tools.markdown_scanner import scan_markdown_skills
+
+        md_skills = scan_markdown_skills([skills_dir])
+        registry._markdown_skills = [s.to_dict() for s in md_skills]
+
+        runner = AgentRunner(skill_registry=registry)
+        context = runner._build_explicit_skill_context("/resource-skill")
+        assert "运行时资源" in context
+        assert "references/protocol.md" in context
+
     def test_no_allowed_tools(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         from nini.agent.runner import AgentRunner
 

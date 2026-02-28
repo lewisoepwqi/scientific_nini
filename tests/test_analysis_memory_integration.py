@@ -18,6 +18,7 @@ from nini.agent.session import Session
 from nini.memory.compression import (
     AnalysisMemory,
     StatisticResult,
+    clear_session_analysis_memory_cache,
     clear_session_analysis_memories,
     get_analysis_memory,
     list_session_analysis_memories,
@@ -194,6 +195,17 @@ class TestListSessionAnalysisMemories:
         result = list_session_analysis_memories("test_list")
         assert len(result) == 1
         assert result[0].dataset_name == "has_data"
+
+    def test_loads_persisted_memories_after_cache_clear(self) -> None:
+        mem = get_analysis_memory("test_list", "persisted_data")
+        mem.add_statistic(StatisticResult(test_name="persisted", p_value=0.01, significant=True))
+
+        clear_session_analysis_memory_cache("test_list")
+        result = list_session_analysis_memories("test_list")
+
+        assert len(result) == 1
+        assert result[0].dataset_name == "persisted_data"
+        assert result[0].statistics[0].test_name == "persisted"
 
 
 # ---- 统计 Skill 实际执行后写入 KnowledgeMemory ----

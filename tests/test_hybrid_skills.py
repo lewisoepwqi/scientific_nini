@@ -31,6 +31,11 @@ def _write_skill(path: Path, *, name: str, description: str) -> None:
             "---\n"
             f"name: {name}\n"
             f"description: {description}\n"
+            "brief_description: 用于目录摘要\n"
+            "research_domain: general\n"
+            "difficulty_level: beginner\n"
+            "typical_use_cases:\n"
+            "  - 快速试用\n"
             "---\n\n"
             "## 步骤\n"
             "1. 示例步骤\n"
@@ -104,6 +109,9 @@ def test_api_skills_and_tools_split_catalog(
         markdown_skills = payload["data"]["skills"]
         assert markdown_skills
         assert all(item["type"] == "markdown" for item in markdown_skills)
+        assert all("brief_description" in item for item in markdown_skills)
+        assert all("research_domain" in item for item in markdown_skills)
+        assert all("difficulty_level" in item for item in markdown_skills)
 
         tools_resp = client.get("/api/tools")
         assert tools_resp.status_code == 200
@@ -112,12 +120,53 @@ def test_api_skills_and_tools_split_catalog(
         tools = tools_payload["data"]["tools"]
         assert tools
         assert all(item["type"] == "function" for item in tools)
+        assert all("brief_description" in item for item in tools)
+        assert all("research_domain" in item for item in tools)
+        assert all("difficulty_level" in item for item in tools)
 
         all_resp = client.get("/api/skills", params={"skill_type": "all"})
         all_payload = all_resp.json()
         all_items = all_payload["data"]["skills"]
         assert any(item["type"] == "function" for item in all_items)
         assert any(item["type"] == "markdown" for item in all_items)
+        assert all("typical_use_cases" in item for item in all_items)
+
+        semantic_resp = client.get("/api/skills/semantic-catalog", params={"skill_type": "markdown"})
+        assert semantic_resp.status_code == 200
+        semantic_items = semantic_resp.json()["data"]["skills"]
+        assert semantic_items
+        assert semantic_items[0]["type"] == "markdown"
+
+
+def test_api_markdown_skill_progressive_disclosure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Markdown Skill API 应支持说明层与运行时资源层。"""
+    skills_dir = tmp_path / "skills"
+    skill_dir = skills_dir / "report_polish"
+    _write_skill(
+        skill_dir / "SKILL.md",
+        name="report_polish",
+        description="润色分析报告",
+    )
+    (skill_dir / "references").mkdir(parents=True, exist_ok=True)
+    (skill_dir / "references" / "style.md").write_text("参考风格\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+
+    app = create_app()
+    set_skill_registry(create_default_registry())
+    with LocalASGIClient(app) as client:
+        instruction_resp = client.get("/api/skills/markdown/report_polish/instruction")
+        assert instruction_resp.status_code == 200
+        instruction = instruction_resp.json()["data"]["instruction"]
+        assert "示例步骤" in instruction
+        assert "name:" not in instruction
+
+        resources_resp = client.get("/api/skills/markdown/report_polish/runtime-resources")
+        assert resources_resp.status_code == 200
+        resources = resources_resp.json()["data"]["resources"]
+        assert any(item["path"] == "references/style.md" for item in resources)
 
 
 def test_api_markdown_skill_upload(

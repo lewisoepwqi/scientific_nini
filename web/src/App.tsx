@@ -7,6 +7,7 @@ import ChatPanel from "./components/ChatPanel";
 import SessionList from "./components/SessionList";
 import ModelConfigPanel from "./components/ModelConfigPanel";
 import SkillCatalogPanel from "./components/SkillCatalogPanel";
+import CapabilityPanel from "./components/CapabilityPanel";
 import MarkdownSkillManagerPanel from "./components/MarkdownSkillManagerPanel";
 import WorkspaceSidebar from "./components/WorkspaceSidebar";
 import MemoryPanel from "./components/MemoryPanel";
@@ -19,6 +20,7 @@ import {
   Wrench,
   PanelRightOpen,
   PanelRightClose,
+  Sparkles,
 } from "lucide-react";
 
 export default function App() {
@@ -29,6 +31,7 @@ export default function App() {
   const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel);
   const [showSettings, setShowSettings] = useState(false);
   const [showTools, setShowTools] = useState(false);
+  const [showCapabilities, setShowCapabilities] = useState(false);
   const [showSkillManager, setShowSkillManager] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workspacePanelWidth, setWorkspacePanelWidth] = useState(420);
@@ -102,6 +105,13 @@ export default function App() {
             <span className="text-sm font-medium text-gray-600">对话</span>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowCapabilities(true)}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-purple-600 transition-colors"
+              title="分析能力"
+            >
+              <Sparkles size={16} />
+            </button>
             <button
               onClick={() => setShowTools(true)}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
@@ -205,6 +215,10 @@ export default function App() {
       <SkillCatalogPanel
         open={showTools}
         onClose={() => setShowTools(false)}
+      />
+      <CapabilityPanel
+        open={showCapabilities}
+        onClose={() => setShowCapabilities(false)}
       />
       <MarkdownSkillManagerPanel
         open={showSkillManager}
