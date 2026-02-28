@@ -16,7 +16,6 @@ import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
 import pandas as pd
 from scipy import stats
 
@@ -223,8 +222,10 @@ class CorrelationAnalysisCapability:
         self._apply_correction(result.all_pairs, correction, n_comparisons, alpha)
         result.significant_pairs = [p for p in result.all_pairs if p.significant]
 
-        # Step 7: 可视化
-        chart_result = await self._create_heatmap(session, dataset_name, columns, result.method)
+        # Step 7: 可视化（使用已计算的相关矩阵，避免与文本结果不一致）
+        chart_result = await self._create_heatmap(
+            session, dataset_name, columns, result.method, result.correlation_matrix
+        )
         if chart_result is not None:
             if isinstance(chart_result, dict):
                 if chart_result.get("success") and chart_result.get("artifacts"):
@@ -233,7 +234,10 @@ class CorrelationAnalysisCapability:
                 if chart_result.artifacts:
                     result.chart_artifact = chart_result.artifacts[0]
 
-        # Step 8: 生成解释
+        # Step 8: 记录富信息到 AnalysisMemory
+        self._record_enriched_result(session, dataset_name, result)
+
+        # Step 9: 生成解释
         result.interpretation = self._generate_interpretation(result)
         result.success = True
         result.message = "相关性分析完成"
@@ -416,20 +420,74 @@ class CorrelationAnalysisCapability:
         dataset_name: str,
         columns: list[str],
         method: str,
+        corr_matrix: dict[str, dict[str, float]] | None = None,
     ) -> Any:
-        """创建相关矩阵热力图。"""
+        """创建相关矩阵热力图。
+
+        如果提供了 corr_matrix，先将其写入 session 的临时数据中，
+        让 create_chart 使用与文本一致的数据（经过 dropna 的结果）。
+        """
         registry = self._get_registry()
+        # 如果有预计算矩阵，构建一个 DataFrame 写入会话供图表使用
+        if corr_matrix:
+            corr_df = pd.DataFrame(corr_matrix)
+            corr_df = corr_df.reindex(index=columns, columns=columns)
+            temp_name = f"_corr_matrix_{dataset_name}"
+            session.datasets[temp_name] = corr_df
+            chart_dataset = temp_name
+        else:
+            chart_dataset = dataset_name
         try:
-            return await registry.execute(
+            result = await registry.execute(
                 "create_chart",
                 session,
-                dataset_name=dataset_name,
+                dataset_name=chart_dataset,
                 chart_type="heatmap",
                 columns=columns,
                 title=f"{method.title()} 相关矩阵",
             )
+            return result
         except Exception:
             return None
+        finally:
+            # 清理临时数据集
+            if corr_matrix:
+                session.datasets.pop(f"_corr_matrix_{dataset_name}", None)
+
+    @staticmethod
+    def _record_enriched_result(
+        session: Session,
+        dataset_name: str,
+        result: CorrelationAnalysisResult,
+    ) -> None:
+        """将相关性分析富信息记录到 AnalysisMemory。"""
+        from nini.tools.statistics.base import _record_stat_result
+
+        # 为每对显著相关记录一条
+        for pair in result.significant_pairs:
+            _record_stat_result(
+                session,
+                dataset_name,
+                test_name=f"{result.method.title()} 相关性 ({pair.var1} ↔ {pair.var2})",
+                message=(
+                    f"r = {pair.coefficient:.3f}, p_adj = {pair.p_adjusted:.4f}, "
+                    f"强度: {pair.strength}"
+                ),
+                test_statistic=pair.coefficient,
+                p_value=pair.p_value,
+                effect_size=abs(pair.coefficient),
+                effect_type="r",
+                significant=pair.significant,
+            )
+
+        # 如果没有显著对，记录一条汇总
+        if not result.significant_pairs:
+            _record_stat_result(
+                session,
+                dataset_name,
+                test_name=f"{result.method.title()} 相关性分析",
+                message=f"分析 {result.n_variables} 个变量，未发现显著相关",
+            )
 
     def _generate_interpretation(self, result: CorrelationAnalysisResult) -> str:
         """生成解释性报告。"""

@@ -2181,12 +2181,7 @@ async def list_capabilities():
     前端技能面板应该展示 Capabilities 而非 Tools。
     """
     registry = _get_capability_registry()
-    return APIResponse(
-        success=True,
-        data={
-            "capabilities": registry.to_catalog()
-        }
-    )
+    return APIResponse(success=True, data={"capabilities": registry.to_catalog()})
 
 
 @router.get("/capabilities/{name}", response_model=APIResponse)
@@ -2197,10 +2192,7 @@ async def get_capability(name: str):
     if not cap:
         raise HTTPException(status_code=404, detail=f"能力 '{name}' 不存在")
 
-    return APIResponse(
-        success=True,
-        data=cap.to_dict()
-    )
+    return APIResponse(success=True, data=cap.to_dict())
 
 
 @router.post("/capabilities/suggest", response_model=APIResponse)
@@ -2232,7 +2224,7 @@ async def suggest_capabilities(user_message: str):
             "clarification_question": analysis.clarification_question,
             "clarification_options": analysis.clarification_options,
             "analysis_method": analysis.analysis_method,
-        }
+        },
     )
 
 
@@ -2267,12 +2259,13 @@ async def execute_capability(
     执行指定的 Capability。
 
     当前支持:
-    - difference_analysis: 差异分析，params需包含 dataset_name, value_column, group_column
+    - difference_analysis: params需包含 dataset_name, value_column, group_column
+    - correlation_analysis: params需包含 dataset_name; 可选 columns, method, correction
 
     Args:
         name: Capability 名称
         session_id: 会话ID
-        params: 执行参数
+        params: 执行参数（必须包含 dataset_name）
 
     Returns:
         执行结果
@@ -2288,6 +2281,10 @@ async def execute_capability(
         message = capability.execution_message or f"能力 '{name}' 暂不支持直接执行"
         raise HTTPException(status_code=409, detail=message)
 
+    # 校验必填参数
+    if "dataset_name" not in params:
+        raise HTTPException(status_code=422, detail="缺少必填参数: dataset_name")
+
     # 获取会话
     session = session_manager.get_or_create(session_id)
 
@@ -2296,7 +2293,6 @@ async def execute_capability(
 
     capability_params = dict(params)
     capability_params.setdefault("alpha", 0.05)
-    capability_params.setdefault("auto_select_method", True)
 
     try:
         result = await capability_registry.execute(

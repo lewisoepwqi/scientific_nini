@@ -50,8 +50,6 @@ _SYNONYM_MAP: dict[str, list[str]] = {
         "相关",
         "相关性",
         "关联",
-        "联系",
-        "关系",
         "pearson",
         "spearman",
         "kendall",

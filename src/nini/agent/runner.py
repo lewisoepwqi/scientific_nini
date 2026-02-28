@@ -1158,13 +1158,11 @@ class AgentRunner:
                 )
 
         # 注入 ResearchProfile 上下文（跨会话研究偏好）
-        profile_id = str(
-            getattr(session, "research_profile_id", DEFAULT_RESEARCH_PROFILE_ID) or ""
-        ).strip() or DEFAULT_RESEARCH_PROFILE_ID
+        profile_id = (
+            str(getattr(session, "research_profile_id", DEFAULT_RESEARCH_PROFILE_ID) or "").strip()
+            or DEFAULT_RESEARCH_PROFILE_ID
+        )
         profile_manager = get_research_profile_manager()
-        if session.datasets:
-            for dataset_name in session.datasets.keys():
-                profile_manager.record_dataset_usage_sync(profile_id, dataset_name)
         research_profile = profile_manager.get_or_create_sync(profile_id)
         profile_prompt = profile_manager.get_research_profile_prompt(research_profile).strip()
         if profile_prompt:
@@ -1368,8 +1366,7 @@ class AgentRunner:
                 if isinstance(auto_allowed_tools, list) and auto_allowed_tools:
                     tools_str = ", ".join(str(t) for t in auto_allowed_tools)
                     allowed_tools_note = (
-                        f"- 此技能声明的推荐工具: {tools_str}。"
-                        "可优先使用这些工具完成任务。\n"
+                        f"- 此技能声明的推荐工具: {tools_str}。" "可优先使用这些工具完成任务。\n"
                     )
 
                 runtime_resources_note = self._build_skill_runtime_resources_note(name)
@@ -1395,7 +1392,9 @@ class AgentRunner:
 
         capability_catalog = [cap.to_dict() for cap in create_default_capabilities()]
         semantic_skills: list[dict[str, Any]] | None = None
-        if self._skill_registry is not None and hasattr(self._skill_registry, "get_semantic_catalog"):
+        if self._skill_registry is not None and hasattr(
+            self._skill_registry, "get_semantic_catalog"
+        ):
             raw_catalog = self._skill_registry.get_semantic_catalog(skill_type="markdown")
             if isinstance(raw_catalog, list):
                 semantic_skills = raw_catalog
@@ -1497,7 +1496,9 @@ class AgentRunner:
                 "message": f"等待用户回答失败: {exc}",
             }
 
-        has_error = isinstance(result, dict) and (result.get("error") or result.get("success") is False)
+        has_error = isinstance(result, dict) and (
+            result.get("error") or result.get("success") is False
+        )
         result_str = self._serialize_tool_result_for_memory(result)
         session.add_tool_result(
             tool_call_id,
@@ -1531,8 +1532,12 @@ class AgentRunner:
             candidates = list(getattr(analysis, "capability_candidates", []) or [])
             for candidate in candidates[:3]:
                 payload = getattr(candidate, "payload", {}) or {}
-                display_name = str(payload.get("display_name", "")).strip() or getattr(candidate, "name", "")
-                description = str(payload.get("description", "")).strip() or getattr(candidate, "reason", "")
+                display_name = str(payload.get("display_name", "")).strip() or getattr(
+                    candidate, "name", ""
+                )
+                description = str(payload.get("description", "")).strip() or getattr(
+                    candidate, "reason", ""
+                )
                 if not display_name or not description:
                     continue
                 options.append(
@@ -1595,7 +1600,9 @@ class AgentRunner:
 
     def _build_skill_runtime_resources_note(self, skill_name: str) -> str:
         """构建 Skill 运行时资源说明。"""
-        if self._skill_registry is None or not hasattr(self._skill_registry, "get_runtime_resources"):
+        if self._skill_registry is None or not hasattr(
+            self._skill_registry, "get_runtime_resources"
+        ):
             return ""
         payload = self._skill_registry.get_runtime_resources(skill_name)
         if not isinstance(payload, dict):
@@ -1604,7 +1611,9 @@ class AgentRunner:
         if not isinstance(resources, list) or not resources:
             return ""
 
-        file_items = [item for item in resources if isinstance(item, dict) and item.get("type") == "file"]
+        file_items = [
+            item for item in resources if isinstance(item, dict) and item.get("type") == "file"
+        ]
         preview = file_items[:4]
         if not preview:
             return ""
@@ -2089,9 +2098,10 @@ class AgentRunner:
         arguments: str,
     ) -> None:
         """记录研究画像的最近数据集与常用方法。"""
-        profile_id = str(
-            getattr(session, "research_profile_id", DEFAULT_RESEARCH_PROFILE_ID) or ""
-        ).strip() or DEFAULT_RESEARCH_PROFILE_ID
+        profile_id = (
+            str(getattr(session, "research_profile_id", DEFAULT_RESEARCH_PROFILE_ID) or "").strip()
+            or DEFAULT_RESEARCH_PROFILE_ID
+        )
         manager = get_research_profile_manager()
         parsed_args = self._parse_tool_arguments(arguments)
 
@@ -2106,9 +2116,11 @@ class AgentRunner:
         manager.record_analysis_sync(
             profile_id,
             tool_name,
-            journal_style=journal_style.strip()
-            if isinstance(journal_style, str) and journal_style.strip()
-            else None,
+            journal_style=(
+                journal_style.strip()
+                if isinstance(journal_style, str) and journal_style.strip()
+                else None
+            ),
         )
 
     @staticmethod
