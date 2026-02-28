@@ -109,7 +109,7 @@ async def websocket_agent(ws: WebSocket):
     ) -> None:
         nonlocal active_chat_task, active_stop_event
         runner = AgentRunner(
-            skill_registry=_skill_registry,
+            skill_registry=_tool_registry,
             ask_user_question_handler=_wait_for_ask_user_question_answers,
         )
         stop_event = active_stop_event or asyncio.Event()
@@ -310,10 +310,14 @@ async def websocket_agent(ws: WebSocket):
                 answers_raw = msg.get("answers")
 
                 if not isinstance(tool_call_id, str) or not tool_call_id.strip():
-                    await _send_event(ws, "error", data="ask_user_question_answer 缺少 tool_call_id")
+                    await _send_event(
+                        ws, "error", data="ask_user_question_answer 缺少 tool_call_id"
+                    )
                     continue
                 if not isinstance(answers_raw, dict):
-                    await _send_event(ws, "error", data="ask_user_question_answer 缺少 answers 对象")
+                    await _send_event(
+                        ws, "error", data="ask_user_question_answer 缺少 answers 对象"
+                    )
                     continue
 
                 answers: dict[str, str] = {}
