@@ -173,6 +173,7 @@ class UserProfile:
             "report_detail_level": self.report_detail_level,
             "typical_sample_size": self.typical_sample_size,
             "research_notes": self.research_notes,
+            "test_usage_counter": dict(self._test_usage_counter),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -218,6 +219,7 @@ class UserProfile:
             report_detail_level=data.get("report_detail_level", "standard"),
             typical_sample_size=data.get("typical_sample_size", ""),
             research_notes=data.get("research_notes", ""),
+            _test_usage_counter=data.get("test_usage_counter", {}),
             created_at=created_at or datetime.now(timezone.utc),
             updated_at=updated_at or datetime.now(timezone.utc),
         )

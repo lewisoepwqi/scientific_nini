@@ -50,8 +50,6 @@ _SYNONYM_MAP: dict[str, list[str]] = {
         "相关",
         "相关性",
         "关联",
-        "联系",
-        "关系",
         "pearson",
         "spearman",
         "kendall",
@@ -497,13 +495,13 @@ class IntentAnalyzer:
         return tool_hints
 
     def _apply_clarification_policy(self, analysis: IntentAnalysis) -> None:
-        """根据候选分布决定是否需要追问。"""
+        """根据候选分布决定是否需要追问。
+
+        仅当存在多个分数接近的候选时才触发澄清。
+        无候选（普通对话/通用指令）直接交给 LLM 自由处理。
+        """
         candidates = analysis.capability_candidates
         if not candidates:
-            analysis.clarification_needed = True
-            analysis.clarification_question = (
-                "请补充你的目标，例如是想做差异分析、相关性分析、数据探索、可视化还是报告生成？"
-            )
             return
 
         if len(candidates) >= 2 and abs(candidates[0].score - candidates[1].score) <= 1.0:

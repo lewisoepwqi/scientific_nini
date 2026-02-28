@@ -69,7 +69,7 @@ def test_intent_analyzer_requests_clarification_for_ambiguous_query() -> None:
     """多个能力分数接近时应要求澄清。"""
     analyzer = IntentAnalyzer()
     analysis = analyzer.analyze(
-        "我想分析",
+        "帮我比较差异和相关性",
         capabilities=[
             {
                 "name": "difference_analysis",
@@ -292,7 +292,7 @@ async def test_runner_requests_intent_clarification_before_llm() -> None:
     )
 
     events = []
-    async for event in runner.run(session, "我想分析"):
+    async for event in runner.run(session, "帮我比较差异和相关性"):
         events.append(event)
 
     event_types = [event.type.value for event in events]

@@ -95,6 +95,29 @@ class TestUserProfile:
         profile.increment_analysis_count()
         assert profile.total_analyses == 2
 
+    def test_test_usage_counter_survives_round_trip(self):
+        """测试 _test_usage_counter 在序列化/反序列化后正确恢复。"""
+        from nini.models.user_profile import UserProfile
+
+        profile = UserProfile(user_id="test_user")
+        profile.record_test_usage("t_test")
+        profile.record_test_usage("t_test")
+        profile.record_test_usage("anova")
+
+        # 序列化再反序列化
+        data = profile.to_dict()
+        restored = UserProfile.from_dict(data)
+
+        # 内部计数器应恢复
+        assert restored._test_usage_counter == {"t_test": 2, "anova": 1}
+        assert restored.preferred_methods["t_test"] > restored.preferred_methods["anova"]
+
+        # 继续记录应该基于恢复后的计数器，不会重置
+        restored.record_test_usage("anova")
+        assert restored._test_usage_counter == {"t_test": 2, "anova": 2}
+        # 权重应该相等
+        assert abs(restored.preferred_methods["t_test"] - restored.preferred_methods["anova"]) < 0.01
+
 
 class TestUserProfileManager:
     """测试 UserProfileManager 类。"""
