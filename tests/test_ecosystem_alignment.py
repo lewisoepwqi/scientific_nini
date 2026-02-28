@@ -18,6 +18,7 @@ from unittest.mock import patch
 import pytest
 
 from nini.agent.session import Session, session_manager
+from nini.capabilities import Capability, CapabilityRegistry
 from nini.config import settings
 from nini.tools.base import Skill, SkillResult
 from nini.tools.registry import SkillRegistry
@@ -436,42 +437,77 @@ class TestMCPServer:
     def test_create_mcp_server_with_registry(self):
         """测试使用自定义 registry 创建 MCP Server。"""
         try:
-            from nini.mcp.server import create_mcp_server
+            from nini.mcp.server import _MCP_AVAILABLE, create_mcp_server
         except ImportError:
+            pytest.skip("MCP SDK 未安装")
+        if not _MCP_AVAILABLE:
             pytest.skip("MCP SDK 未安装")
 
         registry = SkillRegistry()
         registry.register(_DummySkill("test_tool"))
         registry.register(_DummySkill("hidden_tool", expose=False))
+        capability_registry = CapabilityRegistry()
 
         try:
-            server = create_mcp_server(registry)
+            server = create_mcp_server(registry, capability_registry)
         except ImportError:
             pytest.skip("MCP SDK 未安装")
 
         assert server is not None
 
+    def test_architecture_tools_use_dynamic_executable_capability_enum(self):
+        """测试 execute_capability 的枚举值来自可执行能力注册表。"""
+        try:
+            from nini.mcp.server import _MCP_AVAILABLE, _create_architecture_tools
+        except ImportError:
+            pytest.skip("MCP SDK 未安装")
+        if not _MCP_AVAILABLE:
+            pytest.skip("MCP SDK 未安装")
+
+        capability_registry = CapabilityRegistry()
+        capability_registry.register(
+            Capability(
+                name="difference_analysis",
+                display_name="差异分析",
+                description="测试能力",
+                is_executable=True,
+                executor_factory=lambda _registry: object(),
+            )
+        )
+        capability_registry.register(
+            Capability(
+                name="report_generation",
+                display_name="报告生成",
+                description="不可直接执行的能力",
+                is_executable=False,
+            )
+        )
+
+        tools = _create_architecture_tools(capability_registry)
+        execute_tool = next(tool for tool in tools if tool.name == "execute_capability")
+        capability_enum = execute_tool.inputSchema["properties"]["capability_name"]["enum"]
+
+        assert capability_enum == ["difference_analysis"]
+
     @pytest.mark.asyncio
     async def test_list_tools_respects_expose_to_llm(self):
         """测试 list_tools 仅返回 expose_to_llm=True 的技能。"""
         try:
-            import mcp.types as types
-            from nini.mcp.server import create_mcp_server
+            from nini.mcp.server import _MCP_AVAILABLE, create_mcp_server
         except ImportError:
+            pytest.skip("MCP SDK 未安装")
+        if not _MCP_AVAILABLE:
             pytest.skip("MCP SDK 未安装")
 
         registry = SkillRegistry()
         registry.register(_DummySkill("visible_tool", expose=True))
         registry.register(_DummySkill("hidden_tool", expose=False))
+        capability_registry = CapabilityRegistry()
 
-        server = create_mcp_server(registry)
+        server = create_mcp_server(registry, capability_registry)
 
-        # 直接调用注册的处理器
-        handlers = server.request_handlers
-        # list_tools handler 在 MCP SDK 中通过装饰器注册
-        # 我们验证 registry 中的过滤逻辑
-        visible_count = sum(1 for s in registry._skills.values() if s.expose_to_llm)
-        assert visible_count == 1
+        assert server is not None
+        assert len(registry.get_tool_definitions()) == 1
 
     @pytest.mark.asyncio
     async def test_call_tool_unknown(self):

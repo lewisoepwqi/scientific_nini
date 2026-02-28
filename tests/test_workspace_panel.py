@@ -235,62 +235,85 @@ class TestWorkspaceManagerFilePreview:
 
 
 class TestDeleteAPI:
-    """测试 DELETE /api/sessions/{sid}/workspace/files/{fid}。"""
+    """测试 DELETE /api/workspace/{sid}/files/{path}。"""
 
     def test_delete_file(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
-        resp = client.delete(f"/api/sessions/{session_id}/workspace/files/{dataset_id}")
+        manager = WorkspaceManager(session_id)
+        dataset = manager.get_dataset_by_id(dataset_id)
+        assert dataset is not None
+        dataset_path = Path(str(dataset["file_path"])).relative_to(manager.workspace_dir).as_posix()
+
+        resp = client.delete(f"/api/workspace/{session_id}/files/{dataset_path}")
         assert resp.status_code == 200
-        assert resp.json()["data"]["deleted"] == dataset_id
+        assert resp.json()["data"]["path"] == dataset_path
 
         # 确认文件列表中已移除
-        files_resp = client.get(f"/api/sessions/{session_id}/workspace/files")
+        files_resp = client.get(f"/api/workspace/{session_id}/files")
         files = files_resp.json()["data"]["files"]
-        assert all(f["id"] != dataset_id for f in files)
+        assert all(f["name"] != "test.csv" for f in files)
 
     def test_delete_nonexistent_404(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
-        resp = client.delete(f"/api/sessions/{session_id}/workspace/files/no_such_id")
+        resp = client.delete(f"/api/workspace/{session_id}/files/uploads/no_such_id.csv")
         assert resp.status_code == 404
 
     def test_delete_removes_from_session_memory(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
+        manager = WorkspaceManager(session_id)
+        dataset = manager.get_dataset_by_id(dataset_id)
+        assert dataset is not None
+        dataset_path = Path(str(dataset["file_path"])).relative_to(manager.workspace_dir).as_posix()
         # 确认数据集在内存中
         session = session_manager.get_session(session_id)
         assert session is not None
         assert "test.csv" in session.datasets
 
-        client.delete(f"/api/sessions/{session_id}/workspace/files/{dataset_id}")
+        client.delete(f"/api/workspace/{session_id}/files/{dataset_path}")
         assert "test.csv" not in session.datasets
 
 
 class TestRenameAPI:
-    """测试 PATCH /api/sessions/{sid}/workspace/files/{fid}。"""
+    """测试 POST /api/workspace/{sid}/files/{path}/rename。"""
 
     def test_rename_file(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
-        resp = client.patch(
-            f"/api/sessions/{session_id}/workspace/files/{dataset_id}",
+        manager = WorkspaceManager(session_id)
+        dataset = manager.get_dataset_by_id(dataset_id)
+        assert dataset is not None
+        dataset_path = Path(str(dataset["file_path"])).relative_to(manager.workspace_dir).as_posix()
+
+        resp = client.post(
+            f"/api/workspace/{session_id}/files/{dataset_path}/rename",
             json={"name": "data_v2.csv"},
         )
         assert resp.status_code == 200
-        assert resp.json()["data"]["file"]["name"] == "data_v2.csv"
+        assert resp.json()["data"]["path"].endswith("data_v2.csv")
 
     def test_rename_empty_name_400(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
-        resp = client.patch(
-            f"/api/sessions/{session_id}/workspace/files/{dataset_id}",
+        manager = WorkspaceManager(session_id)
+        dataset = manager.get_dataset_by_id(dataset_id)
+        assert dataset is not None
+        dataset_path = Path(str(dataset["file_path"])).relative_to(manager.workspace_dir).as_posix()
+
+        resp = client.post(
+            f"/api/workspace/{session_id}/files/{dataset_path}/rename",
             json={"name": "   "},
         )
         assert resp.status_code == 400
 
     def test_rename_updates_session_memory(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
+        manager = WorkspaceManager(session_id)
+        dataset = manager.get_dataset_by_id(dataset_id)
+        assert dataset is not None
+        dataset_path = Path(str(dataset["file_path"])).relative_to(manager.workspace_dir).as_posix()
         session = session_manager.get_session(session_id)
         assert "test.csv" in session.datasets
 
-        client.patch(
-            f"/api/sessions/{session_id}/workspace/files/{dataset_id}",
+        client.post(
+            f"/api/workspace/{session_id}/files/{dataset_path}/rename",
             json={"name": "renamed.csv"},
         )
         assert "test.csv" not in session.datasets
@@ -298,27 +321,32 @@ class TestRenameAPI:
 
 
 class TestPreviewAPI:
-    """测试 GET /api/sessions/{sid}/workspace/files/{fid}/preview。"""
+    """测试 GET /api/workspace/{sid}/files/{path}/preview。"""
 
     def test_preview_csv(self, client: LocalASGIClient):
         session_id, dataset_id = _create_session_and_upload(client)
-        resp = client.get(f"/api/sessions/{session_id}/workspace/files/{dataset_id}/preview")
+        manager = WorkspaceManager(session_id)
+        dataset = manager.get_dataset_by_id(dataset_id)
+        assert dataset is not None
+        dataset_path = Path(str(dataset["file_path"])).relative_to(manager.workspace_dir).as_posix()
+
+        resp = client.get(f"/api/workspace/{session_id}/files/{dataset_path}/preview")
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["preview_type"] == "text"
 
     def test_preview_nonexistent_404(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
-        resp = client.get(f"/api/sessions/{session_id}/workspace/files/no_id/preview")
+        resp = client.get(f"/api/workspace/{session_id}/files/uploads/no_id.csv/preview")
         assert resp.status_code == 404
 
 
 class TestSearchAPI:
-    """测试 GET /api/sessions/{sid}/workspace/files?q= 搜索。"""
+    """测试 GET /api/workspace/{sid}/files?q= 搜索。"""
 
     def test_search_with_query(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
-        resp = client.get(f"/api/sessions/{session_id}/workspace/files?q=test")
+        resp = client.get(f"/api/workspace/{session_id}/files?q=test")
         assert resp.status_code == 200
         files = resp.json()["data"]["files"]
         assert len(files) == 1
@@ -326,29 +354,30 @@ class TestSearchAPI:
 
     def test_search_no_match(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
-        resp = client.get(f"/api/sessions/{session_id}/workspace/files?q=不存在")
+        resp = client.get(f"/api/workspace/{session_id}/files?q=不存在")
         assert resp.status_code == 200
         assert len(resp.json()["data"]["files"]) == 0
 
     def test_search_without_query_returns_all(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
-        resp = client.get(f"/api/sessions/{session_id}/workspace/files")
+        resp = client.get(f"/api/workspace/{session_id}/files")
         assert resp.status_code == 200
         assert len(resp.json()["data"]["files"]) >= 1
 
 
 class TestBatchDownloadAPI:
-    """测试 POST /api/sessions/{sid}/workspace/batch-download。"""
+    """测试 POST /api/workspace/{sid}/download-zip。"""
 
     def test_batch_download_zip_success(self, client: LocalASGIClient):
         resp = client.post("/api/sessions")
         session_id = resp.json()["data"]["session_id"]
         manager = WorkspaceManager(session_id)
         note = manager.save_text_note("批量下载内容", "batch_note.md")
+        note_path = Path(note["path"]).relative_to(manager.workspace_dir).as_posix()
 
         download = client.post(
-            f"/api/sessions/{session_id}/workspace/batch-download",
-            json={"file_ids": [note["id"]]},
+            f"/api/workspace/{session_id}/download-zip",
+            json=[note_path],
         )
         assert download.status_code == 200
         assert download.headers["content-type"] == "application/zip"
@@ -361,15 +390,15 @@ class TestBatchDownloadAPI:
     def test_batch_download_empty_file_ids_400(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         download = client.post(
-            f"/api/sessions/{session_id}/workspace/batch-download",
-            json={"file_ids": []},
+            f"/api/workspace/{session_id}/download-zip",
+            json=[],
         )
         assert download.status_code == 400
 
     def test_batch_download_missing_files_404(self, client: LocalASGIClient):
         session_id, _ = _create_session_and_upload(client)
         download = client.post(
-            f"/api/sessions/{session_id}/workspace/batch-download",
-            json={"file_ids": ["no_such_file"]},
+            f"/api/workspace/{session_id}/download-zip",
+            json=["notes/no_such_file.md"],
         )
         assert download.status_code == 404

@@ -14,6 +14,8 @@ import io
 import json
 import mimetypes
 import re
+import shutil
+from copy import deepcopy
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -39,6 +41,7 @@ class WorkspaceManager:
     def __init__(self, session_id: str):
         self.session_id = session_id
         self.base_dir = settings.sessions_dir / session_id / "workspace"
+        self.workspace_dir = self.base_dir
         self.uploads_dir = self.base_dir / "uploads"
         self.artifacts_dir = self.base_dir / "artifacts"
         self.notes_dir = self.base_dir / "notes"
@@ -58,6 +61,34 @@ class WorkspaceManager:
         cleaned = _SAFE_FILENAME_PATTERN.sub("_", raw).strip(" .")
         return cleaned or default_name
 
+    def resolve_workspace_path(
+        self,
+        relative_path: str,
+        *,
+        allow_root: bool = False,
+        allow_missing: bool = True,
+    ) -> Path:
+        """将工作空间相对路径解析为安全绝对路径。"""
+        self.ensure_dirs()
+        raw = relative_path.strip().replace("\\", "/")
+        if not raw:
+            if allow_root:
+                return self.workspace_dir.resolve()
+            raise ValueError("path 不能为空")
+
+        rel = Path(raw)
+        if rel.is_absolute():
+            raise ValueError("path 不能为绝对路径")
+        if any(part in ("", ".", "..") for part in rel.parts):
+            raise ValueError("path 非法")
+
+        target = (self.workspace_dir / rel).resolve()
+        if not target.is_relative_to(self.workspace_dir.resolve()):
+            raise ValueError("path 超出工作空间目录")
+        if not allow_missing and not target.exists():
+            raise FileNotFoundError(relative_path)
+        return target
+
     def build_artifact_download_url(self, filename: str) -> str:
         """构建产物下载 URL（文件名统一做单次编码）。"""
         try:
@@ -65,6 +96,284 @@ class WorkspaceManager:
         except Exception:
             normalized = quote(filename, safe="")
         return f"/api/artifacts/{self.session_id}/{normalized}"
+
+    def _iter_index_records(
+        self,
+        index: dict[str, Any],
+    ) -> list[tuple[str, dict[str, Any], str]]:
+        """遍历索引中的文件记录，返回 (kind, record, path_key)。"""
+        records: list[tuple[str, dict[str, Any], str]] = []
+        for kind, path_key in (("dataset", "file_path"), ("artifact", "path"), ("note", "path")):
+            bucket = {
+                "dataset": "datasets",
+                "artifact": "artifacts",
+                "note": "notes",
+            }[kind]
+            items = index.get(bucket, [])
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if isinstance(item, dict):
+                    records.append((kind, item, path_key))
+        return records
+
+    def _find_record_by_path(
+        self,
+        target: Path,
+        *,
+        index: dict[str, Any] | None = None,
+    ) -> tuple[str, dict[str, Any] | None, str | None]:
+        """按磁盘路径定位索引记录。"""
+        active_index = index or self._load_index()
+        resolved_target = target.resolve()
+        for kind, item, path_key in self._iter_index_records(active_index):
+            raw = str(item.get(path_key, "")).strip()
+            if not raw:
+                continue
+            try:
+                item_path = Path(raw).resolve()
+            except Exception:
+                continue
+            if item_path == resolved_target:
+                return kind, item, path_key
+        return "", None, None
+
+    def _remove_records_under_path(
+        self,
+        index: dict[str, Any],
+        target: Path,
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """删除索引中位于指定路径下的记录。"""
+        removed: list[tuple[str, dict[str, Any]]] = []
+        resolved_target = target.resolve()
+        bucket_map = {
+            "dataset": "datasets",
+            "artifact": "artifacts",
+            "note": "notes",
+        }
+        kept: dict[str, list[dict[str, Any]]] = {bucket: [] for bucket in bucket_map.values()}
+
+        for kind, item, path_key in self._iter_index_records(index):
+            raw = str(item.get(path_key, "")).strip()
+            if not raw:
+                kept[bucket_map[kind]].append(item)
+                continue
+            try:
+                item_path = Path(raw).resolve()
+            except Exception:
+                kept[bucket_map[kind]].append(item)
+                continue
+            if item_path == resolved_target or resolved_target in item_path.parents:
+                removed.append((kind, item))
+            else:
+                kept[bucket_map[kind]].append(item)
+
+        for bucket, items in kept.items():
+            index[bucket] = items
+        return removed
+
+    def _sync_record_after_path_change(
+        self,
+        kind: str,
+        item: dict[str, Any],
+        path_key: str,
+        new_path: Path,
+    ) -> None:
+        """路径变更后同步索引记录中的名称和下载地址。"""
+        item[path_key] = str(new_path)
+        item["name"] = new_path.name
+
+        if kind == "dataset":
+            item["file_type"] = new_path.suffix.lstrip(".").lower()
+            item["download_url"] = (
+                f"/api/workspace/{self.session_id}/uploads/{quote(new_path.name, safe='')}"
+            )
+        elif kind == "artifact":
+            item["download_url"] = self.build_artifact_download_url(new_path.name)
+        elif kind == "note":
+            item["download_url"] = (
+                f"/api/workspace/{self.session_id}/notes/{quote(new_path.name, safe='')}"
+            )
+
+    def _upsert_note_record_for_path(self, path: Path) -> dict[str, Any] | None:
+        """仅为 notes 根目录下的文件维护 note 记录。"""
+        if path.parent != self.notes_dir:
+            return None
+
+        index = self._load_index()
+        _, existing, path_key = self._find_record_by_path(path, index=index)
+        if existing is not None and path_key is not None:
+            self._sync_record_after_path_change("note", existing, path_key, path)
+            self._save_index(index)
+            return existing
+
+        note_record = {
+            "id": uuid.uuid4().hex[:12],
+            "session_id": self.session_id,
+            "name": path.name,
+            "type": "note",
+            "path": str(path),
+            "download_url": f"/api/workspace/{self.session_id}/notes/{quote(path.name, safe='')}",
+            "created_at": _now_iso(),
+        }
+        notes = index.get("notes", [])
+        if not isinstance(notes, list):
+            notes = []
+        notes.append(note_record)
+        index["notes"] = notes
+        self._save_index(index)
+        return note_record
+
+    def get_tree(self) -> dict[str, Any]:
+        """返回工作空间目录树。"""
+        self.ensure_dirs()
+
+        def build_node(path: Path) -> dict[str, Any]:
+            relative = (
+                ""
+                if path == self.workspace_dir
+                else path.relative_to(self.workspace_dir).as_posix()
+            )
+            if path.is_dir():
+                children = [
+                    build_node(child)
+                    for child in sorted(
+                        path.iterdir(),
+                        key=lambda item: (not item.is_dir(), item.name.lower()),
+                    )
+                    if child.name != "index.json"
+                ]
+                return {
+                    "name": path.name if relative else "workspace",
+                    "path": relative,
+                    "type": "dir",
+                    "children": children,
+                }
+
+            stat = path.stat()
+            return {
+                "name": path.name,
+                "path": relative,
+                "type": "file",
+                "size": stat.st_size,
+                "updated_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+            }
+
+        return build_node(self.workspace_dir)
+
+    def read_file(self, relative_path: str) -> str:
+        """读取工作空间中的文本文件。"""
+        target = self.resolve_workspace_path(relative_path, allow_missing=False)
+        if target.is_dir():
+            raise IsADirectoryError(relative_path)
+        return target.read_text(encoding="utf-8", errors="replace")
+
+    def save_text_file(self, relative_path: str, content: str) -> Path:
+        """按路径保存文本文件。"""
+        target = self.resolve_workspace_path(relative_path, allow_missing=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        self._upsert_note_record_for_path(target)
+        return target
+
+    def delete_path(self, relative_path: str) -> dict[str, Any]:
+        """按路径删除工作空间中的文件或目录，并同步索引。"""
+        target = self.resolve_workspace_path(relative_path, allow_missing=False)
+        if target == self.workspace_dir:
+            raise ValueError("不能删除工作空间根目录")
+
+        index = self._load_index()
+        removed_records = self._remove_records_under_path(index, target)
+
+        if target.is_dir():
+            shutil.rmtree(target, ignore_errors=False)
+        else:
+            target.unlink(missing_ok=False)
+
+        self._save_index(index)
+        return {
+            "path": relative_path,
+            "deleted_records": [
+                {"kind": kind, "record": record}
+                for kind, record in removed_records
+            ],
+        }
+
+    def rename_path(self, relative_path: str, new_name: str) -> dict[str, Any]:
+        """按路径重命名工作空间中的文件，并同步索引。"""
+        target = self.resolve_workspace_path(relative_path, allow_missing=False)
+        if target == self.workspace_dir:
+            raise ValueError("不能重命名工作空间根目录")
+        if target.is_dir():
+            raise IsADirectoryError(relative_path)
+        if not new_name.strip():
+            raise ValueError("文件名不能为空")
+
+        safe_name = self.sanitize_filename(new_name, default_name=target.name)
+        new_path = target.with_name(safe_name)
+        if new_path == target:
+            return {
+                "old_path": relative_path,
+                "new_path": target.relative_to(self.workspace_dir).as_posix(),
+                "updated_records": [],
+            }
+        if new_path.exists():
+            raise FileExistsError(new_path.name)
+
+        target.rename(new_path)
+
+        index = self._load_index()
+        kind, record, path_key = self._find_record_by_path(new_path, index=index)
+        updated_records: list[dict[str, Any]] = []
+        if record is None or path_key is None:
+            kind, record, path_key = self._find_record_by_path(target, index=index)
+        if record is not None and path_key is not None:
+            old_record = deepcopy(record)
+            self._sync_record_after_path_change(kind, record, path_key, new_path)
+            updated_records.append({"kind": kind, "old_record": old_record, "record": record})
+            self._save_index(index)
+
+        return {
+            "old_path": relative_path,
+            "new_path": new_path.relative_to(self.workspace_dir).as_posix(),
+            "updated_records": updated_records,
+        }
+
+    def batch_download_paths(self, paths: list[str]) -> bytes:
+        """按相对路径将工作空间文件打包为 ZIP。"""
+        self.ensure_dirs()
+        buf = io.BytesIO()
+        added = 0
+        used_names: set[str] = set()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for raw_path in paths:
+                target = self.resolve_workspace_path(raw_path, allow_missing=False)
+                if target.is_dir():
+                    for child in sorted(target.rglob("*")):
+                        if not child.is_file():
+                            continue
+                        arcname = child.relative_to(self.workspace_dir).as_posix()
+                        zf.write(child, arcname)
+                        added += 1
+                    continue
+                base_name = self.sanitize_filename(target.name, default_name=target.name)
+                arcname = base_name
+                if arcname in used_names:
+                    stem = Path(base_name).stem
+                    suffix = Path(base_name).suffix
+                    index = 2
+                    while True:
+                        candidate = f"{stem} ({index}){suffix}"
+                        if candidate not in used_names:
+                            arcname = candidate
+                            break
+                        index += 1
+                used_names.add(arcname)
+                zf.write(target, arcname)
+                added += 1
+        if added == 0:
+            return b""
+        return buf.getvalue()
 
     def unique_dataset_name(self, preferred_name: str) -> str:
         entries = self.list_datasets()
@@ -428,6 +737,45 @@ class WorkspaceManager:
         files.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
         return files
 
+    def list_workspace_files_with_paths(self) -> list[dict[str, Any]]:
+        """列出工作空间文件，并补充相对路径信息供新版路径式 API 使用。"""
+        files = self.list_workspace_files()
+        index = self._load_index()
+        path_by_id: dict[str, str] = {}
+
+        for _kind, item, path_key in self._iter_index_records(index):
+            file_id = str(item.get("id", "")).strip()
+            raw_path = str(item.get(path_key, "")).strip()
+            if not file_id or not raw_path:
+                continue
+            try:
+                rel_path = Path(raw_path).resolve().relative_to(self.workspace_dir.resolve()).as_posix()
+            except Exception:
+                continue
+            path_by_id[file_id] = rel_path
+
+        enriched: list[dict[str, Any]] = []
+        for item in files:
+            copied = dict(item)
+            file_id = str(copied.get("id", "")).strip()
+            if file_id and file_id in path_by_id:
+                copied["path"] = path_by_id[file_id]
+            enriched.append(copied)
+        return enriched
+
+    def search_files_with_paths(self, query: str) -> list[dict[str, Any]]:
+        """根据文件名搜索工作空间文件，并补充相对路径。"""
+        if not query or not query.strip():
+            return self.list_workspace_files_with_paths()
+
+        query_lower = query.strip().lower()
+        results = []
+        for item in self.list_workspace_files_with_paths():
+            name = str(item.get("name", "")).lower()
+            if query_lower in name:
+                results.append(item)
+        return results
+
     # ---- 文件操作扩展（工作区面板用） ----
 
     def _find_record_by_id(self, file_id: str) -> tuple[str, dict[str, Any] | None]:
@@ -536,6 +884,20 @@ class WorkspaceManager:
         if record is None:
             return None
 
+        return self._build_preview_payload(
+            file_id=file_id,
+            kind=kind,
+            record=record,
+        )
+
+    def _build_preview_payload(
+        self,
+        *,
+        file_id: str,
+        kind: str,
+        record: dict[str, Any],
+    ) -> dict[str, Any]:
+        """根据索引记录构建统一预览载荷。"""
         path_str = record.get("file_path") or record.get("path") or ""
         if not path_str:
             return {
@@ -661,6 +1023,26 @@ class WorkspaceManager:
             "mime_type": mime_type,
         }
 
+    def get_file_preview_by_path(self, relative_path: str) -> dict[str, Any]:
+        """按路径获取文件预览。"""
+        target = self.resolve_workspace_path(relative_path, allow_missing=False)
+        if target.is_dir():
+            raise IsADirectoryError(relative_path)
+
+        kind, record, _path_key = self._find_record_by_path(target)
+        if record is None:
+            kind = "file"
+            record = {
+                "id": relative_path,
+                "name": target.name,
+                "path": str(target),
+                "download_url": (
+                    f"/api/workspace/{self.session_id}/download/{quote(relative_path, safe='')}"
+                ),
+            }
+        file_id = str(record.get("id", relative_path))
+        return self._build_preview_payload(file_id=file_id, kind=kind, record=record)
+
     def search_files(self, query: str) -> list[dict[str, Any]]:
         """根据文件名模糊搜索工作空间文件。"""
         if not query or not query.strip():
@@ -728,6 +1110,29 @@ class WorkspaceManager:
                 continue
         records.sort(key=lambda r: str(r.get("created_at", "")), reverse=True)
         return records[:limit]
+
+    def move_path_to_folder(
+        self,
+        relative_path: str,
+        folder_id: str | None,
+    ) -> dict[str, Any]:
+        """按路径将索引中的文件移动到指定文件夹。"""
+        target = self.resolve_workspace_path(relative_path, allow_missing=False)
+        kind, record, _path_key = self._find_record_by_path(target)
+        if record is None:
+            raise FileNotFoundError(relative_path)
+
+        index = self._load_index()
+        _, stored_record, _ = self._find_record_by_path(target, index=index)
+        if stored_record is None:
+            raise FileNotFoundError(relative_path)
+
+        stored_record["folder"] = folder_id
+        self._save_index(index)
+        return {
+            "kind": kind,
+            "record": stored_record,
+        }
 
     # ---- 批量下载 ----
 

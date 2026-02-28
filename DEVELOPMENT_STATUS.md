@@ -541,23 +541,24 @@ cd web && npm run build
 
 ## 七、后续开发计划
 
-### Task 1：实现 `ResearchProfile`
+### Task 1：补齐 `ResearchProfile` API 与前端闭环
 
 - 优先级：P1
-- 类型：新增
+- 类型：新增/补齐
+- 当前状态：后端已实现，需补 API 和前端
 - 目标：
-  - 完成四层记忆闭环
+  - 完成四层记忆闭环，让用户可查看和配置研究偏好
   - 沉淀研究偏好、常用方法、输出偏好、研究领域标签
 - 建议涉及文件：
-  - `src/nini/memory/research_profile.py`
-  - `src/nini/agent/session.py`
-  - `src/nini/agent/profile_manager.py`
-  - `src/nini/api/routes.py`
+  - `src/nini/api/routes.py`（新增 API 端点）
+  - `web/src/components/ResearchProfilePanel.tsx`（新增前端组件）
+  - `web/src/store.ts`（新增状态管理）
   - 对应测试文件
 - 验收标准：
-  - 支持跨会话持久化
-  - 支持读取并注入对话上下文
-  - 不破坏现有会话流程
+  - ✅ 支持跨会话持久化（已完成）
+  - ✅ 支持读取并注入对话上下文（已完成）
+  - ⏳ API 支持查询和更新研究画像
+  - ⏳ 前端可展示和修改研究偏好
 
 ### Task 2：实现第二个可执行 Capability
 
@@ -573,19 +574,25 @@ cd web && npm run build
   - API 可直接执行
   - 前端能够正确展示执行状态
 
-### Task 3：升级 Intent Layer 到增强语义版本
+### Task 3：深化前端 Intent 交互体验
 
 - 优先级：P1/P2
 - 类型：优化
+- 当前状态：Intent Layer 已升级至 v2（同义词扩展 + 元数据加权）
 - 目标：
-  - 从 `rule_based_v1` 进化到更强的语义理解
+  - 将 Intent 理解从"顶部摘要"升级为"交互过程能力"
 - 方向：
-  - 元数据加权排序
-  - 更强语义匹配
-  - embedding / 检索增强可评估
+  - 接入会话时间线，展示系统理解过程
+  - 增强澄清交互反馈
+  - 展示系统推荐路径与当前激活技能
+- 建议涉及文件：
+  - `web/src/components/IntentTimelineItem.tsx`（新增）
+  - `web/src/components/ChatPanel.tsx`（集成）
+  - `web/src/components/IntentSummaryCard.tsx`（优化）
 - 验收标准：
-  - 长尾表达匹配能力优于当前规则版
-  - 规则层仍保留为兜底
+  - 用户在对话中可看到 Intent 分析过程
+  - 澄清建议可点击并自动回填输入框
+  - 技能激活状态实时展示
 
 ### Task 4：增强前端 Intent 交互体验
 
@@ -628,21 +635,23 @@ cd web && npm run build
 
 ---
 
-## 八、推荐执行顺序
+## 八、推荐执行顺序（已调整）
 
-建议按以下顺序推进：
+基于代码实际进展，建议按以下顺序推进：
 
-1. 先补 `ResearchProfile`
-2. 再实现第二个可执行 Capability
-3. 然后升级 Intent 语义理解
-4. 再做前端 Intent 深化展示
-5. 最后推进科研专项深化与 MCP 收口
+1. **补齐 `ResearchProfile` API** - 让四层记忆真正闭环
+2. **验证 `correlation_analysis`** - 确认第二个 Capability 可正常执行
+3. **深化前端 Intent 体验** - 将 Intent 从摘要卡升级为时间线交互
+4. **发表级输出模板化** - 统一报告结构，支持期刊风格
+5. **可观测性增强** - 记录关键耗时与错误聚合
+6. **MCP Gateway 对齐** - 外部生态接入规范化
 
-原因：
+调整原因：
 
-- 先闭环记忆层，能为后续更强意图理解和能力推荐提供用户级上下文
-- 再补第二个可执行 Capability，可以验证现有架构不是单点特例
-- 在此基础上升级 Intent，会更容易利用丰富元数据和能力契约
+- `ResearchProfile` 后端已就绪，只需补齐 API 和前端即可闭环
+- `correlation_analysis` 已实现，验证成本远低于新开发
+- Intent v2 已足够当前需求，边际收益递减，优先做前端体验
+- 科研专项输出是核心价值主张，提前到工程优化之前
 
 ---
 

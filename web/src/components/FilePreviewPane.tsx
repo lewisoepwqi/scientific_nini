@@ -69,11 +69,12 @@ export default function FilePreviewPane() {
 
   useEffect(() => {
     if (!sessionId || !previewFileId) return
+    if (!fileInfo?.path) return
     if (cache[previewFileId] || errors[previewFileId]) return
 
     let cancelled = false
     setLoadingId(previewFileId)
-    fetch(`/api/sessions/${sessionId}/workspace/files/${previewFileId}/preview`)
+    fetch(`/api/workspace/${sessionId}/files/${fileInfo.path}/preview`)
       .then((resp) => resp.json())
       .then((payload) => {
         if (cancelled) return
@@ -95,7 +96,7 @@ export default function FilePreviewPane() {
     return () => {
       cancelled = true
     }
-  }, [sessionId, previewFileId, cache, errors])
+  }, [sessionId, previewFileId, fileInfo?.path, cache, errors])
 
   const handleClose = useCallback(() => {
     if (!previewFileId) return

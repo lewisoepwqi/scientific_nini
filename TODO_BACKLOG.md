@@ -12,41 +12,48 @@
 
 ## P1：架构闭环
 
-### 1. 完成 `ResearchProfile` 四层记忆闭环
+### 1. 补齐 `ResearchProfile` API 与前端闭环
 
-- 状态：进行中
-- 目标：
-  - 让研究偏好、常用方法、输出风格跨会话保存
-  - 接入运行时上下文注入
+- 状态：后端已完成，待 API 与前端
+- 当前完成：
+  - ✅ `memory/research_profile.py`：管理器与 prompt 生成
+  - ✅ `agent/runner.py`：活动记录集成
+  - ✅ `agent/session.py`：`research_profile_id` 持久化
+- 待完成：
+  - ⏳ API 端点：`GET/PUT /api/research-profile`
+  - ⏳ 前端配置面板
 - 验收标准：
   - 支持读取和更新默认研究画像
   - Session 能绑定 `research_profile_id`
   - Runner 能注入研究画像提示
-  - 补充持久化与上下文测试
+  - 前端可展示和修改研究偏好
 
-### 2. 实现第二个可执行 Capability
+### 2. 验证和完善第二个可执行 Capability
 
-- 状态：未开始
-- 推荐目标：
-  - `data_exploration`
-  - 或 `correlation_analysis`
-- 验收标准：
-  - 注册表统一发现和执行
-  - API 可直接执行
-  - 前端能力面板能正确标记执行状态
+- 状态：`correlation_analysis` 已实现，待验证 API 流程
+- 当前完成：
+  - ✅ `correlation_analysis.py`：完整实现（580 行）
+  - ✅ `defaults.py`：已标记 `is_executable=True`
+  - ✅ `test_correlation_analysis_capability.py`：测试已存在
+- 待完成：
+  - ⏳ 验证 API 直接执行流程
+  - ⏳ 前端正确展示执行状态
+- 后续可继续：
+  - `data_exploration` 可执行实现
 
-### 3. Intent Layer 升级为增强语义版本
+### 3. 深化前端 Intent 交互体验
 
-- 状态：未开始
-- 目标：
-  - 在现有规则版基础上增强长尾表达理解
-- 候选方向：
-  - 元数据加权排序
-  - embedding 检索
-  - 历史交互辅助排序
-- 验收标准：
-  - 对隐式科研任务的匹配优于规则版
-  - 保留规则回退路径
+- 状态：Intent v2 已实现，待前端深化
+- 当前完成：
+  - ✅ 规则版 v2：同义词扩展 + 元数据加权 + 澄清策略
+  - ✅ `_SYNONYM_MAP` 覆盖 8 大科研意图
+  - ✅ `IntentSummaryCard.tsx`：顶部摘要展示
+- 待完成：
+  - ⏳ Intent 结果接入对话时间线
+  - ⏳ 展示系统理解和澄清过程
+  - ⏳ 展示激活技能和推荐路径
+- 后续可选：
+  - 评估 embedding / 检索增强（边际收益递减，暂缓）
 
 ---
 
@@ -122,11 +129,16 @@
 
 ---
 
-## 推荐执行顺序
+## 推荐执行顺序（已调整）
 
-1. 收口 `ResearchProfile`
-2. 实现第二个可执行 Capability
-3. 升级 Intent 语义理解
-4. 深化前端 Intent 体验
-5. 推进科研专项输出与方法推荐
-6. 再收口 MCP、性能和可观测性
+基于代码实际进展调整：
+
+1. **补齐 `ResearchProfile` API 与前端** - 四层记忆闭环
+2. **验证 `correlation_analysis` Capability** - 确认多能力支持
+3. **深化前端 Intent 交互体验** - 从摘要卡到时间线
+4. **发表级输出模板化** - 统一报告结构
+5. **可观测性增强** - 耗时日志与错误聚合
+6. **MCP Gateway 对齐** - 外部生态规范化
+7. **前端大包优化** - 动态加载图表模块
+
+调整原因：后端实现超前于文档，优先补齐 API 闭环和前端体验。

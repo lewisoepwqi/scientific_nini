@@ -66,7 +66,7 @@ test.beforeEach(async ({ page }) => {
           )
         }
 
-        if (url === '/api/sessions/sess-e2e/datasets') {
+        if (url === '/api/datasets/sess-e2e') {
           return new Response(
             JSON.stringify({
               success: true,
@@ -79,7 +79,7 @@ test.beforeEach(async ({ page }) => {
           )
         }
 
-        if (url === '/api/sessions/sess-e2e/workspace/executions') {
+        if (url === '/api/workspace/sess-e2e/executions') {
           return new Response(
             JSON.stringify({
               success: true,
@@ -92,7 +92,7 @@ test.beforeEach(async ({ page }) => {
           )
         }
 
-        if (url === '/api/sessions/sess-e2e/workspace/folders') {
+        if (url === '/api/workspace/sess-e2e/folders') {
           return new Response(
             JSON.stringify({
               success: true,
@@ -105,7 +105,7 @@ test.beforeEach(async ({ page }) => {
           )
         }
 
-        if (url === '/api/sessions/sess-e2e/workspace/files') {
+        if (url === '/api/workspace/sess-e2e/files') {
           return new Response(
             JSON.stringify({
               success: true,
@@ -114,6 +114,7 @@ test.beforeEach(async ({ page }) => {
                 files: [
                   {
                     id: 'art-1',
+                    path: 'artifacts/chart_a.png',
                     name: 'chart_a.png',
                     kind: 'artifact',
                     size: 2048,
@@ -123,6 +124,7 @@ test.beforeEach(async ({ page }) => {
                   },
                   {
                     id: 'art-2',
+                    path: 'artifacts/report_b.md',
                     name: 'report_b.md',
                     kind: 'artifact',
                     size: 4096,
@@ -132,6 +134,7 @@ test.beforeEach(async ({ page }) => {
                   },
                   {
                     id: 'art-3',
+                    path: 'artifacts/report_c.pdf',
                     name: 'report_c.pdf',
                     kind: 'artifact',
                     size: 8192,
@@ -149,7 +152,7 @@ test.beforeEach(async ({ page }) => {
           )
         }
 
-        if (url === '/api/sessions/sess-e2e/workspace/files/art-1/preview') {
+        if (url === '/api/workspace/sess-e2e/files/artifacts/chart_a.png/preview') {
           return new Response(
             JSON.stringify({
               success: true,
@@ -171,7 +174,7 @@ test.beforeEach(async ({ page }) => {
           )
         }
 
-        if (url === '/api/sessions/sess-e2e/workspace/files/art-2/preview') {
+        if (url === '/api/workspace/sess-e2e/files/artifacts/report_b.md/preview') {
           return new Response(
             JSON.stringify({
               success: true,
@@ -193,7 +196,7 @@ test.beforeEach(async ({ page }) => {
           )
         }
 
-        if (url === '/api/sessions/sess-e2e/workspace/files/art-3/preview') {
+        if (url === '/api/workspace/sess-e2e/files/artifacts/report_c.pdf/preview') {
           return new Response(
             JSON.stringify({
               success: true,
@@ -213,12 +216,12 @@ test.beforeEach(async ({ page }) => {
           )
         }
 
-        if (url === '/api/sessions/sess-e2e/workspace/batch-download' && init?.method === 'POST') {
+        if (url === '/api/workspace/sess-e2e/download-zip' && init?.method === 'POST') {
           const rawBody = typeof init.body === 'string' ? init.body : '{}'
           try {
-            const parsed = JSON.parse(rawBody) as Record<string, unknown>
+            const parsed = JSON.parse(rawBody) as unknown
             const calls = (window as Record<string, unknown>).__batchDownloadBodies as Array<Record<string, unknown>>
-            calls.push(parsed)
+            calls.push({ paths: parsed })
           } catch {
             // 忽略解析错误，测试用例中会断言请求结构
           }

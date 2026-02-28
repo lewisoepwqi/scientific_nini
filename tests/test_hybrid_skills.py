@@ -204,6 +204,42 @@ def test_api_markdown_skill_upload(
     assert "上传后的技能" in target.read_text(encoding="utf-8")
 
 
+def test_api_markdown_skill_upload_new_route_alias(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """技能上传新路由 `/api/skills/upload` 应与旧别名保持一致。"""
+    skills_dir = tmp_path / "skills"
+    monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+
+    app = create_app()
+    set_skill_registry(create_default_registry())
+    upload_text = (
+        "---\n"
+        "name: custom_upload_skill_v2\n"
+        "description: 新路由上传后的技能\n"
+        "category: workflow\n"
+        "---\n\n"
+        "# custom_upload_skill_v2\n\n"
+        "用于上传测试。\n"
+    )
+    with LocalASGIClient(app) as client:
+        resp = client.post(
+            "/api/skills/upload",
+            files={"file": ("custom_upload_skill_v2.md", upload_text, "text/markdown")},
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["success"] is True
+        skill = payload["data"]["skill"]
+        assert skill["name"] == "custom_upload_skill_v2"
+        assert skill["type"] == "markdown"
+
+    target = skills_dir / "custom_upload_skill_v2" / "SKILL.md"
+    assert target.exists()
+    assert "新路由上传后的技能" in target.read_text(encoding="utf-8")
+
+
 def test_api_markdown_skill_manage_flow(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -309,7 +345,7 @@ def test_api_markdown_skill_files_management(
         assert "SKILL.md" in paths
 
         create_dir_resp = client.post(
-            "/api/skills/markdown/skill_with_files/dirs",
+            "/api/skills/markdown/skill_with_files/directories",
             json={"path": "scripts"},
         )
         assert create_dir_resp.status_code == 200
@@ -356,3 +392,31 @@ def test_api_markdown_skill_files_management(
         list_after_delete = client.get("/api/skills/markdown/skill_with_files/files").json()
         paths_after_delete = {item["path"] for item in list_after_delete["data"]["files"]}
         assert "references/guide.md" not in paths_after_delete
+
+
+def test_api_markdown_skill_dir_legacy_alias_still_available(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """旧别名 `/dirs` 仍应兼容，避免历史调用断裂。"""
+    skills_dir = tmp_path / "skills"
+    _write_skill(
+        skills_dir / "legacy_dir_skill" / "SKILL.md",
+        name="legacy_dir_skill",
+        description="目录兼容测试技能",
+    )
+    monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+
+    app = create_app()
+    set_skill_registry(create_default_registry())
+    with LocalASGIClient(app) as client:
+        resp = client.post(
+            "/api/skills/markdown/legacy_dir_skill/dirs",
+            json={"path": "references"},
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["success"] is True
+        assert payload["data"]["path"] == "references"
+
+    assert (skills_dir / "legacy_dir_skill" / "references").is_dir()

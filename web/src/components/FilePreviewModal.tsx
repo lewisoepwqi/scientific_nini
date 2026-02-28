@@ -42,14 +42,14 @@ export default function FilePreviewModal() {
   )
 
   useEffect(() => {
-    if (!previewFileId || !sessionId) {
+    if (!previewFileId || !sessionId || !fileInfo?.path) {
       setPreview(null)
       return
     }
 
     setLoading(true)
     setError(null)
-    fetch(`/api/sessions/${sessionId}/workspace/files/${previewFileId}/preview`)
+    fetch(`/api/workspace/${sessionId}/files/${fileInfo.path}/preview`)
       .then((resp) => resp.json())
       .then((payload) => {
         if (payload.success && payload.data) {
@@ -60,7 +60,7 @@ export default function FilePreviewModal() {
       })
       .catch(() => setError('网络错误'))
       .finally(() => setLoading(false))
-  }, [previewFileId, sessionId])
+  }, [previewFileId, sessionId, fileInfo?.path])
 
   const handleClose = useCallback(() => {
     closePreview()

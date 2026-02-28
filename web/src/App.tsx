@@ -11,6 +11,8 @@ import CapabilityPanel from "./components/CapabilityPanel";
 import MarkdownSkillManagerPanel from "./components/MarkdownSkillManagerPanel";
 import WorkspaceSidebar from "./components/WorkspaceSidebar";
 import MemoryPanel from "./components/MemoryPanel";
+import ResearchProfilePanel from "./components/ResearchProfilePanel";
+import ReportTemplatePanel from "./components/ReportTemplatePanel";
 import {
   BookOpen,
   Wifi,
@@ -21,6 +23,8 @@ import {
   PanelRightOpen,
   PanelRightClose,
   Sparkles,
+  User,
+  FileText,
 } from "lucide-react";
 
 export default function App() {
@@ -33,9 +37,12 @@ export default function App() {
   const [showTools, setShowTools] = useState(false);
   const [showCapabilities, setShowCapabilities] = useState(false);
   const [showSkillManager, setShowSkillManager] = useState(false);
+  const [showResearchProfile, setShowResearchProfile] = useState(false);
+  const [showReportTemplate, setShowReportTemplate] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workspacePanelWidth, setWorkspacePanelWidth] = useState(420);
   const [resizingWorkspace, setResizingWorkspace] = useState(false);
+  const sessionId = useStore((s) => s.sessionId);
 
   // 应用初始化：恢复会话并建立 WebSocket 连接
   useEffect(() => {
@@ -111,6 +118,20 @@ export default function App() {
               title="分析能力"
             >
               <Sparkles size={16} />
+            </button>
+            <button
+              onClick={() => setShowReportTemplate(true)}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-emerald-600 transition-colors"
+              title="生成报告"
+            >
+              <FileText size={16} />
+            </button>
+            <button
+              onClick={() => setShowResearchProfile(true)}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-sky-600 transition-colors"
+              title="研究画像"
+            >
+              <User size={16} />
             </button>
             <button
               onClick={() => setShowTools(true)}
@@ -223,6 +244,15 @@ export default function App() {
       <MarkdownSkillManagerPanel
         open={showSkillManager}
         onClose={() => setShowSkillManager(false)}
+      />
+      <ResearchProfilePanel
+        isOpen={showResearchProfile}
+        onClose={() => setShowResearchProfile(false)}
+      />
+      <ReportTemplatePanel
+        isOpen={showReportTemplate}
+        onClose={() => setShowReportTemplate(false)}
+        sessionId={sessionId}
       />
     </div>
   );

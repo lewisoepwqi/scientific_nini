@@ -79,6 +79,7 @@ export interface WorkspaceFile {
   id: string;
   name: string;
   kind: "dataset" | "artifact" | "note";
+  path?: string;
   size: number;
   created_at?: string;
   download_url: string;
@@ -1597,7 +1598,7 @@ export const useStore = create<AppState>((set, get) => ({
       return;
     }
     try {
-      const resp = await fetch(`/api/sessions/${sid}/datasets`);
+      const resp = await fetch(`/api/datasets/${sid}`);
       const payload = await resp.json();
       const data = isRecord(payload.data) ? payload.data : null;
       const datasets =
@@ -1615,7 +1616,7 @@ export const useStore = create<AppState>((set, get) => ({
       return;
     }
     try {
-      const resp = await fetch(`/api/sessions/${sid}/workspace/files`);
+      const resp = await fetch(`/api/workspace/${sid}/files`);
       const payload = await resp.json();
       const data = isRecord(payload.data) ? payload.data : null;
       const files = data && Array.isArray(data.files) ? data.files : [];
@@ -1701,7 +1702,7 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const resp = await fetch("/api/skills/markdown/upload", {
+      const resp = await fetch("/api/skills/upload", {
         method: "POST",
         body: formData,
       });
@@ -1935,11 +1936,14 @@ export const useStore = create<AppState>((set, get) => ({
 
   async createSkillDir(skillName: string, path: string) {
     try {
-      const resp = await fetch(`/api/skills/markdown/${encodeURIComponent(skillName)}/dirs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path }),
-      });
+      const resp = await fetch(
+        `/api/skills/markdown/${encodeURIComponent(skillName)}/directories`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path }),
+        },
+      );
       const payload = await resp.json();
       if (!resp.ok || !payload.success) {
         const err =
@@ -2007,7 +2011,7 @@ export const useStore = create<AppState>((set, get) => ({
     const sid = get().sessionId;
     if (!sid || !datasetId) return;
     try {
-      await fetch(`/api/sessions/${sid}/datasets/${datasetId}/load`, {
+      await fetch(`/api/datasets/${sid}/${datasetId}/load`, {
         method: "POST",
       });
       await get().fetchDatasets();
@@ -2333,9 +2337,11 @@ export const useStore = create<AppState>((set, get) => ({
   async deleteWorkspaceFile(fileId: string) {
     const sid = get().sessionId;
     if (!sid) return;
+    const file = get().workspaceFiles.find((item) => item.id === fileId);
+    if (!file?.path) return;
     try {
       const resp = await fetch(
-        `/api/sessions/${sid}/workspace/files/${fileId}`,
+        `/api/workspace/${sid}/files/${file.path}`,
         {
           method: "DELETE",
         },
@@ -2391,7 +2397,7 @@ export const useStore = create<AppState>((set, get) => ({
       return;
     }
     try {
-      const resp = await fetch(`/api/sessions/${sid}/workspace/executions`);
+      const resp = await fetch(`/api/workspace/${sid}/executions`);
       const payload = await resp.json();
       const data = isRecord(payload.data) ? payload.data : null;
       const executions =
@@ -2405,11 +2411,13 @@ export const useStore = create<AppState>((set, get) => ({
   async renameWorkspaceFile(fileId: string, newName: string) {
     const sid = get().sessionId;
     if (!sid || !newName.trim()) return;
+    const file = get().workspaceFiles.find((item) => item.id === fileId);
+    if (!file?.path) return;
     try {
       const resp = await fetch(
-        `/api/sessions/${sid}/workspace/files/${fileId}`,
+        `/api/workspace/${sid}/files/${file.path}/rename`,
         {
-          method: "PATCH",
+          method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: newName }),
         },
@@ -2431,7 +2439,7 @@ export const useStore = create<AppState>((set, get) => ({
       return;
     }
     try {
-      const resp = await fetch(`/api/sessions/${sid}/workspace/folders`);
+      const resp = await fetch(`/api/workspace/${sid}/folders`);
       const payload = await resp.json();
       const data = isRecord(payload.data) ? payload.data : null;
       const folders = data && Array.isArray(data.folders) ? data.folders : [];
@@ -2445,7 +2453,7 @@ export const useStore = create<AppState>((set, get) => ({
     const sid = get().sessionId;
     if (!sid || !name.trim()) return;
     try {
-      await fetch(`/api/sessions/${sid}/workspace/folders`, {
+      await fetch(`/api/workspace/${sid}/folders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, parent: parent ?? null }),
@@ -2459,8 +2467,10 @@ export const useStore = create<AppState>((set, get) => ({
   async moveFileToFolder(fileId: string, folderId: string | null) {
     const sid = get().sessionId;
     if (!sid) return;
+    const file = get().workspaceFiles.find((item) => item.id === fileId);
+    if (!file?.path) return;
     try {
-      await fetch(`/api/sessions/${sid}/workspace/files/${fileId}/move`, {
+      await fetch(`/api/workspace/${sid}/files/${file.path}/move`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ folder_id: folderId }),
@@ -2474,11 +2484,12 @@ export const useStore = create<AppState>((set, get) => ({
   async createWorkspaceFile(filename: string, content?: string) {
     const sid = get().sessionId;
     if (!sid || !filename.trim()) return;
+    const path = `notes/${filename.trim()}`;
     try {
-      await fetch(`/api/sessions/${sid}/workspace/files`, {
+      await fetch(`/api/workspace/${sid}/files/${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename, content: content ?? "" }),
+        body: JSON.stringify({ content: content ?? "" }),
       });
       await get().fetchWorkspaceFiles();
     } catch (e) {

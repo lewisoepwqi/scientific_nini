@@ -63,15 +63,15 @@ export default function WorkspaceSidebar() {
 
   const handleDownloadAllFiles = useCallback(async () => {
     if (!sessionId) return
-    const fileIds = workspaceFiles.map((f) => f.id).filter(Boolean)
-    if (fileIds.length === 0) return
+    const paths = workspaceFiles.map((f) => f.path).filter((path): path is string => Boolean(path))
+    if (paths.length === 0) return
     setDownloadAllError(null)
     setDownloadingAll(true)
     try {
-      const resp = await fetch(`/api/sessions/${sessionId}/workspace/batch-download`, {
+      const resp = await fetch(`/api/workspace/${sessionId}/download-zip`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_ids: fileIds }),
+        body: JSON.stringify(paths),
       })
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}`)

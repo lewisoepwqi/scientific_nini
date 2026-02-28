@@ -10,6 +10,7 @@ import AgentTurnGroup from './AgentTurnGroup'
 import ChatInputArea from './ChatInputArea'
 import AskUserQuestionPanel from './AskUserQuestionPanel'
 import IntentSummaryCard from './IntentSummaryCard'
+import IntentTimelineItem from './IntentTimelineItem'
 import { Loader2 } from 'lucide-react'
 
 /** 消息分组：用户消息独立，同一 turnId 的 agent 消息合并为一组 */
@@ -144,14 +145,25 @@ export default function ChatPanel() {
                 userMessage.id === lastUserMessageId &&
                 canRetry &&
                 !lastRetryableAssistantErrorId
+              const isLastUser = userMessage.id === lastUserMessageId
+
               return (
-                <MessageBubble
-                  key={group.key}
-                  message={userMessage}
-                  showRetry={showRetry}
-                  onRetry={handleRetry}
-                  retryDisabled={isStreaming}
-                />
+                <div key={group.key}>
+                  <MessageBubble
+                    message={userMessage}
+                    showRetry={showRetry}
+                    onRetry={handleRetry}
+                    retryDisabled={isStreaming}
+                  />
+                  {/* 在最新消息后显示 IntentTimelineItem */}
+                  {isLastUser && currentIntentAnalysis && (
+                    <IntentTimelineItem
+                      analysis={currentIntentAnalysis}
+                      onApplySuggestion={setComposerDraft}
+                      isActive={!isStreaming}
+                    />
+                  )}
+                </div>
               )
             }
             // Agent turn 分组

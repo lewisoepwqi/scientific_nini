@@ -131,13 +131,18 @@ export default function ArtifactGallery() {
 
   const handleBatchDownload = useCallback(async () => {
     if (selectedIds.size === 0 || !sessionId) return
+    const selectedPaths = filteredArtifacts
+      .filter((file) => selectedIds.has(file.id))
+      .map((file) => file.path)
+      .filter((path): path is string => Boolean(path))
+    if (selectedPaths.length === 0) return
     setDownloadError(null)
     setDownloading(true)
     try {
-      const resp = await fetch(`/api/sessions/${sessionId}/workspace/batch-download`, {
+      const resp = await fetch(`/api/workspace/${sessionId}/download-zip`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_ids: Array.from(selectedIds) }),
+        body: JSON.stringify(selectedPaths),
       })
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}`)
@@ -159,7 +164,7 @@ export default function ArtifactGallery() {
     } finally {
       setDownloading(false)
     }
-  }, [selectedIds, sessionId])
+  }, [filteredArtifacts, selectedIds, sessionId])
 
   if (artifacts.length === 0) {
     return (

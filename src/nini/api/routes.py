@@ -34,6 +34,10 @@ from nini.models.schemas import (
     ModelConfigRequest,
     ModelPrioritiesRequest,
     ModelRoutingRequest,
+    ReportExportRequest,
+    ReportGenerateRequest,
+    ResearchProfileData,
+    ResearchProfileUpdateRequest,
     SaveWorkspaceTextRequest,
     SessionInfo,
     SessionUpdateRequest,
@@ -193,7 +197,7 @@ def _build_download_response(path: Path, filename: str, *, inline: bool = False)
         utf8_encoded = quote(filename, safe="")
         disposition = (
             f"{disposition_type}; "
-            f"filename=\"{ascii_fallback}\"; filename*=UTF-8''{utf8_encoded}"
+            f'filename="{ascii_fallback}"; filename*=UTF-8''{utf8_encoded}'
         )
     return Response(
         content=path.read_bytes(),
@@ -202,279 +206,630 @@ def _build_download_response(path: Path, filename: str, *, inline: bool = False)
     )
 
 
-async def _convert_plotly_json_to_png(
-    json_path: Path,
-    session_id: str,
-    width: int | None = None,
-    height: int | None = None,
-    scale: float | None = None,
-) -> Response | None:
-    """
-    将 Plotly JSON 转换为高清 PNG 并返回响应。
+@router.post("/upload", response_model=UploadResponse)
+async def upload_file(
+    file: UploadFile = File(...),
+    session_id: str = Form(...),
+) -> UploadResponse:
+    """上传数据文件到指定会话。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    session = session_manager.get_or_create(session_id)
 
-    失败时返回 None，调用方应降级到返回原始 JSON。
-    """
-    import json
-    import plotly.graph_objects as go
-    from nini.utils.chart_fonts import apply_plotly_cjk_font_fallback
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="缺少文件名")
 
-    # 使用配置值作为默认值
-    width = width or settings.plotly_export_width
-    height = height or settings.plotly_export_height
-    scale = scale or settings.plotly_export_scale
-    timeout = settings.plotly_export_timeout
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+    if ext not in settings.allowed_extensions_list:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的文件类型: .{ext}，支持: {settings.allowed_extensions}",
+        )
+
+    manager = WorkspaceManager(session_id)
+    manager.ensure_dirs()
+    safe_filename = manager.sanitize_filename(file.filename, default_name="dataset.csv")
+    dataset_name = manager.unique_dataset_name(safe_filename)
+
+    dataset_id = uuid.uuid4().hex[:12]
+    save_path = manager.uploads_dir / f"{dataset_id}_{dataset_name}"
+
+    content = await file.read()
+    if len(content) > settings.max_upload_size:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件过大（{len(content)} 字节），最大 {settings.max_upload_size} 字节",
+        )
+
+    save_path.write_bytes(content)
 
     try:
-        # 1. 读取 JSON
-        chart_data = json.loads(json_path.read_text(encoding="utf-8"))
-
-        # 2. 重建 Figure
-        fig = go.Figure(chart_data)
-
-        # 3. 应用中文字体
-        apply_plotly_cjk_font_fallback(fig)
-
-        # 4. 转换为 PNG（在线程池中执行，避免阻塞）
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-
-        # 异步执行，使用配置的超时时间
-        await asyncio.wait_for(
-            asyncio.to_thread(
-                fig.write_image,
-                str(tmp_path),
-                width=width,
-                height=height,
-                scale=scale,
-                format="png",
-            ),
-            timeout=timeout,
-        )
-
-        # 5. 读取并返回
-        png_bytes = tmp_path.read_bytes()
-        tmp_path.unlink()  # 清理临时文件
-
-        # 构建文件名：移除 .plotly.json 后缀，添加 .png
-        png_filename = json_path.stem.replace(".plotly", "") + ".png"
-
-        return Response(
-            content=png_bytes,
-            media_type="image/png",
-            headers={"Content-Disposition": f'attachment; filename="{png_filename}"'},
-        )
-
-    except asyncio.TimeoutError:
-        logger.warning(f"Plotly PNG 转换超时: {json_path.name}")
-        return None
+        df = read_dataframe(save_path, ext)
     except Exception as e:
-        logger.warning(f"Plotly PNG 转换失败: {json_path.name}, 错误: {e}")
-        return None
+        save_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"无法解析文件: {e}")
+
+    if ext in ("xlsx", "xls"):
+        df = _fix_excel_serial_dates(df)
+
+    session.datasets[dataset_name] = df
+    session.workspace_hydrated = True
+
+    manager.add_dataset_record(
+        dataset_id=dataset_id,
+        name=dataset_name,
+        file_path=save_path,
+        file_type=ext,
+        file_size=len(content),
+        row_count=len(df),
+        column_count=len(df.columns),
+    )
+
+    dataset_info = DatasetInfo(
+        id=dataset_id,
+        session_id=session_id,
+        name=dataset_name,
+        file_path=str(save_path),
+        file_type=ext,
+        file_size=len(content),
+        row_count=len(df),
+        column_count=len(df.columns),
+    )
+
+    workspace_file = {
+        "id": dataset_id,
+        "name": dataset_name,
+        "kind": "dataset",
+        "size": len(content),
+        "download_url": f"/api/workspace/{session_id}/uploads/{quote(save_path.name)}",
+        "meta": {
+            "row_count": len(df),
+            "column_count": len(df.columns),
+            "file_type": ext,
+        },
+    }
+    return UploadResponse(success=True, dataset=dataset_info, workspace_file=workspace_file)
+
+
+@router.get("/datasets/{session_id}", response_model=APIResponse)
+async def list_datasets(session_id: str):
+    """获取会话工作空间中的数据集列表。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    manager = WorkspaceManager(session_id)
+    session = session_manager.get_session(session_id)
+    loaded_names = set(session.datasets.keys()) if session is not None else set()
+    datasets: list[dict[str, Any]] = []
+    for item in manager.list_datasets():
+        datasets.append(
+            {
+                "id": item.get("id"),
+                "name": item.get("name"),
+                "file_type": item.get("file_type"),
+                "file_size": item.get("file_size"),
+                "row_count": item.get("row_count"),
+                "column_count": item.get("column_count"),
+                "created_at": item.get("created_at"),
+                "loaded": item.get("name") in loaded_names,
+            }
+        )
+    return APIResponse(success=True, data={"session_id": session_id, "datasets": datasets})
+
+
+@router.post("/datasets/{session_id}/{dataset_id}/load", response_model=APIResponse)
+async def load_dataset_into_session(session_id: str, dataset_id: str):
+    """将工作空间数据集加载到会话内存。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    session = session_manager.get_or_create(session_id)
+    manager = WorkspaceManager(session_id)
+
+    record = manager.get_dataset_by_id(dataset_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+
+    try:
+        _, df = manager.load_dataset_by_id(dataset_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    name = str(record.get("name", "")).strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="数据集记录损坏：缺少名称")
+
+    session.datasets[name] = df
+    session.workspace_hydrated = True
+    return APIResponse(
+        success=True,
+        data={
+            "session_id": session_id,
+            "dataset": {
+                "id": record.get("id"),
+                "name": name,
+                "row_count": len(df),
+                "column_count": len(df.columns),
+                "loaded": True,
+            },
+        },
+    )
+
+
+@router.get("/datasets/{session_id}/{dataset_name}")
+async def get_dataset(session_id: str, dataset_name: str, limit: int = 100):
+    """获取数据集内容（默认前100行）。"""
+    session = session_manager.get_or_create(session_id)
+
+    if dataset_name not in session.datasets:
+        raise HTTPException(status_code=404, detail=f"数据集 '{dataset_name}' 不存在")
+
+    df = session.datasets[dataset_name]
+    preview_df = df.head(limit)
+
+    return APIResponse(
+        success=True,
+        data={
+            "name": dataset_name,
+            "total_rows": len(df),
+            "total_columns": len(df.columns),
+            "preview": preview_df.to_dict(orient="records"),
+            "columns": df.columns.tolist(),
+        },
+    )
+
+
+@router.get("/datasets/{session_id}/{dataset_name}/preview")
+async def get_dataset_preview(session_id: str, dataset_name: str):
+    """获取数据集预览（统计信息）。"""
+    session = session_manager.get_or_create(session_id)
+
+    if dataset_name not in session.datasets:
+        raise HTTPException(status_code=404, detail=f"数据集 '{dataset_name}' 不存在")
+
+    df = session.datasets[dataset_name]
+
+    # 基础统计
+    numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
+    categorical_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
+
+    stats = {
+        "total_rows": len(df),
+        "total_columns": len(df.columns),
+        "numeric_columns": numeric_cols,
+        "categorical_columns": categorical_cols,
+        "missing_values": df.isnull().sum().to_dict(),
+        "memory_usage": df.memory_usage(deep=True).sum(),
+    }
+
+    return APIResponse(success=True, data=stats)
+
+
+@router.delete("/datasets/{session_id}/{dataset_name}")
+async def delete_dataset(session_id: str, dataset_name: str):
+    """删除数据集。"""
+    session = session_manager.get_or_create(session_id)
+
+    if dataset_name not in session.datasets:
+        raise HTTPException(status_code=404, detail=f"数据集 '{dataset_name}' 不存在")
+
+    del session.datasets[dataset_name]
+
+    return APIResponse(success=True, message=f"数据集 '{dataset_name}' 已删除")
+
+
+@router.get("/datasets/{session_id}/{dataset_name}/export")
+async def export_dataset(
+    session_id: str,
+    dataset_name: str,
+    format: str = "csv",  # noqa: A002
+) -> Response:
+    """导出数据集为 CSV 或 Excel。"""
+    session = session_manager.get_or_create(session_id)
+
+    if dataset_name not in session.datasets:
+        raise HTTPException(status_code=404, detail=f"数据集 '{dataset_name}' 不存在")
+
+    df = session.datasets[dataset_name]
+
+    if format == "csv":
+        content = df.to_csv(index=False).encode("utf-8")
+        media_type = "text/csv"
+        filename = f"{dataset_name}.csv"
+    elif format == "excel":
+        buffer = io.BytesIO()
+        df.to_excel(buffer, index=False, engine="openpyxl")
+        content = buffer.getvalue()
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = f"{dataset_name}.xlsx"
+    elif format == "json":
+        content = df.to_json(orient="records", force_ascii=False).encode("utf-8")
+        media_type = "application/json"
+        filename = f"{dataset_name}.json"
+    else:
+        raise HTTPException(status_code=400, detail=f"不支持的导出格式: {format}")
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---- 会话管理 ----
 
 
 @router.get("/sessions", response_model=APIResponse)
-async def list_sessions():
-    """获取会话列表。"""
+async def list_sessions() -> APIResponse:
+    """获取所有会话列表。"""
     sessions = session_manager.list_sessions()
-    return APIResponse(data=sessions)
+    return APIResponse(
+        success=True,
+        data=[
+            {
+                "id": s["id"],
+                "title": s["title"],
+                "message_count": s["message_count"],
+            }
+            for s in sessions
+        ],
+    )
+
+
+@router.get("/sessions/{session_id}", response_model=APIResponse)
+async def get_session(session_id: str) -> APIResponse:
+    """获取单个会话信息。"""
+    session = session_manager.get_or_create(session_id, load_persisted_messages=True)
+
+    return APIResponse(
+        success=True,
+        data={
+            "id": session.id,
+            "title": session.title,
+            "message_count": len(session.messages),
+        },
+    )
 
 
 @router.post("/sessions", response_model=APIResponse)
-async def create_session():
+async def create_session() -> APIResponse:
     """创建新会话。"""
-    session = session_manager.create_session()
-    return APIResponse(data={"session_id": session.id})
-
-
-@router.get("/sessions/{session_id}/messages", response_model=APIResponse)
-async def get_session_messages(session_id: str):
-    """获取指定会话的消息历史。"""
-    session = session_manager.get_session(session_id)
-    if session is not None:
-        # 会话在内存中，直接返回消息
-        messages = session.messages
-    else:
-        # 尝试从磁盘加载
-        from nini.memory.conversation import ConversationMemory
-
-        mem = ConversationMemory(session_id)
-        messages = mem.load_messages(resolve_refs=True)
-        if not messages and not session_manager.session_exists(session_id):
-            raise HTTPException(status_code=404, detail="会话不存在或无消息记录")
-
-    # 过滤掉内部字段（如 _ts），只返回前端需要的字段
-    cleaned: list[dict] = []
-    for msg in messages:
-        chart_data = msg.get("chart_data")
-        normalized_chart_data = normalize_chart_payload(chart_data)
-        item = {
-            "role": msg.get("role", ""),
-            "content": msg.get("content", ""),
-            "tool_calls": msg.get("tool_calls"),
-            "tool_call_id": msg.get("tool_call_id"),
-            "event_type": msg.get("event_type"),
-            "chart_data": normalized_chart_data if normalized_chart_data else chart_data,
-            "data_preview": msg.get("data_preview"),
-            "artifacts": msg.get("artifacts"),
-            "images": msg.get("images"),
-        }
-        cleaned.append(item)
-    return APIResponse(data={"session_id": session_id, "messages": cleaned})
+    session = session_manager.create_session(load_persisted_messages=False)
+    return APIResponse(
+        success=True,
+        data={
+            "session_id": session.id,
+            "title": session.title,
+            "message_count": 0,
+        },
+    )
 
 
 @router.patch("/sessions/{session_id}", response_model=APIResponse)
-async def update_session(session_id: str, req: SessionUpdateRequest):
+async def update_session(
+    session_id: str,
+    request: SessionUpdateRequest,
+) -> APIResponse:
     """更新会话信息（如标题）。"""
-    if req.title is not None:
-        title = req.title.strip() or "新会话"
-        session_manager.update_session_title(session_id, title)
-        session_manager.save_session_title(session_id, title)
-    return APIResponse(data={"session_id": session_id, "title": req.title})
+    if request.title:
+        session_manager.save_session_title(session_id, request.title)
+        if session_manager.get_session(session_id):
+            session_manager.update_session_title(session_id, request.title)
 
-
-@router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
-    """删除会话。"""
-    from nini.utils.token_counter import remove_tracker
-
-    session_manager.remove_session(session_id, delete_persistent=True)
-    remove_tracker(session_id)
-    return APIResponse(data={"deleted": session_id})
+    return APIResponse(success=True)
 
 
 @router.post("/sessions/{session_id}/compress", response_model=APIResponse)
 async def compress_session(session_id: str, mode: str = "auto"):
-    """压缩会话历史并归档。
+    """压缩会话历史。
 
     Args:
-        mode: 压缩模式。"lightweight" 使用轻量摘要，"llm" 使用 LLM 摘要，
-              "auto" 自动选择（优先 LLM，失败回退轻量）。
-    """
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
+        session_id: 会话ID
+        mode: 压缩模式 (auto / lightweight / llm)
 
+    Returns:
+        压缩结果
+    """
     session = session_manager.get_or_create(session_id)
 
-    if mode in ("llm", "auto"):
+    if mode == "llm":
         from nini.memory.compression import compress_session_history_with_llm
 
         result = await compress_session_history_with_llm(session)
     else:
         from nini.memory.compression import compress_session_history
 
-        result = compress_session_history(session)
+        result = compress_session_history(session, ratio=0.5 if mode == "lightweight" else 0.3)
 
-    if not result.get("success"):
-        return APIResponse(success=False, error=str(result.get("message", "压缩失败")))
-
+    # 保存压缩元数据
     session_manager.save_session_compression(
-        session.id,
-        compressed_context=str(session.compressed_context),
-        compressed_rounds=int(session.compressed_rounds),
+        session_id,
+        compressed_context=session.compressed_context,
+        compressed_rounds=session.compressed_rounds,
         last_compressed_at=session.last_compressed_at,
     )
-    return APIResponse(data=result)
+
+    return APIResponse(success=True, data=result)
 
 
-@router.get("/tools", response_model=APIResponse)
-async def list_tools():
-    """获取可执行工具目录（Function Tools）。"""
-    registry = _get_skill_registry()
-    _refresh_skill_registry(registry)
-    tools = registry.list_tools_catalog()
-    return APIResponse(data={"tools": tools})
+@router.delete("/sessions/{session_id}", response_model=APIResponse)
+async def delete_session(session_id: str) -> APIResponse:
+    """删除会话。"""
+    session_manager.remove_session(session_id, delete_persistent=True)
+    return APIResponse(success=True)
 
 
-@router.get("/skills", response_model=APIResponse)
-async def list_skills(skill_type: str | None = None):
-    """获取 Markdown Skills 目录。
+@router.post("/sessions/{session_id}/rollback", response_model=APIResponse)
+async def rollback_session(session_id: str) -> APIResponse:
+    """回滚会话到上一用户消息（删除该消息后的所有模型输出）。"""
+    session = session_manager.get_or_create(session_id, load_persisted_messages=True)
+    user_content = session.rollback_last_turn()
+    if user_content is None:
+        return APIResponse(success=False, error="没有可回滚的用户消息")
+    return APIResponse(success=True, data={"user_content": user_content})
 
-    兼容参数：
-    - 未传或 markdown：返回 Markdown Skills
-    - function：返回 Function Tools（兼容旧客户端）
-    - all：返回聚合目录（Function + Markdown，兼容旧客户端）
-    """
-    registry = _get_skill_registry()
-    _refresh_skill_registry(registry)
 
-    normalized_type = (skill_type or "markdown").strip().lower()
-    if normalized_type == "markdown":
-        skills = registry.list_markdown_skill_catalog()
-    elif normalized_type == "function":
-        skills = registry.list_tools_catalog()
-    elif normalized_type == "all":
-        skills = registry.list_skill_catalog()
+# ---- 工作空间 ----
+
+
+def _ensure_workspace_session_exists(session_id: str) -> None:
+    """校验会话存在，避免新版工作空间接口访问悬空路径。"""
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+
+@router.get("/workspace/{session_id}/tree")
+async def get_workspace_tree(session_id: str):
+    """获取工作空间文件树。"""
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+    tree = workspace.get_tree()
+    return APIResponse(success=True, data=tree)
+
+
+@router.get("/workspace/{session_id}/files")
+async def list_workspace_files(session_id: str, q: str | None = None):
+    """列出工作空间文件，支持 ?q= 搜索。"""
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+    if q and q.strip():
+        files = workspace.search_files_with_paths(q)
     else:
-        raise HTTPException(
-            status_code=400,
-            detail="skill_type 仅支持 markdown/function/all",
-        )
-    return APIResponse(data={"skills": skills})
+        files = workspace.list_workspace_files_with_paths()
+    return APIResponse(success=True, data={"session_id": session_id, "files": files})
 
 
-@router.get("/skills/semantic-catalog", response_model=APIResponse)
-async def get_semantic_catalog(skill_type: str | None = None):
-    """获取面向检索与渐进式披露的轻量语义目录。"""
-    registry = _get_skill_registry()
-    _refresh_skill_registry(registry)
-    catalog = registry.get_semantic_catalog(skill_type=skill_type)
-    return APIResponse(data={"skills": catalog})
-
-
-@router.post("/skills/markdown/upload", response_model=APIResponse)
-async def upload_markdown_skill(file: UploadFile = File(...)):
-    """上传 Markdown Skill 文件。"""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="缺少文件名")
-
-    suffix = Path(file.filename).suffix.lower()
-    if suffix not in _SKILL_UPLOAD_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"仅支持上传 {sorted(_SKILL_UPLOAD_EXTENSIONS)}",
-        )
-
-    raw = await file.read()
-    if not raw:
-        raise HTTPException(status_code=400, detail="上传文件为空")
-    if len(raw) > settings.max_upload_size:
-        raise HTTPException(
-            status_code=413,
-            detail=f"文件过大（{len(raw)} 字节），最大 {settings.max_upload_size} 字节",
-        )
-
+@router.get("/workspace/{session_id}/files/{file_path:path}/preview")
+async def preview_workspace_file(session_id: str, file_path: str):
+    """按路径获取工作空间文件预览。"""
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
     try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise HTTPException(status_code=400, detail=f"文件不是合法 UTF-8 编码: {exc}") from exc
-
-    fallback_name = guess_skill_name_from_filename(file.filename)
-    try:
-        document = parse_skill_document(text, fallback_name=fallback_name)
+        preview = workspace.get_file_preview_by_path(file_path)
+        return APIResponse(success=True, data=preview)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
+    except IsADirectoryError:
+        raise HTTPException(status_code=400, detail="path 是目录，不支持预览")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+
+@router.get("/workspace/{session_id}/files/{file_path:path}")
+async def get_workspace_file(session_id: str, file_path: str):
+    """获取工作空间文件内容。"""
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+
+    try:
+        content = workspace.read_file(file_path)
+        return APIResponse(success=True, data={"path": file_path, "content": content})
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
+    except IsADirectoryError:
+        raise HTTPException(status_code=400, detail="path 是目录，不是文件")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/workspace/{session_id}/files/{file_path:path}/move")
+async def move_workspace_file(
+    session_id: str,
+    file_path: str,
+    req: dict[str, Any],
+):
+    """按路径将文件移动到指定文件夹。"""
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+    folder_id = req.get("folder_id")
+
+    try:
+        result = workspace.move_path_to_folder(file_path, folder_id)
+        return APIResponse(success=True, data={"path": file_path, "file": result.get("record")})
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/workspace/{session_id}/files/{file_path:path}/rename")
+async def rename_workspace_file(
+    session_id: str,
+    file_path: str,
+    request: FileRenameRequest,
+):
+    """重命名工作空间文件。"""
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+
+    try:
+        result = workspace.rename_path(file_path, request.name)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
+    except IsADirectoryError:
+        raise HTTPException(status_code=400, detail="暂不支持目录重命名")
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=f"目标已存在: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"重命名失败: {exc}") from exc
+
+    for updated in result.get("updated_records", []):
+        if not isinstance(updated, dict) or updated.get("kind") != "dataset":
+            continue
+        old_record = updated.get("old_record", {})
+        record = updated.get("record", {})
+        if not isinstance(record, dict) or not isinstance(old_record, dict):
+            continue
+        new_name = str(record.get("name", "")).strip()
+        old_name = str(old_record.get("name", "")).strip()
+        if not new_name:
+            continue
+        session = session_manager.get_session(session_id)
+        if session is None:
+            continue
+        if old_name in session.datasets:
+            session.datasets[new_name] = session.datasets.pop(old_name)
+
+    return APIResponse(success=True, data={"path": result.get("new_path", file_path)})
+
+
+@router.post("/workspace/{session_id}/files/{file_path:path}")
+async def save_workspace_file(
+    session_id: str,
+    file_path: str,
+    request: SaveWorkspaceTextRequest,
+):
+    """保存文本文件到工作空间。"""
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+
+    try:
+        workspace.save_text_file(file_path, request.content)
+        return APIResponse(success=True, data={"path": file_path})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"保存失败: {exc}") from exc
+
+
+@router.delete("/workspace/{session_id}/files/{file_path:path}")
+async def delete_workspace_file(session_id: str, file_path: str):
+    """删除工作空间文件。"""
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+
+    try:
+        result = workspace.delete_path(file_path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    for deleted in result.get("deleted_records", []):
+        if not isinstance(deleted, dict) or deleted.get("kind") != "dataset":
+            continue
+        record = deleted.get("record", {})
+        if not isinstance(record, dict):
+            continue
+        name = str(record.get("name", "")).strip()
+        if not name:
+            continue
+        session = session_manager.get_session(session_id)
+        if session is not None and name in session.datasets:
+            del session.datasets[name]
+
+    return APIResponse(success=True, data={"path": file_path})
+
+
+@router.get("/workspace/{session_id}/download/{file_path:path}")
+async def download_workspace_file(
+    session_id: str,
+    file_path: str,
+    inline: bool = False,
+):
+    """下载工作空间文件。"""
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+    try:
+        full_path = workspace.resolve_workspace_path(file_path, allow_missing=False)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if full_path.is_dir():
+        raise HTTPException(status_code=400, detail="path 是目录，不能直接下载")
+
+    return _build_download_response(full_path, full_path.name, inline=inline)
+
+
+@router.post("/workspace/{session_id}/download-zip")
+async def download_workspace_zip(
+    session_id: str,
+    paths: list[str],
+):
+    """批量下载工作空间文件为 ZIP。"""
+    _ensure_workspace_session_exists(session_id)
+    if not paths:
+        raise HTTPException(status_code=400, detail="paths 不能为空")
+
+    workspace = WorkspaceManager(session_id)
+    try:
+        zip_bytes = workspace.batch_download_paths(paths)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"文件不存在: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not zip_bytes:
+        raise HTTPException(status_code=404, detail="没有可下载的文件")
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="workspace.zip"'},
+    )
+
+
+@router.get("/workspace/{session_id}/executions")
+async def list_workspace_executions(session_id: str):
+    """获取新版工作空间执行历史。"""
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+    executions = workspace.list_code_executions()
+    return APIResponse(success=True, data={"session_id": session_id, "executions": executions})
+
+
+@router.get("/workspace/{session_id}/folders")
+async def list_workspace_folders(session_id: str):
+    """列出新版工作空间文件夹。"""
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+    folders = workspace.list_folders()
+    return APIResponse(success=True, data={"session_id": session_id, "folders": folders})
+
+
+@router.post("/workspace/{session_id}/folders")
+async def create_workspace_folder(session_id: str, req: dict[str, Any]):
+    """创建新版工作空间文件夹。"""
+    _ensure_workspace_session_exists(session_id)
+    name = str(req.get("name", "")).strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="文件夹名称不能为空")
+    parent = req.get("parent")
+    workspace = WorkspaceManager(session_id)
+    folder = workspace.create_folder(name, parent)
+    return APIResponse(success=True, data={"session_id": session_id, "folder": folder})
+
+
+# ---- Markdown Skills ----
+
+
+@router.get("/skills/markdown", response_model=APIResponse)
+async def list_markdown_skills():
+    """获取所有 Markdown 技能（语义目录）。"""
     registry = _get_skill_registry()
-    _refresh_skill_registry(registry)
-    if registry.get_markdown_skill(document.name):
-        raise HTTPException(status_code=409, detail=f"技能 '{document.name}' 已存在")
-
-    skill_dir = settings.skills_dir / document.name
-    target = skill_dir / "SKILL.md"
-    if target.exists():
-        raise HTTPException(status_code=409, detail=f"技能 '{document.name}' 已存在")
-
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    target.write_text(render_skill_document(document), encoding="utf-8")
-
-    _refresh_skill_registry(registry)
-    skill = registry.get_markdown_skill(document.name)
-    return APIResponse(data={"skill": skill})
+    return APIResponse(success=True, data=registry.get_semantic_catalog())
 
 
 @router.get("/skills/markdown/{skill_name}", response_model=APIResponse)
@@ -508,52 +863,54 @@ async def get_markdown_skill(skill_name: str):
 
 @router.get("/skills/markdown/{skill_name}/instruction", response_model=APIResponse)
 async def get_markdown_skill_instruction(skill_name: str):
-    """获取 Markdown Skill 的说明层内容。"""
-    try:
-        validated_name = validate_skill_name(skill_name)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+    """获取 Markdown Skill 的说明层内容（去除 frontmatter）。"""
     registry = _get_skill_registry()
     _refresh_skill_registry(registry)
-    _get_markdown_skill_item_or_404(registry, validated_name)
-    payload = registry.get_skill_instruction(validated_name)
+    _get_markdown_skill_item_or_404(registry, skill_name)
+    payload = registry.get_skill_instruction(skill_name)
     if payload is None:
-        raise HTTPException(status_code=404, detail=f"技能 '{validated_name}' 的说明不存在")
+        raise HTTPException(status_code=404, detail=f"技能 '{skill_name}' 的说明不存在")
     return APIResponse(data=payload)
 
 
 @router.get("/skills/markdown/{skill_name}/runtime-resources", response_model=APIResponse)
 async def get_markdown_skill_runtime_resources(skill_name: str):
     """获取 Markdown Skill 的运行时资源目录。"""
-    try:
-        validated_name = validate_skill_name(skill_name)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
     registry = _get_skill_registry()
     _refresh_skill_registry(registry)
-    _get_markdown_skill_item_or_404(registry, validated_name)
-    payload = registry.get_runtime_resources(validated_name)
+    _get_markdown_skill_item_or_404(registry, skill_name)
+    payload = registry.get_runtime_resources(skill_name)
     if payload is None:
-        raise HTTPException(status_code=404, detail=f"技能 '{validated_name}' 的运行时资源不存在")
+        raise HTTPException(status_code=404, detail=f"技能 '{skill_name}' 的运行时资源不存在")
     return APIResponse(data=payload)
 
 
+@router.get("/skills/markdown/{skill_name}/files", response_model=APIResponse)
+async def list_markdown_skill_files(skill_name: str):
+    """获取 Markdown Skill 的文件树。"""
+    registry = _get_skill_registry()
+    skill_dir = _get_markdown_skill_dir_or_404(registry, skill_name)
+    entries = _build_skill_file_entries(skill_dir)
+    return APIResponse(
+        success=True,
+        data={"skill_name": skill_name, "root": str(skill_dir), "files": entries},
+    )
+
+
 @router.put("/skills/markdown/{skill_name}", response_model=APIResponse)
-async def update_markdown_skill(skill_name: str, req: MarkdownSkillUpdateRequest):
-    """编辑 Markdown Skill（描述/分类/正文）。"""
+async def update_markdown_skill(skill_name: str, request: MarkdownSkillUpdateRequest):
+    """更新 Markdown Skill（编辑元数据和内容）。"""
     try:
         validated_name = validate_skill_name(skill_name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    description = req.description.strip()
+    description = request.description.strip()
     if not description:
         raise HTTPException(status_code=400, detail="描述不能为空")
 
     try:
-        category = normalize_category(req.category, strict=True)
+        category = normalize_category(request.category, strict=True)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -570,7 +927,7 @@ async def update_markdown_skill(skill_name: str, req: MarkdownSkillUpdateRequest
         name=validated_name,
         description=description,
         category=category,
-        body=req.content.strip() or existing_document.body,
+        body=request.content.strip() or existing_document.body,
         frontmatter=existing_document.frontmatter,
     )
     skill_path.write_text(render_skill_document(updated_document), encoding="utf-8")
@@ -588,18 +945,13 @@ async def update_markdown_skill(skill_name: str, req: MarkdownSkillUpdateRequest
 
 
 @router.patch("/skills/markdown/{skill_name}/enabled", response_model=APIResponse)
-async def update_markdown_skill_enabled(skill_name: str, req: MarkdownSkillEnabledRequest):
-    """切换 Markdown Skill 启用状态。"""
-    try:
-        validated_name = validate_skill_name(skill_name)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+async def set_markdown_skill_enabled(skill_name: str, request: MarkdownSkillEnabledRequest):
+    """启用/禁用 Markdown Skill。"""
     registry = _get_skill_registry()
-    registry.reload_markdown_skills()
-    updated = registry.set_markdown_skill_enabled(validated_name, req.enabled)
+    _refresh_skill_registry(registry)
+    updated = registry.set_markdown_skill_enabled(skill_name, request.enabled)
     if updated is None:
-        raise HTTPException(status_code=404, detail=f"Markdown 技能 '{validated_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Markdown 技能 '{skill_name}' 不存在")
     return APIResponse(data={"skill": updated})
 
 
@@ -618,32 +970,12 @@ async def delete_markdown_skill(skill_name: str):
     if not skill_path.exists():
         raise HTTPException(status_code=404, detail=f"技能文件不存在: {skill_path}")
 
-    skill_dir = skill_path.parent
-    shutil.rmtree(skill_dir, ignore_errors=False)
+    shutil.rmtree(skill_path.parent, ignore_errors=False)
     registry.remove_markdown_skill_override(validated_name)
     _refresh_skill_registry(registry)
     return APIResponse(data={"deleted": validated_name})
 
 
-@router.get("/skills/markdown/{skill_name}/files", response_model=APIResponse)
-async def list_markdown_skill_files(skill_name: str):
-    """列出 Markdown Skill 目录内文件（含脚本/引用文档/资源）。"""
-    try:
-        validated_name = validate_skill_name(skill_name)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    registry = _get_skill_registry()
-    _refresh_skill_registry(registry)
-    skill_dir = _get_markdown_skill_dir_or_404(registry, validated_name)
-    files = _build_skill_file_entries(skill_dir)
-    return APIResponse(
-        data={
-            "skill_name": validated_name,
-            "root": str(skill_dir),
-            "files": files,
-        }
-    )
 
 
 @router.get("/skills/markdown/{skill_name}/files/content", response_model=APIResponse)
@@ -715,7 +1047,7 @@ async def upload_markdown_skill_attachment(
     dir_path: str = Form(""),
     overwrite: bool = Form(False),
 ):
-    """上传 Markdown Skill 附属文件（脚本/引用文档/资源）。"""
+    """上传 Markdown Skill 附属文件。"""
     try:
         validated_name = validate_skill_name(skill_name)
     except ValueError as exc:
@@ -757,6 +1089,19 @@ async def upload_markdown_skill_attachment(
             "size": len(content),
         }
     )
+
+
+@router.post("/skills/markdown/{skill_name}/directories", response_model=APIResponse)
+async def create_markdown_skill_directory(
+    skill_name: str, request: MarkdownSkillDirCreateRequest
+):
+    """在 Markdown Skill 内创建目录。"""
+    registry = _get_skill_registry()
+    skill_dir = _get_markdown_skill_dir_or_404(registry, skill_name)
+    target = _resolve_skill_relative_path(skill_dir, request.path)
+
+    target.mkdir(parents=True, exist_ok=True)
+    return APIResponse(success=True, data={"path": request.path})
 
 
 @router.post("/skills/markdown/{skill_name}/dirs", response_model=APIResponse)
@@ -811,6 +1156,55 @@ async def delete_markdown_skill_path(skill_name: str, req: MarkdownSkillPathDele
     return APIResponse(data={"skill_name": validated_name, "deleted": relative})
 
 
+@router.get("/skills/markdown/{skill_name}/files/{file_path:path}", response_model=APIResponse)
+async def get_markdown_skill_file(skill_name: str, file_path: str):
+    """获取 Markdown Skill 内的文件内容。"""
+    registry = _get_skill_registry()
+    skill_dir = _get_markdown_skill_dir_or_404(registry, skill_name)
+    target = _resolve_skill_relative_path(skill_dir, file_path)
+
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
+    if target.is_dir():
+        raise HTTPException(status_code=400, detail="path 是目录，不是文件")
+
+    content = target.read_text(encoding="utf-8")
+    return APIResponse(success=True, data={"path": file_path, "content": content})
+
+
+@router.post("/skills/markdown/{skill_name}/files/{file_path:path}", response_model=APIResponse)
+async def write_markdown_skill_file(
+    skill_name: str, file_path: str, request: MarkdownSkillFileWriteRequest
+):
+    """写入 Markdown Skill 内的文件（支持子目录）。"""
+    registry = _get_skill_registry()
+    skill_dir = _get_markdown_skill_dir_or_404(registry, skill_name)
+    target = _resolve_skill_relative_path(skill_dir, file_path)
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(request.content, encoding="utf-8")
+
+    return APIResponse(success=True, data={"path": file_path})
+
+
+@router.delete("/skills/markdown/{skill_name}/paths/{file_path:path}", response_model=APIResponse)
+async def delete_markdown_skill_path_by_path(skill_name: str, file_path: str):
+    """删除 Markdown Skill 内的文件或目录（路径式兼容接口）。"""
+    registry = _get_skill_registry()
+    skill_dir = _get_markdown_skill_dir_or_404(registry, skill_name)
+    target = _resolve_skill_relative_path(skill_dir, file_path)
+
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=f"路径不存在: {file_path}")
+
+    if target.is_dir():
+        shutil.rmtree(target, ignore_errors=True)
+    else:
+        target.unlink(missing_ok=True)
+
+    return APIResponse(success=True)
+
+
 @router.get("/skills/markdown/{skill_name}/bundle")
 async def download_markdown_skill_bundle(skill_name: str):
     """打包下载完整 Markdown Skill 目录。"""
@@ -838,332 +1232,951 @@ async def download_markdown_skill_bundle(skill_name: str):
     )
 
 
-# ---- 文件上传 ----
-
-
-@router.post("/upload", response_model=UploadResponse)
-async def upload_file(
-    file: UploadFile = File(...),
-    session_id: str = Form(...),
-):
-    """上传数据文件到指定会话。"""
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-    session = session_manager.get_or_create(session_id)
-
-    # 验证文件类型
+@router.post("/skills/upload", response_model=APIResponse)
+@router.post("/skills/markdown/upload", response_model=APIResponse)
+async def upload_skill_file(file: UploadFile = File(...)):
+    """上传 Markdown Skill 文件。"""
     if not file.filename:
         raise HTTPException(status_code=400, detail="缺少文件名")
 
-    ext = file.filename.rsplit(".", 1)[-1].lower()
-    if ext not in settings.allowed_extensions_list:
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in _SKILL_UPLOAD_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的文件类型: .{ext}，支持: {settings.allowed_extensions}",
+            detail=f"仅支持上传 {sorted(_SKILL_UPLOAD_EXTENSIONS)}",
         )
 
-    manager = WorkspaceManager(session_id)
-    manager.ensure_dirs()
-    safe_filename = manager.sanitize_filename(file.filename, default_name="dataset.csv")
-    dataset_name = manager.unique_dataset_name(safe_filename)
-
-    # 保存文件（会话工作空间）
-    dataset_id = uuid.uuid4().hex[:12]
-    save_path = manager.uploads_dir / f"{dataset_id}_{dataset_name}"
-
-    content = await file.read()
-    if len(content) > settings.max_upload_size:
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="上传文件为空")
+    if len(raw) > settings.max_upload_size:
         raise HTTPException(
             status_code=413,
-            detail=f"文件过大（{len(content)} 字节），最大 {settings.max_upload_size} 字节",
+            detail=f"文件过大（{len(raw)} 字节），最大 {settings.max_upload_size} 字节",
         )
 
-    save_path.write_bytes(content)
-
-    # 读取为 DataFrame
     try:
-        df = read_dataframe(save_path, ext)
-    except Exception as e:
-        save_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail=f"无法解析文件: {e}")
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"文件不是合法 UTF-8 编码: {exc}") from exc
 
-    # Excel 序列日期自动转换：检测 object 列中混入的 Excel 序列日期数值
-    if ext in ("xlsx", "xls"):
-        df = _fix_excel_serial_dates(df)
-
-    # 注册到会话（内存）
-    session.datasets[dataset_name] = df
-    session.workspace_hydrated = True
-
-    # 写入工作空间索引
-    manager.add_dataset_record(
-        dataset_id=dataset_id,
-        name=dataset_name,
-        file_path=save_path,
-        file_type=ext,
-        file_size=len(content),
-        row_count=len(df),
-        column_count=len(df.columns),
-    )
-
-    dataset_info = DatasetInfo(
-        id=dataset_id,
-        session_id=session_id,
-        name=dataset_name,
-        file_path=str(save_path),
-        file_type=ext,
-        file_size=len(content),
-        row_count=len(df),
-        column_count=len(df.columns),
-    )
-
-    workspace_file = {
-        "id": dataset_id,
-        "name": dataset_name,
-        "kind": "dataset",
-        "size": len(content),
-        "download_url": f"/api/workspace/{session_id}/uploads/{quote(save_path.name)}",
-        "meta": {
-            "row_count": len(df),
-            "column_count": len(df.columns),
-            "file_type": ext,
-        },
-    }
-    return UploadResponse(success=True, dataset=dataset_info, workspace_file=workspace_file)
-
-
-@router.get("/sessions/{session_id}/datasets", response_model=APIResponse)
-async def list_session_datasets(session_id: str):
-    """获取会话工作空间中的数据集列表。"""
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-
-    manager = WorkspaceManager(session_id)
-    session = session_manager.get_session(session_id)
-    loaded_names = set(session.datasets.keys()) if session is not None else set()
-    datasets: list[dict[str, Any]] = []
-    for item in manager.list_datasets():
-        datasets.append(
-            {
-                "id": item.get("id"),
-                "name": item.get("name"),
-                "file_type": item.get("file_type"),
-                "file_size": item.get("file_size"),
-                "row_count": item.get("row_count"),
-                "column_count": item.get("column_count"),
-                "created_at": item.get("created_at"),
-                "loaded": item.get("name") in loaded_names,
-            }
-        )
-    return APIResponse(data={"session_id": session_id, "datasets": datasets})
-
-
-@router.post("/sessions/{session_id}/datasets/{dataset_id}/load", response_model=APIResponse)
-async def load_session_dataset(session_id: str, dataset_id: str):
-    """将工作空间数据集加载到会话内存。"""
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-
-    session = session_manager.get_or_create(session_id)
-    manager = WorkspaceManager(session_id)
-
-    record = manager.get_dataset_by_id(dataset_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="数据集不存在")
-
+    fallback_name = guess_skill_name_from_filename(file.filename)
     try:
-        _, df = manager.load_dataset_by_id(dataset_id)
+        document = parse_skill_document(text, fallback_name=fallback_name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    name = str(record.get("name", ""))
-    if not name:
-        raise HTTPException(status_code=400, detail="数据集记录损坏：缺少名称")
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    if registry.get_markdown_skill(document.name):
+        raise HTTPException(status_code=409, detail=f"技能 '{document.name}' 已存在")
 
-    session.datasets[name] = df
-    session.workspace_hydrated = True
+    skill_dir = settings.skills_dir / document.name
+    target = skill_dir / "SKILL.md"
+    if target.exists():
+        raise HTTPException(status_code=409, detail=f"技能 '{document.name}' 已存在")
+
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    target.write_text(render_skill_document(document), encoding="utf-8")
+
+    _refresh_skill_registry(registry)
+    skill = registry.get_markdown_skill(document.name)
+    return APIResponse(data={"skill": skill})
+
+
+# ---- Intent Analysis ----
+
+
+@router.post("/intent/analyze", response_model=APIResponse)
+async def analyze_intent(
+    user_message: str = "",
+    capabilities: list[dict[str, Any]] | None = None,
+    semantic_skills: list[dict[str, Any]] | None = None,
+    analysis_mode: str = "rule",
+):
+    """分析用户意图并返回结构化结果。
+
+    请求参数:
+        - user_message: 用户输入消息
+        - capabilities: 可选的能力目录列表（默认使用系统 capabilities）
+        - semantic_skills: 可选的语义技能目录列表（默认使用已加载的 skills）
+        - analysis_mode: 分析模式（rule/hybrid，默认 rule）
+    """
+    # 如果没有提供 capabilities，使用默认 capabilities
+    if capabilities is None:
+        cap_registry = _get_capability_registry()
+        capabilities = [cap.to_dict() for cap in cap_registry.list_capabilities()]
+
+    # 如果没有提供 semantic_skills，从 skill registry 获取
+    if semantic_skills is None:
+        try:
+            skill_registry = _get_skill_registry()
+            semantic_skills = skill_registry.get_semantic_catalog()
+        except Exception:
+            semantic_skills = []
+    
+    if analysis_mode == "hybrid":
+        # 使用增强版语义分析
+        try:
+            from nini.intent import get_enhanced_intent_analyzer
+            enhanced = get_enhanced_intent_analyzer()
+            
+            # 先获取规则分析结果
+            rule_analysis = default_intent_analyzer.analyze(
+                user_message,
+                capabilities=capabilities,
+                semantic_skills=semantic_skills,
+            )
+            
+            # 应用语义增强
+            analysis = enhanced.analyze(
+                user_message,
+                capabilities=capabilities,
+                semantic_skills=semantic_skills,
+                rule_based_analysis=rule_analysis,
+            )
+        except Exception as exc:
+            logger.warning("语义分析失败，回退到规则分析: %s", exc)
+            analysis = default_intent_analyzer.analyze(
+                user_message,
+                capabilities=capabilities,
+                semantic_skills=semantic_skills,
+            )
+    else:
+        # 使用规则分析
+        analysis = default_intent_analyzer.analyze(
+            user_message,
+            capabilities=capabilities,
+            semantic_skills=semantic_skills,
+        )
+
     return APIResponse(
-        data={
-            "session_id": session_id,
-            "dataset": {
-                "id": record.get("id"),
-                "name": name,
-                "row_count": len(df),
-                "column_count": len(df.columns),
-                "loaded": True,
-            },
-        }
+        success=True,
+        data=analysis.to_dict(),
     )
 
 
-@router.get("/sessions/{session_id}/workspace/files", response_model=APIResponse)
-async def list_workspace_files(session_id: str, q: str | None = None):
-    """列出会话工作空间文件（数据集/产物/文本），支持 ?q= 搜索。"""
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-    manager = WorkspaceManager(session_id)
-    if q and q.strip():
-        files = manager.search_files(q)
+@router.get("/intent/status", response_model=APIResponse)
+async def get_intent_analysis_status():
+    """获取意图分析系统状态。
+    
+    返回规则版和语义增强版的可用状态。
+    """
+    from nini.intent import default_intent_analyzer
+    
+    # 检查语义增强版是否可用
+    semantic_available = False
+    try:
+        from nini.intent import get_enhanced_intent_analyzer
+        enhanced = get_enhanced_intent_analyzer()
+        semantic_available = enhanced.is_semantic_available
+    except Exception:
+        pass
+    
+    return APIResponse(
+        success=True,
+        data={
+            "rule_based": {
+                "available": True,
+                "version": "v2",
+                "features": ["同义词扩展", "元数据加权", "关键词匹配"],
+            },
+            "semantic": {
+                "available": semantic_available,
+                "features": ["embedding 相似度", "语义检索", "规则+语义融合"] if semantic_available else [],
+            },
+            "default_mode": "rule",
+        },
+    )
+
+
+# ---- Capabilities ----
+
+
+_capability_registry = None
+
+
+def _get_capability_registry():
+    global _capability_registry
+    if _capability_registry is None:
+        from nini.capabilities import CapabilityRegistry, create_default_capabilities
+
+        _capability_registry = CapabilityRegistry()
+        for cap in create_default_capabilities():
+            _capability_registry.register(cap)
+    return _capability_registry
+
+
+@router.get("/capabilities", response_model=APIResponse)
+async def list_capabilities():
+    """获取所有可用能力列表。"""
+    registry = _get_capability_registry()
+    return APIResponse(success=True, data={"capabilities": registry.to_catalog()})
+
+
+@router.get("/capabilities/{name}", response_model=APIResponse)
+async def get_capability(name: str):
+    """获取单个能力的详细信息。"""
+    registry = _get_capability_registry()
+    capability = registry.get(name)
+    if capability is None:
+        raise HTTPException(status_code=404, detail=f"能力 '{name}' 不存在")
+    return APIResponse(success=True, data=capability.to_dict())
+
+
+@router.post("/capabilities/suggest", response_model=APIResponse)
+async def suggest_capabilities(user_message: str):
+    """根据用户消息推荐相关能力。
+
+    Args:
+        user_message: 用户输入消息
+
+    Returns:
+        推荐的能力列表和意图分析结果
+    """
+    registry = _get_capability_registry()
+
+    # 获取意图分析
+    analysis = registry.analyze_intent(user_message)
+
+    # 获取推荐的能力
+    suggested = registry.suggest_for_intent(user_message)
+
+    # 构建响应数据（将分析结果展平到顶层以兼容测试）
+    analysis_dict = analysis.to_dict()
+    return APIResponse(
+        success=True,
+        data={
+            "suggestions": [cap.to_dict() for cap in suggested],
+            "tool_hints": analysis_dict.get("tool_hints", []),
+            "clarification_needed": analysis_dict.get("clarification_needed", False),
+            "analysis_method": analysis_dict.get("analysis_method", "rule_based_v2"),
+            **{k: v for k, v in analysis_dict.items() if k not in ["suggestions"]},
+        },
+    )
+
+
+@router.post("/capabilities/{name}/execute", response_model=APIResponse)
+async def execute_capability(
+    name: str,
+    session_id: str,
+    params: dict[str, Any],
+):
+    """执行指定的 Capability。
+
+    当前支持:
+    - difference_analysis: params需包含 dataset_name, value_column, group_column
+    - correlation_analysis: params需包含 dataset_name; 可选 columns, method, correction
+
+    Args:
+        name: Capability 名称
+        session_id: 会话ID
+        params: 执行参数（必须包含 dataset_name）
+
+    Returns:
+        执行结果
+    """
+    from nini.agent.session import session_manager
+    from nini.capabilities.registry import (
+        CapabilityNotExecutableError,
+        CapabilityExecutorNotConfiguredError,
+    )
+    from nini.tools.registry import create_default_tool_registry
+
+    capability_registry = _get_capability_registry()
+    capability = capability_registry.get(name)
+    if capability is None:
+        raise HTTPException(status_code=404, detail=f"能力 '{name}' 不存在")
+    if not capability.supports_direct_execution():
+        message = capability.execution_message or f"能力 '{name}' 暂不支持直接执行"
+        raise HTTPException(status_code=409, detail=message)
+
+    # 校验必填参数
+    if "dataset_name" not in params:
+        raise HTTPException(status_code=422, detail="缺少必填参数: dataset_name")
+
+    # 获取会话
+    session = session_manager.get_or_create(session_id)
+
+    # 获取 ToolRegistry（用于执行底层工具）
+    tool_registry = create_default_tool_registry()
+
+    capability_params = dict(params)
+    capability_params.setdefault("alpha", 0.05)
+
+    try:
+        result = await capability_registry.execute(
+            name,
+            session,
+            capability_params,
+            tool_registry=tool_registry,
+        )
+    except CapabilityNotExecutableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except CapabilityExecutorNotConfiguredError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+
+    return APIResponse(
+        success=result.success,
+        data=result.to_dict(),
+        message=result.message if not result.success else None,
+    )
+
+
+# ---- ResearchProfile ----
+
+
+def _get_research_profile_manager():
+    """获取研究画像管理器。"""
+    from nini.memory.research_profile import get_research_profile_manager
+
+    return get_research_profile_manager()
+
+
+def _profile_to_dict(profile) -> dict[str, Any]:
+    """将 ResearchProfile 转换为字典。"""
+    return {
+        "user_id": profile.user_id,
+        "domain": profile.domain,
+        "research_interest": profile.research_interest,
+        "significance_level": profile.significance_level,
+        "preferred_correction": profile.preferred_correction,
+        "confidence_interval": profile.confidence_interval,
+        "journal_style": profile.journal_style,
+        "color_palette": profile.color_palette,
+        "figure_width": profile.figure_width,
+        "figure_height": profile.figure_height,
+        "figure_dpi": profile.figure_dpi,
+        "auto_check_assumptions": profile.auto_check_assumptions,
+        "include_effect_size": profile.include_effect_size,
+        "include_ci": profile.include_ci,
+        "include_power_analysis": profile.include_power_analysis,
+        "total_analyses": profile.total_analyses,
+        "favorite_tests": profile.favorite_tests,
+        "recent_datasets": profile.recent_datasets,
+        "research_domains": profile.research_domains,
+        "preferred_methods": profile.preferred_methods,
+        "output_language": profile.output_language,
+        "report_detail_level": profile.report_detail_level,
+        "typical_sample_size": profile.typical_sample_size,
+        "research_notes": profile.research_notes,
+        "created_at": profile.created_at.isoformat() if profile.created_at else None,
+        "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
+    }
+
+
+@router.get("/research-profile", response_model=APIResponse)
+async def get_research_profile(profile_id: str = "default"):
+    """获取研究画像。
+
+    Args:
+        profile_id: 画像标识（默认 default）
+
+    Returns:
+        研究画像数据
+    """
+    manager = _get_research_profile_manager()
+    profile = manager.get_or_create_sync(profile_id)
+
+    return APIResponse(success=True, data=_profile_to_dict(profile))
+
+
+@router.put("/research-profile", response_model=APIResponse)
+async def update_research_profile(
+    request: ResearchProfileUpdateRequest,
+    profile_id: str = "default",
+):
+    """更新研究画像。
+
+    Args:
+        request: 更新请求（只更新提供的字段）
+        profile_id: 画像标识（默认 default）
+
+    Returns:
+        更新后的研究画像数据
+    """
+    manager = _get_research_profile_manager()
+
+    # 构建更新字典（只包含非 None 字段）
+    updates = {}
+    for key, value in request.model_dump().items():
+        if value is not None:
+            updates[key] = value
+
+    if not updates:
+        # 没有需要更新的字段，直接返回当前画像
+        profile = manager.get_or_create_sync(profile_id)
+        return APIResponse(success=True, data=_profile_to_dict(profile))
+
+    # 执行更新
+    profile = manager.update_sync(profile_id, **updates)
+
+    return APIResponse(success=True, data=_profile_to_dict(profile))
+
+
+@router.get("/research-profile/prompt", response_model=APIResponse)
+async def get_research_profile_prompt(profile_id: str = "default"):
+    """获取研究画像的运行时提示文本（用于调试）。
+
+    Args:
+        profile_id: 画像标识（默认 default）
+
+    Returns:
+        prompt 文本
+    """
+    manager = _get_research_profile_manager()
+    profile = manager.get_or_create_sync(profile_id)
+    prompt = manager.get_research_profile_prompt(profile)
+
+    return APIResponse(success=True, data={"prompt": prompt})
+
+
+@router.post("/research-profile/record-analysis", response_model=APIResponse)
+async def record_analysis(
+    test_method: str,
+    journal_style: str | None = None,
+    profile_id: str = "default",
+):
+    """记录分析活动（用于测试画像积累功能）。
+
+    Args:
+        test_method: 使用的检验方法
+        journal_style: 期刊风格
+        profile_id: 画像标识
+
+    Returns:
+        更新后的研究画像
+    """
+    manager = _get_research_profile_manager()
+    profile = manager.record_analysis_sync(profile_id, test_method, journal_style)
+
+    return APIResponse(success=True, data=_profile_to_dict(profile))
+
+
+# ---- Report Generation ----
+
+
+@router.get("/report/templates", response_model=APIResponse)
+async def list_report_templates():
+    """获取所有可用的报告模板。"""
+    from nini.tools.report_template import list_templates
+
+    templates = list_templates()
+    return APIResponse(success=True, data={"templates": templates})
+
+
+@router.post("/report/generate", response_model=APIResponse)
+async def generate_report(
+    request: ReportGenerateRequest,
+    session_id: str,
+):
+    """生成结构化分析报告。
+
+    Args:
+        request: 报告生成配置
+        session_id: 会话ID
+
+    Returns:
+        生成的报告内容和文件信息
+    """
+    from nini.agent.session import session_manager
+    from nini.tools.report_template import (
+        get_template,
+        get_section_order,
+        get_section_prompt,
+    )
+    from nini.memory.storage import ArtifactStorage
+    from nini.workspace import WorkspaceManager
+    from datetime import datetime, timezone
+
+    session = session_manager.get_or_create(session_id)
+
+    # 获取模板
+    template = get_template(request.template)
+    if not template:
+        raise HTTPException(status_code=400, detail=f"未知的模板: {request.template}")
+
+    # 确定章节顺序
+    section_order = get_section_order(request.template, request.sections)
+
+    # 生成报告内容
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    report_lines = [
+        f"# {request.title}",
+        "",
+        f"> 会话 ID: `{session.id}` | 生成时间: {now}",
+        f"> 模板: {template.name} | 详细程度: {request.detail_level}",
+        "",
+    ]
+
+    # 为每个章节生成内容
+    for section_id in section_order:
+        prompt = get_section_prompt(request.template, section_id, request.detail_level)
+        section_title = {
+            "abstract": "摘要",
+            "introduction": "引言",
+            "methods": "方法",
+            "results": "结果",
+            "discussion": "讨论",
+            "conclusion": "结论",
+            "limitations": "局限性",
+            "references": "参考文献",
+        }.get(section_id, section_id.capitalize())
+
+        report_lines.extend([
+            f"## {section_title}",
+            "",
+            f"*{prompt}*",
+            "",
+            "（此章节内容由模型根据会话历史自动生成）",
+            "",
+        ])
+
+    # 合并为完整报告
+    report_markdown = "\n".join(report_lines)
+
+    # 保存报告
+    storage = ArtifactStorage(session.id)
+    ws = WorkspaceManager(session.id)
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"{request.template}_{request.detail_level}_report_{ts}.md"
+
+    path = storage.save_text(report_markdown, filename)
+
+    artifact = {
+        "name": filename,
+        "type": "report",
+        "path": str(path),
+        "download_url": ws.build_artifact_download_url(filename),
+    }
+
+    ws.add_artifact_record(
+        name=filename,
+        artifact_type="report",
+        file_path=path,
+        format_hint="md",
+    )
+
+    return APIResponse(
+        success=True,
+        data={
+            "filename": filename,
+            "template": template.id,
+            "template_name": template.name,
+            "sections": section_order,
+            "report_markdown": report_markdown,
+            "artifact": artifact,
+        },
+    )
+
+
+@router.post("/report/export", response_model=APIResponse)
+async def export_report(
+    request: ReportExportRequest,
+    session_id: str,
+):
+    """导出报告为指定格式。
+
+    Args:
+        request: 导出配置
+        session_id: 会话ID
+
+    Returns:
+        导出文件信息
+    """
+    from nini.agent.session import session_manager
+    from nini.memory.storage import ArtifactStorage
+    from nini.workspace import WorkspaceManager
+    from fastapi.responses import FileResponse
+
+    session = session_manager.get_or_create(session_id)
+
+    if request.format not in ("md", "docx", "pdf"):
+        raise HTTPException(status_code=400, detail=f"不支持的导出格式: {request.format}")
+
+    # 获取最新的报告文件
+    storage = ArtifactStorage(session.id)
+    ws = WorkspaceManager(session.id)
+
+    # 查找最新的报告文件
+    artifacts = ws.list_artifacts()
+    report_artifacts = [
+        a for a in artifacts
+        if isinstance(a, dict) and str(a.get("type", "")).lower() == "report"
+    ]
+
+    if not report_artifacts:
+        raise HTTPException(status_code=404, detail="未找到可导出的报告，请先生成报告")
+
+    # 获取最新的报告
+    latest_report = sorted(
+        report_artifacts,
+        key=lambda x: str(x.get("updated_at", "")),
+        reverse=True,
+    )[0]
+
+    report_name = str(latest_report.get("name", "report.md"))
+    report_path = storage.get_path(report_name)
+
+    if not report_path.exists():
+        raise HTTPException(status_code=404, detail="报告文件不存在")
+
+    # 如果请求的是 markdown 格式，直接返回
+    if request.format == "md":
+        return APIResponse(
+            success=True,
+            data={
+                "filename": report_name,
+                "format": "md",
+                "download_url": latest_report.get("download_url", ""),
+            },
+        )
+
+    # DOCX 或 PDF 格式转换
+    try:
+        from nini.tools.report_exporter import export_report as do_export
+        
+        # 读取 Markdown 内容
+        markdown_content = report_path.read_text(encoding="utf-8")
+        
+        # 导出为指定格式
+        exported_bytes = do_export(
+            markdown_content,
+            format=request.format,
+            title=request.filename or report_name.replace(".md", ""),
+        )
+        
+        # 保存导出文件
+        new_filename = report_name.replace(".md", f".{request.format}")
+        if request.filename:
+            new_filename = request.filename
+            if not new_filename.endswith(f".{request.format}"):
+                new_filename += f".{request.format}"
+        
+        export_path = storage.get_path(new_filename)
+        export_path.write_bytes(exported_bytes)
+        
+        # 添加到工作区
+        ws.add_artifact_record(
+            name=new_filename,
+            artifact_type="report",
+            file_path=export_path,
+            format_hint=request.format,
+        )
+        
+        return APIResponse(
+            success=True,
+            data={
+                "filename": new_filename,
+                "format": request.format,
+                "size": len(exported_bytes),
+                "download_url": ws.build_artifact_download_url(new_filename),
+            },
+        )
+        
+    except ImportError as exc:
+        # 缺少依赖
+        logger.warning("导出 %s 失败: %s", request.format, exc)
+        return APIResponse(
+            success=False,
+            error=f"缺少 {request.format.upper()} 导出依赖",
+            message=f"请安装依赖: pip install {'python-docx' if request.format == 'docx' else 'reportlab'}",
+        )
+    except Exception as exc:
+        logger.error("导出 %s 失败: %s", request.format, exc, exc_info=True)
+        return APIResponse(
+            success=False,
+            error=f"导出失败: {exc}",
+        )
+
+
+@router.get("/report/preview", response_model=APIResponse)
+async def preview_report(
+    session_id: str,
+    filename: Optional[str] = None,
+):
+    """预览报告内容。
+
+    Args:
+        session_id: 会话ID
+        filename: 报告文件名（可选，默认最新报告）
+
+    Returns:
+        报告内容
+    """
+    from nini.agent.session import session_manager
+    from nini.memory.storage import ArtifactStorage
+    from nini.workspace import WorkspaceManager
+
+    session = session_manager.get_or_create(session_id)
+    storage = ArtifactStorage(session.id)
+    ws = WorkspaceManager(session.id)
+
+    if filename:
+        report_path = storage.get_path(filename)
     else:
-        files = manager.list_workspace_files()
-    return APIResponse(data={"session_id": session_id, "files": files})
+        # 查找最新的报告
+        artifacts = ws.list_artifacts()
+        report_artifacts = [
+            a for a in artifacts
+            if isinstance(a, dict) and str(a.get("type", "")).lower() == "report"
+        ]
+        if not report_artifacts:
+            raise HTTPException(status_code=404, detail="未找到报告文件")
+
+        latest_report = sorted(
+            report_artifacts,
+            key=lambda x: str(x.get("updated_at", "")),
+            reverse=True,
+        )[0]
+        report_name = str(latest_report.get("name", "report.md"))
+        report_path = storage.get_path(report_name)
+
+    if not report_path.exists():
+        raise HTTPException(status_code=404, detail="报告文件不存在")
+
+    content = report_path.read_text(encoding="utf-8")
+
+    return APIResponse(
+        success=True,
+        data={
+            "filename": report_path.name,
+            "content": content,
+        },
+    )
 
 
-@router.post("/sessions/{session_id}/workspace/save_text", response_model=APIResponse)
-async def save_workspace_text(session_id: str, req: SaveWorkspaceTextRequest):
-    """保存文本到会话工作空间。"""
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-    content = req.content.strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="content 不能为空")
-
-    manager = WorkspaceManager(session_id)
-    note = manager.save_text_note(content, req.filename)
-    return APIResponse(data={"session_id": session_id, "file": note})
+# ---- 会话消息历史 ----
 
 
-@router.delete("/sessions/{session_id}/workspace/files/{file_id}", response_model=APIResponse)
-async def delete_workspace_file(session_id: str, file_id: str):
-    """删除工作空间中的文件。"""
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-    manager = WorkspaceManager(session_id)
-    deleted = manager.delete_file(file_id)
-    if deleted is None:
-        raise HTTPException(status_code=404, detail="文件不存在")
-
-    # 如果删除的是数据集，同步移除内存中的 DataFrame
+@router.get("/sessions/{session_id}/messages", response_model=APIResponse)
+async def get_session_messages(session_id: str):
+    """获取指定会话的消息历史。"""
     session = session_manager.get_session(session_id)
     if session is not None:
-        name = deleted.get("name", "")
-        if name and name in session.datasets:
-            del session.datasets[name]
+        messages = session.messages
+    else:
+        from nini.memory.conversation import ConversationMemory
 
-    return APIResponse(data={"session_id": session_id, "deleted": file_id})
+        mem = ConversationMemory(session_id)
+        messages = mem.load_messages(resolve_refs=True)
+        if not messages and not session_manager.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="会话不存在或无消息记录")
 
-
-@router.patch("/sessions/{session_id}/workspace/files/{file_id}", response_model=APIResponse)
-async def rename_workspace_file(session_id: str, file_id: str, req: FileRenameRequest):
-    """重命名工作空间中的文件。"""
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-    new_name = req.name.strip()
-    if not new_name:
-        raise HTTPException(status_code=400, detail="文件名不能为空")
-    manager = WorkspaceManager(session_id)
-
-    # 如果重命名的是数据集，同步更新内存中的 key
-    kind, old_record = manager._find_record_by_id(file_id)
-    old_name = old_record.get("name", "") if old_record else ""
-
-    updated = manager.rename_file(file_id, new_name)
-    if updated is None:
-        raise HTTPException(status_code=404, detail="文件不存在")
-
-    # 更新内存中的数据集引用
-    if kind == "dataset" and old_name:
-        session = session_manager.get_session(session_id)
-        if session is not None and old_name in session.datasets:
-            df = session.datasets.pop(old_name)
-            session.datasets[updated.get("name", new_name)] = df
-
-    return APIResponse(data={"session_id": session_id, "file": updated})
+    cleaned: list[dict] = []
+    for msg in messages:
+        chart_data = msg.get("chart_data")
+        normalized_chart_data = normalize_chart_payload(chart_data)
+        item = {
+            "role": msg.get("role", ""),
+            "content": msg.get("content", ""),
+            "tool_calls": msg.get("tool_calls"),
+            "tool_call_id": msg.get("tool_call_id"),
+            "event_type": msg.get("event_type"),
+            "chart_data": normalized_chart_data if normalized_chart_data else chart_data,
+            "data_preview": msg.get("data_preview"),
+            "artifacts": msg.get("artifacts"),
+            "images": msg.get("images"),
+        }
+        cleaned.append(item)
+    return APIResponse(data={"session_id": session_id, "messages": cleaned})
 
 
-@router.get("/sessions/{session_id}/workspace/files/{file_id}/preview", response_model=APIResponse)
-async def preview_workspace_file(session_id: str, file_id: str):
-    """获取工作空间文件的预览内容。"""
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-    manager = WorkspaceManager(session_id)
-    preview = manager.get_file_preview(file_id)
-    if preview is None:
-        raise HTTPException(status_code=404, detail="文件不存在")
-    return APIResponse(data=preview)
+# ---- 工具 / 技能目录 ----
 
 
-@router.get("/sessions/{session_id}/workspace/executions", response_model=APIResponse)
-async def list_code_executions(session_id: str):
-    """获取会话的代码执行历史。"""
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-    manager = WorkspaceManager(session_id)
-    executions = manager.list_code_executions()
-    return APIResponse(data={"session_id": session_id, "executions": executions})
+@router.get("/tools", response_model=APIResponse)
+async def list_tools():
+    """获取可执行工具目录（Function Tools）。"""
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    tools = registry.list_tools_catalog()
+    return APIResponse(data={"tools": tools})
 
 
-@router.post("/sessions/{session_id}/workspace/folders", response_model=APIResponse)
-async def create_folder(session_id: str, req: dict[str, Any]):
-    """创建自定义文件夹。"""
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-    name = req.get("name", "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="文件夹名称不能为空")
-    parent = req.get("parent")
-    manager = WorkspaceManager(session_id)
-    folder = manager.create_folder(name, parent)
-    return APIResponse(data={"session_id": session_id, "folder": folder})
+@router.get("/skills", response_model=APIResponse)
+async def list_skills(skill_type: str | None = None):
+    """获取技能目录。
+
+    参数：
+    - 未传或 markdown：返回 Markdown Skills
+    - function：返回 Function Tools
+    - all：返回聚合目录
+    """
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+
+    normalized_type = (skill_type or "markdown").strip().lower()
+    if normalized_type == "markdown":
+        skills = registry.list_markdown_skill_catalog()
+    elif normalized_type == "function":
+        skills = registry.list_tools_catalog()
+    elif normalized_type == "all":
+        skills = registry.list_skill_catalog()
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="skill_type 仅支持 markdown/function/all",
+        )
+    return APIResponse(data={"skills": skills})
 
 
-@router.get("/sessions/{session_id}/workspace/folders", response_model=APIResponse)
-async def list_folders(session_id: str):
-    """列出自定义文件夹。"""
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-    manager = WorkspaceManager(session_id)
-    folders = manager.list_folders()
-    return APIResponse(data={"session_id": session_id, "folders": folders})
+@router.get("/skills/semantic-catalog", response_model=APIResponse)
+async def get_semantic_catalog(skill_type: str | None = None):
+    """获取面向检索与渐进式披露的轻量语义目录。"""
+    registry = _get_skill_registry()
+    _refresh_skill_registry(registry)
+    catalog = registry.get_semantic_catalog(skill_type=skill_type)
+    return APIResponse(data={"skills": catalog})
 
 
-@router.post("/sessions/{session_id}/workspace/files/{file_id}/move", response_model=APIResponse)
-async def move_file(session_id: str, file_id: str, req: dict[str, Any]):
-    """将文件移动到指定文件夹。"""
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-    folder_id = req.get("folder_id")
-    manager = WorkspaceManager(session_id)
-    updated = manager.move_file(file_id, folder_id)
-    if updated is None:
-        raise HTTPException(status_code=404, detail="文件不存在")
-    return APIResponse(data={"session_id": session_id, "file": updated})
+# ---- 产物下载 ----
 
 
-@router.post("/sessions/{session_id}/workspace/files", response_model=APIResponse)
-async def create_workspace_file(session_id: str, req: dict[str, Any]):
-    """创建新文件（文本/Markdown）。"""
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-    content = req.get("content", "")
-    filename = req.get("filename", "").strip()
-    if not filename:
-        raise HTTPException(status_code=400, detail="文件名不能为空")
-    manager = WorkspaceManager(session_id)
-    note = manager.save_text_note(content, filename)
-    return APIResponse(data={"session_id": session_id, "file": note})
+async def _convert_plotly_json_to_png(
+    json_path: Path,
+    session_id: str,
+    width: int | None = None,
+    height: int | None = None,
+    scale: float | None = None,
+) -> Response | None:
+    """将 Plotly JSON 转换为高清 PNG 并返回响应。失败时返回 None。"""
+    import json
+    import tempfile
+
+    import plotly.graph_objects as go
+
+    from nini.utils.chart_fonts import apply_plotly_cjk_font_fallback
+
+    width = width or settings.plotly_export_width
+    height = height or settings.plotly_export_height
+    scale = scale or settings.plotly_export_scale
+    timeout = settings.plotly_export_timeout
+
+    try:
+        chart_data = json.loads(json_path.read_text(encoding="utf-8"))
+        fig = go.Figure(chart_data)
+        apply_plotly_cjk_font_fallback(fig)
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                fig.write_image,
+                str(tmp_path),
+                width=width,
+                height=height,
+                scale=scale,
+                format="png",
+            ),
+            timeout=timeout,
+        )
+
+        png_bytes = tmp_path.read_bytes()
+        tmp_path.unlink()
+        png_filename = json_path.stem.replace(".plotly", "") + ".png"
+
+        return Response(
+            content=png_bytes,
+            media_type="image/png",
+            headers={"Content-Disposition": f'attachment; filename="{png_filename}"'},
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Plotly PNG 转换超时: %s", json_path.name)
+        return None
+    except Exception as e:
+        logger.warning("Plotly PNG 转换失败: %s, 错误: %s", json_path.name, e)
+        return None
 
 
-@router.post("/sessions/{session_id}/workspace/batch-download")
-async def batch_download(session_id: str, req: dict[str, Any]):
-    """批量下载工作空间文件（ZIP 打包）。"""
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-    file_ids = req.get("file_ids", [])
-    if not isinstance(file_ids, list) or not file_ids:
-        raise HTTPException(status_code=400, detail="file_ids 不能为空")
-    manager = WorkspaceManager(session_id)
-    zip_bytes = manager.batch_download(file_ids)
-    if not zip_bytes:
-        raise HTTPException(status_code=404, detail="没有可下载的文件")
-    return Response(
-        content=zip_bytes,
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="workspace_{session_id[:8]}.zip"'},
-    )
+def _extract_image_urls(md_content: str, session_id: str) -> list[dict[str, str]]:
+    """从 Markdown 提取图片 URL 及本地路径。"""
+    pattern = r"!\[([^\]]*)\]\((/api/artifacts/" + re.escape(session_id) + r"/[^)]+)\)"
+    matches = re.findall(pattern, md_content)
+
+    results = []
+    for alt_text, url in matches:
+        filename = unquote(url.split("/")[-1])
+        artifact_path = settings.sessions_dir / session_id / "workspace" / "artifacts" / filename
+        if artifact_path.exists():
+            results.append(
+                {"url": url, "path": str(artifact_path), "filename": filename, "alt": alt_text}
+            )
+    return results
 
 
-# ---- 文件下载 ----
+def _plotly_json_to_png_bytes(json_path: Path) -> bytes | None:
+    """将 Plotly JSON 文件转换为 PNG 字节。失败返回 None。"""
+    import json as _json
+
+    import plotly.graph_objects as go
+
+    from nini.utils.chart_fonts import apply_plotly_cjk_font_fallback
+
+    try:
+        chart_data = _json.loads(json_path.read_text(encoding="utf-8"))
+        fig = go.Figure(chart_data)
+        apply_plotly_cjk_font_fallback(fig)
+        png_data: bytes = fig.to_image(format="png", width=1400, height=900, scale=2)  # type: ignore[assignment]
+        return png_data
+    except Exception as exc:
+        logger.debug("Plotly PNG 转换失败 (%s): %s", json_path.name, exc)
+        return None
+
+
+def _bundle_markdown_with_images(
+    md_path: Path,
+    image_urls: list[dict[str, str]],
+    session_id: str,
+) -> bytes:
+    """将 Markdown 和图片打包为 ZIP。"""
+    buf = io.BytesIO()
+    md_content = md_path.read_text(encoding="utf-8")
+
+    updated_md = md_content
+    png_cache: dict[str, bytes] = {}
+
+    for img in image_urls:
+        old_url = img["url"]
+        filename = img["filename"]
+
+        if filename.lower().endswith(".plotly.json"):
+            img_path = Path(img["path"])
+            png_data = _plotly_json_to_png_bytes(img_path) if img_path.exists() else None
+            if png_data:
+                png_name = filename[: -len(".plotly.json")] + ".png"
+                png_cache[png_name] = png_data
+                new_url = f"images/{png_name}"
+            else:
+                new_url = f"images/{filename}"
+        else:
+            new_url = f"images/{filename}"
+
+        updated_md = updated_md.replace(f"]({old_url})", f"]({new_url})")
+
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(md_path.name, updated_md.encode("utf-8"))
+
+        for png_name, png_data in png_cache.items():
+            zf.writestr(f"images/{png_name}", png_data)
+
+        converted_plotly_names = set()
+        for png_name in png_cache:
+            base = png_name[: -len(".png")]
+            converted_plotly_names.add(f"{base}.plotly.json")
+
+        for img in image_urls:
+            filename = img["filename"]
+            if filename in converted_plotly_names:
+                continue
+            img_path = Path(img["path"])
+            if img_path.exists():
+                zf.write(img_path, f"images/{filename}")
+
+    return buf.getvalue()
 
 
 @router.get("/artifacts/{session_id}/{filename}")
@@ -1174,33 +2187,20 @@ async def download_artifact(
     raw: bool = False,
 ):
     """下载会话产物（.plotly.json 默认自动转 PNG；raw=1 时返回原始 JSON）。"""
-    # 兼容已编码/双重编码文件名（如 %25E8...），统一解码一次后再做安全裁剪。
     safe_name = Path(unquote(filename)).name
     artifact_path = settings.sessions_dir / session_id / "workspace" / "artifacts" / safe_name
     if not artifact_path.exists():
-        # 兼容旧目录
         artifact_path = settings.sessions_dir / session_id / "artifacts" / safe_name
     if not artifact_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
-    # 检测是否为 Plotly JSON
     if safe_name.lower().endswith(".plotly.json") and not raw:
-        logger.info(f"检测到 Plotly JSON，尝试转换为 PNG: {safe_name}")
         png_response = await _convert_plotly_json_to_png(
-            artifact_path,
-            session_id=session_id,
-            width=1400,
-            height=900,
-            scale=2.0,
+            artifact_path, session_id=session_id, width=1400, height=900, scale=2.0
         )
         if png_response:
-            logger.info(f"Plotly PNG 转换成功: {safe_name}")
             return png_response
-        else:
-            logger.warning(f"Plotly PNG 转换失败，降级返回原始 JSON: {safe_name}")
-            # 降级：返回原始 JSON
 
-    # 普通文件下载
     return _build_download_response(artifact_path, safe_name, inline=inline)
 
 
@@ -1224,159 +2224,29 @@ async def download_workspace_note(session_id: str, filename: str, inline: bool =
     return _build_download_response(path, safe_name, inline=inline)
 
 
-def _extract_image_urls(md_content: str, session_id: str) -> list[dict[str, str]]:
-    """从 Markdown 提取图片 URL 及本地路径。
-
-    Returns:
-        [{"url": "/api/artifacts/...", "path": Path(...), "filename": "...", "alt": "..."}]
-    """
-    pattern = r"!\[([^\]]*)\]\((/api/artifacts/" + re.escape(session_id) + r"/[^)]+)\)"
-    matches = re.findall(pattern, md_content)
-
-    results = []
-    for alt_text, url in matches:
-        # 解析 URL 获取文件名
-        filename = unquote(url.split("/")[-1])
-        artifact_path = settings.sessions_dir / session_id / "workspace" / "artifacts" / filename
-
-        if artifact_path.exists():
-            results.append(
-                {
-                    "url": url,
-                    "path": str(artifact_path),
-                    "filename": filename,
-                    "alt": alt_text,
-                }
-            )
-
-    return results
-
-
-def _plotly_json_to_png_bytes(json_path: Path) -> bytes | None:
-    """将 Plotly JSON 文件转换为 PNG 字节。失败返回 None。"""
-    import json as _json
-
-    import plotly.graph_objects as go
-    from nini.utils.chart_fonts import apply_plotly_cjk_font_fallback
-
-    try:
-        chart_data = _json.loads(json_path.read_text(encoding="utf-8"))
-        fig = go.Figure(chart_data)
-        apply_plotly_cjk_font_fallback(fig)
-        png_data: bytes = fig.to_image(format="png", width=1400, height=900, scale=2)  # type: ignore[assignment]
-        return png_data
-    except Exception as exc:
-        logger.debug("Plotly PNG 转换失败 (%s): %s", json_path.name, exc)
-        return None
-
-
-def _bundle_markdown_with_images(
-    md_path: Path,
-    image_urls: list[dict[str, str]],
-    session_id: str,
-) -> bytes:
-    """将 Markdown 和图片打包为 ZIP。
-
-    ZIP 结构:
-        report.md          # 修改后的 Markdown（图片路径改为相对路径）
-        images/
-            chart1.png
-            chart2.plotly.json  (仅在 PNG 转换失败时)
-
-    对于 .plotly.json 文件，尝试转换为 PNG；
-    成功则打包 PNG 并更新 Markdown 路径，失败则保留原始 JSON。
-    """
-    buf = io.BytesIO()
-    md_content = md_path.read_text(encoding="utf-8")
-
-    # 修改 Markdown 中的图片路径为相对路径，并处理 plotly.json → PNG
-    updated_md = md_content
-    png_cache: dict[str, bytes] = {}  # filename → png bytes
-
-    for img in image_urls:
-        old_url = img["url"]
-        filename = img["filename"]
-
-        if filename.lower().endswith(".plotly.json"):
-            img_path = Path(img["path"])
-            png_data = _plotly_json_to_png_bytes(img_path) if img_path.exists() else None
-            if png_data:
-                # 成功：替换为 PNG
-                png_name = filename[: -len(".plotly.json")] + ".png"
-                png_cache[png_name] = png_data
-                new_url = f"images/{png_name}"
-            else:
-                # 失败：保留原始 JSON
-                new_url = f"images/{filename}"
-        else:
-            new_url = f"images/{filename}"
-
-        updated_md = updated_md.replace(f"]({old_url})", f"]({new_url})")
-
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        # 添加修改后的 Markdown
-        zf.writestr(md_path.name, updated_md.encode("utf-8"))
-
-        # 添加转换后的 PNG 文件
-        for png_name, png_data in png_cache.items():
-            zf.writestr(f"images/{png_name}", png_data)
-
-        # 添加原始图片文件（跳过已转换为 PNG 的 plotly.json）
-        converted_plotly_names = set()
-        for png_name in png_cache:
-            # 反推原始 plotly.json 名称
-            base = png_name[: -len(".png")]
-            converted_plotly_names.add(f"{base}.plotly.json")
-
-        for img in image_urls:
-            filename = img["filename"]
-            if filename in converted_plotly_names:
-                continue  # 已转为 PNG，跳过
-            img_path = Path(img["path"])
-            if img_path.exists():
-                zf.write(img_path, f"images/{filename}")
-
-    return buf.getvalue()
-
-
 @router.get("/workspace/{session_id}/artifacts/{filename}/bundle")
-async def download_markdown_with_images(
-    session_id: str,
-    filename: str,
-):
-    """下载 Markdown 文件并自动打包相关图片。
-
-    如果文件是 .md 且包含图片引用，返回 ZIP 打包（markdown + images）。
-    否则返回原文件。
-    """
+async def download_markdown_with_images(session_id: str, filename: str):
+    """下载 Markdown 文件并自动打包相关图片。"""
     safe_name = Path(unquote(filename)).name
     md_path = settings.sessions_dir / session_id / "workspace" / "artifacts" / safe_name
 
-    # 也支持从 notes 下载
     if not md_path.exists():
         md_path = settings.sessions_dir / session_id / "workspace" / "notes" / safe_name
-
     if not md_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
     if not safe_name.endswith(".md"):
-        # 非 Markdown 文件直接返回
         return _build_download_response(md_path, safe_name)
 
-    # 解析 Markdown 中的图片引用
     md_content = md_path.read_text(encoding="utf-8")
     image_urls = _extract_image_urls(md_content, session_id)
 
     if not image_urls:
-        # 无图片引用，直接返回原文件
         return _build_download_response(md_path, safe_name)
 
-    # ZIP 打包模式
-    logger.info(f"检测到 {len(image_urls)} 个图片引用，打包下载: {safe_name}")
     zip_bytes = _bundle_markdown_with_images(md_path, image_urls, session_id)
     zip_filename = safe_name.replace(".md", "_bundle.zip")
 
-    # 构造文件名编码（复用 _build_download_response 的逻辑）
     try:
         zip_filename.encode("latin-1")
         disposition = f'attachment; filename="{zip_filename}"'
@@ -1394,82 +2264,45 @@ async def download_markdown_with_images(
 
 @router.get("/sessions/{session_id}/export-all")
 async def export_all_artifacts(session_id: str):
-    """批量导出会话的所有产物为 ZIP 文件。
-
-    包含：
-    - artifacts/ 目录中的所有分析产物（图表、报告等）
-    - uploads/ 目录中的上传文件
-    - notes/ 目录中的笔记文件
-    - memory.jsonl 会话记忆（可选）
-    """
+    """批量导出会话的所有产物为 ZIP 文件。"""
     session_dir = settings.sessions_dir / session_id
     if not session_dir.exists():
         raise HTTPException(status_code=404, detail="会话不存在")
 
     workspace_dir = session_dir / "workspace"
-
-    # 创建内存中的 ZIP 文件
     zip_buffer = io.BytesIO()
 
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         file_count = 0
 
-        # 1. 添加 artifacts（产物）
-        artifacts_dir = workspace_dir / "artifacts"
-        if artifacts_dir.exists():
-            for file_path in artifacts_dir.rglob("*"):
-                if file_path.is_file():
-                    # 跳过内部引用文件
-                    if "memory-payloads" in str(file_path):
-                        continue
-                    arcname = f"artifacts/{file_path.relative_to(artifacts_dir)}"
-                    zip_file.write(file_path, arcname)
-                    file_count += 1
+        for subdir in ("artifacts", "uploads", "notes"):
+            sub_path = workspace_dir / subdir
+            if sub_path.exists():
+                for file_path in sub_path.rglob("*"):
+                    if file_path.is_file() and "memory-payloads" not in str(file_path):
+                        arcname = f"{subdir}/{file_path.relative_to(sub_path)}"
+                        zip_file.write(file_path, arcname)
+                        file_count += 1
 
-        # 2. 添加 uploads（上传文件）
-        uploads_dir = workspace_dir / "uploads"
-        if uploads_dir.exists():
-            for file_path in uploads_dir.rglob("*"):
-                if file_path.is_file():
-                    arcname = f"uploads/{file_path.relative_to(uploads_dir)}"
-                    zip_file.write(file_path, arcname)
-                    file_count += 1
-
-        # 3. 添加 notes（笔记）
-        notes_dir = workspace_dir / "notes"
-        if notes_dir.exists():
-            for file_path in notes_dir.rglob("*"):
-                if file_path.is_file():
-                    arcname = f"notes/{file_path.relative_to(notes_dir)}"
-                    zip_file.write(file_path, arcname)
-                    file_count += 1
-
-        # 4. 添加 memory.jsonl（可选，格式化版本）
         memory_file = session_dir / "memory.jsonl"
         if memory_file.exists():
             zip_file.write(memory_file, "memory.jsonl")
             file_count += 1
 
-        # 5. 添加元数据文件
-        from nini.agent.session import session_manager
-
         session = session_manager.get_session(session_id)
         if session:
+            import json
+
             metadata = {
                 "session_id": session_id,
                 "exported_at": datetime.now(timezone.utc).isoformat(),
                 "file_count": file_count,
                 "datasets": list(session.datasets.keys()),
             }
-            import json
-
             zip_file.writestr("metadata.json", json.dumps(metadata, ensure_ascii=False, indent=2))
 
-    # 准备下载响应
     zip_buffer.seek(0)
     zip_bytes = zip_buffer.read()
-
-    # 生成文件名
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"nini_session_{session_id[:8]}_{timestamp}.zip"
 
@@ -1482,7 +2315,6 @@ async def export_all_artifacts(session_id: str):
 
 # ---- 模型配置 ----
 
-# 所有支持的模型提供商定义
 _MODEL_PROVIDERS = [
     {
         "id": "openai",
@@ -1561,7 +2393,7 @@ _MODEL_PROVIDERS = [
         "id": "ollama",
         "name": "Ollama（本地）",
         "models": ["qwen2.5:7b", "llama3:8b", "mistral:7b"],
-        "key_field": None,  # Ollama 不需要 API Key
+        "key_field": None,
         "model_field": "ollama_model",
     },
 ]
@@ -1594,7 +2426,6 @@ async def list_models():
     from nini.config_manager import get_model_priorities, load_all_model_configs
     from nini.utils.crypto import mask_api_key
 
-    # 从 DB 加载用户保存的配置
     try:
         db_configs = await load_all_model_configs()
     except Exception:
@@ -1611,25 +2442,18 @@ async def list_models():
         model_field = provider["model_field"]
         db_cfg = db_configs.get(pid, {})
 
-        # 有效 API Key：DB 优先，.env 兜底
         env_key = getattr(settings, key_field, None) if key_field else None
         effective_key = db_cfg.get("api_key") or env_key or ""
-
-        # 有效模型名：DB 优先，.env 兜底
         env_model = getattr(settings, model_field, "") if model_field else ""
         effective_model = db_cfg.get("model") or env_model
-
-        # 有效 base_url
         effective_base_url = db_cfg.get("base_url") or ""
 
-        # 判断是否已配置
         if pid == "ollama":
             env_base = settings.ollama_base_url
             configured = bool((effective_base_url or env_base) and effective_model)
         else:
             configured = bool(effective_key)
 
-        # 配置来源标记
         config_source = (
             "db"
             if db_cfg.get("api_key") or db_cfg.get("model")
@@ -1706,10 +2530,10 @@ async def set_model_routing(req: ModelRoutingRequest):
     """保存用途模型路由配置（支持部分更新）。"""
     from nini.agent.model_resolver import model_resolver
     from nini.config_manager import (
-        set_default_provider,
-        set_model_purpose_routes,
         VALID_MODEL_PURPOSES,
         VALID_PROVIDERS,
+        set_default_provider,
+        set_model_purpose_routes,
     )
 
     update_global_preferred = "preferred_provider" in req.model_fields_set
@@ -1721,20 +2545,14 @@ async def set_model_routing(req: ModelRoutingRequest):
             return APIResponse(success=False, error=f"未知的模型提供商: {preferred_provider}")
 
     updates: dict[str, dict[str, str | None]] = {}
-    # 兼容旧版字段：purpose_providers（仅 provider）
     for purpose, provider in req.purpose_providers.items():
         if purpose not in VALID_MODEL_PURPOSES:
             return APIResponse(success=False, error=f"未知的模型用途: {purpose}")
         provider_id = (provider or "").strip() or None
         if provider_id and provider_id not in VALID_PROVIDERS:
             return APIResponse(success=False, error=f"未知的模型提供商: {provider_id}")
-        updates[purpose] = {
-            "provider_id": provider_id,
-            "model": None,
-            "base_url": None,
-        }
+        updates[purpose] = {"provider_id": provider_id, "model": None, "base_url": None}
 
-    # 新版字段：purpose_routes（provider + model + base_url）
     for purpose, route in req.purpose_routes.items():
         if purpose not in VALID_MODEL_PURPOSES:
             return APIResponse(success=False, error=f"未知的模型用途: {purpose}")
@@ -1743,18 +2561,12 @@ async def set_model_routing(req: ModelRoutingRequest):
         base_url = (route.base_url or "").strip() or None
         if provider_id and provider_id not in VALID_PROVIDERS:
             return APIResponse(success=False, error=f"未知的模型提供商: {provider_id}")
-        updates[purpose] = {
-            "provider_id": provider_id,
-            "model": model,
-            "base_url": base_url,
-        }
+        updates[purpose] = {"provider_id": provider_id, "model": model, "base_url": base_url}
 
-    # 更新全局首选（为空表示清除）
     if update_global_preferred:
         await set_default_provider(preferred_provider)
         model_resolver.set_preferred_provider(preferred_provider)
 
-    # 更新用途路由（增量）
     merged_routes = await set_model_purpose_routes(updates)
     for purpose_key, merged_route in merged_routes.items():
         model_resolver.set_purpose_route(
@@ -1786,8 +2598,8 @@ async def set_model_routing(req: ModelRoutingRequest):
 @router.post("/models/config", response_model=APIResponse)
 async def save_model_config_endpoint(req: ModelConfigRequest):
     """保存模型配置到数据库，并立即重载模型客户端。"""
-    from nini.config_manager import save_model_config
     from nini.agent.model_resolver import reload_model_resolver
+    from nini.config_manager import save_model_config
 
     try:
         result = await save_model_config(
@@ -1798,7 +2610,6 @@ async def save_model_config_endpoint(req: ModelConfigRequest):
             priority=req.priority,
             is_active=req.is_active,
         )
-        # 立即重载模型客户端，使配置生效
         await reload_model_resolver()
         return APIResponse(data=result)
     except ValueError as e:
@@ -1809,17 +2620,17 @@ async def save_model_config_endpoint(req: ModelConfigRequest):
 
 @router.post("/models/{provider_id}/test", response_model=APIResponse)
 async def test_model_connection(provider_id: str):
-    """测试指定模型提供商的连接（使用有效配置：DB 优先）。"""
+    """测试指定模型提供商的连接。"""
     from nini.agent.model_resolver import (
-        OpenAIClient,
         AnthropicClient,
-        OllamaClient,
-        MoonshotClient,
-        KimiCodingClient,
-        ZhipuClient,
-        DeepSeekClient,
         DashScopeClient,
+        DeepSeekClient,
+        KimiCodingClient,
         MiniMaxClient,
+        MoonshotClient,
+        OllamaClient,
+        OpenAIClient,
+        ZhipuClient,
     )
     from nini.config_manager import get_effective_config
 
@@ -1838,11 +2649,9 @@ async def test_model_connection(provider_id: str):
     if provider_id not in client_map:
         raise HTTPException(status_code=404, detail=f"未知的模型提供商: {provider_id}")
 
-    # 获取有效配置（DB 优先，.env 兜底）
     cfg = await get_effective_config(provider_id)
     client_cls = client_map[provider_id]
 
-    # 使用有效配置创建客户端实例
     if provider_id == "ollama":
         client = client_cls(base_url=cfg.get("base_url"), model=cfg.get("model"))
     elif provider_id in {"openai", "moonshot", "kimi_coding", "zhipu", "minimax"}:
@@ -1863,7 +2672,6 @@ async def test_model_connection(provider_id: str):
         )
 
     try:
-        # 发送简单测试消息
         chunks = []
         async for chunk in client.chat(
             [{"role": "user", "content": "你好，请回复'连接成功'"}],
@@ -1883,8 +2691,6 @@ async def test_model_connection(provider_id: str):
             )
         return APIResponse(success=False, error=f"连接失败: {error_text}")
     finally:
-        # 显式关闭底层 HTTP 客户端，避免 GC 阶段
-        # AsyncHttpxClientWrapper.__del__ 触发 _mounts 属性缺失错误
         try:
             await client.aclose()
         except Exception as close_error:
@@ -1896,7 +2702,7 @@ async def test_model_connection(provider_id: str):
 
 @router.get("/models/active", response_model=APIResponse)
 async def get_active_model():
-    """获取当前活跃的模型信息（提供商 + 模型名称）。"""
+    """获取当前活跃的模型信息。"""
     from nini.agent.model_resolver import model_resolver
 
     info: dict[str, Any] = model_resolver.get_active_model_info(purpose="chat")
@@ -1908,28 +2714,19 @@ async def get_active_model():
 
 @router.post("/models/preferred", response_model=APIResponse)
 async def set_preferred_model(req: SetActiveModelRequest):
-    """统一设置全局首选模型提供商（同时更新内存和持久化）。
-
-    点选即为全局首选，刷新页面/重启后仍生效。
-    传入空字符串恢复自动选择（按优先级）。
-    """
+    """设置全局首选模型提供商。"""
     from nini.agent.model_resolver import model_resolver
     from nini.config_manager import set_default_provider
 
     provider_id = req.provider_id.strip() or None
 
-    # 验证 provider_id 是否有效
     valid_ids = {c.provider_id for c in model_resolver._clients}
     if provider_id and provider_id not in valid_ids:
         return APIResponse(success=False, error=f"未知的模型提供商: {provider_id}")
 
-    # 1. 设置内存级首选
     model_resolver.set_preferred_provider(provider_id)
-
-    # 2. 持久化到数据库
     await set_default_provider(provider_id)
 
-    # 返回更新后的活跃模型信息
     info: dict[str, Any] = model_resolver.get_active_model_info()
     info["preferred_provider"] = model_resolver.get_preferred_provider()
     return APIResponse(data=info)
@@ -1958,16 +2755,18 @@ async def get_session_token_usage(session_id: str):
     return APIResponse(data=tracker.to_dict())
 
 
+# ---- 记忆文件 ----
+
+
 @router.get("/sessions/{session_id}/memory-files", response_model=APIResponse)
 async def list_memory_files(session_id: str):
-    """列出会话记忆文件（memory.jsonl、knowledge.md、meta.json、archive/*.json）。"""
+    """列出会话记忆文件。"""
     if not session_manager.session_exists(session_id):
         raise HTTPException(status_code=404, detail="会话不存在")
 
     session_dir = settings.sessions_dir / session_id
     files: list[dict[str, Any]] = []
 
-    # 检查标准记忆文件
     for filename in ("memory.jsonl", "knowledge.md", "meta.json"):
         fpath = session_dir / filename
         if fpath.exists() and fpath.is_file():
@@ -1977,7 +2776,6 @@ async def list_memory_files(session_id: str):
                 "size": stat.st_size,
                 "modified_at": stat.st_mtime,
             }
-            # 对 memory.jsonl 统计行数
             if filename == "memory.jsonl":
                 try:
                     info["line_count"] = sum(1 for _ in open(fpath, "r", encoding="utf-8"))
@@ -1985,7 +2783,6 @@ async def list_memory_files(session_id: str):
                     info["line_count"] = 0
             files.append(info)
 
-    # 检查 archive 目录
     archive_dir = session_dir / "archive"
     if archive_dir.exists() and archive_dir.is_dir():
         for apath in sorted(archive_dir.glob("*.json")):
@@ -1998,7 +2795,6 @@ async def list_memory_files(session_id: str):
                 }
             )
 
-    # 获取压缩状态
     session = session_manager.get_session(session_id)
     compression_info: dict[str, Any] = {}
     if session is not None:
@@ -2016,54 +2812,12 @@ async def list_memory_files(session_id: str):
     )
 
 
-@router.get("/sessions/{session_id}/memory/formatted", response_model=APIResponse)
-async def export_formatted_memory(session_id: str):
-    """
-    导出格式化的会话记忆。
-
-    返回格式化的 JSON，包含会话消息摘要和统计信息。
-    """
-    from nini.memory.conversation import ConversationMemory, format_memory_entries
-
-    session = session_manager.get_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="会话不存在")
-
-    # 加载记忆（不解析引用，节省内存）
-    mem = ConversationMemory(session_id)
-    entries = mem.load_messages(resolve_refs=False)
-
-    # 格式化
-    formatted = format_memory_entries(entries)
-
-    # 统计信息
-    stats = {
-        "total_entries": len(entries),
-        "user_messages": sum(1 for e in entries if e.get("role") == "user"),
-        "assistant_messages": sum(1 for e in entries if e.get("role") == "assistant"),
-        "tool_results": sum(1 for e in entries if e.get("role") == "tool"),
-        "has_attachments": sum(1 for f in formatted if f.get("has_attachments")),
-    }
-
-    return APIResponse(
-        success=True,
-        data={
-            "message": "记忆导出成功",
-            "session_id": session_id,
-            "exported_at": datetime.now(timezone.utc).isoformat(),
-            "statistics": stats,
-            "entries": formatted,
-        },
-    )
-
-
 @router.get("/sessions/{session_id}/memory-files/{filename:path}", response_model=APIResponse)
 async def read_memory_file(session_id: str, filename: str):
     """读取记忆文件内容（前 200 行）。"""
     if not session_manager.session_exists(session_id):
         raise HTTPException(status_code=404, detail="会话不存在")
 
-    # 安全检查：防止路径遍历
     safe_name = Path(filename)
     if ".." in safe_name.parts:
         raise HTTPException(status_code=400, detail="无效的文件路径")
@@ -2073,7 +2827,6 @@ async def read_memory_file(session_id: str, filename: str):
     if not fpath.exists() or not fpath.is_file():
         raise HTTPException(status_code=404, detail="文件不存在")
 
-    # 确保文件在会话目录内
     try:
         fpath.resolve().relative_to(session_dir.resolve())
     except ValueError:
@@ -2100,12 +2853,14 @@ async def read_memory_file(session_id: str, filename: str):
     )
 
 
+# ---- 上下文大小 ----
+
+
 @router.get("/sessions/{session_id}/context-size", response_model=APIResponse)
 async def get_session_context_size(session_id: str):
     """获取当前会话上下文的 token 预估。"""
     from nini.utils.token_counter import count_messages_tokens
 
-    # 使用 get_or_create 确保只存在于磁盘上的会话也能被加载
     if not session_manager.session_exists(session_id):
         raise HTTPException(status_code=404, detail="会话不存在")
     session = session_manager.get_or_create(session_id)
@@ -2142,172 +2897,3 @@ async def get_session_context_size(session_id: str):
 @router.get("/health")
 async def health():
     return {"status": "ok", "version": "0.1.0"}
-
-
-# ---- Capabilities (用户层面的能力) ----
-
-from nini.capabilities import (
-    CapabilityExecutorNotConfiguredError,
-    CapabilityNotExecutableError,
-    CapabilityRegistry,
-    create_default_capabilities,
-)
-
-# 全局 CapabilityRegistry 实例（应用启动时初始化）
-_capability_registry: CapabilityRegistry | None = None
-
-
-def _get_capability_registry() -> CapabilityRegistry:
-    """获取或初始化 CapabilityRegistry。"""
-    global _capability_registry
-    if _capability_registry is None:
-        _capability_registry = CapabilityRegistry()
-        for cap in create_default_capabilities():
-            _capability_registry.register(cap)
-        logger.info(f"已注册 {len(_capability_registry.list_capabilities())} 个能力")
-    return _capability_registry
-
-
-@router.get("/capabilities", response_model=APIResponse)
-async def list_capabilities():
-    """
-    获取能力（Capabilities）列表。
-
-    三层架构：
-    - Tools: 模型可调用的原子函数（t_test, anova 等）
-    - Capabilities: 用户层面的能力元数据（如"差异分析"，用于前端展示和意图匹配）
-    - Skills: 完整工作流项目（含脚本、模板、文档，在 skills/ 目录）
-
-    前端技能面板应该展示 Capabilities 而非 Tools。
-    """
-    registry = _get_capability_registry()
-    return APIResponse(success=True, data={"capabilities": registry.to_catalog()})
-
-
-@router.get("/capabilities/{name}", response_model=APIResponse)
-async def get_capability(name: str):
-    """获取单个能力的详细信息。"""
-    registry = _get_capability_registry()
-    cap = registry.get(name)
-    if not cap:
-        raise HTTPException(status_code=404, detail=f"能力 '{name}' 不存在")
-
-    return APIResponse(success=True, data=cap.to_dict())
-
-
-@router.post("/capabilities/suggest", response_model=APIResponse)
-async def suggest_capabilities(user_message: str):
-    """
-    基于用户输入推荐相关能力。
-
-    Args:
-        user_message: 用户输入的消息
-
-    Returns:
-        推荐的能力列表
-    """
-    registry = _get_capability_registry()
-    analysis = registry.analyze_intent(user_message)
-    suggested = []
-    for candidate in analysis.capability_candidates:
-        cap = registry.get(candidate.name)
-        if cap is not None:
-            suggested.append(cap)
-
-    return APIResponse(
-        success=True,
-        data={
-            "suggestions": [cap.to_dict() for cap in suggested],
-            "query": user_message,
-            "tool_hints": analysis.tool_hints,
-            "clarification_needed": analysis.clarification_needed,
-            "clarification_question": analysis.clarification_question,
-            "clarification_options": analysis.clarification_options,
-            "analysis_method": analysis.analysis_method,
-        },
-    )
-
-
-@router.post("/intent/analyze", response_model=APIResponse)
-async def analyze_intent(user_message: str):
-    """分析用户意图，返回 capability 与 Markdown skill 候选。"""
-    capability_registry = _get_capability_registry()
-    capability_catalog = [cap.to_dict() for cap in capability_registry.list_capabilities()]
-
-    skill_registry = _get_skill_registry()
-    _refresh_skill_registry(skill_registry)
-    semantic_skills = skill_registry.get_semantic_catalog(skill_type="markdown")
-    analysis = default_intent_analyzer.analyze(
-        user_message,
-        capabilities=capability_catalog,
-        semantic_skills=semantic_skills,
-        skill_limit=3,
-    )
-    return APIResponse(
-        success=True,
-        data=analysis.to_dict(),
-    )
-
-
-@router.post("/capabilities/{name}/execute", response_model=APIResponse)
-async def execute_capability(
-    name: str,
-    session_id: str,
-    params: dict[str, Any],
-):
-    """
-    执行指定的 Capability。
-
-    当前支持:
-    - difference_analysis: params需包含 dataset_name, value_column, group_column
-    - correlation_analysis: params需包含 dataset_name; 可选 columns, method, correction
-
-    Args:
-        name: Capability 名称
-        session_id: 会话ID
-        params: 执行参数（必须包含 dataset_name）
-
-    Returns:
-        执行结果
-    """
-    from nini.agent.session import session_manager
-    from nini.tools.registry import create_default_tool_registry
-
-    capability_registry = _get_capability_registry()
-    capability = capability_registry.get(name)
-    if capability is None:
-        raise HTTPException(status_code=404, detail=f"能力 '{name}' 不存在")
-    if not capability.supports_direct_execution():
-        message = capability.execution_message or f"能力 '{name}' 暂不支持直接执行"
-        raise HTTPException(status_code=409, detail=message)
-
-    # 校验必填参数
-    if "dataset_name" not in params:
-        raise HTTPException(status_code=422, detail="缺少必填参数: dataset_name")
-
-    # 获取会话
-    session = session_manager.get_or_create(session_id)
-
-    # 获取 ToolRegistry（用于执行底层工具）
-    tool_registry = create_default_tool_registry()
-
-    capability_params = dict(params)
-    capability_params.setdefault("alpha", 0.05)
-
-    try:
-        result = await capability_registry.execute(
-            name,
-            session,
-            capability_params,
-            tool_registry=tool_registry,
-        )
-    except CapabilityNotExecutableError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except CapabilityExecutorNotConfiguredError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
-
-    return APIResponse(
-        success=result.success,
-        data=result.to_dict(),
-        message=result.message if not result.success else None,
-    )
