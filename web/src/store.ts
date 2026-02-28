@@ -219,6 +219,33 @@ export interface IntentAnalysisView {
   analysis_method: string;
 }
 
+export interface ResearchProfile {
+  user_id: string;
+  domain: string;
+  research_interest: string;
+  significance_level: number;
+  preferred_correction: string;
+  confidence_interval: number;
+  journal_style: string;
+  color_palette: string;
+  figure_width: number;
+  figure_height: number;
+  figure_dpi: number;
+  auto_check_assumptions: boolean;
+  include_effect_size: boolean;
+  include_ci: boolean;
+  include_power_analysis: boolean;
+  total_analyses: number;
+  favorite_tests: string[];
+  recent_datasets: string[];
+  research_domains: string[];
+  preferred_methods: Record<string, number>;
+  output_language: string;
+  report_detail_level: string;
+  typical_sample_size: string;
+  research_notes: string;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant" | "tool";
@@ -380,6 +407,10 @@ interface AppState {
   _activePlanTaskIds: Array<string | null>;
   _planActionTaskMap: Record<string, string>;
 
+  // ResearchProfile
+  researchProfile: ResearchProfile | null;
+  researchProfileLoading: boolean;
+
   // 操作
   connect: () => void;
   disconnect: () => void;
@@ -463,6 +494,10 @@ interface AppState {
   createFolder: (name: string, parent?: string | null) => Promise<void>;
   moveFileToFolder: (fileId: string, folderId: string | null) => Promise<void>;
   createWorkspaceFile: (filename: string, content?: string) => Promise<void>;
+
+  // ResearchProfile
+  fetchResearchProfile: () => Promise<void>;
+  updateResearchProfile: (updates: Partial<ResearchProfile>) => Promise<boolean>;
 }
 
 // ---- 工具函数 ----
@@ -1112,6 +1147,26 @@ function uploadWithProgress(
   });
 }
 
+// ---- 会话切换/清空时的公共重置字段 ----
+
+const SESSION_RESET_STATE = {
+  pendingAskUserQuestion: null as AppState["pendingAskUserQuestion"],
+  contextCompressionTick: 0,
+  previewTabs: [] as AppState["previewTabs"],
+  previewFileId: null as AppState["previewFileId"],
+  _streamingText: "",
+  isStreaming: false,
+  _activePlanMsgId: null as AppState["_activePlanMsgId"],
+  _analysisPlanOrder: 0,
+  analysisPlanProgress: null as AppState["analysisPlanProgress"],
+  _activePlanTaskIds: [] as string[],
+  _planActionTaskMap: {} as Record<string, string>,
+  analysisTasks: [] as AppState["analysisTasks"],
+  currentIntentAnalysis: null as AppState["currentIntentAnalysis"],
+  intentAnalysisLoading: false,
+  composerDraft: "",
+} as const;
+
 // ---- Store ----
 
 export const useStore = create<AppState>((set, get) => ({
@@ -1154,6 +1209,10 @@ export const useStore = create<AppState>((set, get) => ({
   _activePlanTaskIds: [],
   _planActionTaskMap: {},
 
+  // ResearchProfile
+  researchProfile: null,
+  researchProfileLoading: false,
+
   connect() {
     const existing = get().ws;
     if (existing && existing.readyState === WebSocket.OPEN) return;
@@ -1163,29 +1222,24 @@ export const useStore = create<AppState>((set, get) => ({
     if (document.hidden) return;
 
     const ws = new WebSocket(getWsUrl());
+    let heartbeatTimer: number | undefined;
 
     ws.onopen = () => {
       set({ wsConnected: true, _reconnectAttempts: 0 });
       // 启动心跳检测 - 15秒间隔，保持连接活跃
-      const pingInterval = window.setInterval(() => {
+      heartbeatTimer = window.setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "ping" }));
         } else {
-          window.clearInterval(pingInterval);
+          window.clearInterval(heartbeatTimer);
         }
       }, 15000);
-      (ws as WebSocket & { _pingInterval?: number })._pingInterval =
-        pingInterval;
     };
 
     ws.onclose = () => {
-      const pingInterval = (ws as WebSocket & { _pingInterval?: number })
-        ._pingInterval;
-      if (pingInterval) clearInterval(pingInterval);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
 
-      const state = get();
-      const attempts =
-        (state as unknown as Record<string, number>)._reconnectAttempts || 0;
+      const attempts = get()._reconnectAttempts;
       const maxAttempts = 10;
 
       set({
@@ -1201,7 +1255,7 @@ export const useStore = create<AppState>((set, get) => ({
       // 指数退避重连：1s, 2s, 4s, 8s, 16s, 30s(max)
       if (attempts < maxAttempts && !document.hidden) {
         const delay = Math.min(1000 * Math.pow(2, attempts), 30000);
-        set({ _reconnectAttempts: attempts + 1 } as Partial<AppState>);
+        set({ _reconnectAttempts: attempts + 1 });
         setTimeout(() => get().connect(), delay);
       }
     };
@@ -1516,23 +1570,11 @@ export const useStore = create<AppState>((set, get) => ({
 
   clearMessages() {
     set({
+      ...SESSION_RESET_STATE,
       messages: [],
       sessionId: null,
-      pendingAskUserQuestion: null,
-      contextCompressionTick: 0,
       datasets: [],
       workspaceFiles: [],
-      previewTabs: [],
-      previewFileId: null,
-      _activePlanMsgId: null,
-      _analysisPlanOrder: 0,
-      analysisPlanProgress: null,
-      _activePlanTaskIds: [],
-      _planActionTaskMap: {},
-      analysisTasks: [],
-      currentIntentAnalysis: null,
-      intentAnalysisLoading: false,
-      composerDraft: "",
     });
   },
 
@@ -1649,10 +1691,9 @@ export const useStore = create<AppState>((set, get) => ({
     } catch (e) {
       console.error("获取意图分析失败:", e);
       set({
-      currentIntentAnalysis: null,
-      intentAnalysisLoading: false,
-      composerDraft: "",
-    });
+        currentIntentAnalysis: null,
+        intentAnalysisLoading: false,
+      });
     }
   },
 
@@ -2032,25 +2073,11 @@ export const useStore = create<AppState>((set, get) => ({
       }
       // 切换到新会话，清空当前消息显示
       set({
+        ...SESSION_RESET_STATE,
         sessionId: newSessionId,
         messages: [],
-        pendingAskUserQuestion: null,
-        contextCompressionTick: 0,
         datasets: [],
         workspaceFiles: [],
-        previewTabs: [],
-        previewFileId: null,
-        _streamingText: "",
-        isStreaming: false,
-        _activePlanMsgId: null,
-        _analysisPlanOrder: 0,
-        analysisPlanProgress: null,
-        _activePlanTaskIds: [],
-        _planActionTaskMap: {},
-        analysisTasks: [],
-        currentIntentAnalysis: null,
-        intentAnalysisLoading: false,
-        composerDraft: "",
       });
       // 清除保存的 session_id（新会话不需要恢复）
       localStorage.removeItem("nini_last_session_id");
@@ -2071,23 +2098,9 @@ export const useStore = create<AppState>((set, get) => ({
       if (!payload.success) {
         // 会话存在但无消息，直接切换到空会话
         set({
+          ...SESSION_RESET_STATE,
           sessionId: targetSessionId,
           messages: [],
-          pendingAskUserQuestion: null,
-          contextCompressionTick: 0,
-          previewTabs: [],
-          previewFileId: null,
-          _streamingText: "",
-          isStreaming: false,
-          _activePlanMsgId: null,
-          _analysisPlanOrder: 0,
-          analysisPlanProgress: null,
-          _activePlanTaskIds: [],
-          _planActionTaskMap: {},
-          analysisTasks: [],
-          currentIntentAnalysis: null,
-          intentAnalysisLoading: false,
-          composerDraft: "",
         });
         await get().fetchDatasets();
         await get().fetchWorkspaceFiles();
@@ -2104,23 +2117,9 @@ export const useStore = create<AppState>((set, get) => ({
       );
 
       set({
+        ...SESSION_RESET_STATE,
         sessionId: targetSessionId,
         messages,
-        pendingAskUserQuestion: null,
-        contextCompressionTick: 0,
-        previewTabs: [],
-        previewFileId: null,
-        _streamingText: "",
-        isStreaming: false,
-        _activePlanMsgId: null,
-        _analysisPlanOrder: 0,
-        analysisPlanProgress: null,
-        _activePlanTaskIds: [],
-        _planActionTaskMap: {},
-        analysisTasks: [],
-        currentIntentAnalysis: null,
-        intentAnalysisLoading: false,
-        composerDraft: "",
       });
       // 保存当前会话 ID 到 localStorage
       localStorage.setItem("nini_last_session_id", targetSessionId);
@@ -2140,25 +2139,11 @@ export const useStore = create<AppState>((set, get) => ({
       // 如果删除的是当前会话，清空状态
       if (targetSessionId === sessionId) {
         set({
+          ...SESSION_RESET_STATE,
           sessionId: null,
           messages: [],
-          pendingAskUserQuestion: null,
-          contextCompressionTick: 0,
           datasets: [],
           workspaceFiles: [],
-          previewTabs: [],
-          previewFileId: null,
-          _streamingText: "",
-          isStreaming: false,
-          _activePlanMsgId: null,
-          _analysisPlanOrder: 0,
-          analysisPlanProgress: null,
-          _activePlanTaskIds: [],
-          _planActionTaskMap: {},
-          analysisTasks: [],
-          currentIntentAnalysis: null,
-          intentAnalysisLoading: false,
-          composerDraft: "",
         });
       }
       // 刷新会话列表
@@ -2500,6 +2485,42 @@ export const useStore = create<AppState>((set, get) => ({
       console.error("创建文件失败:", e);
     }
   },
+
+  // ResearchProfile
+  async fetchResearchProfile() {
+    set({ researchProfileLoading: true });
+    try {
+      const resp = await fetch("/api/research-profile?profile_id=default");
+      const payload = await resp.json();
+      if (payload.success) {
+        set({ researchProfile: payload.data, researchProfileLoading: false });
+      } else {
+        set({ researchProfileLoading: false });
+      }
+    } catch (e) {
+      console.error("获取研究画像失败:", e);
+      set({ researchProfileLoading: false });
+    }
+  },
+
+  async updateResearchProfile(updates: Partial<ResearchProfile>) {
+    try {
+      const resp = await fetch("/api/research-profile?profile_id=default", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      const payload = await resp.json();
+      if (payload.success) {
+        set({ researchProfile: payload.data });
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error("更新研究画像失败:", e);
+      return false;
+    }
+  },
 }));
 
 // ---- 页面可见性处理 ----
@@ -2513,7 +2534,7 @@ document.addEventListener("visibilitychange", () => {
     }
   } else {
     // 页面可见时重置重连计数并连接
-    useStore.setState({ _reconnectAttempts: 0 } as Partial<AppState>);
+    useStore.setState({ _reconnectAttempts: 0 });
     store.connect();
   }
 });

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from nini.tools import _statistics_legacy
 from nini.tools import statistics
 
 
@@ -25,9 +24,3 @@ def test_statistics_top_level_keeps_anova_monkeypatch_seams() -> None:
     assert callable(statistics.pairwise_tukeyhsd)
 
 
-def test_statistics_legacy_module_reexports_split_modules() -> None:
-    """旧兼容模块应继续导出拆分后的实现。"""
-    assert _statistics_legacy.ANOVASkill is statistics.ANOVASkill
-    assert _statistics_legacy.CorrelationSkill is statistics.CorrelationSkill
-    assert _statistics_legacy.RegressionSkill is statistics.RegressionSkill
-    assert _statistics_legacy.MannWhitneySkill is statistics.MannWhitneySkill

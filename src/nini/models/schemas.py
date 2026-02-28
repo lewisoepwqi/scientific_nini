@@ -71,6 +71,7 @@ class APIResponse(BaseModel):
 
     success: bool = True
     data: Any = None
+    message: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -164,3 +165,88 @@ class MarkdownSkillPathDeleteRequest(BaseModel):
     """Markdown Skill 文件/目录删除请求。"""
 
     path: str = Field(min_length=1)
+
+
+# ---- ResearchProfile 研究画像 ----
+
+
+class ResearchProfileData(BaseModel):
+    """研究画像数据。"""
+
+    user_id: str
+    domain: str = "general"
+    research_interest: str = ""
+    significance_level: float = 0.05
+    preferred_correction: str = "bonferroni"
+    confidence_interval: float = 0.95
+    journal_style: str = "nature"
+    color_palette: str = "default"
+    figure_width: int = 800
+    figure_height: int = 600
+    figure_dpi: int = 300
+    auto_check_assumptions: bool = True
+    include_effect_size: bool = True
+    include_ci: bool = True
+    include_power_analysis: bool = False
+    total_analyses: int = 0
+    favorite_tests: list[str] = Field(default_factory=list)
+    recent_datasets: list[str] = Field(default_factory=list)
+    research_domains: list[str] = Field(default_factory=list)
+    preferred_methods: dict[str, float] = Field(default_factory=dict)
+    output_language: str = "zh"
+    report_detail_level: str = "standard"
+    typical_sample_size: str = ""
+    research_notes: str = ""
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ResearchProfileUpdateRequest(BaseModel):
+    """研究画像更新请求。"""
+
+    domain: Optional[str] = None
+    research_interest: Optional[str] = None
+    significance_level: Optional[float] = None
+    preferred_correction: Optional[str] = None
+    confidence_interval: Optional[float] = None
+    journal_style: Optional[str] = None
+    color_palette: Optional[str] = None
+    figure_width: Optional[int] = None
+    figure_height: Optional[int] = None
+    figure_dpi: Optional[int] = None
+    auto_check_assumptions: Optional[bool] = None
+    include_effect_size: Optional[bool] = None
+    include_ci: Optional[bool] = None
+    include_power_analysis: Optional[bool] = None
+    research_domains: Optional[list[str]] = None
+    preferred_methods: Optional[dict[str, float]] = None
+    output_language: Optional[str] = None
+    report_detail_level: Optional[str] = None
+    typical_sample_size: Optional[str] = None
+    research_notes: Optional[str] = None
+
+
+# ---- Report Generation 报告生成 ----
+
+
+class ReportGenerateRequest(BaseModel):
+    """报告生成请求。"""
+
+    title: str = "科研数据分析报告"
+    template: str = "default"  # nature/science/cell/nejm/lancet/apa/ieee/default
+    sections: list[str] = Field(
+        default_factory=lambda: ["abstract", "introduction", "methods", "results", "discussion"]
+    )
+    detail_level: str = "standard"  # brief/standard/detailed
+    include_figures: bool = True
+    include_tables: bool = True
+    dataset_names: Optional[list[str]] = None
+
+
+class ReportExportRequest(BaseModel):
+    """报告导出请求。"""
+
+    format: str = "md"  # md/docx/pdf
+    filename: Optional[str] = None
+
+
