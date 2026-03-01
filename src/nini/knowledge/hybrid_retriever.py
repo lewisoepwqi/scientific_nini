@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import Any
 
 from nini.knowledge.vector_store import VectorKnowledgeStore
+from nini.memory.long_term_memory import (
+    format_memories_for_context,
+    search_long_term_memories,
+)
 from nini.models.knowledge import (
     HybridSearchConfig,
     KnowledgeDocument,
@@ -200,6 +204,7 @@ class HybridRetriever:
         query: str,
         top_k: int | None = None,
         domain: str | None = None,
+        include_long_term_memory: bool = True,
     ) -> KnowledgeSearchResult:
         """执行混合检索。
 
@@ -207,6 +212,7 @@ class HybridRetriever:
             query: 查询文本
             top_k: 返回结果数量
             domain: 领域过滤
+            include_long_term_memory: 是否包含长期记忆检索
 
         Returns:
             搜索结果
@@ -261,39 +267,87 @@ class HybridRetriever:
                 doc_info = await self.vector_store.get_document(doc_id)
 
             if doc_info:
+                # 尝试多个位置获取标题：metadata.title > title字段 > doc_id
+                metadata = doc_info.get("metadata", {})
+                title = metadata.get("title") or doc_info.get("title") or doc_id
                 doc = KnowledgeDocument(
                     id=doc_id,
-                    title=doc_info.get("metadata", {}).get("title", "未知文档"),
+                    title=title,
                     content=doc_info.get("content", ""),
                     excerpt=doc_info.get("content", "")[:200] + "...",
                     relevance_score=score,
                     source_method=source,  # type: ignore
-                    metadata=doc_info.get("metadata", {}),
+                    metadata=metadata,
                 )
             else:
                 # 从关键词索引获取
                 keyword_doc = self.keyword_index.documents.get(doc_id, {})
+                metadata = keyword_doc.get("metadata", {})
+                title = metadata.get("title") or keyword_doc.get("title") or doc_id
                 doc = KnowledgeDocument(
                     id=doc_id,
-                    title=keyword_doc.get("metadata", {}).get("title", "未知文档"),
+                    title=title,
                     content=keyword_doc.get("content", ""),
                     excerpt=keyword_doc.get("content", "")[:200] + "...",
                     relevance_score=score,
                     source_method=source,  # type: ignore
-                    metadata=keyword_doc.get("metadata", {}),
+                    metadata=metadata,
                 )
 
             documents.append(doc)
 
+        # 长期记忆检索
+        long_term_memories = []
+        if include_long_term_memory:
+            try:
+                long_term_memories = await search_long_term_memories(
+                    query,
+                    top_k=min(3, top_k),
+                )
+            except Exception as e:
+                logger.warning(f"长期记忆检索失败: {e}")
+
         search_time_ms = int((time.time() - start_time) * 1000)
 
-        return KnowledgeSearchResult(
+        result = KnowledgeSearchResult(
             query=query,
             results=documents,
             total_count=len(documents),
             search_method="hybrid",
             search_time_ms=search_time_ms,
         )
+
+        # 添加长期记忆到结果
+        if long_term_memories:
+            result.metadata = {"long_term_memories": long_term_memories}
+
+        return result
+
+    async def rebuild_index(self) -> bool:
+        """重建索引。
+
+        Returns:
+            是否成功
+        """
+        try:
+            if self.vector_store._initialized:
+                await self.vector_store.rebuild_index()
+            logger.info("索引重建完成")
+            return True
+        except Exception as e:
+            logger.error(f"重建索引失败: {e}")
+            return False
+
+    async def get_status(self) -> dict[str, Any]:
+        """获取检索器状态。
+
+        Returns:
+            状态信息
+        """
+        return {
+            "vector_store_available": self.vector_store._initialized,
+            "keyword_index_documents": len(self.keyword_index.documents),
+        }
 
 
 # 全局混合检索器实例

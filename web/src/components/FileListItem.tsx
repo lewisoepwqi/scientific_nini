@@ -75,16 +75,17 @@ export default function FileListItem({ file }: Props) {
 
   const handleRename = useCallback(async () => {
     const trimmed = renameValue.trim()
-    if (trimmed && trimmed !== file.name) {
-      await renameWorkspaceFile(file.id, trimmed)
+    if (trimmed && trimmed !== file.name && file.path) {
+      await renameWorkspaceFile(file.path, trimmed)
     }
     setIsRenaming(false)
-  }, [renameValue, file.id, file.name, renameWorkspaceFile])
+  }, [renameValue, file.name, file.path, renameWorkspaceFile])
 
   const handleDelete = useCallback(async () => {
     if (!window.confirm(`确定删除文件「${file.name}」？此操作不可撤销。`)) return
-    await deleteWorkspaceFile(file.id)
-  }, [file.id, file.name, deleteWorkspaceFile])
+    if (!file.path) return
+    await deleteWorkspaceFile(file.path)
+  }, [file.name, file.path, deleteWorkspaceFile])
   const downloadUrl = resolveDownloadUrl(file.download_url, file.name) || file.download_url
 
   return (

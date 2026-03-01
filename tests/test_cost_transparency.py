@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from nini.agent.events import AgentEvent, EventType
-from nini.utils.token_counter import TokenTracker, TokenUsage, get_tracker
+from nini.utils.token_counter import TokenTracker, TokenRecord, get_tracker
 
 
 class TestTokenUsageData:
@@ -18,7 +18,7 @@ class TestTokenUsageData:
 
     def test_token_usage_creation(self):
         """测试创建 Token 使用记录。"""
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=100,
             completion_tokens=50,
             total_tokens=150,
@@ -32,7 +32,7 @@ class TestTokenUsageData:
 
     def test_token_usage_cost_calculation(self):
         """测试成本计算。"""
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=1000,
             completion_tokens=500,
             total_tokens=1500,
@@ -47,7 +47,7 @@ class TestTokenUsageData:
 
     def test_token_usage_serialization(self):
         """测试序列化。"""
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=100,
             completion_tokens=50,
             total_tokens=150,
@@ -73,7 +73,7 @@ class TestTokenTracker:
         """测试记录 Token 使用。"""
         tracker = TokenTracker()
 
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=100,
             completion_tokens=50,
             total_tokens=150,
@@ -88,7 +88,7 @@ class TestTokenTracker:
         """测试计算总成本。"""
         tracker = TokenTracker()
 
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=1000,
             completion_tokens=500,
             total_tokens=1500,
@@ -103,7 +103,7 @@ class TestTokenTracker:
         """测试重置追踪器。"""
         tracker = TokenTracker()
 
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=100,
             completion_tokens=50,
             total_tokens=150,
@@ -122,7 +122,7 @@ class TestTokenTracker:
         tracker = TokenTracker(budget_limit=0.01)  # $0.01
 
         # 添加大量使用
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=100000,
             completion_tokens=50000,
             total_tokens=150000,
@@ -138,7 +138,7 @@ class TestTokenTracker:
         """测试预算超限时发出警告事件。"""
         tracker = TokenTracker(budget_limit=0.01)
 
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=100000,
             completion_tokens=50000,
             total_tokens=150000,
@@ -164,7 +164,7 @@ class TestTokenEventIntegration:
 
     def test_create_token_usage_event(self):
         """测试创建 Token 使用事件。"""
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=100,
             completion_tokens=50,
             total_tokens=150,
@@ -191,7 +191,7 @@ class TestBudgetWarning:
         tracker = TokenTracker(budget_limit=1.0)
 
         # 使用 50%
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=100000,
             completion_tokens=50000,
             total_tokens=150000,
@@ -210,7 +210,7 @@ class TestBudgetWarning:
         tracker = TokenTracker(budget_limit=1.0)
 
         # 使用接近预算
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=800000,
             completion_tokens=400000,
             total_tokens=1200000,
@@ -227,7 +227,7 @@ class TestBudgetWarning:
         tracker = TokenTracker(budget_limit=0.001)  # 很小的预算
 
         # 超出预算
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=100000,
             completion_tokens=50000,
             total_tokens=150000,
@@ -252,7 +252,7 @@ class TestRealTimeUpdates:
         assert tracker.get_progress_info()["budget_percent"] == 0.0
 
         # 添加使用
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=100000,
             completion_tokens=50000,
             total_tokens=150000,
@@ -270,7 +270,7 @@ class TestRealTimeUpdates:
         """测试追踪器包含模型信息。"""
         tracker = TokenTracker()
 
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=100,
             completion_tokens=50,
             total_tokens=150,
@@ -289,7 +289,7 @@ class TestCostEstimationAccuracy:
 
     def test_gpt4o_cost_estimation(self):
         """测试 GPT-4o 成本估算。"""
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=1000,
             completion_tokens=500,
             total_tokens=1500,
@@ -304,7 +304,7 @@ class TestCostEstimationAccuracy:
 
     def test_claude_cost_estimation(self):
         """测试 Claude 成本估算。"""
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=1000,
             completion_tokens=500,
             total_tokens=1500,
@@ -319,7 +319,7 @@ class TestCostEstimationAccuracy:
 
     def test_unknown_model_cost_estimation(self):
         """测试未知模型成本估算（使用默认价格）。"""
-        usage = TokenUsage(
+        usage = TokenRecord(
             prompt_tokens=1000,
             completion_tokens=500,
             total_tokens=1500,

@@ -3,7 +3,7 @@
  *
  * 提供知识库文档的上传、查看、删除功能。
  */
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   BookOpen,
   X,
@@ -13,6 +13,7 @@ import {
   Search,
   Loader2,
   AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 
 interface KnowledgeDocument {
@@ -26,17 +27,30 @@ interface KnowledgeDocument {
 }
 
 interface KnowledgePanelProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-export default function KnowledgePanel({ isOpen, onClose }: KnowledgePanelProps) {
+interface IndexStatus {
+  vector_store_available: boolean;
+  document_count: number;
+  status_breakdown: {
+    indexed: number;
+    indexing: number;
+    failed: number;
+    pending: number;
+  };
+}
+
+export default function KnowledgePanel({ isOpen = true, onClose }: KnowledgePanelProps) {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [, setIndexStatus] = useState<IndexStatus | null>(null);
 
   // 获取文档列表
   const fetchDocuments = useCallback(async () => {
@@ -55,11 +69,45 @@ export default function KnowledgePanel({ isOpen, onClose }: KnowledgePanelProps)
     }
   }, []);
 
-  useEffect(() => {
-    if (isOpen) {
-      void fetchDocuments();
+  // 获取索引状态
+  const fetchIndexStatus = useCallback(async () => {
+    try {
+      const resp = await fetch("/api/knowledge/index/status");
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      setIndexStatus(data);
+    } catch (e) {
+      console.error("获取索引状态失败:", e);
     }
-  }, [isOpen, fetchDocuments]);
+  }, []);
+
+  // 重建索引
+  const handleRebuildIndex = async () => {
+    if (!confirm("确定要重建知识库索引吗？这可能需要一些时间。")) return;
+
+    try {
+      setRebuilding(true);
+      setError(null);
+      const resp = await fetch("/api/knowledge/index/rebuild", {
+        method: "POST",
+      });
+
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+      const data = await resp.json();
+      if (data.success) {
+        await fetchDocuments();
+        await fetchIndexStatus();
+      } else {
+        setError("索引重建失败");
+      }
+    } catch (e) {
+      console.error("重建索引失败:", e);
+      setError("重建索引失败");
+    } finally {
+      setRebuilding(false);
+    }
+  };
 
   // 上传文档
   const handleUpload = async (file: File, title?: string) => {
@@ -138,6 +186,14 @@ export default function KnowledgePanel({ isOpen, onClose }: KnowledgePanelProps)
           </span>
         </div>
         <div className="flex items-center gap-1">
+          <button
+            onClick={handleRebuildIndex}
+            disabled={rebuilding}
+            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-green-600 dark:text-green-400 disabled:opacity-50"
+            title="重建索引"
+          >
+            {rebuilding ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
+          </button>
           <button
             onClick={() => setShowUploadDialog(true)}
             className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-blue-600 dark:text-blue-400"

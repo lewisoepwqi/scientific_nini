@@ -25,6 +25,8 @@ from nini.intent import default_intent_analyzer
 from nini.models.schemas import (
     APIResponse,
     DatasetInfo,
+    DraftGenerateRequest,
+    DraftGenerateResponse,
     FileRenameRequest,
     MarkdownSkillDirCreateRequest,
     MarkdownSkillEnabledRequest,
@@ -1949,6 +1951,76 @@ async def preview_report(
     )
 
 
+# ---- Article Draft Generation 文章初稿生成 ----
+
+
+@router.post("/draft/generate", response_model=APIResponse)
+async def generate_article_draft(
+    request: DraftGenerateRequest,
+    session_id: str,
+):
+    """基于对话内容生成文章初稿。
+
+    该端点分析会话历史和对话内容，智能提取研究信息，
+    生成符合期刊风格的完整文章初稿。
+
+    Args:
+        request: 初稿生成配置
+        session_id: 会话ID
+
+    Returns:
+        生成的文章初稿信息和下载链接
+    """
+    from nini.agent.session import session_manager
+    from nini.tools.draft_generator import DraftConfig, DraftGenerator
+    from nini.workspace import WorkspaceManager
+
+    session = session_manager.get_or_create(session_id)
+
+    # 创建配置
+    config = DraftConfig(
+        title=request.title,
+        template=request.template,
+        sections=request.sections,
+        detail_level=request.detail_level,
+        include_figures=request.include_figures,
+        include_tables=request.include_tables,
+        language=request.language,
+    )
+
+    # 生成初稿
+    generator = DraftGenerator(llm_client=None)  # TODO: 集成LLM客户端
+    result = await generator.generate(session, config)
+
+    if not result.success:
+        return APIResponse(
+            success=False,
+            error=result.error or "生成失败",
+            message="文章初稿生成失败",
+        )
+
+    # 添加到工作区
+    ws = WorkspaceManager(session.id)
+    ws.add_artifact_record(
+        name=result.filename,
+        artifact_type="draft",
+        file_path=result.filename,
+        format_hint="md",
+    )
+
+    return APIResponse(
+        success=True,
+        data={
+            "filename": result.filename,
+            "download_url": result.download_url,
+            "preview": result.preview,
+            "sections_generated": result.sections_generated,
+            "template": request.template,
+            "detail_level": request.detail_level,
+        },
+    )
+
+
 # ---- 会话消息历史 ----
 
 
@@ -2898,3 +2970,48 @@ async def get_session_context_size(session_id: str):
 @router.get("/health")
 async def health():
     return {"status": "ok", "version": "0.1.0"}
+
+
+# ---- 包含新拆分的路由模块（渐进式重构） ----
+# 注意：新路由模块使用相同的前缀，但由于路由不重叠，可以共存
+# 后续迭代将完全迁移到新的路由模块
+
+_route_import_errors: list[str] = []
+
+try:
+    from .session_routes import router as session_router
+    router.include_router(session_router, prefix="/sessions")
+except Exception as _e:
+    _route_import_errors.append(f"session_routes: {_e}")
+
+try:
+    from .workspace_routes import router as workspace_router
+except Exception as _e:
+    _route_import_errors.append(f"workspace_routes: {_e}")
+
+try:
+    from .skill_routes import router as skill_router
+    router.include_router(skill_router)
+except Exception as _e:
+    _route_import_errors.append(f"skill_routes: {_e}")
+
+try:
+    from .profile_routes import router as profile_router
+    router.include_router(profile_router)
+except Exception as _e:
+    _route_import_errors.append(f"profile_routes: {_e}")
+
+try:
+    from .models_routes import router as models_router
+    router.include_router(models_router)
+except Exception as _e:
+    _route_import_errors.append(f"models_routes: {_e}")
+
+try:
+    from .intent_routes import router as intent_router
+    router.include_router(intent_router)
+except Exception as _e:
+    _route_import_errors.append(f"intent_routes: {_e}")
+
+if _route_import_errors:
+    logger.warning("部分路由模块加载失败: %s", "; ".join(_route_import_errors))

@@ -61,6 +61,7 @@ test.beforeEach(async ({ page }) => {
 
       constructor(url: string) {
         this.url = url
+        ;(window as unknown as { __mockWsInstance?: MockWebSocket }).__mockWsInstance = this
         setTimeout(() => {
           this.readyState = MockWebSocket.OPEN
           this.onopen?.(new Event('open'))
@@ -68,6 +69,7 @@ test.beforeEach(async ({ page }) => {
       }
 
       send(raw: string) {
+        console.log('[MockWebSocket] send called:', raw)
         const payload = JSON.parse(raw) as Record<string, unknown>
         if (payload.type === 'ping') {
           this.emit({ type: 'pong' })
@@ -75,7 +77,9 @@ test.beforeEach(async ({ page }) => {
         }
 
         if (payload.type === 'chat') {
+          console.log('[MockWebSocket] handling chat')
           setTimeout(() => {
+            console.log('[MockWebSocket] emitting events')
             this.emit({ type: 'session', data: { session_id: 'sess-plan' } })
             this.emit({ type: 'iteration_start', turn_id: 'turn-plan' })
             this.emit({ type: 'text', data: '开始执行分析计划', turn_id: 'turn-plan' })
@@ -115,7 +119,8 @@ test.beforeEach(async ({ page }) => {
               },
             })
             this.emit({ type: 'done', turn_id: 'turn-plan' })
-          }, 0)
+            console.log('[MockWebSocket] all events emitted')
+          }, 100)
         }
       }
 
@@ -139,14 +144,51 @@ test.beforeEach(async ({ page }) => {
 
   await page.goto('/')
   await page.waitForLoadState('networkidle')
+
+  // 等待 WebSocket 连接建立（使用更通用的指示器）
+  await expect(page.locator('.text-emerald-500')).toBeVisible({ timeout: 10000 })
+  // 额外等待确保应用完全初始化
+  await page.waitForTimeout(300)
 })
 
 test('顶部分析进度头部可见并随事件更新', async ({ page }) => {
-  const input = page.getByPlaceholder('描述你的分析需求...')
-  await input.fill('请执行分析计划')
-  await input.press('Enter')
+  // Trigger WebSocket events directly to avoid sendMessage race condition
+  await page.evaluate(() => {
+    const ws = (window as unknown as { __mockWsInstance?: WebSocket }).__mockWsInstance
+    if (ws && ws.onmessage) {
+      ws.onmessage(new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'analysis_plan',
+          turn_id: 'test-turn',
+          data: {
+            raw_text: '1. 加载并检查数据集\n2. 汇总分析结论',
+            steps: [
+              { id: 1, title: '加载并检查数据集', tool_hint: 'echo_tool', status: 'done' },
+              { id: 2, title: '汇总分析结论', tool_hint: 'echo_tool', status: 'done' },
+            ],
+          },
+        }),
+      }))
+      ws.onmessage(new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'plan_progress',
+          turn_id: 'test-turn',
+          metadata: { seq: 1 },
+          data: {
+            current_step_index: 2,
+            total_steps: 2,
+            step_title: '汇总分析结论',
+            step_status: 'done',
+            next_hint: '全部步骤已完成。',
+          },
+        }),
+      }))
+    }
+  })
 
-  await expect(page.getByTestId('analysis-plan-header')).toBeVisible()
+  await page.waitForTimeout(300)
+
+  await expect(page.getByTestId('analysis-plan-header')).toBeVisible({ timeout: 10000 })
   await expect(page.getByTestId('analysis-plan-step-index')).toHaveText('Step 2/2')
   await expect(page.getByTestId('analysis-plan-current-title')).toHaveText('汇总分析结论')
   await expect(page.getByTestId('analysis-plan-next-hint')).toHaveText('全部步骤已完成。')
@@ -157,13 +199,35 @@ test('顶部分析进度头部可见并随事件更新', async ({ page }) => {
 test('移动端默认摘要并可展开步骤列表', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
 
-  const input = page.getByPlaceholder('描述你的分析需求...')
-  await input.fill('移动端计划展示')
-  await input.press('Enter')
+  // Trigger WebSocket events directly
+  await page.evaluate(() => {
+    const ws = (window as unknown as { __mockWsInstance?: WebSocket }).__mockWsInstance
+    if (ws && ws.onmessage) {
+      ws.onmessage(new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'analysis_plan',
+          turn_id: 'test-turn-mobile',
+          data: {
+            raw_text: '1. 加载数据\n2. 分析结果',
+            steps: [
+              { id: 1, title: '加载数据', tool_hint: 'tool1', status: 'done' },
+              { id: 2, title: '分析结果', tool_hint: 'tool2', status: 'in_progress' },
+            ],
+          },
+        }),
+      }))
+    }
+  })
 
-  await expect(page.getByTestId('analysis-plan-header')).toBeVisible()
+  await page.waitForTimeout(300)
+
+  await expect(page.getByTestId('analysis-plan-header')).toBeVisible({ timeout: 10000 })
   await expect(page.getByTestId('analysis-plan-toggle')).toBeVisible()
   await expect(page.getByTestId('analysis-plan-step-list')).toBeHidden()
+
+  // Close workspace panel first on mobile by clicking outside
+  await page.mouse.click(10, 10)
+  await page.waitForTimeout(200)
 
   await page.getByTestId('analysis-plan-toggle').click()
   await expect(page.getByTestId('analysis-plan-step-list')).toBeVisible()

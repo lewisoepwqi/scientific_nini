@@ -5,8 +5,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -21,8 +24,88 @@ from nini.models.knowledge import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/knowledge")
 
-# 模拟文档存储（实际项目中应使用数据库）
+# 文档元数据存储（持久化到 JSON 文件）
 _document_store: dict[str, dict[str, Any]] = {}
+
+# 元数据文件路径（项目根目录下的 data/knowledge）
+_METADATA_FILE = Path(__file__).parent.parent.parent.parent / "data" / "knowledge" / "metadata.json"
+
+
+def _load_document_store() -> None:
+    """从文件加载文档元数据。如果 metadata.json 不存在，扫描现有文档文件。"""
+    global _document_store
+    knowledge_dir = _METADATA_FILE.parent
+
+    if _METADATA_FILE.exists():
+        # 从 metadata.json 加载
+        try:
+            with open(_METADATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                # 确保只加载有效的文档（文件仍然存在）
+                for doc_id, doc_meta in data.items():
+                    doc_file = knowledge_dir / f"{doc_id}.txt"
+                    if doc_file.exists():
+                        # 读取文件内容
+                        try:
+                            with open(doc_file, "r", encoding="utf-8") as df:
+                                doc_meta["content"] = df.read()
+                            _document_store[doc_id] = doc_meta
+                        except Exception as e:
+                            logger.warning(f"加载文档内容失败 {doc_id}: {e}")
+                    else:
+                        logger.warning(f"文档文件不存在，跳过: {doc_id}")
+            logger.info(f"已加载 {len(_document_store)} 个知识库文档")
+        except Exception as e:
+            logger.error(f"加载文档元数据失败: {e}")
+            _document_store = {}
+    else:
+        # 扫描现有文档文件重建元数据
+        logger.info("metadata.json 不存在，扫描现有文档文件...")
+        _document_store = {}
+        from datetime import datetime, timezone
+
+        for doc_file in knowledge_dir.glob("*.txt"):
+            doc_id = doc_file.stem
+            try:
+                with open(doc_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+                stat = doc_file.stat()
+                _document_store[doc_id] = {
+                    "id": doc_id,
+                    "title": doc_file.name,
+                    "content": content,
+                    "file_type": "txt",
+                    "file_size": len(content.encode("utf-8")),
+                    "index_status": "indexed",  # 假设已索引
+                    "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                    "updated_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                    "description": "",
+                    "domain": "general",
+                    "tags": [],
+                    "chunk_count": max(1, len(content) // 1000),
+                }
+                logger.info(f"重建文档元数据: {doc_id}")
+            except Exception as e:
+                logger.warning(f"读取文档文件失败 {doc_id}: {e}")
+
+        if _document_store:
+            _save_document_store()
+            logger.info(f"已重建并保存 {len(_document_store)} 个文档元数据")
+
+
+def _save_document_store() -> None:
+    """保存文档元数据到文件（不包含 content 字段）。"""
+    try:
+        _METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+        # 保存时不包含 content 字段（内容存储在单独的文件中）
+        metadata_to_save = {}
+        for doc_id, doc_meta in _document_store.items():
+            meta_copy = {k: v for k, v in doc_meta.items() if k != "content"}
+            metadata_to_save[doc_id] = meta_copy
+        with open(_METADATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(metadata_to_save, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"保存文档元数据失败: {e}")
 
 
 @router.post("/search")
@@ -154,6 +237,9 @@ async def upload_document(
         else:
             _document_store[doc_id]["index_status"] = "failed"
 
+        # 保存元数据
+        _save_document_store()
+
         return {
             "success": success,
             "document_id": doc_id,
@@ -186,6 +272,17 @@ async def delete_document(document_id: str) -> dict[str, Any]:
 
         # 从存储中移除
         del _document_store[document_id]
+
+        # 保存元数据
+        _save_document_store()
+
+        # 删除文档文件
+        try:
+            doc_file = _METADATA_FILE.parent / f"{document_id}.txt"
+            if doc_file.exists():
+                doc_file.unlink()
+        except Exception as e:
+            logger.warning(f"删除文档文件失败 {document_id}: {e}")
 
         return {
             "success": True,
@@ -235,3 +332,63 @@ async def get_document(document_id: str) -> dict[str, Any]:
     except Exception as e:
         logger.error(f"获取文档详情失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取详情失败: {e}")
+
+
+@router.post("/index/rebuild")
+async def rebuild_index() -> dict[str, Any]:
+    """重建知识库索引。
+
+    Returns:
+        重建结果
+    """
+    try:
+        retriever = await get_hybrid_retriever()
+        success = await retriever.rebuild_index()
+
+        # 更新所有文档的索引状态
+        for doc_id in _document_store:
+            _document_store[doc_id]["index_status"] = "indexed" if success else "failed"
+
+        # 保存元数据
+        _save_document_store()
+
+        return {
+            "success": success,
+            "message": "索引重建成功" if success else "索引重建失败",
+            "document_count": len(_document_store),
+        }
+
+    except Exception as e:
+        logger.error(f"重建索引失败: {e}")
+        raise HTTPException(status_code=500, detail=f"重建索引失败: {e}")
+
+
+@router.get("/index/status")
+async def get_index_status() -> dict[str, Any]:
+    """获取索引状态。
+
+    Returns:
+        索引状态信息
+    """
+    try:
+        retriever = await get_hybrid_retriever()
+        status = await retriever.get_status()
+
+        # 统计文档状态
+        status_counts = {"indexed": 0, "indexing": 0, "failed": 0, "pending": 0}
+        for doc in _document_store.values():
+            status_counts[doc.get("index_status", "pending")] += 1
+
+        return {
+            "vector_store_available": status.get("vector_store_available", False),
+            "document_count": len(_document_store),
+            "status_breakdown": status_counts,
+        }
+
+    except Exception as e:
+        logger.error(f"获取索引状态失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取状态失败: {e}")
+
+
+# 模块加载时初始化文档存储
+_load_document_store()

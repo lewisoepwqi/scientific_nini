@@ -1,66 +1,16 @@
 /**
  * 对话主面板 —— 消息列表 + 输入框，居中限宽。
  * 输入区提取为 ChatInputArea，避免每次击键触发消息列表重渲染。
- * 按 turnId 对 Agent 消息进行分组折叠。
+ * 所有消息按原始顺序展示，保持思考-行动-回答的连贯性。
  */
 import { useEffect, useRef, useMemo, useCallback } from 'react'
-import { useStore, type Message } from '../store'
+import { useStore } from '../store'
 import MessageBubble from './MessageBubble'
-import AgentTurnGroup from './AgentTurnGroup'
 import ChatInputArea from './ChatInputArea'
 import AskUserQuestionPanel from './AskUserQuestionPanel'
 import IntentSummaryCard from './IntentSummaryCard'
 import IntentTimelineItem from './IntentTimelineItem'
 import { Loader2 } from 'lucide-react'
-
-/** 消息分组：用户消息独立，同一 turnId 的 agent 消息合并为一组 */
-interface MessageGroup {
-  type: 'user' | 'agent-turn'
-  messages: Message[]
-  key: string
-}
-
-function groupMessages(messages: Message[]): MessageGroup[] {
-  const groups: MessageGroup[] = []
-  let currentTurnId: string | null = null
-  let currentGroup: Message[] = []
-
-  const flushGroup = () => {
-    if (currentGroup.length > 0) {
-      groups.push({
-        type: 'agent-turn',
-        messages: currentGroup,
-        key: currentTurnId || currentGroup[0].id,
-      })
-      currentGroup = []
-      currentTurnId = null
-    }
-  }
-
-  for (const msg of messages) {
-    if (msg.role === 'user') {
-      flushGroup()
-      groups.push({ type: 'user', messages: [msg], key: msg.id })
-      continue
-    }
-
-    // agent/tool 消息：按 turnId 分组
-    const turnId = msg.turnId || null
-
-    if (turnId && turnId === currentTurnId) {
-      // 同一 turn，加入当前组
-      currentGroup.push(msg)
-    } else {
-      // 新 turn 或无 turnId
-      flushGroup()
-      currentTurnId = turnId
-      currentGroup = [msg]
-    }
-  }
-
-  flushGroup()
-  return groups
-}
 
 export default function ChatPanel() {
   const messages = useStore((s) => s.messages)
@@ -73,7 +23,7 @@ export default function ChatPanel() {
   const retryLastTurn = useStore((s) => s.retryLastTurn)
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  const messageGroups = useMemo(() => groupMessages(messages), [messages])
+  // 找到最后一条用户消息用于重试逻辑
   const lastUserIndex = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'user') return i
@@ -138,43 +88,33 @@ export default function ChatPanel() {
             </div>
           )}
 
-          {messageGroups.map((group) => {
-            if (group.type === 'user') {
-              const userMessage = group.messages[0]
-              const showRetry =
-                userMessage.id === lastUserMessageId &&
-                canRetry &&
-                !lastRetryableAssistantErrorId
-              const isLastUser = userMessage.id === lastUserMessageId
+          {/* 所有消息按原始顺序展示 */}
+          {messages.map((msg) => {
+            const isUser = msg.role === 'user'
+            const isLastUser = isUser && msg.id === lastUserMessageId
+            const showRetry =
+              isUser &&
+              msg.id === lastUserMessageId &&
+              canRetry &&
+              !lastRetryableAssistantErrorId
 
-              return (
-                <div key={group.key}>
-                  <MessageBubble
-                    message={userMessage}
-                    showRetry={showRetry}
-                    onRetry={handleRetry}
-                    retryDisabled={isStreaming}
-                  />
-                  {/* 在最新消息后显示 IntentTimelineItem */}
-                  {isLastUser && currentIntentAnalysis && (
-                    <IntentTimelineItem
-                      analysis={currentIntentAnalysis}
-                      onApplySuggestion={setComposerDraft}
-                      isActive={!isStreaming}
-                    />
-                  )}
-                </div>
-              )
-            }
-            // Agent turn 分组
             return (
-              <AgentTurnGroup
-                key={group.key}
-                messages={group.messages}
-                retryMessageId={lastRetryableAssistantErrorId}
-                onRetry={handleRetry}
-                retryDisabled={isStreaming}
-              />
+              <div key={msg.id}>
+                <MessageBubble
+                  message={msg}
+                  showRetry={showRetry}
+                  onRetry={handleRetry}
+                  retryDisabled={isStreaming}
+                />
+                {/* 在最新消息后显示 IntentTimelineItem */}
+                {isLastUser && currentIntentAnalysis && (
+                  <IntentTimelineItem
+                    analysis={currentIntentAnalysis}
+                    onApplySuggestion={setComposerDraft}
+                    isActive={!isStreaming}
+                  />
+                )}
+              </div>
             )
           })}
 

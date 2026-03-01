@@ -24,6 +24,34 @@ def _create_correlation_analysis_executor(registry: Any | None = None) -> Any:
     return CorrelationAnalysisCapability(registry=registry)
 
 
+def _create_regression_analysis_executor(registry: Any | None = None) -> Any:
+    """创建回归分析能力执行器。"""
+    from nini.capabilities.implementations import RegressionAnalysisCapability
+
+    return RegressionAnalysisCapability(registry=registry)
+
+
+def _create_data_exploration_executor(registry: Any | None = None) -> Any:
+    """创建数据探索能力执行器。"""
+    from nini.capabilities.implementations import DataExplorationCapability
+
+    return DataExplorationCapability(registry=registry)
+
+
+def _create_data_cleaning_executor(registry: Any | None = None) -> Any:
+    """创建数据清洗能力执行器。"""
+    from nini.capabilities.implementations import DataCleaningCapability
+
+    return DataCleaningCapability(registry=registry)
+
+
+def _create_visualization_executor(registry: Any | None = None) -> Any:
+    """创建可视化能力执行器。"""
+    from nini.capabilities.implementations import VisualizationCapability
+
+    return VisualizationCapability(registry=registry)
+
+
 def create_default_capabilities() -> list[Capability]:
     """创建默认能力集。
 
@@ -78,7 +106,8 @@ def create_default_capabilities() -> list[Capability]:
             display_name="回归分析",
             description="建立变量间的回归模型，进行预测和解释",
             icon="📉",
-            execution_message="当前版本暂未提供回归分析的直接执行入口，请先通过对话调用相关工具。",
+            is_executable=True,
+            executor_factory=_create_regression_analysis_executor,
             required_tools=[
                 "load_dataset",
                 "data_summary",
@@ -96,7 +125,9 @@ def create_default_capabilities() -> list[Capability]:
             display_name="数据探索",
             description="全面了解数据特征：分布、缺失值、异常值等",
             icon="🔍",
-            execution_message="当前版本暂未提供数据探索的直接执行入口，请先通过对话调用相关工具。",
+            is_executable=False,
+            execution_message="请在对话中告知你要探索的数据集，Agent 将调用数据探索工具为你生成分布、缺失值和异常值分析。",
+            executor_factory=_create_data_exploration_executor,
             required_tools=[
                 "load_dataset",
                 "preview_data",
@@ -115,7 +146,8 @@ def create_default_capabilities() -> list[Capability]:
             display_name="数据清洗",
             description="处理缺失值、异常值，提升数据质量",
             icon="🧹",
-            execution_message="当前版本暂未提供数据清洗的直接执行入口，请先通过对话调用相关工具。",
+            is_executable=True,
+            executor_factory=_create_data_cleaning_executor,
             required_tools=[
                 "load_dataset",
                 "data_summary",
@@ -134,7 +166,8 @@ def create_default_capabilities() -> list[Capability]:
             display_name="可视化",
             description="创建各类图表展示数据特征和分析结果",
             icon="📊",
-            execution_message="当前版本暂未提供可视化能力的直接执行入口，请先通过对话调用相关工具。",
+            is_executable=True,
+            executor_factory=_create_visualization_executor,
             required_tools=[
                 "load_dataset",
                 "create_chart",
@@ -158,6 +191,29 @@ def create_default_capabilities() -> list[Capability]:
             ],
             suggested_workflow=[
                 "generate_report",
+                "export_report",
+            ],
+        ),
+        Capability(
+            name="article_draft",
+            display_name="科研文章初稿",
+            description="根据数据分析结果，自动编排多个分析工具逐章生成结构完整的科研论文初稿（摘要/方法/结果/讨论等章节）",
+            icon="📝",
+            is_executable=False,
+            execution_message="请在对话中描述你的研究背景和数据，Agent 将调用 article_draft 技能为你逐章生成论文初稿。",
+            required_tools=[
+                "data_summary",
+                "interpret_stat_result",
+                "create_chart",
+                "edit_file",
+                "generate_report",
+                "export_report",
+            ],
+            suggested_workflow=[
+                "data_summary",
+                "interpret_stat_result",
+                "create_chart",
+                "edit_file",
                 "export_report",
             ],
         ),

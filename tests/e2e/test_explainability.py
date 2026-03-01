@@ -65,47 +65,47 @@ class TestExplainabilityWorkflow:
 
     def test_reasoning_type_detection(self):
         """测试推理类型检测。"""
-        from nini.agent.runner import _detect_reasoning_type
+        from nini.agent.components.reasoning_tracker import detect_reasoning_type
 
         # 分析类型
         analysis_text = "我需要分析这些数据的分布特征"
-        assert _detect_reasoning_type(analysis_text) == "analysis"
+        assert detect_reasoning_type(analysis_text) == "analysis"
 
         # 决策类型
         decision_text = "因此我决定使用 t 检验"
-        assert _detect_reasoning_type(decision_text) == "decision"
+        assert detect_reasoning_type(decision_text) == "decision"
 
         # 规划类型
         planning_text = "首先加载数据，然后进行分析"
-        assert _detect_reasoning_type(planning_text) == "planning"
+        assert detect_reasoning_type(planning_text) == "planning"
 
         # 反思类型
         reflection_text = "但是我需要重新考虑这个方法"
-        assert _detect_reasoning_type(reflection_text) == "reflection"
+        assert detect_reasoning_type(reflection_text) == "reflection"
 
     def test_key_decisions_extraction(self):
         """测试关键决策提取。"""
-        from nini.agent.runner import _detect_key_decisions
+        from nini.agent.components.reasoning_tracker import detect_key_decisions
 
         content = "我决定使用 ANOVA 方法。我选择 alpha=0.05。"
-        decisions = _detect_key_decisions(content)
+        decisions = detect_key_decisions(content)
 
         assert len(decisions) >= 1
         assert any("决定" in d or "选择" in d for d in decisions)
 
     def test_confidence_score_calculation(self):
         """测试置信度分数计算。"""
-        from nini.agent.runner import _calculate_confidence_score
+        from nini.agent.components.reasoning_tracker import calculate_confidence_score
 
         # 高置信度
         high_confidence = "这 clearly 是一个 definitely 正确的决定"
-        score = _calculate_confidence_score(high_confidence)
+        score = calculate_confidence_score(high_confidence)
         assert score is not None
         assert score > 0.5
 
         # 低置信度
         low_confidence = "这可能 maybe 不确定"
-        score = _calculate_confidence_score(low_confidence)
+        score = calculate_confidence_score(low_confidence)
         assert score is not None
         assert score < 0.5
 

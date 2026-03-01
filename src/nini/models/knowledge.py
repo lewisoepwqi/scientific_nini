@@ -35,6 +35,7 @@ class KnowledgeSearchResult(BaseModel):
     total_count: int = 0
     search_method: Literal["vector", "keyword", "hybrid"] = "hybrid"
     search_time_ms: Optional[int] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """转换为字典。"""
@@ -44,6 +45,7 @@ class KnowledgeSearchResult(BaseModel):
             "total_count": self.total_count,
             "search_method": self.search_method,
             "search_time_ms": self.search_time_ms,
+            "metadata": self.metadata,
         }
 
 

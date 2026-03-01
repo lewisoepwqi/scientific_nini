@@ -100,11 +100,13 @@ def create_app() -> FastAPI:
     from nini.api.websocket import router as ws_router
     from nini.api.cost_routes import router as cost_router
     from nini.api.knowledge_routes import router as knowledge_router
+    from nini.api.memory_routes import router as memory_router
 
     app.include_router(http_router)
     app.include_router(ws_router)
     app.include_router(cost_router)
     app.include_router(knowledge_router)
+    app.include_router(memory_router)
 
     # 挂载前端静态文件（如果已构建）
     if _WEB_DIST.exists() and (_WEB_DIST / "index.html").exists():
