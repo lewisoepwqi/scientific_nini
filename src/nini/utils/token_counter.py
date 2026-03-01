@@ -6,10 +6,14 @@ token 消耗追踪和 API 成本估算。
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
+
+from nini.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +131,66 @@ class SessionTokenTracker:
 
     session_id: str
     records: list[UsageRecord] = field(default_factory=list)
+    _persist_enabled: bool = field(default=True, repr=False)
+
+    def __post_init__(self) -> None:
+        """初始化后从磁盘加载历史记录。"""
+        if self._persist_enabled:
+            self._load_from_disk()
+
+    def _get_cost_file_path(self) -> Path:
+        """获取成本记录文件路径。"""
+        return settings.sessions_dir / self.session_id / "cost.jsonl"
+
+    def _load_from_disk(self) -> None:
+        """从磁盘加载历史成本记录。"""
+        cost_file = self._get_cost_file_path()
+        if not cost_file.exists():
+            return
+
+        try:
+            with open(cost_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        rec = UsageRecord(
+                            timestamp=data.get("timestamp", time.time()),
+                            model=data.get("model", "unknown"),
+                            input_tokens=data.get("input_tokens", 0),
+                            output_tokens=data.get("output_tokens", 0),
+                            cost_usd=data.get("cost_usd"),
+                        )
+                        self.records.append(rec)
+                    except (json.JSONDecodeError, KeyError, TypeError):
+                        continue
+            logger.debug(f"Loaded {len(self.records)} cost records for session {self.session_id}")
+        except Exception as exc:
+            logger.warning(f"Failed to load cost history for session {self.session_id}: {exc}")
+
+    def _append_to_disk(self, rec: UsageRecord) -> None:
+        """追加单条记录到磁盘。"""
+        if not self._persist_enabled:
+            return
+
+        try:
+            cost_file = self._get_cost_file_path()
+            cost_file.parent.mkdir(parents=True, exist_ok=True)
+
+            record_line = json.dumps({
+                "timestamp": rec.timestamp,
+                "model": rec.model,
+                "input_tokens": rec.input_tokens,
+                "output_tokens": rec.output_tokens,
+                "cost_usd": rec.cost_usd,
+            }, ensure_ascii=False)
+
+            with open(cost_file, "a", encoding="utf-8") as f:
+                f.write(record_line + "\n")
+        except Exception as exc:
+            logger.warning(f"Failed to persist cost record for session {self.session_id}: {exc}")
 
     def record(
         self,
@@ -144,6 +208,7 @@ class SessionTokenTracker:
             cost_usd=cost,
         )
         self.records.append(rec)
+        self._append_to_disk(rec)
         return rec
 
     @property
@@ -209,7 +274,7 @@ def remove_tracker(session_id: str) -> None:
 
 
 @dataclass
-class TokenUsage:
+class TokenRecord:
     """单次 Token 使用记录（兼容新测试）。"""
 
     prompt_tokens: int
@@ -252,7 +317,7 @@ class TokenTracker:
         self._total_tokens = 0
         self._total_cost = 0.0
         self._models_used: dict[str, int] = {}
-        self._usage_records: list[TokenUsage] = []
+        self._usage_records: list[TokenRecord] = []
 
     @property
     def total_tokens(self) -> int:
@@ -262,7 +327,7 @@ class TokenTracker:
     def total_cost(self) -> float:
         return self._total_cost
 
-    def record_usage(self, usage: TokenUsage) -> None:
+    def record_usage(self, usage: TokenRecord) -> None:
         """记录 Token 使用。"""
         self._usage_records.append(usage)
         self._total_tokens += usage.total_tokens

@@ -405,16 +405,39 @@ class VectorKnowledgeStore:
         """获取文档信息.
 
         Args:
-            doc_id: 文档 ID
+            doc_id: 文档 ID (可能是文件名如 'apa_results.md' 或 UUID)
 
         Returns:
             文档信息字典，不存在返回 None
         """
         try:
-            doc_path = self._knowledge_dir / f"{doc_id}.txt"
+            # 首先尝试直接查找文件（文件名可能包含子目录如 'methods/comparison.md'）
+            doc_path = self._knowledge_dir / doc_id
+            if not doc_path.exists():
+                # 尝试递归搜索文件名（不包括子目录）
+                file_name = doc_id.split('/')[-1] if '/' in doc_id else doc_id
+                for found_path in self._knowledge_dir.rglob(file_name):
+                    doc_path = found_path
+                    break
+
+            if not doc_path.exists() and not doc_id.endswith('.md'):
+                # 尝试添加 .md 扩展名
+                md_file = f"{doc_id}.md"
+                for found_path in self._knowledge_dir.rglob(md_file):
+                    doc_path = found_path
+                    break
+
+            if not doc_path.exists() and not doc_id.endswith('.txt'):
+                # 最后尝试 .txt 格式（向后兼容）
+                txt_file = f"{doc_id}.txt"
+                for found_path in self._knowledge_dir.rglob(txt_file):
+                    doc_path = found_path
+                    break
+
             meta_path = self._storage_dir / f"{doc_id}_meta.json"
 
             if not doc_path.exists():
+                logger.warning(f"文档文件不存在: {doc_id}")
                 return None
 
             content = doc_path.read_text(encoding="utf-8")
@@ -435,3 +458,21 @@ class VectorKnowledgeStore:
     def _initialized(self) -> bool:
         """内部属性：检查是否已初始化."""
         return self.is_available
+
+    async def rebuild_index(self) -> bool:
+        """重建向量索引.
+
+        Returns:
+            是否成功
+        """
+        try:
+            logger.info("开始重建向量索引...")
+            success = self._build_index()
+            if success:
+                logger.info("向量索引重建完成")
+            else:
+                logger.warning("向量索引重建失败")
+            return success
+        except Exception as e:
+            logger.error(f"重建向量索引失败: {e}")
+            return False

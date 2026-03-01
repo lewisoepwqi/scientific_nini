@@ -175,9 +175,16 @@ class Settings(BaseSettings):
     font_fallback_url: str = ""  # 自定义字体下载 URL，空串使用内置镜像列表
     font_auto_download: bool = True  # 是否启用运行时自动下载字体
 
+    # ---- 功能特性开关 ----
+    enable_cost_tracking: bool = True  # 启用成本追踪
+    enable_reasoning: bool = True  # 启用推理事件展示
+    enable_knowledge: bool = True  # 启用知识库 RAG
+
     # ---- 知识库 ----
     knowledge_max_entries: int = 3  # 每次注入最多几个知识条目
     knowledge_max_chars: int = 3000  # 注入总字符数上限
+    knowledge_max_tokens: int = 2000  # 知识注入 token 上限
+    knowledge_top_k: int = 5  # 向量检索返回的最大条目数
     knowledge_openai_embedding_model: str = "text-embedding-3-small"
     knowledge_local_embedding_model: str = "BAAI/bge-small-zh-v1.5"
     prompt_component_max_chars: int = 20000

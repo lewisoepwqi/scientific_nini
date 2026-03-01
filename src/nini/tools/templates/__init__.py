@@ -7,6 +7,7 @@
 from nini.tools.templates.complete_anova import CompleteANOVASkill
 from nini.tools.templates.complete_comparison import CompleteComparisonSkill
 from nini.tools.templates.correlation_analysis import CorrelationAnalysisSkill
+from nini.tools.templates.regression_analysis import RegressionAnalysisSkill
 
 # 导入期刊样式模板功能
 from nini.tools.templates.journal_styles import (
@@ -24,6 +25,7 @@ __all__ = [
     "CompleteComparisonSkill",
     "CompleteANOVASkill",
     "CorrelationAnalysisSkill",
+    "RegressionAnalysisSkill",
     # 期刊模板函数
     "get_templates",
     "get_template_names",
@@ -55,6 +57,8 @@ def get_template(name: str):
         return CompleteANOVASkill()
     if name == "correlation_analysis":
         return CorrelationAnalysisSkill()
+    if name == "regression_analysis":
+        return RegressionAnalysisSkill()
 
     # 然后检查期刊样式模板
     from nini.tools.templates.journal_styles import get_template as get_journal_template

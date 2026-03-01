@@ -64,12 +64,32 @@ class ModelPricing(BaseModel):
         return (input_tokens * self.input_price + output_tokens * self.output_price) / 1000
 
 
+class TierDefinition(BaseModel):
+    """模型层级定义。"""
+
+    name: str  # 层级名称
+    description: str = ""  # 层级描述
+    max_input_tokens: int = 0  # 最大输入 token 数
+    max_output_tokens: int = 0  # 最大输出 token 数
+    models: list[str] = Field(default_factory=list)  # 该层级包含的模型
+
+
+class CostWarning(BaseModel):
+    """成本警告配置。"""
+
+    threshold_percent: float = 80.0  # 警告阈值百分比
+    message: str = "成本已超过阈值的 {percent}%"
+    notification_type: str = "warning"  # info, warning, critical
+
+
 class PricingConfig(BaseModel):
     """定价配置集合。"""
 
     models: dict[str, ModelPricing] = Field(default_factory=dict)
     usd_to_cny_rate: float = 7.2
     default_model: str = "gpt-4o"
+    tier_definitions: dict[str, TierDefinition] = Field(default_factory=dict)  # 层级定义
+    cost_warnings: list[CostWarning] = Field(default_factory=list)  # 成本警告配置
 
     def get_model_pricing(self, model_id: str) -> Optional[ModelPricing]:
         """获取指定模型的定价配置。"""

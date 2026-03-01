@@ -132,18 +132,20 @@ class TestAnalysisMemoryInjection:
     def teardown_method(self) -> None:
         clear_session_analysis_memories(self.session.id)
 
-    def test_no_injection_when_empty(self) -> None:
+    @pytest.mark.asyncio
+    async def test_no_injection_when_empty(self) -> None:
         """没有分析记忆时不应注入。"""
         from nini.agent.runner import AgentRunner
 
         runner = AgentRunner()
-        messages, _ = runner._build_messages_and_retrieval(self.session)
+        messages, _ = await runner._build_messages_and_retrieval(self.session)
         # 只有 system message
         for msg in messages:
             if msg["role"] == "assistant":
                 assert "分析记忆" not in msg["content"]
 
-    def test_injection_when_has_memories(self) -> None:
+    @pytest.mark.asyncio
+    async def test_injection_when_has_memories(self) -> None:
         """有分析记忆时应注入到上下文中。"""
         from nini.agent.runner import AgentRunner
 
@@ -157,7 +159,7 @@ class TestAnalysisMemoryInjection:
         )
 
         runner = AgentRunner()
-        messages, _ = runner._build_messages_and_retrieval(self.session)
+        messages, _ = await runner._build_messages_and_retrieval(self.session)
 
         # 查找包含分析记忆的 assistant 消息
         found = False

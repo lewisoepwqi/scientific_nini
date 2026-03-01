@@ -22,7 +22,7 @@ class WSMessage(BaseModel):
 class WSEvent(BaseModel):
     """服务端推送的 WebSocket 事件。"""
 
-    type: str  # text / tool_call / tool_result / ask_user_question / retrieval / chart / data / analysis_plan / plan_step_update / plan_progress / task_attempt / done / stopped / error / iteration_start
+    type: str  # text / tool_call / tool_result / ask_user_question / retrieval / chart / data / analysis_plan / plan_step_update / plan_progress / task_attempt / done / stopped / error / iteration_start / session / reasoning
     data: Any = None
     session_id: Optional[str] = None
     tool_call_id: Optional[str] = None
@@ -248,5 +248,33 @@ class ReportExportRequest(BaseModel):
 
     format: str = "md"  # md/docx/pdf
     filename: Optional[str] = None
+
+
+# ---- Article Draft Generation 文章初稿生成 ----
+
+
+class DraftGenerateRequest(BaseModel):
+    """文章初稿生成请求。"""
+
+    title: str = "研究文章初稿"
+    template: str = "nature"  # nature/science/cell/nejm/lancet/apa/ieee
+    sections: list[str] = Field(
+        default_factory=lambda: ["abstract", "introduction", "methods", "results", "discussion"]
+    )
+    detail_level: str = "standard"  # brief/standard/detailed
+    include_figures: bool = True
+    include_tables: bool = True
+    language: str = "zh"  # zh/en
+
+
+class DraftGenerateResponse(BaseModel):
+    """文章初稿生成响应。"""
+
+    success: bool
+    filename: str = ""
+    download_url: str = ""
+    preview: str = ""  # 文章前500字预览
+    error: Optional[str] = None
+    sections_generated: list[str] = Field(default_factory=list)
 
 

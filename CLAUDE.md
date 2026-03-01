@@ -50,15 +50,29 @@ python -m build                # 打包到 dist/
 
 **多模型路由**：`agent/model_resolver.py` 中 `ModelResolver` 管理多 LLM 客户端（OpenAI、Anthropic、Ollama、Moonshot、Kimi Coding、智谱、DeepSeek、阿里百炼），统一为 `BaseLLMClient.chat()` 异步流式接口。按优先级尝试，失败自动降级到下一个可用提供商。
 
-**技能系统**：每个技能继承 `tools/base.py:Skill`，实现 `execute(session, **kwargs) -> SkillResult`。`tools/registry.py:SkillRegistry` 在启动时注册全部技能，并提供给 LLM 的 tools schema。注意：`skills/` 目录仅存放提示词模板（`skills/templates/`），技能实现均在 `tools/`。技能分类：
-- 统计：`t_test`、`anova`、`correlation`、`regression`、`mann_whitney`、`kruskal_wallis`（含自动降级，如正态性不满足 t_test → mann_whitney）、`multiple_comparison`
-- 可视化：`create_chart`（7 种图表 + 6 种期刊风格）、`export_chart`
-- 数据操作：`load_dataset`、`preview_data`、`data_summary`、`clean_data`、`data_quality`、`diagnostics`
-- 代码执行：`run_code`（通过 `sandbox/executor.py` 进程隔离执行，受限 builtins + 内存/时间限制）；`run_r_code`（通过 `sandbox/r_executor.py` + `sandbox/r_policy.py`，需本地 R 环境）
-- 网络/多模态：`fetch_url`（网页抓取）、`image_analysis`（图像分析）、`interpretation`（统计结果解读）
-- 任务规划：`task_write`（LLM 驱动的任务列表生成，配合 `agent/task_manager.py` 使用）
-- 产物：`generate_report`、`export_report`、`organize_workspace`
-- 复合技能模板：`tools/templates.py` 中预定义多步分析流程
+**三层架构 - Tools / Skills / Capabilities**：
+
+1. **Tools**（`tools/` 目录）：原子函数层，模型可直接调用的工具
+   - 继承 `tools/base.py:Skill` 基类（历史原因保留 Skill 命名）
+   - 实现 `execute(session, **kwargs) -> SkillResult` 接口
+   - 由 `tools/registry.py:ToolRegistry` 管理并暴露给 LLM
+   - 工具分类：
+     - 统计：`t_test`、`anova`、`correlation`、`regression`、`mann_whitney`、`kruskal_wallis`、`multiple_comparison`
+     - 可视化：`create_chart`、`export_chart`
+     - 数据操作：`load_dataset`、`preview_data`、`data_summary`、`clean_data`、`data_quality`、`diagnostics`
+     - 代码执行：`run_code`（sandbox 进程隔离）、`run_r_code`
+     - 网络/多模态：`fetch_url`、`image_analysis`、`interpretation`
+     - 任务规划：`task_write`
+     - 产物：`generate_report`、`export_report`、`organize_workspace`
+     - 复合模板：`tools/templates/` 中预定义多步分析流程
+
+2. **Skills**（`skills/` 目录）：完整工作流项目（预留扩展）
+   - Markdown + 脚本 + 参考文档的完整工作流
+   - 当前目录预留，用于后续存放复杂工作流技能
+
+3. **Capabilities**（`capabilities/` 目录）：用户层面能力元数据
+   - 用户可理解的能力描述（如"差异分析"、"相关性分析"）
+   - 区别于底层的 Tools 和完整工作流的 Skills
 
 **会话管理**：`agent/session.py` 管理会话状态（消息历史、已加载 DataFrame、产物列表）。会话持久化到 `data/sessions/{session_id}/`。
 
@@ -87,7 +101,7 @@ React 18 + Vite + TypeScript + Tailwind CSS。状态管理使用 Zustand 单一 
 ```
 用户消息 → WebSocket /ws → AgentRunner.run()
   → ModelResolver.chat() (流式 LLM)
-  → 解析 tool_calls → SkillRegistry.invoke()
+  → 解析 tool_calls → ToolRegistry.invoke()
   → Skill.execute() → SkillResult
   → callback 推送事件 → WebSocket 发送 JSON 到前端
   → Zustand store 更新 → React 渲染
@@ -99,6 +113,8 @@ React 18 + Vite + TypeScript + Tailwind CSS。状态管理使用 Zustand 单一 
 - `openspec/` 管理变更提案流程，大型变更需通过 proposal → design → tasks 流程。
 
 ## 项目语言要求
+- **所有代码注释必须使用中文编写**，包括函数文档字符串、行内注释、TODO 等。
+- **所有问题回答必须使用中文**，包括代码审查反馈、技术解释、设计讨论等。
 - 文档、注释、用户交互默认使用中文；专业术语首次出现可保留英文并附中文解释。
 - 提交信息必须遵循 Conventional Commits；`subject` 可中文或英文，但同一仓库应保持风格一致。
 
@@ -164,7 +180,7 @@ React 18 + Vite + TypeScript + Tailwind CSS。状态管理使用 Zustand 单一 
 - 使用 `datetime.now(timezone.utc)` 代替 `datetime.utcnow()`。
 - Pydantic v2 使用 `model_validate()` / `model_dump()`。
 - 新能力优先补测试，再接入 WebSocket 事件流。
-- 添加新技能时：继承 `tools/base.py:Skill`，在 `tools/registry.py:create_default_registry()` 中注册。
+- 添加新 Tool：继承 `tools/base.py:Skill`，在 `tools/registry.py:create_default_tool_registry()` 中注册。
 - 沙箱安全策略三重防护：AST 静态分析（`sandbox/policy.py`）+ 受限 builtins（`sandbox/executor.py`）+ 进程隔离（multiprocessing spawn）。修改白名单在 `sandbox/policy.py` 的 `ALLOWED_IMPORT_ROOTS`。R 代码对应 `sandbox/r_policy.py`。
 - 会话数据存储在 `data/sessions/{session_id}/`，包含 `meta.json`（标题）、`memory.jsonl`（对话历史，可能很大需分段读取）、`workspace/`（上传文件和产物）。
 - Black 行宽 100，目标版本 py312。

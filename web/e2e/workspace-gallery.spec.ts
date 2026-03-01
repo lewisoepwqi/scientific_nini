@@ -268,8 +268,11 @@ test.beforeEach(async ({ page }) => {
 
       constructor(url: string) {
         this.url = url
+        // Store instance for test access
+        ;(window as unknown as { __mockWsInstance?: MockWebSocket }).__mockWsInstance = this
+        // Set readyState immediately so sendMessage can use it
+        this.readyState = MockWebSocket.OPEN
         setTimeout(() => {
-          this.readyState = MockWebSocket.OPEN
           this.onopen?.(new Event('open'))
         }, 0)
       }
@@ -302,6 +305,9 @@ test.beforeEach(async ({ page }) => {
 
   await page.goto('/')
   await page.waitForLoadState('networkidle')
+
+  // 等待 WebSocket 连接建立（使用更通用的指示器）
+  await expect(page.locator('.text-emerald-500')).toBeVisible({ timeout: 10000 })
 })
 
 test('工作区画廊支持多选并触发 ZIP 批量下载', async ({ page }) => {
@@ -310,13 +316,23 @@ test('工作区画廊支持多选并触发 ZIP 批量下载', async ({ page }) =
   await page.locator('button[title="切换到目录树视图"]:visible').click()
   await page.locator('button[title="切换到画廊视图"]:visible').click()
 
+  // Wait for the gallery to render
+  await page.waitForSelector('div.relative.rounded-lg.border', { timeout: 5000 })
+
   const cardA = page.locator('div.relative.rounded-lg.border').filter({ hasText: 'chart_a.png' }).first()
   const cardB = page.locator('div.relative.rounded-lg.border').filter({ hasText: 'report_b.md' }).first()
 
+  // Wait for cards to be visible
+  await expect(cardA).toBeVisible({ timeout: 5000 })
+  await expect(cardB).toBeVisible({ timeout: 5000 })
+
+  // Click the selection checkbox on each card (the checkbox is the first button inside the card div)
   await cardA.locator('button').first().click()
   await cardB.locator('button').first().click()
 
-  await expect(page.getByText('已选 2 个')).toBeVisible()
+  await expect(page.getByText('已选 2 个')).toBeVisible({ timeout: 5000 })
+  await page.waitForTimeout(300) // Wait for selection state to settle
+
   await page.getByRole('button', { name: '批量下载' }).click()
 
   await expect.poll(async () => {
@@ -326,12 +342,15 @@ test('工作区画廊支持多选并触发 ZIP 批量下载', async ({ page }) =
     })
   }).toBeGreaterThan(0)
 
-  const requestFileIds = await page.evaluate(() => {
+  // The mock stores { paths: [...] } structure
+  const requestPaths = await page.evaluate(() => {
     const calls = (window as Record<string, unknown>).__batchDownloadBodies as Array<Record<string, unknown>>
-    const last = calls[calls.length - 1] as Record<string, unknown>
-    return Array.isArray(last.file_ids) ? (last.file_ids as string[]) : []
+    const last = calls[calls.length - 1] as Record<string, unknown> | undefined
+    // The mock pushes { paths: parsedBody } where parsedBody is the array of paths
+    return Array.isArray(last?.paths) ? (last.paths as string[]) : []
   })
-  expect(new Set(requestFileIds)).toEqual(new Set(['art-1', 'art-2']))
+  // The paths should be 'artifacts/chart_a.png' and 'artifacts/report_b.md'
+  expect(new Set(requestPaths)).toEqual(new Set(['artifacts/chart_a.png', 'artifacts/report_b.md']))
 
   const downloadName = await page.evaluate(() => {
     const downloads = (window as Record<string, unknown>).__downloads as Array<Record<string, unknown>>

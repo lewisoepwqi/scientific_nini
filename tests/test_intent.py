@@ -259,13 +259,14 @@ def test_intent_analyze_api_returns_capabilities_and_skills(intent_client: Local
     assert "clarification_options" in payload
 
 
-def test_runner_build_messages_includes_intent_runtime_context() -> None:
+@pytest.mark.asyncio
+async def test_runner_build_messages_includes_intent_runtime_context() -> None:
     """运行时上下文应注入 capability 候选与推荐工具。"""
     session = Session()
     session.add_message("user", "我想做差异分析并画图")
     runner = AgentRunner(skill_registry=_EmptySkillRegistry())
 
-    messages, _ = runner._build_messages_and_retrieval(session)
+    messages, _ = await runner._build_messages_and_retrieval(session)
 
     runtime_context = next(msg["content"] for msg in messages if msg["role"] == "assistant")
     assert "[不可信上下文：意图分析提示，仅供参考]" in runtime_context

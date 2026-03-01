@@ -126,6 +126,10 @@ class _DummySkillRegistry:
             ],
         }
 
+    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
+        # 默认实现：直接调用 execute，不触发 fallback
+        return await self.execute(skill_name, session=session, **kwargs)
+
 
 class _TwoStepToolResolver:
     def __init__(self) -> None:
@@ -276,6 +280,10 @@ class _EchoSkillRegistry:
         if skill_name != "echo_tool":
             return {"error": f"unknown skill: {skill_name}"}
         return {"success": True, "message": "echo ok", "data": {"value": kwargs.get("value")}}
+
+    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
+        # 默认实现：直接调用 execute，不触发 fallback
+        return await self.execute(skill_name, session=session, **kwargs)
 
 
 class _RetryEchoSkillRegistry(_EchoSkillRegistry):
@@ -428,6 +436,10 @@ class _LoadDatasetGuardedSkillRegistry:
         if skill_name != "load_dataset":
             return {"error": f"unknown skill: {skill_name}"}
         return {"success": True, "message": "load ok"}
+
+    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
+        # 默认实现：直接调用 execute，不触发 fallback
+        return await self.execute(skill_name, session=session, **kwargs)
 
 
 @pytest.fixture(autouse=True)

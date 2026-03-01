@@ -1,28 +1,36 @@
 /**
- * ReportTemplatePanel - 发表级报告模板面板
- * 
- * 统一报告结构，支持期刊风格选择和导出
+ * ArticleDraftPanel - 文章初稿生成面板
+ *
+ * 基于对话内容智能生成科研文章初稿
  */
 
 import { useState } from "react";
 import {
-  FileText,
   BookOpen,
+  CheckCircle2,
   Download,
   Settings,
-  CheckCircle2,
-  Loader2,
   X,
-  Newspaper,
+  PenTool,
 } from "lucide-react";
+
+interface DraftConfig {
+  template: string;
+  sections: string[];
+  detail_level: "brief" | "standard" | "detailed";
+  include_figures: boolean;
+  include_tables: boolean;
+  title: string;
+}
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   sessionId: string | null;
+  onStartDraftDialog?: (config: DraftConfig) => void;
 }
 
-interface ReportSection {
+interface DraftSection {
   id: string;
   title: string;
   description: string;
@@ -35,14 +43,14 @@ const JOURNAL_TEMPLATES = [
     id: "nature",
     name: "Nature",
     description: "强调创新性和广泛影响",
-    features: ["简短摘要", "方法简述", "突出主要发现"],
+    features: ["简短精炼摘要", "突出主要发现", "强调广泛意义"],
     color: "from-emerald-500 to-teal-600",
   },
   {
     id: "science",
     name: "Science",
     description: "跨学科综合期刊风格",
-    features: ["清晰的问题陈述", "广泛的方法描述", "深入讨论"],
+    features: ["清晰的问题陈述", "简洁的方法描述", "突出科学意义"],
     color: "from-blue-500 to-indigo-600",
   },
   {
@@ -56,7 +64,7 @@ const JOURNAL_TEMPLATES = [
     id: "nejm",
     name: "NEJM",
     description: "临床医学顶刊风格",
-    features: ["患者特征", "严格的统计分析", "临床意义"],
+    features: ["患者特征描述", "严格的统计分析", "临床意义突出"],
     color: "from-red-500 to-rose-600",
   },
   {
@@ -70,12 +78,12 @@ const JOURNAL_TEMPLATES = [
     id: "apa",
     name: "APA",
     description: "心理学标准格式",
-    features: ["假设驱动", "详细方法","结果与讨论分开"],
+    features: ["假设驱动", "详细方法", "统计严谨"],
     color: "from-sky-500 to-cyan-600",
   },
 ];
 
-const DEFAULT_SECTIONS: ReportSection[] = [
+const DEFAULT_SECTIONS: DraftSection[] = [
   {
     id: "abstract",
     title: "摘要 (Abstract)",
@@ -86,28 +94,28 @@ const DEFAULT_SECTIONS: ReportSection[] = [
   {
     id: "introduction",
     title: "引言 (Introduction)",
-    description: "研究背景、目的和假设",
+    description: "研究背景、目的和要解决的问题",
     required: true,
     selected: true,
   },
   {
     id: "methods",
     title: "方法 (Methods)",
-    description: "详细的实验设计、数据收集和统计分析方法",
+    description: "数据来源、样本特征和统计分析方法",
     required: true,
     selected: true,
   },
   {
     id: "results",
     title: "结果 (Results)",
-    description: "主要发现，包含图表和统计数据",
+    description: "主要发现，包含统计数据和图表",
     required: true,
     selected: true,
   },
   {
     id: "discussion",
     title: "讨论 (Discussion)",
-    description: "结果解释、与现有研究比较、意义和局限性",
+    description: "结果解释、意义和局限性",
     required: true,
     selected: true,
   },
@@ -125,23 +133,14 @@ const DEFAULT_SECTIONS: ReportSection[] = [
     required: false,
     selected: true,
   },
-  {
-    id: "references",
-    title: "参考文献 (References)",
-    description: "引用的文献列表",
-    required: false,
-    selected: false,
-  },
 ];
 
-export default function ReportTemplatePanel({ isOpen, onClose, sessionId }: Props) {
+export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartDraftDialog }: Props) {
   const [selectedTemplate, setSelectedTemplate] = useState("nature");
-  const [sections, setSections] = useState<ReportSection[]>(DEFAULT_SECTIONS);
+  const [sections, setSections] = useState<DraftSection[]>(DEFAULT_SECTIONS);
   const [detailLevel, setDetailLevel] = useState<"brief" | "standard" | "detailed">("standard");
   const [includeFigures, setIncludeFigures] = useState(true);
   const [includeTables, setIncludeTables] = useState(true);
-  const [generating, setGenerating] = useState(false);
-  const [generated, setGenerated] = useState(false);
 
   const toggleSection = (id: string) => {
     setSections((prev) =>
@@ -153,30 +152,56 @@ export default function ReportTemplatePanel({ isOpen, onClose, sessionId }: Prop
     setSections((prev) => prev.map((s) => ({ ...s, selected: true })));
   };
 
-  const generateReport = async () => {
-    if (!sessionId) return;
-    setGenerating(true);
-    
-    // 模拟报告生成
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    
-    setGenerating(false);
-    setGenerated(true);
-    setTimeout(() => setGenerated(false), 3000);
-  };
+  const startDialogDraft = () => {
+    if (!sessionId || !onStartDraftDialog) return;
 
-  const downloadReport = (format: "md" | "docx" | "pdf") => {
-    // 构建报告配置
-    const config = {
+    const config: DraftConfig = {
       template: selectedTemplate,
       sections: sections.filter((s) => s.selected).map((s) => s.id),
-      detailLevel,
-      includeFigures,
-      includeTables,
+      detail_level: detailLevel,
+      include_figures: includeFigures,
+      include_tables: includeTables,
+      title: "基于对话的文章初稿",
     };
-    
-    console.log(`下载 ${format.toUpperCase()} 格式报告:`, config);
-    // 实际实现中应调用后端 API
+
+    // 关闭面板并触发对话模式
+    onClose();
+    onStartDraftDialog(config);
+  };
+
+  const downloadDraft = async (format: "md" | "docx" | "pdf") => {
+    if (!sessionId) {
+      alert("请先选择会话");
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/report/export?session_id=${sessionId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          format,
+          filename: `${selectedTemplate}_article_draft`,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.data?.download_url) {
+        const link = document.createElement("a");
+        link.href = data.data.download_url;
+        link.download = data.data.filename || `${selectedTemplate}_article_draft.${format}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        console.error("下载失败:", data.error || data.message);
+        alert(`下载失败: ${data.error || data.message || "未找到可导出的文件"}`);
+      }
+    } catch (error) {
+      console.error("下载请求失败:", error);
+      alert("下载请求失败，请检查网络连接");
+    }
   };
 
   if (!isOpen) return null;
@@ -191,11 +216,11 @@ export default function ReportTemplatePanel({ isOpen, onClose, sessionId }: Prop
         <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-slate-900 to-slate-800 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white">
-              <Newspaper size={20} />
+              <PenTool size={20} />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-white">发表级报告生成</h2>
-              <p className="text-xs text-slate-400">选择期刊风格，统一报告结构</p>
+              <h2 className="text-lg font-semibold text-white">生成文章初稿</h2>
+              <p className="text-xs text-slate-400">基于对话内容智能生成完整文章</p>
             </div>
           </div>
           <button
@@ -206,9 +231,9 @@ export default function ReportTemplatePanel({ isOpen, onClose, sessionId }: Prop
           </button>
         </div>
 
-        <div className="grid max-h-[70vh] grid-cols-[1fr,320px] overflow-hidden">
+        <div className="grid h-[calc(90vh-80px)] grid-cols-[1fr,320px] overflow-hidden">
           {/* Left Panel - Template Selection */}
-          <div className="overflow-y-auto border-r border-slate-200 p-6">
+          <div className="h-full overflow-y-auto border-r border-slate-200 p-6">
             <div className="mb-6">
               <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-800">
                 <BookOpen size={16} className="text-sky-600" />
@@ -245,7 +270,7 @@ export default function ReportTemplatePanel({ isOpen, onClose, sessionId }: Prop
             {/* Selected Template Features */}
             {template && (
               <div className="mb-6 rounded-xl bg-slate-50 p-4">
-                <div className="text-sm font-medium text-slate-800">{template.name} 特点</div>
+                <div className="text-sm font-medium text-slate-800">{template.name} 风格特点</div>
                 <ul className="mt-2 space-y-1">
                   {template.features.map((feature, idx) => (
                     <li key={idx} className="flex items-center gap-2 text-xs text-slate-600">
@@ -287,33 +312,19 @@ export default function ReportTemplatePanel({ isOpen, onClose, sessionId }: Prop
 
             {/* Generate Button */}
             <button
-              onClick={generateReport}
-              disabled={generating || !sessionId}
+              onClick={startDialogDraft}
+              disabled={!sessionId}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
             >
-              {generating ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  生成中...
-                </>
-              ) : generated ? (
-                <>
-                  <CheckCircle2 size={16} />
-                  已生成
-                </>
-              ) : (
-                <>
-                  <FileText size={16} />
-                  生成报告
-                </>
-              )}
+              <PenTool size={16} />
+              开始对话生成
             </button>
           </div>
 
           {/* Right Panel - Section Selection */}
-          <div className="overflow-y-auto bg-slate-50/50 p-6">
+          <div className="h-full overflow-y-auto bg-slate-50/50 p-6">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-800">报告章节</h3>
+              <h3 className="text-sm font-semibold text-slate-800">文章章节</h3>
               <button
                 onClick={selectAllSections}
                 className="text-xs text-sky-600 hover:text-sky-700"
@@ -358,7 +369,7 @@ export default function ReportTemplatePanel({ isOpen, onClose, sessionId }: Prop
 
             <div className="mt-6 space-y-3">
               <h3 className="text-sm font-semibold text-slate-800">包含内容</h3>
-              
+
               <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
                 <input
                   type="checkbox"
@@ -368,7 +379,7 @@ export default function ReportTemplatePanel({ isOpen, onClose, sessionId }: Prop
                 />
                 <div>
                   <div className="text-sm font-medium text-slate-700">包含图表</div>
-                  <div className="text-xs text-slate-500">自动插入生成的图表</div>
+                  <div className="text-xs text-slate-500">自动嵌入生成的图表</div>
                 </div>
               </label>
 
@@ -397,7 +408,7 @@ export default function ReportTemplatePanel({ isOpen, onClose, sessionId }: Prop
                 ].map(({ format, label, ext }) => (
                   <button
                     key={format}
-                    onClick={() => downloadReport(format)}
+                    onClick={() => downloadDraft(format)}
                     className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 bg-white p-3 transition-colors hover:border-sky-300 hover:bg-sky-50"
                   >
                     <Download size={16} className="text-slate-600" />
@@ -414,6 +425,15 @@ export default function ReportTemplatePanel({ isOpen, onClose, sessionId }: Prop
                 {selectedCount} 个章节 · {template?.name} 风格 · {" "}
                 {detailLevel === "brief" ? "简洁" : detailLevel === "standard" ? "标准" : "详细"}版本
               </div>
+            </div>
+
+            {/* Info hint */}
+            <div className="mt-4 rounded-xl bg-blue-50 p-3 text-xs text-blue-700">
+              <div className="font-medium">提示</div>
+              <p className="mt-1">
+                点击"开始对话生成"后，将进入对话模式。AI 会分析您的对话历史，
+                并询问相关配置，最终在对话中完成文章初稿的生成。
+              </p>
             </div>
           </div>
         </div>

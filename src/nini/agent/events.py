@@ -32,6 +32,7 @@ class EventType(str, Enum):
     TASK_ATTEMPT = "task_attempt"  # 任务执行尝试（含重试轨迹）
     CONTEXT_COMPRESSED = "context_compressed"  # 上下文自动压缩通知
     ASK_USER_QUESTION = "ask_user_question"  # 等待用户问答输入
+    TOKEN_USAGE = "token_usage"  # Token 使用量更新
 
 
 @dataclass

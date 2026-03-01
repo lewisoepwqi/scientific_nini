@@ -25,6 +25,7 @@ from nini.tools.fetch_url import FetchURLSkill
 from nini.tools.organize_workspace import OrganizeWorkspaceSkill
 from nini.tools.report import GenerateReportSkill
 from nini.tools.r_code_exec import RunRCodeSkill
+
 # 统计工具（全部从原位置导入，待后续逐步迁移到新子模块）
 from nini.tools.statistics import (
     ANOVASkill,
@@ -44,12 +45,14 @@ from nini.tools.markdown_scanner import (
     scan_markdown_skills,
 )
 from nini.tools.task_write import TaskWriteSkill
+from nini.tools.edit_file import EditFile
 
 # 复合技能模板
 from nini.tools.templates import (
     CompleteANOVASkill,
     CompleteComparisonSkill,
     CorrelationAnalysisSkill,
+    RegressionAnalysisSkill,
 )
 
 logger = logging.getLogger(__name__)
@@ -574,7 +577,9 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(CompleteComparisonSkill())
     registry.register(CompleteANOVASkill())
     registry.register(CorrelationAnalysisSkill())
+    registry.register(RegressionAnalysisSkill())
     registry.register(InterpretStatisticalResultSkill())
+    registry.register(EditFile())
     registry.reload_markdown_skills()
     registry.write_skills_snapshot()
     return registry

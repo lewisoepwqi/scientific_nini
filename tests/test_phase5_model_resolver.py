@@ -10,7 +10,8 @@ from typing import Any, AsyncGenerator
 
 import pytest
 
-from nini.agent.model_resolver import (
+from nini.agent.model_resolver import ModelResolver
+from nini.agent.providers import (
     AnthropicClient,
     BaseLLMClient,
     DashScopeClient,
@@ -18,7 +19,6 @@ from nini.agent.model_resolver import (
     KimiCodingClient,
     LLMChunk,
     MiniMaxClient,
-    ModelResolver,
     MoonshotClient,
     OllamaClient,
     ReasoningStreamParser,
@@ -634,3 +634,216 @@ async def test_openai_compatible_client_aclose_ignores_mounts_attribute_error(
     await client.aclose()
     assert client._client is None  # noqa: SLF001
     assert client._http_client is None  # noqa: SLF001
+
+
+# ---- API 方法覆盖测试 ----
+
+
+def test_get_active_models_returns_active_model_info() -> None:
+    """get_active_models 应返回默认用途的活跃模型信息。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="zhipu", model="glm-4", available=True),
+            FakeClient(provider_id="openai", model="gpt-4", available=True),
+        ]
+    )
+    resolver.set_preferred_provider("openai")
+
+    active = resolver.get_active_models()
+
+    assert active["provider_id"] == "openai"
+    assert active["model"] == "gpt-4"
+
+
+def test_get_available_models_returns_models_for_provider() -> None:
+    """get_available_models 应返回指定提供商的可用模型列表。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="zhipu", model="glm-4", available=True),
+        ]
+    )
+
+    result = resolver.get_available_models("zhipu")
+
+    assert result["provider_id"] == "zhipu"
+    assert "glm-4" in result["models"]
+
+
+def test_get_available_models_returns_empty_for_unknown_provider() -> None:
+    """get_available_models 对未知提供商应返回空列表。"""
+    resolver = ModelResolver(clients=[])
+
+    result = resolver.get_available_models("unknown")
+
+    assert result["provider_id"] == "unknown"
+    assert result["models"] == []
+
+
+def test_set_priorities_reorders_clients() -> None:
+    """set_priorities 应根据优先级重新排序客户端。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="openai", available=True),
+            FakeClient(provider_id="zhipu", available=True),
+            FakeClient(provider_id="deepseek", available=True),
+        ]
+    )
+
+    resolver.set_priorities({"zhipu": 0, "deepseek": 1, "openai": 2})
+
+    ordered = [c.provider_id for c in resolver._clients]
+    assert ordered[0] == "zhipu"
+    assert ordered[1] == "deepseek"
+    assert ordered[2] == "openai"
+
+
+def test_get_routing_config_returns_config() -> None:
+    """get_routing_config 应返回路由配置。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="zhipu", available=True),
+        ]
+    )
+    resolver.set_preferred_provider("zhipu")
+    resolver.set_purpose_route("coding", provider_id="deepseek", model="deepseek-coder")
+
+    config = resolver.get_routing_config()
+
+    assert config["preferred_provider"] == "zhipu"
+    assert config["purpose_routes"]["coding"]["provider_id"] == "deepseek"
+    assert config["purpose_routes"]["coding"]["model"] == "deepseek-coder"
+
+
+def test_set_routing_config_updates_routes() -> None:
+    """set_routing_config 应更新路由配置。"""
+    resolver = ModelResolver(clients=[])
+
+    resolver.set_routing_config({
+        "preferred_provider": "zhipu",
+        "purpose_routes": {
+            "coding": {"provider_id": "deepseek", "model": "deepseek-coder", "base_url": None},
+            "vision": {"provider_id": "openai", "model": "gpt-4o", "base_url": None},
+        },
+    })
+
+    assert resolver.get_preferred_provider() == "zhipu"
+    assert resolver.get_preferred_provider("coding") == "deepseek"
+    assert resolver.get_preferred_provider("vision") == "openai"
+
+
+@pytest.mark.asyncio
+async def test_test_connection_returns_success_for_available() -> None:
+    """test_connection 对可用提供商应返回成功。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="zhipu", model="glm-4", available=True),
+        ]
+    )
+
+    result = await resolver.test_connection("zhipu")
+
+    assert result["success"] is True
+    assert result["provider"] == "zhipu"
+
+
+@pytest.mark.asyncio
+async def test_test_connection_returns_failure_for_unavailable() -> None:
+    """test_connection 对不可用提供商应返回失败。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="zhipu", available=False),
+        ]
+    )
+
+    result = await resolver.test_connection("zhipu")
+
+    assert result["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_test_connection_returns_failure_for_unknown() -> None:
+    """test_connection 对未知提供商应返回失败。"""
+    resolver = ModelResolver(clients=[])
+
+    result = await resolver.test_connection("unknown")
+
+    assert result["success"] is False
+    assert "unknown" in result["error"]
+
+
+def test_set_preferred_model_sets_provider_and_model() -> None:
+    """set_preferred_model 应同时设置提供商和模型。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="zhipu", model="glm-default", available=True),
+        ]
+    )
+
+    resolver.set_preferred_model("zhipu", "glm-4-flash")
+
+    assert resolver.get_preferred_provider() == "zhipu"
+    # 验证路由配置中的模型也被设置
+    routes = resolver.get_purpose_routes()
+    assert routes["default"]["model"] == "glm-4-flash"
+
+
+def test_get_preferred_providers_by_purpose_returns_all() -> None:
+    """get_preferred_providers_by_purpose 应返回所有用途的首选提供商。"""
+    resolver = ModelResolver(clients=[])
+    resolver.set_preferred_provider("zhipu")
+    resolver.set_preferred_provider("deepseek", purpose="coding")
+    resolver.set_preferred_provider("openai", purpose="vision")
+
+    providers = resolver.get_preferred_providers_by_purpose()
+
+    assert providers["default"] == "zhipu"
+    assert providers["coding"] == "deepseek"
+    assert providers["vision"] == "openai"
+
+
+def test_get_purpose_routes_returns_copy() -> None:
+    """get_purpose_routes 应返回路由配置的副本。"""
+    resolver = ModelResolver(clients=[])
+    resolver.set_purpose_route("coding", provider_id="deepseek", model="deepseek-coder")
+
+    routes1 = resolver.get_purpose_routes()
+    routes2 = resolver.get_purpose_routes()
+
+    # 验证是副本而不是同一对象
+    assert routes1 is not routes2
+    assert routes1["coding"] == routes2["coding"]
+
+
+def test_get_active_model_info_uses_purpose_route_model() -> None:
+    """get_active_model_info 应优先使用 purpose route 中配置的模型，而非客户端默认模型。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="zhipu", model="glm-5", available=True),
+        ]
+    )
+    # 设置 purpose route 使用不同的模型
+    resolver.set_purpose_route("chat", provider_id="zhipu", model="glm-4-flash")
+
+    # 获取 chat 用途的模型信息
+    info = resolver.get_active_model_info(purpose="chat")
+
+    # 应返回 purpose route 中配置的模型，而不是客户端默认模型
+    assert info["provider_id"] == "zhipu"
+    assert info["model"] == "glm-4-flash"
+
+
+def test_get_active_model_info_falls_back_to_client_model() -> None:
+    """当 purpose route 没有配置模型时，get_active_model_info 应回退到客户端默认模型。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="zhipu", model="glm-5", available=True),
+        ]
+    )
+    # 只设置 provider，不设置 model
+    resolver.set_purpose_route("chat", provider_id="zhipu", model=None)
+
+    info = resolver.get_active_model_info(purpose="chat")
+
+    # 应返回客户端默认模型
+    assert info["provider_id"] == "zhipu"
+    assert info["model"] == "glm-5"

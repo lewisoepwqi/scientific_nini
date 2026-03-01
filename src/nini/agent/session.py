@@ -35,6 +35,8 @@ class Session:
     conversation_memory: ConversationMemory = field(init=False, repr=False)
     knowledge_memory: KnowledgeMemory = field(init=False, repr=False)
     task_manager: TaskManager = field(init=False, repr=False)
+    # 工具执行期间的事件回调，允许工具流式发送进度更新
+    event_callback: Any = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self.conversation_memory = ConversationMemory(self.id)

@@ -6,11 +6,11 @@
 import pytest
 from datetime import datetime, timezone
 
-from nini.agent.runner import (
+from nini.agent.components.reasoning_tracker import (
     ReasoningChainTracker,
-    _detect_reasoning_type,
-    _detect_key_decisions,
-    _calculate_confidence_score,
+    detect_reasoning_type,
+    detect_key_decisions,
+    calculate_confidence_score,
 )
 
 
@@ -114,50 +114,50 @@ class TestDetectReasoningType:
     def test_detect_analysis_type(self):
         """检测分析类型。"""
         content = "我需要分析这些数据的分布情况，检查是否符合正态分布"
-        result = _detect_reasoning_type(content)
+        result = detect_reasoning_type(content)
         assert result == "analysis"
 
     def test_detect_decision_type(self):
         """检测决策类型。"""
         content = "因此我决定使用t检验来进行统计比较，选择这种方法"
-        result = _detect_reasoning_type(content)
+        result = detect_reasoning_type(content)
         assert result == "decision"
 
     def test_detect_planning_type(self):
         """检测规划类型。"""
         content = "首先加载数据，然后进行清洗，最后执行分析"
-        result = _detect_reasoning_type(content)
+        result = detect_reasoning_type(content)
         assert result == "planning"
 
     def test_detect_reflection_type(self):
         """检测反思类型。"""
         content = "但是这种方法可能不太适合，我需要重新考虑"
-        result = _detect_reasoning_type(content)
+        result = detect_reasoning_type(content)
         assert result == "reflection"
 
     def test_detect_english_analysis(self):
         """检测英文分析类型。"""
         content = "Let me analyze the data distribution and examine the patterns"
-        result = _detect_reasoning_type(content)
+        result = detect_reasoning_type(content)
         assert result == "analysis"
 
     def test_detect_english_decision(self):
         """检测英文决策类型。"""
         content = "Therefore I decide to choose the ANOVA method for this analysis"
-        result = _detect_reasoning_type(content)
+        result = detect_reasoning_type(content)
         assert result == "decision"
 
     def test_no_match_returns_none(self):
         """无匹配时返回None。"""
         content = "这是一段普通的描述文字"
-        result = _detect_reasoning_type(content)
+        result = detect_reasoning_type(content)
         assert result is None
 
     def test_priority_when_multiple_types(self):
         """多种类型同时存在时的优先级。"""
         # 应该返回得分最高的类型
         content = "我决定分析这些数据，首先检查分布，然后选择方法"
-        result = _detect_reasoning_type(content)
+        result = detect_reasoning_type(content)
         # analysis有2个关键词(分析,检查)，decision有1个(决定)
         assert result == "analysis"
 
@@ -168,39 +168,39 @@ class TestDetectKeyDecisions:
     def test_detect_single_decision(self):
         """检测单个决策。"""
         content = "基于以上分析，我决定使用t检验进行统计比较。"
-        result = _detect_key_decisions(content)
+        result = detect_key_decisions(content)
         assert len(result) == 1
         assert "决定" in result[0]
 
     def test_detect_multiple_decisions(self):
         """检测多个决策。"""
         content = "我决定使用ANOVA方法。我还选择alpha=0.05作为显著性水平。"
-        result = _detect_key_decisions(content)
+        result = detect_key_decisions(content)
         assert len(result) == 2
 
     def test_detect_english_decisions(self):
         """检测英文决策。"""
         content = "I decide to use the t-test method. I choose alpha=0.05."
-        result = _detect_key_decisions(content)
+        result = detect_key_decisions(content)
         assert len(result) == 2
 
     def test_filter_short_sentences(self):
         """过滤过短的句子。"""
         content = "我决定。我选择。确定。"
-        result = _detect_key_decisions(content)
+        result = detect_key_decisions(content)
         # "确定"太短（只有2个字符）应该被过滤
         assert len(result) <= 2
 
     def test_limit_to_top_3(self):
         """限制最多返回3个决策。"""
         content = "我决定使用方法A。我决定使用方法B。我选择方法C。我确定使用D。我采用方法E。"
-        result = _detect_key_decisions(content)
+        result = detect_key_decisions(content)
         assert len(result) <= 3
 
     def test_no_decisions_returns_empty(self):
         """无决策时返回空列表。"""
         content = "这是一段普通的描述文字，没有任何决策关键词"
-        result = _detect_key_decisions(content)
+        result = detect_key_decisions(content)
         assert result == []
 
 
@@ -210,14 +210,14 @@ class TestCalculateConfidenceScore:
     def test_high_confidence_indicators(self):
         """高置信度指标。"""
         content = "这 clearly 是一个 definitely 正确的决定"
-        result = _calculate_confidence_score(content)
+        result = calculate_confidence_score(content)
         assert result is not None
         assert result > 0.5
 
     def test_low_confidence_indicators(self):
         """低置信度指标。"""
         content = "这可能 maybe 是一个不确定的决策"
-        result = _calculate_confidence_score(content)
+        result = calculate_confidence_score(content)
         assert result is not None
         assert result < 0.5
 
@@ -225,26 +225,26 @@ class TestCalculateConfidenceScore:
         """混合指标。"""
         content = "这 clearly 可能 maybe 不确定"
         # 有高置信度也有低置信度
-        result = _calculate_confidence_score(content)
+        result = calculate_confidence_score(content)
         assert result is not None
 
     def test_no_indicators_returns_none(self):
         """无指标时返回None。"""
         content = "这是一段普通的描述"
-        result = _calculate_confidence_score(content)
+        result = calculate_confidence_score(content)
         assert result is None
 
     def test_score_clamped_to_valid_range(self):
         """分数限制在有效范围内[0, 1]。"""
         # 大量高置信度词汇
         content = "clearly definitely certainly obviously clearly definitely"
-        result = _calculate_confidence_score(content)
+        result = calculate_confidence_score(content)
         assert result is not None
         assert 0.0 <= result <= 1.0
 
         # 大量低置信度词汇
         content = "maybe probably possibly uncertain maybe probably"
-        result = _calculate_confidence_score(content)
+        result = calculate_confidence_score(content)
         assert result is not None
         assert 0.0 <= result <= 1.0
 
@@ -261,9 +261,9 @@ class TestReasoningChainIntegration:
         content1 = "我需要分析这些数据的分布特征"
         node1 = tracker.add_reasoning(
             content=content1,
-            reasoning_type=_detect_reasoning_type(content1),
-            key_decisions=_detect_key_decisions(content1),
-            confidence_score=_calculate_confidence_score(content1),
+            reasoning_type=detect_reasoning_type(content1),
+            key_decisions=detect_key_decisions(content1),
+            confidence_score=calculate_confidence_score(content1),
         )
         assert node1["reasoning_type"] == "analysis"
 
@@ -271,9 +271,9 @@ class TestReasoningChainIntegration:
         content2 = "基于以上结果，我决定使用ANOVA方法进行比较，选择这种方法更合适"
         node2 = tracker.add_reasoning(
             content=content2,
-            reasoning_type=_detect_reasoning_type(content2),
-            key_decisions=_detect_key_decisions(content2),
-            confidence_score=_calculate_confidence_score(content2),
+            reasoning_type=detect_reasoning_type(content2),
+            key_decisions=detect_key_decisions(content2),
+            confidence_score=calculate_confidence_score(content2),
         )
         # 注意：当多种类型关键词同时存在时，返回得分最高的
         assert node2["reasoning_type"] in ["decision", "analysis"]
@@ -284,9 +284,9 @@ class TestReasoningChainIntegration:
         content3 = "但是，我需要重新考虑，数据可能不符合正态分布"
         node3 = tracker.add_reasoning(
             content=content3,
-            reasoning_type=_detect_reasoning_type(content3),
-            key_decisions=_detect_key_decisions(content3),
-            confidence_score=_calculate_confidence_score(content3),
+            reasoning_type=detect_reasoning_type(content3),
+            key_decisions=detect_key_decisions(content3),
+            confidence_score=calculate_confidence_score(content3),
         )
         assert node3["reasoning_type"] == "reflection"
         assert node3["parent_id"] == node2["id"]

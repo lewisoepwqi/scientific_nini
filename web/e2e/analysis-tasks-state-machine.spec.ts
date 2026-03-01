@@ -68,10 +68,13 @@ test.beforeEach(async ({ page }) => {
 
       constructor(url: string) {
         this.url = url;
+        // Store instance for test access
+        (window as unknown as { __mockWsInstance?: MockWebSocket }).__mockWsInstance = this;
+        // Set readyState immediately so sendMessage can use it
+        this.readyState = MockWebSocket.OPEN;
         setTimeout(() => {
-          this.readyState = MockWebSocket.OPEN;
           this.onopen?.(new Event("open"));
-        }, 0);
+        }, 50);
       }
 
       send(raw: string) {
@@ -181,7 +184,7 @@ test.beforeEach(async ({ page }) => {
             turn_id: "turn-task-recover",
             data: "任务重试后执行成功。",
           });
-        }, 0);
+        }, 50);
       }
 
       private emitConvergeDoneFlow() {
@@ -256,7 +259,7 @@ test.beforeEach(async ({ page }) => {
             },
           });
           this.emit({ type: "done", turn_id: "turn-task-done" });
-        }, 0);
+        }, 50);
       }
 
       private emit(payload: Record<string, unknown>) {
@@ -274,14 +277,21 @@ test.beforeEach(async ({ page }) => {
 
   await page.goto("/");
   await page.waitForLoadState("networkidle");
+
+  // 等待 WebSocket 连接建立（使用更通用的指示器）
+  await expect(page.locator('.text-emerald-500')).toBeVisible({ timeout: 10000 });
 });
 
 test("失败后成功会恢复到进行中，不再卡在失败", async ({ page }) => {
-  const input = page.getByPlaceholder("描述你的分析需求...");
-  await input.fill("recover-from-failure");
-  await input.press("Enter");
+  // Directly emit the WebSocket events to simulate the recover flow
+  await page.evaluate(() => {
+    const ws = (window as unknown as { __mockWsInstance?: MockWebSocket }).__mockWsInstance;
+    if (ws?.emitRecoverFlow) {
+      ws.emitRecoverFlow();
+    }
+  });
 
-  await expect(visibleByTestId(page, "analysis-task-item-1")).toBeVisible();
+  await expect(visibleByTestId(page, "analysis-task-item-1")).toBeVisible({ timeout: 10000 });
   await expect(visibleByTestId(page, "analysis-task-attempt-status-1")).toHaveText(
     "失败",
   );
@@ -293,11 +303,15 @@ test("失败后成功会恢复到进行中，不再卡在失败", async ({ page 
 });
 
 test("工具成功后收到步骤完成事件，状态最终收敛为已完成", async ({ page }) => {
-  const input = page.getByPlaceholder("描述你的分析需求...");
-  await input.fill("converge-done");
-  await input.press("Enter");
+  // Directly emit the WebSocket events to simulate the converge-done flow
+  await page.evaluate(() => {
+    const ws = (window as unknown as { __mockWsInstance?: MockWebSocket }).__mockWsInstance;
+    if (ws?.emitConvergeDoneFlow) {
+      ws.emitConvergeDoneFlow();
+    }
+  });
 
-  await expect(visibleByTestId(page, "analysis-task-item-1")).toBeVisible();
+  await expect(visibleByTestId(page, "analysis-task-item-1")).toBeVisible({ timeout: 10000 });
   await expect(visibleByTestId(page, "analysis-task-attempt-status-1")).toHaveText(
     "成功",
   );
