@@ -319,6 +319,7 @@ export interface AppStateSubset {
   sessions: { id: string; title: string; message_count: number; source: "memory" | "disk" }[];
   _currentTurnId: string | null;
   _streamingText: string;
+  _lastHandledSeq: number | undefined;
   _activePlanMsgId: string | null;
   _analysisPlanOrder: number;
   _activePlanTaskIds: Array<string | null>;
@@ -369,14 +370,25 @@ export function handleEvent(
     }
 
     case "iteration_start": {
-      // 新迭代开始：重置流式文本累积，记录 turnId
-      set({ _streamingText: "", _currentTurnId: evt.turn_id || null });
+      // 新迭代开始：重置流式文本累积，记录 turnId，同时重置序列号
+      set({ _streamingText: "", _currentTurnId: evt.turn_id || null, _lastHandledSeq: undefined });
       break;
     }
 
     case "text": {
       const text = stripReasoningMarkers((evt.data as string) || "");
       if (!text) break;
+
+      // 防重复处理：检查事件序列号
+      const seq = evt.metadata?.seq as number | undefined;
+      if (seq !== undefined) {
+        const lastSeq = get()._lastHandledSeq;
+        if (lastSeq !== undefined && seq <= lastSeq) {
+          // 已处理过此事件，跳过
+          break;
+        }
+      }
+
       const newStreamText = get()._streamingText + text;
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
 
@@ -401,7 +413,7 @@ export function handleEvent(
             timestamp: Date.now(),
           });
         }
-        return { messages: msgs, _streamingText: newStreamText };
+        return { messages: msgs, _streamingText: newStreamText, _lastHandledSeq: seq };
       });
       break;
     }
