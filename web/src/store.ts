@@ -179,6 +179,7 @@ export interface AppState {
   _streamingText: string;
   _currentTurnId: string | null;
   _reconnectAttempts: number;
+  _lastHandledSeq: number | undefined;
   _activePlanMsgId: string | null;
   analysisPlanProgress: AnalysisPlanProgress | null;
   _analysisPlanOrder: number;
@@ -344,6 +345,7 @@ export const useStore = create<AppState>((set, get) => ({
   _streamingText: "",
   _currentTurnId: null,
   _reconnectAttempts: 0,
+  _lastHandledSeq: undefined,
   _activePlanMsgId: null,
   analysisPlanProgress: null,
   _analysisPlanOrder: 0,
@@ -414,6 +416,7 @@ export const useStore = create<AppState>((set, get) => ({
         pendingAskUserQuestion: null,
         _streamingText: "",
         _currentTurnId: null,
+        _lastHandledSeq: undefined,
         _activePlanMsgId: null,
       });
 
@@ -469,6 +472,7 @@ export const useStore = create<AppState>((set, get) => ({
       pendingAskUserQuestion: null,
       _streamingText: "",
       _currentTurnId: null,
+      _lastHandledSeq: undefined,
       _activePlanMsgId: null,
     });
   },
@@ -586,6 +590,7 @@ export const useStore = create<AppState>((set, get) => ({
       pendingAskUserQuestion: null,
       _streamingText: "",
       _currentTurnId: null,
+      _lastHandledSeq: undefined,
       _activePlanMsgId: null,
       _activePlanTaskIds: [],
       _planActionTaskMap: {},
