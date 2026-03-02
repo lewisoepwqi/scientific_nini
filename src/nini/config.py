@@ -189,9 +189,13 @@ class Settings(BaseSettings):
     knowledge_local_embedding_model: str = "BAAI/bge-small-zh-v1.5"
     prompt_component_max_chars: int = 20000
     prompt_total_max_chars: int = 60000
-    skills_dir_path: Path = _get_bundle_root() / "skills"
+    # ---- Skills 目录配置 ----
+    # 主 Skills 目录（Nini 品牌路径）
+    skills_dir_path: Path = _ROOT / ".nini" / "skills"
+    # 额外的 Skills 目录（逗号分隔的路径列表）
     skills_extra_dirs: str = ""
-    skills_auto_discover_compat_dirs: bool = False
+    # 自动发现兼容目录（.claude/skills/、.codex/skills/ 等）
+    skills_auto_discover_compat_dirs: bool = True
 
     # ---- 自动上下文压缩 ----
     auto_compress_enabled: bool = True
@@ -258,14 +262,17 @@ class Settings(BaseSettings):
             seen.add(resolved)
             dirs.append(resolved)
 
+        # Nini 品牌路径（最高优先级）
+        _append(_ROOT / ".nini" / "skills")
+
         if self.skills_auto_discover_compat_dirs:
-            # 项目级兼容目录（优先）
+            # 行业标准兼容目录（按优先级）
             _append(_ROOT / ".codex" / "skills")
             _append(_ROOT / ".claude" / "skills")
             _append(_ROOT / ".opencode" / "skills")
             _append(_ROOT / ".agents" / "skills")
 
-        # 现有默认目录
+        # 配置的 Skills 目录（向后兼容）
         _append(self.skills_dir)
 
         # 用户显式追加目录（最低优先）

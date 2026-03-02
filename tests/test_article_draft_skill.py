@@ -23,7 +23,7 @@ from nini.capabilities.defaults import create_default_capabilities
 
 def test_article_draft_skill_is_discoverable():
     """article-draft/SKILL.md 能被扫描器正确发现。"""
-    skills_dir = Path(__file__).parent.parent / "src" / "nini" / "skills"
+    skills_dir = Path(__file__).parent.parent / ".nini" / "skills"
     skills = scan_markdown_skills(skills_dir)
     names = [s.name for s in skills]
     assert "article_draft" in names, f"期望找到 article_draft，实际找到: {names}"
@@ -31,7 +31,7 @@ def test_article_draft_skill_is_discoverable():
 
 def test_article_draft_skill_frontmatter_fields():
     """article_draft Skill 的 frontmatter 包含必要字段。"""
-    skills_dir = Path(__file__).parent.parent / "src" / "nini" / "skills"
+    skills_dir = Path(__file__).parent.parent / ".nini" / "skills"
     skills = scan_markdown_skills(skills_dir)
     skill = next((s for s in skills if s.name == "article_draft"), None)
 
@@ -48,7 +48,7 @@ def test_article_draft_skill_has_instruction_body():
     from nini.tools.markdown_scanner import get_markdown_skill_instruction
 
     skill_path = (
-        Path(__file__).parent.parent / "src" / "nini" / "skills" / "article-draft" / "SKILL.md"
+        Path(__file__).parent.parent / ".nini" / "skills" / "article-draft" / "SKILL.md"
     )
     assert skill_path.exists(), f"SKILL.md 不存在: {skill_path}"
 

@@ -28,6 +28,7 @@ import {
   applyPlanStepUpdateToProgress,
   updateAnalysisTaskById,
   updateAnalysisTaskWithAttempt,
+  findTaskIdByStepAndTurn,
 } from "./utils";
 
 import {
@@ -429,6 +430,7 @@ export function handleEvent(
       set((s) => {
         if (eventOrder < s._analysisPlanOrder) return {};
         const now = Date.now();
+        const currentTurnId = turnId || s._currentTurnId || null;
         const appendedTasks: AnalysisTaskItem[] = steps.map((step) => ({
           id: nextAnalysisTaskId(),
           plan_step_id: step.id,
@@ -442,6 +444,7 @@ export function handleEvent(
           attempts: [],
           created_at: now,
           updated_at: now,
+          turn_id: currentTurnId,
         }));
         const actionMap = {
           ...s._planActionTaskMap,
@@ -458,7 +461,8 @@ export function handleEvent(
           _activePlanMsgId: msgId,
           analysisPlanProgress: makePlanProgressFromSteps(steps, rawText),
           analysisTasks: [...s.analysisTasks, ...appendedTasks],
-          _activePlanTaskIds: appendedTasks.map((task) => task.id),
+          // 累加任务ID，保留历史任务引用
+          _activePlanTaskIds: [...s._activePlanTaskIds, ...appendedTasks.map((task) => task.id)],
           _planActionTaskMap: actionMap,
           workspacePanelOpen: true,
           workspacePanelTab: "tasks",
@@ -512,10 +516,9 @@ export function handleEvent(
           }
         }
 
-        const taskId =
-          stepId > 0 && stepId <= s._activePlanTaskIds.length
-            ? s._activePlanTaskIds[stepId - 1]
-            : null;
+        // 使用 turn_id 优先匹配当前回合的任务
+        const currentTurnId = s._currentTurnId;
+        const taskId = findTaskIdByStepAndTurn(s.analysisTasks, stepId, currentTurnId);
         const currentTask = taskId
           ? s.analysisTasks.find((task) => task.id === taskId)
           : undefined;
@@ -570,10 +573,9 @@ export function handleEvent(
         const nextProgress = applyPlanProgressPayload(s, data);
         if (!nextProgress) return {};
         const stepId = nextProgress.current_step_index;
-        const taskId =
-          stepId > 0 && stepId <= s._activePlanTaskIds.length
-            ? s._activePlanTaskIds[stepId - 1]
-            : null;
+        // 使用 turn_id 优先匹配当前回合的任务
+        const currentTurnId = s._currentTurnId;
+        const taskId = findTaskIdByStepAndTurn(s.analysisTasks, stepId, currentTurnId);
         const currentTask = taskId
           ? s.analysisTasks.find((task) => task.id === taskId)
           : undefined;
@@ -650,17 +652,9 @@ export function handleEvent(
         let taskId: string | null = null;
         if (actionId && s._planActionTaskMap[actionId]) {
           taskId = s._planActionTaskMap[actionId];
-        } else if (
-          stepId &&
-          stepId > 0 &&
-          stepId <= s._activePlanTaskIds.length
-        ) {
-          taskId = s._activePlanTaskIds[stepId - 1] ?? null;
         } else if (stepId) {
-          const fallback = [...s.analysisTasks]
-            .reverse()
-            .find((task) => task.plan_step_id === stepId);
-          taskId = fallback?.id || null;
+          // 使用 turn_id 优先匹配当前回合的任务
+          taskId = findTaskIdByStepAndTurn(s.analysisTasks, stepId, s._currentTurnId);
         }
         if (!taskId) return {};
 
@@ -1200,11 +1194,12 @@ export function handleEvent(
         let tasks = s.analysisTasks;
         const turnId = s._currentTurnId;
         if (progress && progress.step_status === "in_progress") {
-          const taskId =
-            progress.current_step_index > 0 &&
-            progress.current_step_index <= s._activePlanTaskIds.length
-              ? s._activePlanTaskIds[progress.current_step_index - 1]
-              : null;
+          // 使用 turn_id 优先匹配当前回合的任务
+          const taskId = findTaskIdByStepAndTurn(
+            s.analysisTasks,
+            progress.current_step_index,
+            turnId,
+          );
           const currentTask = taskId
             ? tasks.find((task) => task.id === taskId)
             : undefined;
@@ -1253,11 +1248,12 @@ export function handleEvent(
         let tasks = s.analysisTasks;
         const turnId = s._currentTurnId;
         if (progress && progress.step_status === "in_progress") {
-          const taskId =
-            progress.current_step_index > 0 &&
-            progress.current_step_index <= s._activePlanTaskIds.length
-              ? s._activePlanTaskIds[progress.current_step_index - 1]
-              : null;
+          // 使用 turn_id 优先匹配当前回合的任务
+          const taskId = findTaskIdByStepAndTurn(
+            s.analysisTasks,
+            progress.current_step_index,
+            turnId,
+          );
           const currentTask = taskId
             ? tasks.find((task) => task.id === taskId)
             : undefined;
@@ -1328,11 +1324,12 @@ export function handleEvent(
           if (!progress || progress.step_status !== "in_progress") {
             return s.analysisTasks;
           }
-          const taskId =
-            progress.current_step_index > 0 &&
-            progress.current_step_index <= s._activePlanTaskIds.length
-              ? s._activePlanTaskIds[progress.current_step_index - 1]
-              : null;
+          // 使用 turn_id 优先匹配当前回合的任务
+          const taskId = findTaskIdByStepAndTurn(
+            s.analysisTasks,
+            progress.current_step_index,
+            s._currentTurnId,
+          );
           const currentTask = taskId
             ? s.analysisTasks.find((task) => task.id === taskId)
             : undefined;

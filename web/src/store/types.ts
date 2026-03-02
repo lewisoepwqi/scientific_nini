@@ -156,6 +156,7 @@ export interface AnalysisTaskItem {
   attempts: AnalysisTaskAttempt[];
   created_at: number;
   updated_at: number;
+  turn_id?: string | null; // 关联的回合ID，用于区分不同对话的任务
 }
 
 // ---- 意图分析类型 ----

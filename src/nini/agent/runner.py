@@ -858,20 +858,8 @@ class AgentRunner:
                         note=f"第 {attempt_no}/{max_attempts} 次尝试执行 {func_name}",
                     )
 
-                    # 对支持流式事件的工具使用特殊处理
-                    if func_name == "generate_article_draft":
-                        result = None
-                        async for item in self._execute_tool_with_event_callback(
-                            session, func_name, func_args, turn_id, tc_id
-                        ):
-                            if isinstance(item, AgentEvent):
-                                yield item
-                            else:
-                                result = item
-                        if result is None:
-                            result = {"error": "工具执行未返回结果"}
-                    else:
-                        result = await self._execute_tool(session, func_name, func_args)
+                    # 执行工具
+                    result = await self._execute_tool(session, func_name, func_args)
 
                     # 检查是否发生了统计降级 fallback
                     if isinstance(result, dict) and result.get("fallback"):
@@ -1985,109 +1973,6 @@ class AgentRunner:
         except Exception as e:
             logger.error("工具 %s 执行失败: %s", name, e, exc_info=True)
             return {"error": f"工具 {name} 执行失败: {e}"}
-
-    async def _execute_tool_with_event_callback(
-        self,
-        session: Session,
-        name: str,
-        arguments: str,
-        turn_id: str,
-        tool_call_id: str,
-    ) -> AsyncGenerator[AgentEvent | dict[str, Any], None]:
-        """执行工具调用，支持流式事件回调。
-
-        Yields:
-            AgentEvent: 流式进度事件
-            dict: 最终结果
-        """
-        if self._skill_registry is None:
-            yield {"error": f"技能系统未初始化，无法执行 {name}"}
-            return
-
-        try:
-            args = json.loads(arguments)
-        except json.JSONDecodeError:
-            yield {"error": f"工具参数解析失败: {arguments}"}
-            return
-
-        # 创建异步队列用于实时传递进度事件
-        progress_queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
-
-        async def event_callback(event_type: str, data: dict[str, Any]) -> None:
-            """工具执行期间的进度回调，实时发送事件到队列。"""
-            if event_type == "draft_progress":
-                event = AgentEvent(
-                    type=EventType.TEXT,
-                    data=data.get("message", ""),
-                    turn_id=turn_id,
-                    tool_name=name,
-                    tool_call_id=tool_call_id,
-                )
-                await progress_queue.put(event)
-
-        # 设置会话的事件回调
-        original_callback = session.event_callback
-        session.event_callback = event_callback
-
-        # 用于存储最终结果或异常
-        result_container: dict[str, Any] = {}
-        exception_container: list[Exception] = []
-
-        async def execute_tool() -> None:
-            """在后台执行工具。"""
-            try:
-                result = await self._skill_registry.execute_with_fallback(
-                    name, session=session, **args
-                )
-                result_container["result"] = result
-            except Exception as e:
-                logger.error("工具 %s 执行失败: %s", name, e, exc_info=True)
-                exception_container.append(e)
-            finally:
-                # 发送哨兵值表示执行完成
-                await progress_queue.put(None)
-
-        # 启动工具执行任务
-        task = asyncio.create_task(execute_tool())
-
-        try:
-            # 实时yield进度事件，直到工具执行完成
-            while True:
-                try:
-                    # 等待队列中的事件，设置超时以便检查任务状态
-                    event = await asyncio.wait_for(progress_queue.get(), timeout=0.1)
-                    if event is None:
-                        # 收到哨兵值，表示执行完成
-                        break
-                    yield event
-                except asyncio.TimeoutError:
-                    # 检查任务是否已完成或出错
-                    if task.done():
-                        # 尝试获取队列中剩余的事件
-                        while not progress_queue.empty():
-                            remaining = progress_queue.get_nowait()
-                            if remaining is not None:
-                                yield remaining
-                        break
-                    continue
-
-            # 等待任务完成
-            await task
-
-            # 检查是否有异常
-            if exception_container:
-                yield {"error": f"工具 {name} 执行失败: {exception_container[0]}"}
-            elif "result" in result_container:
-                yield result_container["result"]
-            else:
-                yield {"error": f"工具 {name} 执行未返回结果"}
-
-        except asyncio.CancelledError:
-            task.cancel()
-            raise
-        finally:
-            # 恢复原始回调
-            session.event_callback = original_callback
 
     def _record_research_profile_activity(
         self,
