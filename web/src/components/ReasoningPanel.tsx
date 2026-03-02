@@ -4,7 +4,7 @@
  * 显示 Agent 的分析思路和决策过程，支持折叠/展开。
  */
 import { useState } from "react";
-import { Lightbulb, ChevronDown, ChevronUp, Copy, Check, FileOutput } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Check, FileOutput } from "lucide-react";
 import { useStore } from "../store";
 
 interface ReasoningData {
@@ -87,10 +87,10 @@ export default function ReasoningPanel({
 
   const getTypeColor = (type?: string) => {
     const colors: Record<string, string> = {
-      analysis: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-      decision: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-      planning: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
-      reflection: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+      analysis: "bg-slate-100 text-slate-700 dark:bg-slate-800/50 dark:text-slate-300",
+      decision: "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300",
+      planning: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+      reflection: "bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
     };
     return type ? colors[type] || "" : "";
   };
@@ -116,22 +116,21 @@ export default function ReasoningPanel({
     keywords.forEach((keyword) => {
       result = result.replace(
         new RegExp(keyword, "g"),
-        `<span class="font-semibold text-amber-600 dark:text-amber-400">${keyword}</span>`
+        `<span class="font-semibold text-indigo-600 dark:text-indigo-400">${keyword}</span>`
       );
     });
     return result;
   };
 
   return (
-    <div className="my-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/20 overflow-hidden">
+    <div className="overflow-hidden">
       {/* 头部 */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-amber-100/50 dark:hover:bg-amber-900/30 transition-colors"
+        className="w-full flex items-center justify-between py-1 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
       >
         <div className="flex items-center gap-2">
-          <Lightbulb className="w-4 h-4 text-amber-500" />
-          <span className="text-sm font-medium text-amber-900 dark:text-amber-100">
+          <span className="text-sm font-medium">
             {getStepLabel(data.step)}
           </span>
           {data.reasoning_type && (
@@ -144,8 +143,8 @@ export default function ReasoningPanel({
             </span>
           )}
           {data.confidence !== undefined && data.confidence < 1.0 && (
-            <span className="text-xs text-amber-600/70 dark:text-amber-400/70">
-              置信度: {Math.round(data.confidence * 100)}%
+            <span className="text-xs text-slate-400">
+              {Math.round(data.confidence * 100)}%
             </span>
           )}
         </div>
@@ -155,7 +154,7 @@ export default function ReasoningPanel({
               e.stopPropagation();
               handleCopy();
             }}
-            className="p-1 rounded hover:bg-amber-200/50 dark:hover:bg-amber-800/50 text-amber-600 dark:text-amber-400"
+            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
             title="复制分析思路"
           >
             {copied ? (
@@ -169,7 +168,7 @@ export default function ReasoningPanel({
               e.stopPropagation();
               handleExportToReport();
             }}
-            className="p-1 rounded hover:bg-amber-200/50 dark:hover:bg-amber-800/50 text-amber-600 dark:text-amber-400"
+            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
             title="导出到报告"
           >
             {exported ? (
@@ -179,23 +178,23 @@ export default function ReasoningPanel({
             )}
           </button>
           {expanded ? (
-            <ChevronUp className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+            <ChevronUp className="w-4 h-4" />
           ) : (
-            <ChevronDown className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+            <ChevronDown className="w-4 h-4" />
           )}
         </div>
       </button>
 
       {/* 展开内容 */}
       {expanded && (
-        <div className="px-3 pb-3 space-y-3">
+        <div className="pt-2 pb-1 space-y-3">
           {/* 思考过程 */}
           <div>
-            <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1">
+            <h4 className="text-xs text-slate-400 dark:text-slate-500 mb-1">
               思考过程
             </h4>
             <p
-              className="text-sm text-amber-900/80 dark:text-amber-100/80 leading-relaxed"
+              className="text-[13px] text-slate-900 dark:text-slate-100 leading-relaxed"
               dangerouslySetInnerHTML={{
                 __html: highlightDecisionKeywords(data.thought),
               }}
@@ -205,10 +204,10 @@ export default function ReasoningPanel({
           {/* 决策理由 */}
           {data.rationale && (
             <div>
-              <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1">
+              <h4 className="text-xs text-slate-400 dark:text-slate-500 mb-1">
                 决策理由
               </h4>
-              <p className="text-sm text-amber-900/80 dark:text-amber-100/80 leading-relaxed">
+              <p className="text-[13px] text-slate-900 dark:text-slate-100 leading-relaxed">
                 {data.rationale}
               </p>
             </div>
@@ -217,16 +216,16 @@ export default function ReasoningPanel({
           {/* 关键决策点 */}
           {data.key_decisions && data.key_decisions.length > 0 && (
             <div>
-              <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1">
+              <h4 className="text-xs text-slate-400 dark:text-slate-500 mb-1">
                 关键决策
               </h4>
-              <ul className="text-sm space-y-1">
+              <ul className="text-[13px] space-y-1">
                 {data.key_decisions.map((decision, idx) => (
                   <li
                     key={idx}
-                    className="flex items-start gap-2 text-amber-900/80 dark:text-amber-100/80"
+                    className="flex items-start gap-2 text-slate-900 dark:text-slate-100"
                   >
-                    <span className="text-amber-500 mt-0.5">•</span>
+                    <span className="text-slate-300 dark:text-slate-600 mt-0.5">•</span>
                     <span>{decision}</span>
                   </li>
                 ))}
@@ -237,16 +236,16 @@ export default function ReasoningPanel({
           {/* 替代方案 */}
           {data.alternatives && data.alternatives.length > 0 && (
             <div>
-              <h4 className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1">
+              <h4 className="text-xs text-slate-400 dark:text-slate-500 mb-1">
                 考虑过的替代方案
               </h4>
-              <ul className="text-sm space-y-1">
+              <ul className="text-[13px] space-y-1">
                 {data.alternatives.map((alt, idx) => (
                   <li
                     key={idx}
-                    className="flex items-start gap-2 text-amber-700/70 dark:text-amber-300/70"
+                    className="flex items-start gap-2 text-slate-600 dark:text-slate-400"
                   >
-                    <span className="text-amber-400">◦</span>
+                    <span className="text-slate-300 dark:text-slate-600">◦</span>
                     <span>{alt}</span>
                   </li>
                 ))}
@@ -260,9 +259,9 @@ export default function ReasoningPanel({
               {data.tags.map((tag) => (
                 <span
                   key={tag}
-                  className="text-xs px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-800 text-amber-700 dark:text-amber-300"
+                  className="text-xs text-slate-400 dark:text-slate-500"
                 >
-                  {tag}
+                  #{tag}
                 </span>
               ))}
             </div>

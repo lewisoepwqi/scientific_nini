@@ -191,54 +191,111 @@ body {
   padding-left: 0.2rem;
 }
 
-/* 思考过程气泡专用样式 */
+/* 思考过程气泡专用样式 - 与 Thinking 标签颜色一致 (slate-500) */
+.reasoning-markdown {
+  color: #64748b;
+}
+
+.reasoning-markdown p,
+.reasoning-markdown li,
+.reasoning-markdown ol {
+  color: #64748b;
+}
+
+.dark .reasoning-markdown {
+  color: #94a3b8;
+}
+
+.dark .reasoning-markdown p,
+.dark .reasoning-markdown li,
+.dark .reasoning-markdown ol {
+  color: #94a3b8;
+}
+
 .reasoning-markdown pre {
-  background: #422006;
-  color: #fffbeb;
-  border: 1px solid #d97706;
+  background: #1e293b;
+  color: #f1f5f9;
+  border: 1px solid #334155;
 }
 
 .reasoning-markdown code {
-  background: #fef3c7;
-  color: #92400e;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.dark .reasoning-markdown code {
+  background: #334155;
+  color: #e2e8f0;
 }
 
 .reasoning-markdown h1,
 .reasoning-markdown h2,
 .reasoning-markdown h3,
 .reasoning-markdown h4 {
-  color: #92400e;
+  color: #475569;
+}
+
+.dark .reasoning-markdown h1,
+.dark .reasoning-markdown h2,
+.dark .reasoning-markdown h3,
+.dark .reasoning-markdown h4 {
+  color: #94a3b8;
 }
 
 .reasoning-markdown .markdown-table-wrap {
-  border-color: #f59e0b;
-  background: #fffbeb;
+  border-color: #e2e8f0;
+  background: #ffffff;
+}
+
+.dark .reasoning-markdown .markdown-table-wrap {
+  border-color: #334155;
+  background: #0f172a;
 }
 
 .reasoning-markdown .markdown-table-wrap th,
 .reasoning-markdown .markdown-table-wrap td {
-  border-color: #fcd34d;
-  color: #78350f;
+  border-color: #e2e8f0;
+  color: #334155;
+}
+
+.dark .reasoning-markdown .markdown-table-wrap th,
+.dark .reasoning-markdown .markdown-table-wrap td {
+  border-color: #334155;
+  color: #e2e8f0;
 }
 
 .reasoning-markdown .markdown-table-wrap th {
-  background: #fef3c7;
+  background: #f8fafc;
+}
+
+.dark .reasoning-markdown .markdown-table-wrap th {
+  background: #1e293b;
 }
 
 .reasoning-markdown blockquote {
-  border-left-color: #f59e0b;
-  background: #fef3c7;
-  color: #92400e;
+  border-left-color: #94a3b8;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.dark .reasoning-markdown blockquote {
+  border-left-color: #475569;
+  background: #1e293b;
+  color: #94a3b8;
 }
 
 .reasoning-markdown hr {
-  border-top-color: #fcd34d;
+  border-top-color: #e2e8f0;
+}
+
+.dark .reasoning-markdown hr {
+  border-top-color: #334155;
 }
 
 .reasoning-markdown a {
-  color: #b45309;
+  color: #6366f1;
 }
 
 .reasoning-markdown a:hover {
-  color: #92400e;
+  color: #4f46e5;
 }

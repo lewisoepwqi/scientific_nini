@@ -401,6 +401,7 @@ export function handleEvent(
           last.role === "assistant" &&
           !last.toolName &&
           !last.retrievals &&
+          !last.isReasoning &&  // 关键：不要覆盖 reasoning 消息
           last.turnId === turnId
         ) {
           msgs[msgs.length - 1] = { ...last, content: newStreamText };
@@ -767,6 +768,12 @@ export function handleEvent(
           ? data.reasoning_id
           : undefined;
 
+      // 获取 reasoningLive 状态（流式中=true，完成=false）
+      const isLive =
+        data && typeof data.reasoningLive === "boolean"
+          ? data.reasoningLive
+          : true; // 默认流式中
+
       set((s) => {
         const msgs = [...s.messages];
 
@@ -777,11 +784,12 @@ export function handleEvent(
           );
           if (existingIndex >= 0) {
             const target = msgs[existingIndex];
-            const merged = mergeReasoningContent(target.content, content);
+            // 传入 isLive 参数：流式中追加，最终事件直接替换
+            const merged = mergeReasoningContent(target.content, content, isLive);
             msgs[existingIndex] = {
               ...target,
               content: merged,
-              reasoningLive: true,
+              reasoningLive: isLive,
             };
             return { messages: msgs };
           }
@@ -792,7 +800,7 @@ export function handleEvent(
             role: "assistant",
             content,
             isReasoning: true,
-            reasoningLive: true,
+            reasoningLive: isLive,
             reasoningId,
             turnId,
             timestamp: Date.now(),
@@ -814,11 +822,12 @@ export function handleEvent(
         if (lastReasoningIndex >= 0) {
           const idx = msgs.length - 1 - lastReasoningIndex;
           const target = msgs[idx];
-          const merged = mergeReasoningContent(target.content, content);
+          // 传入 isLive 参数：流式中追加，最终事件直接替换
+          const merged = mergeReasoningContent(target.content, content, isLive);
           msgs[idx] = {
             ...target,
             content: merged,
-            reasoningLive: true,
+            reasoningLive: isLive,
           };
           return { messages: msgs };
         }
@@ -830,7 +839,7 @@ export function handleEvent(
           role: "assistant",
           content,
           isReasoning: true,
-          reasoningLive: true,
+          reasoningLive: isLive,
           turnId,
           timestamp: Date.now(),
         };

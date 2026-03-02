@@ -384,6 +384,9 @@ class AgentRunner:
             tool_calls: list[dict[str, Any]] = []
             usage: dict[str, int] = {}
             retried_after_compress = False
+            # 流式 reasoning 追踪
+            current_reasoning_id: str | None = None
+            streamed_reasoning_buffer = ""
 
             while True:
                 full_text = ""
@@ -391,6 +394,8 @@ class AgentRunner:
                 raw_full_text = ""
                 tool_calls = []
                 usage = {}
+                current_reasoning_id = None
+                streamed_reasoning_buffer = ""
                 try:
                     async for chunk in self._resolver.chat(
                         messages,
@@ -403,15 +408,30 @@ class AgentRunner:
 
                         chunk_reasoning = getattr(chunk, "reasoning", "")
                         if chunk_reasoning:
-                            full_reasoning += ReasoningStreamParser.strip_reasoning_markers(
+                            stripped = ReasoningStreamParser.strip_reasoning_markers(
                                 str(chunk_reasoning)
                             )
+                            full_reasoning += stripped
+                            # 流式推送 reasoning（如果启用）
+                            if settings.enable_reasoning and stripped:
+                                if current_reasoning_id is None:
+                                    current_reasoning_id = str(uuid.uuid4())
+                                streamed_reasoning_buffer += stripped
+                                yield AgentEvent(
+                                    type=EventType.REASONING,
+                                    data={
+                                        "content": stripped,
+                                        "reasoning_id": current_reasoning_id,
+                                        "reasoningLive": True,
+                                    },
+                                    turn_id=turn_id,
+                                )
 
                         chunk_raw_text = getattr(chunk, "raw_text", "")
                         if chunk_raw_text:
                             raw_full_text += chunk_raw_text
 
-                        # 流式推送文本（在 reasoning 事件之后）
+                        # 流式推送文本
                         if chunk.text:
                             display_text = ReasoningStreamParser.strip_reasoning_markers(
                                 str(chunk.text)
@@ -472,6 +492,18 @@ class AgentRunner:
                     confidence_score=confidence_score,
                 )
 
+                # 发送最终 reasoning 事件（标记为完成）
+                # 如果有流式 reasoning，使用相同的 reasoning_id 以便前端合并
+                final_reasoning_id = current_reasoning_id or reasoning_node.get("id")
+                # 先保存到 session 持久化
+                session.add_reasoning(
+                    content=full_reasoning.strip(),
+                    reasoning_type=reasoning_type,
+                    key_decisions=key_decisions,
+                    confidence_score=confidence_score,
+                    reasoning_id=final_reasoning_id,
+                    parent_id=reasoning_node.get("parent_id"),
+                )
                 yield AgentEvent(
                     type=EventType.REASONING,
                     data={
@@ -480,7 +512,8 @@ class AgentRunner:
                         "key_decisions": key_decisions,
                         "confidence_score": confidence_score,
                         "parent_id": reasoning_node.get("parent_id"),
-                        "reasoning_id": reasoning_node.get("id"),
+                        "reasoning_id": final_reasoning_id,
+                        "reasoningLive": False,  # 标记为已完成
                     },
                     turn_id=turn_id,
                 )

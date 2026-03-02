@@ -12,25 +12,26 @@ export function resolveDownloadUrl(downloadUrl: string | undefined, name?: strin
   if (!downloadUrl) return downloadUrl
   if (!isMarkdownFile(name)) return downloadUrl
 
+  // 统一使用 /api/workspace/{sid}/files/{path}?bundle=1
   const artifactMatch = downloadUrl.match(/^\/api\/artifacts\/([^/]+)\/(.+)$/)
   if (artifactMatch) {
     const sessionId = artifactMatch[1]
     const filename = artifactMatch[2]
-    return `/api/workspace/${sessionId}/artifacts/${filename}/bundle`
+    return `/api/workspace/${sessionId}/files/${filename}?bundle=1`
   }
 
   const workspaceArtifactMatch = downloadUrl.match(/^\/api\/workspace\/([^/]+)\/artifacts\/(.+)$/)
   if (workspaceArtifactMatch) {
     const sessionId = workspaceArtifactMatch[1]
     const filename = workspaceArtifactMatch[2]
-    return `/api/workspace/${sessionId}/artifacts/${filename}/bundle`
+    return `/api/workspace/${sessionId}/files/${filename}?bundle=1`
   }
 
   const noteMatch = downloadUrl.match(/^\/api\/workspace\/([^/]+)\/notes\/(.+)$/)
   if (noteMatch) {
     const sessionId = noteMatch[1]
     const filename = noteMatch[2]
-    return `/api/workspace/${sessionId}/artifacts/${filename}/bundle`
+    return `/api/workspace/${sessionId}/files/${filename}?bundle=1`
   }
 
   return downloadUrl

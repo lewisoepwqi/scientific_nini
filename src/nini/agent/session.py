@@ -110,6 +110,44 @@ class Session:
         self.messages.append(msg)
         self.conversation_memory.append(msg)
 
+    def add_reasoning(
+        self,
+        content: str,
+        reasoning_type: str | None = None,
+        key_decisions: list[str] | None = None,
+        confidence_score: float | None = None,
+        reasoning_id: str | None = None,
+        **extra: Any,
+    ) -> None:
+        """添加 reasoning 消息（思考过程）到会话历史。
+
+        Args:
+            content: 思考内容
+            reasoning_type: 推理类型 (analysis/decision/planning/reflection)
+            key_decisions: 关键决策点列表
+            confidence_score: 置信度分数
+            reasoning_id: 推理节点唯一标识
+            **extra: 其他元数据
+        """
+        msg: dict[str, Any] = {
+            "role": "assistant",
+            "content": content,
+            "event_type": "reasoning",
+        }
+        if reasoning_type:
+            msg["reasoning_type"] = reasoning_type
+        if key_decisions:
+            msg["key_decisions"] = key_decisions
+        if confidence_score is not None:
+            msg["confidence_score"] = confidence_score
+        if reasoning_id:
+            msg["reasoning_id"] = reasoning_id
+        for key, value in extra.items():
+            if value is not None and key not in msg:
+                msg[key] = value
+        self.messages.append(msg)
+        self.conversation_memory.append(msg)
+
     def rollback_last_turn(self) -> str | None:
         """回滚最后一轮：保留最后一条用户消息，删除其后的 Agent 输出。"""
         last_user_idx = -1

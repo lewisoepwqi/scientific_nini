@@ -112,45 +112,40 @@ function MessageBubble({
     }
   }, [message.toolStatus]);
 
+  // 统一处理 reasoning 显示状态和动画
   useEffect(() => {
     if (!isReasoning) return;
-    setReasoningDisplay(message.reasoningLive ? "" : message.content);
-  }, [isReasoning, message.id, message.reasoningLive]);
 
-  useEffect(() => {
-    if (!isReasoning) return;
-    setReasoningExpanded(message.reasoningLive || message.content.length <= 160);
-  }, [isReasoning, message.id, message.reasoningLive, message.content.length]);
+    // 控制展开状态：流式中自动展开，非流式时根据内容长度决定
+    const shouldExpand = message.reasoningLive || message.content.length <= 160;
+    setReasoningExpanded(shouldExpand);
 
-  useEffect(() => {
-    if (!isReasoning || !message.reasoningLive) return;
-    setReasoningExpanded(true);
-  }, [isReasoning, message.reasoningLive]);
+    // 流式阶段：使用逐字动画效果
+    if (message.reasoningLive) {
+      // 如果内容被重置或改变，需要重新同步
+      if (!message.content.startsWith(reasoningDisplay)) {
+        setReasoningDisplay(message.content);
+        return;
+      }
 
-  useEffect(() => {
-    if (!isReasoning) return;
-    if (!message.reasoningLive) {
+      // 逐字动画
+      if (reasoningDisplay.length < message.content.length) {
+        const remain = message.content.length - reasoningDisplay.length;
+        const step = remain > 30 ? 4 : remain > 12 ? 2 : 1;
+        const timer = window.setTimeout(() => {
+          const nextLen = Math.min(
+            message.content.length,
+            reasoningDisplay.length + step,
+          );
+          setReasoningDisplay(message.content.slice(0, nextLen));
+        }, 16);
+        return () => window.clearTimeout(timer);
+      }
+    } else {
+      // 最终阶段：直接显示完整内容（避免闪烁）
       setReasoningDisplay(message.content);
-      return;
     }
-    if (!message.content.startsWith(reasoningDisplay)) {
-      setReasoningDisplay(message.content);
-      return;
-    }
-    if (reasoningDisplay.length >= message.content.length) {
-      return;
-    }
-    const remain = message.content.length - reasoningDisplay.length;
-    const step = remain > 30 ? 4 : remain > 12 ? 2 : 1;
-    const timer = window.setTimeout(() => {
-      const nextLen = Math.min(
-        message.content.length,
-        reasoningDisplay.length + step,
-      );
-      setReasoningDisplay(message.content.slice(0, nextLen));
-    }, 16);
-    return () => window.clearTimeout(timer);
-  }, [isReasoning, message.content, reasoningDisplay, message.reasoningLive]);
+  }, [isReasoning, message.id, message.content, message.reasoningLive, reasoningDisplay]);
 
   const showTypingCursor =
     isReasoning &&
@@ -170,9 +165,9 @@ function MessageBubble({
     // 如果有结构化数据，使用 ReasoningPanel 组件
     if (reasoningData && reasoningData.step) {
       return (
-        <div className="flex gap-3 mb-4">
-          <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-amber-100 text-amber-700">
-            <Lightbulb size={16} />
+        <div className="flex gap-3 mb-3">
+          <div className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-slate-100 text-slate-600">
+            <Lightbulb size={14} />
           </div>
           <div className="flex-1 min-w-0">
             <ReasoningPanel
@@ -193,50 +188,48 @@ function MessageBubble({
       );
     }
 
-    // 默认使用简单的折叠显示
+    // 默认使用极简折叠显示 - 无背景无边框
     return (
-      <div className="flex gap-3 mb-4">
-        <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-amber-100 text-amber-700">
-          <Lightbulb size={16} />
+      <div className="flex gap-3 mb-3">
+        <div className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-slate-100 text-slate-500">
+          <Lightbulb size={14} />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="max-w-[85%] lg:max-w-2xl rounded-2xl rounded-tl-md border border-amber-300/90 bg-gradient-to-br from-amber-50 to-orange-50 px-4 py-3 shadow-sm">
-            <button
-              type="button"
-              onClick={() => setReasoningExpanded((prev) => !prev)}
-              className="mb-2 flex w-full items-center justify-between text-left text-xs font-semibold tracking-wide text-amber-700 hover:text-amber-800"
-            >
-              <span className="flex items-center gap-2">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" />
-                思考过程
-              </span>
-              <span className="flex items-center gap-1">
-                {reasoningExpanded ? "收起" : "展开"}
-                {reasoningExpanded ? (
-                  <ChevronDown size={14} />
-                ) : (
-                  <ChevronRight size={14} />
-                )}
-              </span>
-            </button>
-            <div className="markdown-body reasoning-markdown prose prose-sm max-w-none text-amber-950">
-              {reasoningExpanded ? (
-                <>
+          {reasoningExpanded ? (
+            // 展开状态：显示完整内容和收起按钮
+            <div className="max-w-[85%] lg:max-w-2xl">
+              <button
+                type="button"
+                onClick={() => setReasoningExpanded(false)}
+                className="flex items-center gap-2 h-7 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
+              >
+                <span className="font-medium">Thinking</span>
+                <ChevronDown size={14} />
+              </button>
+              {/* 引用块样式容器：左边竖线 + 轻微背景 */}
+              <div className="mt-1 pl-3 py-2 border-l-2 border-slate-300 bg-slate-50/60 dark:border-slate-600 dark:bg-slate-800/40 rounded-r">
+                <div className="markdown-body reasoning-markdown text-[13px] text-slate-600 dark:text-slate-400">
                   <MarkdownContent content={reasoningDisplay} />
                   {showTypingCursor && (
                     <span
-                      className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-amber-700 align-middle"
+                      className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-slate-500 align-middle"
                       aria-hidden="true"
                     />
                   )}
-                </>
-              ) : (
-                <p className="m-0 text-xs text-amber-700/90">
-                  已折叠，点击"展开"查看完整思考过程。
-                </p>
-              )}
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            // 折叠状态：纯文本按钮，无背景无边框
+            <button
+              type="button"
+              onClick={() => setReasoningExpanded(true)}
+              className="flex items-center gap-1.5 h-7 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
+            >
+              <span className="font-medium">Thinking</span>
+              <ChevronRight size={14} />
+            </button>
+          )}
         </div>
       </div>
     );

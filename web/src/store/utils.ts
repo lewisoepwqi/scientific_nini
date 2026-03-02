@@ -87,11 +87,27 @@ export function normalizeMemoryTimestamp(value: unknown): string {
 
 // ---- 推理标记处理 ----
 
-export function mergeReasoningContent(previous: string, incoming: string): string {
+/**
+ * 合并 reasoning 内容
+ * @param previous - 之前的内容
+ * @param incoming - 新收到的内容
+ * @param isLive - 是否为流式中（true=增量追加，false=完整替换）
+ * @returns 合并后的内容
+ */
+export function mergeReasoningContent(
+  previous: string,
+  incoming: string,
+  isLive?: boolean,
+): string {
   if (!previous) return incoming;
   if (!incoming) return previous;
+
+  // 如果是最终事件（非流式），直接替换为完整内容
+  if (isLive === false) return incoming;
+
   // 兼容累计流（新内容包含旧内容前缀）
   if (incoming.startsWith(previous)) return incoming;
+
   // 兼容增量流（新内容仅为 delta）
   return previous + incoming;
 }
