@@ -2,6 +2,7 @@
 
 from nini.intent.base import IntentAnalysis, IntentCandidate
 from nini.intent.service import IntentAnalyzer, default_intent_analyzer
+from nini.intent.optimized import OptimizedIntentAnalyzer, optimized_intent_analyzer
 
 # 导出增强版语义分析（可选依赖）
 try:
@@ -20,6 +21,8 @@ __all__ = [
     "IntentCandidate",
     "IntentAnalyzer",
     "default_intent_analyzer",
+    "OptimizedIntentAnalyzer",
+    "optimized_intent_analyzer",
 ]
 
 # 如果增强版可用，添加到导出

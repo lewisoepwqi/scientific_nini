@@ -65,6 +65,25 @@ dependencies = [
 pdf = ["weasyprint>=62.0"]
 webr = ["webr>=0.0.3"]
 mcp = ["mcp>=1.0.0"]
+
+# 本地优先检索增强（零外部 API 依赖）
+local = [
+    "jieba>=0.42.0",          # 中文分词
+    "rank-bm25>=0.2.2",       # BM25 检索
+]
+
+# 本地向量检索（可选，约 80MB 模型）
+local_vector = [
+    "sentence-transformers>=2.2.0",  # 本地 Embedding 模型
+    "faiss-cpu>=1.7.0",              # 向量检索（CPU 版，无 GPU 依赖）
+]
+
+# 高级检索功能（层次化索引 + 重排序）
+advanced_retrieval = [
+    "sentence-transformers>=2.2.0",  # Cross-Encoder 重排序
+    "numpy>=1.26.0",                 # RRF 融合计算
+]
+
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",
