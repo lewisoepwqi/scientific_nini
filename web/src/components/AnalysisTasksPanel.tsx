@@ -5,11 +5,12 @@ import {
   AlertTriangle,
   CheckCircle2,
   Circle,
+  History,
   Loader2,
   Sparkles,
   XCircle,
 } from "lucide-react";
-import { useStore, type AnalysisPlanProgress, type PlanStepStatus } from "../store";
+import { useStore, type AnalysisPlanProgress, type PlanStepStatus, type AnalysisTaskItem } from "../store";
 
 function statusLabel(status: PlanStepStatus): string {
   switch (status) {
@@ -138,15 +139,89 @@ function AnalysisPlanContent({ plan }: { plan: AnalysisPlanProgress }) {
   );
 }
 
+// 将任务状态映射为 PlanStepStatus
+function mapTaskStatusToPlanStatus(status: AnalysisTaskItem["status"]): PlanStepStatus {
+  return status;
+}
+
+// 历史任务列表组件
+function HistoryTasksContent({ tasks }: { tasks: AnalysisTaskItem[] }) {
+  const completedCount = tasks.filter((t) => t.status === "done").length;
+
+  return (
+    <div className="h-full flex flex-col">
+      {/* 头部信息 */}
+      <div className="px-3 py-3 border-b bg-gradient-to-b from-slate-50 to-white">
+        <div className="flex items-center gap-2 text-sm">
+          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 text-slate-600">
+            <History size={13} />
+          </span>
+          <span className="font-semibold text-slate-700">历史任务</span>
+          <span className="text-xs text-slate-500">
+            共 {tasks.length} 个任务
+          </span>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          已完成 {completedCount} / {tasks.length} 个任务
+        </p>
+      </div>
+
+      {/* 任务列表 */}
+      <div className="flex-1 overflow-y-auto px-3 py-3">
+        <ul className="space-y-1.5">
+          {tasks.map((task, index) => {
+            const status = mapTaskStatusToPlanStatus(task.status);
+            const itemClass =
+              status === "done"
+                ? "border-emerald-200 bg-emerald-50/40 text-emerald-900"
+                : status === "failed"
+                  ? "border-red-200 bg-red-50/40 text-red-900"
+                  : status === "blocked"
+                    ? "border-amber-200 bg-amber-50/40 text-amber-900"
+                    : "border-slate-200 bg-slate-50 text-slate-600";
+
+            return (
+              <li
+                key={task.id}
+                className={`rounded-lg border px-2.5 py-2 flex items-start gap-2 text-xs ${itemClass}`}
+              >
+                <span className="mt-0.5">
+                  <StepStatusIcon status={status} />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <span className={status === "done" ? "line-through opacity-80" : ""}>
+                    {index + 1}. {truncateText(task.title, 88)}
+                  </span>
+                  {task.current_activity && (
+                    <p className="text-[10px] text-slate-500 mt-0.5 truncate">
+                      {task.current_activity}
+                    </p>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 export default function AnalysisTasksPanel() {
   const analysisPlanProgress = useStore((s) => s.analysisPlanProgress);
+  const analysisTasks = useStore((s) => s.analysisTasks);
 
-  // 优先显示分析计划进度
+  // 优先显示当前分析计划进度
   if (analysisPlanProgress && analysisPlanProgress.steps.length > 0) {
     return <AnalysisPlanContent plan={analysisPlanProgress} />;
   }
 
-  // 没有分析计划时显示空状态
+  // 没有当前计划但有历史任务时，显示历史任务列表
+  if (analysisTasks.length > 0) {
+    return <HistoryTasksContent tasks={analysisTasks} />;
+  }
+
+  // 没有任何任务时显示空状态
   return (
     <div className="h-full flex flex-col items-center justify-center text-gray-400 text-xs px-4">
       <Circle size={20} className="mb-2 opacity-50" />

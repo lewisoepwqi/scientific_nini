@@ -101,7 +101,8 @@ async def test_execute_markdown_skill_returns_clear_error(
         name="my_guide",
         description="指导说明",
     )
-    monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+    # 使用 skills_extra_dirs 添加测试目录
+    monkeypatch.setattr(settings, "skills_extra_dirs", str(skills_dir))
 
     registry = create_default_registry()
     session = Session()
@@ -500,7 +501,7 @@ def test_registry_progressive_disclosure_methods(
     )
     (skill_dir / "scripts").mkdir(parents=True, exist_ok=True)
     (skill_dir / "scripts" / "run.py").write_text("print('ok')\n", encoding="utf-8")
-    monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+    monkeypatch.setattr(settings, "skills_extra_dirs", str(skills_dir))
 
     registry = create_default_registry()
 
@@ -527,25 +528,25 @@ def test_semantic_catalog_contains_matching_fields(
     """语义目录应包含匹配相关字段。"""
     skills_dir = tmp_path / "skills"
     _write_skill_md(
-        skills_dir / "root-analysis" / "SKILL.md",
-        name="root-analysis",
-        description="根长分析",
+        skills_dir / "test-semantic-skill" / "SKILL.md",
+        name="test-semantic-skill",
+        description="语义测试技能",
         category="statistics",
         extra_frontmatter=(
-            "aliases: [根长分析]\n"
-            "tags: [root-length, anova]\n"
+            "aliases: [语义测试, 测试技能]\n"
+            "tags: [test, semantic]\n"
             "disable-model-invocation: true\n"
             "user-invocable: false"
         ),
     )
-    monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+    monkeypatch.setattr(settings, "skills_extra_dirs", str(skills_dir))
 
     registry = create_default_registry()
     semantic_catalog = registry.get_semantic_catalog(skill_type="markdown")
 
-    entry = next(item for item in semantic_catalog if item["name"] == "root-analysis")
-    assert entry["aliases"] == ["根长分析"]
-    assert entry["tags"] == ["root-length", "anova"]
+    entry = next(item for item in semantic_catalog if item["name"] == "test-semantic-skill")
+    assert entry["aliases"] == ["语义测试", "测试技能"]
+    assert entry["tags"] == ["test", "semantic"]
     assert entry["disable_model_invocation"] is True
     assert entry["user_invocable"] is False
     assert entry["brief_description"]
@@ -647,7 +648,7 @@ def test_tool_adapter_to_mcp_tools(
         description="指南",
         category="report",
     )
-    monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+    monkeypatch.setattr(settings, "skills_extra_dirs", str(skills_dir))
 
     registry = create_default_registry()
     adapter = ToolAdapter(registry)
@@ -671,7 +672,7 @@ def test_tool_adapter_to_claude_code_markdown(
     """ToolAdapter 应能导出 Claude Code Markdown 格式。"""
     from nini.tools.tool_adapter import ToolAdapter
 
-    monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
+    monkeypatch.setattr(settings, "skills_extra_dirs", str(tmp_path / "empty"))
     (tmp_path / "empty").mkdir()
 
     registry = create_default_registry()

@@ -148,6 +148,28 @@ export function makePlanProgressFromSteps(
 
 // ---- 分析任务更新 ----
 
+/**
+ * 根据 plan_step_id 和当前 turn_id 查找任务ID
+ * 优先匹配当前 turn 的任务，找不到则返回 null
+ */
+export function findTaskIdByStepAndTurn(
+  tasks: AnalysisTaskItem[],
+  stepId: number,
+  turnId: string | null | undefined,
+): string | null {
+  if (stepId <= 0) return null;
+
+  // 优先在当前 turn 中查找匹配 step_id 的任务
+  const matchingTasks = tasks.filter(
+    (t) => t.plan_step_id === stepId && (turnId ? t.turn_id === turnId : true),
+  );
+
+  if (matchingTasks.length === 0) return null;
+
+  // 如果有多个匹配（理论上不应该），返回最新的
+  return matchingTasks[matchingTasks.length - 1].id;
+}
+
 export function updateAnalysisTaskWithAttempt(
   tasks: AnalysisTaskItem[],
   taskId: string | null | undefined,

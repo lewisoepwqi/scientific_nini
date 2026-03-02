@@ -112,7 +112,9 @@ export default function App() {
         detailed: "详细版",
       };
 
-      const prompt = `请帮我生成文章初稿。
+      const prompt = `/article_draft
+
+请为我生成科研文章初稿。
 
 配置要求：
 - 期刊风格：${config.template.toUpperCase()}
@@ -121,7 +123,7 @@ export default function App() {
 - 包含图表：${config.include_figures ? "是" : "否"}
 - 包含表格：${config.include_tables ? "是" : "否"}
 
-请使用 generate_article_draft 工具生成文章初稿。`;
+请根据会话中的数据分析结果，按照上述配置生成结构完整的科研论文初稿。`;
 
       sendMessage(prompt);
     },

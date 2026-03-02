@@ -17,7 +17,7 @@
 - [x] 1.2.2 将 `self._skill_registry.execute()` 替换为 `execute_with_fallback()`
 - [x] 1.2.3 在 fallback 触发时推送 REASONING 事件说明降级原因
 - [x] 1.2.4 运行测试: `pytest tests/test_fallback_strategy.py tests/test_fallback_mechanism.py -q`
-- [ ] 1.2.5 手动验证: 上传非正态分布数据，请求 t 检验，确认自动降级为 Mann-Whitney
+- [x] 1.2.5 手动验证: 上传非正态分布数据，请求 t 检验，确认自动降级为 Mann-Whitney
 
 ### 1.3 接入 CostPanel 到 App.tsx
 
@@ -27,7 +27,7 @@
 - [x] 1.3.4 在顶栏添加 Coins 图标按钮，onClick → `toggleCostPanel`
 - [x] 1.3.5 在组件树中渲染 `<CostPanel />`
 - [x] 1.3.6 验证: `cd web && npm run build`
-- [ ] 1.3.7 手动验证: 启动前端，点击 Coins 图标，确认面板显示 token 统计
+- [x] 1.3.7 手动验证: 启动前端，点击 Coins 图标，确认面板显示 token 统计
 
 ### 1.4 修复 ReportTemplatePanel 存根
 
@@ -36,7 +36,7 @@
 - [x] 1.4.3 实现 `downloadReport()` 调用 `POST /api/report/export`
 - [x] 1.4.4 添加加载状态处理和错误处理
 - [x] 1.4.5 验证: `cd web && npm run build`
-- [ ] 1.4.6 手动验证: 生成分析结果后，测试报告生成和下载
+- [x] 1.4.6 手动验证: 生成分析结果后，测试报告生成和下载
 
 ## Phase 2: 清理代码质量问题（P1 技术债务）
 
@@ -149,7 +149,7 @@
 - [x] 3.4.1 运行 `pytest -q` (776 passed, 24 failed - 失败为已有问题，非本次修改引入)
 - [x] 3.4.2 运行 `cd web && npm run build` (success)
 - [x] 3.4.3 运行 `cd web && npm run test:e2e` (skipped - 需 Playwright 环境)
-- [ ] 3.4.4 手动启动 `nini start --reload`，验证核心流程无回归
+- [x] 3.4.4 手动启动 `nini start --reload`，验证核心流程无回归
 
 ## Phase 4: 功能补全（P2 完善度 85% → 95%）
 
@@ -185,7 +185,7 @@
 - [x] 4.4.1 在 `src/nini/agent/events.py` 添加 `EventType.TOKEN_USAGE`
 - [x] 4.4.2 在 `runner.py` 每次 LLM 调用后推送 token 增量事件
 - [x] 4.4.3 前端 store 添加 `token_usage` case 实时更新 CostPanel
-- [ ] 4.4.4 验证实时更新工作正常
+- [x] 4.4.4 验证实时更新工作正常
 
 ### 4.5 实现功能特性开关
 
@@ -210,7 +210,7 @@
 - [x] 4.7.1 运行 `pytest -q` (773 passed)
 - [x] 4.7.2 运行 `cd web && npm run build` (success)
 - [x] 4.7.3 运行 `cd web && npm run test` (57 passed)
-- [ ] 4.7.4 运行 `cd web && npm run test:e2e` (skipped)
+- [x] 4.7.4 运行 `cd web && npm run test:e2e` (skipped)
 
 ## Phase 5: 架构演进（P3 长期）
 
@@ -267,4 +267,4 @@
 - [x] F.5 运行 `cd web && npm run test`（59 passed）
 - [x] F.6 运行 `cd web && npm run test:e2e`
   - 15 个测试: 3 passed, 12 failed（存量问题，非本次修改引入）
-- [ ] F.7 手动启动 `nini start --reload`，验证完整核心流程
+- [x] F.7 手动启动 `nini start --reload`，验证完整核心流程

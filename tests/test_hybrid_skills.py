@@ -55,6 +55,7 @@ def test_registry_scans_markdown_skills_and_writes_snapshot(
         description="检索文献摘要",
     )
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
+    monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
     registry = create_default_registry()
     catalog = registry.list_skill_catalog()
