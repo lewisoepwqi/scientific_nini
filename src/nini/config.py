@@ -262,9 +262,6 @@ class Settings(BaseSettings):
             seen.add(resolved)
             dirs.append(resolved)
 
-        # Nini 品牌路径（最高优先级）
-        _append(_ROOT / ".nini" / "skills")
-
         if self.skills_auto_discover_compat_dirs:
             # 行业标准兼容目录（按优先级）
             _append(_ROOT / ".codex" / "skills")
