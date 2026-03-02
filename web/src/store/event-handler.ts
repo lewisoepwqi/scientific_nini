@@ -786,12 +786,7 @@ export function handleEvent(
             return { messages: msgs };
           }
           // 没有找到相同 reasoningId 的消息，创建新消息
-          // 查找同 turnId 的助手消息位置，将 reasoning 插入到其前面
-          const insertIndex = turnId
-            ? msgs.findIndex(
-                (m) => m.role === "assistant" && !m.isReasoning && m.turnId === turnId,
-              )
-            : -1;
+          // 按时间顺序追加到消息列表末尾（不再强制插入到回答之前）
           const msg: Message = {
             id: nextId(),
             role: "assistant",
@@ -802,11 +797,7 @@ export function handleEvent(
             turnId,
             timestamp: Date.now(),
           };
-          if (insertIndex >= 0) {
-            msgs.splice(insertIndex, 0, msg);
-          } else {
-            msgs.push(msg);
-          }
+          msgs.push(msg);
           return { messages: msgs };
         }
 
@@ -833,12 +824,7 @@ export function handleEvent(
         }
 
         // 创建新的 reasoning 消息
-        // 查找同 turnId 的助手消息位置，将 reasoning 插入到其前面
-        const insertIndex = turnId
-          ? msgs.findIndex(
-              (m) => m.role === "assistant" && !m.isReasoning && m.turnId === turnId,
-            )
-          : -1;
+        // 按时间顺序追加到消息列表末尾（不再强制插入到回答之前）
         const msg: Message = {
           id: nextId(),
           role: "assistant",
@@ -848,11 +834,7 @@ export function handleEvent(
           turnId,
           timestamp: Date.now(),
         };
-        if (insertIndex >= 0) {
-          msgs.splice(insertIndex, 0, msg);
-        } else {
-          msgs.push(msg);
-        }
+        msgs.push(msg);
         return { messages: msgs };
       });
       break;
