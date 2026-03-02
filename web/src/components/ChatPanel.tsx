@@ -2,6 +2,8 @@
  * 对话主面板 —— 消息列表 + 输入框，居中限宽。
  * 输入区提取为 ChatInputArea，避免每次击键触发消息列表重渲染。
  * 所有消息按原始顺序展示，保持思考-行动-回答的连贯性。
+ *
+ * 注意：分析进度和任务只显示在工作区的"任务"Tab中，不在对话区域展示
  */
 import { useEffect, useRef, useMemo, useCallback } from 'react'
 import { useStore } from '../store'
@@ -70,11 +72,14 @@ export default function ChatPanel() {
       {/* 消息列表 */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         <div className="max-w-3xl mx-auto">
-          <IntentSummaryCard
-            analysis={currentIntentAnalysis}
-            loading={intentAnalysisLoading}
-            onApplySuggestion={setComposerDraft}
-          />
+          {/* 意图理解卡片 */}
+          <div className="mb-3">
+            <IntentSummaryCard
+              analysis={currentIntentAnalysis}
+              loading={intentAnalysisLoading}
+              onApplySuggestion={setComposerDraft}
+            />
+          </div>
 
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-gray-400">

@@ -1,5 +1,20 @@
-import { BrainCircuit, Loader2, Radar, Sparkles } from "lucide-react";
-
+/**
+ * 意图理解摘要卡片
+ *
+ * 一句话概括 + 可展开查看详情
+ * - 低置信度时自动展开澄清选项
+ */
+import { useState, useMemo } from "react";
+import {
+  BrainCircuit,
+  Loader2,
+  ChevronDown,
+  ChevronUp,
+  Lightbulb,
+  Wrench,
+  HelpCircle,
+  Target,
+} from "lucide-react";
 import { type IntentAnalysisView } from "../store";
 
 interface Props {
@@ -8,15 +23,43 @@ interface Props {
   onApplySuggestion: (value: string) => void;
 }
 
-function renderTagList(items: string[]) {
-  return items.map((item) => (
-    <span
-      key={item}
-      className="inline-flex rounded-full border border-slate-200 bg-white/80 px-2 py-1 text-[11px] font-medium text-slate-600"
-    >
-      {item}
-    </span>
-  ));
+// 生成一句话概括
+function generateSummary(analysis: IntentAnalysisView): string {
+  const topCapability = analysis.capability_candidates[0];
+  const hasClarification = analysis.clarification_needed;
+
+  if (hasClarification) {
+    return "系统识别到多个可能的分析方向，需要您确认具体意图";
+  }
+
+  if (topCapability) {
+    const displayName =
+      (topCapability.payload?.display_name as string) || topCapability.name;
+    return `系统理解您想要进行${displayName}`;
+  }
+
+  if (analysis.tool_hints.length > 0) {
+    return `系统推荐您使用${analysis.tool_hints[0]}等工具进行分析`;
+  }
+
+  return "系统正在分析您的需求";
+}
+
+// 判断是否为低置信度（需要自动展开澄清）
+function isLowConfidence(analysis: IntentAnalysisView): boolean {
+  if (!analysis.clarification_needed) return false;
+
+  // 如果有多个候选意图且分数接近，认为是低置信度
+  if (analysis.capability_candidates.length >= 2) {
+    const top = analysis.capability_candidates[0];
+    const second = analysis.capability_candidates[1];
+    // 如果第二名分数超过第一名的 80%，认为是低置信度
+    if (top.score > 0 && second.score / top.score > 0.8) {
+      return true;
+    }
+  }
+
+  return analysis.clarification_needed;
 }
 
 export default function IntentSummaryCard({
@@ -24,198 +67,176 @@ export default function IntentSummaryCard({
   loading,
   onApplySuggestion,
 }: Props) {
+  // 是否展开详情
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
+
+  // 低置信度时自动展开
+  const autoExpandClarification = useMemo(() => {
+    return analysis ? isLowConfidence(analysis) : false;
+  }, [analysis]);
+
+  // 澄清区域展开状态
+  const [clarificationExpanded, setClarificationExpanded] = useState(() =>
+    autoExpandClarification
+  );
+
   if (!loading && !analysis) return null;
 
+  const summary = analysis ? generateSummary(analysis) : "";
+  const hasClarification = analysis?.clarification_needed ?? false;
+
   return (
-    <div className="mb-5 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-amber-50/50 shadow-sm">
-      <div className="flex items-center justify-between border-b border-slate-200/70 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-900 text-white shadow-sm">
-            <BrainCircuit size={16} />
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-amber-50/50 shadow-sm">
+      {/* 头部：一句话概括 + 操作按钮 */}
+      <div className="flex items-center justify-between px-3 py-2.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-slate-800 text-white">
+            <BrainCircuit size={14} />
           </div>
-          <div>
-            <div className="text-sm font-semibold text-slate-800">系统理解</div>
-            <div className="text-[11px] text-slate-500">
-              在正式回答前，先给出当前回合的意图判断与推荐路径
+          {loading ? (
+            <div className="flex items-center gap-1.5 text-sm text-slate-500">
+              <Loader2 size={12} className="animate-spin" />
+              <span className="truncate">正在理解您的意图...</span>
             </div>
+          ) : (
+            <span className="text-sm text-slate-700 truncate">{summary}</span>
+          )}
+        </div>
+
+        {/* 操作按钮区域 */}
+        {!loading && (
+          <div className="flex items-center gap-1 shrink-0">
+            {/* 低置信度指示 */}
+            {autoExpandClarification && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px]">
+                <HelpCircle size={10} />
+                需确认
+              </span>
+            )}
+            {/* 展开/折叠按钮 */}
+            <button
+              onClick={() => setDetailsExpanded(!detailsExpanded)}
+              className="flex items-center gap-0.5 px-2 py-1 text-[11px] text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors"
+            >
+              {detailsExpanded ? (
+                <>
+                  <span>收起</span>
+                  <ChevronUp size={12} />
+                </>
+              ) : (
+                <>
+                  <span>查看详情</span>
+                  <ChevronDown size={12} />
+                </>
+              )}
+            </button>
           </div>
-        </div>
-        <div className="text-[10px] uppercase tracking-[0.24em] text-slate-400">
-          {analysis?.analysis_method || "rule_based_v1"}
-        </div>
+        )}
       </div>
 
-      {loading && !analysis && (
-        <div className="flex items-center gap-2 px-4 py-4 text-sm text-slate-500">
-          <Loader2 size={14} className="animate-spin" />
-          正在解析本轮需求与可行路径…
-        </div>
-      )}
-
-      {analysis && (
-        <div className="space-y-4 px-4 py-4">
-          <div className="rounded-2xl border border-slate-200 bg-white/85 px-4 py-3">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Query</div>
-            <div className="mt-1 text-sm text-slate-700">{analysis.query || "当前输入为空"}</div>
-          </div>
-
-          <div className="grid gap-3 lg:grid-cols-[1.35fr_1fr]">
-            <section className="rounded-2xl border border-slate-200 bg-white/85 px-4 py-3">
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-                <Radar size={14} className="text-sky-600" />
-                候选能力
-              </div>
-              <div className="mt-3 space-y-2">
-                {analysis.capability_candidates.length > 0 ? (
-                  analysis.capability_candidates.slice(0, 3).map((candidate) => {
-                    const payload = candidate.payload || {};
-                    const displayName =
-                      typeof payload.display_name === "string" && payload.display_name.trim()
-                        ? payload.display_name.trim()
-                        : candidate.name;
+      {/* 展开详情区域 */}
+      {detailsExpanded && analysis && (
+        <div className="border-t border-slate-100 px-3 py-3 space-y-3">
+          {/* 推荐能力 */}
+          {analysis.capability_candidates.length > 0 && (
+            <div className="flex items-start gap-2">
+              <Target size={14} className="text-sky-600 mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <div className="text-[11px] text-slate-400 mb-1">
+                  推荐分析类型
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {analysis.capability_candidates.slice(0, 3).map((c) => {
+                    const name =
+                      (c.payload?.display_name as string) || c.name;
                     return (
-                      <div
-                        key={candidate.name}
-                        className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2"
+                      <button
+                        key={c.name}
+                        onClick={() => onApplySuggestion(`请帮我做${name}`)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 text-xs hover:bg-sky-100 transition-colors"
                       >
-                        <div className="flex items-center justify-between gap-3">
-                          <button
-                            type="button"
-                            onClick={() => onApplySuggestion(`请帮我做${displayName}`)}
-                            className="text-left text-sm font-medium text-slate-800 transition-colors hover:text-sky-700"
-                          >
-                            {displayName}
-                          </button>
-                          <div className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
-                            {candidate.score.toFixed(1)}
-                          </div>
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">{candidate.reason}</div>
-                      </div>
+                        {name}
+                      </button>
                     );
-                  })
-                ) : (
-                  <div className="text-xs text-slate-400">当前没有足够强的能力命中。</div>
-                )}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white/85 px-4 py-3">
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-                <Sparkles size={14} className="text-amber-600" />
-                推荐路径
-              </div>
-              <div className="mt-3 space-y-3">
-                <div>
-                  <div className="mb-2 text-[11px] text-slate-400">推荐工具</div>
-                  <div className="flex flex-wrap gap-2">
-                    {analysis.tool_hints.length > 0 ? (
-                      renderTagList(analysis.tool_hints.slice(0, 6))
-                    ) : (
-                      <span className="text-xs text-slate-400">暂无显式工具提示</span>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <div className="mb-2 text-[11px] text-slate-400">激活技能</div>
-                  <div className="flex flex-wrap gap-2">
-                    {analysis.active_skills.length > 0 ? (
-                      analysis.active_skills.map((item) => (
-                        <button
-                          key={item.name}
-                          type="button"
-                          onClick={() => onApplySuggestion(`/${item.name} `)}
-                          className="inline-flex rounded-full border border-slate-200 bg-white/80 px-2 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:border-sky-200 hover:text-sky-700"
-                        >
-                          {item.name}
-                        </button>
-                      ))
-                    ) : (
-                      <span className="text-xs text-slate-400">本轮没有激活 Markdown skill</span>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <div className="mb-2 text-[11px] text-slate-400">显式技能调用</div>
-                  <div className="space-y-1.5">
-                    {analysis.explicit_skill_calls.length > 0 ? (
-                      analysis.explicit_skill_calls.map((call) => (
-                        <div
-                          key={`${call.name}-${call.arguments}`}
-                          className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-600"
-                        >
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onApplySuggestion(
-                                `/${call.name}${call.arguments ? ` ${call.arguments}` : " "}`,
-                              )
-                            }
-                            className="text-left transition-colors hover:text-sky-700"
-                          >
-                            <span className="font-medium text-slate-800">/{call.name}</span>
-                            {call.arguments ? ` ${call.arguments}` : ""}
-                          </button>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-xs text-slate-400">当前没有显式 `/skill` 调用。</div>
-                    )}
-                  </div>
+                  })}
                 </div>
               </div>
-            </section>
-          </div>
-
-          {(analysis.allowed_tools.length > 0 || analysis.clarification_needed) && (
-            <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
-              <section className="rounded-2xl border border-slate-200 bg-white/85 px-4 py-3">
-                <div className="text-xs font-semibold text-slate-700">技能推荐工具</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {analysis.allowed_tools.length > 0 ? (
-                    renderTagList(analysis.allowed_tools)
-                  ) : (
-                    <span className="text-xs text-slate-400">当前没有技能工具推荐。</span>
-                  )}
-                </div>
-                {analysis.allowed_tool_sources.length > 0 && (
-                  <div className="mt-3 text-[11px] text-slate-500">
-                    来源：{analysis.allowed_tool_sources.join("、")}
-                  </div>
-                )}
-              </section>
-
-              <section className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3">
-                <div className="text-xs font-semibold text-amber-800">澄清建议</div>
-                {analysis.clarification_needed ? (
-                  <>
-                    <div className="mt-2 text-sm text-amber-900">
-                      {analysis.clarification_question}
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {analysis.clarification_options.length > 0 ? (
-                        analysis.clarification_options.map((option) => (
-                          <button
-                            key={option.label}
-                            type="button"
-                            onClick={() => onApplySuggestion(`我想做${option.label}`)}
-                            className="inline-flex rounded-full border border-amber-200 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-800 transition-colors hover:border-amber-300 hover:bg-amber-100"
-                            title={option.description}
-                          >
-                            {option.label}
-                          </button>
-                        ))
-                      ) : (
-                        <span className="text-xs text-amber-700">需要补充更具体的分析目标。</span>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <div className="mt-2 text-sm text-slate-500">当前需求已经足够明确，可直接进入分析。</div>
-                )}
-              </section>
             </div>
           )}
+
+          {/* 推荐工具 */}
+          {analysis.tool_hints.length > 0 && (
+            <div className="flex items-start gap-2">
+              <Wrench size={14} className="text-emerald-600 mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <div className="text-[11px] text-slate-400 mb-1">
+                  推荐工具
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {analysis.tool_hints.slice(0, 4).map((tool) => (
+                    <span
+                      key={tool}
+                      className="inline-flex px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[11px]"
+                    >
+                      {tool}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 澄清建议（可折叠） */}
+          {hasClarification && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/50">
+              <button
+                onClick={() => setClarificationExpanded(!clarificationExpanded)}
+                className="w-full flex items-center justify-between px-2.5 py-2 text-left"
+              >
+                <div className="flex items-center gap-1.5 text-amber-700 text-xs">
+                  <HelpCircle size={12} />
+                  <span className="font-medium">需要确认</span>
+                </div>
+                {clarificationExpanded ? (
+                  <ChevronUp size={12} className="text-amber-600" />
+                ) : (
+                  <ChevronDown size={12} className="text-amber-600" />
+                )}
+              </button>
+              {clarificationExpanded && (
+                <div className="px-2.5 pb-2.5">
+                  <div className="text-xs text-amber-800 mb-2">
+                    {analysis.clarification_question}
+                  </div>
+                  {analysis.clarification_options.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {analysis.clarification_options.map((option) => (
+                        <button
+                          key={option.label}
+                          onClick={() =>
+                            onApplySuggestion(`我想做${option.label}`)
+                          }
+                          className="inline-flex items-center px-2 py-1 rounded-full border border-amber-300 bg-white text-amber-800 text-[11px] hover:bg-amber-100 transition-colors"
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 空状态提示：当没有推荐内容时显示 */}
+          {analysis.capability_candidates.length === 0 &&
+            analysis.tool_hints.length === 0 &&
+            !hasClarification && (
+              <div className="flex items-center gap-2 text-xs text-slate-400 italic">
+                <Lightbulb size={12} />
+                <span>暂无具体推荐，系统将基于您的描述进行分析</span>
+              </div>
+            )}
         </div>
       )}
     </div>

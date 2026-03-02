@@ -402,6 +402,15 @@ export interface MemoryFile {
   type: "memory" | "knowledge" | "meta" | "archive";
 }
 
+// ---- 用户展示偏好类型 ----
+
+export type DisplayPreference = "simplified" | "detailed" | "hidden";
+
+export interface UserDisplayPreference {
+  mode: DisplayPreference;
+  updatedAt: number;
+}
+
 // ---- WebSocket 事件类型 ----
 
 export interface WSEvent {

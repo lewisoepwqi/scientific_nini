@@ -396,23 +396,51 @@ export function handleEvent(
         // 更新或创建 assistant 消息（同一迭代内）
         const msgs = [...s.messages];
         const last = msgs[msgs.length - 1];
-        if (
-          last &&
-          last.role === "assistant" &&
-          !last.toolName &&
-          !last.retrievals &&
-          !last.isReasoning &&  // 关键：不要覆盖 reasoning 消息
-          last.turnId === turnId
-        ) {
-          msgs[msgs.length - 1] = { ...last, content: newStreamText };
+
+        // 查找当前 turnId 的最后一条 assistant 消息（支持非连续情况）
+        let targetIndex = -1;
+        if (last &&
+            last.role === "assistant" &&
+            !last.toolName &&
+            !last.retrievals &&
+            !last.isReasoning &&
+            last.turnId === turnId) {
+          targetIndex = msgs.length - 1;
         } else {
-          msgs.push({
-            id: nextId(),
-            role: "assistant",
-            content: newStreamText,
-            turnId,
-            timestamp: Date.now(),
-          });
+          // 向前查找同 turnId 的 assistant 消息
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            const m = msgs[i];
+            if (m.role === "assistant" &&
+                !m.toolName &&
+                !m.retrievals &&
+                !m.isReasoning &&
+                m.turnId === turnId) {
+              targetIndex = i;
+              break;
+            }
+          }
+        }
+
+        if (targetIndex >= 0) {
+          // 更新现有消息
+          msgs[targetIndex] = { ...msgs[targetIndex], content: newStreamText };
+        } else {
+          // 检查是否已有相同内容的消息（防重复）
+          const isDuplicate = msgs.some(
+            (m) =>
+              m.role === "assistant" &&
+              !m.isReasoning &&
+              m.content === newStreamText
+          );
+          if (!isDuplicate) {
+            msgs.push({
+              id: nextId(),
+              role: "assistant",
+              content: newStreamText,
+              turnId,
+              timestamp: Date.now(),
+            });
+          }
         }
         return { messages: msgs, _streamingText: newStreamText, _lastHandledSeq: seq };
       });

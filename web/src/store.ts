@@ -52,6 +52,8 @@ export type {
   MemoryFile,
   WSEvent,
   RawSessionMessage,
+  DisplayPreference,
+  UserDisplayPreference,
 } from "./store/types";
 
 import type {
@@ -80,6 +82,7 @@ import type {
   MemoryFile,
   WSEvent,
   RawSessionMessage,
+  DisplayPreference,
 } from "./store/types";
 
 // ---- 工具函数导入 ----
@@ -197,6 +200,9 @@ export interface AppState {
   pricingConfig: PricingConfig | null;
   costPanelOpen: boolean;
 
+  // 用户展示偏好
+  displayPreference: DisplayPreference;
+
   // ---- 操作 ----
 
   // WebSocket 操作
@@ -281,6 +287,9 @@ export interface AppState {
   fetchPricingConfig: () => Promise<void>;
   toggleCostPanel: () => void;
   setCostPanelOpen: (open: boolean) => void;
+
+  // 用户展示偏好操作
+  setDisplayPreference: (mode: DisplayPreference) => void;
 }
 
 // ============================================================================
@@ -358,6 +367,20 @@ export const useStore = create<AppState>((set, get) => ({
   aggregateCost: null,
   pricingConfig: null,
   costPanelOpen: false,
+  displayPreference: (() => {
+    // 从 localStorage 读取用户偏好，默认为简化模式
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("nini_display_preference");
+        if (saved === "simplified" || saved === "detailed" || saved === "hidden") {
+          return saved;
+        }
+      } catch {
+        // localStorage 不可用则使用默认值
+      }
+    }
+    return "simplified";
+  })(),
 
   // ============================================================================
   // WebSocket 操作
@@ -1112,6 +1135,23 @@ export const useStore = create<AppState>((set, get) => ({
 
   setCostPanelOpen(open: boolean) {
     set({ costPanelOpen: open });
+  },
+
+  // ============================================================================
+  // 用户展示偏好操作
+  // ============================================================================
+
+  setDisplayPreference(mode: DisplayPreference) {
+    // 持久化到 localStorage（含错误处理）
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("nini_display_preference", mode);
+      } catch (e) {
+        // localStorage 被禁用或已满，仅更新内存状态
+        console.warn("无法保存展示偏好到 localStorage:", e);
+      }
+    }
+    set({ displayPreference: mode });
   },
 }));
 

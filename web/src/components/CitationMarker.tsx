@@ -1,147 +1,141 @@
 /**
- * 引用标记组件 - 行内引用标记
+ * 引用标注组件 - CitationMarker
+ *
+ * 在 AI 回答中展示 [1], [2] 样式的引用标注
+ * 支持悬停和点击交互
  */
-import React, { useState } from "react";
-import { BookOpen } from "lucide-react";
-
-export interface Citation {
-  index: number;
-  documentId: string;
-  documentTitle: string;
-  excerpt: string;
-  relevanceScore: number;
-  sourceUrl?: string;
-}
+import { useState, useRef, useEffect } from "react";
+import { BookOpen, X } from "lucide-react";
+import type { RetrievalItem } from "../store";
 
 interface CitationMarkerProps {
+  /** 引用序号 */
   index: number;
-  citation?: Citation;
-  onClick?: (index: number) => void;
+  /** 对应的检索结果 */
+  retrieval?: RetrievalItem;
+  /** 点击回调 */
+  onClick?: () => void;
+  /** 是否紧凑模式 */
   compact?: boolean;
 }
 
-export const CitationMarker: React.FC<CitationMarkerProps> = ({
+export default function CitationMarker({
   index,
-  citation,
+  retrieval,
   onClick,
   compact = false,
-}) => {
-  const [isHovered, setIsHovered] = useState(false);
+}: CitationMarkerProps) {
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState<"above" | "below">("below");
+  const markerRef = useRef<HTMLButtonElement>(null);
+
+  // 计算 tooltip 位置，避免超出视口
+  useEffect(() => {
+    if (!tooltipOpen || !markerRef.current) return;
+
+    const rect = markerRef.current.getBoundingClientRect();
+    const tooltipHeight = 120; // 预估高度
+    const spaceBelow = window.innerHeight - rect.bottom;
+
+    if (spaceBelow < tooltipHeight && rect.top > tooltipHeight) {
+      setTooltipPos("above");
+    } else {
+      setTooltipPos("below");
+    }
+  }, [tooltipOpen]);
+
+  // 计算可信度标签
+  const credibilityLabel = (() => {
+    if (!retrieval?.score) return null;
+    if (retrieval.score >= 0.8) return { text: "高可信度", color: "text-emerald-600 bg-emerald-50" };
+    if (retrieval.score >= 0.6) return { text: "一般参考", color: "text-amber-600 bg-amber-50" };
+    return { text: "参考", color: "text-slate-500 bg-slate-100" };
+  })();
 
   return (
     <span className="relative inline-block">
-      <sup
-        onClick={() => onClick?.(index)}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
+      <button
+        ref={markerRef}
+        onClick={() => {
+          setTooltipOpen(!tooltipOpen);
+          onClick?.();
+        }}
+        onMouseEnter={() => setTooltipOpen(true)}
+        onMouseLeave={() => setTooltipOpen(false)}
         className={`
-          inline-flex items-center justify-center
+          inline-flex items-center justify-center mx-0.5
           ${compact ? "min-w-[14px] h-3.5 text-[10px]" : "min-w-[18px] h-4 text-xs"}
-          px-1 rounded-full
-          bg-blue-100 text-blue-700
-          hover:bg-blue-200 hover:text-blue-800
-          cursor-pointer transition-colors duration-150
-          font-medium leading-none
+          px-1 py-0 font-medium text-blue-600 bg-blue-50 hover:bg-blue-100
+          rounded transition-colors cursor-pointer align-super leading-none
         `}
+        aria-label={`引用 ${index}`}
       >
-        {index}
-      </sup>
+        [{index}]
+      </button>
 
-      {/* Tooltip preview */}
-      {isHovered && citation && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-64">
-          <div className="bg-white rounded-lg shadow-lg border border-gray-200 p-3 text-left">
-            <div className="flex items-start gap-2">
-              <BookOpen size={14} className="text-blue-500 mt-0.5 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm text-gray-900 truncate">
-                  {citation.documentTitle}
-                </div>
-                <div className="text-xs text-gray-500 mt-1 line-clamp-2">
-                  {citation.excerpt}
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">
-                    score: {citation.relevanceScore.toFixed(2)}
-                  </span>
-                </div>
+      {/* Tooltip */}
+      {tooltipOpen && retrieval && (
+        <div
+          className={`absolute left-1/2 -translate-x-1/2 ${
+            tooltipPos === "below" ? "top-full mt-1" : "bottom-full mb-1"
+          } z-50 w-64 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 p-3`}
+          onMouseEnter={() => setTooltipOpen(true)}
+          onMouseLeave={() => setTooltipOpen(false)}
+        >
+          {/* 箭头 */}
+          <div
+            className={`absolute left-1/2 -translate-x-1/2 w-2 h-2 bg-white dark:bg-slate-800 border-l border-t border-slate-200 dark:border-slate-700 rotate-45 ${
+              tooltipPos === "below" ? "-top-1" : "-bottom-1 rotate-[225deg]"
+            }`}
+          />
+
+          {/* 内容 */}
+          <div className="relative">
+            {/* 头部 */}
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div className="flex items-center gap-1.5 text-blue-600">
+                <BookOpen size={12} />
+                <span className="text-xs font-medium">引用 [{index}]</span>
               </div>
+              <button
+                onClick={() => setTooltipOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={12} />
+              </button>
             </div>
-          </div>
-          {/* Arrow */}
-          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1">
-            <div className="border-4 border-transparent border-t-white" />
+
+            {/* 来源标题 */}
+            <div className="text-xs font-medium text-slate-700 dark:text-slate-200 mb-1 truncate">
+              {retrieval.source}
+            </div>
+
+            {/* 可信度标签 */}
+            {credibilityLabel && (
+              <span
+                className={`inline-flex px-1.5 py-0.5 rounded text-[10px] ${credibilityLabel.color}`}
+              >
+                {credibilityLabel.text}
+              </span>
+            )}
+
+            {/* 片段预览 */}
+            {retrieval.snippet && (
+              <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 line-clamp-3">
+                {retrieval.snippet}
+              </div>
+            )}
           </div>
         </div>
       )}
     </span>
   );
-};
-
-interface CitationMarkerListProps {
-  citations: Citation[];
-  onCitationClick?: (citation: Citation) => void;
-  className?: string;
 }
 
-export const CitationMarkerList: React.FC<CitationMarkerListProps> = ({
-  citations,
-  onCitationClick,
-  className = "",
-}) => {
-  if (!citations || citations.length === 0) return null;
-
-  return (
-    <div className={`inline-flex items-center gap-1 ${className}`}>
-      {citations.map((citation) => (
-        <CitationMarker
-          key={citation.index}
-          index={citation.index}
-          citation={citation}
-          onClick={() => onCitationClick?.(citation)}
-        />
-      ))}
-    </div>
-  );
-};
-
-/**
- * 带引用标记的内容渲染器
- */
-interface CitationContentProps {
-  content: string;
-  citations: Citation[];
-  onCitationClick?: (citation: Citation) => void;
+// 辅助函数：计算可信度标签
+export function getCredibilityLabel(score?: number): { text: string; color: string } | null {
+  if (score === undefined || score === null) return null;
+  if (score >= 0.8) return { text: "高可信度", color: "text-emerald-600 bg-emerald-50 border-emerald-200" };
+  if (score >= 0.6) return { text: "一般参考", color: "text-amber-600 bg-amber-50 border-amber-200" };
+  return { text: "参考", color: "text-slate-500 bg-slate-100 border-slate-200" };
 }
-
-export const CitationContent: React.FC<CitationContentProps> = ({
-  content,
-  citations,
-  onCitationClick,
-}) => {
-  // Parse citations like [1], [2], etc.
-  const parts = content.split(/(\[\d+\])/g);
-
-  return (
-    <span>
-      {parts.map((part, index) => {
-        const match = part.match(/^\[(\d+)\]$/);
-        if (match) {
-          const citationIndex = parseInt(match[1], 10);
-          const citation = citations.find((c) => c.index === citationIndex);
-          return (
-            <CitationMarker
-              key={index}
-              index={citationIndex}
-              citation={citation}
-              onClick={() => citation && onCitationClick?.(citation)}
-            />
-          );
-        }
-        return <span key={index}>{part}</span>;
-      })}
-    </span>
-  );
-};
-
-export default CitationMarker;

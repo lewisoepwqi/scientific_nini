@@ -10,7 +10,15 @@ import {
   BarChart3,
   Tag,
 } from "lucide-react";
-import { Citation } from "./CitationMarker";
+
+interface Citation {
+  index: number;
+  documentId: string;
+  documentTitle: string;
+  excerpt: string;
+  relevanceScore: number;
+  sourceUrl?: string;
+}
 
 interface CitationPanelProps {
   citations: Citation[];

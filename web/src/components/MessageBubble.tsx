@@ -2,7 +2,7 @@
  * 消息气泡组件 —— 渲染用户和 AI 消息，支持工具消息折叠和产物下载。
  */
 import React, { Suspense, lazy, useEffect, useState } from "react";
-import { type Message } from "../store";
+import { type Message, type RetrievalItem } from "../store";
 import {
   Bot,
   User,
@@ -14,12 +14,13 @@ import {
   CheckCircle2,
   XCircle,
   RotateCcw,
-  BookOpen,
 } from "lucide-react";
 import DataViewer from "./DataViewer";
 import ArtifactDownload from "./ArtifactDownload";
 import MarkdownContent from "./MarkdownContent";
 import ReasoningPanel from "./ReasoningPanel";
+import CitationMarker from "./CitationMarker";
+import CitationList from "./CitationList";
 
 interface Props {
   message: Message;
@@ -423,34 +424,11 @@ function MessageBubble({
                     )}
                   </div>
                 )}
-                <CitationContent content={message.content} />
+                <CitationContent content={message.content} retrievals={message.retrievals} />
               </div>
+              {/* 新的引用列表展示 */}
               {message.retrievals && message.retrievals.length > 0 && (
-                <div className="mt-2 space-y-2">
-                  {message.retrievals.map((item, idx) => (
-                    <div
-                      key={`${item.source}-${idx}`}
-                      className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs"
-                    >
-                      <div className="flex items-center justify-between gap-2 text-violet-700">
-                        <span className="font-medium truncate">
-                          {item.source}
-                        </span>
-                        <span className="text-[10px] whitespace-nowrap">
-                          {typeof item.score === "number"
-                            ? `score=${item.score.toFixed(2)}`
-                            : ""}
-                          {typeof item.hits === "number"
-                            ? ` hits=${item.hits}`
-                            : ""}
-                        </span>
-                      </div>
-                      <div className="mt-1 text-violet-900 whitespace-pre-wrap">
-                        {item.snippet}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <CitationList retrievals={message.retrievals} />
               )}
               {message.chartData && (
                 <Suspense
@@ -515,8 +493,13 @@ function MessageBubble({
 }
 
 // 带引用标记的内容渲染组件
-function CitationContent({ content }: { content: string }) {
-  const [showCitations, setShowCitations] = useState(false);
+function CitationContent({
+  content,
+  retrievals,
+}: {
+  content: string;
+  retrievals?: RetrievalItem[];
+}) {
   const { citations } = parseCitations(content);
 
   // 如果没有引用，直接渲染 Markdown
@@ -524,67 +507,59 @@ function CitationContent({ content }: { content: string }) {
     return <MarkdownContent content={content} />;
   }
 
-  // 将引用标记转换为可点击的链接
-  const processedContent = content.replace(
-    /\[(\d+)\]/g,
-    (_, index) => {
-      return `<sup class="citation-marker" data-index="${index}">[${index}]</sup>`;
-    }
-  );
+  // 将内容按引用标记分割，插入 CitationMarker 组件
+  const parts = content.split(/(\[\d+\])/g);
 
   return (
     <div>
-      <div
-        className="prose-content"
-        dangerouslySetInnerHTML={{
-          __html: processedContent,
-        }}
-      />
-      <style>{`
-        .citation-marker {
-          color: #3b82f6;
-          cursor: pointer;
-          font-weight: 500;
-          font-size: 0.75em;
-          vertical-align: super;
-          margin-left: 1px;
-        }
-        .citation-marker:hover {
-          color: #2563eb;
-          text-decoration: underline;
-        }
-      `}</style>
-
-      {/* 引用列表 */}
-      {citations.length > 0 && (
-        <button
-          onClick={() => setShowCitations(!showCitations)}
-          className="mt-2 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
-        >
-          <BookOpen size={12} />
-          {showCitations ? "隐藏引用" : `查看 ${citations.length} 条引用`}
-        </button>
-      )}
-
-      {showCitations && (
-        <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
-          <div className="text-xs text-blue-700 dark:text-blue-300 font-medium mb-1">
-            知识引用
-          </div>
-          <ul className="space-y-1">
-            {citations.map((citation) => (
-              <li
-                key={citation.index}
-                className="text-xs text-blue-600 dark:text-blue-400"
-              >
-                [{citation.index}] 来自知识库
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <div className="prose-content">
+        {parts.map((part, idx) => {
+          const match = part.match(/^\[(\d+)\]$/);
+          if (match) {
+            const citationIndex = parseInt(match[1], 10);
+            const retrieval = retrievals?.[citationIndex - 1];
+            return (
+              <CitationMarker
+                key={idx}
+                index={citationIndex}
+                retrieval={retrieval}
+              />
+            );
+          }
+          // 渲染普通文本
+          return <MarkdownContent key={idx} content={part} />;
+        })}
+      </div>
     </div>
   );
 }
 
-export default React.memo(MessageBubble);
+export default React.memo(MessageBubble, (prevProps, nextProps) => {
+  // 自定义比较函数：如果消息内容或关键字段变化，则重新渲染
+  const prev = prevProps.message;
+  const next = nextProps.message;
+
+  // 基本字段比较
+  if (prev.id !== next.id) return false;
+  if (prev.content !== next.content) return false;
+  if (prev.role !== next.role) return false;
+
+  // 工具消息相关字段
+  if (prev.toolName !== next.toolName) return false;
+  if (prev.toolResult !== next.toolResult) return false;
+  if (prev.toolStatus !== next.toolStatus) return false;
+  if (prev.toolIntent !== next.toolIntent) return false;
+
+  // 其他关键字段
+  if (prev.isReasoning !== next.isReasoning) return false;
+  if (prev.reasoningLive !== next.reasoningLive) return false;
+  if (prev.chartData !== next.chartData) return false;
+  if (prev.retrievals !== next.retrievals) return false;
+
+  // 重试相关
+  if (prevProps.showRetry !== nextProps.showRetry) return false;
+  if (prevProps.retryDisabled !== nextProps.retryDisabled) return false;
+
+  // 所有关键字段相同，跳过渲染
+  return true;
+});

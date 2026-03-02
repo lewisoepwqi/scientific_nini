@@ -12,26 +12,33 @@ export function resolveDownloadUrl(downloadUrl: string | undefined, name?: strin
   if (!downloadUrl) return downloadUrl
   if (!isMarkdownFile(name)) return downloadUrl
 
-  // 统一使用 /api/workspace/{sid}/files/{path}?bundle=1
+  // Markdown 文件使用 bundle 接口格式：/api/workspace/{sid}/artifacts/{path}/bundle
   const artifactMatch = downloadUrl.match(/^\/api\/artifacts\/([^/]+)\/(.+)$/)
   if (artifactMatch) {
     const sessionId = artifactMatch[1]
     const filename = artifactMatch[2]
-    return `/api/workspace/${sessionId}/files/${filename}?bundle=1`
+    return `/api/workspace/${sessionId}/artifacts/${filename}/bundle`
   }
 
   const workspaceArtifactMatch = downloadUrl.match(/^\/api\/workspace\/([^/]+)\/artifacts\/(.+)$/)
   if (workspaceArtifactMatch) {
     const sessionId = workspaceArtifactMatch[1]
     const filename = workspaceArtifactMatch[2]
-    return `/api/workspace/${sessionId}/files/${filename}?bundle=1`
+    return `/api/workspace/${sessionId}/artifacts/${filename}/bundle`
+  }
+
+  const workspaceFilesMatch = downloadUrl.match(/^\/api\/workspace\/([^/]+)\/files\/(.+)$/)
+  if (workspaceFilesMatch) {
+    const sessionId = workspaceFilesMatch[1]
+    const filename = workspaceFilesMatch[2]
+    return `/api/workspace/${sessionId}/artifacts/${filename}/bundle`
   }
 
   const noteMatch = downloadUrl.match(/^\/api\/workspace\/([^/]+)\/notes\/(.+)$/)
   if (noteMatch) {
     const sessionId = noteMatch[1]
     const filename = noteMatch[2]
-    return `/api/workspace/${sessionId}/files/${filename}?bundle=1`
+    return `/api/workspace/${sessionId}/artifacts/${filename}/bundle`
   }
 
   return downloadUrl
