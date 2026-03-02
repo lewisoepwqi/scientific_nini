@@ -411,10 +411,6 @@ class AgentRunner:
                         if chunk_raw_text:
                             raw_full_text += chunk_raw_text
 
-                        chunk_raw_text = getattr(chunk, "raw_text", "")
-                        if chunk_raw_text:
-                            raw_full_text += chunk_raw_text
-
                         # 流式推送文本（在 reasoning 事件之后）
                         if chunk.text:
                             display_text = ReasoningStreamParser.strip_reasoning_markers(

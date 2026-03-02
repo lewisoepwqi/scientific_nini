@@ -417,6 +417,7 @@ export interface WSEvent {
 export interface RawSessionMessage {
   role?: string;
   content?: string | null;
+  _ts?: string; // ISO 8601 时间戳，来自 memory.jsonl
   event_type?: string | null;
   tool_calls?: Array<{
     id?: string;

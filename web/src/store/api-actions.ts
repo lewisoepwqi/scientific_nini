@@ -1072,24 +1072,33 @@ function buildErrorMeta(content: string): {
   return { isError: true, errorKind: "unknown", errorHint: "发生错误，请重试" };
 }
 
+// 辅助函数：从原始消息中提取时间戳（毫秒）
+function getRawMessageTimestamp(raw: RawSessionMessage): number {
+  if (raw._ts && typeof raw._ts === "string") {
+    const parsed = Date.parse(raw._ts);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return Date.now();
+}
+
 export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Message[] {
   const messages: Message[] = [];
   const toolCallMap = new Map<
     string,
     { name?: string; input?: Record<string, unknown> }
   >();
-  let tsOffset = 0;
-
-  const nextTimestamp = () => Date.now() + tsOffset++;
 
   for (const raw of rawMessages) {
     const role = raw.role;
+    // 使用原始时间戳，确保消息按正确顺序展示
+    const timestamp = getRawMessageTimestamp(raw);
+
     if (role === "user" && typeof raw.content === "string" && raw.content) {
       messages.push({
         id: nextId(),
         role: "user",
         content: raw.content,
-        timestamp: nextTimestamp(),
+        timestamp,
       });
       continue;
     }
@@ -1106,7 +1115,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
               ? raw.content
               : "图表已生成",
           chartData: raw.chart_data,
-          timestamp: nextTimestamp(),
+          timestamp,
         });
         continue;
       }
@@ -1119,7 +1128,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
               ? raw.content
               : "数据预览如下",
           dataPreview: raw.data_preview,
-          timestamp: nextTimestamp(),
+          timestamp,
         });
         continue;
       }
@@ -1132,7 +1141,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
               ? raw.content
               : "产物已生成",
           artifacts: Array.isArray(raw.artifacts) ? raw.artifacts : [],
-          timestamp: nextTimestamp(),
+          timestamp,
         });
         continue;
       }
@@ -1145,7 +1154,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
               ? raw.content
               : "图片已生成",
           images: Array.isArray(raw.images) ? raw.images : [],
-          timestamp: nextTimestamp(),
+          timestamp,
         });
         continue;
       }
@@ -1161,7 +1170,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
           role: "assistant",
           content: cleanedContent,
           ...(isErrorText ? buildErrorMeta(cleanedContent) : {}),
-          timestamp: nextTimestamp(),
+          timestamp,
         });
       }
 
@@ -1185,7 +1194,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
           toolCallId: toolCallId || undefined,
           toolInput: toolArgs,
           toolIntent,
-          timestamp: nextTimestamp(),
+          timestamp,
         };
         messages.push(msg);
         if (toolCallId) {
@@ -1223,7 +1232,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
           toolInput: meta?.input,
           toolResult: normalized.message,
           toolStatus: normalized.status,
-          timestamp: nextTimestamp(),
+          timestamp,
         });
       }
     }
