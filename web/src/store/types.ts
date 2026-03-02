@@ -432,4 +432,9 @@ export interface RawSessionMessage {
   data_preview?: unknown;
   artifacts?: ArtifactInfo[];
   images?: string[];
+  // Reasoning 相关字段
+  reasoning_id?: string | null;
+  reasoning_type?: string | null;
+  key_decisions?: string[];
+  confidence_score?: number;
 }

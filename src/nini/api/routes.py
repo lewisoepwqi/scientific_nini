@@ -579,6 +579,55 @@ def _ensure_workspace_session_exists(session_id: str) -> None:
         raise HTTPException(status_code=404, detail="会话不存在")
 
 
+def _resolve_file_path(session_id: str, file_path: str) -> Path | None:
+    """按优先级在多个位置查找文件。
+
+    查找顺序（优先级从高到低）：
+    1. workspace/{file_path} - 直接路径（支持子目录）
+    2. workspace/artifacts/{filename} - 产物目录
+    3. workspace/notes/{filename} - 笔记目录
+    4. workspace/uploads/{filename} - 上传目录
+    5. artifacts/{filename} - 旧版产物目录（兼容）
+
+    Args:
+        session_id: 会话 ID
+        file_path: 文件路径（可能包含子目录）
+
+    Returns:
+        找到的 Path 对象，如果未找到则返回 None
+    """
+    session_dir = settings.sessions_dir / session_id
+    workspace_dir = session_dir / "workspace"
+    filename = Path(file_path).name
+
+    # 1. 直接路径（支持子目录）
+    direct_path = workspace_dir / file_path
+    if direct_path.exists() and direct_path.is_file():
+        return direct_path
+
+    # 2. artifacts 子目录
+    artifact_path = workspace_dir / "artifacts" / filename
+    if artifact_path.exists() and artifact_path.is_file():
+        return artifact_path
+
+    # 3. notes 子目录
+    notes_path = workspace_dir / "notes" / filename
+    if notes_path.exists() and notes_path.is_file():
+        return notes_path
+
+    # 4. uploads 子目录
+    uploads_path = workspace_dir / "uploads" / filename
+    if uploads_path.exists() and uploads_path.is_file():
+        return uploads_path
+
+    # 5. 旧版产物目录（兼容）
+    legacy_path = session_dir / "artifacts" / filename
+    if legacy_path.exists() and legacy_path.is_file():
+        return legacy_path
+
+    return None
+
+
 @router.get("/workspace/{session_id}/tree")
 async def get_workspace_tree(session_id: str):
     """获取工作空间文件树。"""
@@ -617,20 +666,82 @@ async def preview_workspace_file(session_id: str, file_path: str):
 
 
 @router.get("/workspace/{session_id}/files/{file_path:path}")
-async def get_workspace_file(session_id: str, file_path: str):
-    """获取工作空间文件内容。"""
-    _ensure_workspace_session_exists(session_id)
-    workspace = WorkspaceManager(session_id)
+async def get_workspace_file(
+    session_id: str,
+    file_path: str,
+    inline: bool = False,
+    raw: bool = False,
+    bundle: bool = False,
+    download: bool = False,
+):
+    """获取或下载工作空间文件。
 
-    try:
-        content = workspace.read_file(file_path)
-        return APIResponse(success=True, data={"path": file_path, "content": content})
-    except FileNotFoundError:
+    默认返回文件内容 JSON。当 download=1 时返回文件下载。
+
+    参数:
+        inline: 是否内联显示（而非下载）
+        raw: plotly.json 是否返回原始 JSON（而非转 PNG）
+        bundle: Markdown 文件是否打包关联图片为 ZIP
+        download: 是否直接下载文件（而非返回内容 JSON）
+    """
+    _ensure_workspace_session_exists(session_id)
+
+    # 使用多路径查找定位文件
+    target_path = _resolve_file_path(session_id, file_path)
+    if target_path is None:
         raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
-    except IsADirectoryError:
-        raise HTTPException(status_code=400, detail="path 是目录，不是文件")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    filename = target_path.name
+
+    # 如果不下载，返回文件内容 JSON（向后兼容）
+    if not download and not bundle:
+        workspace = WorkspaceManager(session_id)
+        try:
+            content = workspace.read_file(file_path)
+            return APIResponse(success=True, data={"path": file_path, "content": content})
+        except (FileNotFoundError, ValueError, IsADirectoryError):
+            # 如果通过 workspace manager 读取失败，尝试直接读取
+            try:
+                content = target_path.read_text(encoding="utf-8")
+                return APIResponse(success=True, data={"path": file_path, "content": content})
+            except UnicodeDecodeError:
+                # 二进制文件，返回下载
+                return _build_download_response(target_path, filename, inline=inline)
+
+    # Plotly JSON 自动转 PNG
+    if filename.lower().endswith(".plotly.json") and not raw:
+        png_response = await _convert_plotly_json_to_png(
+            target_path, session_id=session_id, width=1400, height=900, scale=2.0
+        )
+        if png_response:
+            return png_response
+
+    # Markdown 打包下载
+    if bundle and filename.lower().endswith(".md"):
+        md_content = target_path.read_text(encoding="utf-8")
+        image_urls = _extract_image_urls(md_content, session_id)
+
+        if not image_urls:
+            return _build_download_response(target_path, filename, inline=inline)
+
+        zip_bytes = _bundle_markdown_with_images(target_path, image_urls, session_id)
+        zip_filename = filename.replace(".md", "_bundle.zip")
+
+        try:
+            zip_filename.encode("latin-1")
+            disposition = f'attachment; filename="{zip_filename}"'
+        except UnicodeEncodeError:
+            ascii_fallback = zip_filename.encode("ascii", errors="replace").decode("ascii")
+            utf8_encoded = quote(zip_filename, safe="")
+            disposition = f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{utf8_encoded}"
+
+        return Response(
+            content=zip_bytes,
+            media_type="application/zip",
+            headers={"Content-Disposition": disposition},
+        )
+
+    return _build_download_response(target_path, filename, inline=inline)
 
 
 @router.post("/workspace/{session_id}/files/{file_path:path}/move")
@@ -2189,11 +2300,25 @@ async def download_artifact(
     inline: bool = False,
     raw: bool = False,
 ):
-    """下载会话产物（.plotly.json 默认自动转 PNG；raw=1 时返回原始 JSON）。"""
+    """下载会话产物（.plotly.json 默认自动转 PNG；raw=1 时返回原始 JSON）。
+
+    已废弃：请使用 GET /api/workspace/{session_id}/files/{filename}
+    """
+    # 记录废弃警告
+    logger.warning(
+        "Deprecated API used: /api/artifacts/%s/%s. "
+        "Please migrate to /api/workspace/{sid}/files/{path}",
+        session_id, filename
+    )
+
     safe_name = Path(unquote(filename)).name
-    artifact_path = settings.sessions_dir / session_id / "workspace" / "artifacts" / safe_name
+    workspace_path = settings.sessions_dir / session_id / "workspace"
+    artifact_path = workspace_path / "artifacts" / safe_name
     if not artifact_path.exists():
         artifact_path = settings.sessions_dir / session_id / "artifacts" / safe_name
+    # edit_file 等工具创建的文件直接在工作区根目录
+    if not artifact_path.exists():
+        artifact_path = workspace_path / safe_name
     if not artifact_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
@@ -2202,50 +2327,102 @@ async def download_artifact(
             artifact_path, session_id=session_id, width=1400, height=900, scale=2.0
         )
         if png_response:
+            # 添加废弃响应头
+            png_response.headers["Deprecation"] = "true"
+            png_response.headers["Sunset"] = "2025-06-01"
             return png_response
 
-    return _build_download_response(artifact_path, safe_name, inline=inline)
+    response = _build_download_response(artifact_path, safe_name, inline=inline)
+    # 添加废弃响应头
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "2025-06-01"
+    return response
 
 
 @router.get("/workspace/{session_id}/uploads/{filename}")
 async def download_workspace_upload(session_id: str, filename: str, inline: bool = False):
-    """下载会话工作空间中的上传文件。"""
+    """下载会话工作空间中的上传文件。
+
+    已废弃：请使用 GET /api/workspace/{session_id}/files/uploads/{filename}
+    """
+    logger.warning(
+        "Deprecated API used: /api/workspace/%s/uploads/%s. "
+        "Please migrate to /api/workspace/{sid}/files/{path}",
+        session_id, filename
+    )
+
     safe_name = Path(filename).name
     path = settings.sessions_dir / session_id / "workspace" / "uploads" / safe_name
     if not path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
-    return _build_download_response(path, safe_name, inline=inline)
+
+    response = _build_download_response(path, safe_name, inline=inline)
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "2025-06-01"
+    return response
 
 
 @router.get("/workspace/{session_id}/notes/{filename}")
 async def download_workspace_note(session_id: str, filename: str, inline: bool = False):
-    """下载会话工作空间中的文本文件。"""
+    """下载会话工作空间中的文本文件。
+
+    已废弃：请使用 GET /api/workspace/{session_id}/files/notes/{filename}
+    """
+    logger.warning(
+        "Deprecated API used: /api/workspace/%s/notes/%s. "
+        "Please migrate to /api/workspace/{sid}/files/{path}",
+        session_id, filename
+    )
+
     safe_name = Path(filename).name
     path = settings.sessions_dir / session_id / "workspace" / "notes" / safe_name
     if not path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
-    return _build_download_response(path, safe_name, inline=inline)
+
+    response = _build_download_response(path, safe_name, inline=inline)
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "2025-06-01"
+    return response
 
 
 @router.get("/workspace/{session_id}/artifacts/{filename}/bundle")
 async def download_markdown_with_images(session_id: str, filename: str):
-    """下载 Markdown 文件并自动打包相关图片。"""
+    """下载 Markdown 文件并自动打包相关图片。
+
+    已废弃：请使用 GET /api/workspace/{session_id}/files/{filename}?bundle=1
+    """
+    logger.warning(
+        "Deprecated API used: /api/workspace/%s/artifacts/%s/bundle. "
+        "Please migrate to /api/workspace/{sid}/files/{path}?bundle=1",
+        session_id, filename
+    )
+
     safe_name = Path(unquote(filename)).name
-    md_path = settings.sessions_dir / session_id / "workspace" / "artifacts" / safe_name
+    workspace_path = settings.sessions_dir / session_id / "workspace"
+    md_path = workspace_path / "artifacts" / safe_name
 
     if not md_path.exists():
-        md_path = settings.sessions_dir / session_id / "workspace" / "notes" / safe_name
+        md_path = workspace_path / "notes" / safe_name
+    # edit_file 等工具创建的文件直接在工作区根目录
+    if not md_path.exists():
+        md_path = workspace_path / safe_name
     if not md_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
 
     if not safe_name.endswith(".md"):
-        return _build_download_response(md_path, safe_name)
+        response = _build_download_response(md_path, safe_name)
+        response.headers["Deprecation"] = "true"
+        response.headers["Sunset"] = "2025-06-01"
+        return response
 
     md_content = md_path.read_text(encoding="utf-8")
     image_urls = _extract_image_urls(md_content, session_id)
 
     if not image_urls:
-        return _build_download_response(md_path, safe_name)
+        response = _build_download_response(md_path, safe_name)
+        response.headers["Deprecation"] = "true"
+        response.headers["Sunset"] = "2025-06-01"
+        return response
 
     zip_bytes = _bundle_markdown_with_images(md_path, image_urls, session_id)
     zip_filename = safe_name.replace(".md", "_bundle.zip")
@@ -2261,7 +2438,11 @@ async def download_markdown_with_images(session_id: str, filename: str):
     return Response(
         content=zip_bytes,
         media_type="application/zip",
-        headers={"Content-Disposition": disposition},
+        headers={
+            "Content-Disposition": disposition,
+            "Deprecation": "true",
+            "Sunset": "2025-06-01",
+        },
     )
 
 
@@ -2916,6 +3097,7 @@ except Exception as _e:
 
 try:
     from .workspace_routes import router as workspace_router
+    router.include_router(workspace_router)
 except Exception as _e:
     _route_import_errors.append(f"workspace_routes: {_e}")
 

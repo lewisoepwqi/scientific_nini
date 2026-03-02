@@ -1158,6 +1158,19 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
         });
         continue;
       }
+      if (eventType === "reasoning") {
+        messages.push({
+          id: nextId(),
+          role: "assistant",
+          content: typeof raw.content === "string" ? raw.content : "",
+          isReasoning: true,
+          reasoningLive: false,
+          reasoningId:
+            typeof raw.reasoning_id === "string" ? raw.reasoning_id : undefined,
+          timestamp,
+        });
+        continue;
+      }
 
       if (typeof raw.content === "string" && raw.content) {
         const cleanedContent = stripReasoningMarkers(raw.content);
