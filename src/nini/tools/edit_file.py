@@ -16,6 +16,7 @@ from typing import Any
 from nini.agent.session import Session
 from nini.config import settings
 from nini.tools.base import Skill, SkillResult
+from nini.workspace import WorkspaceManager
 
 logger = logging.getLogger(__name__)
 
@@ -144,10 +145,10 @@ class EditFile(Skill):
                 return await self._do_read(full_path, encoding)
             elif operation == "write":
                 content = kwargs.get("content", "")
-                return await self._do_write(full_path, content, encoding, create_if_missing)
+                return await self._do_write(session, full_path, content, encoding, create_if_missing)
             elif operation == "append":
                 content = kwargs.get("content", "")
-                return await self._do_append(full_path, content, encoding, create_if_missing)
+                return await self._do_append(session, full_path, content, encoding, create_if_missing)
             elif operation == "edit":
                 old_string = kwargs.get("old_string")
                 new_string = kwargs.get("new_string", "")
@@ -240,7 +241,7 @@ class EditFile(Skill):
             )
 
     async def _do_write(
-        self, file_path: Path, content: str, encoding: str, create_if_missing: bool
+        self, session: Session, file_path: Path, content: str, encoding: str, create_if_missing: bool
     ) -> SkillResult:
         """写入文件内容（覆盖）。"""
         try:
@@ -251,6 +252,19 @@ class EditFile(Skill):
             file_existed = file_path.exists()
 
             file_path.write_text(content, encoding=encoding)
+
+            # 添加到工作区索引，使文件在前端可见
+            try:
+                manager = WorkspaceManager(session.id)
+                manager.add_artifact_record(
+                    name=file_path.name,
+                    artifact_type="text_file",
+                    file_path=file_path,
+                    format_hint=file_path.suffix.lstrip(".") or "txt",
+                    visibility="internal",
+                )
+            except Exception as e:
+                logger.warning(f"添加到工作区索引失败: {e}")
 
             lines = content.split("\n")
             action = "更新" if file_existed else "创建"
@@ -272,7 +286,7 @@ class EditFile(Skill):
             )
 
     async def _do_append(
-        self, file_path: Path, content: str, encoding: str, create_if_missing: bool
+        self, session: Session, file_path: Path, content: str, encoding: str, create_if_missing: bool
     ) -> SkillResult:
         """追加内容到文件。"""
         try:
@@ -285,6 +299,20 @@ class EditFile(Skill):
                 # 创建新文件
                 file_path.parent.mkdir(parents=True, exist_ok=True)
                 file_path.write_text(content, encoding=encoding)
+
+                # 添加到工作区索引，使文件在前端可见
+                try:
+                    manager = WorkspaceManager(session.id)
+                    manager.add_artifact_record(
+                        name=file_path.name,
+                        artifact_type="text_file",
+                        file_path=file_path,
+                        format_hint=file_path.suffix.lstrip(".") or "txt",
+                        visibility="internal",
+                    )
+                except Exception as e:
+                    logger.warning(f"添加到工作区索引失败: {e}")
+
                 lines = content.split("\n")
                 return SkillResult(
                     success=True,
