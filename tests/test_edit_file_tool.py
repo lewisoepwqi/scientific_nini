@@ -308,3 +308,46 @@ async def test_edit_nonexistent_file_returns_error(
 
     assert not result.success
     assert "不存在" in result.message
+
+
+# ---------------------------------------------------------------------------
+# 索引更新测试 - 验证文件写入后在工作区索引中可见
+# ---------------------------------------------------------------------------
+
+
+async def test_write_adds_file_to_workspace_index(skill: EditFile, mock_session: MagicMock, workspace: Path):
+    """测试 write 操作将文件添加到工作区索引。"""
+    from nini.workspace import WorkspaceManager
+
+    result = await skill.execute(
+        mock_session, file_path="indexed_file.md", operation="write", content="# Test Content"
+    )
+
+    assert result.success
+
+    # 验证文件在索引中
+    manager = WorkspaceManager(mock_session.id)
+    artifacts = manager.list_artifacts()
+    artifact_names = [a.get("name") for a in artifacts]
+    assert "indexed_file.md" in artifact_names
+
+
+async def test_append_creates_file_in_workspace_index(skill: EditFile, mock_session: MagicMock, workspace: Path):
+    """测试 append 操作创建新文件时添加到工作区索引。"""
+    from nini.workspace import WorkspaceManager
+
+    result = await skill.execute(
+        mock_session,
+        file_path="appended_file.txt",
+        operation="append",
+        content="Initial content",
+        create_if_missing=True,
+    )
+
+    assert result.success
+
+    # 验证文件在索引中
+    manager = WorkspaceManager(mock_session.id)
+    artifacts = manager.list_artifacts()
+    artifact_names = [a.get("name") for a in artifacts]
+    assert "appended_file.txt" in artifact_names
