@@ -27,7 +27,7 @@ from nini.agent.prompts.scientific import get_system_prompt
 from nini.agent.session import Session
 from nini.config import settings
 from nini.knowledge.loader import KnowledgeLoader
-from nini.intent import default_intent_analyzer
+from nini.intent import default_intent_analyzer, optimized_intent_analyzer
 from nini.intent.service import SLASH_SKILL_WITH_ARGS_RE
 from nini.memory.compression import (
     compress_session_history_with_llm,
@@ -75,6 +75,20 @@ logger = logging.getLogger(__name__)
 
 # 兼容别名：测试通过下划线前缀名称访问此函数
 _replace_arguments = replace_arguments
+
+
+def _get_intent_analyzer():
+    """获取配置的意图分析器。
+
+    根据 settings.intent_strategy 返回对应的分析器：
+    - optimized_rules: 优化版规则分析器（默认，本地优先）
+    - rules: 原始规则分析器
+    """
+    strategy = getattr(settings, "intent_strategy", "optimized_rules")
+
+    if strategy == "optimized_rules":
+        return optimized_intent_analyzer
+    return default_intent_analyzer
 
 _SUSPICIOUS_CONTEXT_PATTERNS = (
     "ignore previous",
@@ -1393,7 +1407,7 @@ class AgentRunner:
 
         # 提取斜杠技能名称及其参数
         skill_args_map: dict[str, str] = {}
-        for call in default_intent_analyzer.parse_explicit_skill_calls(
+        for call in _get_intent_analyzer().parse_explicit_skill_calls(
             user_message,
             limit=_INLINE_SKILL_MAX_COUNT,
         ):
@@ -1528,10 +1542,9 @@ class AgentRunner:
             if isinstance(raw_catalog, list):
                 semantic_skills = raw_catalog
 
-        analysis = default_intent_analyzer.analyze(
+        analysis = _get_intent_analyzer().analyze(
             user_message,
             capabilities=capability_catalog,
-            semantic_skills=semantic_skills,
             skill_limit=2,
         )
 
@@ -1572,7 +1585,7 @@ class AgentRunner:
             return
 
         capability_catalog = [cap.to_dict() for cap in create_default_capabilities()]
-        analysis = default_intent_analyzer.analyze(user_message, capabilities=capability_catalog)
+        analysis = _get_intent_analyzer().analyze(user_message, capabilities=capability_catalog)
         if not analysis.clarification_needed or not analysis.clarification_question:
             return
 

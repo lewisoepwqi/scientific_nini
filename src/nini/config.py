@@ -180,6 +180,11 @@ class Settings(BaseSettings):
     enable_reasoning: bool = True  # 启用推理事件展示
     enable_knowledge: bool = True  # 启用知识库 RAG
 
+    # ---- 本地优先配置 ----
+    intent_strategy: str = "optimized_rules"  # 意图理解策略: optimized_rules | rules | semantic
+    knowledge_strategy: str = "bm25"  # 知识检索策略: bm25 | vector | hybrid
+    enable_cloud_fallback: bool = False  # 是否允许云端服务回退
+
     # ---- 知识库 ----
     knowledge_max_entries: int = 3  # 每次注入最多几个知识条目
     knowledge_max_chars: int = 3000  # 注入总字符数上限
@@ -187,6 +192,14 @@ class Settings(BaseSettings):
     knowledge_top_k: int = 5  # 向量检索返回的最大条目数
     knowledge_openai_embedding_model: str = "text-embedding-3-small"
     knowledge_local_embedding_model: str = "BAAI/bge-small-zh-v1.5"
+
+    # ---- 层次化知识检索（新架构）----
+    enable_hierarchical_index: bool = False  # 启用层次化索引（实验性功能）
+    hierarchical_reranker_model: str = "BAAI/bge-reranker-base"  # Cross-Encoder 重排序模型
+    hierarchical_cache_ttl: int = 300  # 检索结果缓存 TTL（秒）
+    hierarchical_chunk_size: int = 256  # 段落分块大小
+    hierarchical_chunk_overlap: int = 32  # 分块重叠大小
+    hierarchical_rrf_k: int = 60  # RRF 融合参数
     prompt_component_max_chars: int = 20000
     prompt_total_max_chars: int = 60000
     # ---- Skills 目录配置 ----

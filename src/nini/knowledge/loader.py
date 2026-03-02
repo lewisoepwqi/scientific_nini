@@ -7,8 +7,11 @@
 加载器扫描知识目录，解析关键词和优先级，根据用户消息中的
 关键词匹配度选择最相关的知识条目注入到 system prompt 中。
 
-当向量索引可用时，自动启用向量+关键词混合检索模式，
-语义检索结果与关键词结果融合并去重后返回。
+支持多种检索策略（可配置）：
+- bm25: 本地 BM25 检索（默认，零外部依赖）
+- keyword: 纯关键词匹配（回退方案）
+- vector: 向量语义检索（需要外部模型）
+- hybrid: 混合检索（向量 + 关键词）
 """
 
 from __future__ import annotations
@@ -19,6 +22,8 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from nini.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -51,17 +56,27 @@ class KnowledgeEntry:
 class KnowledgeLoader:
     """领域知识加载器，根据对话上下文选择并注入相关知识。
 
-    当向量索引可用时，自动启用混合检索模式（向量语义 + 关键词匹配），
-    否则仅使用关键词匹配。
+    支持多种检索策略（通过 settings.knowledge_strategy 配置）：
+    - bm25: 本地 BM25 检索（默认，零外部依赖）
+    - keyword: 纯关键词匹配
+    - vector: 向量语义检索
+    - hybrid: 向量 + 关键词混合检索
     """
 
     def __init__(self, knowledge_dir: Path, *, enable_vector: bool = True) -> None:
         self._dir = knowledge_dir
         self._entries: list[KnowledgeEntry] = []
         self._vector_store: Any = None  # VectorKnowledgeStore
+        self._bm25_retriever: Any = None  # LocalBM25Retriever
         self._lock = threading.RLock()
+        self._strategy = settings.knowledge_strategy
+
         self._load_entries()
-        if enable_vector:
+
+        # 根据策略初始化对应的检索器
+        if self._strategy == "bm25":
+            self._init_bm25_retriever()
+        elif self._strategy in ("vector", "hybrid") and enable_vector:
             self._init_vector_store()
 
     @property
@@ -73,6 +88,11 @@ class KnowledgeLoader:
     def vector_available(self) -> bool:
         """向量检索是否可用。"""
         return self._vector_store is not None and self._vector_store.is_available
+
+    @property
+    def bm25_available(self) -> bool:
+        """BM25 检索是否可用。"""
+        return self._bm25_retriever is not None and self._bm25_retriever.is_available
 
     def reload(self) -> None:
         """重新扫描知识目录（线程安全）。"""
@@ -119,40 +139,58 @@ class KnowledgeLoader:
     ) -> tuple[str, list[dict[str, Any]]]:
         """根据上下文选择最相关的知识条目，返回拼接后的文本。
 
-        当向量索引可用时，使用混合检索（向量语义 + 关键词匹配），
-        否则仅使用关键词匹配。
+        根据配置的检索策略选择对应的方法：
+        - bm25: 本地 BM25 检索
+        - keyword: 纯关键词匹配
+        - vector: 向量语义检索
+        - hybrid: 向量 + 关键词混合检索
 
         匹配逻辑：
-        1. 向量语义检索（如可用）
-        2. 关键词匹配（user_message 与 keywords 交集）
-        3. 融合去重，按得分排序
+        1. 根据策略选择检索方式
+        2. 融合去重（如需要）
+        3. 按得分排序
         4. 取前 max_entries 个，总字符数不超过 max_total_chars
         """
         if not user_message:
             return "", []
 
-        # 关键词匹配结果
-        keyword_text, keyword_hits = self._keyword_search(
+        # 根据策略选择检索方式
+        if self._strategy == "bm25" and self.bm25_available:
+            return self._bm25_retriever.search(
+                user_message,
+                top_k=max_entries,
+                max_total_chars=max_total_chars,
+            )
+
+        if self._strategy == "vector" and self.vector_available:
+            return self._vector_store.query(
+                user_message,
+                top_k=max_entries,
+                max_total_chars=max_total_chars,
+            )
+
+        if self._strategy == "hybrid" and self.vector_available:
+            # 混合检索：向量 + 关键词
+            keyword_text, keyword_hits = self._keyword_search(
+                user_message,
+                max_entries=max_entries,
+                max_total_chars=max_total_chars,
+            )
+            vector_text, vector_hits = self._vector_store.query(
+                user_message,
+                top_k=max_entries,
+                max_total_chars=max_total_chars,
+            )
+            return self._merge_results(
+                vector_hits=vector_hits,
+                keyword_hits=keyword_hits,
+                max_entries=max_entries,
+                max_total_chars=max_total_chars,
+            )
+
+        # 默认回退到关键词检索
+        return self._keyword_search(
             user_message,
-            max_entries=max_entries,
-            max_total_chars=max_total_chars,
-        )
-
-        # 如果向量不可用，直接返回关键词结果
-        if not self.vector_available:
-            return keyword_text, keyword_hits
-
-        # 向量语义检索
-        vector_text, vector_hits = self._vector_store.query(
-            user_message,
-            top_k=max_entries,
-            max_total_chars=max_total_chars,
-        )
-
-        # 融合去重：向量结果优先，关键词结果补充
-        return self._merge_results(
-            vector_hits=vector_hits,
-            keyword_hits=keyword_hits,
             max_entries=max_entries,
             max_total_chars=max_total_chars,
         )
@@ -275,6 +313,23 @@ class KnowledgeLoader:
 
     # ------ 内部方法 ------
 
+    def _init_bm25_retriever(self) -> None:
+        """初始化 BM25 检索器。失败时回退到关键词模式。"""
+        try:
+            from nini.knowledge.local_bm25 import LocalBM25Retriever
+
+            self._bm25_retriever = LocalBM25Retriever(
+                knowledge_dir=self._dir,
+            )
+            if self._bm25_retriever.initialize():
+                logger.info("BM25 知识索引已就绪，启用本地检索模式")
+            else:
+                self._bm25_retriever = None
+                logger.info("BM25 索引初始化失败，回退到关键词检索")
+        except Exception:
+            self._bm25_retriever = None
+            logger.warning("BM25 检索初始化失败，回退到关键词检索", exc_info=True)
+
     def _init_vector_store(self) -> None:
         """尝试初始化向量索引。失败时静默回退到关键词模式。"""
         try:
@@ -282,8 +337,6 @@ class KnowledgeLoader:
 
             if not _check_llama_index():
                 return
-
-            from nini.config import settings
 
             storage_dir = settings.data_dir / "vector_index"
             self._vector_store = VectorKnowledgeStore(
