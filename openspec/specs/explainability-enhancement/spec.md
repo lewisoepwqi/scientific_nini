@@ -3,12 +3,10 @@
 ## Purpose
 
 Provide users with visibility into the Agent's reasoning process, enabling better understanding and trust in AI-driven analysis decisions.
-
 ## Requirements
-
 ### Requirement: Reasoning event visualization
 
-The system SHALL provide enhanced visualization for REASONING events in the chat interface and SHALL preserve one stable reasoning identity across streaming, completion, and history restoration.
+The system SHALL provide enhanced visualization for REASONING events in the chat interface and SHALL preserve one stable reasoning identity across streaming, completion, history restoration, and prompt/runtime context reconstruction.
 
 #### Scenario: Collapsible reasoning steps
 
@@ -34,6 +32,12 @@ The system SHALL provide enhanced visualization for REASONING events in the chat
 - **WHEN** the user refreshes the page after a reasoning stream has completed
 - **THEN** the restored transcript SHALL contain one completed reasoning panel for that reasoning identity
 - **AND** the transcript SHALL NOT replay duplicated reasoning fragments as separate panels
+
+#### Scenario: Reasoning-related runtime context respects the untrusted-context contract
+
+- **WHEN** reasoning-adjacent runtime materials such as analysis memories or research profile preferences are injected into an LLM call
+- **THEN** those materials SHALL be marked and ordered according to the canonical untrusted runtime context contract
+- **AND** they SHALL NOT be elevated into trusted system prompt directives
 
 ### Requirement: Analysis reasoning timeline
 
@@ -107,3 +111,4 @@ The system SHALL allow users to export reasoning for documentation purposes.
 - **WHEN** the user generates a research report
 - **THEN** there SHALL be an option to include the reasoning timeline in the export
 - **AND** the reasoning SHALL be formatted as a methodological appendix
+

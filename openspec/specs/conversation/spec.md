@@ -46,3 +46,8 @@ The system SHALL expose one canonical contract for session message history and S
 - **THEN** there SHALL be exactly one externally supported response contract for that route
 - **AND** any legacy or internal adapter implementation SHALL NOT expose a conflicting schema to clients
 
+#### Scenario: Prompt runtime context is built consistently for the same conversation state
+- **WHEN** the Agent prepares LLM messages for a conversation turn
+- **THEN** the system SHALL use one canonical runtime context builder for that conversation state
+- **AND** the resulting context ordering and labeling SHALL NOT depend on whether the call originated from a direct runner path or a helper abstraction
+
