@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+from nini.models.common import utc_now
 
 
 class PlanStatus(str, Enum):
@@ -61,15 +63,11 @@ class ExecutionPlan(BaseModel):
 
     # 元数据
     plan_id: str = Field(
-        default_factory=lambda: f"plan_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
+        default_factory=lambda: f"plan_{utc_now().strftime('%Y%m%d_%H%M%S')}",
         description="计划唯一标识",
     )
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), description="创建时间"
-    )
-    updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), description="更新时间"
-    )
+    created_at: datetime = Field(default_factory=utc_now, description="创建时间")
+    updated_at: datetime = Field(default_factory=utc_now, description="更新时间")
 
     # 验证结果
     validation_errors: list[str] = Field(default_factory=list, description="验证错误列表")
@@ -92,26 +90,26 @@ class ExecutionPlan(BaseModel):
         """推进到下一阶段。返回是否成功。"""
         if self.current_phase_index < len(self.phases) - 1:
             self.current_phase_index += 1
-            self.updated_at = datetime.now(timezone.utc)
+            self.updated_at = utc_now()
             return True
         return False
 
     def mark_completed(self) -> None:
         """标记计划为完成。"""
         self.status = PlanStatus.COMPLETED
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = utc_now()
 
     def mark_failed(self, error: str) -> None:
         """标记计划为失败。"""
         self.status = PlanStatus.FAILED
         self.validation_errors.append(error)
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = utc_now()
 
     def add_suggestion(self, suggestion: str) -> None:
         """添加改进建议。"""
         if suggestion not in self.suggestions:
             self.suggestions.append(suggestion)
-            self.updated_at = datetime.now(timezone.utc)
+            self.updated_at = utc_now()
 
 
 # 预定义的阶段类型

@@ -8,47 +8,43 @@ from __future__ import annotations
 from typing import Any
 
 from nini.capabilities.base import Capability
+from nini.capabilities.executors import (
+    CorrelationAnalysisCapability,
+    DataCleaningCapability,
+    DataExplorationCapability,
+    DifferenceAnalysisCapability,
+    RegressionAnalysisCapability,
+    VisualizationCapability,
+)
 
 
 def _create_difference_analysis_executor(registry: Any | None = None) -> Any:
     """创建差异分析能力执行器。"""
-    from nini.capabilities.implementations import DifferenceAnalysisCapability
-
     return DifferenceAnalysisCapability(registry=registry)
 
 
 def _create_correlation_analysis_executor(registry: Any | None = None) -> Any:
     """创建相关性分析能力执行器。"""
-    from nini.capabilities.implementations import CorrelationAnalysisCapability
-
     return CorrelationAnalysisCapability(registry=registry)
 
 
 def _create_regression_analysis_executor(registry: Any | None = None) -> Any:
     """创建回归分析能力执行器。"""
-    from nini.capabilities.implementations import RegressionAnalysisCapability
-
     return RegressionAnalysisCapability(registry=registry)
 
 
 def _create_data_exploration_executor(registry: Any | None = None) -> Any:
     """创建数据探索能力执行器。"""
-    from nini.capabilities.implementations import DataExplorationCapability
-
     return DataExplorationCapability(registry=registry)
 
 
 def _create_data_cleaning_executor(registry: Any | None = None) -> Any:
     """创建数据清洗能力执行器。"""
-    from nini.capabilities.implementations import DataCleaningCapability
-
     return DataCleaningCapability(registry=registry)
 
 
 def _create_visualization_executor(registry: Any | None = None) -> Any:
     """创建可视化能力执行器。"""
-    from nini.capabilities.implementations import VisualizationCapability
-
     return VisualizationCapability(registry=registry)
 
 

@@ -7,8 +7,10 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
+
+from nini.models.common import parse_optional_datetime, utc_now
 
 
 # 支持的领域
@@ -80,8 +82,8 @@ class UserProfile:
     research_notes: str = ""  # 用户自定义研究备注
 
     # 时间戳
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     # 内部计数器（用于追踪使用频率）
     _test_usage_counter: dict[str, int] = field(default_factory=dict, repr=False, compare=False)
@@ -89,7 +91,7 @@ class UserProfile:
     def increment_analysis_count(self) -> None:
         """增加分析计数。"""
         self.total_analyses += 1
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = utc_now()
 
     def record_test_usage(self, test_method: str) -> None:
         """记录检验方法使用。"""
@@ -109,7 +111,7 @@ class UserProfile:
                 for method, count in Counter(self._test_usage_counter).most_common(10)
             }
 
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = utc_now()
 
     def add_recent_dataset(self, dataset_name: str, max_count: int = 10) -> None:
         """添加最近使用的数据集。"""
@@ -121,7 +123,7 @@ class UserProfile:
         # 保持最大数量
         if len(self.recent_datasets) > max_count:
             self.recent_datasets = self.recent_datasets[:max_count]
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = utc_now()
 
     def update_preference(
         self,
@@ -136,7 +138,7 @@ class UserProfile:
             self.journal_style = journal_style
         if significance_level is not None:
             self.significance_level = significance_level
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = utc_now()
 
     def add_research_domain(self, domain: str, max_count: int = 5) -> None:
         """添加研究领域标签。"""
@@ -144,7 +146,7 @@ class UserProfile:
             self.research_domains.append(domain)
             if len(self.research_domains) > max_count:
                 self.research_domains = self.research_domains[-max_count:]
-            self.updated_at = datetime.now(timezone.utc)
+            self.updated_at = utc_now()
 
     def to_dict(self) -> dict[str, Any]:
         """转换为字典。"""
@@ -181,18 +183,8 @@ class UserProfile:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "UserProfile":
         """从字典创建实例。"""
-        # 处理时间戳
-        created_at = data.get("created_at")
-        updated_at = data.get("updated_at")
-
-        if isinstance(created_at, str):
-            from datetime import datetime, timezone
-
-            created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-        if isinstance(updated_at, str):
-            from datetime import datetime, timezone
-
-            updated_at = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        created_at = parse_optional_datetime(data.get("created_at"))
+        updated_at = parse_optional_datetime(data.get("updated_at"))
 
         return cls(
             user_id=data["user_id"],
@@ -220,6 +212,6 @@ class UserProfile:
             typical_sample_size=data.get("typical_sample_size", ""),
             research_notes=data.get("research_notes", ""),
             _test_usage_counter=data.get("test_usage_counter", {}),
-            created_at=created_at or datetime.now(timezone.utc),
-            updated_at=updated_at or datetime.now(timezone.utc),
+            created_at=created_at or utc_now(),
+            updated_at=updated_at or utc_now(),
         )

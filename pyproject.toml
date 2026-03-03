@@ -59,6 +59,9 @@ dependencies = [
 
     # Markdown 处理
     "markdown>=3.7",
+
+    # YAML 处理
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -109,6 +112,9 @@ packages = ["src/nini"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "e2e: 端到端测试，覆盖完整用户工作流或跨模块集成场景",
+]
 
 [tool.black]
 line-length = 100
