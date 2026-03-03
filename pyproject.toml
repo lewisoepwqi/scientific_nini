@@ -59,6 +59,9 @@ dependencies = [
 
     # Markdown 处理
     "markdown>=3.7",
+
+    # YAML 处理
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
