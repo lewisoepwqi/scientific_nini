@@ -10,6 +10,9 @@ import type {
   AnalysisPlanProgress,
   AnalysisTaskItem,
   AnalysisTaskAttemptStatus,
+  Message,
+  MessageBuffer,
+  MessageOperation,
 } from "./types";
 
 // Import functions from normalizers and plan-state-machine for local use
@@ -130,6 +133,70 @@ export function inferCurrentStepIndex(steps: AnalysisStep[]): number {
   if (nextPending) return nextPending.id;
   const lastDone = [...steps].reverse().find((step) => step.status === "done");
   return lastDone?.id ?? 0;
+}
+
+export function findLastUserMessageIndex(messages: Message[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === "user") return i;
+  }
+  return -1;
+}
+
+export function findLatestTurnSpan(messages: Message[]): {
+  turnId: string | null;
+  userIndex: number;
+  firstTurnIndex: number;
+  lastTurnIndex: number;
+} | null {
+  const fallbackUserIndex = findLastUserMessageIndex(messages);
+  let turnId: string | null = null;
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i];
+    if (msg.role !== "user" && typeof msg.turnId === "string" && msg.turnId) {
+      turnId = msg.turnId;
+      break;
+    }
+  }
+
+  if (!turnId) {
+    if (fallbackUserIndex < 0) return null;
+    return {
+      turnId: messages[fallbackUserIndex].turnId ?? null,
+      userIndex: fallbackUserIndex,
+      firstTurnIndex: fallbackUserIndex,
+      lastTurnIndex: messages.length - 1,
+    };
+  }
+
+  let firstTurnIndex = -1;
+  let lastTurnIndex = -1;
+  for (let i = 0; i < messages.length; i += 1) {
+    if (messages[i].turnId !== turnId) continue;
+    if (firstTurnIndex < 0) firstTurnIndex = i;
+    lastTurnIndex = i;
+  }
+
+  let userIndex = -1;
+  for (let i = firstTurnIndex; i >= 0; i -= 1) {
+    if (messages[i].role === "user") {
+      userIndex = i;
+      break;
+    }
+  }
+  if (userIndex < 0) {
+    userIndex = fallbackUserIndex;
+  }
+  if (userIndex < 0 || firstTurnIndex < 0 || lastTurnIndex < 0) {
+    return null;
+  }
+
+  return {
+    turnId,
+    userIndex,
+    firstTurnIndex,
+    lastTurnIndex,
+  };
 }
 
 // Note: deriveNextHint is imported from ./plan-state-machine
@@ -424,4 +491,117 @@ export function uploadWithProgress(
     xhr.onerror = () => reject(new Error("上传请求失败"));
     xhr.send(form);
   });
+}
+
+// ---- 消息缓冲区辅助函数 ----
+
+/**
+ * 缓冲区条目最大存活时间（毫秒）
+ * 超过此时间的条目将被清理
+ */
+const MESSAGE_BUFFER_MAX_AGE = 5 * 60 * 1000; // 5分钟
+
+/**
+ * 添加或更新缓冲区条目
+ * @param buffer - 当前缓冲区
+ * @param messageId - 消息ID
+ * @param content - 内容
+ * @param operation - 操作类型
+ * @returns 更新后的缓冲区
+ */
+export function updateMessageBuffer(
+  buffer: MessageBuffer,
+  messageId: string,
+  content: string,
+  operation: MessageOperation,
+): MessageBuffer {
+  const now = Date.now();
+
+  // 根据操作类型处理内容
+  let newContent: string;
+  const existing = buffer[messageId];
+
+  if (operation === "append" && existing) {
+    // 追加模式：累加内容
+    newContent = existing.content + content;
+  } else if (operation === "replace") {
+    // 替换模式：直接替换
+    newContent = content;
+  } else {
+    // 默认或 complete 操作：使用现有内容或新内容
+    newContent = content ?? existing?.content ?? "";
+  }
+
+  return {
+    ...buffer,
+    [messageId]: {
+      content: newContent,
+      operation,
+      timestamp: now,
+    },
+  };
+}
+
+/**
+ * 从缓冲区获取内容
+ * @param buffer - 当前缓冲区
+ * @param messageId - 消息ID
+ * @returns 内容或 null
+ */
+export function getMessageBufferContent(
+  buffer: MessageBuffer,
+  messageId: string,
+): string | null {
+  return buffer[messageId]?.content ?? null;
+}
+
+/**
+ * 完成并清理缓冲区条目
+ * @param buffer - 当前缓冲区
+ * @param messageId - 消息ID
+ * @returns 更新后的缓冲区（已移除该条目）
+ */
+export function completeMessageBuffer(
+  buffer: MessageBuffer,
+  messageId: string,
+): MessageBuffer {
+  if (!buffer[messageId]) return buffer;
+
+  const { [messageId]: _, ...rest } = buffer;
+  return rest;
+}
+
+/**
+ * 清理过期的缓冲区条目
+ * @param buffer - 当前缓冲区
+ * @param maxAge - 最大存活时间（毫秒），默认 5 分钟
+ * @returns 清理后的缓冲区
+ */
+export function cleanupMessageBuffer(
+  buffer: MessageBuffer,
+  maxAge: number = MESSAGE_BUFFER_MAX_AGE,
+): MessageBuffer {
+  const now = Date.now();
+  const result: MessageBuffer = {};
+
+  for (const [id, entry] of Object.entries(buffer)) {
+    if (now - entry.timestamp < maxAge) {
+      result[id] = entry;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * 检查消息ID是否已在缓冲区中（用于去重）
+ * @param buffer - 当前缓冲区
+ * @param messageId - 消息ID
+ * @returns 是否已存在
+ */
+export function hasMessageBuffer(
+  buffer: MessageBuffer,
+  messageId: string,
+): boolean {
+  return messageId in buffer;
 }

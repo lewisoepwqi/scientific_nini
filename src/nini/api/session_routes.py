@@ -142,29 +142,6 @@ async def rollback_session(session_id: str) -> APIResponse:
     )
 
 
-@router.get("/{session_id}/messages", response_model=APIResponse)
-async def get_session_messages(session_id: str):
-    """获取会话消息历史（支持分页）。"""
-    session = session_manager.get_or_create(session_id)
-
-    messages = []
-    for msg in session.messages:
-        messages.append({
-            "role": msg.get("role"),
-            "content": msg.get("content"),
-            "timestamp": msg.get("timestamp"),
-        })
-
-    return APIResponse(
-        success=True,
-        data={
-            "session_id": session_id,
-            "messages": messages,
-            "total": len(messages),
-        },
-    )
-
-
 @router.get("/{session_id}/token-usage", response_model=APIResponse)
 async def get_session_token_usage(session_id: str):
     """获取会话的 token 消耗统计。"""

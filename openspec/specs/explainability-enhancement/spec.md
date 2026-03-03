@@ -8,7 +8,7 @@ Provide users with visibility into the Agent's reasoning process, enabling bette
 
 ### Requirement: Reasoning event visualization
 
-The system SHALL provide enhanced visualization for REASONING events in the chat interface.
+The system SHALL provide enhanced visualization for REASONING events in the chat interface and SHALL preserve one stable reasoning identity across streaming, completion, and history restoration.
 
 #### Scenario: Collapsible reasoning steps
 
@@ -22,6 +22,18 @@ The system SHALL provide enhanced visualization for REASONING events in the chat
 - **WHEN** the reasoning content contains decision keywords (e.g., "选择", "决定", "因此", "因为")
 - **THEN** those keywords SHALL be visually highlighted (bold or colored text)
 - **AND** the system SHALL parse and display decision chains in a structured format
+
+#### Scenario: Streaming reasoning updates merge into one panel
+
+- **WHEN** multiple REASONING events with the same stable reasoning identity are emitted for a single reasoning chain
+- **THEN** the client SHALL merge them into one logical reasoning panel
+- **AND** the completed reasoning event SHALL finalize that same panel instead of creating another reasoning bubble
+
+#### Scenario: Refreshed transcript restores completed reasoning without duplication
+
+- **WHEN** the user refreshes the page after a reasoning stream has completed
+- **THEN** the restored transcript SHALL contain one completed reasoning panel for that reasoning identity
+- **AND** the transcript SHALL NOT replay duplicated reasoning fragments as separate panels
 
 ### Requirement: Analysis reasoning timeline
 
@@ -63,7 +75,7 @@ The system SHALL display the rationale behind key analysis decisions.
 
 ### Requirement: Reasoning event structure enhancement
 
-The system MAY extend the REASONING event structure to support enhanced visualization.
+The system SHALL support structured REASONING event metadata for enhanced visualization.
 
 #### Scenario: Structured reasoning metadata
 

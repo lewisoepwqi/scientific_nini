@@ -19,6 +19,115 @@ from nini.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _infer_event_type(entry: dict[str, Any]) -> str:
+    """推断缺失的事件类型，兼容旧格式历史消息。"""
+    role = str(entry.get("role", "")).strip()
+    if role == "user":
+        return "message"
+    if role == "tool":
+        return "tool_result"
+    if role != "assistant":
+        return ""
+
+    tool_calls = entry.get("tool_calls")
+    if isinstance(tool_calls, list) and tool_calls:
+        return "tool_call"
+    if any(
+        entry.get(key) is not None
+        for key in ("reasoning_id", "reasoning_type", "key_decisions", "confidence_score")
+    ):
+        return "reasoning"
+    return "text"
+
+
+def canonicalize_message_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """为历史消息补齐 canonical 元数据，兼容旧记录。"""
+    canonical: list[dict[str, Any]] = []
+    current_turn_id: str | None = None
+    legacy_turn_seq = 0
+    legacy_text_seq: dict[str, int] = {}
+    legacy_reasoning_seq: dict[str, int] = {}
+    legacy_tool_seq: dict[str, int] = {}
+
+    for raw in entries:
+        if not isinstance(raw, dict):
+            continue
+
+        entry = dict(raw)
+        role = str(entry.get("role", "")).strip()
+        if not role:
+            canonical.append(entry)
+            continue
+
+        raw_turn_id = entry.get("turn_id")
+        turn_id = str(raw_turn_id).strip() if isinstance(raw_turn_id, str) else ""
+        if role == "user":
+            if not turn_id:
+                legacy_turn_seq += 1
+                turn_id = f"legacy-turn-{legacy_turn_seq}"
+                entry["turn_id"] = turn_id
+            current_turn_id = turn_id
+        else:
+            if not turn_id:
+                if not current_turn_id:
+                    legacy_turn_seq += 1
+                    current_turn_id = f"legacy-turn-{legacy_turn_seq}"
+                turn_id = current_turn_id
+                entry["turn_id"] = turn_id
+
+        event_type = entry.get("event_type")
+        if not isinstance(event_type, str) or not event_type.strip():
+            event_type = _infer_event_type(entry)
+            if event_type:
+                entry["event_type"] = event_type
+        else:
+            event_type = event_type.strip()
+
+        if role == "assistant":
+            entry.setdefault("operation", "complete")
+            if event_type == "text":
+                message_id = entry.get("message_id")
+                if not isinstance(message_id, str) or not message_id.strip():
+                    seq = legacy_text_seq.get(turn_id, 0)
+                    entry["message_id"] = f"legacy-message-{turn_id}-{seq}"
+                    legacy_text_seq[turn_id] = seq + 1
+            elif event_type == "reasoning":
+                reasoning_id = entry.get("reasoning_id")
+                if not isinstance(reasoning_id, str) or not reasoning_id.strip():
+                    seq = legacy_reasoning_seq.get(turn_id, 0)
+                    entry["reasoning_id"] = f"legacy-reasoning-{turn_id}-{seq}"
+                    legacy_reasoning_seq[turn_id] = seq + 1
+            elif event_type == "tool_call":
+                tool_calls = entry.get("tool_calls")
+                if isinstance(tool_calls, list) and tool_calls:
+                    first_call = tool_calls[0] if isinstance(tool_calls[0], dict) else {}
+                    tool_call_id = (
+                        str(first_call.get("id", "")).strip()
+                        if isinstance(first_call, dict)
+                        else ""
+                    )
+                    if tool_call_id:
+                        entry.setdefault("message_id", f"tool-call-{tool_call_id}")
+        elif role == "tool":
+            entry.setdefault("event_type", "tool_result")
+            entry.setdefault("operation", "complete")
+            message_id = entry.get("message_id")
+            if not isinstance(message_id, str) or not message_id.strip():
+                tool_call_id = entry.get("tool_call_id")
+                if isinstance(tool_call_id, str) and tool_call_id.strip():
+                    entry["message_id"] = f"tool-result-{tool_call_id.strip()}"
+                else:
+                    seq = legacy_tool_seq.get(turn_id, 0)
+                    entry["message_id"] = f"legacy-tool-{turn_id}-{seq}"
+                    legacy_tool_seq[turn_id] = seq + 1
+        elif role == "user":
+            entry.setdefault("event_type", "message")
+
+        canonical.append(entry)
+
+    return canonical
+
+
 class ConversationMemory:
     """基于 JSONL 的持久化会话记忆。"""
 
@@ -154,7 +263,7 @@ class ConversationMemory:
         entry_with_refs = self._extract_large_payloads(entry)
 
         # 添加时间戳
-        entry_with_refs["_ts"] = datetime.now(timezone.utc).isoformat()
+        entry_with_refs.setdefault("_ts", datetime.now(timezone.utc).isoformat())
 
         # 写入 JSONL
         with open(self._path, "a", encoding="utf-8") as f:
@@ -188,7 +297,8 @@ class ConversationMemory:
         Args:
             resolve_refs: 是否解析引用加载完整数据（默认不解析）
         """
-        return [e for e in self.load_all(resolve_refs=resolve_refs) if "role" in e]
+        messages = [e for e in self.load_all(resolve_refs=resolve_refs) if "role" in e]
+        return canonicalize_message_entries(messages)
 
     def clear(self) -> None:
         """清空会话记忆。"""

@@ -5,6 +5,8 @@
 Nini 是一个本地优先（local-first）的科研数据分析 Agent。
 用户通过对话上传并分析数据，Agent 自动调用统计、作图、清洗、代码执行与报告生成技能。
 
+> **核心特点**：对话式交互、多模型自动路由、沙箱安全执行、零代码数据分析
+
 ## 核心能力
 
 **统计分析**
@@ -57,20 +59,49 @@ scientific_nini/
 └── pyproject.toml
 ```
 
+## 系统要求
+
+- **Python**: >= 3.12
+- **Node.js**: >= 18（前端开发需要）
+- **操作系统**: Linux, macOS, Windows (WSL2 推荐)
+- **内存**: 建议 4GB+
+- **R 环境**（可选）: 如需执行 R 代码，需本地安装 R
+
 ## 快速开始
 
 ### 1. 安装
 
-```bash
-pip install -e .[dev]
-```
-
-`dev` 依赖组已包含报告 PDF 导出依赖 `weasyprint`。
-若使用发布包安装并需要 PDF 导出，可执行：
+**基础安装**（仅核心功能）：
 
 ```bash
-pip install nini[pdf]
+pip install -e .
 ```
+
+**开发安装**（推荐，包含测试和构建工具）：
+
+```bash
+pip install -e ".[dev]"
+```
+
+**完整安装**（包含本地检索增强和 R 代码执行，推荐）：
+
+```bash
+pip install -e ".[dev,local,webr]"
+```
+
+**可选依赖组说明**：
+
+| 依赖组 | 说明 |
+|--------|------|
+| `[dev]` | 开发工具：pytest, black, mypy, weasyprint |
+| `[local]` | 本地检索增强：jieba 中文分词 + rank-bm25 检索（零外部 API 依赖） |
+| `[pdf]` | PDF 导出功能（weasyprint）|
+| `[webr]` | WebR 支持（浏览器内运行 R）|
+| `[mcp]` | MCP (Model Context Protocol) 服务器支持 |
+
+> 提示：
+> - 若看到 "jieba 未安装" 或 "rank_bm25 未安装" 警告，需安装 `[local]` 依赖组
+> - 若看到 "R 环境不可用" 警告，需安装 `[webr]` 依赖组或本地 R 环境
 
 ### 2. 初始化配置
 
@@ -78,6 +109,17 @@ pip install nini[pdf]
 nini init          # 生成 .env
 nini init --force  # 覆盖已有 .env
 ```
+
+编辑 `.env` 文件，至少配置一个模型提供商的 API Key：
+
+```bash
+# 示例：使用 OpenAI
+NINI_OPENAI_API_KEY=sk-your-api-key
+NINI_OPENAI_MODEL=gpt-4o
+```
+
+支持多种模型：OpenAI、Anthropic、Moonshot AI (Kimi)、DeepSeek、智谱 AI (GLM)、阿里百炼、Kimi Coding、Ollama 本地模型。
+可同时配置多个，Nini 会按优先级自动路由并故障转移。
 
 ### 3. 环境检查
 
@@ -87,13 +129,29 @@ nini doctor
 
 ### 4. 启动服务
 
+**生产模式**：
+
+```bash
+nini start
+```
+
+**开发模式**（热重载）：
+
 ```bash
 nini start --reload
 ```
 
 启动后访问：`http://127.0.0.1:8000`
 
-> **前端开发模式**（热更新）：另开终端执行 `cd web && npm run dev`，访问 `http://localhost:3000`，请求自动代理到后端。
+**前端开发模式**（热更新，推荐开发时使用）：
+
+另开终端执行：
+
+```bash
+cd web && npm install && npm run dev
+```
+
+访问 `http://localhost:3000`，API 和 WebSocket 请求自动代理到后端 8000 端口。
 
 ## 常用工作流
 
@@ -141,10 +199,64 @@ nini doctor
 nini start
 ```
 
-## 文档导航
+## 故障排查
 
-- 快速上手：`docs/nini_quickstart.md`
-- 配置说明：`docs/configuration.md`
-- CLI 参考：`docs/cli_reference.md`
-- API 与 WebSocket 协议：`docs/api_reference.md`
-- 开发与发布：`docs/development.md`
+### 启动时提示 "jieba 未安装" 或 "rank_bm25 未安装"
+
+安装 `[local]` 依赖组：
+```bash
+pip install -e ".[local]"
+```
+
+### 启动时提示 "R 环境不可用"
+
+安装 `[webr]` 依赖组（无需本地安装 R）：
+```bash
+pip install -e ".[webr]"
+```
+
+或安装本地 R 环境：
+- **Ubuntu/Debian**: `sudo apt-get install r-base`
+- **macOS**: `brew install r`
+- **Windows**: 从 [CRAN](https://cran.r-project.org/) 下载安装
+
+安装后确保 `Rscript` 命令在 PATH 中可用。
+
+### 前端开发服务器无法连接后端
+
+检查 `web/vite.config.ts` 中的代理配置，确保后端服务已启动在 8000 端口。
+
+### 模型调用失败
+
+1. 检查 `.env` 中 API Key 是否正确配置
+2. 运行 `nini doctor` 检查环境
+3. 查看控制台详细错误日志（设置 `NINI_DEBUG=true`）
+
+### 代码执行超时
+
+调整 `.env` 中的沙箱超时配置：
+```bash
+NINI_SANDBOX_TIMEOUT=120  # 秒
+```
+
+### 更多问题
+
+查看完整文档：
+- [快速上手指南](docs/nini_quickstart.md)
+- [配置说明](docs/configuration.md)
+- [CLI 参考](docs/cli_reference.md)
+- [API 与 WebSocket 协议](docs/api_reference.md)
+- [开发与发布指南](docs/development.md)
+
+## 贡献指南
+
+欢迎提交 Issue 和 PR！请确保：
+
+1. 代码通过 `black --check src tests` 格式检查
+2. 类型检查 `mypy src/nini` 无错误
+3. 测试 `pytest -q` 全部通过
+4. 遵循 Conventional Commits 提交规范
+
+## 许可证
+
+MIT License - 详见 [LICENSE](LICENSE) 文件。
