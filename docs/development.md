@@ -44,6 +44,16 @@ cd web && npm run build
 
 建议在提交前至少执行以上两项。
 
+### 提示词相关最小验证
+
+涉及系统提示词、运行时上下文、知识注入、Markdown Skill 注入时，至少执行：
+
+```bash
+pytest tests/test_prompt_guardrails.py tests/test_prompt_contract.py tests/test_prompt_improvements.py tests/test_ecosystem_alignment.py -q
+```
+
+架构说明见 [prompt-architecture.md](./prompt-architecture.md)。
+
 ## 3. 代码组织约定
 
 - 后端业务代码：`src/nini/`

@@ -130,7 +130,7 @@ event = create_reasoning_event(
 - 个性化排序
 
 #### 3.3 上下文注入
-- 自动知识注入到系统提示词
+- 自动知识检索并注入到不可信运行时上下文
 - Token 限制管理（默认 2000 tokens）
 - 引用标记生成
 
@@ -181,7 +181,7 @@ for doc in result.results:
 ```python
 from nini.knowledge.context_injector import inject_knowledge_to_prompt
 
-# 注入知识到提示词
+# 获取知识参考文本；生产链路会把它包装为不可信运行时上下文
 enhanced_prompt, context = await inject_knowledge_to_prompt(
     query="用户问题",
     system_prompt="原始系统提示",

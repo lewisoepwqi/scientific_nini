@@ -1,6 +1,6 @@
 """知识上下文注入器。
 
-自动将知识库检索结果注入到 Agent 的上下文中。
+负责检索知识并返回可供运行时上下文或提示词层消费的参考资料。
 """
 
 from __future__ import annotations
@@ -20,7 +20,8 @@ from nini.utils.token_counter import count_tokens
 
 logger = logging.getLogger(__name__)
 
-# 提示词模板
+# 兼容旧接口：调用方如确需拼接到提示词，可复用此模板；
+# 运行时主链路会把检索结果包装为不可信上下文，而不是直接提升为 system 指令。
 KNOWLEDGE_PROMPT_TEMPLATE = """相关背景知识：
 {context}
 
@@ -66,11 +67,11 @@ class ContextInjector:
         domain: str | None = None,
         research_profile: dict[str, Any] | None = None,
     ) -> tuple[str, KnowledgeContext]:
-        """将知识注入到系统提示词中。
+        """检索知识并返回增强后的参考文本。
 
         Args:
             query: 用户查询
-            system_prompt: 原始系统提示词
+            system_prompt: 原始提示词文本；调用方可传空字符串，仅获取知识上下文
             domain: 领域偏好
             research_profile: 研究画像
 
