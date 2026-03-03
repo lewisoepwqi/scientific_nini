@@ -9,7 +9,7 @@
 | 类型 | 载体 | 适用场景 | 可被 LLM 调用 |
 |------|------|----------|--------------|
 | **Function Skill** | Python 类 | 需要执行代码、操作数据的场景 | 是（function calling） |
-| **Markdown Skill** | Markdown 文件 | 提示词增强、工作流指导 | 否（注入系统提示词） |
+| **Markdown Skill** | Markdown 文件 | 提示词增强、工作流指导 | 否（作为不可信运行时上下文注入） |
 
 ## 标准分类
 

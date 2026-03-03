@@ -1,6 +1,6 @@
 """系统提示词组件装配器。
 
-将系统提示词拆分为多个独立 Markdown 组件，按固定顺序装配。
+将受信系统提示词拆分为多个独立 Markdown 组件，按固定顺序装配。
 每个组件可独立编辑、实时生效，并有截断保护机制防止上下文溢出。
 
 组件优先级（截断时从低到高丢弃）：
@@ -121,7 +121,7 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
 }
 
 
-_ORDER = [
+_TRUSTED_COMPONENT_FILES = [
     "identity.md",
     "strategy.md",
     "security.md",
@@ -152,7 +152,7 @@ class PromptComponent:
 
 
 class PromptBuilder:
-    """按固定顺序装配系统提示词，支持动态刷新与截断保护。
+    """按固定顺序装配受信系统提示词，支持动态刷新与截断保护。
 
     截断保护策略：
     1. 每个组件有独立的字符上限（prompt_component_max_chars）
@@ -212,12 +212,9 @@ class PromptBuilder:
             )
         )
 
-        for filename in _ORDER:
+        for filename in _TRUSTED_COMPONENT_FILES:
             path = self._base_dir / filename
-            default_text = _DEFAULT_COMPONENTS.get(filename, "")
-            if not path.exists() and default_text:
-                path.write_text(default_text + "\n", encoding="utf-8")
-            text = path.read_text(encoding="utf-8") if path.exists() else default_text
+            text = self._load_component_text(path, filename)
             comp_name = filename.replace(".md", "")
             components.append(
                 PromptComponent(
@@ -227,6 +224,15 @@ class PromptBuilder:
                 )
             )
         return components
+
+    def _load_component_text(self, path: Path, filename: str) -> str:
+        """只加载受信组件文件，并保留默认回退与热刷新。"""
+        default_text = _DEFAULT_COMPONENTS.get(filename, "")
+        if not path.exists() and default_text:
+            path.write_text(default_text + "\n", encoding="utf-8")
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+        return default_text
 
     @staticmethod
     def _extract_markdown_skills_snapshot(snapshot_text: str) -> str:
