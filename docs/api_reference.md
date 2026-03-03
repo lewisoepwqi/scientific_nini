@@ -88,6 +88,75 @@ Nini 对外分为两类接口：
 
 下载会话产物（图表/报告导出文件）。
 
+### 7) `GET /api/sessions/{session_id}/messages`
+
+获取会话历史的 canonical 消息序列。该接口同时服务于：
+
+- 页面刷新后的历史恢复
+- WebSocket 重连后的 session reconcile
+- `retry` / `stop` 后的回合级对账
+
+响应示例：
+
+```json
+{
+  "success": true,
+  "data": {
+    "session_id": "abc123",
+    "messages": [
+      {
+        "role": "assistant",
+        "content": "这是完整回答",
+        "_ts": "2026-03-03T10:00:02+00:00",
+        "message_id": "turn_001-0",
+        "turn_id": "turn_001",
+        "event_type": "text",
+        "operation": "replace"
+      },
+      {
+        "role": "assistant",
+        "content": "完整推理结论",
+        "_ts": "2026-03-03T10:00:03+00:00",
+        "turn_id": "turn_001",
+        "event_type": "reasoning",
+        "operation": "complete",
+        "reasoning_id": "reason_001"
+      },
+      {
+        "role": "tool",
+        "content": "执行成功",
+        "_ts": "2026-03-03T10:00:04+00:00",
+        "message_id": "tool-result-call_001",
+        "turn_id": "turn_001",
+        "event_type": "tool_result",
+        "operation": "complete",
+        "tool_call_id": "call_001",
+        "tool_name": "run_code",
+        "status": "success",
+        "intent": "计算均值"
+      }
+    ]
+  }
+}
+```
+
+字段约定：
+
+| 字段 | 说明 |
+|------|------|
+| `_ts` | 消息写入时间，前端恢复历史时用于稳定排序 |
+| `turn_id` | 一轮对话的稳定标识；重连、停止、重试都以它为边界 |
+| `message_id` | assistant/tool 可见消息的稳定身份；前端用于 append/replace 去重 |
+| `event_type` | `message` / `text` / `reasoning` / `tool_call` / `tool_result` / `chart` / `data` / `artifact` / `image` |
+| `operation` | `append` / `replace` / `complete`；历史恢复默认应按最终态解释 |
+| `reasoning_id` | reasoning 节点的稳定身份，用于合并流式推理与历史恢复 |
+
+兼容说明：
+
+- 旧 `memory.jsonl` 记录在读取时会自动补齐 `turn_id`、`message_id`、`event_type`、`operation`
+- 前端应优先以 `message_id` / `reasoning_id` / `turn_id` 归并，不再依赖纯文本猜测
+- WebSocket 重连后建议重新拉取该接口，对当前会话做全量 reconcile
+
 ## WebSocket
 
 连接地址：`/ws`
@@ -122,9 +191,46 @@ Nini 对外分为两类接口：
   "session_id": "abc123",
   "tool_call_id": "call_xxx",
   "tool_name": "t_test",
-  "turn_id": "turn_001"
+  "turn_id": "turn_001",
+  "metadata": {
+    "message_id": "turn_001-0",
+    "operation": "append"
+  }
 }
 ```
+
+### 消息去重与语义操作（metadata 字段）
+
+从 v0.2.0 开始，WebSocket TEXT 事件支持 `metadata` 字段，用于消息去重和语义操作控制。
+
+| 字段                  | 类型   | 说明                                          |
+|-----------------------|--------|-----------------------------------------------|
+| `metadata.message_id` | string | 消息唯一标识，格式为 `{turn_id}-{sequence}`   |
+| `metadata.operation`  | string | 操作类型：`append`\|`replace`\|`complete`      |
+
+#### operation 类型说明
+
+| 操作类型   | 说明                     | 使用场景                     |
+|------------|--------------------------|------------------------------|
+| `append`   | 追加内容到现有消息       | LLM 流式输出片段             |
+| `replace`  | 替换整个消息内容         | 工具生成完整内容（如报告）   |
+| `complete` | 标记消息完成并清理缓冲区 | 流式结束标记                 |
+
+#### 消息ID格式
+
+```
+{turn_id}-{sequence}
+
+示例：
+- turn_abc123-0    # 某轮对话的第一条消息
+- turn_abc123-1    # 同轮对话的第二条消息
+```
+
+#### 向后兼容性
+
+- 新客户端收到带 `metadata` 的事件：使用新的去重逻辑
+- 旧客户端收到带 `metadata` 的事件：忽略新字段，正常显示内容
+- 新客户端收到无 `metadata` 的事件：回退到传统追加逻辑
 
 事件说明：
 

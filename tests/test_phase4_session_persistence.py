@@ -12,6 +12,7 @@ import pytest
 from nini.agent.session import session_manager
 from nini.app import create_app
 from nini.config import settings
+from nini.memory.conversation import ConversationMemory
 from nini.workspace import WorkspaceManager
 from tests.client_utils import LocalASGIClient
 
@@ -52,6 +53,51 @@ def test_session_messages_persist_and_restore() -> None:
     assert restored.messages[0]["content"] == "你好"
     assert restored.messages[1]["content"] == "已收到"
     assert restored.messages[2]["role"] == "tool"
+
+
+def test_session_messages_persist_canonical_metadata() -> None:
+    """持久化后的消息应保留 canonical 字段。"""
+    session = session_manager.create_session()
+    turn_id = "turn-meta"
+    session.add_message("user", "请分析", turn_id=turn_id)
+    session.add_reasoning(
+        "先确认分析范围",
+        reasoning_type="planning",
+        reasoning_id="reason-1",
+        turn_id=turn_id,
+    )
+    session.add_message(
+        "assistant",
+        "这是最终回答",
+        turn_id=turn_id,
+        message_id="turn-meta-0",
+        operation="replace",
+    )
+    session.add_tool_result(
+        "call-meta",
+        '{"ok": true}',
+        tool_name="run_code",
+        status="success",
+        turn_id=turn_id,
+        message_id="tool-result-call-meta",
+    )
+    session_id = session.id
+
+    session_manager._sessions.clear()
+    restored = session_manager.get_or_create(session_id)
+
+    assert len(restored.messages) == 4
+    assert restored.messages[0]["turn_id"] == turn_id
+    assert restored.messages[0]["event_type"] == "message"
+    assert restored.messages[0]["_ts"]
+    assert restored.messages[1]["event_type"] == "reasoning"
+    assert restored.messages[1]["reasoning_id"] == "reason-1"
+    assert restored.messages[1]["operation"] == "complete"
+    assert restored.messages[2]["message_id"] == "turn-meta-0"
+    assert restored.messages[2]["operation"] == "replace"
+    assert restored.messages[3]["event_type"] == "tool_result"
+    assert restored.messages[3]["message_id"] == "tool-result-call-meta"
+    assert restored.messages[3]["tool_name"] == "run_code"
 
 
 def test_list_sessions_includes_disk_sessions() -> None:
@@ -95,8 +141,15 @@ def test_get_session_messages_from_memory(client: LocalASGIClient) -> None:
     assert len(messages) == 2
     assert messages[0]["role"] == "user"
     assert messages[0]["content"] == "你好世界"
+    assert isinstance(messages[0]["_ts"], str)
+    assert isinstance(messages[0]["turn_id"], str)
+    assert messages[0]["turn_id"]
     assert messages[1]["role"] == "assistant"
     assert messages[1]["content"] == "你好！有什么可以帮助你的？"
+    assert messages[1]["event_type"] == "text"
+    assert messages[1]["operation"] == "complete"
+    assert isinstance(messages[1]["message_id"], str)
+    assert messages[1]["turn_id"] == messages[0]["turn_id"]
 
 
 def test_get_session_messages_from_disk(client: LocalASGIClient) -> None:
@@ -153,9 +206,21 @@ def test_get_session_messages_filters_internal_fields(client: LocalASGIClient) -
     allowed_keys = {
         "role",
         "content",
+        "_ts",
+        "message_id",
+        "turn_id",
         "tool_calls",
         "tool_call_id",
         "event_type",
+        "operation",
+        "tool_name",
+        "status",
+        "intent",
+        "execution_id",
+        "reasoning_id",
+        "reasoning_type",
+        "key_decisions",
+        "confidence_score",
         "chart_data",
         "data_preview",
         "artifacts",
@@ -202,6 +267,7 @@ def test_get_session_messages_with_tool_calls(client: LocalASGIClient) -> None:
     # tool 结果消息应包含 tool_call_id
     assert messages[1]["role"] == "tool"
     assert messages[1]["tool_call_id"] == "call_123"
+    assert messages[1]["message_id"] == "tool-result-call_123"
 
 
 def test_get_session_messages_empty_session(client: LocalASGIClient) -> None:
@@ -214,6 +280,34 @@ def test_get_session_messages_empty_session(client: LocalASGIClient) -> None:
     data = resp.json()
     assert data["success"] is True
     assert data["data"]["messages"] == []
+
+
+def test_get_session_messages_canonicalizes_legacy_records(client: LocalASGIClient) -> None:
+    """旧记录通过历史接口读取时应补齐 canonical 字段。"""
+    resp = client.post("/api/sessions")
+    session_id = resp.json()["data"]["session_id"]
+
+    memory = ConversationMemory(session_id)
+    memory.append({"role": "user", "content": "旧问题"})
+    memory.append({"role": "assistant", "content": "旧回答"})
+    memory.append({"role": "assistant", "content": "旧推理", "reasoning_type": "analysis"})
+    memory.append({"role": "tool", "tool_call_id": "call-legacy", "content": "旧工具结果"})
+    session_manager._sessions.clear()
+
+    resp = client.get(f"/api/sessions/{session_id}/messages")
+    assert resp.status_code == 200
+    messages = resp.json()["data"]["messages"]
+
+    assert len(messages) == 4
+    assert messages[0]["event_type"] == "message"
+    assert messages[0]["turn_id"].startswith("legacy-turn-")
+    assert messages[1]["event_type"] == "text"
+    assert messages[1]["message_id"].startswith("legacy-message-")
+    assert messages[1]["turn_id"] == messages[0]["turn_id"]
+    assert messages[2]["event_type"] == "reasoning"
+    assert messages[2]["reasoning_id"].startswith("legacy-reasoning-")
+    assert messages[3]["event_type"] == "tool_result"
+    assert messages[3]["message_id"] == "tool-result-call-legacy"
 
 
 def test_get_session_messages_includes_persisted_event_fields(client: LocalASGIClient) -> None:

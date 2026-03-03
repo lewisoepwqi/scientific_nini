@@ -30,6 +30,13 @@ import type {
 } from "./types";
 
 import { isRecord, nextId } from "./utils";
+import {
+  normalizeMessageTimestamp,
+  upsertAssistantTextMessage,
+  upsertReasoningMessage,
+  upsertToolCallMessage,
+  upsertToolResultMessage,
+} from "./message-normalizer";
 
 // ---- 会话相关 API ----
 
@@ -1025,17 +1032,35 @@ function normalizeToolResult(content: unknown): {
   message: string;
   status: "success" | "error";
 } {
-  if (typeof content === "string") {
-    const isError =
-      content.startsWith("错误:") ||
-      content.startsWith("Error:") ||
-      content.toLowerCase().includes("exception");
-    return { message: content, status: isError ? "error" : "success" };
-  }
-  if (content === null || content === undefined) {
+  if (typeof content !== "string" || !content.trim()) {
     return { message: "", status: "success" };
   }
-  return { message: JSON.stringify(content), status: "success" };
+  try {
+    const parsed = JSON.parse(content);
+    if (isRecord(parsed)) {
+      if (typeof parsed.error === "string" && parsed.error) {
+        return { message: parsed.error, status: "error" };
+      }
+      if (parsed.success === false) {
+        const msg =
+          typeof parsed.message === "string" && parsed.message
+            ? parsed.message
+            : "工具执行失败";
+        return { message: msg, status: "error" };
+      }
+      if (typeof parsed.message === "string" && parsed.message) {
+        return { message: parsed.message, status: "success" };
+      }
+    }
+  } catch {
+    // 保持原始文本
+  }
+
+  const isError =
+    content.startsWith("错误:") ||
+    content.startsWith("Error:") ||
+    content.toLowerCase().includes("exception");
+  return { message: content, status: isError ? "error" : "success" };
 }
 
 function buildErrorMeta(content: string): {
@@ -1072,15 +1097,6 @@ function buildErrorMeta(content: string): {
   return { isError: true, errorKind: "unknown", errorHint: "发生错误，请重试" };
 }
 
-// 辅助函数：从原始消息中提取时间戳（毫秒）
-function getRawMessageTimestamp(raw: RawSessionMessage): number {
-  if (raw._ts && typeof raw._ts === "string") {
-    const parsed = Date.parse(raw._ts);
-    if (!Number.isNaN(parsed)) return parsed;
-  }
-  return Date.now();
-}
-
 export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Message[] {
   const messages: Message[] = [];
   const toolCallMap = new Map<
@@ -1090,14 +1106,28 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
 
   for (const raw of rawMessages) {
     const role = raw.role;
-    // 使用原始时间戳，确保消息按正确顺序展示
-    const timestamp = getRawMessageTimestamp(raw);
+    const timestamp = normalizeMessageTimestamp(raw._ts);
+    const turnId =
+      typeof raw.turn_id === "string" && raw.turn_id.trim()
+        ? raw.turn_id.trim()
+        : undefined;
+    const messageId =
+      typeof raw.message_id === "string" && raw.message_id.trim()
+        ? raw.message_id.trim()
+        : undefined;
+    const operation =
+      raw.operation === "append" ||
+      raw.operation === "replace" ||
+      raw.operation === "complete"
+        ? raw.operation
+        : "complete";
 
     if (role === "user" && typeof raw.content === "string" && raw.content) {
       messages.push({
         id: nextId(),
         role: "user",
         content: raw.content,
+        turnId,
         timestamp,
       });
       continue;
@@ -1107,68 +1137,75 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
       const eventType =
         typeof raw.event_type === "string" ? raw.event_type : "";
       if (eventType === "chart") {
-        messages.push({
-          id: nextId(),
-          role: "assistant",
+        const nextMessages = upsertAssistantTextMessage(messages, {
           content:
             typeof raw.content === "string" && raw.content
               ? raw.content
               : "图表已生成",
-          chartData: raw.chart_data,
           timestamp,
+          messageId,
+          turnId,
+          operation,
+          chartData: raw.chart_data,
         });
+        messages.splice(0, messages.length, ...nextMessages);
         continue;
       }
       if (eventType === "data") {
-        messages.push({
-          id: nextId(),
-          role: "assistant",
+        const nextMessages = upsertAssistantTextMessage(messages, {
           content:
             typeof raw.content === "string" && raw.content
               ? raw.content
               : "数据预览如下",
-          dataPreview: raw.data_preview,
           timestamp,
+          messageId,
+          turnId,
+          operation,
+          dataPreview: raw.data_preview,
         });
+        messages.splice(0, messages.length, ...nextMessages);
         continue;
       }
       if (eventType === "artifact") {
-        messages.push({
-          id: nextId(),
-          role: "assistant",
+        const nextMessages = upsertAssistantTextMessage(messages, {
           content:
             typeof raw.content === "string" && raw.content
               ? raw.content
               : "产物已生成",
-          artifacts: Array.isArray(raw.artifacts) ? raw.artifacts : [],
           timestamp,
+          messageId,
+          turnId,
+          operation,
+          artifacts: Array.isArray(raw.artifacts) ? raw.artifacts : [],
         });
+        messages.splice(0, messages.length, ...nextMessages);
         continue;
       }
       if (eventType === "image") {
-        messages.push({
-          id: nextId(),
-          role: "assistant",
+        const nextMessages = upsertAssistantTextMessage(messages, {
           content:
             typeof raw.content === "string" && raw.content
               ? raw.content
               : "图片已生成",
-          images: Array.isArray(raw.images) ? raw.images : [],
           timestamp,
+          messageId,
+          turnId,
+          operation,
+          images: Array.isArray(raw.images) ? raw.images : [],
         });
+        messages.splice(0, messages.length, ...nextMessages);
         continue;
       }
       if (eventType === "reasoning") {
-        messages.push({
-          id: nextId(),
-          role: "assistant",
+        const nextMessages = upsertReasoningMessage(messages, {
           content: typeof raw.content === "string" ? raw.content : "",
-          isReasoning: true,
           reasoningLive: false,
           reasoningId:
             typeof raw.reasoning_id === "string" ? raw.reasoning_id : undefined,
+          turnId,
           timestamp,
         });
+        messages.splice(0, messages.length, ...nextMessages);
         continue;
       }
 
@@ -1178,13 +1215,15 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
           continue;
         }
         const isErrorText = /^错误[:：]\s*/u.test(cleanedContent);
-        messages.push({
-          id: nextId(),
-          role: "assistant",
+        const nextMessages = upsertAssistantTextMessage(messages, {
           content: cleanedContent,
-          ...(isErrorText ? buildErrorMeta(cleanedContent) : {}),
           timestamp,
+          messageId,
+          turnId,
+          operation,
+          errorMeta: isErrorText ? buildErrorMeta(cleanedContent) : undefined,
         });
+        messages.splice(0, messages.length, ...nextMessages);
       }
 
       const toolCalls = Array.isArray(raw.tool_calls) ? raw.tool_calls : [];
@@ -1197,9 +1236,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
           name === "run_code" && typeof toolArgs.intent === "string"
             ? toolArgs.intent
             : undefined;
-        const msg: Message = {
-          id: nextId(),
-          role: "tool",
+        const nextMessages = upsertToolCallMessage(messages, {
           content: toolIntent
             ? `🔧 ${name}: ${toolIntent}`
             : `调用工具: **${name}**`,
@@ -1207,9 +1244,10 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
           toolCallId: toolCallId || undefined,
           toolInput: toolArgs,
           toolIntent,
+          turnId,
           timestamp,
-        };
-        messages.push(msg);
+        });
+        messages.splice(0, messages.length, ...nextMessages);
         if (toolCallId) {
           toolCallMap.set(toolCallId, { name, input: toolArgs });
         }
@@ -1221,33 +1259,26 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
       const toolCallId =
         typeof raw.tool_call_id === "string" ? raw.tool_call_id : undefined;
       const normalized = normalizeToolResult(raw.content);
-      const existingIndex = toolCallId
-        ? messages.findIndex(
-            (m) =>
-              m.role === "tool" && m.toolCallId === toolCallId && !m.toolResult,
-          )
-        : -1;
-
-      if (existingIndex >= 0) {
-        messages[existingIndex] = {
-          ...messages[existingIndex],
-          toolResult: normalized.message,
-          toolStatus: normalized.status,
-        };
-      } else {
-        const meta = toolCallId ? toolCallMap.get(toolCallId) : undefined;
-        messages.push({
-          id: nextId(),
-          role: "tool",
-          content: normalized.message,
-          toolName: meta?.name,
-          toolCallId: toolCallId,
-          toolInput: meta?.input,
-          toolResult: normalized.message,
-          toolStatus: normalized.status,
-          timestamp,
-        });
-      }
+      const meta = toolCallId ? toolCallMap.get(toolCallId) : undefined;
+      const nextMessages = upsertToolResultMessage(messages, {
+        content: normalized.message,
+        toolName:
+          typeof raw.tool_name === "string" && raw.tool_name
+            ? raw.tool_name
+            : meta?.name,
+        toolInput: meta?.input,
+        toolCallId,
+        toolResult: normalized.message,
+        toolStatus:
+          raw.status === "error" || normalized.status === "error"
+            ? "error"
+            : "success",
+        toolIntent:
+          typeof raw.intent === "string" ? raw.intent : undefined,
+        turnId,
+        timestamp,
+      });
+      messages.splice(0, messages.length, ...nextMessages);
     }
   }
 

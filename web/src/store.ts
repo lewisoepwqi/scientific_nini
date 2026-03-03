@@ -54,6 +54,7 @@ export type {
   RawSessionMessage,
   DisplayPreference,
   UserDisplayPreference,
+  MessageBuffer,
 } from "./store/types";
 
 import type {
@@ -83,6 +84,7 @@ import type {
   WSEvent,
   RawSessionMessage,
   DisplayPreference,
+  MessageBuffer,
 } from "./store/types";
 
 // ---- 工具函数导入 ----
@@ -97,6 +99,7 @@ import {
   mergeReasoningContent,
   clampStepIndex,
   inferCurrentStepIndex,
+  findLatestTurnSpan,
   makePlanProgressFromSteps,
   areAllPlanStepsDone,
   updateAnalysisTaskById,
@@ -104,6 +107,11 @@ import {
   applyPlanStepUpdateToProgress,
   applyPlanProgressPayload,
   uploadWithProgress,
+  updateMessageBuffer,
+  getMessageBufferContent,
+  completeMessageBuffer,
+  cleanupMessageBuffer,
+  hasMessageBuffer,
 } from "./store/utils";
 
 // ---- 规范化函数导入 ----
@@ -188,6 +196,8 @@ export interface AppState {
   _analysisPlanOrder: number;
   _activePlanTaskIds: Array<string | null>;
   _planActionTaskMap: Record<string, string>;
+  // 消息缓冲区（用于去重）
+  _messageBuffer: MessageBuffer;
 
   // ResearchProfile
   researchProfile: ResearchProfile | null;
@@ -308,6 +318,7 @@ const SESSION_RESET_STATE = {
   analysisPlanProgress: null as AnalysisPlanProgress | null,
   _activePlanTaskIds: [] as string[],
   _planActionTaskMap: {} as Record<string, string>,
+  _messageBuffer: {} as MessageBuffer,
   analysisTasks: [] as AnalysisTaskItem[],
   currentIntentAnalysis: null as IntentAnalysisView | null,
   intentAnalysisLoading: false,
@@ -360,6 +371,7 @@ export const useStore = create<AppState>((set, get) => ({
   _analysisPlanOrder: 0,
   _activePlanTaskIds: [],
   _planActionTaskMap: {},
+  _messageBuffer: {},
   researchProfile: null,
   researchProfileLoading: false,
   tokenUsage: null,
@@ -414,7 +426,14 @@ export const useStore = create<AppState>((set, get) => ({
     let heartbeatTimer: number | undefined;
 
     ws.onopen = () => {
-      set({ wsConnected: true, wsStatus: "connected", _reconnectAttempts: 0 });
+      const wasReconnecting = get()._reconnectAttempts > 0;
+      const activeSessionId = get().sessionId;
+      set({
+        wsConnected: true,
+        wsStatus: "connected",
+        _reconnectAttempts: 0,
+        _messageBuffer: {},
+      });
       heartbeatTimer = window.setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "ping" }));
@@ -422,6 +441,9 @@ export const useStore = create<AppState>((set, get) => ({
           window.clearInterval(heartbeatTimer);
         }
       }, 15000);
+      if (wasReconnecting && activeSessionId) {
+        void get().switchSession(activeSessionId);
+      }
     };
 
     ws.onclose = () => {
@@ -441,6 +463,7 @@ export const useStore = create<AppState>((set, get) => ({
         _currentTurnId: null,
         _lastHandledSeq: undefined,
         _activePlanMsgId: null,
+        _messageBuffer: {},
       });
 
       if (attempts < maxAttempts && !hidden) {
@@ -497,6 +520,7 @@ export const useStore = create<AppState>((set, get) => ({
       _currentTurnId: null,
       _lastHandledSeq: undefined,
       _activePlanMsgId: null,
+      _messageBuffer: {},
     });
   },
 
@@ -567,6 +591,7 @@ export const useStore = create<AppState>((set, get) => ({
       analysisPlanProgress: null,
       _activePlanTaskIds: [],
       _planActionTaskMap: {},
+      _messageBuffer: {},
     });
   },
 
@@ -617,6 +642,7 @@ export const useStore = create<AppState>((set, get) => ({
       _activePlanMsgId: null,
       _activePlanTaskIds: [],
       _planActionTaskMap: {},
+      _messageBuffer: {},
     });
   },
 
@@ -625,19 +651,18 @@ export const useStore = create<AppState>((set, get) => ({
     if (isStreaming) return;
     if (!sessionId || !ws || ws.readyState !== WebSocket.OPEN) return;
 
-    let lastUserIndex = -1;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "user") {
-        lastUserIndex = i;
-        break;
-      }
-    }
-    if (lastUserIndex < 0) return;
+    const latestTurn = findLatestTurnSpan(messages);
+    if (!latestTurn || latestTurn.userIndex < 0) return;
 
-    const retryContent = messages[lastUserIndex].content.trim();
+    const retryContent = messages[latestTurn.userIndex].content.trim();
     if (!retryContent) return;
 
-    const trimmedMessages = messages.slice(0, lastUserIndex + 1);
+    const trimmedMessages = latestTurn.turnId
+      ? messages.filter(
+          (msg, index) =>
+            index <= latestTurn.userIndex || msg.turnId !== latestTurn.turnId,
+        )
+      : messages.slice(0, latestTurn.userIndex + 1);
     set({
       messages: trimmedMessages,
       isStreaming: true,
@@ -651,6 +676,7 @@ export const useStore = create<AppState>((set, get) => ({
       analysisPlanProgress: null,
       _activePlanTaskIds: [],
       _planActionTaskMap: {},
+      _messageBuffer: {},
     });
 
     try {
@@ -1178,6 +1204,12 @@ export {
   applyPlanStepUpdateToProgress,
   applyPlanProgressPayload,
   uploadWithProgress,
+  // 消息缓冲区辅助函数
+  updateMessageBuffer,
+  getMessageBufferContent,
+  completeMessageBuffer,
+  cleanupMessageBuffer,
+  hasMessageBuffer,
   // 规范化函数
   normalizeIntentOption,
   normalizeIntentCandidate,

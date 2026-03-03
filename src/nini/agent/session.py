@@ -45,11 +45,29 @@ class Session:
         if self.load_persisted_messages and not self.messages:
             self.messages.extend(self.conversation_memory.load_messages(resolve_refs=True))
 
-    def add_message(self, role: str, content: str) -> None:
-        msg = {"role": role, "content": content}
-        self.messages.append(msg)
-        self.conversation_memory.append(msg)
-        self._check_auto_compress()
+    def _append_entry(self, entry: dict[str, Any], *, auto_compress: bool = False) -> None:
+        """追加一条规范化消息记录并同步持久化。"""
+        materialized_entry = dict(entry)
+        materialized_entry.setdefault("_ts", datetime.now(timezone.utc).isoformat())
+        self.messages.append(materialized_entry)
+        self.conversation_memory.append(materialized_entry)
+        if auto_compress:
+            self._check_auto_compress()
+
+    def add_message(self, role: str, content: str, **extra: Any) -> None:
+        msg: dict[str, Any] = {"role": role, "content": content}
+        if role == "user":
+            msg["event_type"] = "message"
+        elif role == "assistant":
+            msg["event_type"] = "text"
+            msg["operation"] = "complete"
+        elif role == "tool":
+            msg["event_type"] = "tool_result"
+            msg["operation"] = "complete"
+        for key, value in extra.items():
+            if value is not None:
+                msg[key] = value
+        self._append_entry(msg, auto_compress=True)
 
     def add_assistant_event(
         self,
@@ -62,17 +80,19 @@ class Session:
             "role": "assistant",
             "content": content,
             "event_type": event_type,
+            "operation": "complete",
         }
         for key, value in extra.items():
             if value is not None:
                 msg[key] = value
-        self.messages.append(msg)
-        self.conversation_memory.append(msg)
+        self._append_entry(msg)
 
-    def add_tool_call(self, tool_call_id: str, name: str, arguments: str) -> None:
+    def add_tool_call(self, tool_call_id: str, name: str, arguments: str, **extra: Any) -> None:
         msg = {
             "role": "assistant",
             "content": None,
+            "event_type": "tool_call",
+            "operation": "complete",
             "tool_calls": [
                 {
                     "id": tool_call_id,
@@ -81,8 +101,10 @@ class Session:
                 }
             ],
         }
-        self.messages.append(msg)
-        self.conversation_memory.append(msg)
+        for key, value in extra.items():
+            if value is not None:
+                msg[key] = value
+        self._append_entry(msg)
 
     def add_tool_result(
         self,
@@ -93,11 +115,14 @@ class Session:
         status: str | None = None,
         intent: str | None = None,
         execution_id: str | None = None,
+        **extra: Any,
     ) -> None:
         msg = {
             "role": "tool",
             "tool_call_id": tool_call_id,
             "content": content,
+            "event_type": "tool_result",
+            "operation": "complete",
         }
         if tool_name:
             msg["tool_name"] = tool_name
@@ -107,8 +132,10 @@ class Session:
             msg["intent"] = intent
         if execution_id:
             msg["execution_id"] = execution_id
-        self.messages.append(msg)
-        self.conversation_memory.append(msg)
+        for key, value in extra.items():
+            if value is not None and key not in msg:
+                msg[key] = value
+        self._append_entry(msg)
 
     def add_reasoning(
         self,
@@ -133,6 +160,7 @@ class Session:
             "role": "assistant",
             "content": content,
             "event_type": "reasoning",
+            "operation": "complete",
         }
         if reasoning_type:
             msg["reasoning_type"] = reasoning_type
@@ -145,8 +173,7 @@ class Session:
         for key, value in extra.items():
             if value is not None and key not in msg:
                 msg[key] = value
-        self.messages.append(msg)
-        self.conversation_memory.append(msg)
+        self._append_entry(msg)
 
     def rollback_last_turn(self) -> str | None:
         """回滚最后一轮：保留最后一条用户消息，删除其后的 Agent 输出。"""

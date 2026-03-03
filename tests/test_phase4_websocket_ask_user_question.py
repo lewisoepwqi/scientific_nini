@@ -113,3 +113,85 @@ def test_websocket_ask_user_question_flow(
     assert ask_result["data"]["status"] == "success"
     answers = ask_result["data"]["result"]["data"]["answers"]
     assert answers["你更关注哪类结果？"] == "效应量"
+
+
+def test_websocket_ask_user_question_text_is_not_duplicated(
+    app_with_temp_data,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """首轮同时输出文本与 ask_user_question 时，不应重复推送同一段说明文本。"""
+    call_state = {"count": 0}
+    intro_text = "好的，我们将进行相关性分析。让我先确认一下分析范围。"
+
+    async def fake_chat(messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        call_state["count"] += 1
+        if call_state["count"] == 1:
+            yield LLMChunk(
+                text=intro_text,
+                tool_calls=[
+                    {
+                        "id": "tool-ask-dup-1",
+                        "type": "function",
+                        "function": {
+                            "name": "ask_user_question",
+                            "arguments": json.dumps(
+                                {
+                                    "questions": [
+                                        {
+                                            "question": "请选择分析变量",
+                                            "header": "分析范围",
+                                            "options": [
+                                                {
+                                                    "label": "收缩压",
+                                                    "description": "仅分析收缩压",
+                                                },
+                                                {
+                                                    "label": "全部变量",
+                                                    "description": "分析全部数值变量",
+                                                },
+                                            ],
+                                            "multiSelect": False,
+                                        }
+                                    ]
+                                },
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+                finish_reason="tool_calls",
+            )
+            return
+
+        yield LLMChunk(text="收到，继续分析。")
+
+    monkeypatch.setattr(model_resolver, "chat", fake_chat)
+
+    with live_websocket_connect(app_with_temp_data, "/ws") as ws:
+        ws.send_text(json.dumps({"type": "chat", "content": "请开始分析"}))
+
+        events = []
+        for _ in range(24):
+            evt = ws.receive_json()
+            events.append(evt)
+            if evt["type"] == "ask_user_question":
+                ws.send_text(
+                    json.dumps(
+                        {
+                            "type": "ask_user_question_answer",
+                            "tool_call_id": evt.get("tool_call_id"),
+                            "answers": {
+                                "请选择分析变量": "全部变量",
+                            },
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+            if evt["type"] in {"done", "error"}:
+                break
+
+    text_events = [
+        evt["data"] for evt in events if evt["type"] == "text" and isinstance(evt.get("data"), str)
+    ]
+    assert text_events.count(intro_text) == 1
+    assert "收到，继续分析。" in text_events

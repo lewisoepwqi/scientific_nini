@@ -46,6 +46,7 @@ from nini.models.schemas import (
     SetActiveModelRequest,
     UploadResponse,
 )
+from nini.memory.conversation import canonicalize_message_entries
 from nini.tools.markdown_skill_admin import (
     MarkdownSkillDocument,
     guess_skill_name_from_filename,
@@ -65,6 +66,36 @@ logger = logging.getLogger(__name__)
 # Excel 序列日期关键词（用于启发式检测）
 _DATE_HINTS = {"日期", "时间", "时刻", "date", "time", "datetime", "timestamp"}
 _SKILL_UPLOAD_EXTENSIONS = {".md", ".markdown", ".txt"}
+
+
+def _serialize_history_message(msg: dict[str, Any]) -> dict[str, Any]:
+    """序列化会话消息历史，返回统一对外契约。"""
+    chart_data = msg.get("chart_data")
+    normalized_chart_data = normalize_chart_payload(chart_data)
+    item = {
+        "role": msg.get("role", ""),
+        "content": msg.get("content", ""),
+        "_ts": msg.get("_ts"),
+        "message_id": msg.get("message_id"),
+        "turn_id": msg.get("turn_id"),
+        "event_type": msg.get("event_type"),
+        "operation": msg.get("operation"),
+        "tool_calls": msg.get("tool_calls"),
+        "tool_call_id": msg.get("tool_call_id"),
+        "tool_name": msg.get("tool_name"),
+        "status": msg.get("status"),
+        "intent": msg.get("intent"),
+        "execution_id": msg.get("execution_id"),
+        "reasoning_id": msg.get("reasoning_id"),
+        "reasoning_type": msg.get("reasoning_type"),
+        "key_decisions": msg.get("key_decisions"),
+        "confidence_score": msg.get("confidence_score"),
+        "chart_data": normalized_chart_data if normalized_chart_data else chart_data,
+        "data_preview": msg.get("data_preview"),
+        "artifacts": msg.get("artifacts"),
+        "images": msg.get("images"),
+    }
+    return item
 
 
 def _get_skill_registry():
@@ -2070,7 +2101,7 @@ async def get_session_messages(session_id: str):
     """获取指定会话的消息历史。"""
     session = session_manager.get_session(session_id)
     if session is not None:
-        messages = session.messages
+        messages = canonicalize_message_entries(session.messages)
     else:
         from nini.memory.conversation import ConversationMemory
 
@@ -2079,22 +2110,7 @@ async def get_session_messages(session_id: str):
         if not messages and not session_manager.session_exists(session_id):
             raise HTTPException(status_code=404, detail="会话不存在或无消息记录")
 
-    cleaned: list[dict] = []
-    for msg in messages:
-        chart_data = msg.get("chart_data")
-        normalized_chart_data = normalize_chart_payload(chart_data)
-        item = {
-            "role": msg.get("role", ""),
-            "content": msg.get("content", ""),
-            "tool_calls": msg.get("tool_calls"),
-            "tool_call_id": msg.get("tool_call_id"),
-            "event_type": msg.get("event_type"),
-            "chart_data": normalized_chart_data if normalized_chart_data else chart_data,
-            "data_preview": msg.get("data_preview"),
-            "artifacts": msg.get("artifacts"),
-            "images": msg.get("images"),
-        }
-        cleaned.append(item)
+    cleaned = [_serialize_history_message(msg) for msg in messages]
     return APIResponse(data={"session_id": session_id, "messages": cleaned})
 
 

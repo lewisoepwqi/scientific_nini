@@ -129,21 +129,20 @@ class TestRoutesHealthCheck:
         assert isinstance(_route_import_errors, list), "_route_import_errors 应是列表"
 
     def test_session_routes_endpoints(self):
-        """session_routes 应包含预期的端点。"""
+        """消息历史端点应只保留主 HTTP 路由入口。"""
         from nini.api.session_routes import router
+        from nini.api.routes import router as http_router
         from fastapi.routing import APIRoute
 
         paths = [r.path for r in router.routes if isinstance(r, APIRoute)]
+        http_paths = [r.path for r in http_router.routes if isinstance(r, APIRoute)]
 
-        # 检查关键端点
-        expected_patterns = [
-            '/{session_id}/messages',
-            '/{session_id}/compress',
-        ]
+        # session_routes 保留会话管理端点，但消息历史由主路由统一提供
+        assert any('/{session_id}/compress' in p for p in paths)
+        assert all('/{session_id}/messages' not in p for p in paths)
 
-        for pattern in expected_patterns:
-            found = any(pattern in p for p in paths)
-            assert found, f"session_routes 缺少端点: {pattern}"
+        found_history = any('/api/sessions/{session_id}/messages' in p for p in http_paths)
+        assert found_history, "主 HTTP 路由缺少 canonical 会话历史端点"
 
     def test_workspace_routes_endpoints(self):
         """workspace_routes 应包含预期的端点。"""

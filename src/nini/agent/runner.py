@@ -188,10 +188,10 @@ class AgentRunner:
            （当 agent_max_iterations > 0 时最多该次数；<=0 不限制）
         5. 如果是纯文本 → 输出并结束
         """
-        if append_user_message:
-            session.add_message("user", user_message)
-        max_iter = settings.agent_max_iterations
         turn_id = uuid.uuid4().hex[:12]
+        if append_user_message:
+            session.add_message("user", user_message, turn_id=turn_id)
+        max_iter = settings.agent_max_iterations
         should_stop = stop_event.is_set if stop_event else (lambda: False)
         report_markdown_for_turn: str | None = None
         active_plan: AnalysisPlan | None = None
@@ -199,6 +199,11 @@ class AgentRunner:
         plan_event_seq: int = 0
         iteration = 0
         # Initialize reasoning chain tracker for this turn
+        reasoning_tracker = ReasoningChainTracker()
+        # 消息序列号，用于生成 message_id (格式: {turn_id}-{sequence})
+        message_seq: int = 0
+        # 当前消息ID，用于关联同一消息的多个流式片段
+        current_message_id: str | None = None
         reasoning_tracker = ReasoningChainTracker()
         allowed_tool_whitelist, allowed_tool_sources = self._resolve_allowed_tool_recommendations(
             user_message
@@ -370,6 +375,8 @@ class AgentRunner:
                 data={"iteration": iteration},
                 turn_id=turn_id,
             )
+            # 重置当前消息ID，新迭代生成新的消息ID
+            current_message_id = None
 
             # 构建消息与检索可观测事件
             messages, retrieval_event = await self._build_messages_and_retrieval(session)
@@ -454,10 +461,18 @@ class AgentRunner:
                                 full_text += display_text
                                 if not chunk_raw_text:
                                     raw_full_text += chunk.text
+                                # 生成消息ID（首次发送时）
+                                if current_message_id is None:
+                                    current_message_id = f"{turn_id}-{message_seq}"
+                                    message_seq += 1
                                 yield AgentEvent(
                                     type=EventType.TEXT,
                                     data=display_text,
                                     turn_id=turn_id,
+                                    metadata={
+                                        "message_id": current_message_id,
+                                        "operation": "append",
+                                    },
                                 )
 
                         if chunk.tool_calls:
@@ -517,6 +532,7 @@ class AgentRunner:
                     confidence_score=confidence_score,
                     reasoning_id=final_reasoning_id,
                     parent_id=reasoning_node.get("parent_id"),
+                    turn_id=turn_id,
                 )
                 yield AgentEvent(
                     type=EventType.REASONING,
@@ -563,7 +579,16 @@ class AgentRunner:
             # 如果没有 tool_calls → 纯文本回复，结束循环
             if not tool_calls:
                 final_text = full_text or raw_full_text
-                session.add_message("assistant", final_text)
+                final_message_id = current_message_id or f"{turn_id}-{message_seq}"
+                if current_message_id is None:
+                    message_seq += 1
+                session.add_message(
+                    "assistant",
+                    final_text,
+                    turn_id=turn_id,
+                    message_id=final_message_id,
+                    operation="complete",
+                )
                 yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
                 return
 
@@ -574,12 +599,18 @@ class AgentRunner:
                 assistant_text = full_text.strip()
                 # 仅当 LLM 未使用 task_write 初始化任务（task_manager 未初始化）时
                 # 才回退到文本解析模式（parse_analysis_plan 的 fallback 路径）
-                if not session.task_manager.initialized:
+                # 同时检查即将到来的 tool_calls 是否包含 task_write，避免重复发送 analysis_plan
+                has_task_write_in_calls = any(
+                    tc.get("function", {}).get("name") == "task_write"
+                    for tc in tool_calls
+                )
+                if not session.task_manager.initialized and not has_task_write_in_calls:
                     parsed_plan = parse_analysis_plan(assistant_text)
                     if active_plan is None and parsed_plan is not None:
                         active_plan = parsed_plan
                         next_step_idx = 0
                     if active_plan is not None:
+                        logger.debug("[分析计划] 从文本解析发送 analysis_plan，步骤数: %d", len(active_plan.steps))
                         yield _new_analysis_plan_event(active_plan.to_dict())
                         yield _new_plan_progress_event(
                             current_idx=0,
@@ -591,20 +622,34 @@ class AgentRunner:
                             ),
                         )
 
-                # 发送 TEXT 事件，让前端正常显示 assistant 的说明文本
-                # 这段文本是面向用户的，不是内部推理，所以使用 TEXT 而非 REASONING
-                yield AgentEvent(
-                    type=EventType.TEXT,
-                    data=assistant_text,
-                    turn_id=turn_id,
-                )
+                # 说明文本通常已经在上面的流式 chunk 中发送过。
+                # 如果这里再次补发且分配新的 message_id，前端会把同一语义渲染成第二个气泡。
+                # 仅当上游没有产生任何 text chunk（极少数非标准流实现）时，才补发一次。
+                if current_message_id is None:
+                    plan_message_id = f"{turn_id}-{message_seq}"
+                    message_seq += 1
+                    current_message_id = plan_message_id
+                    yield AgentEvent(
+                        type=EventType.TEXT,
+                        data=assistant_text,
+                        turn_id=turn_id,
+                        metadata={
+                            "message_id": plan_message_id,
+                            "operation": "append",
+                        },
+                    )
 
             # 先把 assistant 带 tool_calls 的消息加入会话
             assistant_tool_msg = {
                 "role": "assistant",
                 "content": raw_full_text or full_text or None,
+                "event_type": "tool_call",
+                "operation": "complete",
+                "turn_id": turn_id,
                 "tool_calls": tool_calls,
             }
+            if current_message_id and assistant_tool_msg["content"]:
+                assistant_tool_msg["message_id"] = current_message_id
             session.messages.append(assistant_tool_msg)
             session.conversation_memory.append(assistant_tool_msg)
 
@@ -717,9 +762,9 @@ class AgentRunner:
                             tw_args = json.loads(func_args)
                             tw_mode = tw_args.get("mode", "init")
                             if tw_mode == "init":
-                                yield _new_analysis_plan_event(
-                                    session.task_manager.to_analysis_plan_dict()
-                                )
+                                plan_dict = session.task_manager.to_analysis_plan_dict()
+                                logger.debug("[分析计划] 从 task_write 发送 analysis_plan，步骤数: %d", len(plan_dict.get("steps", [])))
+                                yield _new_analysis_plan_event(plan_dict)
                                 yield _new_plan_progress_event(
                                     current_idx=0,
                                     step_status="pending",
@@ -762,6 +807,8 @@ class AgentRunner:
                         result_str,
                         tool_name=func_name,
                         status="success" if not has_error else "error",
+                        turn_id=turn_id,
+                        message_id=f"tool-result-{tc_id}",
                     )
                     yield AgentEvent(
                         type=EventType.TOOL_RESULT,
@@ -847,6 +894,8 @@ class AgentRunner:
                         result_str,
                         tool_name=func_name,
                         status=status,
+                        turn_id=turn_id,
+                        message_id=f"tool-result-{tc_id}",
                     )
                     yield AgentEvent(
                         type=EventType.TOOL_RESULT,
@@ -876,6 +925,7 @@ class AgentRunner:
                     session.add_assistant_event(
                         "artifact",
                         "代码已保存到工作空间",
+                        turn_id=turn_id,
                         artifacts=[code_artifact],
                     )
                     yield AgentEvent(
@@ -1029,6 +1079,8 @@ class AgentRunner:
                     status=status,
                     intent=tool_call_metadata.get("intent"),
                     execution_id=execution_id,
+                    turn_id=turn_id,
+                    message_id=f"tool-result-{tc_id}",
                 )
                 if not has_error:
                     self._record_research_profile_activity(
@@ -1072,6 +1124,7 @@ class AgentRunner:
                         session.add_assistant_event(
                             "chart",
                             "图表已生成",
+                            turn_id=turn_id,
                             chart_data=chart_data,
                         )
                         yield AgentEvent(
@@ -1083,6 +1136,7 @@ class AgentRunner:
                         session.add_assistant_event(
                             "data",
                             "数据预览如下",
+                            turn_id=turn_id,
                             data_preview=result.get("dataframe_preview"),
                         )
                         yield AgentEvent(
@@ -1099,6 +1153,7 @@ class AgentRunner:
                                 session.add_assistant_event(
                                     "artifact",
                                     "产物已生成",
+                                    turn_id=turn_id,
                                     artifacts=[artifact],
                                 )
                                 yield AgentEvent(
@@ -1121,6 +1176,7 @@ class AgentRunner:
                             session.add_assistant_event(
                                 "image",
                                 "图片已生成",
+                                turn_id=turn_id,
                                 images=images,
                             )
                             yield AgentEvent(
@@ -1136,11 +1192,36 @@ class AgentRunner:
             # generate_report 已返回完整报告时，直接将同一内容作为最终回复。
             # 这样可确保页面展示与保存文件完全一致，避免模型二次改写造成偏差。
             if report_markdown_for_turn:
-                session.add_message("assistant", report_markdown_for_turn)
+                # 如果有当前消息ID，使用 replace 操作替换之前的内容
+                # 否则创建新的消息ID
+                report_message_id = current_message_id or f"{turn_id}-{message_seq}"
+                if current_message_id is None:
+                    message_seq += 1
+                session.add_message(
+                    "assistant",
+                    report_markdown_for_turn,
+                    turn_id=turn_id,
+                    message_id=report_message_id,
+                    operation="replace",
+                )
                 yield AgentEvent(
                     type=EventType.TEXT,
                     data=report_markdown_for_turn,
                     turn_id=turn_id,
+                    metadata={
+                        "message_id": report_message_id,
+                        "operation": "replace",  # 使用 replace 替换流式预览
+                    },
+                )
+                # 发送 complete 操作标记消息结束
+                yield AgentEvent(
+                    type=EventType.TEXT,
+                    data="",
+                    turn_id=turn_id,
+                    metadata={
+                        "message_id": report_message_id,
+                        "operation": "complete",
+                    },
                 )
                 yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
                 return
@@ -1596,7 +1677,13 @@ class AgentRunner:
         tool_call_id = f"intent-ask-{uuid.uuid4().hex[:8]}"
         payload = {"questions": questions}
         arguments = json.dumps(payload, ensure_ascii=False)
-        session.add_tool_call(tool_call_id, "ask_user_question", arguments)
+        session.add_tool_call(
+            tool_call_id,
+            "ask_user_question",
+            arguments,
+            turn_id=turn_id,
+            message_id=f"tool-call-{tool_call_id}",
+        )
         yield AgentEvent(
             type=EventType.TOOL_CALL,
             data={"name": "ask_user_question", "arguments": arguments},
@@ -1648,6 +1735,8 @@ class AgentRunner:
             tool_name="ask_user_question",
             status="error" if has_error else "success",
             intent="intent_clarification",
+            turn_id=turn_id,
+            message_id=f"tool-result-{tool_call_id}",
         )
         yield AgentEvent(
             type=EventType.TOOL_RESULT,

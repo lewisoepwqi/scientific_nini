@@ -1,24 +1,4 @@
-# Capability: Conversation
-
-## Purpose
-
-Manage real-time conversation events including token usage tracking and cost transparency.
-## Requirements
-### Requirement: Token usage event stream
-
-The system SHALL emit TOKEN_USAGE events after each LLM call to enable real-time cost tracking.
-
-#### Scenario: Token usage event emitted after LLM call
-
-- **WHEN** an LLM chat completion finishes
-- **THEN** a WebSocket event of type `token_usage` SHALL be emitted
-- **AND** the event SHALL include input_tokens, output_tokens, model_name, and calculated cost
-
-#### Scenario: Frontend receives token usage updates
-
-- **WHEN** a `token_usage` event is received via WebSocket
-- **THEN** the Zustand store SHALL update the cost state
-- **AND** CostPanel SHALL display the updated values immediately
+## ADDED Requirements
 
 ### Requirement: Conversation event stream carries canonical message metadata
 The system SHALL emit user-visible conversation events with canonical metadata that can be reconciled with persisted history.
@@ -45,4 +25,3 @@ The system SHALL expose one canonical contract for session message history and S
 - **WHEN** the server serves session message history
 - **THEN** there SHALL be exactly one externally supported response contract for that route
 - **AND** any legacy or internal adapter implementation SHALL NOT expose a conflicting schema to clients
-

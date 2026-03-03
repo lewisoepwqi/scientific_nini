@@ -17,13 +17,13 @@ import type {
   RetrievalItem,
   CodeExecution,
   ModelTokenUsage,
+  MessageBuffer,
 } from "./types";
 
 import {
   isRecord,
   nextId,
   nextAnalysisTaskId,
-  mergeReasoningContent,
   makePlanProgressFromSteps,
   applyPlanStepUpdateToProgress,
   updateAnalysisTaskById,
@@ -37,6 +37,12 @@ import {
   mergePlanStepStatus,
   stripReasoningMarkers,
 } from "./normalizers";
+import {
+  upsertAssistantTextMessage,
+  upsertReasoningMessage,
+  upsertToolCallMessage,
+  upsertToolResultMessage,
+} from "./message-normalizer";
 
 import { areAllPlanStepsDone } from "./plan-state-machine";
 
@@ -324,6 +330,7 @@ export interface AppStateSubset {
   _analysisPlanOrder: number;
   _activePlanTaskIds: Array<string | null>;
   _planActionTaskMap: Record<string, string>;
+  _messageBuffer: MessageBuffer;
   analysisPlanProgress: AnalysisPlanProgress | null;
   analysisTasks: AnalysisTaskItem[];
   pendingAskUserQuestion: { toolCallId: string; questions: AskUserQuestionItem[]; createdAt: number } | null;
@@ -377,6 +384,74 @@ export function handleEvent(
 
     case "text": {
       const text = stripReasoningMarkers((evt.data as string) || "");
+
+      // ============================================================
+      // 消息去重架构 (Message Deduplication Architecture)
+      // ============================================================
+      // 问题：后端流式推送时，同一消息可能分多次发送，且 generate_report 等
+      // 工具会再次发送完整内容，导致前端显示重复。
+      //
+      // 解决方案：
+      // 1. 后端为每个消息分配唯一 message_id (格式: {turn_id}-{sequence})
+      // 2. 通过 operation 字段区分操作类型：
+      //    - "append": 累积到现有消息（流式生成）
+      //    - "replace": 替换整个消息内容（工具结果）
+      //    - "complete": 标记消息结束，清理缓冲区
+      // 3. 前端使用 _messageBuffer 按 message_id 累积内容
+      //
+      // 向后兼容：无 message_id 的事件使用旧逻辑（简单追加）
+      // ============================================================
+
+      const messageId = evt.metadata?.message_id as string | undefined;
+      const operation = (evt.metadata?.operation as "append" | "replace" | "complete" | undefined) || "append";
+
+      // 如果存在 message_id，使用新逻辑（消息去重）
+      if (messageId) {
+        set((s) => {
+          const buffer = { ...s._messageBuffer };
+          const turnId = evt.turn_id || s._currentTurnId || undefined;
+          const timestamp = Date.now();
+
+          const existingEntry = buffer[messageId];
+
+          if (operation === "complete") {
+            delete buffer[messageId];
+            return { _messageBuffer: buffer };
+          }
+
+          const nextMessages = upsertAssistantTextMessage(s.messages, {
+            content: text,
+            timestamp,
+            messageId,
+            turnId,
+            operation,
+          });
+          const currentContent =
+            nextMessages.find(
+              (msg) =>
+                msg.role === "assistant" &&
+                !msg.isReasoning &&
+                msg.messageId === messageId,
+            )?.content ??
+            (operation === "append"
+              ? `${existingEntry?.content ?? ""}${text}`
+              : text);
+          buffer[messageId] = {
+            content: currentContent,
+            operation,
+            timestamp,
+          };
+
+          return {
+            messages: nextMessages,
+            _streamingText: currentContent,
+            _messageBuffer: buffer,
+          };
+        });
+        break;
+      }
+
+      // ===== 旧逻辑（向后兼容）=====
       if (!text) break;
 
       // 防重复处理：检查事件序列号
@@ -472,7 +547,15 @@ export function handleEvent(
         if (eventOrder < s._analysisPlanOrder) return {};
         const now = Date.now();
         const currentTurnId = turnId || s._currentTurnId || null;
-        const appendedTasks: AnalysisTaskItem[] = steps.map((step) => ({
+
+        // 修复：避免同一回合任务重复累积
+        // 如果当前回合已有任务，先过滤掉同回合的旧任务
+        const existingTasks = s.analysisTasks;
+        const deduplicatedTasks = currentTurnId
+          ? existingTasks.filter((t) => t.turn_id !== currentTurnId)
+          : existingTasks;
+
+        const newTasks: AnalysisTaskItem[] = steps.map((step) => ({
           id: nextAnalysisTaskId(),
           plan_step_id: step.id,
           action_id: step.action_id ?? null,
@@ -487,23 +570,41 @@ export function handleEvent(
           updated_at: now,
           turn_id: currentTurnId,
         }));
+
+        // 更新 actionMap：移除同回合的旧 action 映射，添加新的
+        const filteredActionMap = currentTurnId
+          ? Object.fromEntries(
+              Object.entries(s._planActionTaskMap).filter(([_, taskId]) => {
+                const task = existingTasks.find((t) => t.id === taskId);
+                return task?.turn_id !== currentTurnId;
+              })
+            )
+          : { ...s._planActionTaskMap };
+
         const actionMap = {
-          ...s._planActionTaskMap,
+          ...filteredActionMap,
           ...Object.fromEntries(
-            appendedTasks
-              .filter(
-                (task) => typeof task.action_id === "string" && task.action_id,
-              )
+            newTasks
+              .filter((task) => typeof task.action_id === "string" && task.action_id)
               .map((task) => [task.action_id as string, task.id]),
           ),
         };
+
+        // 更新 _activePlanTaskIds：过滤掉同回合的旧任务ID
+        const filteredActiveIds = currentTurnId
+          ? s._activePlanTaskIds.filter((id) => {
+              if (!id) return false;
+              const task = existingTasks.find((t) => t.id === id);
+              return task?.turn_id !== currentTurnId;
+            })
+          : [...s._activePlanTaskIds];
+
         return {
           messages: [...s.messages, msg],
           _activePlanMsgId: msgId,
           analysisPlanProgress: makePlanProgressFromSteps(steps, rawText),
-          analysisTasks: [...s.analysisTasks, ...appendedTasks],
-          // 累加任务ID，保留历史任务引用
-          _activePlanTaskIds: [...s._activePlanTaskIds, ...appendedTasks.map((task) => task.id)],
+          analysisTasks: [...deduplicatedTasks, ...newTasks],
+          _activePlanTaskIds: [...filteredActiveIds, ...newTasks.map((task) => task.id)],
           _planActionTaskMap: actionMap,
           workspacePanelOpen: true,
           workspacePanelTab: "tasks",
@@ -803,76 +904,14 @@ export function handleEvent(
           : true; // 默认流式中
 
       set((s) => {
-        const msgs = [...s.messages];
-
-        // 如果有 reasoningId，查找具有相同 reasoningId 的消息
-        if (reasoningId) {
-          const existingIndex = msgs.findIndex(
-            (m) => m.isReasoning && m.reasoningId === reasoningId,
-          );
-          if (existingIndex >= 0) {
-            const target = msgs[existingIndex];
-            // 传入 isLive 参数：流式中追加，最终事件直接替换
-            const merged = mergeReasoningContent(target.content, content, isLive);
-            msgs[existingIndex] = {
-              ...target,
-              content: merged,
-              reasoningLive: isLive,
-            };
-            return { messages: msgs };
-          }
-          // 没有找到相同 reasoningId 的消息，创建新消息
-          // 按时间顺序追加到消息列表末尾（不再强制插入到回答之前）
-          const msg: Message = {
-            id: nextId(),
-            role: "assistant",
-            content,
-            isReasoning: true,
-            reasoningLive: isLive,
-            reasoningId,
-            turnId,
-            timestamp: Date.now(),
-          };
-          msgs.push(msg);
-          return { messages: msgs };
-        }
-
-        // 没有 reasoningId（向后兼容）：查找同一 turnId 的最后一个 reasoning 消息
-        const lastReasoningIndex = [...msgs]
-          .reverse()
-          .findIndex(
-            (m) =>
-              m.isReasoning &&
-              !m.analysisPlan &&
-              (m.turnId || undefined) === turnId,
-          );
-
-        if (lastReasoningIndex >= 0) {
-          const idx = msgs.length - 1 - lastReasoningIndex;
-          const target = msgs[idx];
-          // 传入 isLive 参数：流式中追加，最终事件直接替换
-          const merged = mergeReasoningContent(target.content, content, isLive);
-          msgs[idx] = {
-            ...target,
-            content: merged,
-            reasoningLive: isLive,
-          };
-          return { messages: msgs };
-        }
-
-        // 创建新的 reasoning 消息
-        // 按时间顺序追加到消息列表末尾（不再强制插入到回答之前）
-        const msg: Message = {
-          id: nextId(),
-          role: "assistant",
+        const nextMessages = upsertReasoningMessage(s.messages, {
           content,
-          isReasoning: true,
+          reasoningId,
           reasoningLive: isLive,
           turnId,
           timestamp: Date.now(),
-        };
-        msgs.push(msg);
-        return { messages: msgs };
+        });
+        return { messages: nextMessages };
       });
       break;
     }
@@ -894,21 +933,20 @@ export function handleEvent(
           : data.name === "run_code" && typeof toolArgs.intent === "string"
             ? toolArgs.intent
             : undefined;
-      const msg: Message = {
-        id: nextId(),
-        role: "tool",
-        content:
-          data.name === "run_code" && intent
-            ? `🔧 ${data.name}: ${intent}`
-            : `调用工具: **${data.name}**`,
-        toolName: data.name,
-        toolCallId: evt.tool_call_id || undefined,
-        toolInput: toolArgs,
-        toolIntent: intent,
-        turnId,
-        timestamp: Date.now(),
-      };
-      set((s) => ({ messages: [...s.messages, msg] }));
+      set((s) => ({
+        messages: upsertToolCallMessage(s.messages, {
+          content:
+            data.name === "run_code" && intent
+              ? `🔧 ${data.name}: ${intent}`
+              : `调用工具: **${data.name}**`,
+          toolName: data.name,
+          toolCallId: evt.tool_call_id || undefined,
+          toolInput: toolArgs,
+          toolIntent: intent,
+          turnId,
+          timestamp: Date.now(),
+        }),
+      }));
       break;
     }
 
@@ -923,43 +961,19 @@ export function handleEvent(
       const shouldClearPendingQuestion = evt.tool_name === "ask_user_question";
 
       set((s) => {
-        const msgs = [...s.messages];
-        // 查找是否有对应的 tool_call 消息
-        const existingIndex = msgs.findIndex(
-          (m) =>
-            m.role === "tool" && m.toolCallId === toolCallId && !m.toolResult,
-        );
-
-        if (existingIndex >= 0) {
-          // 合并到现有消息
-          msgs[existingIndex] = {
-            ...msgs[existingIndex],
-            toolResult: resultMessage,
-            toolStatus: status,
-            toolIntent:
-              msgs[existingIndex].toolIntent ||
-              (typeof evt.metadata?.intent === "string"
-                ? evt.metadata.intent
-                : undefined),
-          };
-        } else {
-          // 创建新的结果消息
-          msgs.push({
-            id: nextId(),
-            role: "tool",
-            content: resultMessage,
-            toolName: evt.tool_name || undefined,
-            toolCallId: toolCallId || undefined,
-            toolResult: resultMessage,
-            toolStatus: status,
-            toolIntent:
-              typeof evt.metadata?.intent === "string"
-                ? evt.metadata.intent
-                : undefined,
-            turnId,
-            timestamp: Date.now(),
-          });
-        }
+        const msgs = upsertToolResultMessage(s.messages, {
+          content: resultMessage,
+          toolName: evt.tool_name || undefined,
+          toolCallId: toolCallId || undefined,
+          toolResult: resultMessage,
+          toolStatus: status,
+          toolIntent:
+            typeof evt.metadata?.intent === "string"
+              ? evt.metadata.intent
+              : undefined,
+          turnId,
+          timestamp: Date.now(),
+        });
         return {
           messages: msgs,
           ...(shouldClearPendingQuestion ? { pendingAskUserQuestion: null } : {}),
@@ -999,80 +1013,74 @@ export function handleEvent(
 
     case "chart": {
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
-      const msg: Message = {
-        id: nextId(),
-        role: "assistant",
-        content: "图表已生成",
-        chartData: evt.data,
-        turnId,
-        timestamp: Date.now(),
-      };
-      set((s) => ({ messages: [...s.messages, msg] }));
+      const messageId = evt.metadata?.message_id as string | undefined;
+      set((s) => ({
+        messages: upsertAssistantTextMessage(s.messages, {
+          content: "图表已生成",
+          chartData: evt.data,
+          messageId,
+          turnId,
+          operation: "replace",
+          timestamp: Date.now(),
+        }),
+      }));
       break;
     }
 
     case "data": {
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
-      const msg: Message = {
-        id: nextId(),
-        role: "assistant",
-        content: "数据预览如下",
-        dataPreview: evt.data,
-        turnId,
-        timestamp: Date.now(),
-      };
-      set((s) => ({ messages: [...s.messages, msg] }));
+      const messageId = evt.metadata?.message_id as string | undefined;
+      set((s) => ({
+        messages: upsertAssistantTextMessage(s.messages, {
+          content: "数据预览如下",
+          dataPreview: evt.data,
+          messageId,
+          turnId,
+          operation: "replace",
+          timestamp: Date.now(),
+        }),
+      }));
       break;
     }
 
     case "artifact": {
-      // 将产物附加到最近的 tool/assistant 消息上
       const artifact = evt.data as ArtifactInfo;
       if (artifact && artifact.download_url) {
-        set((s) => {
-          const msgs = [...s.messages];
-          // 找到最近的 tool 或 assistant 消息来附加 artifact
-          for (let i = msgs.length - 1; i >= 0; i--) {
-            if (msgs[i].role === "tool" || msgs[i].role === "assistant") {
-              const existing = msgs[i].artifacts || [];
-              msgs[i] = { ...msgs[i], artifacts: [...existing, artifact] };
-              break;
-            }
-          }
-          return { messages: msgs };
-        });
+        const turnId = evt.turn_id || get()._currentTurnId || undefined;
+        const messageId = evt.metadata?.message_id as string | undefined;
+        set((s) => ({
+          messages: upsertAssistantTextMessage(s.messages, {
+            content: "产物已生成",
+            artifacts: [artifact],
+            messageId,
+            turnId,
+            operation: "replace",
+            timestamp: Date.now(),
+          }),
+        }));
       }
       break;
     }
 
     case "image": {
-      // 图片事件：将图片 URL 附加到最近的 assistant 消息，或创建新消息
       const imageData = evt.data as { url?: string; urls?: string[] };
       const urls: string[] = [];
       if (imageData.url) urls.push(imageData.url);
       if (imageData.urls) urls.push(...imageData.urls);
 
       if (urls.length > 0) {
-        set((s) => {
-          const msgs = [...s.messages];
-          // 尝试找到最近的 assistant 消息来附加图片
-          for (let i = msgs.length - 1; i >= 0; i--) {
-            if (msgs[i].role === "assistant" && !msgs[i].toolName) {
-              const existing = msgs[i].images || [];
-              msgs[i] = { ...msgs[i], images: [...existing, ...urls] };
-              return { messages: msgs };
-            }
-          }
-          // 如果没找到 assistant 消息，创建一个新消息
-          msgs.push({
-            id: nextId(),
-            role: "assistant",
+        const turnId = evt.turn_id || get()._currentTurnId || undefined;
+        const messageId = evt.metadata?.message_id as string | undefined;
+        set((s) => ({
+          messages: upsertAssistantTextMessage(s.messages, {
             content: "图片已生成",
             images: urls,
+            messageId,
+            turnId,
+            operation: "replace",
             timestamp: Date.now(),
-          });
-          return { messages: msgs };
-        });
+          }),
+        }));
       }
       break;
     }

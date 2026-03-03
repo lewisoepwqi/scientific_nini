@@ -324,6 +324,8 @@ export interface Message {
   id: string;
   role: "user" | "assistant" | "tool";
   content: string;
+  /** 后端消息ID，用于区分同一turn中的多条消息 */
+  messageId?: string;
   toolName?: string;
   toolCallId?: string;
   toolInput?: Record<string, unknown>;
@@ -423,11 +425,31 @@ export interface WSEvent {
   metadata?: Record<string, unknown>;
 }
 
+// ---- 消息去重与缓冲 ----
+
+/** 消息操作类型 */
+export type MessageOperation = "append" | "replace" | "complete";
+
+/** 消息缓冲区条目 */
+export interface MessageBufferEntry {
+  content: string;
+  operation: MessageOperation;
+  timestamp: number;
+}
+
+/** 消息缓冲区 */
+export interface MessageBuffer {
+  [messageId: string]: MessageBufferEntry;
+}
+
 export interface RawSessionMessage {
   role?: string;
   content?: string | null;
   _ts?: string; // ISO 8601 时间戳，来自 memory.jsonl
+  message_id?: string | null;
+  turn_id?: string | null;
   event_type?: string | null;
+  operation?: "append" | "replace" | "complete" | null;
   tool_calls?: Array<{
     id?: string;
     type?: string;
@@ -437,6 +459,10 @@ export interface RawSessionMessage {
     };
   }>;
   tool_call_id?: string | null;
+  tool_name?: string | null;
+  status?: "success" | "error" | null;
+  intent?: string | null;
+  execution_id?: string | null;
   chart_data?: unknown;
   data_preview?: unknown;
   artifacts?: ArtifactInfo[];
