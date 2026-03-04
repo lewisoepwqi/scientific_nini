@@ -343,19 +343,3 @@ def _serialize_history_message(msg: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-@router.get("/{session_id}/messages", response_model=APIResponse)
-async def get_session_messages(session_id: str):
-    """获取指定会话的消息历史。"""
-    session = session_manager.get_session(session_id)
-    if session is not None:
-        from nini.memory.conversation import canonicalize_message_entries
-
-        messages = canonicalize_message_entries(session.messages)
-    else:
-        mem = ConversationMemory(session_id)
-        messages = mem.load_messages(resolve_refs=True)
-        if not messages and not session_manager.session_exists(session_id):
-            raise HTTPException(status_code=404, detail="会话不存在或无消息记录")
-
-    cleaned = [_serialize_history_message(msg) for msg in messages]
-    return APIResponse(data={"session_id": session_id, "messages": cleaned})

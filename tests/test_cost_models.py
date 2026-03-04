@@ -134,9 +134,24 @@ class TestPricingConfig:
             models={"gpt-4o": pricing},
             usd_to_cny_rate=7.2,
         )
-        result = config.get_model_pricing("gpt-4o")
+        result, status = config.get_model_pricing("gpt-4o")
         assert result is not None
         assert result.input_price == 0.0025
+        assert status == "exact"
+
+    def test_get_model_pricing_fallback(self):
+        """测试兜底价格机制。"""
+        pricing = ModelPricing(input_price=0.0025, output_price=0.01)
+        config = PricingConfig(
+            models={"gpt-4o": pricing},
+            usd_to_cny_rate=7.2,
+            enable_fallback_pricing=True,
+        )
+        # 未知模型应使用兜底价格
+        result, status = config.get_model_pricing("unknown-model")
+        assert result is not None
+        assert status == "fallback"
+        assert result.input_price == config.fallback_pricing.input_price
 
     def test_calculate_cost_cny(self):
         """测试人民币成本计算。"""
@@ -146,8 +161,9 @@ class TestPricingConfig:
             usd_to_cny_rate=7.2,
         )
         # USD cost: 0.0075, CNY cost: 0.0075 * 7.2 = 0.054
-        cost_cny = config.calculate_cost_cny("gpt-4o", 1000, 500)
+        cost_cny, status = config.calculate_cost_cny("gpt-4o", 1000, 500)
         assert abs(cost_cny - 0.054) < 0.001
+        assert status == "exact"
 
     def test_calculate_cost_usd(self):
         """测试美元成本计算。"""
@@ -156,8 +172,9 @@ class TestPricingConfig:
             models={"gpt-4o": pricing},
             usd_to_cny_rate=7.2,
         )
-        cost_usd = config.calculate_cost_usd("gpt-4o", 1000, 500)
+        cost_usd, status = config.calculate_cost_usd("gpt-4o", 1000, 500)
         assert abs(cost_usd - 0.0075) < 0.0001
+        assert status == "exact"
 
 
 class TestSessionCostSummary:

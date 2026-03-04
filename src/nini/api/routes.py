@@ -46,7 +46,7 @@ from nini.models.schemas import (
     SetActiveModelRequest,
     UploadResponse,
 )
-from nini.memory.conversation import canonicalize_message_entries
+from nini.memory.conversation import ConversationMemory, canonicalize_message_entries
 from nini.tools.markdown_skill_admin import (
     MarkdownSkillDocument,
     guess_skill_name_from_filename,
@@ -488,6 +488,25 @@ async def export_dataset(
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---- 会话消息历史 ----
+
+
+@router.get("/sessions/{session_id}/messages", response_model=APIResponse)
+async def get_session_messages(session_id: str):
+    """获取指定会话的消息历史。"""
+    session = session_manager.get_session(session_id)
+    if session is not None:
+        messages = canonicalize_message_entries(session.messages)
+    else:
+        mem = ConversationMemory(session_id)
+        messages = mem.load_messages(resolve_refs=True)
+        if not messages and not session_manager.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="会话不存在或无消息记录")
+
+    cleaned = [_serialize_history_message(msg) for msg in messages]
+    return APIResponse(data={"session_id": session_id, "messages": cleaned})
 
 
 # ---- 工作空间 ----

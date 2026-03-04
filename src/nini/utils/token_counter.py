@@ -447,14 +447,12 @@ class TokenRecord:
 
     def estimate_cost(self) -> float:
         """估算本次使用的成本（USD）。"""
-        return (
-            estimate_cost(
-                self.model,
-                self.prompt_tokens,
-                self.completion_tokens,
-            )
-            or 0.0
+        cost, _status = estimate_cost(
+            self.model,
+            self.prompt_tokens,
+            self.completion_tokens,
         )
+        return cost or 0.0
 
     def to_dict(self) -> dict[str, Any]:
         """转换为字典。"""
