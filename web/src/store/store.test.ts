@@ -40,6 +40,7 @@ class MockWebSocket {
 
 const initialState = useStore.getInitialState();
 const originalWebSocket = globalThis.WebSocket;
+const originalFetch = globalThis.fetch;
 
 function createMessage(
   overrides: Partial<Message>,
@@ -61,6 +62,7 @@ describe("store reconnect / retry / stop", () => {
       value: false,
     });
     globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket;
+    globalThis.fetch = vi.fn();
     useStore.setState(initialState, true);
     localStorage.clear();
   });
@@ -116,6 +118,12 @@ describe("store reconnect / retry / stop", () => {
           timestamp: Date.now(),
         },
       },
+      _streamingMetrics: {
+        startedAt: Date.now(),
+        turnId: "turn-1",
+        totalTokens: 820,
+        hasTokenUsage: true,
+      },
       _currentTurnId: "turn-1",
       _streamingText: "流式内容",
     });
@@ -131,6 +139,12 @@ describe("store reconnect / retry / stop", () => {
     expect(useStore.getState().isStreaming).toBe(false);
     expect(useStore.getState()._currentTurnId).toBeNull();
     expect(useStore.getState()._messageBuffer).toEqual({});
+    expect(useStore.getState()._streamingMetrics).toEqual({
+      startedAt: null,
+      turnId: null,
+      totalTokens: 0,
+      hasTokenUsage: false,
+    });
   });
 
   it("retryLastTurn 应按 turn_id 精确裁剪上一轮输出", async () => {
@@ -165,6 +179,12 @@ describe("store reconnect / retry / stop", () => {
           timestamp: Date.now(),
         },
       },
+      _streamingMetrics: {
+        startedAt: 1,
+        turnId: "old-turn",
+        totalTokens: 999,
+        hasTokenUsage: true,
+      },
     });
 
     await useStore.getState().retryLastTurn();
@@ -183,9 +203,95 @@ describe("store reconnect / retry / stop", () => {
       }),
     );
     expect(useStore.getState()._messageBuffer).toEqual({});
+    expect(useStore.getState()._streamingMetrics.turnId).toBeNull();
+    expect(useStore.getState()._streamingMetrics.totalTokens).toBe(0);
+    expect(useStore.getState()._streamingMetrics.hasTokenUsage).toBe(false);
+    expect(useStore.getState()._streamingMetrics.startedAt).toBeTypeOf("number");
+  });
+
+  it("sendMessage 应初始化当前请求指标", async () => {
+    const ws = {
+      readyState: MockWebSocket.OPEN,
+      send: vi.fn(),
+    } as unknown as WebSocket;
+    const analyzeIntent = vi.fn(async () => undefined);
+
+    useStore.setState({
+      ...useStore.getInitialState(),
+      ws,
+      sessionId: "session-1",
+      analyzeIntent,
+      _streamingMetrics: {
+        startedAt: 1,
+        turnId: "old-turn",
+        totalTokens: 999,
+        hasTokenUsage: true,
+      },
+    });
+
+    await useStore.getState().sendMessage("请分析数据");
+
+    expect(useStore.getState().isStreaming).toBe(true);
+    expect(useStore.getState()._streamingMetrics.turnId).toBeNull();
+    expect(useStore.getState()._streamingMetrics.totalTokens).toBe(0);
+    expect(useStore.getState()._streamingMetrics.hasTokenUsage).toBe(false);
+    expect(useStore.getState()._streamingMetrics.startedAt).toBeTypeOf("number");
+  });
+
+  it("switchSession 应恢复历史任务状态", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/api/sessions/session-restore/messages")) {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: {
+              messages: [
+                {
+                  role: "assistant",
+                  turn_id: "turn-restore",
+                  _ts: "2026-03-04T10:00:00Z",
+                  tool_calls: [
+                    {
+                      id: "call-init",
+                      type: "function",
+                      function: {
+                        name: "task_write",
+                        arguments: JSON.stringify({
+                          mode: "init",
+                          tasks: [
+                            { id: 1, title: "检查数据质量", status: "pending" },
+                            { id: 2, title: "执行相关性分析", status: "in_progress" },
+                          ],
+                        }),
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        json: async () => ({ success: true, data: {} }),
+      } as Response);
+    });
+
+    await useStore.getState().switchSession("session-restore");
+
+    expect(useStore.getState().analysisTasks).toHaveLength(2);
+    expect(useStore.getState().analysisTasks[1]).toMatchObject({
+      title: "执行相关性分析",
+      status: "in_progress",
+    });
+    expect(useStore.getState().analysisPlanProgress).not.toBeNull();
+    expect(useStore.getState().workspacePanelTab).toBe("tasks");
   });
 });
 
 afterAll(() => {
   globalThis.WebSocket = originalWebSocket;
+  globalThis.fetch = originalFetch;
 });

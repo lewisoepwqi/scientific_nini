@@ -14,7 +14,9 @@ allowed-tools:
   - interpret_stat_result
   - create_chart
   - edit_file
+  - list_workspace_files
   - generate_report
+  - export_document
   - export_report
 ---
 
@@ -104,7 +106,8 @@ allowed-tools:
 ![图2：{图表描述}]({图表下载URL})
 ```
 
-- 图表 URL 获取方式：从工作区产物列表中获取图表的 `download_url`，通常为 `/api/artifacts/{session_id}/{filename}` 格式
+- 图表 URL 获取方式：调用 `list_workspace_files(kinds=["result"])` 获取图表的 `download_url`
+- 优先使用工具返回的实际 `download_url`；不要通过 `run_code` 枚举工作区目录
 - 支持的图表格式：PNG、JPEG、SVG 等图片格式可直接渲染；HTML 格式使用链接 `[查看交互图表](url)`
 - 正文中引用图表时使用「如图 1 所示」格式
 
@@ -123,8 +126,9 @@ allowed-tools:
 ### 第五步：导出文档（可选）
 
 若用户需要 DOCX 或 PDF 格式：
-1. 调用 `generate_report` 生成结构化 Markdown 报告
-2. 调用 `export_report` 导出为所需格式
+1. 若工作区中已经存在文章草稿 Markdown 文件，优先调用 `export_document`
+2. 仅当用户明确要求重新生成标准结构化分析报告时，再调用 `generate_report`
+3. `export_report` 仅作为旧报告流程兼容，不是文章草稿导出的首选
 
 ## 输出规范
 
@@ -143,7 +147,7 @@ allowed-tools:
 - **文件名确认**：生成文件前，建议先向用户展示建议的文件名并确认，提升用户体验
 - **图表嵌入技巧**：
   - 优先使用 Markdown 图片语法 `![描述](url)` 嵌入，可在文档中直接预览
-  - 从工作区产物中获取图表 URL：`/api/artifacts/{session_id}/{filename}`
+  - 使用 `list_workspace_files` 获取工作区中图表结果文件的实际 `download_url`
   - 如有多张图表，按顺序编号并添加描述性标题
 - **完成提示**：生成完毕后，主动告知用户文件位置、文件名，并询问是否需要进一步修改
 

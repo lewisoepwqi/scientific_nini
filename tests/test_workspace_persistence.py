@@ -108,7 +108,7 @@ def test_workspace_save_text_and_download_note(client: LocalASGIClient) -> None:
 
     files_resp = client.get(f"/api/workspace/{session_id}/files")
     files = files_resp.json()["data"]["files"]
-    note_item = next((item for item in files if item["kind"] == "note"), None)
+    note_item = next((item for item in files if item["kind"] == "document"), None)
     assert note_item is not None
     assert note_item["name"] == "analysis_snippet.md"
 
@@ -449,6 +449,6 @@ def test_workspace_artifact_record_upsert_by_path_and_identity() -> None:
     files = manager.list_workspace_files()
     # list_workspace_files 不包含 path 字段，按名称统计重复项即可。
     same_name = [
-        item for item in files if item.get("kind") == "artifact" and item.get("name") == filename
+        item for item in files if item.get("kind") == "result" and item.get("name") == filename
     ]
     assert len(same_name) == 1

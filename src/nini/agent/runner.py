@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
+import re
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -114,6 +115,13 @@ _RESEARCH_PROFILE_ANALYSIS_TOOLS = {
     "chi_square",
     "fisher_exact",
 }
+
+_FILE_NAME_CONFIRMATION_RE = re.compile(
+    r"(文件名|命名).{0,24}(确认使用|是否使用|是否采用|希望修改|可以修改)",
+)
+_FILE_NAME_CANDIDATE_RE = re.compile(
+    r"`([^`\n]+\.[A-Za-z0-9]{1,16})`|[“\"]([^\"\n]+\.[A-Za-z0-9]{1,16})[”\"]"
+)
 
 # ---- Agent Runner ----
 
@@ -556,6 +564,96 @@ class AgentRunner:
             # 如果没有 tool_calls → 纯文本回复，结束循环
             if not tool_calls:
                 final_text = full_text or raw_full_text
+                confirmation_payload = self._build_confirmation_question_payload(final_text)
+                if confirmation_payload and self._ask_user_question_handler is not None:
+                    tool_call_id = f"confirm-ask-{uuid.uuid4().hex[:8]}"
+                    arguments = json.dumps(confirmation_payload, ensure_ascii=False)
+                    session.add_tool_call(
+                        tool_call_id,
+                        "ask_user_question",
+                        arguments,
+                        turn_id=turn_id,
+                        message_id=f"tool-call-{tool_call_id}",
+                    )
+                    yield AgentEvent(
+                        type=EventType.TOOL_CALL,
+                        data={"name": "ask_user_question", "arguments": arguments},
+                        tool_call_id=tool_call_id,
+                        tool_name="ask_user_question",
+                        turn_id=turn_id,
+                        metadata={"source": "confirmation_fallback"},
+                    )
+                    yield AgentEvent(
+                        type=EventType.ASK_USER_QUESTION,
+                        data=confirmation_payload,
+                        tool_call_id=tool_call_id,
+                        tool_name="ask_user_question",
+                        turn_id=turn_id,
+                        metadata={"source": "confirmation_fallback"},
+                    )
+
+                    try:
+                        raw_answers = await self._ask_user_question_handler(
+                            session,
+                            tool_call_id,
+                            confirmation_payload,
+                        )
+                        normalized_answers = self._normalize_ask_user_question_answers(
+                            raw_answers
+                        )
+                        result = {
+                            "success": True,
+                            "message": "已收到用户回答。",
+                            "data": {
+                                "questions": confirmation_payload["questions"],
+                                "answers": normalized_answers,
+                            },
+                        }
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        logger.warning(
+                            "确认型 ask_user_question 等待用户回答失败: session=%s err=%s",
+                            session.id,
+                            exc,
+                        )
+                        result = {
+                            "success": False,
+                            "message": f"等待用户回答失败: {exc}",
+                        }
+
+                    has_error = isinstance(result, dict) and (
+                        result.get("error") or result.get("success") is False
+                    )
+                    result_str = serialize_tool_result_for_memory(result)
+                    session.add_tool_result(
+                        tool_call_id,
+                        result_str,
+                        tool_name="ask_user_question",
+                        status="error" if has_error else "success",
+                        intent="confirmation_fallback",
+                        turn_id=turn_id,
+                        message_id=f"tool-result-{tool_call_id}",
+                    )
+                    yield AgentEvent(
+                        type=EventType.TOOL_RESULT,
+                        data={
+                            "result": result,
+                            "status": "error" if has_error else "success",
+                            "message": (
+                                result.get("error") or result.get("message", "工具执行失败")
+                                if has_error
+                                else result.get("message", "工具执行完成")
+                            ),
+                        },
+                        tool_call_id=tool_call_id,
+                        tool_name="ask_user_question",
+                        turn_id=turn_id,
+                        metadata={"source": "confirmation_fallback"},
+                    )
+                    iteration += 1
+                    continue
+
                 final_message_id = current_message_id or f"{turn_id}-{message_seq}"
                 if current_message_id is None:
                     message_seq += 1
@@ -1387,6 +1485,48 @@ class AgentRunner:
     def _match_skills_by_context(self, user_message: str) -> list[dict[str, Any]]:
         """兼容旧测试入口，委托给 canonical context builder。"""
         return self._context_builder._match_skills_by_context(user_message)
+
+    @staticmethod
+    def _build_confirmation_question_payload(text: str) -> dict[str, Any] | None:
+        """将高确定性确认型文本兜底转换为 ask_user_question。"""
+        normalized = str(text or "").strip()
+        if not normalized:
+            return None
+        if not _FILE_NAME_CONFIRMATION_RE.search(normalized):
+            return None
+
+        filename = None
+        match = _FILE_NAME_CANDIDATE_RE.search(normalized)
+        if match:
+            filename = next((group for group in match.groups() if group), None)
+
+        if filename:
+            question = f"建议文件名为 {filename}。是否使用这个文件名？"
+            use_description = f"继续使用 {filename} 并继续后续操作"
+        else:
+            question = "当前步骤需要确认文件名。是否使用当前建议文件名？"
+            use_description = "继续使用当前建议文件名并继续后续操作"
+
+        return {
+            "questions": [
+                {
+                    "question": question,
+                    "header": "文件名",
+                    "options": [
+                        {
+                            "label": "使用建议文件名",
+                            "description": use_description,
+                        },
+                        {
+                            "label": "修改文件名",
+                            "description": "输入你希望使用的新文件名后继续",
+                        },
+                    ],
+                    "multiSelect": False,
+                    "allowTextInput": True,
+                }
+            ]
+        }
 
     def _build_skill_runtime_resources_note(self, skill_name: str) -> str:
         """兼容旧测试入口，委托给 canonical context builder。"""

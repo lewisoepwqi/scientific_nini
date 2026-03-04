@@ -75,7 +75,7 @@ export interface DatasetItem {
 export interface WorkspaceFile {
   id: string;
   name: string;
-  kind: "dataset" | "artifact" | "note";
+  kind: "dataset" | "document" | "result";
   path?: string;
   size: number;
   created_at?: string;
@@ -273,6 +273,13 @@ export interface TokenUsage {
   model_breakdown: Record<string, ModelTokenUsage>;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface StreamingMetrics {
+  startedAt: number | null;
+  turnId: string | null;
+  totalTokens: number;
+  hasTokenUsage: boolean;
 }
 
 export interface SessionCostSummary {

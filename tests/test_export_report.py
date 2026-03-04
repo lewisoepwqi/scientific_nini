@@ -219,6 +219,28 @@ def test_resolve_plotly_json_url_with_query_and_single_quote(tmp_path: Path):
     assert "/api/artifacts/" not in result
 
 
+def test_resolve_workspace_file_image_to_base64(tmp_path: Path):
+    sessions_dir = tmp_path / "sessions"
+    result_dir = sessions_dir / "sess-123" / "workspace" / "artifacts"
+    result_dir.mkdir(parents=True)
+
+    import base64
+
+    png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4"
+        "nGNgYPgPAAEDAQAIicLsAAAABJRU5ErkJggg=="
+    )
+    (result_dir / "chart.png").write_bytes(png_bytes)
+
+    html = '<img src="/api/workspace/sess-123/files/artifacts/chart.png" alt="chart">'
+    with patch("nini.tools.export_report.settings") as mock_settings:
+        mock_settings.sessions_dir = sessions_dir
+        result = _resolve_images_to_base64(html, "sess-123")
+
+    assert "data:image/png;base64," in result
+    assert "/api/workspace/" not in result
+
+
 def test_resolve_plotly_json_collects_failure_reason(tmp_path: Path):
     sessions_dir = tmp_path / "sessions"
     artifacts_dir = sessions_dir / "sess-123" / "workspace" / "artifacts"
@@ -259,16 +281,12 @@ async def test_export_report_without_weasyprint(
     """weasyprint 不可用时，返回友好错误。"""
     with (
         patch("nini.tools.export_report.settings") as mock_settings,
-        patch("nini.tools.export_report.ArtifactStorage") as MockStorage,
+        patch("nini.workspace.manager.settings") as manager_settings,
         patch.dict("sys.modules", {"weasyprint": None}),
         patch("builtins.__import__", side_effect=_import_without_weasyprint),
     ):
         mock_settings.sessions_dir = setup_report
-        storage_inst = MagicMock()
-        report_path = setup_report / mock_session.id / "workspace" / "artifacts" / "test_report.md"
-        storage_inst.get_path.return_value = report_path
-        MockStorage.return_value = storage_inst
-
+        manager_settings.sessions_dir = setup_report
         result = await skill.execute(session=mock_session)
 
     assert not result.success
@@ -305,32 +323,22 @@ async def test_export_report_with_mock_weasyprint(
 
     with (
         patch("nini.tools.export_report.settings") as mock_settings,
-        patch("nini.tools.export_report.ArtifactStorage") as MockStorage,
-        patch("nini.tools.export_report.WorkspaceManager") as MockWM,
+        patch("nini.workspace.manager.settings") as manager_settings,
         patch.dict("sys.modules", {"weasyprint": mock_weasyprint}),
     ):
         mock_settings.sessions_dir = setup_report
-        storage_inst = MagicMock()
-        report_path = setup_report / mock_session.id / "workspace" / "artifacts" / "test_report.md"
-        pdf_path = setup_report / mock_session.id / "workspace" / "artifacts" / "test_report.pdf"
-        storage_inst.get_path.side_effect = lambda name: (
-            report_path if name.endswith(".md") else pdf_path
-        )
-        MockStorage.return_value = storage_inst
-
-        wm_inst = MagicMock()
-        MockWM.return_value = wm_inst
-
+        manager_settings.sessions_dir = setup_report
         result = await skill.execute(session=mock_session)
 
     assert result.success
     assert "test_report.pdf" in result.message
     assert result.artifacts
     assert result.artifacts[0]["format"] == "pdf"
-    # PDF 应写入文件
+    assert result.artifacts[0]["download_url"].endswith(
+        f"/api/workspace/{mock_session.id}/files/notes/exports/test_report.pdf"
+    )
+    pdf_path = setup_report / mock_session.id / "workspace" / "notes" / "exports" / "test_report.pdf"
     assert pdf_path.read_bytes() == fake_pdf
-    # 应注册到工作区
-    wm_inst.add_artifact_record.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -359,24 +367,16 @@ async def test_export_report_uses_latest_report(
 
     with (
         patch("nini.tools.export_report.settings") as mock_settings,
-        patch("nini.tools.export_report.ArtifactStorage") as MockStorage,
-        patch("nini.tools.export_report.WorkspaceManager"),
+        patch("nini.workspace.manager.settings") as manager_settings,
         patch.dict("sys.modules", {"weasyprint": mock_weasyprint}),
     ):
         mock_settings.sessions_dir = setup_report
-        storage_inst = MagicMock()
-        report_path = setup_report / mock_session.id / "workspace" / "artifacts" / "test_report.md"
-        pdf_path = setup_report / mock_session.id / "workspace" / "artifacts" / "test_report.pdf"
-        storage_inst.get_path.side_effect = lambda name: (
-            report_path if name.endswith(".md") else pdf_path
-        )
-        MockStorage.return_value = storage_inst
-
+        manager_settings.sessions_dir = setup_report
         # latest_report 已由 setup_report fixture 设置
         result = await skill.execute(session=mock_session)
 
     assert result.success
-    assert result.data["source_report"] == "test_report.md"
+    assert result.data["source_report"] == "artifacts/test_report.md"
 
 
 @pytest.mark.asyncio
@@ -394,19 +394,11 @@ async def test_export_report_custom_filename(
 
     with (
         patch("nini.tools.export_report.settings") as mock_settings,
-        patch("nini.tools.export_report.ArtifactStorage") as MockStorage,
-        patch("nini.tools.export_report.WorkspaceManager"),
+        patch("nini.workspace.manager.settings") as manager_settings,
         patch.dict("sys.modules", {"weasyprint": mock_weasyprint}),
     ):
         mock_settings.sessions_dir = setup_report
-        storage_inst = MagicMock()
-        report_path = setup_report / mock_session.id / "workspace" / "artifacts" / "test_report.md"
-        pdf_path = setup_report / mock_session.id / "workspace" / "artifacts" / "my_output.pdf"
-        storage_inst.get_path.side_effect = lambda name: (
-            report_path if name.endswith(".md") else pdf_path
-        )
-        MockStorage.return_value = storage_inst
-
+        manager_settings.sessions_dir = setup_report
         result = await skill.execute(
             session=mock_session,
             filename="my_output",
@@ -414,6 +406,9 @@ async def test_export_report_custom_filename(
 
     assert result.success
     assert "my_output.pdf" in result.message
+    assert result.artifacts[0]["download_url"].endswith(
+        f"/api/workspace/{mock_session.id}/files/notes/exports/my_output.pdf"
+    )
 
 
 @pytest.mark.asyncio
@@ -425,7 +420,7 @@ async def test_export_report_fail_fast_when_plotly_chrome_missing(
     """存在 plotly 图表但无法转 PNG（缺少 Chrome）时，应显式失败并给出修复指引。"""
     with (
         patch("nini.tools.export_report.settings") as mock_settings,
-        patch("nini.tools.export_report.ArtifactStorage") as MockStorage,
+        patch("nini.workspace.manager.settings") as manager_settings,
         patch(
             "nini.tools.export_report._resolve_images_to_base64_with_stats",
             return_value=(
@@ -444,11 +439,7 @@ async def test_export_report_fail_fast_when_plotly_chrome_missing(
         ),
     ):
         mock_settings.sessions_dir = setup_report
-        storage_inst = MagicMock()
-        report_path = setup_report / mock_session.id / "workspace" / "artifacts" / "test_report.md"
-        storage_inst.get_path.return_value = report_path
-        MockStorage.return_value = storage_inst
-
+        manager_settings.sessions_dir = setup_report
         result = await skill.execute(session=mock_session)
 
     assert not result.success

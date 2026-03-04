@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from nini.tools.edit_file import EditFile
+from nini.workspace import WorkspaceManager
 
 
 # ---------------------------------------------------------------------------
@@ -32,8 +33,13 @@ def workspace(tmp_path: Path, mock_session: MagicMock):
     """创建临时工作区目录，并 patch settings.sessions_dir。"""
     ws = tmp_path / "sessions" / mock_session.id / "workspace"
     ws.mkdir(parents=True)
-    with patch("nini.tools.edit_file.settings") as mock_settings:
-        mock_settings.sessions_dir = tmp_path / "sessions"
+    with (
+        patch("nini.tools.edit_file.settings") as mock_settings,
+        patch("nini.workspace.manager.settings") as manager_settings,
+    ):
+        sessions_dir = tmp_path / "sessions"
+        mock_settings.sessions_dir = sessions_dir
+        manager_settings.sessions_dir = sessions_dir
         yield ws
 
 
@@ -128,6 +134,10 @@ async def test_write_creates_new_file(skill: EditFile, mock_session: MagicMock, 
     assert result.success
     assert (workspace / "new_file.txt").read_text(encoding="utf-8") == "Hello World"
     assert result.data["action"] == "创建"
+    manager = WorkspaceManager(mock_session.id)
+    index = manager._load_index()
+    assert any(item["name"] == "new_file.txt" for item in index["notes"])
+    assert not any(item["name"] == "new_file.txt" for item in index["artifacts"])
 
 
 async def test_write_overwrites_existing_file(skill: EditFile, mock_session: MagicMock, workspace: Path):
@@ -201,6 +211,11 @@ async def test_append_creates_file_when_missing(
 
     assert result.success
     assert (workspace / "brand_new.txt").read_text(encoding="utf-8") == "初始内容"
+    manager = WorkspaceManager(mock_session.id)
+    files = manager.list_workspace_files_with_paths()
+    created = next(item for item in files if item["name"] == "brand_new.txt")
+    assert created["kind"] == "document"
+    assert created["path"] == "brand_new.txt"
 
 
 async def test_append_fails_when_missing_and_create_disabled(
@@ -295,6 +310,28 @@ async def test_edit_line_range_replace(skill: EditFile, mock_session: MagicMock,
     assert result.data["method"] == "line_range"
 
 
+async def test_edit_updates_workspace_index_without_session_name_error(
+    skill: EditFile, mock_session: MagicMock, workspace: Path
+):
+    """edit 操作应能同步工作区索引，不再触发 session 未定义警告。"""
+    test_file = workspace / "edit_indexed.md"
+    test_file.write_text("旧标题\n正文\n", encoding="utf-8")
+
+    result = await skill.execute(
+        mock_session,
+        file_path="edit_indexed.md",
+        operation="edit",
+        old_string="旧标题",
+        new_string="新标题",
+    )
+
+    assert result.success
+    manager = WorkspaceManager(mock_session.id)
+    notes = manager.list_notes()
+    note_names = [item.get("name") for item in notes]
+    assert "edit_indexed.md" in note_names
+
+
 async def test_edit_nonexistent_file_returns_error(
     skill: EditFile, mock_session: MagicMock, workspace: Path
 ):
@@ -316,7 +353,7 @@ async def test_edit_nonexistent_file_returns_error(
 
 
 async def test_write_adds_file_to_workspace_index(skill: EditFile, mock_session: MagicMock, workspace: Path):
-    """测试 write 操作将文件添加到工作区索引。"""
+    """测试 write 操作将文件添加到文稿索引。"""
     from nini.workspace import WorkspaceManager
 
     result = await skill.execute(
@@ -327,13 +364,13 @@ async def test_write_adds_file_to_workspace_index(skill: EditFile, mock_session:
 
     # 验证文件在索引中
     manager = WorkspaceManager(mock_session.id)
-    artifacts = manager.list_artifacts()
-    artifact_names = [a.get("name") for a in artifacts]
-    assert "indexed_file.md" in artifact_names
+    notes = manager.list_notes()
+    note_names = [item.get("name") for item in notes]
+    assert "indexed_file.md" in note_names
 
 
 async def test_append_creates_file_in_workspace_index(skill: EditFile, mock_session: MagicMock, workspace: Path):
-    """测试 append 操作创建新文件时添加到工作区索引。"""
+    """测试 append 操作创建新文件时添加到文稿索引。"""
     from nini.workspace import WorkspaceManager
 
     result = await skill.execute(
@@ -348,6 +385,6 @@ async def test_append_creates_file_in_workspace_index(skill: EditFile, mock_sess
 
     # 验证文件在索引中
     manager = WorkspaceManager(mock_session.id)
-    artifacts = manager.list_artifacts()
-    artifact_names = [a.get("name") for a in artifacts]
-    assert "appended_file.txt" in artifact_names
+    notes = manager.list_notes()
+    note_names = [item.get("name") for item in notes]
+    assert "appended_file.txt" in note_names

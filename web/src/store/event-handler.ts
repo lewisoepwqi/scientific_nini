@@ -18,6 +18,7 @@ import type {
   CodeExecution,
   ModelTokenUsage,
   MessageBuffer,
+  StreamingMetrics,
 } from "./types";
 
 import {
@@ -43,6 +44,7 @@ import {
   upsertToolCallMessage,
   upsertToolResultMessage,
 } from "./message-normalizer";
+import { normalizeToolResult } from "./tool-result";
 
 import { areAllPlanStepsDone } from "./plan-state-machine";
 
@@ -103,37 +105,6 @@ function normalizeRunCodeIntent(
   if (!label) return toolArgs;
 
   return { ...toolArgs, intent: label };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function normalizeToolResult(rawContent: unknown): {
-  message: string;
-  status: "success" | "error";
-} {
-  if (typeof rawContent !== "string" || !rawContent.trim()) {
-    return { message: "", status: "success" };
-  }
-  try {
-    const parsed = JSON.parse(rawContent);
-    if (isRecord(parsed)) {
-      if (typeof parsed.error === "string" && parsed.error) {
-        return { message: parsed.error, status: "error" };
-      }
-      if (parsed.success === false) {
-        const msg =
-          typeof parsed.message === "string" && parsed.message
-            ? parsed.message
-            : "工具执行失败";
-        return { message: msg, status: "error" };
-      }
-      if (typeof parsed.message === "string" && parsed.message) {
-        return { message: parsed.message, status: "success" };
-      }
-    }
-  } catch {
-    // 保持原始文本
-  }
-  return { message: rawContent, status: "success" };
 }
 
 function stringifyUnknown(value: unknown): string {
@@ -331,6 +302,7 @@ export interface AppStateSubset {
   _activePlanTaskIds: Array<string | null>;
   _planActionTaskMap: Record<string, string>;
   _messageBuffer: MessageBuffer;
+  _streamingMetrics: StreamingMetrics;
   analysisPlanProgress: AnalysisPlanProgress | null;
   analysisTasks: AnalysisTaskItem[];
   pendingAskUserQuestion: { toolCallId: string; questions: AskUserQuestionItem[]; createdAt: number } | null;
@@ -357,6 +329,15 @@ export interface AppStateSubset {
   fetchSkills: () => Promise<void>;
 }
 
+function resetStreamingMetrics(): StreamingMetrics {
+  return {
+    startedAt: null,
+    turnId: null,
+    totalTokens: 0,
+    hasTokenUsage: false,
+  };
+}
+
 export function handleEvent(
   evt: WSEvent,
   set: SetStateFn,
@@ -378,7 +359,17 @@ export function handleEvent(
 
     case "iteration_start": {
       // 新迭代开始：重置流式文本累积，记录 turnId，同时重置序列号
-      set({ _streamingText: "", _currentTurnId: evt.turn_id || null, _lastHandledSeq: undefined });
+      set((s) => ({
+        _streamingText: "",
+        _currentTurnId: evt.turn_id || null,
+        _lastHandledSeq: undefined,
+        _streamingMetrics: s._streamingMetrics.startedAt
+          ? {
+              ...s._streamingMetrics,
+              turnId: evt.turn_id || null,
+            }
+          : s._streamingMetrics,
+      }));
       break;
     }
 
@@ -952,9 +943,13 @@ export function handleEvent(
 
     case "tool_result": {
       const data = evt.data as Record<string, unknown>;
-      const status = (data.status as "success" | "error") || "success";
+      const normalized = normalizeToolResult(
+        isRecord(data.result) ? JSON.stringify(data.result) : data.message,
+      );
+      const status =
+        (data.status as "success" | "error") || normalized.status || "success";
       const resultMessage =
-        (data.message as string) ||
+        normalized.message ||
         (status === "error" ? "工具执行失败" : "工具执行完成");
       const toolCallId = evt.tool_call_id;
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
@@ -1157,12 +1152,29 @@ export function handleEvent(
         typeof data.session_total_cost === "number"
           ? data.session_total_cost
           : 0;
+      const usageTurnId = evt.turn_id || null;
 
       set((s) => {
+        const currentMetrics = s._streamingMetrics;
+        if (
+          usageTurnId &&
+          currentMetrics.turnId &&
+          currentMetrics.turnId !== usageTurnId
+        ) {
+          return {};
+        }
+
         const current = s.tokenUsage;
+        const nextStreamingMetrics: StreamingMetrics = {
+          ...currentMetrics,
+          turnId: currentMetrics.turnId || usageTurnId,
+          totalTokens: currentMetrics.totalTokens + totalTokens,
+          hasTokenUsage: true,
+        };
         if (!current) {
           // 如果没有现有数据，创建新的 TokenUsage
           return {
+            _streamingMetrics: nextStreamingMetrics,
             tokenUsage: {
               session_id: s.sessionId || "",
               input_tokens: inputTokens,
@@ -1212,6 +1224,7 @@ export function handleEvent(
         }
 
         return {
+          _streamingMetrics: nextStreamingMetrics,
           tokenUsage: {
             ...current,
             input_tokens: current.input_tokens + inputTokens,
@@ -1273,6 +1286,7 @@ export function handleEvent(
           _activePlanMsgId: null,
           _activePlanTaskIds: [],
           _planActionTaskMap: {},
+          _streamingMetrics: resetStreamingMetrics(),
           analysisPlanProgress: progress,
           analysisTasks: tasks,
         };
@@ -1324,6 +1338,7 @@ export function handleEvent(
           _activePlanMsgId: null,
           _activePlanTaskIds: [],
           _planActionTaskMap: {},
+          _streamingMetrics: resetStreamingMetrics(),
           analysisPlanProgress: progress,
           analysisTasks: tasks,
         };
@@ -1358,6 +1373,7 @@ export function handleEvent(
         _activePlanMsgId: null,
         _activePlanTaskIds: [],
         _planActionTaskMap: {},
+        _streamingMetrics: resetStreamingMetrics(),
         analysisTasks: (() => {
           const progress = s.analysisPlanProgress;
           if (!progress || progress.step_status !== "in_progress") {

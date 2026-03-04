@@ -50,8 +50,8 @@ function getFileIcon(file: WorkspaceFile) {
 
 const kindLabels: Record<string, string> = {
   dataset: '数据集',
-  artifact: '产物',
-  note: '笔记',
+  document: '文档',
+  result: '结果',
 }
 
 interface Props {

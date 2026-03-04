@@ -27,9 +27,13 @@ import type {
   IntentAnalysisView,
   RawSessionMessage,
   Message,
+  AnalysisTaskItem,
+  AnalysisPlanProgress,
+  AnalysisStep,
 } from "./types";
 
-import { isRecord, nextId } from "./utils";
+import { isRecord, nextId, makePlanProgressFromSteps } from "./utils";
+import { normalizePlanStepStatus } from "./normalizers";
 import {
   normalizeMessageTimestamp,
   upsertAssistantTextMessage,
@@ -37,6 +41,7 @@ import {
   upsertToolCallMessage,
   upsertToolResultMessage,
 } from "./message-normalizer";
+import { normalizeToolResult } from "./tool-result";
 
 // ---- 会话相关 API ----
 
@@ -114,6 +119,12 @@ export async function updateSessionTitle(
     console.error("更新会话标题失败:", e);
     return false;
   }
+}
+
+export interface RestoredSessionState {
+  messages: Message[];
+  analysisTasks: AnalysisTaskItem[];
+  analysisPlanProgress: AnalysisPlanProgress | null;
 }
 
 export async function compressCurrentSession(
@@ -1028,41 +1039,6 @@ function normalizeRunCodeIntent(
   return args;
 }
 
-function normalizeToolResult(content: unknown): {
-  message: string;
-  status: "success" | "error";
-} {
-  if (typeof content !== "string" || !content.trim()) {
-    return { message: "", status: "success" };
-  }
-  try {
-    const parsed = JSON.parse(content);
-    if (isRecord(parsed)) {
-      if (typeof parsed.error === "string" && parsed.error) {
-        return { message: parsed.error, status: "error" };
-      }
-      if (parsed.success === false) {
-        const msg =
-          typeof parsed.message === "string" && parsed.message
-            ? parsed.message
-            : "工具执行失败";
-        return { message: msg, status: "error" };
-      }
-      if (typeof parsed.message === "string" && parsed.message) {
-        return { message: parsed.message, status: "success" };
-      }
-    }
-  } catch {
-    // 保持原始文本
-  }
-
-  const isError =
-    content.startsWith("错误:") ||
-    content.startsWith("Error:") ||
-    content.toLowerCase().includes("exception");
-  return { message: content, status: isError ? "error" : "success" };
-}
-
 function buildErrorMeta(content: string): {
   isError?: boolean;
   errorKind?: Message["errorKind"];
@@ -1283,4 +1259,213 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
   }
 
   return messages;
+}
+
+function taskActivityByStatus(status: AnalysisTaskItem["status"]): string {
+  switch (status) {
+    case "done":
+      return "步骤已完成";
+    case "failed":
+      return "步骤执行失败";
+    case "blocked":
+      return "步骤已阻塞";
+    case "in_progress":
+      return "步骤执行中";
+    default:
+      return "等待执行";
+  }
+}
+
+function parseTaskWritePayload(
+  rawArguments: string | undefined,
+): { mode: string; tasks: Array<Record<string, unknown>> } | null {
+  if (typeof rawArguments !== "string" || !rawArguments.trim()) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(rawArguments);
+    if (!isRecord(parsed) || !Array.isArray(parsed.tasks)) {
+      return null;
+    }
+    return {
+      mode: typeof parsed.mode === "string" ? parsed.mode.trim() : "init",
+      tasks: parsed.tasks.filter((item): item is Record<string, unknown> => isRecord(item)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildTaskItem(
+  rawTask: Record<string, unknown>,
+  options: {
+    turnId: string | null;
+    createdAt: number;
+    seed: string;
+  },
+): AnalysisTaskItem | null {
+  const { turnId, createdAt, seed } = options;
+  const rawId = rawTask.id;
+  const planStepId =
+    typeof rawId === "number" && Number.isFinite(rawId) && rawId > 0
+      ? Math.floor(rawId)
+      : null;
+  if (!planStepId) return null;
+
+  const title =
+    typeof rawTask.title === "string" && rawTask.title.trim()
+      ? rawTask.title.trim()
+      : `步骤 ${planStepId}`;
+  const statusRaw =
+    typeof rawTask.status === "string" && rawTask.status.trim()
+      ? rawTask.status.trim()
+      : "pending";
+  const status = normalizePlanStepStatus(statusRaw);
+  const toolHint =
+    typeof rawTask.tool_hint === "string" && rawTask.tool_hint.trim()
+      ? rawTask.tool_hint.trim()
+      : null;
+  const actionId =
+    typeof rawTask.action_id === "string" && rawTask.action_id.trim()
+      ? rawTask.action_id.trim()
+      : null;
+
+  return {
+    id: `restored-task-${seed}-${planStepId}`,
+    plan_step_id: planStepId,
+    action_id: actionId,
+    title,
+    tool_hint: toolHint,
+    status,
+    raw_status: statusRaw,
+    current_activity: taskActivityByStatus(status),
+    last_error: status === "failed" ? "历史任务执行失败" : null,
+    attempts: [],
+    created_at: createdAt,
+    updated_at: createdAt,
+    turn_id: turnId,
+  };
+}
+
+function toPlanStep(task: AnalysisTaskItem): AnalysisStep {
+  return {
+    id: task.plan_step_id,
+    title: task.title,
+    tool_hint: task.tool_hint,
+    status: task.status,
+    raw_status: task.raw_status,
+    action_id: task.action_id,
+  };
+}
+
+function isPlanTerminal(steps: AnalysisStep[]): boolean {
+  return steps.every((step) => step.status === "done" || step.status === "skipped");
+}
+
+export function buildSessionRestoreState(
+  rawMessages: RawSessionMessage[],
+): RestoredSessionState {
+  const messages = buildMessagesFromHistory(rawMessages);
+  const plans = new Map<
+    string,
+    {
+      turnId: string | null;
+      seed: string;
+      createdAt: number;
+      updatedAt: number;
+      tasks: Map<number, AnalysisTaskItem>;
+    }
+  >();
+  let unnamedPlanCounter = 0;
+
+  for (const raw of rawMessages) {
+    if (!Array.isArray(raw.tool_calls) || raw.tool_calls.length === 0) {
+      continue;
+    }
+    const createdAt = normalizeMessageTimestamp(raw._ts);
+    const turnId =
+      typeof raw.turn_id === "string" && raw.turn_id.trim()
+        ? raw.turn_id.trim()
+        : null;
+    const planKey = turnId ?? `turnless-${++unnamedPlanCounter}`;
+
+    for (const toolCall of raw.tool_calls) {
+      const func = isRecord(toolCall.function) ? toolCall.function : null;
+      if (!func || func.name !== "task_write") {
+        continue;
+      }
+      const payload = parseTaskWritePayload(
+        typeof func.arguments === "string" ? func.arguments : undefined,
+      );
+      if (!payload) {
+        continue;
+      }
+
+      const currentPlan = plans.get(planKey);
+      const seed = turnId ?? planKey;
+      const nextPlan =
+        payload.mode === "init" || !currentPlan
+          ? {
+              turnId,
+              seed,
+              createdAt,
+              updatedAt: createdAt,
+              tasks: new Map<number, AnalysisTaskItem>(),
+            }
+          : currentPlan;
+
+      if (payload.mode === "init") {
+        nextPlan.tasks.clear();
+      }
+
+      for (const rawTask of payload.tasks) {
+        const nextTask = buildTaskItem(rawTask, {
+          turnId,
+          createdAt,
+          seed,
+        });
+        if (!nextTask) continue;
+
+        const existing = nextPlan.tasks.get(nextTask.plan_step_id);
+        nextPlan.tasks.set(nextTask.plan_step_id, {
+          ...(existing ?? nextTask),
+          ...nextTask,
+          attempts: existing?.attempts ?? [],
+          created_at: existing?.created_at ?? nextTask.created_at,
+          updated_at: createdAt,
+          last_error:
+            nextTask.status === "failed"
+              ? existing?.last_error ?? "历史任务执行失败"
+              : nextTask.status === "done"
+                ? null
+                : existing?.last_error ?? null,
+        });
+      }
+
+      nextPlan.updatedAt = createdAt;
+      plans.set(planKey, nextPlan);
+    }
+  }
+
+  const sortedPlans = [...plans.values()].sort((a, b) => a.createdAt - b.createdAt);
+  const analysisTasks = sortedPlans.flatMap((plan) =>
+    [...plan.tasks.values()].sort((a, b) => a.plan_step_id - b.plan_step_id),
+  );
+
+  const latestPlan = sortedPlans[sortedPlans.length - 1];
+  const latestSteps = latestPlan
+    ? [...latestPlan.tasks.values()]
+        .sort((a, b) => a.plan_step_id - b.plan_step_id)
+        .map(toPlanStep)
+    : [];
+  const analysisPlanProgress =
+    latestSteps.length > 0 && !isPlanTerminal(latestSteps)
+      ? makePlanProgressFromSteps(latestSteps, "")
+      : null;
+
+  return {
+    messages,
+    analysisTasks,
+    analysisPlanProgress,
+  };
 }

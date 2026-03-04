@@ -36,7 +36,7 @@ function isChartFile(file: WorkspaceFile): boolean {
   const ext = name.split('.').pop() || ''
   const metaType = String(file.meta?.type || '').toLowerCase()
   return (
-    file.kind === 'artifact' && (
+    file.kind === 'result' && (
       ['html', 'htm', 'png', 'jpg', 'jpeg', 'svg', 'webp'].includes(ext) ||
       name.endsWith('.plotly.json') ||
       (ext === 'json' && metaType === 'chart')
@@ -101,10 +101,10 @@ export default function ArtifactGallery() {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
 
-  // 只显示产物（默认隐藏内部产物）
+  // 只显示结果文件（默认隐藏内部结果）
   const artifacts = useMemo(() => {
     return workspaceFiles.filter((f) => {
-      if (f.kind !== 'artifact') return false
+      if (f.kind !== 'result') return false
       if (!showInternal && f.meta?.visibility === 'internal') return false
       return true
     })
@@ -168,10 +168,10 @@ export default function ArtifactGallery() {
 
   if (artifacts.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-gray-400 text-xs">
-        <Image size={24} className="mb-2 opacity-50" />
-        <p>暂无产物</p>
-      </div>
+        <div className="flex flex-col items-center justify-center py-12 text-gray-400 text-xs">
+          <Image size={24} className="mb-2 opacity-50" />
+          <p>暂无结果</p>
+        </div>
     )
   }
 

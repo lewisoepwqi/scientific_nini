@@ -26,6 +26,7 @@ class Session:
     messages: list[dict[str, Any]] = field(default_factory=list)
     datasets: dict[str, pd.DataFrame] = field(default_factory=dict)
     artifacts: dict[str, Any] = field(default_factory=dict)
+    documents: dict[str, Any] = field(default_factory=dict)
     compressed_context: str = ""
     compressed_rounds: int = 0
     last_compressed_at: str | None = None

@@ -299,3 +299,36 @@ body {
 .reasoning-markdown a:hover {
   color: #4f46e5;
 }
+
+.nini-thinking-shimmer {
+  position: relative;
+  display: inline-block;
+  color: #64748b;
+  background-image: linear-gradient(
+    90deg,
+    currentColor 0%,
+    currentColor 32%,
+    rgba(255, 255, 255, 0.92) 48%,
+    currentColor 64%,
+    currentColor 100%
+  );
+  background-size: 220% 100%;
+  background-position: 120% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: nini-thinking-shimmer 1.6s linear infinite;
+}
+
+.dark .nini-thinking-shimmer {
+  color: #94a3b8;
+}
+
+@keyframes nini-thinking-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}

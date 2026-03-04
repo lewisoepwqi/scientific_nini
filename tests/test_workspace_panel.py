@@ -161,6 +161,35 @@ class TestWorkspaceManagerRenameFile:
         assert manager.rename_file("nonexistent_id", "whatever.csv") is None
 
 
+class TestWorkspaceManagerDocumentListing:
+    """测试文本文稿在工作区中的展示行为。"""
+
+    def test_text_file_artifact_should_be_listed_as_document(self, client: LocalASGIClient):
+        resp = client.post("/api/sessions")
+        session_id = resp.json()["data"]["session_id"]
+        manager = WorkspaceManager(session_id)
+        manager.ensure_dirs()
+        file_path = manager.workspace_dir / "blood_pressure_heart_rate_correlation_20260304.md"
+        file_path.write_text("# report", encoding="utf-8")
+        manager.add_artifact_record(
+            name=file_path.name,
+            artifact_type="text_file",
+            file_path=file_path,
+            format_hint="md",
+            visibility="internal",
+        )
+
+        files = manager.list_workspace_files_with_paths()
+        listed = next(item for item in files if item["name"] == file_path.name)
+
+        assert listed["kind"] == "document"
+        assert listed["path"] == "blood_pressure_heart_rate_correlation_20260304.md"
+        assert listed["download_url"].endswith(
+            "/api/workspace/"
+            f"{session_id}/files/blood_pressure_heart_rate_correlation_20260304.md"
+        )
+
+
 class TestWorkspaceManagerSearchFiles:
     """测试 search_files 方法。"""
 

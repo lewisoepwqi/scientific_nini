@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildMessagesFromHistory } from "./api-actions";
+import { buildMessagesFromHistory, buildSessionRestoreState } from "./api-actions";
 import type { RawSessionMessage } from "./types";
 
 describe("buildMessagesFromHistory", () => {
@@ -105,5 +105,169 @@ describe("buildMessagesFromHistory", () => {
       toolStatus: "success",
       turnId: "turn-1",
     });
+  });
+
+  it("应从 task_write 历史中恢复任务列表", () => {
+    const rawMessages: RawSessionMessage[] = [
+      {
+        role: "assistant",
+        turn_id: "turn-restore-1",
+        _ts: "2026-03-04T10:00:00Z",
+        tool_calls: [
+          {
+            id: "call-init-1",
+            type: "function",
+            function: {
+              name: "task_write",
+              arguments: JSON.stringify({
+                mode: "init",
+                tasks: [
+                  { id: 1, title: "检查数据质量", status: "pending", tool_hint: "data_summary" },
+                  { id: 2, title: "执行相关性分析", status: "pending", tool_hint: "correlation" },
+                ],
+              }),
+            },
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        turn_id: "turn-restore-1",
+        _ts: "2026-03-04T10:00:05Z",
+        tool_calls: [
+          {
+            id: "call-update-1",
+            type: "function",
+            function: {
+              name: "task_write",
+              arguments: JSON.stringify({
+                mode: "update",
+                tasks: [
+                  { id: 1, title: "检查数据质量", status: "completed" },
+                  { id: 2, title: "执行相关性分析", status: "in_progress" },
+                ],
+              }),
+            },
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        turn_id: "turn-restore-2",
+        _ts: "2026-03-04T10:01:00Z",
+        tool_calls: [
+          {
+            id: "call-init-2",
+            type: "function",
+            function: {
+              name: "task_write",
+              arguments: JSON.stringify({
+                mode: "init",
+                tasks: [
+                  { id: 1, title: "生成报告", status: "completed", tool_hint: "generate_report" },
+                ],
+              }),
+            },
+          },
+        ],
+      },
+    ];
+
+    const restored = buildSessionRestoreState(rawMessages);
+
+    expect(restored.analysisTasks).toHaveLength(3);
+    expect(restored.analysisTasks[0]).toMatchObject({
+      turn_id: "turn-restore-1",
+      plan_step_id: 1,
+      title: "检查数据质量",
+      status: "done",
+    });
+    expect(restored.analysisTasks[1]).toMatchObject({
+      turn_id: "turn-restore-1",
+      plan_step_id: 2,
+      title: "执行相关性分析",
+      status: "in_progress",
+      current_activity: "步骤执行中",
+    });
+    expect(restored.analysisTasks[2]).toMatchObject({
+      turn_id: "turn-restore-2",
+      title: "生成报告",
+      status: "done",
+    });
+    expect(restored.analysisPlanProgress).toBeNull();
+  });
+
+  it("应从 ask_user_question 历史中恢复用户选择与输入摘要", () => {
+    const rawMessages: RawSessionMessage[] = [
+      {
+        role: "assistant",
+        event_type: "tool_call",
+        turn_id: "turn-ask-1",
+        tool_calls: [
+          {
+            id: "call-ask-1",
+            type: "function",
+            function: {
+              name: "ask_user_question",
+              arguments: JSON.stringify({
+                questions: [
+                  {
+                    question: "你更关注哪类结果？",
+                    header: "分析偏好",
+                  },
+                  {
+                    question: "请输入导出文件名",
+                    header: "文件名",
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+        _ts: "2026-03-04T10:02:00Z",
+      },
+      {
+        role: "tool",
+        content: JSON.stringify({
+          success: true,
+          message: "已收到用户回答。",
+          data: {
+            questions: [
+              {
+                question: "你更关注哪类结果？",
+                header: "分析偏好",
+              },
+              {
+                question: "请输入导出文件名",
+                header: "文件名",
+              },
+            ],
+            answers: {
+              "你更关注哪类结果？": "效应量",
+              请输入导出文件名: "gsd_research_report.md",
+            },
+          },
+        }),
+        tool_call_id: "call-ask-1",
+        tool_name: "ask_user_question",
+        status: "success",
+        turn_id: "turn-ask-1",
+        _ts: "2026-03-04T10:02:01Z",
+      },
+    ];
+
+    const messages = buildMessagesFromHistory(rawMessages);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      role: "tool",
+      toolCallId: "call-ask-1",
+      toolName: "ask_user_question",
+      toolStatus: "success",
+    });
+    expect(messages[0]?.toolResult).toContain("分析偏好：效应量");
+    expect(messages[0]?.toolResult).toContain(
+      "文件名：gsd_research_report.md",
+    );
   });
 });

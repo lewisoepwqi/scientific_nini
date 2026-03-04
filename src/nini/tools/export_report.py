@@ -93,8 +93,10 @@ code {{
 }}
 """
 
-# 匹配报告中的图片 src：/api/artifacts/{session_id}/filename（支持单双引号）
-_IMG_SRC_PATTERN = re.compile(r'(<img\s[^>]*?src=)(["\'])(/api/artifacts/[^"\']+)(\2)')
+# 匹配报告中的图片 src：支持旧 /api/artifacts 与新版 /api/workspace/.../files 路径。
+_IMG_SRC_PATTERN = re.compile(
+    r'(<img\s[^>]*?src=)(["\'])(/api/(?:artifacts/[^"\']+|workspace/[^"\']+/files/[^"\']+))(\2)'
+)
 
 
 def _build_pdf_font_css() -> tuple[str, str]:
@@ -138,6 +140,73 @@ def _md_to_html(md_text: str, title: str) -> str:
         f"<body>\n{body_html}\n</body>\n"
         "</html>"
     )
+
+
+def _plain_text_to_html(text: str, title: str) -> str:
+    """将纯文本包装为可导出的 HTML。"""
+    escaped = (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+    body_html = "<pre>" + escaped + "</pre>"
+    font_face_css, font_family = _build_pdf_font_css()
+    css = _PDF_CSS_TEMPLATE.format(font_face=font_face_css, font_family=font_family)
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="zh-CN">\n'
+        "<head>\n"
+        '<meta charset="utf-8">\n'
+        f"<title>{title}</title>\n"
+        f"<style>{css}</style>\n"
+        "</head>\n"
+        f"<body>\n{body_html}\n</body>\n"
+        "</html>"
+    )
+
+
+def _normalize_html_document(html_text: str, title: str) -> str:
+    """将 HTML 片段规范成完整文档。"""
+    if "<html" in html_text.lower():
+        return html_text
+    font_face_css, font_family = _build_pdf_font_css()
+    css = _PDF_CSS_TEMPLATE.format(font_face=font_face_css, font_family=font_family)
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="zh-CN">\n'
+        "<head>\n"
+        '<meta charset="utf-8">\n'
+        f"<title>{title}</title>\n"
+        f"<style>{css}</style>\n"
+        "</head>\n"
+        f"<body>\n{html_text}\n</body>\n"
+        "</html>"
+    )
+
+
+def _title_from_document_content(content: str, fallback: str) -> str:
+    """从文档内容提取标题。"""
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            return stripped[2:].strip() or fallback
+    return fallback
+
+
+def _document_to_export_payload(source_path: Path) -> tuple[str, str, str]:
+    """读取文档并返回 (raw_text, title, html)。"""
+    ext = source_path.suffix.lower()
+    raw_text = source_path.read_text(encoding="utf-8")
+    fallback_title = source_path.stem or "分析文档"
+    title = _title_from_document_content(raw_text, fallback_title)
+
+    if ext in {".md", ".markdown"}:
+        return raw_text, title, _md_to_html(raw_text, title)
+    if ext in {".txt"}:
+        return raw_text, title, _plain_text_to_html(raw_text, title)
+    if ext in {".html", ".htm"}:
+        return raw_text, title, _normalize_html_document(raw_text, title)
+    raise ValueError(f"暂不支持导出此文档类型: {ext or source_path.name}")
 
 
 def _normalize_plotly_figure_payload(chart_data: Any) -> dict[str, Any] | None:
@@ -196,7 +265,9 @@ def _resolve_images_to_base64_with_stats(
 ) -> tuple[str, dict[str, Any]]:
     """将 HTML 中的 /api/artifacts/ 图片内联，并返回转换统计。"""
     artifacts_dir = settings.sessions_dir / session_id / "workspace" / "artifacts"
+    workspace_dir = settings.sessions_dir / session_id / "workspace"
     artifacts_root = artifacts_dir.resolve()
+    workspace_root = workspace_dir.resolve()
     stats: dict[str, Any] = {
         "plotly_total": 0,
         "plotly_converted": 0,
@@ -210,25 +281,37 @@ def _resolve_images_to_base64_with_stats(
             match.group(3),
             match.group(4),
         )
-        # 从 URL 提取文件名：/api/artifacts/{session_id}/{filename}
+        # 从 URL 提取工作区文件路径。
         url_path = urlsplit(src_url).path
         parts = url_path.strip("/").split("/")
         if len(parts) < 4:
             return match.group(0)
-        encoded_name = "/".join(parts[3:])  # 支持子路径
-        decoded_name = unquote(encoded_name).lstrip("/")
-        file_path = (artifacts_dir / decoded_name).resolve()
+        decoded_name = ""
+        file_path: Path
+        if len(parts) >= 4 and parts[0] == "api" and parts[1] == "artifacts":
+            encoded_name = "/".join(parts[3:])  # 支持子路径
+            decoded_name = unquote(encoded_name).lstrip("/")
+            file_path = (artifacts_dir / decoded_name).resolve()
+        elif len(parts) >= 5 and parts[0] == "api" and parts[1] == "workspace" and parts[3] == "files":
+            encoded_name = "/".join(parts[4:])
+            decoded_name = unquote(encoded_name).lstrip("/")
+            file_path = (workspace_dir / decoded_name).resolve()
+        else:
+            return match.group(0)
         is_plotly_json = decoded_name.lower().endswith(".plotly.json")
         if is_plotly_json:
             stats["plotly_total"] = int(stats.get("plotly_total", 0)) + 1
 
-        # 安全兜底：防止构造路径逃逸到 artifacts 目录外
+        # 安全兜底：防止构造路径逃逸到工作区外
         try:
-            file_path.relative_to(artifacts_root)
+            if url_path.startswith("/api/artifacts/"):
+                file_path.relative_to(artifacts_root)
+            else:
+                file_path.relative_to(workspace_root)
         except ValueError:
             if is_plotly_json:
                 stats["plotly_failed"].append(
-                    {"name": decoded_name, "error": "图表路径非法，超出 artifacts 目录"}
+                    {"name": decoded_name, "error": "图表路径非法，超出工作区目录"}
                 )
             return match.group(0)
 
@@ -284,6 +367,305 @@ def _is_chrome_missing_error(error_text: str | None) -> bool:
     )
 
 
+def _default_export_directory(source_path: str) -> str:
+    """为导出文件选择默认目录。"""
+    rel_path = source_path.strip().strip("/")
+    if rel_path.startswith("artifacts/"):
+        return "notes/exports"
+    parent = str(Path(rel_path).parent)
+    return "." if parent in {"", "."} else parent
+
+
+def _workspace_relative_path_for_candidate(
+    manager: WorkspaceManager,
+    session_id: str,
+    candidate: Path,
+) -> str | None:
+    """尽量将绝对文件路径映射回工作区相对路径。"""
+    try:
+        resolved = candidate.resolve()
+    except Exception:
+        return None
+
+    rel_path = manager._relative_workspace_path(resolved)
+    if rel_path:
+        return rel_path
+
+    workspace_root = (settings.sessions_dir / session_id / "workspace").resolve()
+    try:
+        return resolved.relative_to(workspace_root).as_posix()
+    except Exception:
+        return None
+
+
+def _resolve_document_source(
+    session: Session,
+    *,
+    source_ref: str | None = None,
+    prefer_latest_report: bool = False,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """定位可导出的工作区文档。"""
+    manager = WorkspaceManager(session.id)
+
+    if isinstance(source_ref, str) and source_ref.strip():
+        matched = manager.resolve_document_file(source_ref)
+        if matched is not None:
+            return matched, None
+
+        storage = ArtifactStorage(session.id)
+        candidate = storage.get_path(source_ref.strip())
+        if candidate.exists():
+            rel_path = _workspace_relative_path_for_candidate(manager, session.id, candidate)
+            if rel_path:
+                matched = manager.resolve_document_file(rel_path)
+                if matched is not None:
+                    return matched, None
+                if candidate.suffix.lower() in {".md", ".txt", ".html", ".htm"}:
+                    return {
+                        "name": candidate.name,
+                        "kind": "document",
+                        "path": rel_path,
+                        "download_url": manager.build_workspace_file_download_url(rel_path),
+                        "meta": {"subtype": "report"},
+                    }, None
+        return None, f"文档 `{source_ref}` 不存在，或当前不是可导出的文档文件。"
+
+    if prefer_latest_report:
+        latest_report = getattr(session, "documents", {}).get("latest_report")
+        if isinstance(latest_report, dict):
+            path = str(latest_report.get("path", "")).strip()
+            if path:
+                matched = manager.resolve_document_file(path)
+                if matched is not None:
+                    return matched, None
+
+    latest_document = getattr(session, "documents", {}).get("latest_document")
+    if isinstance(latest_document, dict):
+        path = str(latest_document.get("path", "")).strip()
+        if path:
+            matched = manager.resolve_document_file(path)
+            if matched is not None:
+                return matched, None
+
+    latest_report = session.artifacts.get("latest_report")
+    if isinstance(latest_report, dict):
+        report_ref = str(latest_report.get("path") or latest_report.get("name") or "").strip()
+        if report_ref:
+            matched = manager.resolve_document_file(report_ref)
+            if matched is not None:
+                return matched, None
+            candidate = Path(report_ref)
+            if not candidate.is_absolute():
+                candidate = ArtifactStorage(session.id).get_path(Path(report_ref).name)
+            if candidate.exists():
+                rel_path = _workspace_relative_path_for_candidate(manager, session.id, candidate)
+                if rel_path and candidate.suffix.lower() in {".md", ".txt", ".html", ".htm"}:
+                    return {
+                        "name": candidate.name,
+                        "kind": "document",
+                        "path": rel_path,
+                        "download_url": manager.build_workspace_file_download_url(rel_path),
+                        "meta": {"subtype": "report"},
+                    }, None
+
+    subtype_filter = {"report"} if prefer_latest_report else None
+    latest = manager.latest_document_file(subtypes=subtype_filter)
+    if latest is not None:
+        return latest, None
+
+    return None, "当前会话没有可导出的文档，请先生成或创建 Markdown/文本文件。"
+
+
+def _build_export_relative_path(
+    manager: WorkspaceManager,
+    *,
+    source_path: str,
+    output_format: str,
+    filename: str | None = None,
+) -> str:
+    """为导出文件生成不冲突的工作区相对路径。"""
+    source_rel = source_path.strip().strip("/")
+    source_name = Path(source_rel).stem or "analysis_document"
+    if isinstance(filename, str) and filename.strip():
+        raw_name = filename.strip()
+    else:
+        raw_name = source_name
+
+    safe_name = manager.sanitize_filename(raw_name, default_name=f"{source_name}.{output_format}")
+    if not safe_name.lower().endswith(f".{output_format}"):
+        safe_name += f".{output_format}"
+
+    target_dir = _default_export_directory(source_rel)
+    candidate = safe_name
+    stem = Path(safe_name).stem or source_name
+    suffix = Path(safe_name).suffix or f".{output_format}"
+    counter = 2
+
+    while True:
+        rel_path = candidate if target_dir == "." else f"{target_dir}/{candidate}"
+        target = manager.resolve_workspace_path(rel_path, allow_missing=True)
+        if not target.exists():
+            return rel_path
+        candidate = f"{stem}_{counter}{suffix}"
+        counter += 1
+
+
+async def export_workspace_document(
+    session: Session,
+    *,
+    source_ref: str | None,
+    output_format: str,
+    filename: str | None = None,
+    prefer_latest_report: bool = False,
+) -> SkillResult:
+    """将工作区文档导出为 PDF 或 DOCX。"""
+    fmt = output_format.strip().lower()
+    if fmt not in {"pdf", "docx"}:
+        return SkillResult(success=False, message=f"不支持的导出格式: {output_format}")
+
+    source_file, error_message = _resolve_document_source(
+        session,
+        source_ref=source_ref,
+        prefer_latest_report=prefer_latest_report,
+    )
+    if source_file is None:
+        return SkillResult(success=False, message=error_message or "未找到可导出的文档")
+
+    manager = WorkspaceManager(session.id)
+    source_path = str(source_file.get("path", "")).strip()
+    if not source_path:
+        return SkillResult(success=False, message="文档路径缺失，无法导出。")
+
+    source_abs_path = manager.resolve_workspace_path(source_path, allow_missing=False)
+
+    try:
+        raw_text, title, html = _document_to_export_payload(source_abs_path)
+    except ValueError as exc:
+        return SkillResult(success=False, message=str(exc))
+    except FileNotFoundError:
+        return SkillResult(success=False, message=f"文档 `{source_path}` 不存在。")
+
+    if fmt == "pdf":
+        html, image_stats = _resolve_images_to_base64_with_stats(html, session.id)
+        plotly_failed = image_stats.get("plotly_failed", [])
+        if isinstance(plotly_failed, list) and plotly_failed:
+            failed_items = [
+                item for item in plotly_failed if isinstance(item, dict) and item.get("name")
+            ]
+            failed_names = "、".join(str(item["name"]) for item in failed_items[:3])
+            if len(failed_items) > 3:
+                failed_names += " 等"
+            has_chrome_missing = any(
+                _is_chrome_missing_error(str(item.get("error", ""))) for item in failed_items
+            )
+            if has_chrome_missing:
+                return SkillResult(
+                    success=False,
+                    message=(
+                        "检测到文档包含 `.plotly.json` 图表，但当前环境缺少 Chrome，"
+                        "无法转换为 PDF 可嵌入图片。\n"
+                        "请先在当前 Python 环境安装 Chrome 后重试：\n"
+                        "- `plotly_get_chrome -y`\n"
+                        '- 或 `python -c "import plotly.io as pio; pio.get_chrome()"`\n'
+                        f"失败图表：{failed_names or '未知'}"
+                    ),
+                )
+            return SkillResult(
+                success=False,
+                message=(
+                    "文档中的 `.plotly.json` 图表转换失败，已中止导出以避免 PDF 退化为文本。\n"
+                    f"失败图表：{failed_names or '未知'}\n"
+                    "请先检查图表文件有效性或运行 `nini doctor` 后重试。"
+                ),
+            )
+        try:
+            import weasyprint  # type: ignore[import-not-found,import-untyped]
+        except ImportError:
+            return SkillResult(
+                success=False,
+                message=(
+                    "PDF 导出需要 weasyprint 库，当前未安装。\n"
+                    "请执行以下命令之一安装后重试：\n"
+                    "- `pip install -e .[dev]`（源码开发环境，推荐）\n"
+                    "- `pip install -e .[pdf]`（源码开发环境，仅补装 PDF）\n"
+                    "- `pip install nini[pdf]`（已发布包环境）"
+                ),
+            )
+        try:
+            output_bytes: bytes = await asyncio.to_thread(
+                weasyprint.HTML(string=html).write_pdf,  # type: ignore[union-attr]
+            )
+        except Exception as exc:
+            logger.error("PDF 生成失败: %s", exc, exc_info=True)
+            return SkillResult(success=False, message=f"PDF 生成失败: {exc}")
+    else:
+        try:
+            from nini.tools.report_exporter import export_report as export_markdown_report
+
+            output_bytes = await asyncio.to_thread(
+                export_markdown_report,
+                raw_text,
+                "docx",
+                title,
+            )
+        except ImportError as exc:
+            return SkillResult(success=False, message=f"DOCX 导出依赖缺失: {exc}")
+        except Exception as exc:
+            logger.error("DOCX 生成失败: %s", exc, exc_info=True)
+            return SkillResult(success=False, message=f"DOCX 生成失败: {exc}")
+
+    output_relative_path = _build_export_relative_path(
+        manager,
+        source_path=source_path,
+        output_format=fmt,
+        filename=filename,
+    )
+    output_path = manager.resolve_workspace_path(output_relative_path, allow_missing=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(output_bytes)
+    manager.sync_text_document_record(output_relative_path)
+
+    subtype = "pdf_export" if fmt == "pdf" else "docx_export"
+    document = manager.resolve_document_file(output_relative_path)
+    download_url = (
+        str(document.get("download_url"))
+        if isinstance(document, dict)
+        else manager.build_workspace_file_download_url(output_relative_path)
+    )
+    artifact = {
+        "name": output_path.name,
+        "type": subtype,
+        "format": fmt,
+        "path": str(output_path),
+        "download_url": download_url,
+        "kind": "document",
+        "source_path": source_path,
+    }
+
+    if not hasattr(session, "documents") or not isinstance(session.documents, dict):
+        session.documents = {}
+    session.documents["latest_document"] = {
+        "name": output_path.name,
+        "path": output_relative_path,
+        "type": subtype,
+        "download_url": download_url,
+    }
+    session.artifacts["latest_export"] = artifact
+
+    return SkillResult(
+        success=True,
+        message=f"文档已导出为 {fmt.upper()}: `{output_path.name}`",
+        data={
+            "filename": output_path.name,
+            "format": fmt,
+            "source_path": source_path,
+            "output_path": output_relative_path,
+            "document_type": subtype,
+        },
+        artifacts=[artifact],
+    )
+
+
 class ExportReportSkill(Skill):
     """将 Markdown 报告导出为 PDF 文件。"""
 
@@ -298,8 +680,8 @@ class ExportReportSkill(Skill):
     @property
     def description(self) -> str:
         return (
-            "将已生成的 Markdown 分析报告导出为 PDF 文件。"
-            "需要先调用 generate_report 生成报告，或指定 report_name 参数。"
+            "将分析报告或兼容的工作区 Markdown 文档导出为 PDF 文件。"
+            "优先兼容 generate_report 生成的报告，也支持按文件名或路径导出已有文档。"
             "依赖可选包 weasyprint（源码环境: pip install -e .[dev] 或 pip install -e .[pdf]；发布包环境: pip install nini[pdf]）。"
         )
 
@@ -327,130 +709,18 @@ class ExportReportSkill(Skill):
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
         report_name = kwargs.get("report_name")
         filename = kwargs.get("filename")
-
-        # 1. 定位报告文件
-        storage = ArtifactStorage(session.id)
-
-        if not report_name:
-            latest = session.artifacts.get("latest_report")
-            if not isinstance(latest, dict) or "name" not in latest:
-                return SkillResult(
-                    success=False,
-                    message="当前会话没有已生成的报告，请先调用 generate_report 生成报告。",
-                )
-            report_name = str(latest["name"])
-
-        report_path = storage.get_path(report_name)
-        if not report_path.exists():
-            return SkillResult(
-                success=False,
-                message=f"报告文件 `{report_name}` 不存在。",
-            )
-
-        md_text = report_path.read_text(encoding="utf-8")
-        if not md_text.strip():
-            return SkillResult(success=False, message="报告内容为空，无法导出。")
-
-        # 2. 提取标题
-        title = "分析报告"
-        for line in md_text.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("# "):
-                title = stripped[2:].strip()
-                break
-
-        # 3. MD → HTML → 图片内联
-        html = _md_to_html(md_text, title)
-        html, image_stats = _resolve_images_to_base64_with_stats(html, session.id)
-        plotly_failed = image_stats.get("plotly_failed", [])
-        if isinstance(plotly_failed, list) and plotly_failed:
-            failed_items = [
-                item for item in plotly_failed if isinstance(item, dict) and item.get("name")
-            ]
-            failed_names = "、".join(str(item["name"]) for item in failed_items[:3])
-            if len(failed_items) > 3:
-                failed_names += " 等"
-            has_chrome_missing = any(
-                _is_chrome_missing_error(str(item.get("error", ""))) for item in failed_items
-            )
-            if has_chrome_missing:
-                return SkillResult(
-                    success=False,
-                    message=(
-                        "检测到报告包含 `.plotly.json` 图表，但当前环境缺少 Chrome，"
-                        "无法转换为 PDF 可嵌入图片。\n"
-                        "请先在当前 Python 环境安装 Chrome 后重试：\n"
-                        "- `plotly_get_chrome -y`\n"
-                        '- 或 `python -c "import plotly.io as pio; pio.get_chrome()"`\n'
-                        f"失败图表：{failed_names or '未知'}"
-                    ),
-                )
-            return SkillResult(
-                success=False,
-                message=(
-                    "报告中的 `.plotly.json` 图表转换失败，已中止导出以避免 PDF 退化为文本。\n"
-                    f"失败图表：{failed_names or '未知'}\n"
-                    "请先检查图表文件有效性或运行 `nini doctor` 后重试。"
-                ),
-            )
-
-        # 4. HTML → PDF（weasyprint 懒导入）
-        try:
-            import weasyprint  # type: ignore[import-not-found,import-untyped]
-        except ImportError:
-            return SkillResult(
-                success=False,
-                message=(
-                    "PDF 导出需要 weasyprint 库，当前未安装。\n"
-                    "请执行以下命令之一安装后重试：\n"
-                    "- `pip install -e .[dev]`（源码开发环境，推荐）\n"
-                    "- `pip install -e .[pdf]`（源码开发环境，仅补装 PDF）\n"
-                    "- `pip install nini[pdf]`（已发布包环境）"
-                ),
-            )
-
-        # 生成输出文件名
-        if isinstance(filename, str) and filename.strip():
-            pdf_name = filename.strip()
-        else:
-            pdf_name = Path(report_name).stem
-        if not pdf_name.lower().endswith(".pdf"):
-            pdf_name += ".pdf"
-
-        pdf_path = storage.get_path(pdf_name)
-
-        try:
-            pdf_bytes: bytes = await asyncio.to_thread(
-                weasyprint.HTML(string=html).write_pdf,  # type: ignore[union-attr]
-            )
-            pdf_path.write_bytes(pdf_bytes)
-        except Exception as exc:
-            logger.error("PDF 生成失败: %s", exc, exc_info=True)
-            return SkillResult(
-                success=False,
-                message=f"PDF 生成失败: {exc}",
-            )
-
-        # 5. 注册产物
-        ws = WorkspaceManager(session.id)
-        artifact = {
-            "name": pdf_name,
-            "type": "report",
-            "format": "pdf",
-            "path": str(pdf_path),
-            "download_url": ws.build_artifact_download_url(pdf_name),
-        }
-        ws.add_artifact_record(
-            name=pdf_name,
-            artifact_type="report",
-            file_path=pdf_path,
-            format_hint="pdf",
+        result = await export_workspace_document(
+            session,
+            source_ref=str(report_name).strip() if isinstance(report_name, str) else None,
+            output_format="pdf",
+            filename=str(filename).strip() if isinstance(filename, str) else None,
+            prefer_latest_report=True,
         )
-        session.artifacts["latest_export"] = artifact
-
-        return SkillResult(
-            success=True,
-            message=f"报告已导出为 PDF: `{pdf_name}`",
-            data={"filename": pdf_name, "source_report": report_name},
-            artifacts=[artifact],
-        )
+        if result.success and isinstance(result.data, dict):
+            source_path = str(result.data.get("source_path", "")).strip()
+            result.data["source_report"] = source_path or (
+                str(report_name).strip() if isinstance(report_name, str) else ""
+            )
+        elif not result.success and "可导出的文档" in result.message:
+            result.message = "当前会话没有已生成的报告，请先调用 generate_report 生成报告。"
+        return result

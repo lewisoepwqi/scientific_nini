@@ -41,6 +41,7 @@ def test_article_draft_skill_frontmatter_fields():
     assert skill.research_domain == "general"
     assert skill.difficulty_level == "advanced"
     assert len(skill.typical_use_cases) > 0, "typical_use_cases 不能为空"
+    assert "list_workspace_files" in (skill.metadata.get("allowed_tools") or [])
 
 
 def test_article_draft_skill_has_instruction_body():
@@ -82,6 +83,7 @@ def test_article_draft_capability_fields():
     assert cap.is_executable is False, "article_draft 应为非可执行（由 Markdown Skill 驱动）"
     assert "edit_file" in cap.required_tools
     assert "data_summary" in cap.required_tools
+    assert "export_document" in cap.required_tools
     assert cap.execution_message, "execution_message 不能为空"
 
 
@@ -92,4 +94,5 @@ def test_article_draft_capability_suggested_workflow():
 
     assert "data_summary" in cap.suggested_workflow
     assert "edit_file" in cap.suggested_workflow
-    assert "export_report" in cap.suggested_workflow
+    assert "export_document" in cap.suggested_workflow
+    assert "list_workspace_files" in cap.suggested_workflow

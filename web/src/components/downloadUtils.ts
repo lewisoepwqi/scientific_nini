@@ -12,7 +12,7 @@ export function resolveDownloadUrl(downloadUrl: string | undefined, name?: strin
   if (!downloadUrl) return downloadUrl
   if (!isMarkdownFile(name)) return downloadUrl
 
-  // Markdown 文件使用 bundle 接口格式：/api/workspace/{sid}/artifacts/{path}/bundle
+  // 兼容旧 artifact 下载地址。
   const artifactMatch = downloadUrl.match(/^\/api\/artifacts\/([^/]+)\/(.+)$/)
   if (artifactMatch) {
     const sessionId = artifactMatch[1]
@@ -30,17 +30,16 @@ export function resolveDownloadUrl(downloadUrl: string | undefined, name?: strin
   const workspaceFilesMatch = downloadUrl.match(/^\/api\/workspace\/([^/]+)\/files\/(.+)$/)
   if (workspaceFilesMatch) {
     const sessionId = workspaceFilesMatch[1]
-    const filename = workspaceFilesMatch[2]
-    return `/api/workspace/${sessionId}/artifacts/${filename}/bundle`
+    const path = workspaceFilesMatch[2]
+    return `/api/workspace/${sessionId}/files/${path}?bundle=1`
   }
 
   const noteMatch = downloadUrl.match(/^\/api\/workspace\/([^/]+)\/notes\/(.+)$/)
   if (noteMatch) {
     const sessionId = noteMatch[1]
     const filename = noteMatch[2]
-    return `/api/workspace/${sessionId}/artifacts/${filename}/bundle`
+    return `/api/workspace/${sessionId}/files/notes/${filename}?bundle=1`
   }
 
   return downloadUrl
 }
-
