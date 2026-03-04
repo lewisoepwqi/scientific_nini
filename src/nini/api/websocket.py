@@ -164,7 +164,7 @@ async def websocket_agent(ws: WebSocket):
                 ):
                     await _send_event(
                         ws,
-                        "workspace_update",
+                        EventType.WORKSPACE_UPDATE.value,
                         data={"action": "add"},
                         session_id=session.id,
                     )
@@ -172,7 +172,7 @@ async def websocket_agent(ws: WebSocket):
                 if event.type in (EventType.ARTIFACT, EventType.IMAGE):
                     await _send_event(
                         ws,
-                        "workspace_update",
+                        EventType.WORKSPACE_UPDATE.value,
                         data={"action": "add"},
                         session_id=session.id,
                     )
@@ -239,7 +239,7 @@ async def websocket_agent(ws: WebSocket):
                         )
                         await _send_event(
                             ws,
-                            "code_execution",
+                            EventType.CODE_EXECUTION.value,
                             data=exec_record,
                             session_id=session.id,
                         )
@@ -288,7 +288,7 @@ async def websocket_agent(ws: WebSocket):
             msg_type = msg.get("type", "chat")
 
             if msg_type == "ping":
-                await _send_event(ws, "pong")
+                await _send_event(ws, EventType.PONG.value)
                 continue
 
             if msg_type == "stop":
@@ -300,9 +300,9 @@ async def websocket_agent(ws: WebSocket):
                     with suppress(asyncio.CancelledError):
                         await task
                     _cancel_pending_questions()
-                    await _send_event(ws, "stopped", data="已停止当前请求")
+                    await _send_event(ws, EventType.STOPPED.value, data="已停止当前请求")
                 else:
-                    await _send_event(ws, "stopped", data="当前没有进行中的请求")
+                    await _send_event(ws, EventType.STOPPED.value, data="当前没有进行中的请求")
                 continue
 
             if msg_type == "ask_user_question_answer":
@@ -375,7 +375,7 @@ async def websocket_agent(ws: WebSocket):
                     continue
 
                 # 返回 session_id 方便客户端追踪
-                await _send_event(ws, "session", data={"session_id": session.id})
+                await _send_event(ws, EventType.SESSION.value, data={"session_id": session.id})
 
                 # 运行 Agent（后台任务）
                 active_stop_event = asyncio.Event()
@@ -406,7 +406,7 @@ async def websocket_agent(ws: WebSocket):
                 session = session_manager.get_or_create(session_id)
 
                 # 返回 session_id 方便客户端追踪
-                await _send_event(ws, "session", data={"session_id": session.id})
+                await _send_event(ws, EventType.SESSION.value, data={"session_id": session.id})
 
                 # 运行 Agent（后台任务）
                 active_stop_event = asyncio.Event()
@@ -450,7 +450,7 @@ async def _auto_generate_title(ws: WebSocket, session: Any) -> None:
             session_manager.save_session_title(session.id, title)
             await _send_event(
                 ws,
-                "session_title",
+                EventType.SESSION_TITLE.value,
                 data={"session_id": session.id, "title": title},
                 session_id=session.id,
             )
@@ -466,7 +466,7 @@ async def _keepalive(ws: WebSocket) -> None:
             if ws.client_state.name == "DISCONNECTED":
                 break
             try:
-                await _send_event(ws, "pong")
+                await _send_event(ws, EventType.PONG.value)
             except Exception:
                 # 发送失败，连接可能已断开
                 break

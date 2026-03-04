@@ -248,20 +248,34 @@ async def read_memory_file(session_id: str, filename: str):
 
 
 @router.get("/{session_id}/context-size", response_model=APIResponse)
-async def get_context_size(session_id: str):
-    """获取会话上下文大小估算。"""
+async def get_session_context_size(session_id: str):
+    """获取当前会话上下文的 token 预估。"""
+    from nini.utils.token_counter import count_messages_tokens, count_tokens
+
+    if not session_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
     session = session_manager.get_or_create(session_id)
 
-    # 估算 token 数量（简化计算）
-    total_chars = sum(len(str(msg.get("content", ""))) for msg in session.messages)
-    estimated_tokens = total_chars // 4  # 粗略估算
+    message_tokens = count_messages_tokens(session.messages)
+    compressed_tokens = 0
+    if getattr(session, "compressed_context", ""):
+        compressed_tokens = count_tokens(str(session.compressed_context))
+    total_tokens = message_tokens + compressed_tokens
+    threshold_tokens = int(settings.auto_compress_threshold_tokens)
+    target_tokens = int(settings.auto_compress_target_tokens)
+    remaining_until_compress = max(threshold_tokens - total_tokens, 0)
 
     return APIResponse(
         data={
             "session_id": session_id,
             "message_count": len(session.messages),
-            "estimated_tokens": estimated_tokens,
-            "total_chars": total_chars,
+            "message_tokens": message_tokens,
+            "compressed_context_tokens": compressed_tokens,
+            "total_context_tokens": total_tokens,
+            "auto_compress_enabled": bool(settings.auto_compress_enabled),
+            "compress_threshold_tokens": threshold_tokens,
+            "compress_target_tokens": target_tokens,
+            "remaining_until_compress_tokens": remaining_until_compress,
         }
     )
 
@@ -293,3 +307,39 @@ async def export_all_session_data(session_id: str):
 # 导入需要在文件末尾以避免循环导入
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
+
+from nini.memory.conversation import ConversationMemory
+from nini.utils.chart_payload import normalize_chart_payload
+
+
+def _serialize_history_message(msg: dict[str, Any]) -> dict[str, Any]:
+    """序列化会话消息历史，返回统一对外契约。"""
+    chart_data = msg.get("chart_data")
+    normalized_chart_data = normalize_chart_payload(chart_data)
+    item = {
+        "role": msg.get("role", ""),
+        "content": msg.get("content", ""),
+        "_ts": msg.get("_ts"),
+        "message_id": msg.get("message_id"),
+        "turn_id": msg.get("turn_id"),
+        "event_type": msg.get("event_type"),
+        "operation": msg.get("operation"),
+        "tool_calls": msg.get("tool_calls"),
+        "tool_call_id": msg.get("tool_call_id"),
+        "tool_name": msg.get("tool_name"),
+        "status": msg.get("status"),
+        "intent": msg.get("intent"),
+        "execution_id": msg.get("execution_id"),
+        "reasoning_id": msg.get("reasoning_id"),
+        "reasoning_type": msg.get("reasoning_type"),
+        "key_decisions": msg.get("key_decisions"),
+        "confidence_score": msg.get("confidence_score"),
+        "chart_data": normalized_chart_data if normalized_chart_data else chart_data,
+        "data_preview": msg.get("data_preview"),
+        "artifacts": msg.get("artifacts"),
+        "images": msg.get("images"),
+    }
+    return item
+
+

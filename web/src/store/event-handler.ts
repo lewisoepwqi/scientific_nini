@@ -663,7 +663,7 @@ export function handleEvent(
           raw_status: typeof stepStatus === "string" ? stepStatus : undefined,
           current_activity:
             normalizedStatus === "done"
-              ? "步骤已完成"
+              ? null
               : normalizedStatus === "failed"
                 ? "步骤执行失败"
                 : normalizedStatus === "blocked"
@@ -720,7 +720,7 @@ export function handleEvent(
           status: mergedTaskStatus,
           current_activity:
             nextProgress.step_status === "done"
-              ? "步骤已完成"
+              ? null
               : nextProgress.step_status === "failed"
                 ? "步骤执行失败"
                 : nextProgress.step_status === "blocked"
@@ -1260,7 +1260,7 @@ export function handleEvent(
             : "done";
           tasks = updateAnalysisTaskById(tasks, taskId, {
             status: mergedStatus,
-            current_activity: "步骤已完成",
+            current_activity: null,
             last_error: null,
           });
           progress = applyPlanStepUpdateToProgress(

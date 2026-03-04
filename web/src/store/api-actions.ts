@@ -1261,10 +1261,10 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
   return messages;
 }
 
-function taskActivityByStatus(status: AnalysisTaskItem["status"]): string {
+function taskActivityByStatus(status: AnalysisTaskItem["status"]): string | null {
   switch (status) {
     case "done":
-      return "步骤已完成";
+      return null;
     case "failed":
       return "步骤执行失败";
     case "blocked":

@@ -80,22 +80,121 @@ def count_messages_tokens(messages: list[dict[str, Any]]) -> int:
 
 
 # ---- 每次 API 调用的价格（USD / 1K tokens）----
-# 近似值，仅供参考
+# 价格来源：官方定价，保持与 pricing.yaml 一致
+# 汇率：1 USD = 7.2 CNY（2025年参考）
+
+# 兜底价格配置（当模型无定价时使用）
+FALLBACK_PRICING = {"input": 0.001, "output": 0.002}  # 默认 $0.001/$0.002 per 1K tokens
+FALLBACK_MODEL_NAME = "default"
 
 _PRICING: dict[str, dict[str, float]] = {
+    # ==================== OpenAI 模型 ====================
+    # GPT-4o 系列
     "gpt-4o": {"input": 0.0025, "output": 0.01},
     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
+    "gpt-4o-latest": {"input": 0.0025, "output": 0.01},
+    # GPT-4 系列
     "gpt-4-turbo": {"input": 0.01, "output": 0.03},
+    "gpt-4": {"input": 0.03, "output": 0.06},
+    "gpt-4-32k": {"input": 0.06, "output": 0.12},
+    # GPT-3.5 系列
     "gpt-3.5-turbo": {"input": 0.0005, "output": 0.0015},
+    "gpt-3.5-turbo-16k": {"input": 0.001, "output": 0.002},
+    # O1 系列 (推理模型)
+    "o1": {"input": 0.015, "output": 0.06},
+    "o1-mini": {"input": 0.0011, "output": 0.0044},
+    "o3-mini": {"input": 0.0011, "output": 0.0044},
+    # ==================== Anthropic 模型 ====================
+    # Claude 3.5 系列
     "claude-sonnet-4-20250514": {"input": 0.003, "output": 0.015},
     "claude-3-5-sonnet-20241022": {"input": 0.003, "output": 0.015},
+    "claude-3-5-sonnet-latest": {"input": 0.003, "output": 0.015},
+    # Claude 3 系列
+    "claude-3-opus-20240229": {"input": 0.015, "output": 0.075},
+    "claude-3-sonnet-20240229": {"input": 0.003, "output": 0.015},
     "claude-3-haiku-20240307": {"input": 0.00025, "output": 0.00125},
+    "claude-3-haiku-latest": {"input": 0.00025, "output": 0.00125},
+    # Claude 2 系列
+    "claude-2": {"input": 0.008, "output": 0.024},
+    "claude-2-1": {"input": 0.008, "output": 0.024},
+    "claude-instant-1": {"input": 0.0008, "output": 0.0024},
+    # ==================== Google Gemini 模型 ====================
+    "gemini-2-0-flash": {"input": 0.0001, "output": 0.0004},
+    "gemini-2-0-flash-lite": {"input": 0.000075, "output": 0.0003},
+    "gemini-1-5-flash": {"input": 0.000075, "output": 0.0003},
+    "gemini-1-5-pro": {"input": 0.00125, "output": 0.005},
+    "gemini-1-0-pro": {"input": 0.0005, "output": 0.0015},
+    "gemini-pro": {"input": 0.0005, "output": 0.0015},
+    # ==================== DeepSeek 模型 ====================
     "deepseek-chat": {"input": 0.00014, "output": 0.00028},
+    "deepseek-v3": {"input": 0.00014, "output": 0.00028},
     "deepseek-coder": {"input": 0.00014, "output": 0.00028},
+    "deepseek-coder-v2": {"input": 0.00014, "output": 0.00028},
+    "deepseek-reasoner": {"input": 0.00055, "output": 0.00219},
+    "deepseek-r1": {"input": 0.00055, "output": 0.00219},
+    # ==================== 百度文心一言 ====================
+    "ernie-4-0": {"input": 0.0167, "output": 0.0167},
+    "ernie-bot-4": {"input": 0.0167, "output": 0.0167},
+    "ernie-3-5": {"input": 0.00167, "output": 0.00167},
+    "ernie-bot": {"input": 0.00167, "output": 0.00167},
+    "ernie-speed": {"input": 0.0, "output": 0.0},
+    "ernie-lite": {"input": 0.0, "output": 0.0},
+    # ==================== 字节豆包 ====================
+    "doubao-pro": {"input": 0.00011, "output": 0.00028},
+    "doubao-pro-32k": {"input": 0.00011, "output": 0.00028},
+    "doubao-pro-128k": {"input": 0.00011, "output": 0.00028},
+    "doubao-lite": {"input": 0.000042, "output": 0.000084},
+    "doubao-lite-32k": {"input": 0.000042, "output": 0.000084},
+    # ==================== 讯飞星火 ====================
+    "spark-4-0": {"input": 0.00417, "output": 0.00417},
+    "spark-4": {"input": 0.00417, "output": 0.00417},
+    "spark-3-5": {"input": 0.00208, "output": 0.00208},
+    "spark-3-5-max": {"input": 0.00208, "output": 0.00208},
+    "spark-pro": {"input": 0.00111, "output": 0.00111},
+    "spark-lite": {"input": 0.0, "output": 0.0},
+    # ==================== 阿里百炼 (Qwen) ====================
     "qwen-plus": {"input": 0.0008, "output": 0.002},
     "qwen-turbo": {"input": 0.0003, "output": 0.0006},
+    "qwen-max": {"input": 0.0024, "output": 0.0096},
+    "qwen-max-latest": {"input": 0.0024, "output": 0.0096},
+    # Qwen3 系列
+    "qwen3-235b-a22b": {"input": 0.0, "output": 0.0},
+    "qwen3-32b": {"input": 0.00007, "output": 0.00028},
+    "qwen3-30b-a3b": {"input": 0.0, "output": 0.0},
+    "qwen3-14b": {"input": 0.000028, "output": 0.00014},
+    "qwen3-8b": {"input": 0.0, "output": 0.00007},
+    "qwen3-4b": {"input": 0.0, "output": 0.0},
+    "qwen3-1-5b": {"input": 0.0, "output": 0.0},
+    "qwen3-0-5b": {"input": 0.0, "output": 0.0},
+    # ==================== 智谱 (GLM) ====================
     "glm-4": {"input": 0.001, "output": 0.001},
     "glm-4-flash": {"input": 0.0001, "output": 0.0001},
+    "glm-4-plus": {"input": 0.005, "output": 0.005},
+    "glm-4.5": {"input": 0.005, "output": 0.005},
+    "glm-4.6": {"input": 0.008, "output": 0.008},
+    "glm-4.7": {"input": 0.012, "output": 0.012},
+    "glm-4.5-air": {"input": 0.0005, "output": 0.0005},
+    # GLM-5 系列 (2025年最新)
+    "glm-5": {"input": 0.015, "output": 0.015},
+    "glm-5-plus": {"input": 0.02, "output": 0.02},
+    "glm-5-air": {"input": 0.0005, "output": 0.0005},
+    # ==================== Moonshot (Kimi) ====================
+    "moonshot-v1-8k": {"input": 0.0006, "output": 0.0006},
+    "moonshot-v1-32k": {"input": 0.0006, "output": 0.0006},
+    "moonshot-v1-128k": {"input": 0.0006, "output": 0.0006},
+    "kimi-k2-0711-preview": {"input": 0.001, "output": 0.002},
+    "kimi-for-coding": {"input": 0.0006, "output": 0.0006},
+    "kimi-coding": {"input": 0.0006, "output": 0.0006},
+    # ==================== MiniMax ====================
+    "minimax-text-01": {"input": 0.0001, "output": 0.0001},
+    "MiniMax-M2.5": {"input": 0.0001, "output": 0.0001},
+    "MiniMax-M2.1": {"input": 0.0001, "output": 0.0001},
+    "abab6.5s-chat": {"input": 0.0001, "output": 0.0001},
+    # ==================== Ollama (本地模型，免费) ====================
+    "ollama": {"input": 0.0, "output": 0.0},
+    "qwen2.5:7b": {"input": 0.0, "output": 0.0},
+    "llama3:8b": {"input": 0.0, "output": 0.0},
+    "mistral:7b": {"input": 0.0, "output": 0.0},
 }
 
 
@@ -103,12 +202,73 @@ def estimate_cost(
     model: str,
     input_tokens: int,
     output_tokens: int,
-) -> float | None:
-    """估算单次 API 调用成本（USD）。未知模型返回 None。"""
+    use_fallback: bool = True,
+) -> tuple[float | None, str]:
+    """估算单次 API 调用成本（USD）。
+
+    支持精确匹配和模糊匹配：
+    1. 先尝试精确匹配
+    2. 再尝试去掉版本后缀（如日期）的匹配
+    3. 最后尝试前缀匹配
+
+    Args:
+        model: 模型名称
+        input_tokens: 输入 token 数量
+        output_tokens: 输出 token 数量
+        use_fallback: 是否使用兜底价格（默认 True）
+
+    Returns:
+        tuple: (成本 USD, 状态信息)
+              状态信息包括："exact"(精确匹配), "fuzzy"(模糊匹配), "fallback"(兜底价格), "unknown"(未知)
+    """
+    if not model or model == "unknown":
+        if use_fallback:
+            cost = (input_tokens * FALLBACK_PRICING["input"] + output_tokens * FALLBACK_PRICING["output"]) / 1000
+            logger.warning(f"[Cost] 模型名称无效，使用兜底价格: model={model}, cost=${cost:.6f}")
+            return cost, "fallback"
+        return None, "unknown"
+
+    # 1. 精确匹配
     pricing = _PRICING.get(model)
-    if pricing is None:
-        return None
-    return (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1000
+    if pricing:
+        cost = (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1000
+        return cost, "exact"
+
+    # 2. 尝试去掉版本日期后缀（如 -20250514）
+    import re
+    base_model = re.sub(r'-\d{8}$', '', model)
+    if base_model != model:
+        pricing = _PRICING.get(base_model)
+        if pricing:
+            cost = (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1000
+            logger.debug(f"[Cost] 使用基础模型价格: {model} -> {base_model}, cost=${cost:.6f}")
+            return cost, "fuzzy"
+
+    # 3. 尝试前缀匹配（如 glm-4.5-xxx 匹配 glm-4.5）
+    for key in sorted(_PRICING.keys(), key=len, reverse=True):  # 长的先匹配
+        if model.startswith(key) or key.startswith(model.split("-")[0] if "-" in model else model):
+            pricing = _PRICING[key]
+            cost = (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1000
+            logger.debug(f"[Cost] 使用前缀匹配价格: {model} -> {key}, cost=${cost:.6f}")
+            return cost, "fuzzy"
+
+    # 4. 特殊处理 kimi-for-coding 等变体
+    model_lower = model.lower()
+    for key in _PRICING:
+        if key.lower() in model_lower or model_lower in key.lower():
+            pricing = _PRICING[key]
+            cost = (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1000
+            logger.debug(f"[Cost] 使用包含匹配价格: {model} -> {key}, cost=${cost:.6f}")
+            return cost, "fuzzy"
+
+    # 5. 使用兜底价格
+    if use_fallback:
+        cost = (input_tokens * FALLBACK_PRICING["input"] + output_tokens * FALLBACK_PRICING["output"]) / 1000
+        logger.warning(f"[Cost] 模型 '{model}' 无定价配置，使用兜底价格: input=${FALLBACK_PRICING['input']}, output=${FALLBACK_PRICING['output']} per 1K tokens, cost=${cost:.6f}")
+        return cost, "fallback"
+
+    logger.warning(f"[Cost] 模型 '{model}' 无定价配置，跳过成本计算")
+    return None, "unknown"
 
 
 # ---- 会话级 Token 追踪器 ----
@@ -199,7 +359,7 @@ class SessionTokenTracker:
         output_tokens: int,
     ) -> UsageRecord:
         """记录一次 LLM 调用的 token 消耗。"""
-        cost = estimate_cost(model, input_tokens, output_tokens)
+        cost, status = estimate_cost(model, input_tokens, output_tokens)
         rec = UsageRecord(
             timestamp=time.time(),
             model=model,
@@ -207,6 +367,9 @@ class SessionTokenTracker:
             output_tokens=output_tokens,
             cost_usd=cost,
         )
+        # 如果是兜底价格，在记录中标记
+        if status == "fallback":
+            rec.model = f"{model} (fallback)"
         self.records.append(rec)
         self._append_to_disk(rec)
         return rec
@@ -284,14 +447,12 @@ class TokenRecord:
 
     def estimate_cost(self) -> float:
         """估算本次使用的成本（USD）。"""
-        return (
-            estimate_cost(
-                self.model,
-                self.prompt_tokens,
-                self.completion_tokens,
-            )
-            or 0.0
+        cost, _status = estimate_cost(
+            self.model,
+            self.prompt_tokens,
+            self.completion_tokens,
         )
+        return cost or 0.0
 
     def to_dict(self) -> dict[str, Any]:
         """转换为字典。"""

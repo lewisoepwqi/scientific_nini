@@ -30,6 +30,7 @@ async def list_capabilities():
                     "description": c.description,
                     "icon": c.icon,
                     "is_executable": c.is_executable,
+                    "execution_message": c.execution_message,
                     "required_tools": c.required_tools,
                 }
                 for c in capabilities
