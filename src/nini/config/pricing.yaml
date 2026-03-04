@@ -7,7 +7,9 @@ usd_to_cny_rate: 7.2
 default_model: "gpt-4o"
 
 models:
-  # OpenAI 模型
+  # ==================== OpenAI 模型 ====================
+  # GPT-4o 系列 (2025年最新)
+  # https://openai.com/api/pricing
   gpt-4o:
     input_price: 0.0025
     output_price: 0.01
@@ -20,15 +22,125 @@ models:
     currency: USD
     tier: "economy"
 
+  gpt-4o-latest:
+    input_price: 0.0025
+    output_price: 0.01
+    currency: USD
+    tier: "standard"
+
+  # GPT-4 系列
   gpt-4-turbo:
     input_price: 0.01
     output_price: 0.03
     currency: USD
     tier: "premium"
 
+  gpt-4:
+    input_price: 0.03
+    output_price: 0.06
+    currency: USD
+    tier: "premium"
+
+  gpt-4-32k:
+    input_price: 0.06
+    output_price: 0.12
+    currency: USD
+    tier: "premium"
+
+  # GPT-3.5 系列
   gpt-3.5-turbo:
     input_price: 0.0005
     output_price: 0.0015
+    currency: USD
+    tier: "economy"
+
+  gpt-3.5-turbo-16k:
+    input_price: 0.001
+    output_price: 0.002
+    currency: USD
+    tier: "economy"
+
+  # O1 系列 (推理模型)
+  o1:
+    input_price: 0.015
+    output_price: 0.06
+    currency: USD
+    tier: "premium"
+
+  o1-mini:
+    input_price: 0.0011
+    output_price: 0.0044
+    currency: USD
+    tier: "standard"
+
+  o3-mini:
+    input_price: 0.0011
+    output_price: 0.0044
+    currency: USD
+    tier: "standard"
+
+  # ==================== Anthropic 模型 ====================
+  # Claude 3.5 系列
+  # https://www.anthropic.com/pricing
+  claude-sonnet-4-20250514:
+    input_price: 0.003
+    output_price: 0.015
+    currency: USD
+    tier: "standard"
+
+  claude-3-5-sonnet-20241022:
+    input_price: 0.003
+    output_price: 0.015
+    currency: USD
+    tier: "standard"
+
+  claude-3-5-sonnet-latest:
+    input_price: 0.003
+    output_price: 0.015
+    currency: USD
+    tier: "standard"
+
+  # Claude 3 系列
+  claude-3-opus-20240229:
+    input_price: 0.015
+    output_price: 0.075
+    currency: USD
+    tier: "premium"
+
+  claude-3-sonnet-20240229:
+    input_price: 0.003
+    output_price: 0.015
+    currency: USD
+    tier: "standard"
+
+  claude-3-haiku-20240307:
+    input_price: 0.00025
+    output_price: 0.00125
+    currency: USD
+    tier: "economy"
+
+  claude-3-haiku-latest:
+    input_price: 0.00025
+    output_price: 0.00125
+    currency: USD
+    tier: "economy"
+
+  # Claude 2 系列
+  claude-2:
+    input_price: 0.008
+    output_price: 0.024
+    currency: USD
+    tier: "standard"
+
+  claude-2-1:
+    input_price: 0.008
+    output_price: 0.024
+    currency: USD
+    tier: "standard"
+
+  claude-instant-1:
+    input_price: 0.0008
+    output_price: 0.0024
     currency: USD
     tier: "economy"
 
@@ -51,45 +163,290 @@ models:
     currency: USD
     tier: "economy"
 
-  # DeepSeek 模型
+  # ==================== DeepSeek 模型 ====================
+  # https://platform.deepseek.com/api-docs/pricing
+  # DeepSeek-V3 (deepseek-chat)
   deepseek-chat:
     input_price: 0.00014
     output_price: 0.00028
     currency: USD
     tier: "economy"
 
+  deepseek-v3:
+    input_price: 0.00014
+    output_price: 0.00028
+    currency: USD
+    tier: "economy"
+
+  # DeepSeek-Coder-V2
   deepseek-coder:
     input_price: 0.00014
     output_price: 0.00028
     currency: USD
     tier: "economy"
 
+  deepseek-coder-v2:
+    input_price: 0.00014
+    output_price: 0.00028
+    currency: USD
+    tier: "economy"
+
+  # DeepSeek-R1 (推理模型)
   deepseek-reasoner:
     input_price: 0.00055
     output_price: 0.00219
     currency: USD
     tier: "standard"
 
-  # 阿里百炼 (Qwen)
+  deepseek-r1:
+    input_price: 0.00055
+    output_price: 0.00219
+    currency: USD
+    tier: "standard"
+
+  # ==================== Google Gemini 模型 ====================
+  # https://ai.google.dev/pricing
+  gemini-2-0-flash:
+    input_price: 0.0001
+    output_price: 0.0004
+    currency: USD
+    tier: "economy"
+
+  gemini-2-0-flash-lite:
+    input_price: 0.000075
+    output_price: 0.0003
+    currency: USD
+    tier: "economy"
+
+  gemini-1-5-flash:
+    input_price: 0.000075
+    output_price: 0.0003
+    currency: USD
+    tier: "economy"
+
+  gemini-1-5-pro:
+    input_price: 0.00125
+    output_price: 0.005
+    currency: USD
+    tier: "standard"
+
+  gemini-1-0-pro:
+    input_price: 0.0005
+    output_price: 0.0015
+    currency: USD
+    tier: "standard"
+
+  gemini-pro:
+    input_price: 0.0005
+    output_price: 0.0015
+    currency: USD
+    tier: "standard"
+
+  # ==================== 百度文心一言 ====================
+  # https://cloud.baidu.com/doc/WENXINWORKSHOP/s/hlrk4akp7
+  # ERNIE 4.0: 120元/1M tokens
+  ernie-4-0:
+    input_price: 0.0167
+    output_price: 0.0167
+    currency: USD
+    tier: "premium"
+
+  ernie-bot-4:
+    input_price: 0.0167
+    output_price: 0.0167
+    currency: USD
+    tier: "premium"
+
+  # ERNIE 3.5: 12元/1M tokens
+  ernie-3-5:
+    input_price: 0.00167
+    output_price: 0.00167
+    currency: USD
+    tier: "standard"
+
+  ernie-bot:
+    input_price: 0.00167
+    output_price: 0.00167
+    currency: USD
+    tier: "standard"
+
+  # ERNIE Speed: 免费
+  ernie-speed:
+    input_price: 0.0
+    output_price: 0.0
+    currency: USD
+    tier: "economy"
+
+  # ERNIE Lite: 免费
+  ernie-lite:
+    input_price: 0.0
+    output_price: 0.0
+    currency: USD
+    tier: "economy"
+
+  # ==================== 字节豆包 ====================
+  # https://www.volcengine.com/product/doubao
+  # Doubao-pro-32k: 0.8元/1M tokens
+  doubao-pro:
+    input_price: 0.00011
+    output_price: 0.00028
+    currency: USD
+    tier: "standard"
+
+  doubao-pro-32k:
+    input_price: 0.00011
+    output_price: 0.00028
+    currency: USD
+    tier: "standard"
+
+  doubao-pro-128k:
+    input_price: 0.00011
+    output_price: 0.00028
+    currency: USD
+    tier: "standard"
+
+  # Doubao-lite: 0.3元/1M tokens
+  doubao-lite:
+    input_price: 0.000042
+    output_price: 0.000084
+    currency: USD
+    tier: "economy"
+
+  doubao-lite-32k:
+    input_price: 0.000042
+    output_price: 0.000084
+    currency: USD
+    tier: "economy"
+
+  # ==================== 讯飞星火 ====================
+  # https://xinghuo.xfyun.cn/sparkapi/pricing
+  # Spark 4.0 Ultra: 30元/1M tokens
+  spark-4-0:
+    input_price: 0.00417
+    output_price: 0.00417
+    currency: USD
+    tier: "premium"
+
+  spark-4:
+    input_price: 0.00417
+    output_price: 0.00417
+    currency: USD
+    tier: "premium"
+
+  # Spark 3.5 Max: 15元/1M tokens
+  spark-3-5:
+    input_price: 0.00208
+    output_price: 0.00208
+    currency: USD
+    tier: "standard"
+
+  spark-3-5-max:
+    input_price: 0.00208
+    output_price: 0.00208
+    currency: USD
+    tier: "standard"
+
+  # Spark Pro: 8元/1M tokens
+  spark-pro:
+    input_price: 0.00111
+    output_price: 0.00111
+    currency: USD
+    tier: "standard"
+
+  # Spark Lite: 免费
+  spark-lite:
+    input_price: 0.0
+    output_price: 0.0
+    currency: USD
+    tier: "economy"
+
+  # ==================== 阿里百炼 (Qwen) ====================
+  # https://help.aliyun.com/zh/model-studio/model-pricing
+  # qwen-plus: 0.8元/1M tokens input, 2元/1M tokens output
   qwen-plus:
     input_price: 0.0008
     output_price: 0.002
     currency: USD
     tier: "standard"
 
+  # qwen-turbo: 0.3元/1M tokens input, 0.6元/1M tokens output
   qwen-turbo:
     input_price: 0.0003
     output_price: 0.0006
     currency: USD
     tier: "economy"
 
+  # qwen-max: 2.4元/1M tokens input, 9.6元/1M tokens output
   qwen-max:
-    input_price: 0.005
-    output_price: 0.01
+    input_price: 0.0024
+    output_price: 0.0096
     currency: USD
     tier: "premium"
 
-  # 智谱 (GLM)
+  qwen-max-latest:
+    input_price: 0.0024
+    output_price: 0.0096
+    currency: USD
+    tier: "premium"
+
+  # Qwen3 系列 (2025年最新)
+  # qwen3-235b-a22b: 思考模式 0元/1M, 非思考 0元/1M (限时免费)
+  qwen3-235b-a22b:
+    input_price: 0.0
+    output_price: 0.0
+    currency: USD
+    tier: "economy"
+
+  # qwen3-32b: 思考模式 2元/1M, 非思考 0.5元/1M
+  qwen3-32b:
+    input_price: 0.00007
+    output_price: 0.00028
+    currency: USD
+    tier: "economy"
+
+  # qwen3-30b-a3b: 限时免费
+  qwen3-30b-a3b:
+    input_price: 0.0
+    output_price: 0.0
+    currency: USD
+    tier: "economy"
+
+  # qwen3-14b: 思考模式 1元/1M, 非思考 0.2元/1M
+  qwen3-14b:
+    input_price: 0.000028
+    output_price: 0.00014
+    currency: USD
+    tier: "economy"
+
+  # qwen3-8b: 思考模式 0.5元/1M, 非思考 0元/1M (输入免费)
+  qwen3-8b:
+    input_price: 0.0
+    output_price: 0.00007
+    currency: USD
+    tier: "economy"
+
+  # qwen3-4b: 限时免费
+  qwen3-4b:
+    input_price: 0.0
+    output_price: 0.0
+    currency: USD
+    tier: "economy"
+
+  # qwen3-1.5b: 限时免费
+  qwen3-1-5b:
+    input_price: 0.0
+    output_price: 0.0
+    currency: USD
+    tier: "economy"
+
+  # qwen3-0.5b: 限时免费
+  qwen3-0-5b:
+    input_price: 0.0
+    output_price: 0.0
+    currency: USD
+    tier: "economy"
+
+  # ==================== 智谱 (GLM) ====================
   glm-4:
     input_price: 0.001
     output_price: 0.001
@@ -107,6 +464,50 @@ models:
     output_price: 0.005
     currency: USD
     tier: "premium"
+
+  glm-4.5:
+    input_price: 0.005
+    output_price: 0.005
+    currency: USD
+    tier: "premium"
+
+  glm-4.6:
+    input_price: 0.008
+    output_price: 0.008
+    currency: USD
+    tier: "premium"
+
+  glm-4.7:
+    input_price: 0.012
+    output_price: 0.012
+    currency: USD
+    tier: "premium"
+
+  # GLM-5 系列 (2025年最新)
+  # https://open.bigmodel.cn/pricing
+  glm-5:
+    input_price: 0.015
+    output_price: 0.015
+    currency: USD
+    tier: "premium"
+
+  glm-5-plus:
+    input_price: 0.02
+    output_price: 0.02
+    currency: USD
+    tier: "premium"
+
+  glm-5-air:
+    input_price: 0.0005
+    output_price: 0.0005
+    currency: USD
+    tier: "economy"
+
+  glm-4.5-air:
+    input_price: 0.0005
+    output_price: 0.0005
+    currency: USD
+    tier: "economy"
 
   # Moonshot (Kimi)
   moonshot-v1-8k:
@@ -127,7 +528,19 @@ models:
     currency: USD
     tier: "standard"
 
+  kimi-k2-0711-preview:
+    input_price: 0.001
+    output_price: 0.002
+    currency: USD
+    tier: "standard"
+
   # Kimi Coding
+  kimi-for-coding:
+    input_price: 0.0006
+    output_price: 0.0006
+    currency: USD
+    tier: "standard"
+
   kimi-coding:
     input_price: 0.0006
     output_price: 0.0006
@@ -141,8 +554,44 @@ models:
     currency: USD
     tier: "economy"
 
+  MiniMax-M2.5:
+    input_price: 0.0001
+    output_price: 0.0001
+    currency: USD
+    tier: "economy"
+
+  MiniMax-M2.1:
+    input_price: 0.0001
+    output_price: 0.0001
+    currency: USD
+    tier: "economy"
+
+  abab6.5s-chat:
+    input_price: 0.0001
+    output_price: 0.0001
+    currency: USD
+    tier: "economy"
+
   # Ollama (本地模型，免费)
   ollama:
+    input_price: 0.0
+    output_price: 0.0
+    currency: USD
+    tier: "economy"
+
+  qwen2.5:7b:
+    input_price: 0.0
+    output_price: 0.0
+    currency: USD
+    tier: "economy"
+
+  llama3:8b:
+    input_price: 0.0
+    output_price: 0.0
+    currency: USD
+    tier: "economy"
+
+  mistral:7b:
     input_price: 0.0
     output_price: 0.0
     currency: USD
