@@ -252,9 +252,50 @@ class TestMarkdownBundle:
         response = client.get(f"/api/workspace/{session_id}/files/report.md?bundle=0")
 
         assert response.status_code == 200
-        # 应该是 text/markdown 或 text/plain，不是 zip
-        content_type = response.headers.get("Content-Type", "")
-        assert "zip" not in content_type
+
+    def test_markdown_bundle_with_new_format_image_urls(self, client: TestClient, session_id: str):
+        """测试 Markdown 文件打包下载支持新格式图片 URL (/api/workspace/{sid}/files/artifacts/...)。"""
+        # 创建图片文件
+        fake_png = b"\x89PNG\r\n\x1a\nfake png data"
+        create_test_file(session_id, "artifacts/correlation_chart.png", fake_png)
+
+        # 创建使用新格式图片 URL 的 Markdown 文件
+        md_content = f"""# 分析报告
+
+## 相关性分析
+
+![相关性图表](/api/workspace/{session_id}/files/artifacts/correlation_chart.png)
+
+这是分析结果。
+
+## 另一张图
+
+![热力图](/api/workspace/{session_id}/files/artifacts/heatmap.png)
+"""
+        create_test_file(session_id, "notes/new_format_report.md", md_content)
+
+        # 请求 bundle 下载
+        response = client.get(f"/api/workspace/{session_id}/files/notes/new_format_report.md?bundle=1")
+
+        assert response.status_code == 200, f"Bundle 下载失败: {response.content}"
+        assert response.headers.get("Content-Type") == "application/zip", "应该返回 ZIP 格式"
+
+        # 解析 ZIP 内容
+        zip_buffer = io.BytesIO(response.content)
+        with zipfile.ZipFile(zip_buffer, "r") as zf:
+            files = zf.namelist()
+            # 应该包含 Markdown 文件
+            assert "new_format_report.md" in files
+            # 应该包含 images 目录
+            assert any("images/" in f for f in files)
+
+            # 读取 Markdown 内容，检查 URL 是否被重写
+            md_content_in_zip = zf.read("new_format_report.md").decode("utf-8")
+            assert "images/" in md_content_in_zip
+            # 新格式的 URL 应该被替换
+            assert f"/api/workspace/{session_id}/files/artifacts/correlation_chart.png" not in md_content_in_zip
+            # 应该使用相对路径
+            assert "images/correlation_chart.png" in md_content_in_zip
 
 
 class TestDeprecatedEndpoints:

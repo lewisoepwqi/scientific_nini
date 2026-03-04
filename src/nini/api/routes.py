@@ -2206,18 +2206,63 @@ async def _convert_plotly_json_to_png(
 
 
 def _extract_image_urls(md_content: str, session_id: str) -> list[dict[str, str]]:
-    """从 Markdown 提取图片 URL 及本地路径。"""
-    pattern = r"!\[([^\]]*)\]\((/api/artifacts/" + re.escape(session_id) + r"/[^)]+)\)"
-    matches = re.findall(pattern, md_content)
+    """从 Markdown 提取图片 URL 及本地路径。
 
+    支持两种格式的图片 URL：
+    1. 旧格式: /api/artifacts/{session_id}/filename
+    2. 新格式: /api/workspace/{session_id}/files/artifacts/filename
+    """
     results = []
-    for alt_text, url in matches:
+
+    # 匹配旧格式: /api/artifacts/{session_id}/filename
+    old_pattern = r"!\[([^\]]*)\]\((/api/artifacts/" + re.escape(session_id) + r"/[^)]+)\)"
+    old_matches = re.findall(old_pattern, md_content)
+
+    for alt_text, url in old_matches:
         filename = unquote(url.split("/")[-1])
         artifact_path = settings.sessions_dir / session_id / "workspace" / "artifacts" / filename
         if artifact_path.exists():
             results.append(
                 {"url": url, "path": str(artifact_path), "filename": filename, "alt": alt_text}
             )
+
+    # 匹配新格式: /api/workspace/{session_id}/files/artifacts/filename
+    new_pattern = r"!\[([^\]]*)\]\((/api/workspace/" + re.escape(session_id) + r"/files/[^)]+)\)"
+    new_matches = re.findall(new_pattern, md_content)
+
+    for alt_text, url in new_matches:
+        # 从 URL 中提取文件路径（如 artifacts/filename 或 notes/filename）
+        path_part = url.split(f"/api/workspace/{session_id}/files/")[-1]
+        if not path_part:
+            continue
+
+        filename = unquote(path_part.split("/")[-1])
+        # 尝试在 workspace 目录中定位文件
+        workspace_dir = settings.sessions_dir / session_id / "workspace"
+
+        # 首先尝试作为完整路径
+        full_path = workspace_dir / path_part
+        if full_path.exists() and full_path.is_file():
+            results.append(
+                {"url": url, "path": str(full_path), "filename": filename, "alt": alt_text}
+            )
+            continue
+
+        # 然后尝试在 artifacts 目录中查找
+        artifact_path = workspace_dir / "artifacts" / filename
+        if artifact_path.exists() and artifact_path.is_file():
+            results.append(
+                {"url": url, "path": str(artifact_path), "filename": filename, "alt": alt_text}
+            )
+            continue
+
+        # 最后尝试在 notes 目录中查找
+        notes_path = workspace_dir / "notes" / filename
+        if notes_path.exists() and notes_path.is_file():
+            results.append(
+                {"url": url, "path": str(notes_path), "filename": filename, "alt": alt_text}
+            )
+
     return results
 
 
