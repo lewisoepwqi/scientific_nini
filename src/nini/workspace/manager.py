@@ -4,7 +4,11 @@
 - workspace/uploads: 用户上传的数据文件
 - workspace/artifacts: Agent 产物（图表/报告等）
 - workspace/notes: 用户或助手保存的文本
-- workspace/index.json: 文件索引
+- workspace/scripts: 受管脚本资源
+- workspace/charts: 图表会话资源
+- workspace/reports: 报告会话资源
+- workspace/transforms: 数据变换中间产物
+- workspace/index.json: 文件索引与资源摘要
 """
 
 from __future__ import annotations
@@ -26,6 +30,13 @@ from urllib.parse import quote, unquote
 import pandas as pd
 
 from nini.config import settings
+from nini.models.session_resources import (
+    CodeExecutionRecord,
+    ExecutionErrorLocation,
+    ResourceType,
+    SessionResourceSummary,
+)
+from nini.models.common import parse_optional_datetime
 from nini.utils.dataframe_io import read_dataframe
 
 _SAFE_FILENAME_PATTERN = re.compile(r"[^0-9A-Za-z\u4e00-\u9fff._ -]")
@@ -47,7 +58,7 @@ _TEXT_DOCUMENT_EXTENSIONS = {
     ".pdf",
     ".docx",
 }
-_DOCUMENT_EXCLUDED_ROOTS = {"uploads", "artifacts", "executions"}
+_DOCUMENT_EXCLUDED_ROOTS = {"uploads", "artifacts", "executions", "scripts", "charts", "reports", "transforms"}
 
 
 def _now_iso() -> str:
@@ -65,6 +76,10 @@ class WorkspaceManager:
         self.artifacts_dir = self.base_dir / "artifacts"
         self.notes_dir = self.base_dir / "notes"
         self.executions_dir = self.base_dir / "executions"
+        self.scripts_dir = self.base_dir / "scripts"
+        self.charts_dir = self.base_dir / "charts"
+        self.reports_dir = self.base_dir / "reports"
+        self.transforms_dir = self.base_dir / "transforms"
         self.index_path = self.base_dir / "index.json"
 
     def ensure_dirs(self) -> None:
@@ -72,6 +87,10 @@ class WorkspaceManager:
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
         self.notes_dir.mkdir(parents=True, exist_ok=True)
         self.executions_dir.mkdir(parents=True, exist_ok=True)
+        self.scripts_dir.mkdir(parents=True, exist_ok=True)
+        self.charts_dir.mkdir(parents=True, exist_ok=True)
+        self.reports_dir.mkdir(parents=True, exist_ok=True)
+        self.transforms_dir.mkdir(parents=True, exist_ok=True)
 
     def sanitize_filename(self, name: str, *, default_name: str = "file") -> str:
         raw = Path(name).name.strip()
@@ -316,10 +335,14 @@ class WorkspaceManager:
 
         for bucket, items in kept.items():
             index[bucket] = items
+        for _kind, item in removed:
+            if isinstance(item, dict):
+                self._remove_resource_summary(index, str(item.get("id", "")).strip() or None)
         return removed
 
     def _sync_record_after_path_change(
         self,
+        index: dict[str, Any],
         kind: str,
         item: dict[str, Any],
         path_key: str,
@@ -339,6 +362,52 @@ class WorkspaceManager:
         elif kind == "note":
             item["type"] = self._infer_document_subtype(new_path)
             item["download_url"] = self._build_note_download_url(new_path)
+
+        resource_id = str(item.get("id", "")).strip()
+        if resource_id:
+            if kind == "dataset":
+                resource_type = ResourceType.DATASET
+                metadata = {
+                    "file_type": item.get("file_type"),
+                    "file_size": item.get("file_size"),
+                    "row_count": item.get("row_count"),
+                    "column_count": item.get("column_count"),
+                }
+            elif kind == "artifact":
+                artifact_type = str(item.get("type", "")).strip().lower()
+                resource_type = (
+                    ResourceType.FILE
+                    if artifact_type in {"code", "text_file"}
+                    else ResourceType.REPORT
+                    if artifact_type == "report"
+                    else ResourceType.CHART
+                )
+                metadata = {
+                    "artifact_type": item.get("type"),
+                    "format": item.get("format"),
+                    "visibility": item.get("visibility", "deliverable"),
+                }
+            else:
+                resource_type = ResourceType.FILE
+                metadata = {"document_type": item.get("type")}
+
+            self._upsert_resource_summary(
+                index,
+                self._build_resource_summary(
+                    resource_id=resource_id,
+                    resource_type=resource_type,
+                    name=str(item.get("name", "")),
+                    source_kind={
+                        "dataset": "datasets",
+                        "artifact": "artifacts",
+                        "note": "notes",
+                    }.get(kind, kind),
+                    path=new_path,
+                    download_url=str(item.get("download_url", "")) or None,
+                    metadata=metadata,
+                    created_at=str(item.get("created_at", "")) or None,
+                ),
+            )
 
     def _upsert_note_record_for_path(self, path: Path) -> dict[str, Any] | None:
         """为工作区内的文本文稿维护 note 记录。"""
@@ -377,6 +446,19 @@ class WorkspaceManager:
             existing["path"] = normalized_path
             existing["type"] = self._infer_document_subtype(path)
             existing["download_url"] = self._build_note_download_url(path)
+            self._upsert_resource_summary(
+                index,
+                self._build_resource_summary(
+                    resource_id=str(existing.get("id", "")),
+                    resource_type=ResourceType.FILE,
+                    name=path.name,
+                    source_kind="notes",
+                    path=path,
+                    download_url=str(existing.get("download_url", "")) or None,
+                    metadata={"document_type": existing.get("type")},
+                    created_at=str(existing.get("created_at", "")) or None,
+                ),
+            )
             self._save_index(index)
             return existing
 
@@ -391,6 +473,19 @@ class WorkspaceManager:
         }
         notes.append(note_record)
         index["notes"] = notes
+        self._upsert_resource_summary(
+            index,
+            self._build_resource_summary(
+                resource_id=str(note_record.get("id", "")),
+                resource_type=ResourceType.FILE,
+                name=path.name,
+                source_kind="notes",
+                path=path,
+                download_url=str(note_record.get("download_url", "")) or None,
+                metadata={"document_type": note_record.get("type")},
+                created_at=str(note_record.get("created_at", "")) or None,
+            ),
+        )
         self._save_index(index)
         return note_record
 
@@ -504,7 +599,7 @@ class WorkspaceManager:
             kind, record, path_key = self._find_record_by_path(target, index=index)
         if record is not None and path_key is not None:
             old_record = deepcopy(record)
-            self._sync_record_after_path_change(kind, record, path_key, new_path)
+            self._sync_record_after_path_change(index, kind, record, path_key, new_path)
             updated_records.append({"kind": kind, "old_record": old_record, "record": record})
             self._save_index(index)
 
@@ -569,7 +664,7 @@ class WorkspaceManager:
 
     def _default_index(self) -> dict[str, Any]:
         return {
-            "version": 1,
+            "version": 2,
             "session_id": self.session_id,
             "created_at": _now_iso(),
             "updated_at": _now_iso(),
@@ -577,6 +672,7 @@ class WorkspaceManager:
             "artifacts": [],
             "notes": [],
             "folders": [],
+            "resources": [],
         }
 
     def _load_index(self) -> dict[str, Any]:
@@ -593,8 +689,9 @@ class WorkspaceManager:
             data.setdefault("artifacts", [])
             data.setdefault("notes", [])
             data.setdefault("folders", [])
+            data.setdefault("resources", [])
             data.setdefault("session_id", self.session_id)
-            data.setdefault("version", 1)
+            data.setdefault("version", 2)
             return data
         except Exception:
             index = self._default_index()
@@ -608,6 +705,149 @@ class WorkspaceManager:
             encoding="utf-8",
         )
 
+    def _resource_bucket(self, index: dict[str, Any]) -> list[dict[str, Any]]:
+        resources = index.get("resources", [])
+        if not isinstance(resources, list):
+            resources = []
+            index["resources"] = resources
+        return resources
+
+    def _upsert_resource_summary(
+        self,
+        index: dict[str, Any],
+        summary: SessionResourceSummary,
+    ) -> dict[str, Any]:
+        resources = self._resource_bucket(index)
+        payload = summary.model_dump(mode="json")
+
+        for item in resources:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("id", "")).strip() != summary.id:
+                continue
+            item.update(payload)
+            return item
+
+        resources.append(payload)
+        return payload
+
+    def _remove_resource_summary(self, index: dict[str, Any], resource_id: str | None) -> None:
+        if not resource_id:
+            return
+        resources = self._resource_bucket(index)
+        index["resources"] = [
+            item
+            for item in resources
+            if not (isinstance(item, dict) and str(item.get("id", "")).strip() == resource_id)
+        ]
+
+    def _infer_mime_type(self, path: Path, fallback: str = "application/octet-stream") -> str:
+        mime_type = mimetypes.guess_type(path.name)[0]
+        return mime_type or fallback
+
+    def _build_resource_summary(
+        self,
+        *,
+        resource_id: str,
+        resource_type: ResourceType,
+        name: str,
+        source_kind: str,
+        path: Path | None = None,
+        download_url: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        created_at: str | None = None,
+    ) -> SessionResourceSummary:
+        path_value = str(path) if path is not None else None
+        mime_type = self._infer_mime_type(path) if path is not None else None
+        summary = SessionResourceSummary(
+            id=resource_id,
+            session_id=self.session_id,
+            resource_type=resource_type,
+            name=name,
+            source_kind=source_kind,
+            path=path_value,
+            download_url=download_url,
+            mime_type=mime_type,
+            metadata=metadata or {},
+        )
+        if created_at:
+            dt = parse_optional_datetime(created_at)
+            if dt is not None:
+                summary.created_at = dt
+                summary.updated_at = dt
+        return summary
+
+    def list_resource_summaries(self) -> list[dict[str, Any]]:
+        index = self._load_index()
+        resources = self._resource_bucket(index)
+        result = [item for item in resources if isinstance(item, dict)]
+        return sorted(result, key=lambda item: str(item.get("created_at", "")), reverse=True)
+
+    def get_managed_resource_dir(self, resource_type: ResourceType | str) -> Path:
+        normalized = (
+            resource_type.value if isinstance(resource_type, ResourceType) else str(resource_type).strip()
+        )
+        self.ensure_dirs()
+        mapping = {
+            ResourceType.SCRIPT.value: self.scripts_dir,
+            ResourceType.CHART.value: self.charts_dir,
+            ResourceType.REPORT.value: self.reports_dir,
+            ResourceType.DATASET.value: self.uploads_dir,
+            ResourceType.STAT_RESULT.value: self.transforms_dir,
+            ResourceType.FILE.value: self.notes_dir,
+        }
+        return mapping.get(normalized, self.base_dir)
+
+    def build_managed_resource_path(
+        self,
+        resource_type: ResourceType | str,
+        filename: str,
+        *,
+        default_name: str = "resource",
+    ) -> Path:
+        """为受管资源构建安全路径。"""
+        target_dir = self.get_managed_resource_dir(resource_type)
+        safe_name = self.sanitize_filename(filename, default_name=default_name)
+        return target_dir / safe_name
+
+    def upsert_managed_resource(
+        self,
+        *,
+        resource_id: str,
+        resource_type: ResourceType | str,
+        name: str,
+        path: Path,
+        source_kind: str = "managed",
+        download_url: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """注册或更新受管资源摘要。"""
+        index = self._load_index()
+        rel_path = self._relative_workspace_path(path)
+        resolved_download_url = download_url
+        if resolved_download_url is None and rel_path:
+            resolved_download_url = self.build_workspace_file_download_url(rel_path)
+        summary = self._build_resource_summary(
+            resource_id=resource_id,
+            resource_type=(
+                resource_type if isinstance(resource_type, ResourceType) else ResourceType(str(resource_type))
+            ),
+            name=name,
+            source_kind=source_kind,
+            path=path,
+            download_url=resolved_download_url,
+            metadata=metadata,
+        )
+        stored = self._upsert_resource_summary(index, summary)
+        self._save_index(index)
+        return stored
+
+    def get_resource_summary(self, resource_id: str) -> dict[str, Any] | None:
+        for item in self.list_resource_summaries():
+            if str(item.get("id", "")).strip() == resource_id:
+                return item
+        return None
+
     def add_dataset_record(
         self,
         *,
@@ -620,6 +860,7 @@ class WorkspaceManager:
         column_count: int,
     ) -> dict[str, Any]:
         index = self._load_index()
+        created_at = _now_iso()
         record = {
             "id": dataset_id,
             "session_id": self.session_id,
@@ -629,15 +870,39 @@ class WorkspaceManager:
             "file_size": file_size,
             "row_count": row_count,
             "column_count": column_count,
-            "created_at": _now_iso(),
+            "created_at": created_at,
         }
-        datasets = [
-            item
-            for item in index.get("datasets", [])
-            if isinstance(item, dict) and item.get("name") != name
-        ]
+        datasets = []
+        for item in index.get("datasets", []):
+            if not isinstance(item, dict):
+                continue
+            if item.get("name") == name:
+                self._remove_resource_summary(index, str(item.get("id", "")).strip() or None)
+                continue
+            datasets.append(item)
         datasets.append(record)
         index["datasets"] = datasets
+        self._upsert_resource_summary(
+            index,
+            self._build_resource_summary(
+                resource_id=dataset_id,
+                resource_type=ResourceType.DATASET,
+                name=name,
+                source_kind="datasets",
+                path=file_path,
+                download_url=(
+                    f"/api/workspace/{self.session_id}/uploads/"
+                    f"{quote(Path(str(file_path)).name, safe='')}"
+                ),
+                metadata={
+                    "file_type": file_type,
+                    "file_size": file_size,
+                    "row_count": row_count,
+                    "column_count": column_count,
+                },
+                created_at=created_at,
+            ),
+        )
         self._save_index(index)
         return record
 
@@ -752,6 +1017,26 @@ class WorkspaceManager:
 
         artifacts = self._deduplicate_artifacts(artifacts)
         index["artifacts"] = artifacts
+        resource_type = ResourceType.FILE if artifact_type in {"code", "text_file"} else (
+            ResourceType.REPORT if artifact_type == "report" else ResourceType.CHART
+        )
+        self._upsert_resource_summary(
+            index,
+            self._build_resource_summary(
+                resource_id=str(record.get("id", "")),
+                resource_type=resource_type,
+                name=name,
+                source_kind="artifacts",
+                path=file_path,
+                download_url=self.build_artifact_download_url(name),
+                metadata={
+                    "artifact_type": artifact_type,
+                    "format": format_hint,
+                    "visibility": visibility,
+                },
+                created_at=str(record.get("created_at", "")) or None,
+            ),
+        )
         self._save_index(index)
         return record
 
@@ -841,6 +1126,8 @@ class WorkspaceManager:
             files.append(
                 {
                     "id": item.get("id"),
+                    "resource_id": item.get("id"),
+                    "resource_type": ResourceType.DATASET.value,
                     "name": item.get("name"),
                     "kind": "dataset",
                     "size": item.get("file_size", 0),
@@ -880,6 +1167,8 @@ class WorkspaceManager:
                 files.append(
                     {
                         "id": item.get("id"),
+                        "resource_id": item.get("id"),
+                        "resource_type": ResourceType.FILE.value,
                         "name": item.get("name"),
                         "kind": "document",
                         "size": size,
@@ -903,6 +1192,14 @@ class WorkspaceManager:
             files.append(
                 {
                     "id": item.get("id"),
+                    "resource_id": item.get("id"),
+                    "resource_type": (
+                        ResourceType.FILE.value
+                        if str(item.get("type", "")).strip().lower() in {"code", "text_file"}
+                        else ResourceType.REPORT.value
+                        if str(item.get("type", "")).strip().lower() == "report"
+                        else ResourceType.CHART.value
+                    ),
                     "name": item.get("name"),
                     "kind": "result",
                     "size": size,
@@ -934,6 +1231,8 @@ class WorkspaceManager:
             files.append(
                 {
                     "id": item.get("id"),
+                    "resource_id": item.get("id"),
+                    "resource_type": ResourceType.FILE.value,
                     "name": item.get("name"),
                     "kind": "document",
                     "size": size,
@@ -1076,6 +1375,8 @@ class WorkspaceManager:
         if deleted is None:
             return None
 
+        self._remove_resource_summary(index, str(deleted.get("id", "")).strip() or None)
+
         # 删除磁盘文件
         file_path_str = deleted.get("file_path") or deleted.get("path") or ""
         if file_path_str:
@@ -1130,6 +1431,18 @@ class WorkspaceManager:
                     item["download_url"] = (
                         f"/api/workspace/{self.session_id}/notes/{quote(safe_name)}"
                     )
+
+                path_key = "file_path" if "file_path" in item else "path"
+                updated_path = Path(str(item.get(path_key, ""))) if item.get(path_key) else None
+                if updated_path is not None:
+                    internal_kind = {
+                        "datasets": "dataset",
+                        "artifacts": "artifact",
+                        "notes": "note",
+                    }[kind]
+                    self._sync_record_after_path_change(index, internal_kind, item, path_key, updated_path)
+                    # 同步后恢复用户指定的名称（去除ID前缀的干净名称）
+                    item["name"] = safe_name
 
                 self._save_index(index)
                 return item
@@ -1341,33 +1654,43 @@ class WorkspaceManager:
         tool_args: dict[str, Any] | None = None,
         context_token_count: int | None = None,
         intent: str | None = None,
+        script_resource_id: str | None = None,
+        output_resource_ids: list[str] | None = None,
+        retry_of_execution_id: str | None = None,
+        recovery_hint: str | None = None,
+        error_location: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """将代码执行记录持久化到 workspace/executions/ 目录。"""
         self.ensure_dirs()
         exec_id = uuid.uuid4().hex[:12]
-        record: dict[str, Any] = {
-            "id": exec_id,
-            "session_id": self.session_id,
-            "code": code,
-            "output": output,
-            "status": status,
-            "language": language,
-            "created_at": _now_iso(),
-        }
-        if tool_name is not None:
-            record["tool_name"] = tool_name
-        if tool_args is not None:
-            record["tool_args"] = tool_args
-        if context_token_count is not None:
-            record["context_token_count"] = context_token_count
-        if intent:
-            record["intent"] = intent
+        error_location_model = (
+            ExecutionErrorLocation.model_validate(error_location)
+            if isinstance(error_location, dict) and error_location
+            else None
+        )
+        record = CodeExecutionRecord(
+            id=exec_id,
+            session_id=self.session_id,
+            code=code,
+            output=output,
+            status=status,
+            language=language,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            context_token_count=context_token_count,
+            intent=intent,
+            script_resource_id=script_resource_id,
+            output_resource_ids=output_resource_ids or [],
+            retry_of_execution_id=retry_of_execution_id,
+            recovery_hint=recovery_hint,
+            error_location=error_location_model,
+        )
         exec_path = self.executions_dir / f"{exec_id}.json"
         exec_path.write_text(
-            json.dumps(record, ensure_ascii=False, indent=2),
+            json.dumps(record.model_dump(mode="json"), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        return record
+        return record.model_dump(mode="json")
 
     def list_code_executions(self, limit: int = 50) -> list[dict[str, Any]]:
         """从磁盘加载执行历史，按时间倒序返回。"""
@@ -1377,11 +1700,25 @@ class WorkspaceManager:
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
-                    records.append(data)
+                    records.append(CodeExecutionRecord.model_validate(data).model_dump(mode="json"))
             except Exception:
                 continue
         records.sort(key=lambda r: str(r.get("created_at", "")), reverse=True)
         return records[:limit]
+
+    def get_code_execution(self, execution_id: str) -> dict[str, Any] | None:
+        """按执行 ID 读取单条执行历史。"""
+        self.ensure_dirs()
+        path = self.executions_dir / f"{execution_id}.json"
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return CodeExecutionRecord.model_validate(data).model_dump(mode="json")
+        except Exception:
+            return None
+        return None
 
     def move_path_to_folder(
         self,

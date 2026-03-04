@@ -1,8 +1,22 @@
 import { isRecord } from "./utils";
 
+/**
+ * 资源引用信息（新资源系统）
+ */
+export interface ToolResultResourceRef {
+  resource_id: string;
+  resource_type: string;
+  name: string;
+}
+
 export interface NormalizedToolResult {
   message: string;
   status: "success" | "error";
+  /**
+   * 工具执行创建或更新的资源引用
+   * 用于新资源系统追踪资源生命周期
+   */
+  resourceRef?: ToolResultResourceRef;
 }
 
 function formatAskUserQuestionResult(parsed: Record<string, unknown>): string | null {
@@ -58,6 +72,24 @@ function formatAskUserQuestionResult(parsed: Record<string, unknown>): string | 
   return lines.length > 0 ? lines.join("\n") : null;
 }
 
+/**
+ * 从工具结果中提取资源引用信息
+ * 支持新资源系统的 resource_id / resource_type 字段
+ */
+function extractResourceRef(parsed: Record<string, unknown>): ToolResultResourceRef | undefined {
+  const data = isRecord(parsed.data) ? parsed.data : parsed;
+  if (!data) return undefined;
+
+  const resourceId = typeof data.resource_id === "string" ? data.resource_id : undefined;
+  const resourceType = typeof data.resource_type === "string" ? data.resource_type : undefined;
+  const name = typeof data.name === "string" ? data.name : resourceId;
+
+  if (resourceId && resourceType) {
+    return { resource_id: resourceId, resource_type: resourceType, name: name || resourceId };
+  }
+  return undefined;
+}
+
 export function normalizeToolResult(rawContent: unknown): NormalizedToolResult {
   if (typeof rawContent !== "string" || !rawContent.trim()) {
     return { message: "", status: "success" };
@@ -66,24 +98,36 @@ export function normalizeToolResult(rawContent: unknown): NormalizedToolResult {
   try {
     const parsed = JSON.parse(rawContent);
     if (isRecord(parsed)) {
+      // 提取资源引用信息
+      const resourceRef = extractResourceRef(parsed);
+
       if (typeof parsed.error === "string" && parsed.error) {
-        return { message: parsed.error, status: "error" };
+        return { message: parsed.error, status: "error", resourceRef };
       }
       if (parsed.success === false) {
         const msg =
           typeof parsed.message === "string" && parsed.message
             ? parsed.message
             : "工具执行失败";
-        return { message: msg, status: "error" };
+        return { message: msg, status: "error", resourceRef };
       }
 
       const askUserQuestionMessage = formatAskUserQuestionResult(parsed);
       if (askUserQuestionMessage) {
-        return { message: askUserQuestionMessage, status: "success" };
+        return { message: askUserQuestionMessage, status: "success", resourceRef };
       }
 
       if (typeof parsed.message === "string" && parsed.message) {
-        return { message: parsed.message, status: "success" };
+        return { message: parsed.message, status: "success", resourceRef };
+      }
+
+      // 如果有资源引用但没有 message，生成默认消息
+      if (resourceRef) {
+        return {
+          message: `${resourceRef.resource_type} 资源已创建: ${resourceRef.name}`,
+          status: "success",
+          resourceRef,
+        };
       }
     }
   } catch {

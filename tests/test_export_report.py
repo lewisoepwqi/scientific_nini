@@ -16,6 +16,7 @@ from nini.tools.export_report import (
     _resolve_images_to_base64,
     _resolve_images_to_base64_with_stats,
 )
+from nini.workspace import WorkspaceManager
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -377,6 +378,63 @@ async def test_export_report_uses_latest_report(
 
     assert result.success
     assert result.data["source_report"] == "artifacts/test_report.md"
+
+
+@pytest.mark.asyncio
+async def test_export_report_supports_report_resource_id(
+    skill: ExportReportSkill,
+    mock_session: MagicMock,
+    setup_report: Path,
+):
+    fake_pdf = b"%PDF-1.4 by-resource"
+    mock_weasyprint = MagicMock()
+    mock_html_inst = MagicMock()
+    mock_html_inst.write_pdf.return_value = fake_pdf
+    mock_weasyprint.HTML.return_value = mock_html_inst
+
+    with (
+        patch("nini.tools.export_report.settings") as mock_settings,
+        patch("nini.workspace.manager.settings") as manager_settings,
+        patch.dict("sys.modules", {"weasyprint": mock_weasyprint}),
+    ):
+        mock_settings.sessions_dir = setup_report
+        manager_settings.sessions_dir = setup_report
+        manager = WorkspaceManager(mock_session.id)
+        report_file = (
+            setup_report / mock_session.id / "workspace" / "notes" / "reports" / "resource_report.md"
+        )
+        report_file.parent.mkdir(parents=True, exist_ok=True)
+        report_file.write_text("# 测试报告\n\n资源导出。\n", encoding="utf-8")
+        manager.sync_text_document_record("notes/reports/resource_report.md")
+        report_record_path = manager.build_managed_resource_path("report", "report_demo.json")
+        report_record_path.parent.mkdir(parents=True, exist_ok=True)
+        report_record_path.write_text(
+            json.dumps(
+                {
+                    "id": "report_demo",
+                    "session_id": mock_session.id,
+                    "title": "测试报告",
+                    "sections": [],
+                    "markdown_path": "notes/reports/resource_report.md",
+                    "export_ids": [],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        manager.upsert_managed_resource(
+            resource_id="report_demo",
+                resource_type="report",
+                name="测试报告",
+                path=report_record_path,
+                source_kind="reports",
+                metadata={"markdown_path": "notes/reports/resource_report.md"},
+            )
+        result = await skill.execute(session=mock_session, report_id="report_demo")
+
+    assert result.success
+    assert result.data["report_id"] == "report_demo"
+    assert result.data["source_report"] == "notes/reports/resource_report.md"
 
 
 @pytest.mark.asyncio

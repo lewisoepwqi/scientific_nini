@@ -10,6 +10,49 @@
 | **Capabilities** | 能力封装 | 元数据（`Capability` dataclass） | 终端用户 |
 | **Skills** | 工作流项目 | 目录（Markdown + 脚本 + 资源） | 开发者/高级用户 |
 
+## 工具基础层（Tool Foundation）
+
+自 consolidate-tool-foundation 变更后，工具层采用**基础工具层 + 内部编排层**架构：
+
+### 基础工具层（9个核心工具）
+
+模型可见的工具收敛为9个基础工具，降低选择成本：
+
+| 工具名 | 职责 | 替代的旧工具 |
+|--------|------|--------------|
+| `task_state` | 任务状态管理 | - |
+| `dataset_catalog` | 数据集目录与加载 | `load_dataset`, `preview_data` |
+| `dataset_transform` | 结构化数据转换 | `clean_data`（部分） |
+| `stat_test` | 统计检验 | `t_test`, `anova`, `mann_whitney`, `kruskal_wallis` |
+| `stat_model` | 统计建模 | `correlation`, `regression` |
+| `stat_interpret` | 结果解读 | `interpretation` |
+| `chart_session` | 图表会话管理 | `create_chart`, `export_chart` |
+| `report_session` | 报告会话管理 | `generate_report`, `export_report` |
+| `workspace_session` | 工作区文件操作 | `fetch_url`, 文件读写 |
+| `code_session` | 脚本会话管理 | `run_code`, `run_r_code` |
+
+### 内部编排层
+
+复杂分析流程（如完整差异分析、ANOVA、相关分析、回归分析）改为内部编排层实现，通过组合基础工具完成，不再作为与基础工具同级的模型接口暴露。
+
+### 统一资源标识
+
+所有基础工具遵循统一的资源契约：
+
+- **创建资源时**：返回 `resource_id`、`resource_type`、`name`
+- **引用资源时**：优先使用 `resource_id` 而非文本名称
+- **资源类型**：`dataset`、`file`、`script`、`chart`、`report`、`stat_result`、`transform`、`artifact`
+
+### 脚本会话生命周期
+
+`code_session` 提供完整的脚本生命周期管理：
+
+1. `create_script` - 创建脚本资源
+2. `run_script` - 执行脚本
+3. `patch_script` - 局部修补（失败恢复）
+4. `rerun` - 重试执行（保留上下文）
+5. `promote_output` - 提升输出为正式资源
+
 ---
 
 ## 1. Tools（工具）

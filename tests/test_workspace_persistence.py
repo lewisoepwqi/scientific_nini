@@ -60,7 +60,9 @@ def test_workspace_dataset_persist_and_reload(client: LocalASGIClient) -> None:
     files_resp = client.get(f"/api/workspace/{session_id}/files")
     assert files_resp.status_code == 200
     files = files_resp.json()["data"]["files"]
+    resources = files_resp.json()["data"]["resources"]
     assert any(item["kind"] == "dataset" and item["name"] == "exp.csv" for item in files)
+    assert any(item["resource_type"] == "dataset" and item["name"] == "exp.csv" for item in resources)
 
     # 模拟重启：清空内存会话
     session_manager._sessions.clear()
@@ -314,9 +316,16 @@ def test_new_workspace_folders_move_and_executions_routes(
 
     executions_resp = client.get(f"/api/workspace/{session_id}/executions")
     assert executions_resp.status_code == 200
-    executions = executions_resp.json()["data"]["executions"]
+    executions_payload = executions_resp.json()["data"]
+    executions = executions_payload["executions"]
     assert len(executions) == 1
     assert executions[0]["intent"] == "验证新版执行历史接口"
+    assert isinstance(executions_payload["resources"], list)
+
+    resources_resp = client.get(f"/api/workspace/{session_id}/resources")
+    assert resources_resp.status_code == 200
+    resources = resources_resp.json()["data"]["resources"]
+    assert any(item["resource_type"] == "file" for item in resources)
 
 
 def test_download_artifact_supports_double_encoded_filename(

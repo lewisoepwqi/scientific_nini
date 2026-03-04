@@ -20,6 +20,7 @@ from scipy import stats
 from scipy.stats import kstest, shapiro
 
 from nini.agent.session import Session
+from nini.tools.analysis_workflow import AnalysisWorkflowEngine
 from nini.tools.base import Skill, SkillResult
 from nini.utils.chart_fonts import CJK_FONT_FAMILY
 
@@ -82,78 +83,13 @@ class RegressionAnalysisSkill(Skill):
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
         """执行完整回归分析。"""
-        dataset_name = kwargs["dataset_name"]
-        dependent_var = kwargs["dependent_var"]
-        independent_vars = kwargs["independent_vars"]
-        journal_style = kwargs.get("journal_style", "nature")
-
-        # 获取数据
-        df = session.datasets.get(dataset_name)
-        if df is None:
-            return SkillResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
-
-        # 验证列
-        all_vars = [dependent_var] + list(independent_vars)
-        for var in all_vars:
-            if var not in df.columns:
-                return SkillResult(success=False, message=f"列 '{var}' 不存在")
-
-        # 步骤1: 数据质量检查
-        quality_report = self._check_data_quality(df, all_vars)
-        if quality_report["has_critical_issues"]:
-            return SkillResult(
-                success=False,
-                message=f"数据质量问题: {quality_report['issues'][0]}"
-            )
-
-        # 步骤2: 准备数据（处理缺失值）
-        clean_df = df[all_vars].dropna()
-        if len(clean_df) < 10:
-            return SkillResult(success=False, message="有效样本量不足（至少需要 10 个观测）")
-
-        # 步骤3: 假设检验
-        assumptions = self._check_assumptions(clean_df, dependent_var, independent_vars)
-
-        # 步骤4: 执行回归分析
-        regression_result = self._perform_regression(
-            clean_df, dependent_var, independent_vars
-        )
-
-        # 步骤5: 残差诊断
-        residual_diagnostics = self._diagnose_residuals(
-            clean_df, dependent_var, independent_vars, regression_result
-        )
-
-        # 步骤6: 可视化
-        chart_data = self._create_visualizations(
-            clean_df, dependent_var, independent_vars,
-            regression_result, residual_diagnostics, journal_style
-        )
-
-        # 步骤7: 生成报告
-        report = self._generate_report(
-            regression_result, assumptions, residual_diagnostics,
-            len(clean_df), dependent_var, independent_vars
-        )
-
-        # 组装结果
-        result_data = {
-            "sample_size": len(clean_df),
-            "dependent_var": dependent_var,
-            "independent_vars": independent_vars,
-            "quality_report": quality_report,
-            "assumptions": assumptions,
-            "regression": regression_result,
-            "residuals": residual_diagnostics,
-            "report": report,
-        }
-
-        return SkillResult(
-            success=True,
-            data=result_data,
-            message=report["summary"],
-            has_chart=True,
-            chart_data=chart_data,
+        engine = AnalysisWorkflowEngine()
+        return await engine.regression_analysis(
+            session,
+            dataset_name=kwargs["dataset_name"],
+            dependent_var=kwargs["dependent_var"],
+            independent_vars=list(kwargs["independent_vars"]),
+            journal_style=kwargs.get("journal_style", "nature"),
         )
 
     def _check_data_quality(

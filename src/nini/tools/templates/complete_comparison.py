@@ -19,6 +19,7 @@ import pandas as pd
 from scipy import stats
 
 from nini.agent.session import Session
+from nini.tools.analysis_workflow import AnalysisWorkflowEngine
 from nini.tools.base import Skill, SkillResult
 from nini.utils.chart_fonts import CJK_FONT_FAMILY
 
@@ -85,85 +86,14 @@ class CompleteComparisonSkill(Skill):
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
         """执行完整分析。"""
-        dataset_name = kwargs["dataset_name"]
-        value_column = kwargs["value_column"]
-        group_column = kwargs["group_column"]
-        journal_style = kwargs.get("journal_style", "nature")
-        paired = kwargs.get("paired", False)
-
-        # 获取数据
-        df = session.datasets.get(dataset_name)
-        if df is None:
-            return SkillResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
-
-        if value_column not in df.columns:
-            return SkillResult(success=False, message=f"列 '{value_column}' 不存在")
-        if group_column not in df.columns:
-            return SkillResult(success=False, message=f"分组列 '{group_column}' 不存在")
-
-        # 步骤1: 数据质量检查
-        quality_report = self._check_data_quality(df, value_column, group_column)
-        if not quality_report["valid"]:
-            return SkillResult(
-                success=False, message=f"数据质量检查失败: {quality_report['error']}"
-            )
-
-        # 步骤2: 分离数据
-        groups = df[group_column].dropna().unique()
-        if len(groups) != 2:
-            return SkillResult(
-                success=False,
-                message=f"此技能适用于恰好2个分组，当前有 {len(groups)} 个分组。请使用 ANOVA 进行多组比较。",
-            )
-
-        group1_name, group2_name = groups[0], groups[1]
-        data1 = df[df[group_column] == group1_name][value_column].dropna()
-        data2 = df[df[group_column] == group2_name][value_column].dropna()
-
-        if len(data1) < 2 or len(data2) < 2:
-            return SkillResult(success=False, message="每组至少需要 2 个观测值")
-
-        # 步骤3: 前提检验
-        assumptions = self._test_assumptions(data1, data2)
-
-        # 步骤4: 选择并执行检验
-        if assumptions["use_non_parametric"]:
-            # 使用 Mann-Whitney U 检验
-            test_result = self._mann_whitney_test(data1, data2, group1_name, group2_name)
-        else:
-            # 使用 t 检验
-            test_result = self._t_test(data1, data2, group1_name, group2_name, paired)
-
-        # 步骤5: 效应量
-        effect_size = self._calculate_effect_size(data1, data2, assumptions)
-
-        # 步骤6: 可视化
-        chart_data = self._create_visualization(df, value_column, group_column, journal_style)
-
-        # 步骤7: 生成报告
-        report = self._generate_report(
-            quality_report, assumptions, test_result, effect_size, journal_style
-        )
-
-        # 组装结果
-        result_data = {
-            "data_quality": quality_report,
-            "assumptions": assumptions,
-            "test_result": test_result,
-            "effect_size": effect_size,
-            "report": report,
-            "n1": len(data1),
-            "n2": len(data2),
-            "group1": str(group1_name),
-            "group2": str(group2_name),
-        }
-
-        return SkillResult(
-            success=True,
-            data=result_data,
-            message=report["summary"],
-            has_chart=True,
-            chart_data=chart_data,
+        engine = AnalysisWorkflowEngine()
+        return await engine.complete_comparison(
+            session,
+            dataset_name=kwargs["dataset_name"],
+            value_column=kwargs["value_column"],
+            group_column=kwargs["group_column"],
+            journal_style=kwargs.get("journal_style", "nature"),
+            paired=bool(kwargs.get("paired", False)),
         )
 
     def _check_data_quality(

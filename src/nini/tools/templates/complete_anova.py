@@ -20,6 +20,7 @@ from scipy import stats
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 from nini.agent.session import Session
+from nini.tools.analysis_workflow import AnalysisWorkflowEngine
 from nini.tools.base import Skill, SkillResult
 from nini.utils.chart_fonts import CJK_FONT_FAMILY
 
@@ -81,69 +82,13 @@ class CompleteANOVASkill(Skill):
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
         """执行完整分析。"""
-        dataset_name = kwargs["dataset_name"]
-        value_column = kwargs["value_column"]
-        group_column = kwargs["group_column"]
-        journal_style = kwargs.get("journal_style", "nature")
-
-        # 获取数据
-        df = session.datasets.get(dataset_name)
-        if df is None:
-            return SkillResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
-
-        if value_column not in df.columns:
-            return SkillResult(success=False, message=f"列 '{value_column}' 不存在")
-        if group_column not in df.columns:
-            return SkillResult(success=False, message=f"分组列 '{group_column}' 不存在")
-
-        # 步骤1: 数据质量检查
-        clean_df = df[[value_column, group_column]].dropna()
-
-        groups = clean_df[group_column].unique()
-        if len(groups) < 2:
-            return SkillResult(
-                success=False,
-                message="至少需要 2 个分组进行 ANOVA 分析",
-            )
-
-        # 步骤2: 准备分组数据
-        group_data = []
-        for group in groups:
-            group_data.append(clean_df[clean_df[group_column] == group][value_column])
-
-        # 步骤3: 执行 ANOVA
-        anova_result = self._perform_anova(group_data, groups)
-
-        # 步骤4: 事后检验
-        post_hoc_result = None
-        if anova_result["p_value"] < 0.05:
-            post_hoc_result = self._perform_post_hoc(clean_df, value_column, group_column)
-
-        # 步骤5: 效应量
-        effect_size = self._calculate_effect_size(group_data, anova_result)
-
-        # 步骤6: 可视化
-        chart_data = self._create_visualization(clean_df, value_column, group_column, journal_style)
-
-        # 步骤7: 生成报告
-        report = self._generate_report(anova_result, post_hoc_result, effect_size, journal_style)
-
-        # 组装结果
-        result_data = {
-            "anova": anova_result,
-            "post_hoc": post_hoc_result,
-            "effect_size": effect_size,
-            "report": report,
-            "n_groups": len(groups),
-            "group_names": [str(g) for g in groups],
-        }
-
-        return SkillResult(
-            success=True,
-            data=result_data,
-            message=report["summary"],
-            has_chart=True,
-            chart_data=chart_data,
+        engine = AnalysisWorkflowEngine()
+        return await engine.complete_anova(
+            session,
+            dataset_name=kwargs["dataset_name"],
+            value_column=kwargs["value_column"],
+            group_column=kwargs["group_column"],
+            journal_style=kwargs.get("journal_style", "nature"),
         )
 
     def _perform_anova(self, group_data: list[pd.Series], groups: list[Any]) -> dict[str, Any]:

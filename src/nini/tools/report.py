@@ -624,6 +624,8 @@ class GenerateReportSkill(Skill):
         return False
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+        from nini.tools.report_session import ReportSessionSkill
+
         title = str(kwargs.get("title", "科研数据分析报告")).strip() or "科研数据分析报告"
         summary_text = _strip_tool_mentions(str(kwargs.get("summary_text", "") or ""))
         methods = _strip_tool_mentions(str(kwargs.get("methods", "") or ""))
@@ -652,8 +654,26 @@ class GenerateReportSkill(Skill):
             filename=filename,
             title=title,
         )
+        report_result = await ReportSessionSkill().execute(
+            session,
+            operation="create",
+            title=title,
+            filename=output_name,
+            sections=[
+                {"key": "summary", "title": "分析摘要", "content": summary_text},
+                {"key": "methods", "title": "分析方法", "content": methods},
+                {"key": "conclusions", "title": "结论与建议", "content": conclusions},
+                {"key": "report", "title": "完整报告", "content": preview_md},
+            ],
+        )
+        if not report_result.success:
+            return report_result
+
+        report_payload = report_result.data if isinstance(report_result.data, dict) else {}
+        report_id = str(report_payload.get("report_id", "")).strip()
+        record = report_payload.get("record") if isinstance(report_payload.get("record"), dict) else {}
+        relative_path = str(record.get("markdown_path", "")).strip() or f"notes/reports/{output_name}"
         ws = WorkspaceManager(session.id)
-        relative_path = f"notes/reports/{output_name}"
         path = ws.save_text_file(relative_path, preview_md)
 
         if save_to_knowledge:
@@ -666,15 +686,8 @@ class GenerateReportSkill(Skill):
             "download_url": ws.build_workspace_file_download_url(relative_path),
             "kind": "document",
             "source_path": relative_path,
+            "resource_id": report_id,
         }
-        session.artifacts["latest_report"] = artifact
-        session.documents["latest_report"] = {
-            "name": output_name,
-            "path": relative_path,
-            "type": "report",
-            "download_url": artifact["download_url"],
-        }
-        session.documents["latest_document"] = dict(session.documents["latest_report"])
 
         return SkillResult(
             success=True,
@@ -683,6 +696,7 @@ class GenerateReportSkill(Skill):
                 "title": title,
                 "filename": output_name,
                 "report_markdown": preview_md,
+                "report_id": report_id,
             },
             artifacts=[artifact],
         )

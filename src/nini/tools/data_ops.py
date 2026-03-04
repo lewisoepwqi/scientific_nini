@@ -457,7 +457,7 @@ class DataSummarySkill(Skill):
 
         # 分类列统计
         categorical_stats = {}
-        for col in df.select_dtypes(include=["object", "category"]).columns:
+        for col in df.select_dtypes(include=["object", "string", "category"]).columns:
             vc = df[col].value_counts().head(10)
             categorical_stats[col] = {
                 "unique_count": int(df[col].nunique()),

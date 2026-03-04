@@ -398,6 +398,23 @@ def _workspace_relative_path_for_candidate(
         return None
 
 
+def _resolve_report_resource_markdown_path(
+    manager: WorkspaceManager,
+    resource_id: str,
+) -> str | None:
+    """从报告资源摘要中提取 Markdown 路径。"""
+    resource = manager.get_resource_summary(resource_id)
+    if not isinstance(resource, dict):
+        return None
+    if str(resource.get("resource_type", "")).strip() != "report":
+        return None
+    metadata = resource.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    markdown_path = str(metadata.get("markdown_path", "")).strip()
+    return markdown_path or None
+
+
 def _resolve_document_source(
     session: Session,
     *,
@@ -408,6 +425,12 @@ def _resolve_document_source(
     manager = WorkspaceManager(session.id)
 
     if isinstance(source_ref, str) and source_ref.strip():
+        report_markdown_path = _resolve_report_resource_markdown_path(manager, source_ref.strip())
+        if report_markdown_path:
+            matched = manager.resolve_document_file(report_markdown_path)
+            if matched is not None:
+                return matched, None
+
         matched = manager.resolve_document_file(source_ref)
         if matched is not None:
             return matched, None
@@ -431,6 +454,21 @@ def _resolve_document_source(
         return None, f"文档 `{source_ref}` 不存在，或当前不是可导出的文档文件。"
 
     if prefer_latest_report:
+        report_resources = [
+            item
+            for item in manager.list_resource_summaries()
+            if isinstance(item, dict) and str(item.get("resource_type", "")).strip() == "report"
+        ]
+        report_resources.sort(key=lambda item: str(item.get("updated_at", "")), reverse=True)
+        for resource in report_resources:
+            resource_id = str(resource.get("id", "")).strip()
+            markdown_path = _resolve_report_resource_markdown_path(manager, resource_id)
+            if not markdown_path:
+                continue
+            matched = manager.resolve_document_file(markdown_path)
+            if matched is not None:
+                return matched, None
+
         latest_report = getattr(session, "documents", {}).get("latest_report")
         if isinstance(latest_report, dict):
             path = str(latest_report.get("path", "")).strip()
@@ -698,6 +736,10 @@ class ExportReportSkill(Skill):
                     "type": "string",
                     "description": "输出 PDF 文件名（不含扩展名）。不指定则自动从报告名生成。",
                 },
+                "report_id": {
+                    "type": "string",
+                    "description": "可选。指定报告会话资源 ID，优先从报告资源导出。",
+                },
             },
             "required": [],
         }
@@ -707,17 +749,24 @@ class ExportReportSkill(Skill):
         return False
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+        report_id = kwargs.get("report_id")
         report_name = kwargs.get("report_name")
         filename = kwargs.get("filename")
         result = await export_workspace_document(
             session,
-            source_ref=str(report_name).strip() if isinstance(report_name, str) else None,
+            source_ref=(
+                str(report_id).strip()
+                if isinstance(report_id, str) and report_id.strip()
+                else (str(report_name).strip() if isinstance(report_name, str) else None)
+            ),
             output_format="pdf",
             filename=str(filename).strip() if isinstance(filename, str) else None,
             prefer_latest_report=True,
         )
         if result.success and isinstance(result.data, dict):
             source_path = str(result.data.get("source_path", "")).strip()
+            if isinstance(report_id, str) and report_id.strip():
+                result.data["report_id"] = report_id.strip()
             result.data["source_report"] = source_path or (
                 str(report_name).strip() if isinstance(report_name, str) else ""
             )

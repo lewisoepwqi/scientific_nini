@@ -3,8 +3,37 @@
  */
 import { useEffect, useCallback } from 'react'
 import { useStore, type CodeExecution } from '../store'
-import { Copy, Check, AlertCircle, CheckCircle, Terminal } from 'lucide-react'
+import { Copy, Check, AlertCircle, CheckCircle, Terminal, RotateCcw, FileCode } from 'lucide-react'
 import { useState } from 'react'
+
+/**
+ * 基础工具名称映射（新工具系统）
+ * 将内部工具名映射为用户可读的显示名称
+ */
+const TOOL_NAME_DISPLAY: Record<string, string> = {
+  // 新基础工具层
+  'task_state': '任务状态',
+  'dataset_catalog': '数据目录',
+  'dataset_transform': '数据转换',
+  'stat_test': '统计检验',
+  'stat_model': '统计建模',
+  'stat_interpret': '统计解读',
+  'chart_session': '图表会话',
+  'report_session': '报告会话',
+  'workspace_session': '工作区会话',
+  'code_session': '代码会话',
+  // 旧工具名（向后兼容显示）
+  'run_code': '代码执行',
+  'run_r_code': 'R代码执行',
+  'create_chart': '创建图表',
+  'generate_report': '生成报告',
+  'export_report': '导出报告',
+}
+
+function getToolDisplayName(toolName: string | undefined): string {
+  if (!toolName) return '代码执行'
+  return TOOL_NAME_DISPLAY[toolName] || toolName
+}
 
 function formatTime(isoStr: string): string {
   try {
@@ -43,6 +72,7 @@ function ExecutionItem({ exec }: { exec: CodeExecution }) {
   const [expanded, setExpanded] = useState(true)
   const [argsExpanded, setArgsExpanded] = useState(false)
   const isError = exec.status === 'error'
+  const isRetry = !!exec.retry_of_execution_id
 
   return (
     <div className="border rounded-lg overflow-hidden">
@@ -58,7 +88,17 @@ function ExecutionItem({ exec }: { exec: CodeExecution }) {
         ) : (
           <CheckCircle size={12} className="text-emerald-500 flex-shrink-0" />
         )}
-        <span className="text-gray-500 font-mono">{exec.tool_name || exec.language || 'python'}</span>
+        {/* 显示工具图标和名称 */}
+        {exec.tool_name === 'code_session' ? (
+          <FileCode size={12} className="text-purple-500 flex-shrink-0" />
+        ) : null}
+        <span className="text-gray-600 font-medium">{getToolDisplayName(exec.tool_name)}</span>
+        {exec.language && (
+          <span className="text-gray-400 font-mono text-[10px]">({exec.language})</span>
+        )}
+        {isRetry && (
+          <span title="重试执行"><RotateCcw size={10} className="text-blue-400 flex-shrink-0" /></span>
+        )}
         {exec.context_token_count != null && (
           <span className="text-[10px] text-gray-400" title="执行时上下文 Token 数">
             {exec.context_token_count.toLocaleString()} tok
@@ -85,6 +125,54 @@ function ExecutionItem({ exec }: { exec: CodeExecution }) {
                   {JSON.stringify(exec.tool_args, null, 2)}
                 </pre>
               )}
+            </div>
+          )}
+
+          {/* 脚本资源关联信息 */}
+          {exec.script_resource_id && (
+            <div className="px-3 py-1.5 border-b bg-purple-50/60 text-[10px] text-purple-700 flex items-center gap-2">
+              <span className="font-medium">脚本资源：</span>
+              <code className="bg-purple-100 px-1.5 py-0.5 rounded">{exec.script_resource_id}</code>
+            </div>
+          )}
+
+          {/* 输出资源关联信息 */}
+          {exec.output_resource_ids && exec.output_resource_ids.length > 0 && (
+            <div className="px-3 py-1.5 border-b bg-emerald-50/60 text-[10px] text-emerald-700 flex items-center gap-2">
+              <span className="font-medium">输出资源：</span>
+              <div className="flex gap-1 flex-wrap">
+                {exec.output_resource_ids.map((id) => (
+                  <code key={id} className="bg-emerald-100 px-1.5 py-0.5 rounded">{id}</code>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 重试关联信息 */}
+          {isRetry && exec.retry_of_execution_id && (
+            <div className="px-3 py-1.5 border-b bg-blue-50/60 text-[10px] text-blue-700 flex items-center gap-2">
+              <RotateCcw size={10} />
+              <span>重试于执行记录：</span>
+              <code className="bg-blue-100 px-1.5 py-0.5 rounded">{exec.retry_of_execution_id.slice(0, 8)}...</code>
+            </div>
+          )}
+
+          {/* 错误定位信息 */}
+          {isError && exec.error_location && (
+            <div className="px-3 py-1.5 border-b bg-red-50 text-[10px] text-red-700">
+              <span className="font-medium">错误位置：</span>
+              <span>第 {exec.error_location.line} 行</span>
+              {exec.error_location.column && (
+                <span>，第 {exec.error_location.column} 列</span>
+              )}
+            </div>
+          )}
+
+          {/* 恢复提示 */}
+          {isError && exec.recovery_hint && (
+            <div className="px-3 py-1.5 border-b bg-yellow-50 text-[10px] text-yellow-800">
+              <span className="font-medium">恢复建议：</span>
+              <span>{exec.recovery_hint}</span>
             </div>
           )}
 

@@ -223,20 +223,28 @@ async def websocket_agent(ws: WebSocket):
                             if isinstance(event.metadata, dict)
                             else None
                         )
-                        exec_record = wm.save_code_execution(
-                            code=paired_code,
-                            output=str(result_data.get("message", result_data.get("output", ""))),
-                            status=str(result_data.get("status", "success")),
-                            language=(
-                                "r"
-                                if str(tool_info.get("tool_name", "")) == "run_r_code"
-                                else "python"
-                            ),
-                            tool_name=tool_info.get("tool_name"),
-                            tool_args=tool_info.get("tool_args"),
-                            context_token_count=ctx_tokens,
-                            intent=event_intent or tool_info.get("intent"),
+                        payload = result_data.get("data")
+                        execution_id = ""
+                        if isinstance(payload, dict):
+                            execution_id = str(payload.get("execution_id", "")).strip()
+                        exec_record = (
+                            wm.get_code_execution(execution_id) if execution_id else None
                         )
+                        if exec_record is None:
+                            exec_record = wm.save_code_execution(
+                                code=paired_code,
+                                output=str(result_data.get("message", result_data.get("output", ""))),
+                                status=str(result_data.get("status", "success")),
+                                language=(
+                                    "r"
+                                    if str(tool_info.get("tool_name", "")) == "run_r_code"
+                                    else "python"
+                                ),
+                                tool_name=tool_info.get("tool_name"),
+                                tool_args=tool_info.get("tool_args"),
+                                context_token_count=ctx_tokens,
+                                intent=event_intent or tool_info.get("intent"),
+                            )
                         await _send_event(
                             ws,
                             "code_execution",

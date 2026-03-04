@@ -248,6 +248,7 @@ class ReportExportRequest(BaseModel):
 
     format: str = "md"  # md/docx/pdf
     filename: Optional[str] = None
+    report_id: Optional[str] = None
 
 
 # ---- Article Draft Generation 文章初稿生成 ----
@@ -276,5 +277,4 @@ class DraftGenerateResponse(BaseModel):
     preview: str = ""  # 文章前500字预览
     error: Optional[str] = None
     sections_generated: list[str] = Field(default_factory=list)
-
 

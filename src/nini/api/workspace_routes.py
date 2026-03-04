@@ -40,7 +40,8 @@ async def list_workspace_files(session_id: str, q: str | None = None):
         files = workspace.search_files_with_paths(q)
     else:
         files = workspace.list_workspace_files_with_paths()
-    return {"success": True, "data": {"session_id": session_id, "files": files}}
+    resources = workspace.list_resource_summaries()
+    return {"success": True, "data": {"session_id": session_id, "files": files, "resources": resources}}
 
 
 @router.get("/workspace/{session_id}/executions")
@@ -49,7 +50,20 @@ async def list_workspace_executions(session_id: str):
     _ensure_workspace_session_exists(session_id)
     workspace = WorkspaceManager(session_id)
     executions = workspace.list_code_executions()
-    return {"success": True, "data": {"session_id": session_id, "executions": executions}}
+    resources = workspace.list_resource_summaries()
+    return {
+        "success": True,
+        "data": {"session_id": session_id, "executions": executions, "resources": resources},
+    }
+
+
+@router.get("/workspace/{session_id}/resources")
+async def list_workspace_resources(session_id: str):
+    """列出工作空间资源摘要。"""
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+    resources = workspace.list_resource_summaries()
+    return {"success": True, "data": {"session_id": session_id, "resources": resources}}
 
 
 @router.get("/workspace/{session_id}/folders")

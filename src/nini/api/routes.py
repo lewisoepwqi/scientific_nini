@@ -679,7 +679,11 @@ async def list_workspace_files(session_id: str, q: str | None = None):
         files = workspace.search_files_with_paths(q)
     else:
         files = workspace.list_workspace_files_with_paths()
-    return APIResponse(success=True, data={"session_id": session_id, "files": files})
+    resources = workspace.list_resource_summaries()
+    return APIResponse(
+        success=True,
+        data={"session_id": session_id, "files": files, "resources": resources},
+    )
 
 
 @router.get("/workspace/{session_id}/files/{file_path:path}/preview")
@@ -983,7 +987,20 @@ async def list_workspace_executions(session_id: str):
     _ensure_workspace_session_exists(session_id)
     workspace = WorkspaceManager(session_id)
     executions = workspace.list_code_executions()
-    return APIResponse(success=True, data={"session_id": session_id, "executions": executions})
+    resources = workspace.list_resource_summaries()
+    return APIResponse(
+        success=True,
+        data={"session_id": session_id, "executions": executions, "resources": resources},
+    )
+
+
+@router.get("/workspace/{session_id}/resources")
+async def list_workspace_resources(session_id: str):
+    """列出新版工作空间资源摘要。"""
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+    resources = workspace.list_resource_summaries()
+    return APIResponse(success=True, data={"session_id": session_id, "resources": resources})
 
 
 @router.get("/workspace/{session_id}/folders")
@@ -1865,14 +1882,12 @@ async def generate_report(
     Returns:
         生成的报告内容和文件信息
     """
-    from nini.agent.session import session_manager
     from nini.tools.report_template import (
         get_template,
         get_section_order,
         get_section_prompt,
     )
-    from nini.workspace import WorkspaceManager
-    from datetime import datetime, timezone
+    from nini.tools.report_session import ReportSessionSkill
 
     session = session_manager.get_or_create(session_id)
 
@@ -1884,18 +1899,7 @@ async def generate_report(
     # 确定章节顺序
     section_order = get_section_order(request.template, request.sections)
 
-    # 生成报告内容
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
-    report_lines = [
-        f"# {request.title}",
-        "",
-        f"> 会话 ID: `{session.id}` | 生成时间: {now}",
-        f"> 模板: {template.name} | 详细程度: {request.detail_level}",
-        "",
-    ]
-
-    # 为每个章节生成内容
+    sections: list[dict[str, str]] = []
     for section_id in section_order:
         prompt = get_section_prompt(request.template, section_id, request.detail_level)
         section_title = {
@@ -1908,55 +1912,54 @@ async def generate_report(
             "limitations": "局限性",
             "references": "参考文献",
         }.get(section_id, section_id.capitalize())
-
-        report_lines.extend(
-            [
-                f"## {section_title}",
-                "",
-                f"*{prompt}*",
-                "",
-                "（此章节内容由模型根据会话历史自动生成）",
-                "",
-            ]
+        sections.append(
+            {
+                "key": section_id,
+                "title": section_title,
+                "content": f"*{prompt}*\n\n（此章节内容由模型根据会话历史自动生成）",
+            }
         )
+    report_result = await ReportSessionSkill().execute(
+        session,
+        operation="create",
+        title=request.title,
+        sections=sections,
+        filename=(
+            f"{request.template}_{request.detail_level}_report_"
+            f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.md"
+        ),
+    )
+    if not report_result.success:
+        return APIResponse(success=False, error=report_result.message, message=report_result.message)
 
-    # 合并为完整报告
-    report_markdown = "\n".join(report_lines)
-
-    # 保存报告
+    payload = report_result.data if isinstance(report_result.data, dict) else {}
+    record = payload.get("record") if isinstance(payload.get("record"), dict) else {}
+    report_markdown = ""
+    relative_path = str(record.get("markdown_path", "")).strip()
     ws = WorkspaceManager(session.id)
-
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"{request.template}_{request.detail_level}_report_{ts}.md"
-    relative_path = f"notes/reports/{filename}"
-    path = ws.save_text_file(relative_path, report_markdown)
-
+    if relative_path:
+        report_path = ws.resolve_workspace_path(relative_path, allow_missing=False)
+        report_markdown = report_path.read_text(encoding="utf-8")
     artifact = {
-        "name": filename,
+        "name": Path(relative_path).name if relative_path else "",
         "type": "report",
-        "path": str(path),
-        "download_url": ws.build_workspace_file_download_url(relative_path),
+        "path": str(ws.resolve_workspace_path(relative_path, allow_missing=False)) if relative_path else "",
+        "download_url": session.documents.get("latest_report", {}).get("download_url", ""),
         "kind": "document",
         "source_path": relative_path,
+        "resource_id": payload.get("report_id", ""),
     }
-    session.documents["latest_report"] = {
-        "name": filename,
-        "path": relative_path,
-        "type": "report",
-        "download_url": artifact["download_url"],
-    }
-    session.documents["latest_document"] = dict(session.documents["latest_report"])
-    session.artifacts["latest_report"] = artifact
 
     return APIResponse(
         success=True,
         data={
-            "filename": filename,
+            "filename": artifact["name"],
             "template": template.id,
             "template_name": template.name,
             "sections": section_order,
             "report_markdown": report_markdown,
             "artifact": artifact,
+            "report_id": payload.get("report_id", ""),
         },
     )
 
@@ -1975,8 +1978,7 @@ async def export_report(
     Returns:
         导出文件信息
     """
-    from nini.agent.session import session_manager
-    from nini.workspace import WorkspaceManager
+    from nini.tools.export_report import export_workspace_document
 
     session = session_manager.get_or_create(session_id)
 
@@ -1984,30 +1986,46 @@ async def export_report(
         raise HTTPException(status_code=400, detail=f"不支持的导出格式: {request.format}")
 
     ws = WorkspaceManager(session.id)
-    latest_report = ws.latest_document_file(subtypes={"report"})
-    if latest_report is None:
-        latest_report = ws.latest_document_file()
-    if latest_report is None:
-        raise HTTPException(status_code=404, detail="未找到可导出的文档，请先生成文档")
+    report_ref = request.report_id
+    if not report_ref:
+        report_resources = [
+            item
+            for item in ws.list_resource_summaries()
+            if isinstance(item, dict) and str(item.get("resource_type", "")).strip() == "report"
+        ]
+        report_resources.sort(key=lambda item: str(item.get("updated_at", "")), reverse=True)
+        if report_resources:
+            report_ref = str(report_resources[0].get("id", "")).strip() or None
+
+    source_file, error_message = None, None
+    if request.format == "md" or not report_ref:
+        from nini.tools.export_report import _resolve_document_source
+
+        source_file, error_message = _resolve_document_source(
+            session,
+            source_ref=report_ref,
+            prefer_latest_report=True,
+        )
+        if source_file is None:
+            raise HTTPException(status_code=404, detail=error_message or "未找到可导出的文档，请先生成文档")
 
     # 如果请求的是 markdown 格式，直接返回
     if request.format == "md":
         return APIResponse(
             success=True,
             data={
-                "filename": latest_report.get("name", ""),
+                "filename": source_file.get("name", "") if isinstance(source_file, dict) else "",
                 "format": "md",
-                "download_url": latest_report.get("download_url", ""),
+                "download_url": source_file.get("download_url", "") if isinstance(source_file, dict) else "",
+                "report_id": report_ref or "",
             },
         )
 
     # DOCX 或 PDF 格式转换
     try:
-        from nini.tools.export_report import export_workspace_document
-
         result = await export_workspace_document(
             session,
-            source_ref=str(latest_report.get("path") or latest_report.get("name") or ""),
+            source_ref=report_ref,
             output_format=request.format,
             filename=request.filename,
             prefer_latest_report=True,
@@ -2026,6 +2044,7 @@ async def export_report(
                 if artifact.get("path")
                 else 0,
                 "download_url": artifact.get("download_url", ""),
+                "report_id": report_ref or "",
             },
         )
 
@@ -2060,33 +2079,43 @@ async def preview_report(
         报告内容
     """
     from nini.agent.session import session_manager
-    from nini.memory.storage import ArtifactStorage
     from nini.workspace import WorkspaceManager
 
     session = session_manager.get_or_create(session_id)
-    storage = ArtifactStorage(session.id)
     ws = WorkspaceManager(session.id)
 
     if filename:
-        report_path = storage.get_path(filename)
+        matched = ws.resolve_document_file(filename)
+        if matched is None:
+            raise HTTPException(status_code=404, detail="报告文件不存在")
+        report_path = ws.resolve_workspace_path(str(matched.get("path", "")).strip(), allow_missing=False)
     else:
-        # 查找最新的报告
-        artifacts = ws.list_artifacts()
-        report_artifacts = [
-            a
-            for a in artifacts
-            if isinstance(a, dict) and str(a.get("type", "")).lower() == "report"
+        report_resources = [
+            item
+            for item in ws.list_resource_summaries()
+            if isinstance(item, dict) and str(item.get("resource_type", "")).strip() == "report"
         ]
-        if not report_artifacts:
-            raise HTTPException(status_code=404, detail="未找到报告文件")
-
-        latest_report = sorted(
-            report_artifacts,
-            key=lambda x: str(x.get("updated_at", "")),
-            reverse=True,
-        )[0]
-        report_name = str(latest_report.get("name", "report.md"))
-        report_path = storage.get_path(report_name)
+        report_resources.sort(key=lambda item: str(item.get("updated_at", "")), reverse=True)
+        if report_resources:
+            metadata = report_resources[0].get("metadata")
+            markdown_path = (
+                str(metadata.get("markdown_path", "")).strip()
+                if isinstance(metadata, dict)
+                else ""
+            )
+            if not markdown_path:
+                raise HTTPException(status_code=404, detail="报告文件不存在")
+            report_path = ws.resolve_workspace_path(markdown_path, allow_missing=False)
+        else:
+            latest_report = ws.latest_document_file(subtypes={"report"})
+            if latest_report is None:
+                latest_report = ws.latest_document_file()
+            if latest_report is None:
+                raise HTTPException(status_code=404, detail="未找到报告文件")
+            report_path = ws.resolve_workspace_path(
+                str(latest_report.get("path", "")).strip(),
+                allow_missing=False,
+            )
 
     if not report_path.exists():
         raise HTTPException(status_code=404, detail="报告文件不存在")

@@ -22,13 +22,19 @@ class TestFewShotExamples:
         assert "缺失值" in prompt
         assert "异常值" in prompt
 
-    def test_anova_trigger_condition_in_prompt(
+    def test_base_tools_mentioned_in_prompt(
         self,
         tmp_path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """验证 ANOVA 触发条件为 p ≤ 0.05。"""
+        """验证新基础工具层在系统提示词中被提及。"""
         monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
         prompt = get_system_prompt()
-        assert "p<=0.05" in prompt or "p <= 0.05" in prompt
-        assert "分组数>=3" in prompt or "3 组或更多" in prompt
+        # 验证基础工具名在提示词中
+        assert "dataset_catalog" in prompt
+        assert "dataset_transform" in prompt
+        assert "stat_test" in prompt
+        assert "chart_session" in prompt
+        assert "code_session" in prompt
+        # 验证资源引用规则
+        assert "resource_id" in prompt

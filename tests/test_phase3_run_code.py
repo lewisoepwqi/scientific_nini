@@ -8,6 +8,7 @@ import pandas as pd
 
 from nini.agent.session import Session
 from nini.tools.registry import create_default_registry
+from nini.workspace import WorkspaceManager
 
 
 def test_registry_contains_run_code() -> None:
@@ -117,3 +118,32 @@ def test_run_code_large_output_df_does_not_timeout() -> None:
     assert result["has_dataframe"] is True
     assert result["dataframe_preview"]["total_rows"] == row_count
     assert "超时" not in result["message"]
+
+
+def test_run_code_routes_through_code_session_history() -> None:
+    registry = create_default_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "run_code",
+            session=session,
+            code="result = 40 + 2",
+            intent="计算答案",
+        )
+    )
+
+    assert result["success"] is True, result
+    assert result["data"]["result"] == 42
+    assert result["data"]["script_id"].startswith("script_")
+    assert result["data"]["execution_id"]
+
+    manager = WorkspaceManager(session.id)
+    script_resource = manager.get_resource_summary(result["data"]["script_id"])
+    assert script_resource is not None
+    assert script_resource["resource_type"] == "script"
+
+    execution = manager.get_code_execution(result["data"]["execution_id"])
+    assert execution is not None
+    assert execution["script_resource_id"] == result["data"]["script_id"]
+    assert execution["tool_name"] == "run_code"

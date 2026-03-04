@@ -18,8 +18,26 @@ const CATEGORY_LABELS: Record<string, string> = {
   report: '报告',
   workflow: '工作流',
   utility: '通用工具',
+  session: '会话资源',
   other: '其他',
 }
+
+/**
+ * 新基础工具名称集合（工具基础层重构）
+ * 用于高亮显示新工具系统的基础工具
+ */
+const NEW_BASE_TOOLS = new Set([
+  'task_state',
+  'dataset_catalog',
+  'dataset_transform',
+  'stat_test',
+  'stat_model',
+  'stat_interpret',
+  'chart_session',
+  'report_session',
+  'workspace_session',
+  'code_session',
+])
 
 function groupTools(tools: SkillItem[]): Array<[string, SkillItem[]]> {
   const map = new Map<string, SkillItem[]>()
@@ -102,8 +120,12 @@ export default function SkillCatalogPanel({ open, onClose }: Props) {
           </div>
         </div>
 
-        <div className="px-5 py-2 text-[11px] text-gray-500 border-b bg-gray-50">
-          这里仅显示模型可直接调用的工具；Markdown 技能请在“技能管理”中维护。
+        <div className="px-5 py-2 text-[11px] text-gray-500 border-b bg-gray-50 space-y-1">
+          <p>这里仅显示模型可直接调用的工具；Markdown 技能请在技能管理中维护。</p>
+          <p className="text-blue-600">
+            标记为基础的是新工具基础层（9个核心工具）：task_state、dataset_catalog、dataset_transform、
+            stat_test、stat_model、stat_interpret、chart_session、report_session、workspace_session、code_session
+          </p>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-3">
@@ -132,12 +154,15 @@ export default function SkillCatalogPanel({ open, onClose }: Props) {
                     <div className="border-t px-3 py-2 space-y-1.5">
                       {items.map((tool) => (
                         <div key={tool.name} className="text-xs flex items-start gap-2">
-                          <span className={`font-mono flex-shrink-0 ${tool.enabled ? 'text-gray-700' : 'text-gray-400 line-through'}`}>
+                          <span className={`font-mono flex-shrink-0 ${tool.enabled ? 'text-gray-700' : 'text-gray-400 line-through'} ${NEW_BASE_TOOLS.has(tool.name) ? 'text-blue-600 font-medium' : ''}`}>
                             {tool.name}
                           </span>
                           <span className="text-gray-400 flex-1">{tool.description}</span>
                           {tool.expose_to_llm === false && (
                             <span className="text-[10px] text-amber-500 flex-shrink-0 bg-amber-50 px-1 rounded">仅内部</span>
+                          )}
+                          {NEW_BASE_TOOLS.has(tool.name) && tool.expose_to_llm !== false && (
+                            <span className="text-[10px] text-blue-500 flex-shrink-0 bg-blue-50 px-1 rounded">基础</span>
                           )}
                         </div>
                       ))}

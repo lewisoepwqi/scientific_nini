@@ -15,7 +15,7 @@ import {
   EyeOff,
 } from 'lucide-react'
 
-type FilterType = 'all' | 'chart' | 'report' | 'data'
+type FilterType = 'all' | 'chart' | 'report' | 'data' | 'script' | 'transform'
 
 function getFilterLabel(type: FilterType): string {
   switch (type) {
@@ -23,6 +23,8 @@ function getFilterLabel(type: FilterType): string {
     case 'chart': return '图表'
     case 'report': return '报告'
     case 'data': return '数据'
+    case 'script': return '脚本'
+    case 'transform': return '转换'
   }
 }
 
@@ -53,10 +55,28 @@ function isDataFile(file: WorkspaceFile): boolean {
   const name = file.name.toLowerCase()
   const ext = name.split('.').pop()?.toLowerCase() || ''
   const metaType = String(file.meta?.type || '').toLowerCase()
+  // 脚本和转换记录不算数据文件
+  if (file.resource_type === 'script' || file.resource_type === 'transform') {
+    return false
+  }
   if (name.endsWith('.plotly.json') || (ext === 'json' && metaType === 'chart')) {
     return false
   }
   return ['csv', 'xlsx', 'xls', 'tsv', 'json'].includes(ext)
+}
+
+function isScriptFile(file: WorkspaceFile): boolean {
+  // 通过 resource_type 或文件扩展名判断
+  if (file.resource_type === 'script') return true
+  const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  return ['py', 'r', 'R'].includes(ext)
+}
+
+function isTransformFile(file: WorkspaceFile): boolean {
+  // 数据转换记录
+  if (file.resource_type === 'transform') return true
+  // 也可以通过 meta 中的 transform_id 判断
+  return !!file.meta?.transform_id
 }
 
 function ThumbnailIcon({ file }: { file: WorkspaceFile }) {
@@ -76,6 +96,14 @@ function ThumbnailIcon({ file }: { file: WorkspaceFile }) {
 
   // 非图片文件用图标
   const ext = name.split('.').pop() || ''
+  // 脚本文件
+  if (file.resource_type === 'script' || ['py', 'r', 'R'].includes(ext)) {
+    return <FileCode size={28} className="text-purple-400" />
+  }
+  // 数据转换记录
+  if (file.resource_type === 'transform') {
+    return <FileCode size={28} className="text-cyan-400" />
+  }
   if (name.endsWith('.plotly.json')) {
     return <FileCode size={28} className="text-orange-400" />
   }
@@ -116,6 +144,8 @@ export default function ArtifactGallery() {
       case 'chart': return artifacts.filter(isChartFile)
       case 'report': return artifacts.filter(isReportFile)
       case 'data': return artifacts.filter(isDataFile)
+      case 'script': return artifacts.filter(isScriptFile)
+      case 'transform': return artifacts.filter(isTransformFile)
       default: return artifacts
     }
   }, [artifacts, filter])
@@ -180,7 +210,7 @@ export default function ArtifactGallery() {
       {/* 筛选栏 */}
       <div className="flex items-center gap-1.5 px-2 py-2 flex-shrink-0">
         <Filter size={12} className="text-gray-400 flex-shrink-0" />
-        {(['all', 'chart', 'report', 'data'] as FilterType[]).map((type) => (
+        {(['all', 'chart', 'report', 'data', 'script', 'transform'] as FilterType[]).map((type) => (
           <button
             key={type}
             onClick={() => setFilter(type)}
