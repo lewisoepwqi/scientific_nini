@@ -1,5 +1,5 @@
 /**
- * 目录树导航组件 —— 按文件类型分为三个默认目录，并显示自定义文件夹。
+ * 目录树导航组件 —— 按用户心智分为数据/文档/结果三类，并显示自定义文件夹。
  */
 import { useState, useMemo, useEffect } from 'react'
 import { useStore, type WorkspaceFile } from '../store'
@@ -75,16 +75,16 @@ export default function FileTreeView() {
       files: filteredFiles.filter((f) => f.kind === 'dataset' && !f.folder),
     },
     {
-      label: '产物',
-      kind: 'artifact',
-      icon: <Package size={13} className="text-purple-500 flex-shrink-0" />,
-      files: filteredFiles.filter((f) => f.kind === 'artifact' && !f.folder),
+      label: '文档',
+      kind: 'document',
+      icon: <StickyNote size={13} className="text-blue-500 flex-shrink-0" />,
+      files: filteredFiles.filter((f) => f.kind === 'document' && !f.folder),
     },
     {
-      label: '笔记',
-      kind: 'note',
-      icon: <StickyNote size={13} className="text-blue-500 flex-shrink-0" />,
-      files: filteredFiles.filter((f) => f.kind === 'note' && !f.folder),
+      label: '结果',
+      kind: 'result',
+      icon: <Package size={13} className="text-purple-500 flex-shrink-0" />,
+      files: filteredFiles.filter((f) => f.kind === 'result' && !f.folder),
     },
   ], [filteredFiles])
 

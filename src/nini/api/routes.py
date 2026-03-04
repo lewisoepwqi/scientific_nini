@@ -696,6 +696,18 @@ async def preview_workspace_file(session_id: str, file_path: str):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+# 图片文件扩展名集合，用于直接返回文件流
+_IMAGE_EXTENSIONS = frozenset(
+    [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"]
+)
+
+
+def _is_image_file(filename: str) -> bool:
+    """检查文件名是否为图片文件（不区分大小写）。"""
+    name_lower = filename.lower()
+    return any(name_lower.endswith(ext) for ext in _IMAGE_EXTENSIONS)
+
+
 @router.get("/workspace/{session_id}/files/{file_path:path}")
 async def get_workspace_file(
     session_id: str,
@@ -708,6 +720,7 @@ async def get_workspace_file(
     """获取或下载工作空间文件。
 
     默认返回文件内容 JSON。当 download=1 时返回文件下载。
+    图片文件（.png/.jpg/.jpeg/.gif/.webp/.svg/.bmp/.ico）默认直接返回文件流。
 
     参数:
         inline: 是否内联显示（而非下载）
@@ -723,6 +736,10 @@ async def get_workspace_file(
         raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
 
     filename = target_path.name
+
+    # 图片文件默认直接返回文件流（支持 markdown 内嵌图片显示）
+    if _is_image_file(filename):
+        return _build_download_response(target_path, filename, inline=True)
 
     # 如果不下载，返回文件内容 JSON（向后兼容）
     if not download and not bundle:
@@ -1828,7 +1845,6 @@ async def generate_report(
         get_section_order,
         get_section_prompt,
     )
-    from nini.memory.storage import ArtifactStorage
     from nini.workspace import WorkspaceManager
     from datetime import datetime, timezone
 
@@ -1882,27 +1898,29 @@ async def generate_report(
     report_markdown = "\n".join(report_lines)
 
     # 保存报告
-    storage = ArtifactStorage(session.id)
     ws = WorkspaceManager(session.id)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"{request.template}_{request.detail_level}_report_{ts}.md"
-
-    path = storage.save_text(report_markdown, filename)
+    relative_path = f"notes/reports/{filename}"
+    path = ws.save_text_file(relative_path, report_markdown)
 
     artifact = {
         "name": filename,
         "type": "report",
         "path": str(path),
-        "download_url": ws.build_artifact_download_url(filename),
+        "download_url": ws.build_workspace_file_download_url(relative_path),
+        "kind": "document",
+        "source_path": relative_path,
     }
-
-    ws.add_artifact_record(
-        name=filename,
-        artifact_type="report",
-        file_path=path,
-        format_hint="md",
-    )
+    session.documents["latest_report"] = {
+        "name": filename,
+        "path": relative_path,
+        "type": "report",
+        "download_url": artifact["download_url"],
+    }
+    session.documents["latest_document"] = dict(session.documents["latest_report"])
+    session.artifacts["latest_report"] = artifact
 
     return APIResponse(
         success=True,
@@ -1932,47 +1950,26 @@ async def export_report(
         导出文件信息
     """
     from nini.agent.session import session_manager
-    from nini.memory.storage import ArtifactStorage
     from nini.workspace import WorkspaceManager
-    from fastapi.responses import FileResponse
 
     session = session_manager.get_or_create(session_id)
 
     if request.format not in ("md", "docx", "pdf"):
         raise HTTPException(status_code=400, detail=f"不支持的导出格式: {request.format}")
 
-    # 获取最新的报告文件
-    storage = ArtifactStorage(session.id)
     ws = WorkspaceManager(session.id)
-
-    # 查找最新的报告文件
-    artifacts = ws.list_artifacts()
-    report_artifacts = [
-        a for a in artifacts if isinstance(a, dict) and str(a.get("type", "")).lower() == "report"
-    ]
-
-    if not report_artifacts:
-        raise HTTPException(status_code=404, detail="未找到可导出的报告，请先生成报告")
-
-    # 获取最新的报告
-    latest_report = sorted(
-        report_artifacts,
-        key=lambda x: str(x.get("updated_at", "")),
-        reverse=True,
-    )[0]
-
-    report_name = str(latest_report.get("name", "report.md"))
-    report_path = storage.get_path(report_name)
-
-    if not report_path.exists():
-        raise HTTPException(status_code=404, detail="报告文件不存在")
+    latest_report = ws.latest_document_file(subtypes={"report"})
+    if latest_report is None:
+        latest_report = ws.latest_document_file()
+    if latest_report is None:
+        raise HTTPException(status_code=404, detail="未找到可导出的文档，请先生成文档")
 
     # 如果请求的是 markdown 格式，直接返回
     if request.format == "md":
         return APIResponse(
             success=True,
             data={
-                "filename": report_name,
+                "filename": latest_report.get("name", ""),
                 "format": "md",
                 "download_url": latest_report.get("download_url", ""),
             },
@@ -1980,43 +1977,29 @@ async def export_report(
 
     # DOCX 或 PDF 格式转换
     try:
-        from nini.tools.report_exporter import export_report as do_export
+        from nini.tools.export_report import export_workspace_document
 
-        # 读取 Markdown 内容
-        markdown_content = report_path.read_text(encoding="utf-8")
-
-        # 导出为指定格式
-        exported_bytes = do_export(
-            markdown_content,
-            format=request.format,
-            title=request.filename or report_name.replace(".md", ""),
+        result = await export_workspace_document(
+            session,
+            source_ref=str(latest_report.get("path") or latest_report.get("name") or ""),
+            output_format=request.format,
+            filename=request.filename,
+            prefer_latest_report=True,
         )
-
-        # 保存导出文件
-        new_filename = report_name.replace(".md", f".{request.format}")
-        if request.filename:
-            new_filename = request.filename
-            if not new_filename.endswith(f".{request.format}"):
-                new_filename += f".{request.format}"
-
-        export_path = storage.get_path(new_filename)
-        export_path.write_bytes(exported_bytes)
-
-        # 添加到工作区
-        ws.add_artifact_record(
-            name=new_filename,
-            artifact_type="report",
-            file_path=export_path,
-            format_hint=request.format,
-        )
+        if not result.success:
+            return APIResponse(success=False, error=result.message, message=result.message)
+        payload = result.data if isinstance(result.data, dict) else {}
+        artifact = result.artifacts[0] if result.artifacts else {}
 
         return APIResponse(
             success=True,
             data={
-                "filename": new_filename,
+                "filename": payload.get("filename", ""),
                 "format": request.format,
-                "size": len(exported_bytes),
-                "download_url": ws.build_artifact_download_url(new_filename),
+                "size": Path(str(artifact.get("path", ""))).stat().st_size
+                if artifact.get("path")
+                else 0,
+                "download_url": artifact.get("download_url", ""),
             },
         )
 

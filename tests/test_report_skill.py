@@ -117,12 +117,13 @@ class TestBuildMarkdownNoChartList:
 class TestExecuteSavesPreviewMd:
     @pytest.mark.asyncio
     async def test_saved_file_contains_api_paths(self, tmp_path: Path):
-        """execute() 保存的文件保留 /api/artifacts/ 路径，由 bundle 端点负责转换。"""
+        """execute() 保存的文件使用统一工作区文件路径。"""
         session = MagicMock()
         session.id = "save-test"
         session.datasets = {}
         session.messages = []
         session.artifacts = {}
+        session.documents = {}
         session.knowledge_memory = MagicMock()
 
         from nini.tools.report import GenerateReportSkill
@@ -132,20 +133,22 @@ class TestExecuteSavesPreviewMd:
         charts = [
             {
                 "name": "scatter.plotly.json",
-                "type": "chart",
                 "format": "json",
-                "download_url": "/api/artifacts/save-test/scatter.plotly.json",
+                "download_url": "/api/workspace/save-test/files/artifacts/scatter.plotly.json",
             }
         ]
 
         with (
             patch("nini.tools.report._collect_chart_artifacts", return_value=charts),
-            patch("nini.tools.report.ArtifactStorage") as MockStorage,
-            patch("nini.tools.report.WorkspaceManager"),
+            patch("nini.tools.report.WorkspaceManager") as MockWM,
         ):
-            mock_storage = MockStorage.return_value
-            mock_storage.get_path.return_value = tmp_path / "dummy"
-            mock_storage.save_text.return_value = tmp_path / "report.md"
+            mock_ws = MockWM.return_value
+            mock_ws.sanitize_filename.side_effect = lambda name, default_name="analysis_report.md": name
+            mock_ws.resolve_workspace_path.side_effect = lambda rel_path, allow_missing=True: tmp_path / rel_path
+            mock_ws.save_text_file.return_value = tmp_path / "notes" / "reports" / "report.md"
+            mock_ws.build_workspace_file_download_url.side_effect = (
+                lambda rel_path: f"/api/workspace/save-test/files/{rel_path}"
+            )
 
             result = await skill.execute(
                 session,
@@ -158,10 +161,10 @@ class TestExecuteSavesPreviewMd:
 
             assert result.success
             preview_md = result.data["report_markdown"]
-            # 预览版保留 plotly.json API 路径
+            # 预览版保留统一工作区图表路径
             assert "plotly.json" in preview_md
-            assert "/api/artifacts/" in preview_md
+            assert "/api/workspace/" in preview_md
 
             # 保存的内容与预览版一致（不再做 downloadable 转换）
-            saved_content = mock_storage.save_text.call_args[0][0]
+            saved_content = mock_ws.save_text_file.call_args[0][1]
             assert saved_content == preview_md

@@ -23,7 +23,7 @@ describe('FileListItem', () => {
   const file = {
     id: 'file-id-123',
     name: 'report.md',
-    kind: 'note' as const,
+    kind: 'document' as const,
     path: 'notes/report.md',
     size: 128,
     download_url: '/api/workspace/test/notes/report.md',

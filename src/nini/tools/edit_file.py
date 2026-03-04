@@ -155,7 +155,7 @@ class EditFile(Skill):
                 start_line = kwargs.get("start_line")
                 end_line = kwargs.get("end_line")
                 return await self._do_edit(
-                    full_path, old_string, new_string, start_line, end_line, encoding
+                    session, full_path, old_string, new_string, start_line, end_line, encoding
                 )
 
             return SkillResult(success=False, message=f"未知操作: {operation}")
@@ -255,14 +255,7 @@ class EditFile(Skill):
 
             # 添加到工作区索引，使文件在前端可见
             try:
-                manager = WorkspaceManager(session.id)
-                manager.add_artifact_record(
-                    name=file_path.name,
-                    artifact_type="text_file",
-                    file_path=file_path,
-                    format_hint=file_path.suffix.lstrip(".") or "txt",
-                    visibility="internal",
-                )
+                self._sync_text_document_record(session, file_path)
             except Exception as e:
                 logger.warning(f"添加到工作区索引失败: {e}")
 
@@ -302,14 +295,7 @@ class EditFile(Skill):
 
                 # 添加到工作区索引，使文件在前端可见
                 try:
-                    manager = WorkspaceManager(session.id)
-                    manager.add_artifact_record(
-                        name=file_path.name,
-                        artifact_type="text_file",
-                        file_path=file_path,
-                        format_hint=file_path.suffix.lstrip(".") or "txt",
-                        visibility="internal",
-                    )
+                    self._sync_text_document_record(session, file_path)
                 except Exception as e:
                     logger.warning(f"添加到工作区索引失败: {e}")
 
@@ -329,6 +315,10 @@ class EditFile(Skill):
             separator = "\n" if existing_content and not existing_content.endswith("\n") else ""
             new_content = existing_content + separator + content
             file_path.write_text(new_content, encoding=encoding)
+            try:
+                self._sync_text_document_record(session, file_path)
+            except Exception as e:
+                logger.warning(f"同步工作区索引失败: {e}")
             lines = new_content.split("\n")
             appended_lines = content.split("\n")
 
@@ -350,6 +340,7 @@ class EditFile(Skill):
 
     async def _do_edit(
         self,
+        session: Session,
         file_path: Path,
         old_string: str | None,
         new_string: str,
@@ -386,6 +377,10 @@ class EditFile(Skill):
                 new_content = "\n".join(new_lines)
 
                 file_path.write_text(new_content, encoding=encoding)
+                try:
+                    self._sync_text_document_record(session, file_path)
+                except Exception as e:
+                    logger.warning(f"同步工作区索引失败: {e}")
 
                 return SkillResult(
                     success=True,
@@ -410,6 +405,10 @@ class EditFile(Skill):
                 # 替换所有匹配（通常是第一个）
                 new_content = content.replace(old_string, new_string, 1)
                 file_path.write_text(new_content, encoding=encoding)
+                try:
+                    self._sync_text_document_record(session, file_path)
+                except Exception as e:
+                    logger.warning(f"同步工作区索引失败: {e}")
 
                 # 统计变更
                 old_lines = old_string.split("\n")
@@ -437,3 +436,9 @@ class EditFile(Skill):
                 success=False,
                 message=f"编辑文件失败: {str(e)}",
             )
+
+    def _sync_text_document_record(self, session: Session, file_path: Path) -> None:
+        """同步 edit_file 创建/更新的文本文件索引，使其在工作区按文稿展示。"""
+        workspace_path = settings.sessions_dir / session.id / "workspace"
+        relative_path = file_path.resolve().relative_to(workspace_path.resolve()).as_posix()
+        WorkspaceManager(session.id).sync_text_document_record(relative_path)

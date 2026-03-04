@@ -18,6 +18,12 @@ function createState(
     _activePlanTaskIds: [],
     _planActionTaskMap: {},
     _messageBuffer: {},
+    _streamingMetrics: {
+      startedAt: null,
+      turnId: null,
+      totalTokens: 0,
+      hasTokenUsage: false,
+    },
     analysisPlanProgress: null,
     analysisTasks: [],
     pendingAskUserQuestion: null,
@@ -161,5 +167,161 @@ describe("handleEvent 文本去重", () => {
         download_url: "/api/artifacts/demo/report.md",
       },
     ]);
+  });
+
+  it("token_usage 应累加当前请求 token，并绑定 turn_id", () => {
+    const harness = createHarness({
+      isStreaming: true,
+      _streamingMetrics: {
+        startedAt: Date.now(),
+        turnId: null,
+        totalTokens: 0,
+        hasTokenUsage: false,
+      },
+    });
+
+    harness.dispatch({
+      type: "iteration_start",
+      turn_id: "turn-1",
+    });
+    harness.dispatch({
+      type: "token_usage",
+      turn_id: "turn-1",
+      data: {
+        model: "gpt-5",
+        input_tokens: 300,
+        output_tokens: 120,
+        total_tokens: 420,
+        session_total_tokens: 420,
+        session_total_cost: 0.1,
+      },
+    });
+    harness.dispatch({
+      type: "token_usage",
+      turn_id: "turn-1",
+      data: {
+        model: "gpt-5",
+        input_tokens: 200,
+        output_tokens: 200,
+        total_tokens: 400,
+        session_total_tokens: 820,
+        session_total_cost: 0.2,
+      },
+    });
+
+    const state = harness.getState();
+    expect(state._streamingMetrics).toMatchObject({
+      turnId: "turn-1",
+      totalTokens: 820,
+      hasTokenUsage: true,
+    });
+    expect(state.tokenUsage?.total_tokens).toBe(820);
+  });
+
+  it("不同 turn 的 token_usage 不应污染当前请求指标", () => {
+    const harness = createHarness({
+      isStreaming: true,
+      _streamingMetrics: {
+        startedAt: Date.now(),
+        turnId: "turn-1",
+        totalTokens: 420,
+        hasTokenUsage: true,
+      },
+    });
+
+    harness.dispatch({
+      type: "token_usage",
+      turn_id: "turn-2",
+      data: {
+        model: "gpt-5",
+        input_tokens: 10,
+        output_tokens: 10,
+        total_tokens: 20,
+        session_total_tokens: 999,
+      },
+    });
+
+    const state = harness.getState();
+    expect(state._streamingMetrics.totalTokens).toBe(420);
+    expect(state.tokenUsage).toBeNull();
+  });
+
+  it("done 后应清空当前请求指标", () => {
+    const harness = createHarness({
+      isStreaming: true,
+      _currentTurnId: "turn-1",
+      _streamingMetrics: {
+        startedAt: Date.now(),
+        turnId: "turn-1",
+        totalTokens: 820,
+        hasTokenUsage: true,
+      },
+    });
+
+    harness.dispatch({
+      type: "done",
+      turn_id: "turn-1",
+    });
+
+    expect(harness.getState()._streamingMetrics).toEqual({
+      startedAt: null,
+      turnId: null,
+      totalTokens: 0,
+      hasTokenUsage: false,
+    });
+  });
+
+  it("ask_user_question 的工具结果应先展示问题再展示用户回答", () => {
+    const harness = createHarness({ _currentTurnId: "turn-ask-1" });
+
+    harness.dispatch({
+      type: "tool_result",
+      tool_name: "ask_user_question",
+      tool_call_id: "tool-ask-1",
+      turn_id: "turn-ask-1",
+      data: {
+        status: "success",
+        message: "已收到用户回答。",
+        result: {
+          success: true,
+          message: "已收到用户回答。",
+          data: {
+            questions: [
+              {
+                question: "你更关注哪类结果？",
+                header: "分析偏好",
+              },
+              {
+                question: "还需要补充什么要求？",
+                header: "补充要求",
+              },
+            ],
+            answers: {
+              "你更关注哪类结果？": "效应量",
+              "还需要补充什么要求？": "请同时报告置信区间",
+            },
+          },
+        },
+      },
+    });
+
+    expect(harness.getState().messages).toHaveLength(1);
+    expect(harness.getState().messages[0]).toMatchObject({
+      role: "tool",
+      toolName: "ask_user_question",
+      toolStatus: "success",
+    });
+
+    const toolResult = harness.getState().messages[0]?.toolResult || "";
+    // 验证先展示问题，再展示回答（用 → 标记）
+    expect(toolResult).toContain("分析偏好：你更关注哪类结果？");
+    expect(toolResult).toContain("→ 效应量");
+    expect(toolResult).toContain("补充要求：还需要补充什么要求？");
+    expect(toolResult).toContain("→ 请同时报告置信区间");
+
+    // 验证问题出现在答案之前（通过索引位置判断）
+    const questionIndex = toolResult.indexOf("你更关注哪类结果？");
+    const answerIndex = toolResult.indexOf("→ 效应量");
+    expect(questionIndex).toBeLessThan(answerIndex);
   });
 });

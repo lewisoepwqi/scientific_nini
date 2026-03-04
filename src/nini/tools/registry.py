@@ -14,6 +14,7 @@ from nini.tools.data_ops import DataSummarySkill, LoadDatasetSkill, PreviewDataS
 from nini.tools.data_quality import DataQualitySkill
 from nini.tools.edit_file import EditFile
 from nini.tools.export import ExportChartSkill
+from nini.tools.export_document import ExportDocumentSkill
 from nini.tools.export_report import ExportReportSkill
 from nini.tools.fetch_url import FetchURLSkill
 from nini.tools.interpretation import InterpretStatisticalResultSkill
@@ -40,6 +41,7 @@ from nini.tools.templates import (
     RegressionAnalysisSkill,
 )
 from nini.tools.visualization import CreateChartSkill
+from nini.tools.workspace_files import ListWorkspaceFilesSkill
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +212,7 @@ def create_default_tool_registry() -> ToolRegistry:
             )
     registry.register(CreateChartSkill())
     registry.register(ExportChartSkill())
+    registry.register(ExportDocumentSkill())
     registry.register(CleanDataSkill())
     registry.register(RecommendCleaningStrategySkill())
     registry.register(DataQualitySkill())
@@ -223,6 +226,7 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(RegressionAnalysisSkill())
     registry.register(InterpretStatisticalResultSkill())
     registry.register(EditFile())
+    registry.register(ListWorkspaceFilesSkill())
     registry.reload_markdown_skills()
     registry.write_skills_snapshot()
     return registry

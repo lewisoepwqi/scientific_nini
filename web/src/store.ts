@@ -39,6 +39,7 @@ export type {
   ResearchProfile,
   ModelTokenUsage,
   TokenUsage,
+  StreamingMetrics,
   SessionCostSummary,
   AggregateCostSummary,
   ModelPricing,
@@ -72,6 +73,7 @@ import type {
   IntentAnalysisView,
   ResearchProfile,
   TokenUsage,
+  StreamingMetrics,
   SessionCostSummary,
   AggregateCostSummary,
   PricingConfig,
@@ -198,6 +200,7 @@ export interface AppState {
   _planActionTaskMap: Record<string, string>;
   // 消息缓冲区（用于去重）
   _messageBuffer: MessageBuffer;
+  _streamingMetrics: StreamingMetrics;
 
   // ResearchProfile
   researchProfile: ResearchProfile | null;
@@ -319,6 +322,12 @@ const SESSION_RESET_STATE = {
   _activePlanTaskIds: [] as string[],
   _planActionTaskMap: {} as Record<string, string>,
   _messageBuffer: {} as MessageBuffer,
+  _streamingMetrics: {
+    startedAt: null,
+    turnId: null,
+    totalTokens: 0,
+    hasTokenUsage: false,
+  } as StreamingMetrics,
   analysisTasks: [] as AnalysisTaskItem[],
   currentIntentAnalysis: null as IntentAnalysisView | null,
   intentAnalysisLoading: false,
@@ -372,6 +381,12 @@ export const useStore = create<AppState>((set, get) => ({
   _activePlanTaskIds: [],
   _planActionTaskMap: {},
   _messageBuffer: {},
+  _streamingMetrics: {
+    startedAt: null,
+    turnId: null,
+    totalTokens: 0,
+    hasTokenUsage: false,
+  },
   researchProfile: null,
   researchProfileLoading: false,
   tokenUsage: null,
@@ -464,6 +479,12 @@ export const useStore = create<AppState>((set, get) => ({
         _lastHandledSeq: undefined,
         _activePlanMsgId: null,
         _messageBuffer: {},
+        _streamingMetrics: {
+          startedAt: null,
+          turnId: null,
+          totalTokens: 0,
+          hasTokenUsage: false,
+        },
       });
 
       if (attempts < maxAttempts && !hidden) {
@@ -521,6 +542,12 @@ export const useStore = create<AppState>((set, get) => ({
       _lastHandledSeq: undefined,
       _activePlanMsgId: null,
       _messageBuffer: {},
+      _streamingMetrics: {
+        startedAt: null,
+        turnId: null,
+        totalTokens: 0,
+        hasTokenUsage: false,
+      },
     });
   },
 
@@ -592,6 +619,12 @@ export const useStore = create<AppState>((set, get) => ({
       _activePlanTaskIds: [],
       _planActionTaskMap: {},
       _messageBuffer: {},
+      _streamingMetrics: {
+        startedAt: Date.now(),
+        turnId: null,
+        totalTokens: 0,
+        hasTokenUsage: false,
+      },
     });
   },
 
@@ -643,6 +676,12 @@ export const useStore = create<AppState>((set, get) => ({
       _activePlanTaskIds: [],
       _planActionTaskMap: {},
       _messageBuffer: {},
+      _streamingMetrics: {
+        startedAt: null,
+        turnId: null,
+        totalTokens: 0,
+        hasTokenUsage: false,
+      },
     });
   },
 
@@ -677,6 +716,12 @@ export const useStore = create<AppState>((set, get) => ({
       _activePlanTaskIds: [],
       _planActionTaskMap: {},
       _messageBuffer: {},
+      _streamingMetrics: {
+        startedAt: Date.now(),
+        turnId: null,
+        totalTokens: 0,
+        hasTokenUsage: false,
+      },
     });
 
     try {
@@ -920,12 +965,20 @@ export const useStore = create<AppState>((set, get) => ({
     if (!result.success) return;
 
     const rawMessages = result.messages || [];
-    const messages = api.buildMessagesFromHistory(rawMessages as RawSessionMessage[]);
+    const restored = api.buildSessionRestoreState(
+      rawMessages as RawSessionMessage[],
+    );
 
     set({
       sessionId: targetSessionId,
-      messages,
       ...SESSION_RESET_STATE,
+      messages: restored.messages,
+      analysisTasks: restored.analysisTasks,
+      analysisPlanProgress: restored.analysisPlanProgress,
+      workspacePanelTab:
+        restored.analysisPlanProgress || restored.analysisTasks.length > 0
+          ? "tasks"
+          : "files",
     });
     localStorage.setItem("nini_last_session_id", targetSessionId);
 

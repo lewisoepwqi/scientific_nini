@@ -29,6 +29,25 @@ from nini.config import settings
 from nini.utils.dataframe_io import read_dataframe
 
 _SAFE_FILENAME_PATTERN = re.compile(r"[^0-9A-Za-z\u4e00-\u9fff._ -]")
+_TEXT_DOCUMENT_EXTENSIONS = {
+    ".md",
+    ".txt",
+    ".csv",
+    ".tsv",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".xml",
+    ".html",
+    ".css",
+    ".js",
+    ".ts",
+    ".py",
+    ".r",
+    ".pdf",
+    ".docx",
+}
+_DOCUMENT_EXCLUDED_ROOTS = {"uploads", "artifacts", "executions"}
 
 
 def _now_iso() -> str:
@@ -97,6 +116,121 @@ class WorkspaceManager:
             normalized = quote(filename, safe="")
         return f"/api/artifacts/{self.session_id}/{normalized}"
 
+    def build_workspace_file_download_url(self, relative_path: str) -> str:
+        """构建基于相对路径的工作区文件 URL。"""
+        normalized = quote(relative_path.replace("\\", "/"), safe="/")
+        return f"/api/workspace/{self.session_id}/files/{normalized}"
+
+    def _relative_workspace_path(self, path: Path) -> str | None:
+        """将绝对路径转换为工作区相对路径。"""
+        try:
+            return path.resolve().relative_to(self.workspace_dir.resolve()).as_posix()
+        except Exception:
+            return None
+
+    def _should_index_as_document(self, path: Path) -> bool:
+        """判断文件是否应作为可编辑文稿展示。"""
+        rel_path = self._relative_workspace_path(path)
+        if not rel_path or path.name == "index.json":
+            return False
+        parts = Path(rel_path).parts
+        if not parts:
+            return False
+        if parts[0] in _DOCUMENT_EXCLUDED_ROOTS:
+            return False
+        return path.suffix.lower() in _TEXT_DOCUMENT_EXTENSIONS
+
+    def _build_note_download_url(self, path: Path) -> str:
+        """为文稿记录构建下载 URL。"""
+        rel_path = self._relative_workspace_path(path)
+        if not rel_path:
+            return f"/api/workspace/{self.session_id}/notes/{quote(path.name, safe='')}"
+        if path.parent == self.notes_dir:
+            return f"/api/workspace/{self.session_id}/notes/{quote(path.name, safe='')}"
+        return self.build_workspace_file_download_url(rel_path)
+
+    def _infer_document_subtype(self, path: Path) -> str:
+        """推断文档子类型。"""
+        ext = path.suffix.lower()
+        rel_path = self._relative_workspace_path(path) or path.name
+        parts = Path(rel_path).parts
+        lower_name = path.name.lower()
+
+        if ext == ".pdf":
+            return "pdf_export"
+        if ext == ".docx":
+            return "docx_export"
+        if "reports" in parts or lower_name.endswith("_report.md") or "report" in lower_name:
+            return "report"
+        if parts and parts[0] == "notes":
+            return "note"
+        return "draft"
+
+    def _infer_result_subtype(self, item: dict[str, Any], path: Path) -> str:
+        """推断结果类子类型。"""
+        artifact_type = str(item.get("type", "")).strip().lower()
+        ext = path.suffix.lower().lstrip(".")
+        lower_name = path.name.lower()
+
+        if artifact_type == "chart" or lower_name.endswith(".plotly.json"):
+            if lower_name.endswith(".plotly.json"):
+                return "plotly_json"
+            if ext in {"html", "htm"}:
+                return "html"
+            return "chart"
+        if ext in {"png", "jpg", "jpeg", "svg", "webp", "gif"}:
+            return "image"
+        if ext in {"html", "htm"}:
+            return "html"
+        if ext in {"py", "js", "ts", "r", "ipynb"} or artifact_type == "code":
+            return "code"
+        if ext in {"zip", "tar", "gz"}:
+            return "archive"
+        if artifact_type == "report":
+            return "report"
+        return artifact_type or ext or "result"
+
+    def _build_capabilities(
+        self,
+        *,
+        kind: str,
+        path: Path,
+        subtype: str | None = None,
+    ) -> dict[str, bool]:
+        """构建公开文件能力描述。"""
+        ext = path.suffix.lower()
+        if kind == "dataset":
+            return {
+                "preview": True,
+                "edit": False,
+                "export": False,
+                "embed": False,
+                "download": True,
+            }
+        if kind == "document":
+            if ext in {".md", ".txt", ".html", ".htm"}:
+                return {
+                    "preview": True,
+                    "edit": True,
+                    "export": True,
+                    "embed": False,
+                    "download": True,
+                }
+            return {
+                "preview": ext == ".pdf",
+                "edit": False,
+                "export": False,
+                "embed": False,
+                "download": True,
+            }
+        return {
+            "preview": True,
+            "edit": False,
+            "export": False,
+            "embed": subtype == "plotly_json",
+            "download": True,
+        }
+
     def _iter_index_records(
         self,
         index: dict[str, Any],
@@ -137,6 +271,18 @@ class WorkspaceManager:
             if item_path == resolved_target:
                 return kind, item, path_key
         return "", None, None
+
+    def _public_kind_for_record(self, kind: str, item: dict[str, Any] | None) -> str:
+        """将内部索引类型映射为公开工作区类型。"""
+        if kind == "dataset":
+            return "dataset"
+        if kind == "note":
+            return "document"
+        if kind == "artifact":
+            if isinstance(item, dict) and self._artifact_should_display_as_document(item):
+                return "document"
+            return "result"
+        return kind
 
     def _remove_records_under_path(
         self,
@@ -191,19 +337,46 @@ class WorkspaceManager:
         elif kind == "artifact":
             item["download_url"] = self.build_artifact_download_url(new_path.name)
         elif kind == "note":
-            item["download_url"] = (
-                f"/api/workspace/{self.session_id}/notes/{quote(new_path.name, safe='')}"
-            )
+            item["type"] = self._infer_document_subtype(new_path)
+            item["download_url"] = self._build_note_download_url(new_path)
 
     def _upsert_note_record_for_path(self, path: Path) -> dict[str, Any] | None:
-        """仅为 notes 根目录下的文件维护 note 记录。"""
-        if path.parent != self.notes_dir:
+        """为工作区内的文本文稿维护 note 记录。"""
+        if not self._should_index_as_document(path):
             return None
 
         index = self._load_index()
-        _, existing, path_key = self._find_record_by_path(path, index=index)
-        if existing is not None and path_key is not None:
-            self._sync_record_after_path_change("note", existing, path_key, path)
+        normalized_path = str(path.resolve())
+
+        artifacts = index.get("artifacts", [])
+        if isinstance(artifacts, list):
+            index["artifacts"] = [
+                item
+                for item in artifacts
+                if not (
+                    isinstance(item, dict)
+                    and str(item.get("path", "")).strip() == normalized_path
+                    and str(item.get("type", "")).strip() == "text_file"
+                )
+            ]
+
+        notes = index.get("notes", [])
+        if not isinstance(notes, list):
+            notes = []
+
+        existing = next(
+            (
+                item
+                for item in notes
+                if isinstance(item, dict) and str(item.get("path", "")).strip() == normalized_path
+            ),
+            None,
+        )
+        if isinstance(existing, dict):
+            existing["name"] = path.name
+            existing["path"] = normalized_path
+            existing["type"] = self._infer_document_subtype(path)
+            existing["download_url"] = self._build_note_download_url(path)
             self._save_index(index)
             return existing
 
@@ -211,14 +384,11 @@ class WorkspaceManager:
             "id": uuid.uuid4().hex[:12],
             "session_id": self.session_id,
             "name": path.name,
-            "type": "note",
-            "path": str(path),
-            "download_url": f"/api/workspace/{self.session_id}/notes/{quote(path.name, safe='')}",
+            "type": self._infer_document_subtype(path),
+            "path": normalized_path,
+            "download_url": self._build_note_download_url(path),
             "created_at": _now_iso(),
         }
-        notes = index.get("notes", [])
-        if not isinstance(notes, list):
-            notes = []
         notes.append(note_record)
         index["notes"] = notes
         self._save_index(index)
@@ -275,6 +445,11 @@ class WorkspaceManager:
         target.write_text(content, encoding="utf-8")
         self._upsert_note_record_for_path(target)
         return target
+
+    def sync_text_document_record(self, relative_path: str) -> dict[str, Any] | None:
+        """按相对路径同步文本文稿索引记录。"""
+        target = self.resolve_workspace_path(relative_path, allow_missing=False)
+        return self._upsert_note_record_for_path(target)
 
     def delete_path(self, relative_path: str) -> dict[str, Any]:
         """按路径删除工作空间中的文件或目录，并同步索引。"""
@@ -629,24 +804,18 @@ class WorkspaceManager:
             safe_name = f"{safe_name}.md"
         path = self.notes_dir / safe_name
         path.write_text(content, encoding="utf-8")
-
-        index = self._load_index()
-        note_record = {
-            "id": uuid.uuid4().hex[:12],
-            "session_id": self.session_id,
-            "name": safe_name,
-            "type": "note",
-            "path": str(path),
-            "download_url": f"/api/workspace/{self.session_id}/notes/{safe_name}",
-            "created_at": _now_iso(),
-        }
-        notes = index.get("notes", [])
-        if not isinstance(notes, list):
-            notes = []
-        notes.append(note_record)
-        index["notes"] = notes
-        self._save_index(index)
+        note_record = self._upsert_note_record_for_path(path)
+        if note_record is None:
+            raise ValueError("保存笔记失败：无法创建工作区文稿记录")
         return note_record
+
+    def _artifact_should_display_as_document(self, item: dict[str, Any]) -> bool:
+        """兼容旧索引：文本文档与报告产物按文档展示。"""
+        artifact_type = str(item.get("type", "")).strip().lower()
+        if artifact_type not in {"text_file", "report"}:
+            return False
+        path = Path(str(item.get("path", "")).strip())
+        return self._should_index_as_document(path)
 
     def list_notes(self) -> list[dict[str, Any]]:
         index = self._load_index()
@@ -667,6 +836,8 @@ class WorkspaceManager:
         files: list[dict[str, Any]] = []
 
         for item in self.list_datasets():
+            file_path = Path(str(item.get("file_path", "")))
+            subtype = str(item.get("file_type", "")).lower()
             files.append(
                 {
                     "id": item.get("id"),
@@ -680,9 +851,15 @@ class WorkspaceManager:
                         f"{quote(Path(str(item.get('file_path', ''))).name)}"
                     ),
                     "meta": {
+                        "subtype": subtype,
                         "row_count": item.get("row_count"),
                         "column_count": item.get("column_count"),
                         "file_type": item.get("file_type"),
+                        "capabilities": self._build_capabilities(
+                            kind="dataset",
+                            path=file_path,
+                            subtype=subtype,
+                        ),
                     },
                 }
             )
@@ -692,26 +869,58 @@ class WorkspaceManager:
             size = 0
             if path.exists() and path.is_file():
                 size = path.stat().st_size
-            raw_url = str(item.get("download_url", "")).strip()
-            download_url = raw_url
-            if raw_url.startswith(f"/api/artifacts/{self.session_id}/"):
-                suffix = raw_url.split(f"/api/artifacts/{self.session_id}/", 1)[-1]
-                download_url = self.build_artifact_download_url(suffix)
+            rel_path = self._relative_workspace_path(path)
+            download_url = (
+                self.build_workspace_file_download_url(rel_path)
+                if rel_path
+                else self.build_artifact_download_url(path.name)
+            )
+            if self._artifact_should_display_as_document(item):
+                subtype = self._infer_document_subtype(path)
+                files.append(
+                    {
+                        "id": item.get("id"),
+                        "name": item.get("name"),
+                        "kind": "document",
+                        "size": size,
+                        "created_at": item.get("created_at"),
+                        "folder": item.get("folder"),
+                        "download_url": self._build_note_download_url(path),
+                        "meta": {
+                            "subtype": subtype,
+                            "migrated_from": "artifact",
+                            "type": item.get("type"),
+                            "capabilities": self._build_capabilities(
+                                kind="document",
+                                path=path,
+                                subtype=subtype,
+                            ),
+                        },
+                    }
+                )
+                continue
+            subtype = self._infer_result_subtype(item, path)
             files.append(
                 {
                     "id": item.get("id"),
                     "name": item.get("name"),
-                    "kind": "artifact",
+                    "kind": "result",
                     "size": size,
                     "created_at": item.get("created_at"),
                     "folder": item.get("folder"),
                     "download_url": download_url,
                     "meta": {
+                        "subtype": subtype,
                         "type": item.get("type"),
                         "format": item.get("format"),
                         "versions": item.get("versions", []),
                         "version": item.get("version"),
                         "visibility": item.get("visibility", "deliverable"),
+                        "capabilities": self._build_capabilities(
+                            kind="result",
+                            path=path,
+                            subtype=subtype,
+                        ),
                     },
                 }
             )
@@ -721,16 +930,24 @@ class WorkspaceManager:
             size = 0
             if path.exists() and path.is_file():
                 size = path.stat().st_size
+            subtype = str(item.get("type") or self._infer_document_subtype(path))
             files.append(
                 {
                     "id": item.get("id"),
                     "name": item.get("name"),
-                    "kind": "note",
+                    "kind": "document",
                     "size": size,
                     "created_at": item.get("created_at"),
                     "folder": item.get("folder"),
-                    "download_url": f"/api/workspace/{self.session_id}/notes/{quote(str(item.get('name', '')))}",
-                    "meta": {},
+                    "download_url": str(item.get("download_url") or self._build_note_download_url(path)),
+                    "meta": {
+                        "subtype": subtype,
+                        "capabilities": self._build_capabilities(
+                            kind="document",
+                            path=path,
+                            subtype=subtype,
+                        ),
+                    },
                 }
             )
 
@@ -776,6 +993,47 @@ class WorkspaceManager:
                 results.append(item)
         return results
 
+    def resolve_document_file(self, source_ref: str) -> dict[str, Any] | None:
+        """按相对路径或文件名定位文档类工作区文件。"""
+        ref = source_ref.strip().strip("/")
+        if not ref:
+            return None
+
+        documents = [
+            item
+            for item in self.list_workspace_files_with_paths()
+            if str(item.get("kind", "")).strip() == "document"
+        ]
+
+        for item in documents:
+            if str(item.get("path", "")).strip() == ref:
+                return item
+
+        filename = Path(ref).name
+        exact = [item for item in documents if str(item.get("name", "")).strip() == filename]
+        if len(exact) == 1:
+            return exact[0]
+        return None
+
+    def latest_document_file(
+        self,
+        *,
+        subtypes: set[str] | None = None,
+    ) -> dict[str, Any] | None:
+        """获取最近的文档文件，可按子类型过滤。"""
+        documents = [
+            item
+            for item in self.list_workspace_files_with_paths()
+            if str(item.get("kind", "")).strip() == "document"
+        ]
+        if subtypes is not None:
+            documents = [
+                item
+                for item in documents
+                if str((item.get("meta") or {}).get("subtype", "")).strip() in subtypes
+            ]
+        return documents[0] if documents else None
+
     # ---- 文件操作扩展（工作区面板用） ----
 
     def _find_record_by_id(self, file_id: str) -> tuple[str, dict[str, Any] | None]:
@@ -789,6 +1047,12 @@ class WorkspaceManager:
                         "artifacts": "artifact",
                         "notes": "note",
                     }[kind]
+                    if kind_singular == "artifact":
+                        if self._artifact_should_display_as_document(item):
+                            return "document", item
+                        return "result", item
+                    if kind_singular == "note":
+                        return "document", item
                     return kind_singular, item
         return "", None
 
@@ -1040,6 +1304,8 @@ class WorkspaceManager:
                     f"/api/workspace/{self.session_id}/download/{quote(relative_path, safe='')}"
                 ),
             }
+        else:
+            kind = self._public_kind_for_record(kind, record)
         file_id = str(record.get("id", relative_path))
         return self._build_preview_payload(file_id=file_id, kind=kind, record=record)
 
@@ -1130,7 +1396,7 @@ class WorkspaceManager:
         stored_record["folder"] = folder_id
         self._save_index(index)
         return {
-            "kind": kind,
+            "kind": self._public_kind_for_record(kind, stored_record),
             "record": stored_record,
         }
 

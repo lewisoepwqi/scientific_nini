@@ -57,12 +57,28 @@ function normalizeMarkdownArtifactLinks(content: string): string {
  * 转换图片路径为正确的 URL。
  * - 相对路径如 ./产物/xxx.png → /api/artifacts/{sessionId}/xxx.png
  * - 绝对 URL (http/https) 保持不变
- * - 以 / 开头的路径保持不变
+ * - /api/workspace/{sid}/files/... 保持不变（后端已支持直接访问）
+ * - 以 / 开头的其他路径保持不变
  */
 function resolveImageUrl(src: string, sessionId: string | null): string {
   // 已经是绝对 URL，直接返回
-  if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('/')) {
+  if (src.startsWith('http://') || src.startsWith('https://')) {
+    return src
+  }
+
+  // /api/workspace/{sid}/files/... 格式的路径，后端已支持直接访问
+  if (src.startsWith('/api/workspace/') && src.includes('/files/')) {
+    return src
+  }
+
+  // 处理 /api/artifacts/... 路径（规范化编码）
+  if (src.startsWith('/api/artifacts/')) {
     return normalizeArtifactUrl(src)
+  }
+
+  // 以 / 开头的其他路径，直接返回
+  if (src.startsWith('/')) {
+    return src
   }
 
   // 需要 sessionId 来转换相对路径

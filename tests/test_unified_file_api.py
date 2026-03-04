@@ -325,3 +325,87 @@ class TestEditFileCompatibility:
 
         assert response.status_code == 200
         assert b"Chapter 1" in response.content
+
+
+class TestImageFileDirectAccess:
+    """测试图片文件在统一端点中默认直接返回文件流（支持 markdown 内嵌图片）。"""
+
+    @pytest.mark.parametrize("ext", ["png", "jpg", "jpeg", "gif", "webp", "svg"])
+    def test_image_file_direct_stream_without_download_param(self, client: TestClient, session_id: str, ext: str):
+        """测试图片文件无需 download=1 参数即可直接访问文件流。"""
+        filename = f"test_chart.{ext}"
+        fake_image_content = f"fake {ext} data".encode("utf-8")
+
+        # 在 artifacts 目录创建图片文件
+        create_test_file(session_id, f"artifacts/{filename}", fake_image_content)
+
+        # 不使用 download=1 参数直接访问（模拟 markdown 中 <img src> 的请求）
+        response = client.get(f"/api/workspace/{session_id}/files/artifacts/{filename}")
+
+        assert response.status_code == 200, f"{ext} 文件应该直接返回文件流"
+        assert response.content == fake_image_content
+        assert response.headers.get("Content-Type") not in ["application/json", None]
+
+    def test_image_file_in_markdown_url_format(self, client: TestClient, session_id: str):
+        """测试 markdown 中常见的 /api/workspace/{sid}/files/artifacts/xxx.png URL 格式能正常访问。"""
+        # 创建 PNG 图片
+        fake_png = b"\x89PNG\r\n\x1a\nfake png data"
+        create_test_file(session_id, "artifacts/correlation_heatmap.png", fake_png)
+
+        # 创建引用该图片的 markdown 文件
+        md_content = f"""# 分析报告
+
+## 相关性热图
+
+![相关性热图](/api/workspace/{session_id}/files/artifacts/correlation_heatmap.png)
+
+图表显示了各变量间的相关性。
+"""
+        create_test_file(session_id, "notes/report_with_image.md", md_content)
+
+        # 1. 验证图片文件可直接通过 URL 访问（无 download 参数）
+        img_response = client.get(f"/api/workspace/{session_id}/files/artifacts/correlation_heatmap.png")
+        assert img_response.status_code == 200
+        assert img_response.content == fake_png
+        # 验证返回的是图片内容而非 JSON
+        content_type = img_response.headers.get("Content-Type", "")
+        assert "json" not in content_type, "图片不应返回 JSON 格式"
+
+        # 2. 验证 markdown 文件内容正确
+        md_response = client.get(f"/api/workspace/{session_id}/files/notes/report_with_image.md")
+        assert md_response.status_code == 200
+        # 默认返回 JSON 格式
+        data = json.loads(md_response.content)
+        assert data["success"] is True
+        # 验证 markdown 中包含图片 URL
+        assert f"/api/workspace/{session_id}/files/artifacts/correlation_heatmap.png" in data["data"]["content"]
+
+    def test_non_image_file_still_returns_json_by_default(self, client: TestClient, session_id: str):
+        """测试非图片文件默认仍返回 JSON 格式（向后兼容）。"""
+        create_test_file(session_id, "data/results.txt", "这是一份文本结果")
+
+        # 不使用 download 参数
+        response = client.get(f"/api/workspace/{session_id}/files/data/results.txt")
+
+        assert response.status_code == 200
+        # 验证返回 JSON
+        data = json.loads(response.content)
+        assert data["success"] is True
+        assert data["data"]["content"] == "这是一份文本结果"
+
+    def test_image_file_with_special_chars_in_name(self, client: TestClient, session_id: str):
+        """测试包含特殊字符（如中文、空格）的图片文件名能正常访问。"""
+        # 创建中文名称的图片
+        fake_png = b"\x89PNG\r\n\x1a\n\x89\x90 fake"
+        create_test_file(session_id, "artifacts/相关性热图.png", fake_png)
+        create_test_file(session_id, "artifacts/chart with spaces.png", fake_png)
+
+        # 测试中文文件名（URL 编码）
+        response = client.get(f"/api/workspace/{session_id}/files/artifacts/{'相关性热图.png'}")
+        assert response.status_code == 200
+        assert response.content == fake_png
+
+        # 测试带空格的文件名
+        response = client.get(f"/api/workspace/{session_id}/files/artifacts/chart with spaces.png")
+        assert response.status_code == 200
+        assert response.content == fake_png

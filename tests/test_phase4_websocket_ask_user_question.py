@@ -195,3 +195,67 @@ def test_websocket_ask_user_question_text_is_not_duplicated(
     ]
     assert text_events.count(intro_text) == 1
     assert "收到，继续分析。" in text_events
+
+
+def test_websocket_file_name_confirmation_is_converted_to_ask_user_question(
+    app_with_temp_data,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """文件名确认场景即使模型未主动调用工具，也应兜底为 ask_user_question。"""
+    call_state = {"count": 0}
+    suggestion = "blood_pressure_heart_rate_correlation_20260304.md"
+
+    async def fake_chat(messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        call_state["count"] += 1
+        if call_state["count"] == 1:
+            yield LLMChunk(
+                text=(
+                    f"建议文件名为 `{suggestion}`。"
+                    "您确认使用此文件名，或希望修改后再生成文章？"
+                )
+            )
+            return
+
+        yield LLMChunk(text="已确认文件名，继续生成内容。")
+
+    monkeypatch.setattr(model_resolver, "chat", fake_chat)
+
+    with live_websocket_connect(app_with_temp_data, "/ws") as ws:
+        ws.send_text(json.dumps({"type": "chat", "content": "请写一篇分析文章"}))
+
+        events = []
+        for _ in range(24):
+            evt = ws.receive_json()
+            events.append(evt)
+            if evt["type"] == "ask_user_question":
+                ws.send_text(
+                    json.dumps(
+                        {
+                            "type": "ask_user_question_answer",
+                            "tool_call_id": evt.get("tool_call_id"),
+                            "answers": {
+                                f"建议文件名为 {suggestion}。是否使用这个文件名？": "使用建议文件名",
+                            },
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+            if evt["type"] in {"done", "error"}:
+                break
+
+    event_types = [event["type"] for event in events]
+    assert "ask_user_question" in event_types
+    assert "tool_call" in event_types
+    assert "tool_result" in event_types
+    assert "done" in event_types
+    assert "error" not in event_types
+
+    ask_event = next(event for event in events if event["type"] == "ask_user_question")
+    question = ask_event["data"]["questions"][0]
+    assert question["header"] == "文件名"
+    assert question["allowTextInput"] is True
+    assert suggestion in question["question"]
+    text_events = [
+        evt["data"] for evt in events if evt["type"] == "text" and isinstance(evt.get("data"), str)
+    ]
+    assert "已确认文件名，继续生成内容。" in text_events

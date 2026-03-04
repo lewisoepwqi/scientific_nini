@@ -183,11 +183,12 @@ def create_default_capabilities() -> list[Capability]:
             required_tools=[
                 "load_dataset",
                 "generate_report",
+                "export_document",
                 "export_report",
             ],
             suggested_workflow=[
                 "generate_report",
-                "export_report",
+                "export_document",
             ],
         ),
         Capability(
@@ -201,16 +202,19 @@ def create_default_capabilities() -> list[Capability]:
                 "data_summary",
                 "interpret_stat_result",
                 "create_chart",
+                "list_workspace_files",
                 "edit_file",
                 "generate_report",
+                "export_document",
                 "export_report",
             ],
             suggested_workflow=[
                 "data_summary",
                 "interpret_stat_result",
                 "create_chart",
+                "list_workspace_files",
                 "edit_file",
-                "export_report",
+                "export_document",
             ],
         ),
     ]

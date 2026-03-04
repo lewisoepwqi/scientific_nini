@@ -113,6 +113,28 @@ def test_compact_tool_content_for_preparation_summarizes_json_payload() -> None:
     assert "结果正文" in compacted
 
 
+def test_compact_tool_content_for_preparation_keeps_artifact_download_urls() -> None:
+    """带产物的工具结果应保留首批 download_url，供后续轮次复用。"""
+    payload = json.dumps(
+        {
+            "success": True,
+            "message": "图表已生成",
+            "artifacts": [
+                {
+                    "name": "chart.plotly.json",
+                    "download_url": "/api/artifacts/sess-1/chart.plotly.json",
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+    compacted = compact_tool_content_for_preparation(payload, max_chars=1000)
+
+    assert "artifact_refs" in compacted
+    assert "/api/artifacts/sess-1/chart.plotly.json" in compacted
+
+
 def test_prepare_messages_for_llm_strips_frontend_fields_and_compacts_tool_content() -> None:
     """消息预处理应去掉前端字段，并压缩工具消息内容。"""
     tool_payload = json.dumps({"success": True, "message": "ok", "chart_data": {"x": [1]}})
@@ -144,6 +166,40 @@ def test_prepare_messages_for_llm_strips_frontend_fields_and_compacts_tool_conte
     assert "execution_id" not in tool_message
     assert "chart_data" not in tool_message
     assert '"message": "ok"' in tool_message["content"]
+
+
+def test_prepare_messages_for_llm_normalizes_null_assistant_tool_content() -> None:
+    """assistant tool_calls 的空 content 应规范为空字符串，兼容严格提供商。"""
+    messages = [
+        {
+            "role": "assistant",
+            "content": None,
+            "event_type": "tool_call",
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "edit_file", "arguments": "{\"file_path\":\"a.md\"}"},
+                }
+            ],
+        }
+    ]
+
+    prepared = prepare_messages_for_llm(messages)
+
+    assert prepared == [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "edit_file", "arguments": "{\"file_path\":\"a.md\"}"},
+                }
+            ],
+        }
+    ]
 
 
 def test_replace_arguments_handles_positional_and_full_arguments() -> None:

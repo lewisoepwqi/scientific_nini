@@ -174,6 +174,22 @@ def summarize_tool_result_dict(data: dict[str, Any]) -> dict[str, Any]:
         ]
         if names:
             compact["artifact_names"] = names
+        artifact_refs = []
+        for item in artifacts[:5]:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name", "")).strip()
+            download_url = str(item.get("download_url", "")).strip()
+            if not name and not download_url:
+                continue
+            artifact_refs.append(
+                {
+                    "name": name,
+                    "download_url": download_url,
+                }
+            )
+        if artifact_refs:
+            compact["artifact_refs"] = artifact_refs
 
     images = data.get("images")
     if isinstance(images, list):

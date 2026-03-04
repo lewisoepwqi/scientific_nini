@@ -145,6 +145,11 @@ def prepare_messages_for_llm(messages: list[dict[str, Any]]) -> list[dict[str, A
         cleaned.pop("artifacts", None)
         cleaned.pop("images", None)
 
+        # 某些 OpenAI 兼容提供商不接受 assistant/tool_calls 携带 null content，
+        # 统一规范为空字符串，保持消息结构稳定。
+        if role == "assistant" and cleaned.get("tool_calls") and cleaned.get("content") is None:
+            cleaned["content"] = ""
+
         if role == "tool":
             tool_name = str(cleaned.get("tool_name", "") or "").strip().lower()
             max_chars = (

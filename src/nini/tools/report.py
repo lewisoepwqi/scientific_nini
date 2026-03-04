@@ -10,7 +10,6 @@ from typing import Any
 import pandas as pd
 
 from nini.agent.session import Session
-from nini.memory.storage import ArtifactStorage
 from nini.tools.base import Skill, SkillResult
 from nini.workspace import WorkspaceManager
 
@@ -103,6 +102,7 @@ _KNOWN_SKILL_NAMES: set[str] = {
     "run_code",
     "run_r_code",
     "generate_report",
+    "export_document",
     "organize_workspace",
     "fetch_url",
     "interpret_statistical_result",
@@ -185,23 +185,29 @@ _KEY_FINDING_TOOLS = {
 def _collect_chart_artifacts(session_id: str, max_items: int = 12) -> list[dict[str, str]]:
     """收集会话图表产物（去重，按时间倒序）。"""
     manager = WorkspaceManager(session_id)
-    artifacts = manager.list_artifacts()
+    files = manager.list_workspace_files_with_paths()
     results: list[dict[str, str]] = []
     seen_names: set[str] = set()
 
-    for item in artifacts:
+    for item in files:
         if not isinstance(item, dict):
+            continue
+        if str(item.get("kind", "")).strip() != "result":
             continue
         name = str(item.get("name", "")).strip()
         if not name:
             continue
 
         name_lower = name.lower()
-        artifact_type = str(item.get("type", "")).lower()
-        fmt_hint = str(item.get("format", "")).lower().strip()
+        meta = item.get("meta") if isinstance(item.get("meta"), dict) else {}
+        artifact_type = str(meta.get("type", "")).lower()
+        subtype = str(meta.get("subtype", "")).lower()
+        fmt_hint = str(meta.get("format", "")).lower().strip()
         ext = Path(name).suffix.lower().lstrip(".")
         fmt = fmt_hint or ext or "unknown"
-        is_chart = artifact_type == "chart" or name_lower.endswith(".plotly.json")
+        is_chart = artifact_type == "chart" or subtype in {"chart", "plotly_json", "image"}
+        if subtype == "code":
+            is_chart = False
         if not is_chart:
             continue
 
@@ -211,11 +217,6 @@ def _collect_chart_artifacts(session_id: str, max_items: int = 12) -> list[dict[
         seen_names.add(dedupe_key)
 
         url = str(item.get("download_url", "")).strip()
-        if not url:
-            url = manager.build_artifact_download_url(name)
-        elif url.startswith(f"/api/artifacts/{session_id}/"):
-            suffix = url.split(f"/api/artifacts/{session_id}/", 1)[-1]
-            url = manager.build_artifact_download_url(suffix)
         results.append(
             {
                 "name": name,
@@ -515,7 +516,6 @@ def _build_markdown(
 
 def _resolve_output_name(
     session: Session,
-    storage: ArtifactStorage,
     *,
     filename: Any,
     title: str,
@@ -543,7 +543,7 @@ def _resolve_output_name(
     stem = Path(safe_name).stem or "analysis_report"
     suffix = Path(safe_name).suffix or ".md"
     counter = 2
-    while storage.get_path(candidate).exists():
+    while manager.resolve_workspace_path(f"notes/reports/{candidate}", allow_missing=True).exists():
         candidate = f"{stem}_{counter}{suffix}"
         counter += 1
     return candidate
@@ -565,7 +565,7 @@ class GenerateReportSkill(Skill):
         return (
             "生成结构化 Markdown 分析报告。请传入详细的 methods（使用了哪些统计方法及选择理由）、"
             "summary_text（核心结果摘要）和 conclusions（结论与下一步建议），"
-            "工具会自动从执行历史中提取关键发现。报告保存为会话产物并同步写入知识记忆。"
+            "工具会自动从执行历史中提取关键发现。报告保存为工作区文档并同步写入知识记忆。"
         )
 
     @property
@@ -647,33 +647,34 @@ class GenerateReportSkill(Skill):
             include_session_stats=include_session_stats,
         )
 
-        storage = ArtifactStorage(session.id)
         output_name = _resolve_output_name(
             session,
-            storage,
             filename=filename,
             title=title,
         )
-        # 保存预览版（保留 /api/artifacts/ 路径），bundle 端点负责下载时转换
-        path = storage.save_text(preview_md, output_name)
+        ws = WorkspaceManager(session.id)
+        relative_path = f"notes/reports/{output_name}"
+        path = ws.save_text_file(relative_path, preview_md)
 
         if save_to_knowledge:
             session.knowledge_memory.append(title, preview_md)
 
-        ws = WorkspaceManager(session.id)
         artifact = {
             "name": output_name,
             "type": "report",
             "path": str(path),
-            "download_url": ws.build_artifact_download_url(output_name),
+            "download_url": ws.build_workspace_file_download_url(relative_path),
+            "kind": "document",
+            "source_path": relative_path,
         }
-        ws.add_artifact_record(
-            name=output_name,
-            artifact_type="report",
-            file_path=path,
-            format_hint="md",
-        )
         session.artifacts["latest_report"] = artifact
+        session.documents["latest_report"] = {
+            "name": output_name,
+            "path": relative_path,
+            "type": "report",
+            "download_url": artifact["download_url"],
+        }
+        session.documents["latest_document"] = dict(session.documents["latest_report"])
 
         return SkillResult(
             success=True,

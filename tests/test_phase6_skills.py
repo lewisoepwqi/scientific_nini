@@ -54,7 +54,7 @@ def test_clean_data_generates_cleaned_dataset() -> None:
     assert session.datasets["exp_clean.csv"].isna().sum().sum() == 0
 
 
-def test_generate_report_writes_artifact_and_knowledge() -> None:
+def test_generate_report_writes_document_and_knowledge() -> None:
     registry = create_default_registry()
     session = Session()
     session.datasets["exp.csv"] = pd.DataFrame({"x": [1, 2, 3]})
@@ -89,17 +89,19 @@ def test_generate_report_writes_artifact_and_knowledge() -> None:
     assert len(artifacts) == 1
     artifact = artifacts[0]
     assert artifact["name"] == "phase6_report.md"
+    assert artifact["kind"] == "document"
 
     report_path = Path(artifact["path"])
     assert report_path.exists()
+    assert report_path.as_posix().endswith("/notes/reports/phase6_report.md")
     text = report_path.read_text(encoding="utf-8")
     assert "# 测试报告" in text
     assert "药物组优于对照组。" in text
     # 报告保留 API 路径（bundle 端点负责下载时转换）
     assert "## 图表" in text
     assert "## 图表清单" not in text
-    # 保存版保留 plotly.json API 路径
-    assert "/api/artifacts/" in text
+    # 保存版使用统一工作区文件 API 路径
+    assert "/api/workspace/" in text
     assert "## 分析统计" not in text
 
     knowledge_text = session.knowledge_memory.read()
@@ -166,9 +168,9 @@ def test_generate_report_chart_preview_deduplicates_multi_format_artifacts() -> 
 
     report_path = Path(result.artifacts[0]["path"])
     text = report_path.read_text(encoding="utf-8")
-    # 保存版保留 API 路径，友好标题（不含扩展名）
+    # 保存版使用统一工作区文件 API 路径，友好标题（不含扩展名）
     assert "trend.png" in text
-    assert "/api/artifacts/" in text
+    assert "/api/workspace/" in text
     assert "### 图 1：trend" in text
     assert "### 图 2：" not in text
     # 不再有图表清单表格

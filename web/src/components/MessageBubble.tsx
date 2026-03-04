@@ -100,12 +100,15 @@ function MessageBubble({
     isReasoning && message.reasoningLive ? "" : message.content,
   );
   const [reasoningExpanded, setReasoningExpanded] = useState(
-    isReasoning ? message.reasoningLive || message.content.length <= 160 : true,
+    isReasoning ? false : true,
   );
   const hasWideContent =
     !!message.chartData ||
     (!!message.images && message.images.length > 0) ||
     hasEmbeddedPlotly;
+  const thinkingLabelClass = message.reasoningLive
+    ? "nini-thinking-shimmer"
+    : "";
 
   useEffect(() => {
     if (message.toolStatus === "error") {
@@ -113,13 +116,14 @@ function MessageBubble({
     }
   }, [message.toolStatus]);
 
+  useEffect(() => {
+    if (!isReasoning) return;
+    setReasoningExpanded(false);
+  }, [isReasoning, message.id]);
+
   // 统一处理 reasoning 显示状态和动画
   useEffect(() => {
     if (!isReasoning) return;
-
-    // 控制展开状态：流式中自动展开，非流式时根据内容长度决定
-    const shouldExpand = message.reasoningLive || message.content.length <= 160;
-    setReasoningExpanded(shouldExpand);
 
     // 流式阶段：使用逐字动画效果
     if (message.reasoningLive) {
@@ -182,7 +186,7 @@ function MessageBubble({
                 key_decisions: reasoningData.key_decisions,
                 tags: reasoningData.tags,
               }}
-              defaultExpanded={reasoningExpanded}
+              defaultExpanded={false}
             />
           </div>
         </div>
@@ -204,7 +208,7 @@ function MessageBubble({
                 onClick={() => setReasoningExpanded(false)}
                 className="flex items-center gap-2 h-7 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
               >
-                <span className="font-medium">Thinking</span>
+                <span className={`font-medium ${thinkingLabelClass}`}>Thinking</span>
                 <ChevronDown size={14} />
               </button>
               {/* 引用块样式容器：左边竖线 + 轻微背景 */}
@@ -227,7 +231,7 @@ function MessageBubble({
               onClick={() => setReasoningExpanded(true)}
               className="flex items-center gap-1.5 h-7 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
             >
-              <span className="font-medium">Thinking</span>
+              <span className={`font-medium ${thinkingLabelClass}`}>Thinking</span>
               <ChevronRight size={14} />
             </button>
           )}

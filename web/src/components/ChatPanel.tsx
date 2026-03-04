@@ -5,7 +5,7 @@
  *
  * 注意：分析进度和任务只显示在工作区的"任务"Tab中，不在对话区域展示
  */
-import { useEffect, useRef, useMemo, useCallback } from 'react'
+import { useEffect, useRef, useMemo, useCallback, useState } from 'react'
 import { useStore } from '../store'
 import MessageBubble from './MessageBubble'
 import ChatInputArea from './ChatInputArea'
@@ -14,16 +14,30 @@ import IntentSummaryCard from './IntentSummaryCard'
 import IntentTimelineItem from './IntentTimelineItem'
 import { Loader2 } from 'lucide-react'
 
+const compactTokenFormatter = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  compactDisplay: 'short',
+  maximumFractionDigits: 1,
+})
+
 export default function ChatPanel() {
   const messages = useStore((s) => s.messages)
   const isStreaming = useStore((s) => s.isStreaming)
   const pendingAskUserQuestion = useStore((s) => s.pendingAskUserQuestion)
   const currentIntentAnalysis = useStore((s) => s.currentIntentAnalysis)
   const intentAnalysisLoading = useStore((s) => s.intentAnalysisLoading)
+  const streamingMetrics = useStore((s) => s._streamingMetrics)
   const setComposerDraft = useStore((s) => s.setComposerDraft)
   const submitAskUserQuestionAnswers = useStore((s) => s.submitAskUserQuestionAnswers)
   const retryLastTurn = useStore((s) => s.retryLastTurn)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const [displayedTokenCount, setDisplayedTokenCount] = useState(() =>
+    streamingMetrics.hasTokenUsage ? streamingMetrics.totalTokens : 0,
+  )
+  const displayedTokenCountRef = useRef(
+    streamingMetrics.hasTokenUsage ? streamingMetrics.totalTokens : 0,
+  )
+  const [now, setNow] = useState(() => Date.now())
 
   // 找到最后一条用户消息用于重试逻辑
   const lastUserIndex = useMemo(() => {
@@ -59,6 +73,63 @@ export default function ChatPanel() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    if (!isStreaming || !streamingMetrics.startedAt) return
+
+    setNow(Date.now())
+    const timer = window.setInterval(() => {
+      setNow(Date.now())
+    }, 1000)
+
+    return () => window.clearInterval(timer)
+  }, [isStreaming, streamingMetrics.startedAt])
+
+  const elapsedSeconds = useMemo(() => {
+    if (!isStreaming || !streamingMetrics.startedAt) return 0
+    return Math.max(0, Math.floor((now - streamingMetrics.startedAt) / 1000))
+  }, [isStreaming, now, streamingMetrics.startedAt])
+
+  const compactTokenText = useMemo(() => {
+    if (!streamingMetrics.hasTokenUsage) return null
+    return compactTokenFormatter.format(displayedTokenCount)
+  }, [displayedTokenCount, streamingMetrics.hasTokenUsage])
+
+  useEffect(() => {
+    if (!isStreaming || !streamingMetrics.hasTokenUsage) {
+      displayedTokenCountRef.current = 0
+      setDisplayedTokenCount(0)
+      return
+    }
+
+    const targetCount = streamingMetrics.totalTokens
+    if (targetCount <= displayedTokenCountRef.current) {
+      displayedTokenCountRef.current = targetCount
+      setDisplayedTokenCount(targetCount)
+      return
+    }
+
+    const startCount = displayedTokenCountRef.current
+    const startAt = Date.now()
+    const durationMs = 360
+    const timer = window.setInterval(() => {
+      const elapsed = Date.now() - startAt
+      const progress = Math.min(elapsed / durationMs, 1)
+      const easedProgress = 1 - Math.pow(1 - progress, 3)
+      const nextCount = Math.round(
+        startCount + (targetCount - startCount) * easedProgress,
+      )
+
+      displayedTokenCountRef.current = nextCount
+      setDisplayedTokenCount(nextCount)
+
+      if (progress >= 1) {
+        window.clearInterval(timer)
+      }
+    }, 16)
+
+    return () => window.clearInterval(timer)
+  }, [isStreaming, streamingMetrics.hasTokenUsage, streamingMetrics.totalTokens])
 
   const handleRetry = useCallback(() => {
     if (isStreaming || !canRetry) return
@@ -126,7 +197,19 @@ export default function ChatPanel() {
           {isStreaming && (
             <div className="flex items-center gap-2 text-gray-400 text-sm ml-11">
               <Loader2 size={14} className="animate-spin" />
-              Nini is working...
+              <span>Nini is working...</span>
+              <span className="text-gray-400/90">{elapsedSeconds}s</span>
+              {compactTokenText && (
+                <span className="text-gray-400/90">·</span>
+              )}
+              {compactTokenText && (
+                <span
+                  data-testid="streaming-token-usage"
+                  className="inline-flex items-center tabular-nums text-gray-400/90"
+                >
+                  ↓ {compactTokenText} tokens
+                </span>
+              )}
             </div>
           )}
           {!isStreaming && lastRetryableAssistantError && (
