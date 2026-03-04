@@ -1267,13 +1267,19 @@ class WorkspaceManager:
 
         # PDF 类型
         if ext == "pdf":
+            download_url = record.get("download_url", "")
+            # 为 PDF 预览添加 inline=1 参数，使浏览器内联显示而非下载
+            if download_url and "?" not in download_url:
+                download_url += "?inline=1"
+            elif download_url and "inline=" not in download_url:
+                download_url += "&inline=1"
             return {
                 "id": file_id,
                 "kind": kind,
                 "preview_type": "pdf",
                 "name": record.get("name", ""),
                 "size": file_size,
-                "download_url": record.get("download_url", ""),
+                "download_url": download_url,
             }
 
         # 其他类型

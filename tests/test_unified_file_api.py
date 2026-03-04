@@ -421,6 +421,44 @@ class TestImageFileDirectAccess:
         # 验证 markdown 中包含图片 URL
         assert f"/api/workspace/{session_id}/files/artifacts/correlation_heatmap.png" in data["data"]["content"]
 
+    @pytest.mark.parametrize("ext", ["pdf", "docx", "xlsx", "zip"])
+    def test_binary_file_direct_stream_without_download_param(self, client: TestClient, session_id: str, ext: str):
+        """测试二进制文件无需 download=1 参数即可直接访问文件流。"""
+        filename = f"test_document.{ext}"
+        # 创建模拟二进制内容（PDF 以 %PDF 开头）
+        if ext == "pdf":
+            fake_content = b"%PDF-1.4\nfake pdf content"
+        else:
+            fake_content = f"fake {ext} binary data".encode("utf-8")
+
+        # 在 artifacts 目录创建文件
+        create_test_file(session_id, f"artifacts/{filename}", fake_content)
+
+        # 不使用 download=1 参数直接访问
+        response = client.get(f"/api/workspace/{session_id}/files/artifacts/{filename}")
+
+        assert response.status_code == 200, f"{ext} 文件应该直接返回文件流"
+        assert response.content == fake_content
+        # 验证返回的是文件内容而非 JSON
+        content_type = response.headers.get("Content-Type", "")
+        assert "json" not in content_type, f"{ext} 文件不应返回 JSON 格式"
+
+    def test_pdf_file_with_unicode_decode_error(self, client: TestClient, session_id: str):
+        """测试 PDF 文件（包含无法解码为 UTF-8 的二进制内容）能正确返回。"""
+        # 创建包含无效 UTF-8 序列的 PDF 内容
+        pdf_content = b"%PDF-1.4\n\xff\xfe\x00\x01\x80\x81\x82\x83"
+        create_test_file(session_id, "artifacts/report.pdf", pdf_content)
+
+        response = client.get(f"/api/workspace/{session_id}/files/artifacts/report.pdf")
+
+        assert response.status_code == 200
+        assert response.content == pdf_content
+        # 验证返回的是文件内容而非 JSON
+        assert response.headers.get("Content-Type") not in ["application/json", None]
+        # 验证 Content-Disposition 包含 attachment（非 inline）
+        disposition = response.headers.get("Content-Disposition", "")
+        assert "attachment" in disposition or "inline" in disposition
+
     def test_non_image_file_still_returns_json_by_default(self, client: TestClient, session_id: str):
         """测试非图片文件默认仍返回 JSON 格式（向后兼容）。"""
         create_test_file(session_id, "data/results.txt", "这是一份文本结果")
@@ -450,3 +488,81 @@ class TestImageFileDirectAccess:
         response = client.get(f"/api/workspace/{session_id}/files/artifacts/chart with spaces.png")
         assert response.status_code == 200
         assert response.content == fake_png
+
+    def test_unicode_filename_content_disposition(self, client: TestClient, session_id: str):
+        """测试非 ASCII 文件名的 Content-Disposition 头正确编码（RFC 5987 / RFC 6266）。"""
+        from urllib.parse import quote
+
+        # 创建中文名称的 PDF 文件
+        fake_pdf = b"%PDF-1.4 fake pdf content"
+        chinese_filename = "2026年2月研究报告.pdf"
+        create_test_file(session_id, f"artifacts/{chinese_filename}", fake_pdf)
+
+        # 下载文件
+        response = client.get(f"/api/workspace/{session_id}/files/artifacts/{chinese_filename}?download=1")
+        assert response.status_code == 200
+
+        # 验证 Content-Disposition 头格式
+        disposition = response.headers.get("Content-Disposition", "")
+        assert "attachment" in disposition
+
+        # 验证包含 filename* (RFC 5987 编码)
+        assert "filename*=UTF-8''" in disposition
+
+        # 验证 UTF-8 编码的文件名正确
+        expected_encoded = quote(chinese_filename, safe="")
+        assert expected_encoded in disposition
+
+        # 验证包含 ASCII fallback 文件名（替换字符）
+        assert 'filename="' in disposition
+
+    def test_unicode_filename_download_headers_various_chars(self, client: TestClient, session_id: str):
+        """测试各种 Unicode 字符的文件名下载头（日文、emoji、韩文、俄文）。"""
+        from urllib.parse import quote
+
+        # 注意：纯 ASCII 特殊字符（如 # @ $）不需要 UTF-8 编码
+        test_cases = [
+            ("日本語レポート.pdf", "日文文件名"),
+            ("report_🎉_final.pdf", "emoji 文件名"),
+            ("한국어_보고서.pdf", "韩文文件名"),
+            ("русский_отчет.pdf", "俄文文件名"),
+        ]
+
+        fake_pdf = b"%PDF-1.4 fake"
+
+        for filename, desc in test_cases:
+            create_test_file(session_id, f"artifacts/{filename}", fake_pdf)
+
+            response = client.get(
+                f"/api/workspace/{session_id}/files/artifacts/{quote(filename)}?download=1"
+            )
+            assert response.status_code == 200, f"{desc} 下载失败"
+
+            disposition = response.headers.get("Content-Disposition", "")
+            assert "attachment" in disposition, f"{desc} 缺少 attachment"
+            assert "filename*=UTF-8''" in disposition, f"{desc} 缺少 RFC 5987 编码"
+
+    def test_pdf_inline_parameter_respected(self, client: TestClient, session_id: str):
+        """测试 PDF 文件的 inline 参数被正确处理（inline=True 时不触发下载）。"""
+        fake_pdf = b"%PDF-1.4\nfake pdf content for inline test"
+        pdf_filename = "test_inline.pdf"
+        create_test_file(session_id, f"artifacts/{pdf_filename}", fake_pdf)
+
+        # 测试默认情况（无 inline 参数）- 应该返回 attachment
+        response_default = client.get(f"/api/workspace/{session_id}/files/artifacts/{pdf_filename}")
+        assert response_default.status_code == 200
+        disposition_default = response_default.headers.get("Content-Disposition", "")
+        assert "attachment" in disposition_default, "默认应该返回 attachment 模式"
+
+        # 测试 inline=1 - 应该返回 inline
+        response_inline = client.get(f"/api/workspace/{session_id}/files/artifacts/{pdf_filename}?inline=1")
+        assert response_inline.status_code == 200
+        disposition_inline = response_inline.headers.get("Content-Disposition", "")
+        assert "inline" in disposition_inline, "inline=1 应该返回 inline 模式"
+        assert "attachment" not in disposition_inline, "inline=1 不应该包含 attachment"
+
+        # 测试 download=1 - 应该返回 attachment（覆盖 inline 参数）
+        response_download = client.get(f"/api/workspace/{session_id}/files/artifacts/{pdf_filename}?download=1")
+        assert response_download.status_code == 200
+        disposition_download = response_download.headers.get("Content-Disposition", "")
+        assert "attachment" in disposition_download, "download=1 应该返回 attachment 模式"

@@ -229,7 +229,9 @@ def _build_download_response(path: Path, filename: str, *, inline: bool = False)
         ascii_fallback = filename.encode("ascii", errors="replace").decode("ascii")
         utf8_encoded = quote(filename, safe="")
         disposition = (
-            f"{disposition_type}; " f'filename="{ascii_fallback}"; filename*=UTF-8' "{utf8_encoded}"
+            f"{disposition_type}; "
+            f'filename="{ascii_fallback}"; '
+            f"filename*=UTF-8''{utf8_encoded}"
         )
     return Response(
         content=path.read_bytes(),
@@ -701,11 +703,29 @@ _IMAGE_EXTENSIONS = frozenset(
     [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"]
 )
 
+# 二进制文件扩展名集合，用于直接返回文件流（不尝试读取为文本）
+_BINARY_EXTENSIONS = frozenset(
+    [
+        # 文档格式
+        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        # 压缩格式
+        ".zip", ".tar", ".gz", ".bz2", ".xz", ".rar", ".7z",
+        # 其他二进制格式
+        ".bin", ".exe", ".dll", ".so", ".dylib",
+    ]
+)
+
 
 def _is_image_file(filename: str) -> bool:
     """检查文件名是否为图片文件（不区分大小写）。"""
     name_lower = filename.lower()
     return any(name_lower.endswith(ext) for ext in _IMAGE_EXTENSIONS)
+
+
+def _is_binary_file(filename: str) -> bool:
+    """检查文件名是否为二进制文件（不区分大小写）。"""
+    name_lower = filename.lower()
+    return any(name_lower.endswith(ext) for ext in _BINARY_EXTENSIONS)
 
 
 @router.get("/workspace/{session_id}/files/{file_path:path}")
@@ -721,6 +741,7 @@ async def get_workspace_file(
 
     默认返回文件内容 JSON。当 download=1 时返回文件下载。
     图片文件（.png/.jpg/.jpeg/.gif/.webp/.svg/.bmp/.ico）默认直接返回文件流。
+    二进制文件（.pdf/.doc/.docx/.xls/.xlsx 等）默认直接返回文件流。
 
     参数:
         inline: 是否内联显示（而非下载）
@@ -740,6 +761,11 @@ async def get_workspace_file(
     # 图片文件默认直接返回文件流（支持 markdown 内嵌图片显示）
     if _is_image_file(filename):
         return _build_download_response(target_path, filename, inline=True)
+
+    # 二进制文件（PDF、Office 文档等）默认直接返回文件流
+    # 注意：尊重 inline 参数，用于 PDF 预览（inline=True）vs 下载（inline=False）
+    if _is_binary_file(filename):
+        return _build_download_response(target_path, filename, inline=inline)
 
     # 如果不下载，返回文件内容 JSON（向后兼容）
     if not download and not bundle:
