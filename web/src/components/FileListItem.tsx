@@ -90,50 +90,55 @@ export default function FileListItem({ file }: Props) {
 
   return (
     <div className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-100 transition-colors">
-      {getFileIcon(file)}
-
-      <div className="flex-1 min-w-0">
-        {isRenaming ? (
-          <div className="flex items-center gap-1">
-            <input
-              ref={inputRef}
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleRename()
-                if (e.key === 'Escape') {
+      {/* 可点击区域：图标 + 文件名信息 */}
+      {isRenaming ? (
+        <>
+          {getFileIcon(file)}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1">
+              <input
+                ref={inputRef}
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleRename()
+                  if (e.key === 'Escape') {
+                    setRenameValue(file.name)
+                    setIsRenaming(false)
+                  }
+                }}
+                className="flex-1 min-w-0 text-xs rounded border border-blue-300 px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
+              <button onClick={handleRename} className="p-0.5 text-emerald-600 hover:text-emerald-700">
+                <Check size={12} />
+              </button>
+              <button
+                onClick={() => {
                   setRenameValue(file.name)
                   setIsRenaming(false)
-                }
-              }}
-              className="flex-1 min-w-0 text-xs rounded border border-blue-300 px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
-            />
-            <button onClick={handleRename} className="p-0.5 text-emerald-600 hover:text-emerald-700">
-              <Check size={12} />
-            </button>
-            <button
-              onClick={() => {
-                setRenameValue(file.name)
-                setIsRenaming(false)
-              }}
-              className="p-0.5 text-gray-400 hover:text-gray-600"
-            >
-              <X size={12} />
-            </button>
+                }}
+                className="p-0.5 text-gray-400 hover:text-gray-600"
+              >
+                <X size={12} />
+              </button>
+            </div>
           </div>
-        ) : (
-          <div
-            className="cursor-pointer"
-            onClick={() => openPreview(file.id)}
-            title="点击预览"
-          >
+        </>
+      ) : (
+        <div
+          className="flex flex-1 items-center gap-2 cursor-pointer min-w-0"
+          onClick={() => openPreview(file.id)}
+          title="点击预览"
+        >
+          {getFileIcon(file)}
+          <div className="flex-1 min-w-0">
             <div className="text-xs text-gray-700 truncate hover:text-blue-600 transition-colors">{file.name}</div>
             <div className="text-[10px] text-gray-400">
               {kindLabels[file.kind] || file.kind} · {formatSize(file.size)}
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* 操作按钮 */}
       {!isRenaming && (
@@ -142,13 +147,15 @@ export default function FileListItem({ file }: Props) {
             href={downloadUrl}
             target="_blank"
             rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
             className="p-1 rounded hover:bg-gray-200 text-gray-500"
             title="下载"
           >
             <Download size={12} />
           </a>
           <button
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation()
               setRenameValue(file.name)
               setIsRenaming(true)
             }}
@@ -158,7 +165,10 @@ export default function FileListItem({ file }: Props) {
             <Pencil size={12} />
           </button>
           <button
-            onClick={handleDelete}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleDelete()
+            }}
             className="p-1 rounded hover:bg-red-100 text-gray-500 hover:text-red-600"
             title="删除"
           >

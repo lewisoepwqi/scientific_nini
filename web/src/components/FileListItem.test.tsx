@@ -62,4 +62,56 @@ describe('FileListItem', () => {
     expect(mockDeleteWorkspaceFile).toHaveBeenCalledWith('notes/report.md')
     expect(mockDeleteWorkspaceFile).not.toHaveBeenCalledWith('file-id-123')
   })
+
+  it('点击文件名区域应打开预览', async () => {
+    render(<FileListItem file={file} />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('report.md'))
+    })
+
+    expect(mockOpenPreview).toHaveBeenCalledWith('file-id-123')
+  })
+
+  it('点击文件图标应打开预览（图标在可点击区域内）', async () => {
+    const pdfFile = {
+      ...file,
+      name: 'report.pdf',
+      path: 'artifacts/report.pdf',
+      download_url: '/api/workspace/test/artifacts/report.pdf',
+    }
+    render(<FileListItem file={pdfFile} />)
+
+    // 点击包含图标的区域（通过 title 属性定位可点击区域）
+    const clickableArea = screen.getByTitle('点击预览')
+    await act(async () => {
+      fireEvent.click(clickableArea)
+    })
+
+    expect(mockOpenPreview).toHaveBeenCalledWith('file-id-123')
+  })
+
+  it('点击操作按钮不应触发预览（stopPropagation）', async () => {
+    render(<FileListItem file={file} />)
+
+    // 点击重命名按钮
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('重命名'))
+    })
+
+    // 预览不应被触发
+    expect(mockOpenPreview).not.toHaveBeenCalled()
+  })
+
+  it('点击下载链接不应触发预览（stopPropagation）', async () => {
+    render(<FileListItem file={file} />)
+
+    // 点击下载按钮
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('下载'))
+    })
+
+    // 预览不应被触发
+    expect(mockOpenPreview).not.toHaveBeenCalled()
+  })
 })

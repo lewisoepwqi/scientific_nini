@@ -369,6 +369,28 @@ class TestPreviewAPI:
         resp = client.get(f"/api/workspace/{session_id}/files/uploads/no_id.csv/preview")
         assert resp.status_code == 404
 
+    def test_preview_pdf_has_inline_param(self, client: LocalASGIClient):
+        """测试 PDF 预览返回的 download_url 包含 inline=1 参数。"""
+        session_id, _ = _create_session_and_upload(client)
+
+        # 创建 PDF 文件
+        manager = WorkspaceManager(session_id)
+        pdf_content = b"%PDF-1.4\nfake pdf content for preview test"
+        pdf_path = manager.workspace_dir / "artifacts" / "report.pdf"
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
+        pdf_path.write_bytes(pdf_content)
+
+        # 请求预览
+        resp = client.get(f"/api/workspace/{session_id}/files/artifacts/report.pdf/preview")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+
+        # 验证预览类型为 pdf
+        assert data["preview_type"] == "pdf"
+        # 验证 download_url 包含 inline=1 参数
+        download_url = data.get("download_url", "")
+        assert "inline=1" in download_url, f"PDF 预览 URL 应包含 inline=1 参数，实际: {download_url}"
+
 
 class TestSearchAPI:
     """测试 GET /api/workspace/{sid}/files?q= 搜索。"""
