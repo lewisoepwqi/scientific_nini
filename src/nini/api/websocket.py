@@ -568,6 +568,12 @@ def _normalize_wire_event_data(event_type: str, data: Any) -> Any:
         if isinstance(nested_data, dict) and "result" in nested_data and "result" not in safe_data:
             return {**safe_data, "result": nested_data.get("result")}
 
+    # 兼容旧协议：error 事件 data 直接为字符串消息
+    if event_type == EventType.ERROR.value and isinstance(safe_data, dict):
+        message = safe_data.get("message")
+        if isinstance(message, str):
+            return message
+
     return safe_data
 
 
