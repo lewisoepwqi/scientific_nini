@@ -139,12 +139,24 @@ export type PlanStepStatus =
   | "failed"
   | "skipped";
 
+/**
+ * 分析计划步骤
+ *
+ * 与后端 src/nini/models/event_schemas.py 的 AnalysisPlanStep 模型对应
+ * 修改此接口时，请确保与后端保持同步
+ */
 export interface AnalysisStep {
+  /** 步骤 ID（1-based） */
   id: number;
+  /** 步骤标题 */
   title: string;
+  /** 推荐工具提示 */
   tool_hint: string | null;
+  /** 步骤状态 */
   status: PlanStepStatus;
+  /** 后端原始状态 */
   raw_status?: string;
+  /** 动作 ID，用于任务关联（与后端 TaskItem.action_id 对应） */
   action_id?: string | null;
 }
 
