@@ -99,6 +99,23 @@ async def test_absolute_path_rejected(skill: EditFile, mock_session: MagicMock, 
     assert "无效" in result.message or "超出工作区" in result.message
 
 
+async def test_workspace_prefix_bypass_rejected(
+    skill: EditFile, mock_session: MagicMock, workspace: Path
+):
+    """防止通过同级目录前缀伪造绕过工作区校验。"""
+    result = await skill.execute(
+        mock_session,
+        file_path="../workspace_evil/pwn.txt",
+        operation="write",
+        content="blocked",
+    )
+    assert not result.success
+    assert "无效" in result.message or "超出工作区" in result.message
+
+    outside_path = workspace.parent / "workspace_evil" / "pwn.txt"
+    assert not outside_path.exists()
+
+
 # ---------------------------------------------------------------------------
 # read 操作
 # ---------------------------------------------------------------------------

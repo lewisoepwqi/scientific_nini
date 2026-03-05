@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+import uuid
 
 import pandas as pd
 
@@ -15,6 +16,7 @@ from nini.agent.session import Session
 from nini.charts import build_style_spec
 from nini.config import settings
 from nini.memory.storage import ArtifactStorage
+from nini.models import ResourceType
 from nini.sandbox.executor import sandbox_executor
 from nini.sandbox.policy import SandboxPolicyError
 from nini.sandbox.r_executor import RSandboxPolicyError
@@ -43,6 +45,74 @@ def _build_metadata(
         "purpose": str(purpose or "exploration").strip(),
         "label": str(label).strip() if isinstance(label, str) else "",
     }
+
+
+def _persist_runtime_dataset(
+    session: Session,
+    *,
+    dataset_name: str,
+    df: pd.DataFrame,
+    temporary: bool,
+) -> dict[str, Any]:
+    """将运行时 DataFrame 落盘并注册为可复用资源。"""
+    normalized_name = str(dataset_name or "").strip() or f"dataset_{uuid.uuid4().hex[:8]}"
+    session.datasets[normalized_name] = df
+
+    manager = WorkspaceManager(session.id)
+    resource_type = ResourceType.TEMP_DATASET if temporary else ResourceType.DATASET
+    source_kind = "temp_datasets" if temporary else "datasets"
+    retention = "session" if temporary else "persistent"
+    dataset_id = ("tmp_" if temporary else "ds_") + uuid.uuid4().hex[:12]
+    path = manager.build_managed_resource_path(
+        resource_type,
+        f"{normalized_name}.csv",
+        default_name=f"{dataset_id}.csv",
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(path, index=False)
+    record = manager.add_dataset_record(
+        dataset_id=dataset_id,
+        name=normalized_name,
+        file_path=path,
+        file_type="csv",
+        file_size=path.stat().st_size,
+        row_count=len(df),
+        column_count=len(df.columns),
+        resource_type=resource_type,
+        source_kind=source_kind,
+        retention=retention,
+    )
+    resource = manager.get_resource_summary(str(record.get("id", "")).strip())
+    if isinstance(resource, dict):
+        return resource
+    return {
+        "id": record.get("id", dataset_id),
+        "resource_type": resource_type.value,
+        "name": normalized_name,
+        "source_kind": source_kind,
+        "metadata": {"retention": retention},
+    }
+
+
+def _build_output_resource_refs(resources: list[dict[str, Any]]) -> list[dict[str, str]]:
+    refs: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in resources:
+        if not isinstance(item, dict):
+            continue
+        resource_id = str(item.get("id", "")).strip()
+        resource_type = str(item.get("resource_type", "")).strip()
+        if not resource_id or not resource_type or resource_id in seen:
+            continue
+        seen.add(resource_id)
+        refs.append(
+            {
+                "resource_id": resource_id,
+                "resource_type": resource_type,
+                "name": str(item.get("name", "")).strip() or resource_id,
+            }
+        )
+    return refs
 
 
 def _save_python_figures(
@@ -324,11 +394,25 @@ async def execute_python_code(
             metadata={"intent": metadata["intent"]} if metadata["intent"] else {},
         )
 
+    output_resources: list[dict[str, Any]] = []
     persisted = payload.get("datasets") or {}
     if isinstance(persisted, dict):
         for name, df in persisted.items():
-            if isinstance(name, str) and isinstance(df, pd.DataFrame):
-                session.datasets[name] = df
+            if not isinstance(name, str) or not isinstance(df, pd.DataFrame):
+                continue
+            normalized_name = name.strip()
+            is_persistent_dataset = bool(
+                (save_as and normalized_name == str(save_as).strip())
+                or (persist_df and dataset_name and normalized_name == str(dataset_name).strip())
+            )
+            output_resources.append(
+                _persist_runtime_dataset(
+                    session,
+                    dataset_name=normalized_name,
+                    df=df,
+                    temporary=not is_persistent_dataset,
+                )
+            )
 
     figures = payload.get("figures") or []
     saved_artifacts = _save_python_figures(
@@ -342,15 +426,30 @@ async def execute_python_code(
     result_obj = payload.get("result")
 
     if isinstance(result_obj, pd.DataFrame):
-        if save_as:
-            session.datasets[save_as] = result_obj
+        output_dataset_name = (
+            str(save_as).strip() if isinstance(save_as, str) and save_as.strip() else ""
+        )
+        if not output_dataset_name:
+            output_dataset_name = (
+                f"tmp_python_output_{datetime.now(timezone.utc).strftime('%H%M%S')}"
+            )
+        output_resources.append(
+            _persist_runtime_dataset(
+                session,
+                dataset_name=output_dataset_name,
+                df=result_obj,
+                temporary=not bool(save_as),
+            )
+        )
+        output_refs = _build_output_resource_refs(output_resources)
+        primary_ref = output_refs[-1] if output_refs else None
         preview = {
             "data": _json_safe_records(result_obj),
             "columns": [{"name": c, "dtype": str(result_obj[c].dtype)} for c in result_obj.columns],
             "total_rows": len(result_obj),
             "preview_rows": min(20, len(result_obj)),
         }
-        extra = f"，已保存为数据集 '{save_as}'" if save_as else ""
+        extra = f"，已保存为数据集 '{output_dataset_name}'"
         msg = f"代码执行成功，返回 DataFrame（{len(result_obj)} 行 × {len(result_obj.columns)} 列）{extra}"
         if saved_artifacts:
             msg += f"\n自动导出了 {len(saved_artifacts)} 个图表产物"
@@ -361,7 +460,17 @@ async def execute_python_code(
         return SkillResult(
             success=True,
             message=msg,
-            data={"result_type": "dataframe"},
+            data={
+                "result_type": "dataframe",
+                "output_dataset_name": output_dataset_name,
+                "output_resources": output_refs,
+                "resource_id": (
+                    primary_ref.get("resource_id") if isinstance(primary_ref, dict) else None
+                ),
+                "resource_type": (
+                    primary_ref.get("resource_type") if isinstance(primary_ref, dict) else None
+                ),
+            },
             has_dataframe=True,
             dataframe_preview=preview,
             artifacts=saved_artifacts,
@@ -376,10 +485,15 @@ async def execute_python_code(
     if stderr:
         msg += f"\nstderr:\n{stderr}"
 
+    output_refs = _build_output_resource_refs(output_resources)
     return SkillResult(
         success=True,
         message=msg,
-        data={"result": result_obj, "result_type": type(result_obj).__name__},
+        data={
+            "result": result_obj,
+            "result_type": type(result_obj).__name__,
+            "output_resources": output_refs,
+        },
         artifacts=saved_artifacts,
         metadata={"intent": metadata["intent"]} if metadata["intent"] else {},
     )
@@ -434,11 +548,25 @@ async def execute_r_code(
             metadata={"intent": metadata["intent"]} if metadata["intent"] else {},
         )
 
+    output_resources: list[dict[str, Any]] = []
     persisted = payload.get("datasets") or {}
     if isinstance(persisted, dict):
         for name, df in persisted.items():
-            if isinstance(name, str) and isinstance(df, pd.DataFrame):
-                session.datasets[name] = df
+            if not isinstance(name, str) or not isinstance(df, pd.DataFrame):
+                continue
+            normalized_name = name.strip()
+            is_persistent_dataset = bool(
+                (save_as and normalized_name == str(save_as).strip())
+                or (persist_df and dataset_name and normalized_name == str(dataset_name).strip())
+            )
+            output_resources.append(
+                _persist_runtime_dataset(
+                    session,
+                    dataset_name=normalized_name,
+                    df=df,
+                    temporary=not is_persistent_dataset,
+                )
+            )
 
     figures = payload.get("figures") or []
     saved_artifacts = _save_r_figures(
@@ -452,16 +580,30 @@ async def execute_r_code(
     output_df = payload.get("output_df")
 
     if isinstance(output_df, pd.DataFrame):
-        if save_as:
-            session.datasets[save_as] = output_df
+        output_dataset_name = (
+            str(save_as).strip() if isinstance(save_as, str) and save_as.strip() else ""
+        )
+        if not output_dataset_name:
+            output_dataset_name = f"tmp_r_output_{datetime.now(timezone.utc).strftime('%H%M%S')}"
+        output_resources.append(
+            _persist_runtime_dataset(
+                session,
+                dataset_name=output_dataset_name,
+                df=output_df,
+                temporary=not bool(save_as),
+            )
+        )
+        output_refs = _build_output_resource_refs(output_resources)
+        primary_ref = output_refs[-1] if output_refs else None
 
+        preview_rows = min(20, len(output_df))
         preview = {
-            "data": dataframe_to_json_safe(output_df),
+            "data": dataframe_to_json_safe(output_df, n_rows=preview_rows),
             "columns": [{"name": c, "dtype": str(output_df[c].dtype)} for c in output_df.columns],
             "total_rows": len(output_df),
-            "preview_rows": min(20, len(output_df)),
+            "preview_rows": preview_rows,
         }
-        extra = f"，已保存为数据集 '{save_as}'" if save_as else ""
+        extra = f"，已保存为数据集 '{output_dataset_name}'"
         msg = f"R 代码执行成功，返回 DataFrame（{len(output_df)} 行 × {len(output_df.columns)} 列）{extra}"
         if saved_artifacts:
             msg += f"\n自动导出了 {len(saved_artifacts)} 个图表产物"
@@ -473,7 +615,17 @@ async def execute_r_code(
         return SkillResult(
             success=True,
             message=msg,
-            data={"result_type": "dataframe"},
+            data={
+                "result_type": "dataframe",
+                "output_dataset_name": output_dataset_name,
+                "output_resources": output_refs,
+                "resource_id": (
+                    primary_ref.get("resource_id") if isinstance(primary_ref, dict) else None
+                ),
+                "resource_type": (
+                    primary_ref.get("resource_type") if isinstance(primary_ref, dict) else None
+                ),
+            },
             has_dataframe=True,
             dataframe_preview=preview,
             artifacts=saved_artifacts,
@@ -496,6 +648,7 @@ async def execute_r_code(
     }
     if result_repr:
         data["result_repr"] = result_repr
+    data["output_resources"] = _build_output_resource_refs(output_resources)
 
     return SkillResult(
         success=True,

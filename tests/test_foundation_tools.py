@@ -91,7 +91,9 @@ def test_dataset_catalog_lists_and_profiles_datasets() -> None:
         column_count=2,
     )
 
-    list_result = asyncio.run(registry.execute("dataset_catalog", session=session, operation="list"))
+    list_result = asyncio.run(
+        registry.execute("dataset_catalog", session=session, operation="list")
+    )
     assert list_result["success"] is True
     listed = list_result["data"]["datasets"]
     assert listed[0]["resource_type"] == "dataset"
@@ -127,7 +129,11 @@ def test_dataset_transform_runs_and_supports_step_patch() -> None:
             input_datasets=["jan", "feb"],
             steps=[
                 {"id": "concat", "op": "concat_datasets", "params": {"datasets": ["jan", "feb"]}},
-                {"id": "derive", "op": "derive_column", "params": {"column": "scaled", "expr": "value * 2"}},
+                {
+                    "id": "derive",
+                    "op": "derive_column",
+                    "params": {"column": "scaled", "expr": "value * 2"},
+                },
                 {
                     "id": "agg",
                     "op": "group_aggregate",
@@ -163,6 +169,30 @@ def test_dataset_transform_runs_and_supports_step_patch() -> None:
     plan = manager.get_resource_summary(transform_id)
     assert plan is not None
     assert plan["source_kind"] == "transforms"
+
+
+def test_dataset_transform_preview_rows_match_payload() -> None:
+    registry = create_default_registry()
+    session = Session()
+    session.datasets["raw"] = pd.DataFrame({"x": list(range(50)), "y": list(range(50))})
+
+    result = asyncio.run(
+        registry.execute(
+            "dataset_transform",
+            session=session,
+            operation="run",
+            dataset_name="raw",
+            steps=[
+                {"id": "derive", "op": "derive_column", "params": {"column": "z", "expr": "x + y"}}
+            ],
+            output_dataset_name="raw_plus",
+        )
+    )
+
+    assert result["success"] is True, result
+    preview = result["dataframe_preview"]
+    assert preview["preview_rows"] == 20
+    assert len(preview["data"]) == 20
 
 
 def test_stat_facade_tools_delegate_existing_statistics() -> None:
@@ -212,6 +242,85 @@ def test_stat_facade_tools_delegate_existing_statistics() -> None:
     )
     assert interpret_result["success"] is True, interpret_result
     assert "interpretation" in interpret_result["data"]
+
+
+def test_stat_model_auto_uses_single_dataset_when_dataset_name_missing() -> None:
+    registry = create_default_registry()
+    session = Session()
+    session.datasets["stats_demo"] = pd.DataFrame(
+        {
+            "x": [1, 2, 3, 4, 5, 6],
+            "y": [2, 4, 6, 8, 10, 12],
+        }
+    )
+
+    result = asyncio.run(
+        registry.execute(
+            "stat_model",
+            session=session,
+            method="correlation",
+            columns=["x", "y"],
+        )
+    )
+
+    assert result["success"] is True, result
+    assert result["data"]["requested_method"] == "correlation"
+
+
+def test_stat_model_requires_dataset_name_when_multiple_datasets_exist() -> None:
+    registry = create_default_registry()
+    session = Session()
+    session.datasets["a"] = pd.DataFrame({"x": [1, 2, 3], "y": [1, 2, 3]})
+    session.datasets["b"] = pd.DataFrame({"x": [1, 2, 3], "y": [2, 3, 4]})
+
+    result = asyncio.run(
+        registry.execute(
+            "stat_model",
+            session=session,
+            method="correlation",
+            columns=["x", "y"],
+        )
+    )
+
+    assert result["success"] is False
+    assert "缺少 dataset_name" in result["message"]
+
+
+def test_stat_model_schema_explicitly_requires_correlation_dataset_and_columns() -> None:
+    registry = create_default_registry()
+    skill = registry.get("stat_model")
+    assert skill is not None
+
+    schema = skill.parameters
+    assert "oneOf" in schema
+    branches = schema["oneOf"]
+    corr_branch = next(b for b in branches if "correlation" in b["properties"]["method"]["enum"])
+    assert set(corr_branch["required"]) == {"method", "dataset_name", "columns"}
+    assert corr_branch["properties"]["columns"]["minItems"] == 2
+
+
+def test_workspace_session_schema_requires_file_path_for_read() -> None:
+    registry = create_default_registry()
+    skill = registry.get("workspace_session")
+    assert skill is not None
+
+    schema = skill.parameters
+    assert "oneOf" in schema
+    read_branch = next(
+        b for b in schema["oneOf"] if b["properties"]["operation"]["enum"] == ["read"]
+    )
+    assert set(read_branch["required"]) == {"operation", "file_path"}
+
+
+def test_dataset_transform_schema_op_is_strict_enum() -> None:
+    registry = create_default_registry()
+    skill = registry.get("dataset_transform")
+    assert skill is not None
+
+    step_schema = skill.parameters["properties"]["steps"]["items"]["properties"]["op"]
+    assert "enum" in step_schema
+    assert "dropna" not in step_schema["enum"]
+    assert "concat_datasets" in step_schema["enum"]
 
 
 def test_chart_session_persists_spec_and_tracks_exports() -> None:
@@ -680,3 +789,54 @@ def test_code_session_records_failure_location_and_retry_link() -> None:
     second_execution = manager.get_code_execution(rerun_result["data"]["execution_id"])
     assert second_execution is not None
     assert second_execution["retry_of_execution_id"] == first_execution_id
+
+
+def test_code_session_run_script_falls_back_to_ad_hoc_when_content_provided() -> None:
+    registry = create_default_registry()
+    session = Session()
+    session.datasets["raw.csv"] = pd.DataFrame({"x": [1, 2, 3]})
+
+    result = asyncio.run(
+        registry.execute(
+            "code_session",
+            session=session,
+            operation="run_script",
+            language="python",
+            content="result = int(df['x'].sum())",
+            dataset_name="raw.csv",
+            intent="临时脚本回退执行",
+        )
+    )
+
+    assert result["success"] is True, result
+    assert result["data"]["result"] == 6
+    assert result["data"]["script_id"].startswith("script_")
+
+
+def test_code_session_run_script_auto_uses_single_dataset_when_dataset_name_missing() -> None:
+    registry = create_default_registry()
+    session = Session()
+    session.datasets["only.csv"] = pd.DataFrame({"x": [2, 4, 6]})
+
+    create_result = asyncio.run(
+        registry.execute(
+            "code_session",
+            session=session,
+            operation="create_script",
+            script_id="script_auto_dataset",
+            language="python",
+            content="result = int(df['x'].sum())",
+        )
+    )
+    assert create_result["success"] is True, create_result
+
+    run_result = asyncio.run(
+        registry.execute(
+            "code_session",
+            session=session,
+            operation="run_script",
+            script_id="script_auto_dataset",
+        )
+    )
+    assert run_result["success"] is True, run_result
+    assert run_result["data"]["result"] == 12

@@ -1173,9 +1173,15 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
         continue;
       }
       if (eventType === "reasoning") {
+        const reasoningLive =
+          typeof raw.reasoning_live === "boolean"
+            ? raw.reasoning_live
+            : typeof raw.reasoningLive === "boolean"
+              ? raw.reasoningLive
+              : false;
         const nextMessages = upsertReasoningMessage(messages, {
           content: typeof raw.content === "string" ? raw.content : "",
-          reasoningLive: false,
+          reasoningLive,
           reasoningId:
             typeof raw.reasoning_id === "string" ? raw.reasoning_id : undefined,
           turnId,

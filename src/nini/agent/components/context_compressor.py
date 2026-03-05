@@ -11,6 +11,7 @@ from typing import Any
 
 from nini.agent.events import AgentEvent, EventType
 from nini.agent.session import Session
+from nini.agent import event_builders as eb
 from nini.config import settings
 from nini.memory.compression import compress_session_history_with_llm
 from nini.utils.token_counter import count_messages_tokens
@@ -51,15 +52,15 @@ async def compress_session_context(
                 if trigger == "context_limit_error"
                 else f"上下文已自动压缩，归档了 {archived_count} 条消息"
             )
-            return AgentEvent(
-                type=EventType.CONTEXT_COMPRESSED,
-                data={
-                    "archived_count": archived_count,
-                    "remaining_count": remaining_count,
-                    "previous_tokens": current_tokens,
-                    "trigger": trigger,
-                    "message": message,
-                },
+            return eb.build_context_compressed_event(
+                original_tokens=current_tokens,
+                compressed_tokens=current_tokens // 2,
+                compression_ratio=0.5,
+                message=message,
+                archived_count=archived_count,
+                remaining_count=remaining_count,
+                previous_tokens=current_tokens,
+                trigger=trigger,
             )
     except Exception as exc:
         logger.warning("自动压缩失败(%s): %s", trigger, exc, exc_info=True)

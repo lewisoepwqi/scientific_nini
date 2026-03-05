@@ -129,6 +129,32 @@ describe("handleEvent 文本去重", () => {
     });
   });
 
+  it("应识别后端 snake_case 的 reasoning_live=false 并标记为已完成", () => {
+    const harness = createHarness({ _currentTurnId: "turn-1" });
+
+    harness.dispatch({
+      type: "reasoning",
+      data: {
+        content: "最终推理结论",
+        reasoning_id: "reason-snake-1",
+        reasoning_live: false,
+      },
+      turn_id: "turn-1",
+      metadata: {
+        operation: "complete",
+      },
+    });
+
+    const state = harness.getState();
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]).toMatchObject({
+      isReasoning: true,
+      reasoningId: "reason-snake-1",
+      reasoningLive: false,
+      content: "最终推理结论",
+    });
+  });
+
   it("artifact 事件应生成独立的 canonical assistant 消息", () => {
     const harness = createHarness({
       messages: [
@@ -269,6 +295,43 @@ describe("handleEvent 文本去重", () => {
       totalTokens: 0,
       hasTokenUsage: false,
     });
+  });
+
+  it("done 在缺少 currentTurnId 时应兜底关闭所有运行中的 reasoning", () => {
+    const now = Date.now();
+    const harness = createHarness({
+      _currentTurnId: null,
+      messages: [
+        {
+          id: "r-1",
+          role: "assistant",
+          content: "思考中 1",
+          isReasoning: true,
+          reasoningLive: true,
+          turnId: "turn-a",
+          timestamp: now,
+        },
+        {
+          id: "r-2",
+          role: "assistant",
+          content: "思考中 2",
+          isReasoning: true,
+          reasoningLive: true,
+          turnId: "turn-b",
+          timestamp: now,
+        },
+      ],
+    });
+
+    harness.dispatch({
+      type: "done",
+      turn_id: undefined,
+    });
+
+    const state = harness.getState();
+    expect(state.messages).toHaveLength(2);
+    expect(state.messages[0]?.reasoningLive).toBe(false);
+    expect(state.messages[1]?.reasoningLive).toBe(false);
   });
 
   it("ask_user_question 的工具结果应先展示问题再展示用户回答", () => {

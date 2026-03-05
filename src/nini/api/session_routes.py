@@ -298,9 +298,7 @@ async def export_all_session_data(session_id: str):
 
     return JSONResponse(
         content=export_data,
-        headers={
-            "Content-Disposition": f"attachment; filename=nini_session_{session_id}.json"
-        },
+        headers={"Content-Disposition": f"attachment; filename=nini_session_{session_id}.json"},
     )
 
 
@@ -332,6 +330,7 @@ def _serialize_history_message(msg: dict[str, Any]) -> dict[str, Any]:
         "intent": msg.get("intent"),
         "execution_id": msg.get("execution_id"),
         "reasoning_id": msg.get("reasoning_id"),
+        "reasoning_live": msg.get("reasoning_live"),
         "reasoning_type": msg.get("reasoning_type"),
         "key_decisions": msg.get("key_decisions"),
         "confidence_score": msg.get("confidence_score"),
@@ -341,5 +340,3 @@ def _serialize_history_message(msg: dict[str, Any]) -> dict[str, Any]:
         "images": msg.get("images"),
     }
     return item
-
-

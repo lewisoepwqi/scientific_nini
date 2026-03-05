@@ -218,6 +218,7 @@ def test_get_session_messages_filters_internal_fields(client: LocalASGIClient) -
         "intent",
         "execution_id",
         "reasoning_id",
+        "reasoning_live",
         "reasoning_type",
         "key_decisions",
         "confidence_score",

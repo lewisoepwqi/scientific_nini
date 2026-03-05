@@ -78,6 +78,7 @@ export interface DatasetItem {
  */
 export type ResourceType =
   | "dataset"
+  | "temp_dataset"
   | "file"
   | "script"
   | "chart"
@@ -428,6 +429,20 @@ export interface ActiveModelInfo {
   preferred_provider: string | null;
 }
 
+export interface ModelFallbackInfo {
+  purpose: string;
+  attempt: number;
+  from_provider_id?: string | null;
+  from_provider_name?: string | null;
+  from_model?: string | null;
+  to_provider_id: string;
+  to_provider_name: string;
+  to_model: string;
+  reason?: string | null;
+  fallback_chain?: Array<Record<string, unknown>>;
+  occurred_at: number;
+}
+
 export interface ModelProviderInfo {
   id: string;
   name: string;
@@ -552,6 +567,8 @@ export interface RawSessionMessage {
   images?: string[];
   // Reasoning 相关字段
   reasoning_id?: string | null;
+  reasoning_live?: boolean | null;
+  reasoningLive?: boolean | null;
   reasoning_type?: string | null;
   key_decisions?: string[];
   confidence_score?: number;

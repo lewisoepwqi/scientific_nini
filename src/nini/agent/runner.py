@@ -44,6 +44,9 @@ from nini.workspace import WorkspaceManager
 # 导入事件模块
 from nini.agent.events import EventType, AgentEvent, create_reasoning_event
 from nini.agent.plan_parser import AnalysisPlan, AnalysisStep, parse_analysis_plan
+
+# 导入类型安全的事件构造器（逐步迁移中）
+from nini.agent import event_builders as eb
 from nini.agent.task_manager import TaskManager
 from nini.capabilities import create_default_capabilities
 
@@ -85,6 +88,7 @@ def _get_intent_analyzer():
     if strategy == "optimized_rules":
         return optimized_intent_analyzer
     return default_intent_analyzer
+
 
 _CONTEXT_LIMIT_ERROR_PATTERNS = (
     "maximum context length",
@@ -277,38 +281,45 @@ class AgentRunner:
             """创建带序号的计划进度事件，便于前端乱序保护。"""
             nonlocal plan_event_seq
             plan_event_seq += 1
-            return AgentEvent(
-                type=EventType.PLAN_PROGRESS,
-                data=_build_plan_progress_payload(
-                    current_idx=current_idx,
-                    step_status=step_status,
-                    next_hint=next_hint,
-                    block_reason=block_reason,
-                ),
+            payload = _build_plan_progress_payload(
+                current_idx=current_idx,
+                step_status=step_status,
+                next_hint=next_hint,
+                block_reason=block_reason,
+            )
+            return eb.build_plan_progress_event(
+                steps=payload.get("steps", []),
+                current_step_index=payload.get("current_step_index", 1),
+                total_steps=payload.get("total_steps", 1),
+                step_title=payload.get("step_title", ""),
+                step_status=payload.get("step_status", "not_started"),
+                next_hint=payload.get("next_hint"),
+                block_reason=payload.get("block_reason"),
                 turn_id=turn_id,
-                metadata={"seq": plan_event_seq},
+                seq=plan_event_seq,
             )
 
         def _new_analysis_plan_event(plan_data: dict[str, Any]) -> AgentEvent:
             """创建带序号的分析计划事件，确保前端按同一时钟域处理。"""
             nonlocal plan_event_seq
             plan_event_seq += 1
-            return AgentEvent(
-                type=EventType.ANALYSIS_PLAN,
-                data=plan_data,
+            return eb.build_analysis_plan_event(
+                steps=plan_data.get("steps", []),
+                raw_text=plan_data.get("raw_text", ""),
                 turn_id=turn_id,
-                metadata={"seq": plan_event_seq},
+                seq=plan_event_seq,
             )
 
         def _new_plan_step_update_event(step_data: dict[str, Any]) -> AgentEvent:
             """创建带序号的任务步骤更新事件，避免被前端乱序保护丢弃。"""
             nonlocal plan_event_seq
             plan_event_seq += 1
-            return AgentEvent(
-                type=EventType.PLAN_STEP_UPDATE,
-                data=step_data,
+            return eb.build_plan_step_update_event(
+                step_id=step_data.get("id", 0),
+                status=step_data.get("status", ""),
+                error=step_data.get("error"),
                 turn_id=turn_id,
-                metadata={"seq": plan_event_seq},
+                seq=plan_event_seq,
             )
 
         def _new_task_attempt_event(
@@ -325,23 +336,17 @@ class AgentRunner:
             """创建任务尝试事件（attempt 级别），用于前端展示重试轨迹。"""
             nonlocal plan_event_seq
             plan_event_seq += 1
-            payload: dict[str, Any] = {
-                "step_id": step_id,
-                "action_id": action_id,
-                "tool_name": tool_name,
-                "attempt": attempt,
-                "max_attempts": max_attempts,
-                "status": status,
-            }
-            if error:
-                payload["error"] = error
-            if note:
-                payload["note"] = note
-            return AgentEvent(
-                type=EventType.TASK_ATTEMPT,
-                data=payload,
+            return eb.build_task_attempt_event(
+                action_id=action_id,
+                step_id=step_id,
+                tool_name=tool_name,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                status=status,
+                error=error,
+                note=note,
                 turn_id=turn_id,
-                metadata={"seq": plan_event_seq},
+                seq=plan_event_seq,
             )
 
         # 自动上下文压缩检查
@@ -351,13 +356,12 @@ class AgentRunner:
 
         while max_iter <= 0 or iteration < max_iter:
             if should_stop():
-                yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
+                yield eb.build_done_event(turn_id=turn_id)
                 return
 
             # 通知前端新迭代开始（用于重置流式文本累积）
-            yield AgentEvent(
-                type=EventType.ITERATION_START,
-                data={"iteration": iteration},
+            yield eb.build_iteration_start_event(
+                iteration=iteration,
                 turn_id=turn_id,
             )
             # 重置当前消息ID，新迭代生成新的消息ID
@@ -366,9 +370,9 @@ class AgentRunner:
             # 构建消息与检索可观测事件
             messages, retrieval_event = await self._build_messages_and_retrieval(session)
             if iteration == 0 and retrieval_event is not None:
-                yield AgentEvent(
-                    type=EventType.RETRIEVAL,
-                    data=retrieval_event,
+                yield eb.build_retrieval_event(
+                    query=retrieval_event.get("query", ""),
+                    results=retrieval_event.get("results", []),
                     turn_id=turn_id,
                 )
             # 基于完整上下文再次检查 token（含系统提示、知识注入与压缩摘要）
@@ -390,6 +394,9 @@ class AgentRunner:
             tool_calls: list[dict[str, Any]] = []
             usage: dict[str, int] = {}
             retried_after_compress = False
+            effective_model_info: dict[str, Any] | None = None
+            fallback_chain: list[dict[str, Any]] = []
+            fallback_event_sent = False
             # 流式 reasoning 追踪
             current_reasoning_id: str | None = None
             streamed_reasoning_buffer = ""
@@ -409,7 +416,7 @@ class AgentRunner:
                         purpose="chat",
                     ):
                         if should_stop():
-                            yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
+                            yield eb.build_done_event(turn_id=turn_id)
                             return
 
                         chunk_reasoning = getattr(chunk, "reasoning", "")
@@ -423,13 +430,10 @@ class AgentRunner:
                                 if current_reasoning_id is None:
                                     current_reasoning_id = str(uuid.uuid4())
                                 streamed_reasoning_buffer += stripped
-                                yield AgentEvent(
-                                    type=EventType.REASONING,
-                                    data={
-                                        "content": stripped,
-                                        "reasoning_id": current_reasoning_id,
-                                        "reasoningLive": True,
-                                    },
+                                yield eb.build_reasoning_event(
+                                    content=stripped,
+                                    reasoning_id=current_reasoning_id,
+                                    reasoning_live=True,
                                     turn_id=turn_id,
                                 )
 
@@ -450,9 +454,8 @@ class AgentRunner:
                                 if current_message_id is None:
                                     current_message_id = f"{turn_id}-{message_seq}"
                                     message_seq += 1
-                                yield AgentEvent(
-                                    type=EventType.TEXT,
-                                    data=display_text,
+                                yield eb.build_text_event(
+                                    content=display_text,
                                     turn_id=turn_id,
                                     metadata={
                                         "message_id": current_message_id,
@@ -465,6 +468,54 @@ class AgentRunner:
 
                         if chunk.usage:
                             usage = chunk.usage
+
+                        chunk_provider_id = str(getattr(chunk, "provider_id", "") or "").strip()
+                        if chunk_provider_id:
+                            effective_model_info = {
+                                "provider_id": chunk_provider_id,
+                                "provider_name": str(
+                                    getattr(chunk, "provider_name", "") or chunk_provider_id
+                                ).strip(),
+                                "model": str(getattr(chunk, "model", "") or "").strip() or "unknown",
+                                "attempt": int(getattr(chunk, "attempt", 1) or 1),
+                            }
+                            raw_chain = getattr(chunk, "fallback_chain", [])
+                            if isinstance(raw_chain, list):
+                                fallback_chain = [
+                                    item for item in raw_chain if isinstance(item, dict)
+                                ]
+
+                        if (
+                            not fallback_event_sent
+                            and bool(getattr(chunk, "fallback_applied", False))
+                            and effective_model_info is not None
+                        ):
+                            from_provider_id = str(
+                                getattr(chunk, "fallback_from_provider_id", "") or ""
+                            ).strip() or None
+                            from_model = str(getattr(chunk, "fallback_from_model", "") or "").strip() or None
+                            reason = str(getattr(chunk, "fallback_reason", "") or "").strip() or None
+                            from_provider_name: str | None = None
+                            for item in fallback_chain:
+                                if str(item.get("provider_id", "")).strip() != (from_provider_id or ""):
+                                    continue
+                                from_provider_name = str(item.get("provider_name", "")).strip() or None
+                                break
+
+                            yield eb.build_model_fallback_event(
+                                purpose="chat",
+                                attempt=int(effective_model_info.get("attempt", 1) or 1),
+                                from_provider_id=from_provider_id,
+                                from_provider_name=from_provider_name,
+                                from_model=from_model,
+                                to_provider_id=str(effective_model_info.get("provider_id", "")),
+                                to_provider_name=str(effective_model_info.get("provider_name", "")),
+                                to_model=str(effective_model_info.get("model", "")),
+                                reason=reason,
+                                fallback_chain=fallback_chain,
+                                turn_id=turn_id,
+                            )
+                            fallback_event_sent = True
                 except asyncio.CancelledError:
                     logger.info("Agent 运行被取消: session=%s", session.id)
                     raise
@@ -488,7 +539,7 @@ class AgentRunner:
                             messages, _ = await self._build_messages_and_retrieval(session)
                             continue
                     logger.error("LLM 调用失败: %s", e)
-                    yield AgentEvent(type=EventType.ERROR, data=str(e), turn_id=turn_id)
+                    yield eb.build_error_event(message=str(e), turn_id=turn_id)
                     return
                 break
 
@@ -519,23 +570,20 @@ class AgentRunner:
                     parent_id=reasoning_node.get("parent_id"),
                     turn_id=turn_id,
                 )
-                yield AgentEvent(
-                    type=EventType.REASONING,
-                    data={
-                        "content": full_reasoning.strip(),
-                        "reasoning_type": reasoning_type,
-                        "key_decisions": key_decisions,
-                        "confidence_score": confidence_score,
-                        "parent_id": reasoning_node.get("parent_id"),
-                        "reasoning_id": final_reasoning_id,
-                        "reasoningLive": False,  # 标记为已完成
-                    },
+                yield eb.build_reasoning_event(
+                    content=full_reasoning.strip(),
+                    reasoning_id=final_reasoning_id,
+                    reasoning_live=False,
                     turn_id=turn_id,
+                    reasoning_type=reasoning_type,
+                    key_decisions=key_decisions,
+                    confidence_score=confidence_score,
+                    parent_id=reasoning_node.get("parent_id"),
                 )
 
             # 记录 token 消耗
             if usage and settings.enable_cost_tracking:
-                model_info = self._resolver.get_active_model_info(purpose="chat")
+                model_info = effective_model_info or self._resolver.get_active_model_info(purpose="chat")
                 tracker = get_tracker(session.id)
                 rec = tracker.record(
                     model=model_info.get("model", "unknown"),
@@ -543,22 +591,19 @@ class AgentRunner:
                     output_tokens=usage.get("output_tokens", 0),
                 )
                 # 推送 token 使用事件到前端
-                yield AgentEvent(
-                    type=EventType.TOKEN_USAGE,
-                    data={
-                        "model": rec.model,
-                        "input_tokens": rec.input_tokens,
-                        "output_tokens": rec.output_tokens,
-                        "total_tokens": rec.input_tokens + rec.output_tokens,
-                        "cost_usd": rec.cost_usd,
-                        "session_total_tokens": tracker.total_tokens,
-                        "session_total_cost": tracker.total_cost_usd,
-                    },
+                yield eb.build_token_usage_event(
+                    input_tokens=rec.input_tokens,
+                    output_tokens=rec.output_tokens,
+                    model=rec.model,
+                    cost_usd=rec.cost_usd,
                     turn_id=turn_id,
+                    total_tokens=rec.input_tokens + rec.output_tokens,
+                    session_total_tokens=tracker.total_tokens,
+                    session_total_cost=tracker.total_cost_usd,
                 )
 
             if should_stop():
-                yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
+                yield eb.build_done_event(turn_id=turn_id)
                 return
 
             # 如果没有 tool_calls → 纯文本回复，结束循环
@@ -575,21 +620,19 @@ class AgentRunner:
                         turn_id=turn_id,
                         message_id=f"tool-call-{tool_call_id}",
                     )
-                    yield AgentEvent(
-                        type=EventType.TOOL_CALL,
-                        data={"name": "ask_user_question", "arguments": arguments},
+                    yield eb.build_tool_call_event(
                         tool_call_id=tool_call_id,
-                        tool_name="ask_user_question",
+                        name="ask_user_question",
+                        arguments={"name": "ask_user_question", "arguments": arguments},
                         turn_id=turn_id,
                         metadata={"source": "confirmation_fallback"},
                     )
-                    yield AgentEvent(
-                        type=EventType.ASK_USER_QUESTION,
-                        data=confirmation_payload,
+                    yield eb.build_ask_user_question_event(
+                        questions=confirmation_payload.get("questions", []),
+                        turn_id=turn_id,
                         tool_call_id=tool_call_id,
                         tool_name="ask_user_question",
-                        turn_id=turn_id,
-                        metadata={"source": "confirmation_fallback"},
+                        source="confirmation_fallback",
                     )
 
                     try:
@@ -598,9 +641,7 @@ class AgentRunner:
                             tool_call_id,
                             confirmation_payload,
                         )
-                        normalized_answers = self._normalize_ask_user_question_answers(
-                            raw_answers
-                        )
+                        normalized_answers = self._normalize_ask_user_question_answers(raw_answers)
                         result = {
                             "success": True,
                             "message": "已收到用户回答。",
@@ -635,19 +676,16 @@ class AgentRunner:
                         turn_id=turn_id,
                         message_id=f"tool-result-{tool_call_id}",
                     )
-                    yield AgentEvent(
-                        type=EventType.TOOL_RESULT,
-                        data={
-                            "result": result,
-                            "status": "error" if has_error else "success",
-                            "message": (
-                                result.get("error") or result.get("message", "工具执行失败")
-                                if has_error
-                                else result.get("message", "工具执行完成")
-                            ),
-                        },
+                    yield eb.build_tool_result_event(
                         tool_call_id=tool_call_id,
-                        tool_name="ask_user_question",
+                        name="ask_user_question",
+                        status="error" if has_error else "success",
+                        message=(
+                            result.get("error") or result.get("message", "工具执行失败")
+                            if has_error
+                            else result.get("message", "工具执行完成")
+                        ),
+                        data={"result": result},
                         turn_id=turn_id,
                         metadata={"source": "confirmation_fallback"},
                     )
@@ -657,14 +695,20 @@ class AgentRunner:
                 final_message_id = current_message_id or f"{turn_id}-{message_seq}"
                 if current_message_id is None:
                     message_seq += 1
+                final_message_extra: dict[str, Any] = {}
+                if effective_model_info:
+                    final_message_extra["effective_model"] = effective_model_info
+                if fallback_chain:
+                    final_message_extra["fallback_chain"] = fallback_chain
                 session.add_message(
                     "assistant",
                     final_text,
                     turn_id=turn_id,
                     message_id=final_message_id,
                     operation="complete",
+                    **final_message_extra,
                 )
-                yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
+                yield eb.build_done_event(turn_id=turn_id)
                 return
 
             # 有 tool_calls → 记录并执行
@@ -672,11 +716,11 @@ class AgentRunner:
             # 这段文本是面向用户的解释，应作为正常文本发送给前端
             if iteration == 0 and full_text and full_text.strip():
                 assistant_text = full_text.strip()
-                # 仅当 LLM 未使用 task_write 初始化任务（task_manager 未初始化）时
+                # 仅当 LLM 未使用 task_write/task_state 初始化任务（task_manager 未初始化）时
                 # 才回退到文本解析模式（parse_analysis_plan 的 fallback 路径）
-                # 同时检查即将到来的 tool_calls 是否包含 task_write，避免重复发送 analysis_plan
+                # 同时检查即将到来的 tool_calls 是否包含 task_write/task_state，避免重复发送 analysis_plan
                 has_task_write_in_calls = any(
-                    tc.get("function", {}).get("name") == "task_write"
+                    tc.get("function", {}).get("name") in ("task_write", "task_state")
                     for tc in tool_calls
                 )
                 if not session.task_manager.initialized and not has_task_write_in_calls:
@@ -685,7 +729,10 @@ class AgentRunner:
                         active_plan = parsed_plan
                         next_step_idx = 0
                     if active_plan is not None:
-                        logger.debug("[分析计划] 从文本解析发送 analysis_plan，步骤数: %d", len(active_plan.steps))
+                        logger.debug(
+                            "[分析计划] 从文本解析发送 analysis_plan，步骤数: %d",
+                            len(active_plan.steps),
+                        )
                         yield _new_analysis_plan_event(active_plan.to_dict())
                         yield _new_plan_progress_event(
                             current_idx=0,
@@ -704,9 +751,8 @@ class AgentRunner:
                     plan_message_id = f"{turn_id}-{message_seq}"
                     message_seq += 1
                     current_message_id = plan_message_id
-                    yield AgentEvent(
-                        type=EventType.TEXT,
-                        data=assistant_text,
+                    yield eb.build_text_event(
+                        content=assistant_text,
                         turn_id=turn_id,
                         metadata={
                             "message_id": plan_message_id,
@@ -723,6 +769,10 @@ class AgentRunner:
                 "turn_id": turn_id,
                 "tool_calls": tool_calls,
             }
+            if effective_model_info:
+                assistant_tool_msg["effective_model"] = effective_model_info
+            if fallback_chain:
+                assistant_tool_msg["fallback_chain"] = fallback_chain
             if current_message_id and assistant_tool_msg["content"]:
                 assistant_tool_msg["message_id"] = current_message_id
             session.messages.append(assistant_tool_msg)
@@ -730,7 +780,7 @@ class AgentRunner:
 
             for tc in tool_calls:
                 if should_stop():
-                    yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
+                    yield eb.build_done_event(turn_id=turn_id)
                     return
 
                 tc_id = tc["id"]
@@ -750,15 +800,18 @@ class AgentRunner:
                         pass
 
                 # 从 task_manager 获取当前 in_progress 任务（用于 TASK_ATTEMPT 事件关联）
-                # task_write 本身不计入任务执行轨迹
+                # task_write/task_state 本身不计入任务执行轨迹
                 matched_step_id: int | None = None
                 matched_action_id: str | None = None
-                if func_name != "task_write" and session.task_manager.has_tasks():
+                if (
+                    func_name not in ("task_write", "task_state")
+                    and session.task_manager.has_tasks()
+                ):
                     in_progress_task = session.task_manager.current_in_progress()
                     if in_progress_task:
                         matched_action_id = in_progress_task.action_id
                         matched_step_id = in_progress_task.id
-                elif func_name != "task_write" and active_plan is not None:
+                elif func_name not in ("task_write", "task_state") and active_plan is not None:
                     # 兼容 fallback 模式：未使用 task_write 时，最小化推进计划状态。
                     while (
                         next_step_idx < len(active_plan.steps)
@@ -783,33 +836,27 @@ class AgentRunner:
                             step_status="in_progress",
                         )
                         next_step_idx += 1
-                # 确保非 task_write 工具始终有 action_id（用于关联重试轨迹）
-                if matched_action_id is None and func_name != "task_write":
+                # 确保非 task_write/task_state 工具始终有 action_id（用于关联重试轨迹）
+                if matched_action_id is None and func_name not in ("task_write", "task_state"):
                     matched_action_id = tc_id
                 # 重试策略：由 LLM 自行决定是否重试，不自动重试
                 max_retries = 0
 
-                yield AgentEvent(
-                    type=EventType.TOOL_CALL,
-                    data={"name": func_name, "arguments": func_args},
+                # 构建 tool_call 元数据
+                _tc_metadata: dict[str, Any] = dict(tool_call_metadata)
+                if matched_action_id:
+                    _tc_metadata["action_id"] = matched_action_id
+                    if max_retries > 0:
+                        _tc_metadata["retry_policy"] = {
+                            "max_retries": max_retries,
+                            "retry_count": 0,
+                        }
+                yield eb.build_tool_call_event(
                     tool_call_id=tc_id,
-                    tool_name=func_name,
+                    name=func_name,
+                    arguments=func_args,
                     turn_id=turn_id,
-                    metadata={
-                        **tool_call_metadata,
-                        **(
-                            {
-                                "action_id": matched_action_id,
-                                **(
-                                    {"retry_policy": {"max_retries": max_retries, "retry_count": 0}}
-                                    if max_retries > 0
-                                    else {}
-                                ),
-                            }
-                            if matched_action_id
-                            else {}
-                        ),
-                    },
+                    metadata=_tc_metadata or None,
                 )
 
                 # Markdown Skill 的 allowed_tools 仅作推荐提示，不做硬阻断。
@@ -825,9 +872,10 @@ class AgentRunner:
                         allowed_sorted,
                     )
 
-                # ── task_write 特殊处理 ──────────────────────────────────────────
+                # ── task_write/task_state 特殊处理 ────────────────────────────────
                 # task_write 由 LLM 调用来声明/更新任务列表，不走正常执行流程
-                if func_name == "task_write":
+                # task_state 是 task_write 的代理，也支持 init/update/get/current 操作
+                if func_name in ("task_write", "task_state"):
                     result = await self._execute_tool(session, func_name, func_args)
                     has_error = isinstance(result, dict) and (
                         result.get("error") or result.get("success") is False
@@ -835,10 +883,15 @@ class AgentRunner:
                     if not has_error:
                         try:
                             tw_args = json.loads(func_args)
-                            tw_mode = tw_args.get("mode", "init")
+                            # task_write 使用 mode，task_state 使用 operation
+                            tw_mode = tw_args.get("mode") or tw_args.get("operation", "init")
                             if tw_mode == "init":
                                 plan_dict = session.task_manager.to_analysis_plan_dict()
-                                logger.debug("[分析计划] 从 task_write 发送 analysis_plan，步骤数: %d", len(plan_dict.get("steps", [])))
+                                logger.debug(
+                                    "[分析计划] 从 %s 发送 analysis_plan，步骤数: %d",
+                                    func_name,
+                                    len(plan_dict.get("steps", [])),
+                                )
                                 yield _new_analysis_plan_event(plan_dict)
                                 yield _new_plan_progress_event(
                                     current_idx=0,
@@ -874,7 +927,7 @@ class AgentRunner:
                                             }
                                         )
                         except Exception as exc:
-                            logger.debug("task_write 事件发射失败: %s", exc)
+                            logger.debug("%s 事件发射失败: %s", func_name, exc)
 
                     result_str = serialize_tool_result_for_memory(result)
                     session.add_tool_result(
@@ -885,21 +938,16 @@ class AgentRunner:
                         turn_id=turn_id,
                         message_id=f"tool-result-{tc_id}",
                     )
-                    yield AgentEvent(
-                        type=EventType.TOOL_RESULT,
-                        data={
-                            "result": result,
-                            "status": "success" if not has_error else "error",
-                            "message": (
-                                result.get("message", "") if isinstance(result, dict) else ""
-                            ),
-                        },
+                    yield eb.build_tool_result_event(
                         tool_call_id=tc_id,
-                        tool_name=func_name,
+                        name=func_name,
+                        status="success" if not has_error else "error",
+                        message=result.get("message", "") if isinstance(result, dict) else "",
+                        data={"result": result},
                         turn_id=turn_id,
                     )
                     continue  # 跳过正常执行流程
-                # ── task_write 特殊处理结束 ──────────────────────────────────────
+                # ── task_write/task_state 特殊处理结束 ────────────────────────────
 
                 # ── ask_user_question 特殊处理 ─────────────────────────────────
                 # ask_user_question 会暂停当前回合，等待用户完成回答后继续。
@@ -921,12 +969,11 @@ class AgentRunner:
                         }
                     else:
                         assert questions is not None
-                        yield AgentEvent(
-                            type=EventType.ASK_USER_QUESTION,
-                            data={"questions": questions},
+                        yield eb.build_ask_user_question_event(
+                            questions=questions,
+                            turn_id=turn_id,
                             tool_call_id=tc_id,
                             tool_name=func_name,
-                            turn_id=turn_id,
                         )
                         try:
                             raw_answers = await self._ask_user_question_handler(
@@ -972,19 +1019,16 @@ class AgentRunner:
                         turn_id=turn_id,
                         message_id=f"tool-result-{tc_id}",
                     )
-                    yield AgentEvent(
-                        type=EventType.TOOL_RESULT,
-                        data={
-                            "result": result,
-                            "status": status,
-                            "message": (
-                                result.get("error") or result.get("message", "工具执行失败")
-                                if has_error
-                                else result.get("message", "工具执行完成")
-                            ),
-                        },
+                    yield eb.build_tool_result_event(
                         tool_call_id=tc_id,
-                        tool_name=func_name,
+                        name=func_name,
+                        status=status,
+                        message=(
+                            result.get("error") or result.get("message", "工具执行失败")
+                            if has_error
+                            else result.get("message", "工具执行完成")
+                        ),
+                        data={"result": result},
                         turn_id=turn_id,
                     )
                     continue
@@ -1003,12 +1047,15 @@ class AgentRunner:
                         turn_id=turn_id,
                         artifacts=[code_artifact],
                     )
-                    yield AgentEvent(
-                        type=EventType.ARTIFACT,
-                        data=code_artifact,
+                    yield eb.build_artifact_event(
+                        artifact_id=code_artifact.get("id", ""),
+                        artifact_type=code_artifact.get("type", ""),
+                        name=code_artifact.get("name", ""),
+                        url=code_artifact.get("url"),
+                        mime_type=code_artifact.get("mime_type"),
+                        turn_id=turn_id,
                         tool_call_id=tc_id,
                         tool_name=func_name,
-                        turn_id=turn_id,
                     )
 
                 # 执行工具（max_retries 已在 TOOL_CALL 事件发出前计算）
@@ -1031,7 +1078,6 @@ class AgentRunner:
 
                     # 检查是否发生了统计降级 fallback
                     if isinstance(result, dict) and result.get("fallback"):
-                        from nini.agent.events import create_reasoning_event
                         fallback_event = create_reasoning_event(
                             step="statistical_fallback",
                             thought=f"由于{result.get('fallback_reason', '前提条件不满足')}，自动降级为非参数检验",
@@ -1106,7 +1152,7 @@ class AgentRunner:
                 status = "error" if has_error else "success"
 
                 if (
-                    func_name != "task_write"
+                    func_name not in ("task_write", "task_state")
                     and not session.task_manager.initialized
                     and active_plan is not None
                     and matched_step_id is not None
@@ -1173,21 +1219,18 @@ class AgentRunner:
                     }
 
                 try:
-                    yield AgentEvent(
-                        type=EventType.TOOL_RESULT,
-                        data={
-                            "result": result,
-                            "status": status,
-                            "message": (
-                                result.get("error") or result.get("message", "工具执行失败")
-                                if has_error
-                                else result.get("message", "工具执行完成")
-                            ),
-                        },
+                    yield eb.build_tool_result_event(
                         tool_call_id=tc_id,
-                        tool_name=func_name,
+                        name=func_name,
+                        status=status,
+                        message=(
+                            result.get("error") or result.get("message", "工具执行失败")
+                            if has_error
+                            else result.get("message", "工具执行完成")
+                        ),
+                        data={"result": result},
                         turn_id=turn_id,
-                        metadata=result_metadata if isinstance(result_metadata, dict) else {},
+                        metadata=result_metadata if isinstance(result_metadata, dict) else None,
                     )
                     # 检查是否有图表数据
                     if isinstance(result, dict) and result.get("has_chart"):
@@ -1202,21 +1245,33 @@ class AgentRunner:
                             turn_id=turn_id,
                             chart_data=chart_data,
                         )
-                        yield AgentEvent(
-                            type=EventType.CHART,
-                            data=chart_data,
+                        yield eb.build_chart_event(
+                            chart_id=chart_data.get("id", ""),
+                            name=chart_data.get("name", ""),
+                            url=chart_data.get("url", ""),
+                            chart_type=chart_data.get("chart_type"),
                             turn_id=turn_id,
                         )
                     if isinstance(result, dict) and result.get("has_dataframe"):
+                        data_preview = result.get("dataframe_preview") or {}
                         session.add_assistant_event(
                             "data",
                             "数据预览如下",
                             turn_id=turn_id,
-                            data_preview=result.get("dataframe_preview"),
+                            data_preview=data_preview,
                         )
-                        yield AgentEvent(
-                            type=EventType.DATA,
-                            data=result.get("dataframe_preview"),
+                        # 传递完整的数据预览内容，供前端 DataViewer 组件渲染
+                        yield eb.build_data_event(
+                            data_id=data_preview.get("id", ""),
+                            name=data_preview.get("name", ""),
+                            url=data_preview.get("url", ""),
+                            row_count=data_preview.get("total_rows"),
+                            column_count=len(data_preview.get("columns", [])),
+                            data=data_preview.get("data", []),
+                            columns=data_preview.get("columns", []),
+                            total_rows=data_preview.get("total_rows"),
+                            preview_rows=data_preview.get("preview_rows"),
+                            preview_strategy=data_preview.get("preview_strategy"),
                             turn_id=turn_id,
                         )
 
@@ -1231,12 +1286,15 @@ class AgentRunner:
                                     turn_id=turn_id,
                                     artifacts=[artifact],
                                 )
-                                yield AgentEvent(
-                                    type=EventType.ARTIFACT,
-                                    data=artifact,
+                                yield eb.build_artifact_event(
+                                    artifact_id=artifact.get("id", ""),
+                                    artifact_type=artifact.get("type", ""),
+                                    name=artifact.get("name", ""),
+                                    url=artifact.get("url"),
+                                    mime_type=artifact.get("mime_type"),
+                                    turn_id=turn_id,
                                     tool_call_id=tc_id,
                                     tool_name=func_name,
-                                    turn_id=turn_id,
                                 )
                     if isinstance(result, dict) and result.get("images"):
                         images_raw = result.get("images")
@@ -1254,11 +1312,14 @@ class AgentRunner:
                                 turn_id=turn_id,
                                 images=images,
                             )
-                            yield AgentEvent(
-                                type=EventType.IMAGE,
-                                data={"urls": images},
-                                turn_id=turn_id,
-                            )
+                            # 为每张图片发送单独的 IMAGE 事件
+                            for img_url in images:
+                                yield eb.build_image_event(
+                                    image_id=img_url.split("/")[-1].split(".")[0],
+                                    name=img_url.split("/")[-1],
+                                    url=img_url,
+                                    turn_id=turn_id,
+                                )
                 except Exception:
                     # 发送事件失败（如客户端断开），但消息已保存
                     # 继续处理下一个 tool_call
@@ -1272,16 +1333,21 @@ class AgentRunner:
                 report_message_id = current_message_id or f"{turn_id}-{message_seq}"
                 if current_message_id is None:
                     message_seq += 1
+                report_message_extra: dict[str, Any] = {}
+                if effective_model_info:
+                    report_message_extra["effective_model"] = effective_model_info
+                if fallback_chain:
+                    report_message_extra["fallback_chain"] = fallback_chain
                 session.add_message(
                     "assistant",
                     report_markdown_for_turn,
                     turn_id=turn_id,
                     message_id=report_message_id,
                     operation="replace",
+                    **report_message_extra,
                 )
-                yield AgentEvent(
-                    type=EventType.TEXT,
-                    data=report_markdown_for_turn,
+                yield eb.build_text_event(
+                    content=report_markdown_for_turn,
                     turn_id=turn_id,
                     metadata={
                         "message_id": report_message_id,
@@ -1289,24 +1355,22 @@ class AgentRunner:
                     },
                 )
                 # 发送 complete 操作标记消息结束
-                yield AgentEvent(
-                    type=EventType.TEXT,
-                    data="",
+                yield eb.build_text_event(
+                    content="",
                     turn_id=turn_id,
                     metadata={
                         "message_id": report_message_id,
                         "operation": "complete",
                     },
                 )
-                yield AgentEvent(type=EventType.DONE, turn_id=turn_id)
+                yield eb.build_done_event(turn_id=turn_id)
                 return
             iteration += 1
 
         if max_iter > 0:
             # 达到最大迭代次数（仅在启用上限时触发）
-            yield AgentEvent(
-                type=EventType.ERROR,
-                data=f"达到最大迭代次数 ({max_iter})，已停止执行。",
+            yield eb.build_error_event(
+                message=f"达到最大迭代次数 ({max_iter})，已停止执行。",
                 turn_id=turn_id,
             )
 
@@ -1360,21 +1424,19 @@ class AgentRunner:
             turn_id=turn_id,
             message_id=f"tool-call-{tool_call_id}",
         )
-        yield AgentEvent(
-            type=EventType.TOOL_CALL,
-            data={"name": "ask_user_question", "arguments": arguments},
+        yield eb.build_tool_call_event(
             tool_call_id=tool_call_id,
-            tool_name="ask_user_question",
+            name="ask_user_question",
+            arguments={"name": "ask_user_question", "arguments": arguments},
             turn_id=turn_id,
             metadata={"source": "intent_clarification"},
         )
-        yield AgentEvent(
-            type=EventType.ASK_USER_QUESTION,
-            data=payload,
+        yield eb.build_ask_user_question_event(
+            questions=questions,
+            turn_id=turn_id,
             tool_call_id=tool_call_id,
             tool_name="ask_user_question",
-            turn_id=turn_id,
-            metadata={"source": "intent_clarification"},
+            source="intent_clarification",
         )
 
         try:
@@ -1414,19 +1476,16 @@ class AgentRunner:
             turn_id=turn_id,
             message_id=f"tool-result-{tool_call_id}",
         )
-        yield AgentEvent(
-            type=EventType.TOOL_RESULT,
-            data={
-                "result": result,
-                "status": "error" if has_error else "success",
-                "message": (
-                    result.get("error") or result.get("message", "工具执行失败")
-                    if has_error
-                    else result.get("message", "工具执行完成")
-                ),
-            },
+        yield eb.build_tool_result_event(
             tool_call_id=tool_call_id,
-            tool_name="ask_user_question",
+            name="ask_user_question",
+            status="error" if has_error else "success",
+            message=(
+                result.get("error") or result.get("message", "工具执行失败")
+                if has_error
+                else result.get("message", "工具执行完成")
+            ),
+            data={"result": result},
             turn_id=turn_id,
             metadata={"source": "intent_clarification"},
         )
@@ -1811,15 +1870,15 @@ class AgentRunner:
                     if trigger == "context_limit_error"
                     else f"上下文已自动压缩，归档了 {archived_count} 条消息"
                 )
-                return AgentEvent(
-                    type=EventType.CONTEXT_COMPRESSED,
-                    data={
-                        "archived_count": archived_count,
-                        "remaining_count": remaining_count,
-                        "previous_tokens": current_tokens,
-                        "trigger": trigger,
-                        "message": message,
-                    },
+                return eb.build_context_compressed_event(
+                    original_tokens=current_tokens,
+                    compressed_tokens=current_tokens // 2,
+                    compression_ratio=0.5,
+                    message=message,
+                    archived_count=archived_count,
+                    remaining_count=remaining_count,
+                    previous_tokens=current_tokens,
+                    trigger=trigger,
                 )
         except Exception as exc:
             logger.warning("自动压缩失败(%s): %s", trigger, exc, exc_info=True)

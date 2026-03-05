@@ -16,6 +16,7 @@ from nini.models.event_schemas import (
     PlanStepUpdateEventData,
     TaskAttemptEventData,
     TokenUsageEventData,
+    ModelFallbackEventData,
     SessionTokenUsageEventData,
     ModelTokenUsageDetail,
     ToolCallEventData,
@@ -28,6 +29,16 @@ from nini.models.event_schemas import (
     WorkspaceUpdateEventData,
     CodeExecutionEventData,
     StoppedEventData,
+    IterationStartEventData,
+    RetrievalEventData,
+    ReasoningEventData,
+    ReasoningDataEventData,
+    AskUserQuestionEventData,
+    ArtifactEventData,
+    ChartEventData,
+    DataEventData,
+    ImageEventData,
+    ContextCompressedEventData,
 )
 
 
@@ -213,6 +224,8 @@ def build_token_usage_event(
     output_tokens: int,
     model: str,
     cost_usd: float | None = None,
+    *,
+    turn_id: str | None = None,
     **extra
 ) -> AgentEvent:
     """构造 TOKEN_USAGE 事件。"""
@@ -229,6 +242,46 @@ def build_token_usage_event(
     return AgentEvent(
         type=EventType.TOKEN_USAGE,
         data=data,
+        turn_id=turn_id,
+    )
+
+
+def build_model_fallback_event(
+    *,
+    purpose: str,
+    attempt: int,
+    to_provider_id: str,
+    to_provider_name: str,
+    to_model: str,
+    from_provider_id: str | None = None,
+    from_provider_name: str | None = None,
+    from_model: str | None = None,
+    reason: str | None = None,
+    fallback_chain: list[dict[str, Any]] | None = None,
+    turn_id: str | None = None,
+    **extra
+) -> AgentEvent:
+    """构造 MODEL_FALLBACK 事件。"""
+    event_data = ModelFallbackEventData(
+        purpose=purpose,
+        attempt=attempt,
+        from_provider_id=from_provider_id,
+        from_provider_name=from_provider_name,
+        from_model=from_model,
+        to_provider_id=to_provider_id,
+        to_provider_name=to_provider_name,
+        to_model=to_model,
+        reason=reason,
+        fallback_chain=fallback_chain or [],
+    )
+
+    data = event_data.model_dump()
+    data.update(extra)
+
+    return AgentEvent(
+        type=EventType.MODEL_FALLBACK,
+        data=data,
+        turn_id=turn_id,
     )
 
 
@@ -279,14 +332,26 @@ def build_session_token_usage_event(
 def build_tool_call_event(
     tool_call_id: str,
     name: str,
-    arguments: dict[str, Any],
+    arguments: dict[str, Any] | str,
+    *,
+    turn_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
     **extra
 ) -> AgentEvent:
     """构造 TOOL_CALL 事件。"""
+    # 处理 arguments 可能是字符串的情况
+    parsed_args = arguments
+    if isinstance(arguments, str):
+        try:
+            import json
+            parsed_args = json.loads(arguments)
+        except json.JSONDecodeError:
+            parsed_args = {"raw": arguments}
+
     event_data = ToolCallEventData(
         id=tool_call_id,
         name=name,
-        arguments=arguments,
+        arguments=parsed_args if isinstance(parsed_args, dict) else {},
     )
 
     data = event_data.model_dump()
@@ -295,6 +360,8 @@ def build_tool_call_event(
     return AgentEvent(
         type=EventType.TOOL_CALL,
         data=data,
+        turn_id=turn_id,
+        metadata=metadata,
         tool_call_id=tool_call_id,
         tool_name=name,
     )
@@ -306,6 +373,9 @@ def build_tool_result_event(
     status: str,
     message: str,
     data: dict[str, Any] | None = None,
+    *,
+    turn_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
     **extra
 ) -> AgentEvent:
     """构造 TOOL_RESULT 事件。"""
@@ -323,12 +393,20 @@ def build_tool_result_event(
     return AgentEvent(
         type=EventType.TOOL_RESULT,
         data=result_data,
+        turn_id=turn_id,
+        metadata=metadata,
         tool_call_id=tool_call_id,
         tool_name=name,
     )
 
 
-def build_text_event(content: str, **extra) -> AgentEvent:
+def build_text_event(
+    content: str,
+    *,
+    turn_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    **extra
+) -> AgentEvent:
     """构造 TEXT 事件。"""
     event_data = TextEventData(content=content)
 
@@ -338,10 +416,18 @@ def build_text_event(content: str, **extra) -> AgentEvent:
     return AgentEvent(
         type=EventType.TEXT,
         data=data,
+        turn_id=turn_id,
+        metadata=metadata,
     )
 
 
-def build_error_event(message: str, code: str | None = None, **extra) -> AgentEvent:
+def build_error_event(
+    message: str,
+    code: str | None = None,
+    *,
+    turn_id: str | None = None,
+    **extra
+) -> AgentEvent:
     """构造 ERROR 事件。"""
     event_data = ErrorEventData(message=message, code=code)
 
@@ -351,10 +437,16 @@ def build_error_event(message: str, code: str | None = None, **extra) -> AgentEv
     return AgentEvent(
         type=EventType.ERROR,
         data=data,
+        turn_id=turn_id,
     )
 
 
-def build_done_event(reason: str = "completed", **extra) -> AgentEvent:
+def build_done_event(
+    reason: str = "completed",
+    *,
+    turn_id: str | None = None,
+    **extra
+) -> AgentEvent:
     """构造 DONE 事件。"""
     event_data = DoneEventData(reason=reason)  # type: ignore
 
@@ -364,6 +456,7 @@ def build_done_event(reason: str = "completed", **extra) -> AgentEvent:
     return AgentEvent(
         type=EventType.DONE,
         data=data,
+        turn_id=turn_id,
     )
 
 
@@ -455,5 +548,265 @@ def build_stopped_event(message: str = "已停止", **extra) -> AgentEvent:
 
     return AgentEvent(
         type=EventType.STOPPED,
+        data=data,
+    )
+
+
+def build_iteration_start_event(iteration: int, **extra) -> AgentEvent:
+    """构造 ITERATION_START 事件。"""
+    event_data = IterationStartEventData(iteration=iteration)
+
+    data = event_data.model_dump()
+    data.update(extra)
+
+    return AgentEvent(
+        type=EventType.ITERATION_START,
+        data=data,
+    )
+
+
+def build_retrieval_event(query: str = "", results: list[dict[str, Any]] | None = None, **extra) -> AgentEvent:
+    """构造 RETRIEVAL 事件。"""
+    event_data = RetrievalEventData(
+        query=query,
+        results=results or [],
+    )
+
+    data = event_data.model_dump()
+    data.update(extra)
+
+    return AgentEvent(
+        type=EventType.RETRIEVAL,
+        data=data,
+    )
+
+
+def build_reasoning_event(
+    content: str,
+    reasoning_id: str | None = None,
+    reasoning_live: bool = False,
+    *,
+    turn_id: str | None = None,
+    **extra
+) -> AgentEvent:
+    """构造 REASONING 事件（流式/简单格式）。"""
+    event_data = ReasoningEventData(
+        content=content,
+        reasoning_id=reasoning_id,
+        reasoning_live=reasoning_live,
+    )
+
+    data = event_data.model_dump()
+    data.update(extra)
+
+    return AgentEvent(
+        type=EventType.REASONING,
+        data=data,
+        turn_id=turn_id,
+    )
+
+
+def build_reasoning_data_event(
+    step: str,
+    thought: str,
+    rationale: str = "",
+    alternatives: list[str] | None = None,
+    confidence: float = 1.0,
+    *,
+    turn_id: str | None = None,
+    reasoning_type: str | None = None,
+    reasoning_subtype: str | None = None,
+    confidence_score: float | None = None,
+    key_decisions: list[str] | None = None,
+    parent_id: str | None = None,
+    references: list[dict[str, Any]] | None = None,
+    timestamp: str | None = None,
+    tags: list[str] | None = None,
+    **context: Any
+) -> AgentEvent:
+    """构造 REASONING 事件（完整决策数据格式）。
+
+    用于展示 Agent 的决策过程，提高可解释性。
+    """
+    event_data = ReasoningDataEventData(
+        step=step,
+        thought=thought,
+        rationale=rationale,
+        alternatives=alternatives or [],
+        confidence=confidence,
+        context=dict(context) if context else {},
+        reasoning_type=reasoning_type,
+        reasoning_subtype=reasoning_subtype,
+        confidence_score=confidence_score,
+        key_decisions=key_decisions or [],
+        parent_id=parent_id,
+        references=references or [],
+        timestamp=timestamp,
+        tags=tags or [],
+    )
+
+    data = event_data.model_dump()
+    data.update(context)
+
+    return AgentEvent(
+        type=EventType.REASONING,
+        data=data,
+    )
+
+
+def build_ask_user_question_event(
+    questions: list[dict[str, Any]],
+    *,
+    turn_id: str | None = None,
+    tool_call_id: str | None = None,
+    tool_name: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    **extra
+) -> AgentEvent:
+    """构造 ASK_USER_QUESTION 事件。"""
+    event_data = AskUserQuestionEventData(questions=questions)
+
+    data = event_data.model_dump()
+    data.update(extra)
+
+    return AgentEvent(
+        type=EventType.ASK_USER_QUESTION,
+        data=data,
+        turn_id=turn_id,
+        tool_call_id=tool_call_id,
+        tool_name=tool_name,
+        metadata=metadata,
+    )
+
+
+def build_artifact_event(
+    artifact_id: str,
+    artifact_type: str,
+    name: str,
+    url: str | None = None,
+    mime_type: str | None = None,
+    **extra
+) -> AgentEvent:
+    """构造 ARTIFACT 事件。"""
+    event_data = ArtifactEventData(
+        artifact_id=artifact_id,
+        artifact_type=artifact_type,
+        name=name,
+        url=url,
+        mime_type=mime_type,
+    )
+
+    data = event_data.model_dump()
+    data.update(extra)
+
+    return AgentEvent(
+        type=EventType.ARTIFACT,
+        data=data,
+    )
+
+
+def build_chart_event(
+    chart_id: str,
+    name: str,
+    url: str,
+    chart_type: str | None = None,
+    **extra
+) -> AgentEvent:
+    """构造 CHART 事件。"""
+    event_data = ChartEventData(
+        chart_id=chart_id,
+        name=name,
+        url=url,
+        chart_type=chart_type,
+    )
+
+    data = event_data.model_dump()
+    data.update(extra)
+
+    return AgentEvent(
+        type=EventType.CHART,
+        data=data,
+    )
+
+
+def build_data_event(
+    data_id: str,
+    name: str,
+    url: str,
+    row_count: int | None = None,
+    column_count: int | None = None,
+    **extra
+) -> AgentEvent:
+    """构造 DATA 事件。"""
+    event_data = DataEventData(
+        data_id=data_id,
+        name=name,
+        url=url,
+        row_count=row_count,
+        column_count=column_count,
+    )
+
+    data = event_data.model_dump()
+    data.update(extra)
+
+    return AgentEvent(
+        type=EventType.DATA,
+        data=data,
+    )
+
+
+def build_image_event(
+    image_id: str,
+    name: str,
+    url: str,
+    mime_type: str | None = None,
+    **extra
+) -> AgentEvent:
+    """构造 IMAGE 事件。"""
+    event_data = ImageEventData(
+        image_id=image_id,
+        name=name,
+        url=url,
+        mime_type=mime_type,
+    )
+
+    data = event_data.model_dump()
+    data.update(extra)
+
+    return AgentEvent(
+        type=EventType.IMAGE,
+        data=data,
+    )
+
+
+def build_context_compressed_event(
+    original_tokens: int,
+    compressed_tokens: int,
+    compression_ratio: float,
+    message: str = "",
+    *,
+    archived_count: int | None = None,
+    remaining_count: int | None = None,
+    previous_tokens: int | None = None,
+    trigger: str | None = None,
+    **extra
+) -> AgentEvent:
+    """构造 CONTEXT_COMPRESSED 事件。"""
+    event_data = ContextCompressedEventData(
+        original_tokens=original_tokens,
+        compressed_tokens=compressed_tokens,
+        compression_ratio=compression_ratio,
+        message=message,
+        archived_count=archived_count,
+        remaining_count=remaining_count,
+        previous_tokens=previous_tokens,
+        trigger=trigger,
+    )
+
+    data = event_data.model_dump()
+    data.update(extra)
+
+    return AgentEvent(
+        type=EventType.CONTEXT_COMPRESSED,
         data=data,
     )

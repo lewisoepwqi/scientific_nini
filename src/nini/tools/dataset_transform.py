@@ -22,6 +22,7 @@ class DatasetTransformSkill(Skill):
 
     _supported_ops = {
         "concat_datasets",
+        "concat_all",
         "derive_column",
         "filter_rows",
         "group_aggregate",
@@ -50,6 +51,9 @@ class DatasetTransformSkill(Skill):
         return (
             "执行结构化数据变换流水线。支持拼接、衍生列、过滤、聚合、排序、去重、列重命名、"
             "列选择以及结构化清洗，并支持步骤级 patch 与重跑。"
+            "steps[].op 仅支持：concat_datasets、concat_all、derive_column、filter_rows、"
+            "group_aggregate、sort_rows、deduplicate、rename_columns、select_columns、"
+            "clean_data、recommend_cleaning_strategy。"
         )
 
     @property
@@ -75,7 +79,11 @@ class DatasetTransformSkill(Skill):
                         "type": "object",
                         "properties": {
                             "id": {"type": "string"},
-                            "op": {"type": "string"},
+                            "op": {
+                                "type": "string",
+                                "enum": sorted(self._supported_ops),
+                                "description": "变换步骤操作类型（固定枚举）",
+                            },
                             "params": {"type": "object"},
                         },
                         "required": ["id", "op"],
@@ -86,7 +94,11 @@ class DatasetTransformSkill(Skill):
                     "type": "object",
                     "properties": {
                         "step_id": {"type": "string"},
-                        "op": {"type": "string"},
+                        "op": {
+                            "type": "string",
+                            "enum": sorted(self._supported_ops),
+                            "description": "目标步骤的替换操作（固定枚举）",
+                        },
                         "params": {"type": "object"},
                     },
                     "required": ["step_id"],
@@ -111,19 +123,25 @@ class DatasetTransformSkill(Skill):
         return SkillResult(success=False, message=f"不支持的 operation: {operation}")
 
     async def _run_transform(self, session: Session, **kwargs: Any) -> SkillResult:
-        transform_id = str(kwargs.get("transform_id", "")).strip() or f"transform_{uuid.uuid4().hex[:12]}"
+        transform_id = (
+            str(kwargs.get("transform_id", "")).strip() or f"transform_{uuid.uuid4().hex[:12]}"
+        )
         steps = kwargs.get("steps") or []
         if not isinstance(steps, list) or not steps:
             return SkillResult(success=False, message="run 操作必须提供 steps")
 
         dataset_name = str(kwargs.get("dataset_name", "")).strip()
-        input_datasets = [str(item).strip() for item in kwargs.get("input_datasets") or [] if str(item).strip()]
+        input_datasets = [
+            str(item).strip() for item in kwargs.get("input_datasets") or [] if str(item).strip()
+        ]
         if dataset_name and not input_datasets:
             input_datasets = [dataset_name]
 
         df = await self._resolve_initial_dataframe(session, input_datasets)
         if df is None:
-            return SkillResult(success=False, message="无法解析输入数据集，请提供 dataset_name 或 input_datasets")
+            return SkillResult(
+                success=False, message="无法解析输入数据集，请提供 dataset_name 或 input_datasets"
+            )
 
         try:
             execution_steps: list[dict[str, Any]] = []
@@ -134,7 +152,9 @@ class DatasetTransformSkill(Skill):
                 op = str(step.get("op", "")).strip()
                 params = step.get("params") if isinstance(step.get("params"), dict) else {}
                 if op not in self._supported_ops:
-                    return SkillResult(success=False, message=f"步骤 {step_id} 使用了不支持的操作: {op}")
+                    return SkillResult(
+                        success=False, message=f"步骤 {step_id} 使用了不支持的操作: {op}"
+                    )
                 current_df, step_result = await self._apply_step(
                     session=session,
                     transform_id=transform_id,
@@ -164,11 +184,14 @@ class DatasetTransformSkill(Skill):
             output_dataset_name=output_name,
         )
 
+        preview_rows = min(20, len(current_df))
         preview = {
-            "data": dataframe_to_json_safe(current_df),
-            "columns": [{"name": col, "dtype": str(current_df[col].dtype)} for col in current_df.columns],
+            "data": dataframe_to_json_safe(current_df, n_rows=preview_rows),
+            "columns": [
+                {"name": col, "dtype": str(current_df[col].dtype)} for col in current_df.columns
+            ],
             "total_rows": len(current_df),
-            "preview_rows": min(20, len(current_df)),
+            "preview_rows": preview_rows,
         }
         return SkillResult(
             success=True,
@@ -179,6 +202,18 @@ class DatasetTransformSkill(Skill):
                 "resource_type": "dataset",
                 "plan_resource_id": plan_record["id"],
                 "output_dataset_name": output_name,
+                "output_resources": [
+                    {
+                        "resource_id": str(dataset_record["id"]),
+                        "resource_type": "dataset",
+                        "name": output_name,
+                    },
+                    {
+                        "resource_id": str(plan_record["id"]),
+                        "resource_type": str(plan_record.get("resource_type", "stat_result")),
+                        "name": str(plan_record.get("name", "")) or transform_id,
+                    },
+                ],
                 "steps": execution_steps,
             },
             has_dataframe=True,
@@ -292,6 +327,26 @@ class DatasetTransformSkill(Skill):
             current = pd.concat(frames, ignore_index=True, sort=False)
             return current, {"rows": len(current), "columns": len(current.columns)}
 
+        if op == "concat_all":
+            dataset_names = [
+                str(item).strip() for item in params.get("datasets", []) if str(item).strip()
+            ]
+            if not dataset_names:
+                # 兼容旧调用：当 run 阶段已完成预拼接时，concat_all 视作占位步骤。
+                return current, {
+                    "rows": len(current),
+                    "columns": len(current.columns),
+                    "mode": "pass_through",
+                }
+            frames = []
+            for name in dataset_names:
+                frame = session.datasets.get(name)
+                if frame is None:
+                    raise ValueError(f"数据集 '{name}' 不存在")
+                frames.append(frame.copy(deep=True))
+            current = pd.concat(frames, ignore_index=True, sort=False)
+            return current, {"rows": len(current), "columns": len(current.columns)}
+
         if op == "derive_column":
             column = str(params.get("column", "")).strip()
             expr = str(params.get("expr", "")).strip()
@@ -319,7 +374,9 @@ class DatasetTransformSkill(Skill):
             by = params.get("by")
             if not by:
                 raise ValueError("sort_rows 需要提供 by")
-            current = current.sort_values(by=by, ascending=params.get("ascending", True)).reset_index(drop=True)
+            current = current.sort_values(
+                by=by, ascending=params.get("ascending", True)
+            ).reset_index(drop=True)
             return current, {"rows": len(current)}
 
         if op == "deduplicate":

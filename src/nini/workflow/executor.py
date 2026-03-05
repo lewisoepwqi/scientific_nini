@@ -9,8 +9,9 @@ from typing import Any, AsyncGenerator
 
 import yaml
 
-from nini.agent.runner import AgentEvent, EventType
+from nini.agent.events import AgentEvent, EventType
 from nini.agent.session import Session
+from nini.agent import event_builders as eb
 from nini.utils.chart_payload import normalize_chart_payload
 from nini.workflow.template import WorkflowStep, WorkflowTemplate
 from nini.workflow.validator import safe_resolve_reference, validate_yaml_workflow
@@ -223,16 +224,14 @@ async def execute_workflow(
     if is_declarative:
         validation = validate_yaml_workflow(_build_validation_payload(template))
         if validation.errors:
-            yield AgentEvent(
-                type=EventType.TEXT,
-                data="工作流模板校验失败：\n- " + "\n- ".join(validation.errors),
+            yield eb.build_error_event(
+                message="工作流模板校验失败：\n- " + "\n- ".join(validation.errors),
             )
-            yield AgentEvent(type=EventType.DONE)
+            yield eb.build_done_event()
             return
 
-    yield AgentEvent(
-        type=EventType.TEXT,
-        data=f"正在执行工作流「{template.name}」（共 {total} 个步骤）...\n\n",
+    yield eb.build_text_event(
+        content=f"正在执行工作流「{template.name}」（共 {total} 个步骤）...\n\n",
     )
 
     context: dict[str, Any] = {
@@ -265,50 +264,43 @@ async def execute_workflow(
                     try:
                         should_run = _evaluate_condition(step.condition, context)
                     except Exception as e:
-                        yield AgentEvent(
-                            type=EventType.TEXT,
-                            data=f"\n步骤 {step.id} 条件表达式解析失败：{e}",
+                        yield eb.build_error_event(
+                            message=f"\n步骤 {step.id} 条件表达式解析失败：{e}",
                         )
-                        yield AgentEvent(type=EventType.DONE)
+                        yield eb.build_done_event()
                         return
 
                     if not should_run:
                         completed_ids.add(step.id)
                         context["outputs"][step.id] = {"success": True, "skipped": True}
-                        yield AgentEvent(
-                            type=EventType.TOOL_RESULT,
-                            data={
-                                "result": {"skipped": True},
-                                "status": "skipped",
-                                "message": "条件不满足，步骤已跳过",
-                            },
+                        yield eb.build_tool_result_event(
                             tool_call_id=f"wf-{template.id}-{run_index}",
-                            tool_name=step.executable_name,
+                            name=step.executable_name,
+                            status="skipped",
+                            message="条件不满足，步骤已跳过",
+                            data={"result": {"skipped": True}},
                         )
                         continue
 
                 try:
                     resolved_args = _resolve_template_value(step.executable_arguments, context)
                 except Exception as e:
-                    yield AgentEvent(
-                        type=EventType.TEXT,
-                        data=f"\n步骤 {step.id} 参数引用解析失败：{e}",
+                    yield eb.build_error_event(
+                        message=f"\n步骤 {step.id} 参数引用解析失败：{e}",
                     )
-                    yield AgentEvent(type=EventType.DONE)
+                    yield eb.build_done_event()
                     return
                 if not isinstance(resolved_args, dict):
-                    yield AgentEvent(
-                        type=EventType.TEXT,
-                        data=f"\n步骤 {step.id} 参数解析失败：parameters 必须解析为对象。",
+                    yield eb.build_error_event(
+                        message=f"\n步骤 {step.id} 参数解析失败：parameters 必须解析为对象。",
                     )
-                    yield AgentEvent(type=EventType.DONE)
+                    yield eb.build_done_event()
                     return
 
-                yield AgentEvent(
-                    type=EventType.TOOL_CALL,
-                    data={"name": step.executable_name, "arguments": str(resolved_args)},
+                yield eb.build_tool_call_event(
                     tool_call_id=f"wf-{template.id}-{run_index}",
-                    tool_name=step.executable_name,
+                    name=step.executable_name,
+                    arguments={"name": step.executable_name, "arguments": str(resolved_args)},
                 )
 
                 try:
@@ -329,30 +321,29 @@ async def execute_workflow(
                 status = "error" if has_error else "success"
                 message = result.get("error") if has_error else result.get("message", "步骤执行完成")
 
-                yield AgentEvent(
-                    type=EventType.TOOL_RESULT,
-                    data={"result": result, "status": status, "message": message},
+                yield eb.build_tool_result_event(
                     tool_call_id=f"wf-{template.id}-{run_index}",
-                    tool_name=step.executable_name,
+                    name=step.executable_name,
+                    status=status,
+                    message=message,
+                    data={"result": result},
                 )
                 for event in _build_artifact_events(result):
                     yield event
 
                 if has_error:
-                    yield AgentEvent(
-                        type=EventType.TEXT,
-                        data=f"\n步骤 {step.id} 执行失败，工作流已中止。",
+                    yield eb.build_error_event(
+                        message=f"\n步骤 {step.id} 执行失败，工作流已中止。",
                     )
-                    yield AgentEvent(type=EventType.DONE)
+                    yield eb.build_done_event()
                     return
 
             if not progressed:
                 unresolved = ", ".join(step.id for step in pending_steps)
-                yield AgentEvent(
-                    type=EventType.TEXT,
-                    data=f"\n工作流无法继续执行，存在未满足依赖的步骤：{unresolved}",
+                yield eb.build_error_event(
+                    message=f"\n工作流无法继续执行，存在未满足依赖的步骤：{unresolved}",
                 )
-                yield AgentEvent(type=EventType.DONE)
+                yield eb.build_done_event()
                 return
 
     else:
@@ -360,11 +351,10 @@ async def execute_workflow(
         for idx, step in enumerate(template.steps, 1):
             args = {**step.executable_arguments, **overrides}
 
-            yield AgentEvent(
-                type=EventType.TOOL_CALL,
-                data={"name": step.executable_name, "arguments": str(args)},
+            yield eb.build_tool_call_event(
                 tool_call_id=f"wf-{template.id}-{idx}",
-                tool_name=step.executable_name,
+                name=step.executable_name,
+                arguments={"name": step.executable_name, "arguments": str(args)},
             )
 
             try:
@@ -380,28 +370,27 @@ async def execute_workflow(
             status = "error" if has_error else "success"
             message = result.get("error") if has_error else result.get("message", "步骤执行完成")
 
-            yield AgentEvent(
-                type=EventType.TOOL_RESULT,
-                data={"result": result, "status": status, "message": message},
+            yield eb.build_tool_result_event(
                 tool_call_id=f"wf-{template.id}-{idx}",
-                tool_name=step.executable_name,
+                name=step.executable_name,
+                status=status,
+                message=message,
+                data={"result": result},
             )
             for event in _build_artifact_events(result):
                 yield event
 
             if has_error:
-                yield AgentEvent(
-                    type=EventType.TEXT,
-                    data=f"\n步骤 {idx}/{total} 执行失败，工作流已中止。",
+                yield eb.build_error_event(
+                    message=f"\n步骤 {idx}/{total} 执行失败，工作流已中止。",
                 )
-                yield AgentEvent(type=EventType.DONE)
+                yield eb.build_done_event()
                 return
 
-    yield AgentEvent(
-        type=EventType.TEXT,
-        data=f"\n工作流「{template.name}」全部 {total} 个步骤执行完成。",
+    yield eb.build_text_event(
+        content=f"\n工作流「{template.name}」全部 {total} 个步骤执行完成。",
     )
-    yield AgentEvent(type=EventType.DONE)
+    yield eb.build_done_event()
 
 
 def _build_artifact_events(result: dict[str, Any]) -> list[AgentEvent]:
@@ -409,25 +398,38 @@ def _build_artifact_events(result: dict[str, Any]) -> list[AgentEvent]:
     if result.get("has_chart"):
         raw_chart_data = result.get("chart_data")
         normalized_chart_data = normalize_chart_payload(raw_chart_data)
-        events.append(
-            AgentEvent(
-                type=EventType.CHART,
-                data=normalized_chart_data if normalized_chart_data else raw_chart_data,
-            )
-        )
-    if result.get("has_dataframe"):
-        events.append(
-            AgentEvent(
-                type=EventType.DATA,
-                data=result.get("dataframe_preview"),
-            )
-        )
-    if result.get("artifacts"):
-        for artifact in result["artifacts"]:
+        chart_data = normalized_chart_data if normalized_chart_data else raw_chart_data
+        if isinstance(chart_data, dict):
             events.append(
-                AgentEvent(
-                    type=EventType.ARTIFACT,
-                    data=artifact,
+                eb.build_chart_event(
+                    chart_id=chart_data.get("id", ""),
+                    name=chart_data.get("name", ""),
+                    url=chart_data.get("url", ""),
+                    chart_type=chart_data.get("chart_type"),
                 )
             )
+    if result.get("has_dataframe"):
+        data_preview = result.get("dataframe_preview") or {}
+        if isinstance(data_preview, dict):
+            events.append(
+                eb.build_data_event(
+                    data_id=data_preview.get("id", ""),
+                    name=data_preview.get("name", ""),
+                    url=data_preview.get("url", ""),
+                    row_count=data_preview.get("row_count"),
+                    column_count=data_preview.get("column_count"),
+                )
+            )
+    if result.get("artifacts"):
+        for artifact in result["artifacts"]:
+            if isinstance(artifact, dict):
+                events.append(
+                    eb.build_artifact_event(
+                        artifact_id=artifact.get("id", ""),
+                        artifact_type=artifact.get("type", ""),
+                        name=artifact.get("name", ""),
+                        url=artifact.get("url"),
+                        mime_type=artifact.get("mime_type"),
+                    )
+                )
     return events

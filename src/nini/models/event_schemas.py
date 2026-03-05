@@ -81,6 +81,24 @@ class TokenUsageEventData(BaseModel):
     cost_usd: Optional[float] = Field(None, description="成本（USD）")
 
 
+class ModelFallbackEventData(BaseModel):
+    """MODEL_FALLBACK 事件的数据结构。"""
+
+    purpose: str = Field(default="chat", description="路由用途")
+    attempt: int = Field(default=1, description="成功模型所在尝试序号（1-based）")
+    from_provider_id: Optional[str] = Field(None, description="降级来源提供商 ID")
+    from_provider_name: Optional[str] = Field(None, description="降级来源提供商名称")
+    from_model: Optional[str] = Field(None, description="降级来源模型")
+    to_provider_id: str = Field(..., description="实际生效提供商 ID")
+    to_provider_name: str = Field(..., description="实际生效提供商名称")
+    to_model: str = Field(..., description="实际生效模型")
+    reason: Optional[str] = Field(None, description="触发降级的原因摘要")
+    fallback_chain: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="按尝试顺序记录的降级轨迹",
+    )
+
+
 class ModelTokenUsageDetail(BaseModel):
     """单个模型的 token 使用详情。"""
 
@@ -194,3 +212,105 @@ class PongEventData(BaseModel):
     """PONG 事件的数据结构。"""
 
     timestamp: Optional[int] = Field(None, description="时间戳")
+
+
+class IterationStartEventData(BaseModel):
+    """ITERATION_START 事件的数据结构。"""
+
+    iteration: int = Field(..., description="迭代次数")
+
+
+class RetrievalEventData(BaseModel):
+    """RETRIEVAL 事件的数据结构。"""
+
+    query: str = Field("", description="检索查询")
+    results: list[dict[str, Any]] = Field(default_factory=list, description="检索结果列表")
+
+
+class ReasoningEventData(BaseModel):
+    """REASONING 事件的数据结构（流式/简单格式）。"""
+
+    content: str = Field(..., description="推理内容")
+    reasoning_id: Optional[str] = Field(None, description="推理链 ID")
+    reasoning_live: bool = Field(False, description="是否实时流式推理")
+
+
+class ReasoningDataEventData(BaseModel):
+    """REASONING 事件的数据结构（完整决策数据格式）。
+
+    用于展示 Agent 的决策过程，提高可解释性。
+    """
+
+    step: str = Field(..., description="决策步骤，如 method_selection, parameter_selection")
+    thought: str = Field(..., description="决策思路")
+    rationale: str = Field(default="", description="决策理由")
+    alternatives: list[str] = Field(default_factory=list, description="考虑过的替代方案")
+    confidence: float = Field(default=1.0, description="决策置信度 (0-1)")
+    context: dict[str, Any] = Field(default_factory=dict, description="额外上下文信息")
+    # 可选字段
+    reasoning_type: Optional[str] = Field(None, description="analysis | decision | planning | reflection")
+    reasoning_subtype: Optional[str] = Field(None, description="更细粒度的类型")
+    confidence_score: Optional[float] = Field(None, description="0.0 - 1.0 的置信度分数")
+    key_decisions: list[str] = Field(default_factory=list, description="关键决策点列表")
+    parent_id: Optional[str] = Field(None, description="父推理节点 ID（用于链式关联）")
+    references: list[dict[str, Any]] = Field(default_factory=list, description="引用数据来源")
+    timestamp: Optional[str] = Field(None, description="ISO 格式时间戳")
+    tags: list[str] = Field(default_factory=list, description="标签，如 [assumption_check, fallback]")
+
+
+class AskUserQuestionEventData(BaseModel):
+    """ASK_USER_QUESTION 事件的数据结构。"""
+
+    questions: list[dict[str, Any]] = Field(..., description="问题列表")
+
+
+class ArtifactEventData(BaseModel):
+    """ARTIFACT 事件的数据结构。"""
+
+    artifact_id: str = Field(..., description="产物 ID")
+    artifact_type: str = Field(..., description="产物类型")
+    name: str = Field(..., description="产物名称")
+    url: Optional[str] = Field(None, description="产物访问 URL")
+    mime_type: Optional[str] = Field(None, description="MIME 类型")
+
+
+class ChartEventData(BaseModel):
+    """CHART 事件的数据结构。"""
+
+    chart_id: str = Field(..., description="图表 ID")
+    name: str = Field(..., description="图表名称")
+    url: str = Field(..., description="图表访问 URL")
+    chart_type: Optional[str] = Field(None, description="图表类型")
+
+
+class DataEventData(BaseModel):
+    """DATA 事件的数据结构。"""
+
+    data_id: str = Field(..., description="数据 ID")
+    name: str = Field(..., description="数据名称")
+    url: str = Field(..., description="数据访问 URL")
+    row_count: Optional[int] = Field(None, description="行数")
+    column_count: Optional[int] = Field(None, description="列数")
+
+
+class ImageEventData(BaseModel):
+    """IMAGE 事件的数据结构。"""
+
+    image_id: str = Field(..., description="图片 ID")
+    name: str = Field(..., description="图片名称")
+    url: str = Field(..., description="图片访问 URL")
+    mime_type: Optional[str] = Field(None, description="MIME 类型")
+
+
+class ContextCompressedEventData(BaseModel):
+    """CONTEXT_COMPRESSED 事件的数据结构。"""
+
+    original_tokens: int = Field(..., description="原始 token 数")
+    compressed_tokens: int = Field(..., description="压缩后 token 数")
+    compression_ratio: float = Field(..., description="压缩比例")
+    message: str = Field("", description="压缩消息")
+    # 可选字段，用于详细压缩信息
+    archived_count: Optional[int] = Field(None, description="归档消息数")
+    remaining_count: Optional[int] = Field(None, description="剩余消息数")
+    previous_tokens: Optional[int] = Field(None, description="压缩前 token 数（兼容字段）")
+    trigger: Optional[str] = Field(None, description="触发原因")

@@ -204,7 +204,24 @@ class CodeSessionSkill(Skill):
 
     async def _run_script(self, session: Session, **kwargs: Any) -> SkillResult:
         script_id = str(kwargs.get("script_id", "")).strip()
+        dataset_name = self._resolve_dataset_name(session, kwargs.get("dataset_name"))
         if not script_id:
+            # 兼容模型误用：若提供了 content，则退化为一次性脚本执行。
+            content = str(kwargs.get("content", "") or "")
+            if content.strip():
+                language = str(kwargs.get("language", "python")).strip().lower() or "python"
+                return await self.run_ad_hoc_script(
+                    session,
+                    language=language,
+                    content=content,
+                    dataset_name=dataset_name,
+                    persist_df=bool(kwargs.get("persist_df", False)),
+                    save_as=kwargs.get("save_as"),
+                    purpose=str(kwargs.get("purpose", "exploration")),
+                    label=kwargs.get("label"),
+                    intent=kwargs.get("intent"),
+                    source_tool="code_session",
+                )
             return SkillResult(success=False, message="run_script 操作必须提供 script_id")
 
         manager = WorkspaceManager(session.id)
@@ -219,7 +236,7 @@ class CodeSessionSkill(Skill):
         return await self._execute_record(
             session,
             record=record,
-            dataset_name=kwargs.get("dataset_name"),
+            dataset_name=dataset_name,
             persist_df=bool(kwargs.get("persist_df", False)),
             save_as=kwargs.get("save_as"),
             purpose=str(kwargs.get("purpose", "exploration")),
@@ -242,7 +259,7 @@ class CodeSessionSkill(Skill):
         return await self._execute_record(
             session,
             record=record,
-            dataset_name=kwargs.get("dataset_name"),
+            dataset_name=self._resolve_dataset_name(session, kwargs.get("dataset_name")),
             persist_df=bool(kwargs.get("persist_df", False)),
             save_as=kwargs.get("save_as"),
             purpose=str(kwargs.get("purpose", "exploration")),
@@ -251,6 +268,17 @@ class CodeSessionSkill(Skill):
             source_tool="code_session",
             retry_of_execution_id=record.last_execution_id,
         )
+
+    @staticmethod
+    def _resolve_dataset_name(session: Session, raw_name: Any) -> str | None:
+        """解析 dataset_name；缺失时若会话仅有一个数据集则自动兜底。"""
+        if isinstance(raw_name, str):
+            normalized = raw_name.strip()
+            if normalized:
+                return normalized
+        if len(session.datasets) == 1:
+            return next(iter(session.datasets.keys()))
+        return None
 
     async def _execute_record(
         self,
@@ -296,7 +324,7 @@ class CodeSessionSkill(Skill):
             return SkillResult(success=False, message=f"不支持的脚本语言: {record.language}")
 
         manager = WorkspaceManager(session.id)
-        output_resource_ids = self._resolve_output_resource_ids(manager, result.artifacts)
+        output_resource_ids = self._resolve_output_resource_ids(manager, result=result)
         error_location = self._extract_error_location(result)
         recovery_hint = self._build_recovery_hint(result)
         execution = manager.save_code_execution(
@@ -537,12 +565,28 @@ class CodeSessionSkill(Skill):
     def _resolve_output_resource_ids(
         self,
         manager: WorkspaceManager,
-        artifacts: list[dict[str, Any]] | None,
+        *,
+        result: SkillResult,
     ) -> list[str]:
-        if not isinstance(artifacts, list):
-            return []
-        files = manager.list_workspace_files_with_paths()
         ids: list[str] = []
+
+        data = result.data if isinstance(result.data, dict) else {}
+        output_resources = data.get("output_resources") if isinstance(data, dict) else None
+        if isinstance(output_resources, list):
+            for item in output_resources:
+                if not isinstance(item, dict):
+                    continue
+                resource_id = str(item.get("resource_id", "")).strip()
+                if resource_id:
+                    ids.append(resource_id)
+
+        direct_resource_id = str(data.get("resource_id", "")).strip() if isinstance(data, dict) else ""
+        direct_resource_type = str(data.get("resource_type", "")).strip() if isinstance(data, dict) else ""
+        if direct_resource_id and direct_resource_type in {"dataset", "temp_dataset"}:
+            ids.append(direct_resource_id)
+
+        artifacts = result.artifacts if isinstance(result.artifacts, list) else []
+        files = manager.list_workspace_files_with_paths()
         for artifact in artifacts:
             if not isinstance(artifact, dict):
                 continue
@@ -555,7 +599,12 @@ class CodeSessionSkill(Skill):
                 if name and str(item.get("name", "")).strip() == name:
                     ids.append(str(item.get("id", "")))
                     break
-        return [item for item in ids if item]
+        dedup: list[str] = []
+        for item in ids:
+            if not item or item in dedup:
+                continue
+            dedup.append(item)
+        return dedup
 
     def _apply_patch(self, content: str, patch: dict[str, Any]) -> str:
         mode = str(patch.get("mode", "")).strip()

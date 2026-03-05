@@ -14,6 +14,7 @@ class ResourceType(str, Enum):
     """统一会话资源类型。"""
 
     DATASET = "dataset"
+    TEMP_DATASET = "temp_dataset"
     STAT_RESULT = "stat_result"
     CHART = "chart"
     REPORT = "report"

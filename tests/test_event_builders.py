@@ -13,6 +13,7 @@ from nini.agent.event_builders import (
     build_plan_progress_event,
     build_task_attempt_event,
     build_token_usage_event,
+    build_model_fallback_event,
     build_tool_call_event,
     build_tool_result_event,
     build_text_event,
@@ -174,6 +175,34 @@ class TestTokenUsageEventBuilder:
 
         assert event.type == EventType.TOKEN_USAGE
         assert event.data["cost_usd"] is None
+
+
+class TestModelFallbackEventBuilder:
+    """MODEL_FALLBACK 事件构造器测试。"""
+
+    def test_build_model_fallback(self):
+        event = build_model_fallback_event(
+            purpose="chat",
+            attempt=2,
+            from_provider_id="zhipu",
+            from_provider_name="智谱 AI (GLM)",
+            from_model="glm-5",
+            to_provider_id="deepseek",
+            to_provider_name="DeepSeek",
+            to_model="deepseek-coder",
+            reason="quota exceeded",
+            fallback_chain=[
+                {"attempt": 1, "provider_id": "zhipu", "status": "failed"},
+                {"attempt": 2, "provider_id": "deepseek", "status": "success"},
+            ],
+            turn_id="turn_x",
+        )
+
+        assert event.type == EventType.MODEL_FALLBACK
+        assert event.turn_id == "turn_x"
+        assert event.data["to_model"] == "deepseek-coder"
+        assert event.data["from_model"] == "glm-5"
+        assert len(event.data["fallback_chain"]) == 2
 
 
 class TestToolEventBuilders:

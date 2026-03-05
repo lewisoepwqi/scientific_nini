@@ -107,6 +107,30 @@ describe("buildMessagesFromHistory", () => {
     });
   });
 
+  it("应恢复历史 reasoning_live 状态", () => {
+    const rawMessages: RawSessionMessage[] = [
+      {
+        role: "assistant",
+        content: "流式推理片段",
+        event_type: "reasoning",
+        reasoning_id: "reason-live-1",
+        reasoning_live: true,
+        turn_id: "turn-live-1",
+        _ts: "2026-03-05T10:00:00Z",
+      },
+    ];
+
+    const messages = buildMessagesFromHistory(rawMessages);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      role: "assistant",
+      isReasoning: true,
+      reasoningId: "reason-live-1",
+      reasoningLive: true,
+      turnId: "turn-live-1",
+    });
+  });
+
   it("应从 task_write 历史中恢复任务列表", () => {
     const rawMessages: RawSessionMessage[] = [
       {
@@ -265,9 +289,9 @@ describe("buildMessagesFromHistory", () => {
       toolName: "ask_user_question",
       toolStatus: "success",
     });
-    expect(messages[0]?.toolResult).toContain("分析偏好：效应量");
-    expect(messages[0]?.toolResult).toContain(
-      "文件名：gsd_research_report.md",
-    );
+    expect(messages[0]?.toolResult).toContain("分析偏好：你更关注哪类结果？");
+    expect(messages[0]?.toolResult).toContain("→ 效应量");
+    expect(messages[0]?.toolResult).toContain("文件名：请输入导出文件名");
+    expect(messages[0]?.toolResult).toContain("→ gsd_research_report.md");
   });
 });

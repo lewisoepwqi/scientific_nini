@@ -76,6 +76,32 @@ def test_workspace_records_are_registered_as_session_resources() -> None:
     assert note_resource["source_kind"] == "notes"
 
 
+def test_workspace_supports_temp_dataset_resource_type() -> None:
+    manager = WorkspaceManager("session_temp")
+    manager.ensure_dirs()
+
+    dataset_path = manager.uploads_dir / "tmp_demo.csv"
+    dataset_path.write_text("a\n1\n", encoding="utf-8")
+    manager.add_dataset_record(
+        dataset_id="tmp_001",
+        name="tmp_demo.csv",
+        file_path=dataset_path,
+        file_type="csv",
+        file_size=dataset_path.stat().st_size,
+        row_count=1,
+        column_count=1,
+        resource_type=ResourceType.TEMP_DATASET,
+        source_kind="temp_datasets",
+        retention="session",
+    )
+
+    resource = manager.get_resource_summary("tmp_001")
+    assert resource is not None
+    assert resource["resource_type"] == ResourceType.TEMP_DATASET.value
+    assert resource["source_kind"] == "temp_datasets"
+    assert resource["metadata"]["retention"] == "session"
+
+
 def test_code_execution_record_supports_resource_links_and_recovery_metadata() -> None:
     manager = WorkspaceManager("session789")
     record = manager.save_code_execution(

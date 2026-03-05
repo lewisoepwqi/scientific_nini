@@ -24,6 +24,7 @@ from nini.agent.providers import (
     ReasoningStreamParser,
     ZhipuClient,
 )
+from nini.agent.providers.openai_provider import _merge_tool_arguments
 
 
 class FakeClient(BaseLLMClient):
@@ -77,6 +78,37 @@ async def test_model_resolver_fallback_to_next_available_client() -> None:
 
     chunks = [chunk async for chunk in resolver.chat([{"role": "user", "content": "hi"}])]
     assert "".join(c.text for c in chunks) == "ok-from-fallback"
+
+
+@pytest.mark.asyncio
+async def test_model_resolver_emits_fallback_metadata() -> None:
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(
+                provider_id="primary",
+                model="model-a",
+                available=True,
+                error=RuntimeError("quota exceeded"),
+            ),
+            FakeClient(
+                provider_id="backup",
+                model="model-b",
+                available=True,
+                chunks=[LLMChunk(text="ok", finish_reason="stop")],
+            ),
+        ]
+    )
+
+    chunks = [chunk async for chunk in resolver.chat([{"role": "user", "content": "hi"}])]
+    assert len(chunks) == 1
+    first = chunks[0]
+    assert first.provider_id == "backup"
+    assert first.model == "model-b"
+    assert first.fallback_applied is True
+    assert first.fallback_from_provider_id == "primary"
+    assert first.fallback_from_model == "model-a"
+    assert first.fallback_reason == "quota exceeded"
+    assert len(first.fallback_chain) == 2
 
 
 @pytest.mark.asyncio
@@ -558,6 +590,27 @@ def test_reasoning_stream_parser_strips_orphan_think_close_tag_when_reasoning_fi
     assert r2 == ""
 
 
+def test_merge_tool_arguments_supports_incremental_chunks() -> None:
+    merged = _merge_tool_arguments('{"method":"cor', 'relation","dataset_name":"demo"}')
+    assert merged == '{"method":"correlation","dataset_name":"demo"}'
+
+
+def test_merge_tool_arguments_supports_cumulative_chunks() -> None:
+    merged = _merge_tool_arguments(
+        '{"method":"correlation"',
+        '{"method":"correlation","dataset_name":"demo"}',
+    )
+    assert merged == '{"method":"correlation","dataset_name":"demo"}'
+
+
+def test_merge_tool_arguments_avoids_duplicate_replay() -> None:
+    merged = _merge_tool_arguments(
+        '{"method":"correlation","dataset_name":"demo"}',
+        ',"dataset_name":"demo"}',
+    )
+    assert merged == '{"method":"correlation","dataset_name":"demo"}'
+
+
 @pytest.mark.asyncio
 async def test_openai_compatible_client_uses_default_http_client_and_closes(
     monkeypatch: pytest.MonkeyPatch,
@@ -718,13 +771,15 @@ def test_set_routing_config_updates_routes() -> None:
     """set_routing_config 应更新路由配置。"""
     resolver = ModelResolver(clients=[])
 
-    resolver.set_routing_config({
-        "preferred_provider": "zhipu",
-        "purpose_routes": {
-            "coding": {"provider_id": "deepseek", "model": "deepseek-coder", "base_url": None},
-            "vision": {"provider_id": "openai", "model": "gpt-4o", "base_url": None},
-        },
-    })
+    resolver.set_routing_config(
+        {
+            "preferred_provider": "zhipu",
+            "purpose_routes": {
+                "coding": {"provider_id": "deepseek", "model": "deepseek-coder", "base_url": None},
+                "vision": {"provider_id": "openai", "model": "gpt-4o", "base_url": None},
+            },
+        }
+    )
 
     assert resolver.get_preferred_provider() == "zhipu"
     assert resolver.get_preferred_provider("coding") == "deepseek"
