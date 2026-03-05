@@ -7,6 +7,53 @@ from typing import Any, Callable
 from nini.agent.prompt_policy import format_untrusted_context_block
 
 
+async def build_long_term_memory_context(
+    query: str,
+    *,
+    context: dict[str, Any] | None = None,
+    top_k: int = 3,
+) -> str:
+    """检索并构建跨会话长期记忆上下文。
+
+    以当前用户消息为查询，从 LongTermMemoryStore 检索相关历史分析发现，
+    格式化后以不可信标签包裹注入运行时上下文。
+
+    Args:
+        query: 用于检索的查询文本（通常为当前用户消息）
+        context: 情境信息，支持 dataset_name/analysis_type 用于情境感知重排序
+        top_k: 最多返回条数
+
+    Returns:
+        格式化的长期记忆上下文字符串，无可用记忆时返回空字符串
+    """
+    if not query or not query.strip():
+        return ""
+    try:
+        from nini.memory.long_term_memory import (
+            format_memories_for_context,
+            get_long_term_memory_store,
+        )
+
+        store = get_long_term_memory_store()
+        entries = await store.search(
+            query.strip(),
+            top_k=top_k,
+            min_importance=0.3,
+            context=context,
+        )
+        if not entries:
+            return ""
+        text = format_memories_for_context(entries)
+        if not text:
+            return ""
+        return format_untrusted_context_block("long_term_memory", text)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning("长期记忆检索失败，跳过注入", exc_info=True)
+        return ""
+
+
 def build_analysis_memory_context(
     session_id: str,
     *,

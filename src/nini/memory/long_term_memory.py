@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -206,12 +207,48 @@ class LongTermMemoryStore:
         logger.info(f"添加长期记忆: {entry.memory_type} - {entry.summary[:50]}...")
         return entry
 
+    @staticmethod
+    def _compute_effective_score(
+        entry: "LongTermMemoryEntry",
+        context: dict[str, Any] | None = None,
+    ) -> float:
+        """计算记忆条目的有效分值。
+
+        综合考虑重要性评分、时间衰减和情境匹配权重：
+        - 时间衰减：R(t) = importance × e^(-λ × days)，λ=0.01
+        - 高频访问（access_count > 5）的条目衰减速率减半
+        - 情境命中当前数据集（×1.5）或分析类型（×1.3）时给予加成
+        """
+        # 时间衰减
+        try:
+            created = datetime.fromisoformat(entry.created_at)
+            days_elapsed = max(0.0, (datetime.now(timezone.utc) - created).total_seconds() / 86400)
+        except Exception:
+            days_elapsed = 0.0
+
+        # 高频访问条目衰减更慢
+        decay_lambda = 0.005 if entry.access_count > 5 else 0.01
+        time_decay = math.exp(-decay_lambda * days_elapsed)
+        score = entry.importance_score * time_decay
+
+        # 情境权重加成
+        if context:
+            dataset_name = context.get("dataset_name") or context.get("dataset")
+            analysis_type = context.get("analysis_type")
+            if dataset_name and entry.source_dataset == dataset_name:
+                score *= 1.5
+            if analysis_type and entry.analysis_type == analysis_type:
+                score *= 1.3
+
+        return score
+
     async def search(
         self,
         query: str,
         top_k: int = 5,
         memory_types: list[str] | None = None,
         min_importance: float = 0.0,
+        context: dict[str, Any] | None = None,
     ) -> list[LongTermMemoryEntry]:
         """搜索记忆。
 
@@ -219,7 +256,8 @@ class LongTermMemoryStore:
             query: 查询文本
             top_k: 返回结果数量
             memory_types: 记忆类型过滤
-            min_importance: 最小重要性评分
+            min_importance: 最小重要性评分（经衰减后的有效分值）
+            context: 情境信息，支持 dataset_name/analysis_type 键用于情境加权
 
         Returns:
             匹配的记忆条目列表
@@ -248,14 +286,17 @@ class LongTermMemoryStore:
                     entry.last_accessed_at = datetime.now(timezone.utc).isoformat()
                     results.append(entry)
 
-        # 过滤
+        # 类型过滤
         if memory_types:
             results = [r for r in results if r.memory_type in memory_types]
-        if min_importance > 0:
-            results = [r for r in results if r.importance_score >= min_importance]
 
-        # 排序：重要性 × 相关性（用访问计数作为相关性代理）
-        results.sort(key=lambda x: x.importance_score * (1 + x.access_count * 0.1), reverse=True)
+        # 按有效分值（含衰减与情境权重）排序并过滤低分条目
+        results.sort(
+            key=lambda x: self._compute_effective_score(x, context),
+            reverse=True,
+        )
+        if min_importance > 0:
+            results = [r for r in results if self._compute_effective_score(r, context) >= min_importance]
 
         return results[:top_k]
 
@@ -442,13 +483,13 @@ async def search_long_term_memories(
     Args:
         query: 查询文本
         top_k: 返回结果数量
-        context: 上下文信息（当前会话、数据集等）
+        context: 情境信息（当前会话、数据集、分析类型等），用于情境感知重排序
 
     Returns:
         格式化的记忆结果列表
     """
     store = get_long_term_memory_store()
-    entries = await store.search(query, top_k=top_k)
+    entries = await store.search(query, top_k=top_k, min_importance=0.3, context=context)
 
     results = []
     for entry in entries:
@@ -465,6 +506,85 @@ async def search_long_term_memories(
         })
 
     return results
+
+
+async def consolidate_session_memories(session_id: str) -> int:
+    """将会话内高置信度分析记忆沉淀为跨会话长期记忆。
+
+    遍历会话的所有 AnalysisMemory，将 confidence >= 0.7 的
+    Finding/Statistic/Decision 条目写入 LongTermMemoryStore。
+
+    Args:
+        session_id: 会话 ID
+
+    Returns:
+        写入的记忆条数
+    """
+    try:
+        from nini.memory.compression import list_session_analysis_memories
+
+        memories = list_session_analysis_memories(session_id)
+        if not memories:
+            return 0
+
+        store = get_long_term_memory_store()
+        count = 0
+
+        for memory in memories:
+            # 沉淀高置信度 Finding
+            for finding in memory.findings:
+                if finding.confidence >= 0.7:
+                    store.add_memory(
+                        memory_type="finding",
+                        content=finding.detail or finding.summary,
+                        summary=finding.summary,
+                        source_session_id=session_id,
+                        source_dataset=memory.dataset_name,
+                        importance_score=finding.confidence,
+                        tags=[finding.category] if finding.category else [],
+                    )
+                    count += 1
+
+            # 沉淀统计结果（显著性结果重要性更高）
+            for stat in memory.statistics:
+                importance = 0.8 if stat.significant else 0.6
+                store.add_memory(
+                    memory_type="statistic",
+                    content=(
+                        f"{stat.test_name}: "
+                        f"统计量={stat.test_statistic}, p={stat.p_value}, "
+                        f"效应量={stat.effect_size}, 显著={stat.significant}"
+                    ),
+                    summary=f"{stat.test_name} 结果({'显著' if stat.significant else '不显著'})",
+                    source_session_id=session_id,
+                    source_dataset=memory.dataset_name,
+                    analysis_type=stat.test_name,
+                    importance_score=importance,
+                    tags=["statistic", stat.test_name],
+                )
+                count += 1
+
+            # 沉淀高置信度方法决策
+            for decision in memory.decisions:
+                if decision.confidence >= 0.7:
+                    store.add_memory(
+                        memory_type="decision",
+                        content=f"{decision.decision_type}: 选择 {decision.chosen}。理由：{decision.rationale}",
+                        summary=f"{decision.decision_type} → {decision.chosen}",
+                        source_session_id=session_id,
+                        source_dataset=memory.dataset_name,
+                        importance_score=decision.confidence * 0.8,
+                        tags=["decision", decision.decision_type],
+                    )
+                    count += 1
+
+        if count > 0:
+            logger.info("会话 %s 记忆沉淀完成，写入 %d 条长期记忆", session_id, count)
+        return count
+
+    except Exception:
+        logger.warning("会话记忆沉淀失败: session=%s", session_id, exc_info=True)
+        return 0
 
 
 def format_memories_for_context(memories: list[LongTermMemoryEntry]) -> str:

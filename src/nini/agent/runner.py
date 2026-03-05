@@ -709,6 +709,15 @@ class AgentRunner:
                     **final_message_extra,
                 )
                 yield eb.build_done_event(turn_id=turn_id)
+
+                # 会话结束后异步沉淀分析记忆为跨会话长期记忆
+                try:
+                    from nini.memory.long_term_memory import consolidate_session_memories
+
+                    asyncio.create_task(consolidate_session_memories(session.id))
+                except Exception:
+                    pass
+
                 return
 
             # 有 tool_calls → 记录并执行
