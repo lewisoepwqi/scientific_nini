@@ -53,8 +53,10 @@ export default function CostPanel({ isOpen, onClose }: CostPanelProps) {
   };
 
   const formatCost = (cost: number) => {
-    if (cost < 0.01) return "< 0.01";
-    return cost.toFixed(4);
+    if (cost === 0) return "0.00";
+    if (cost < 0.0001) return "< 0.0001";
+    if (cost < 0.01) return cost.toFixed(4);
+    return cost.toFixed(2);
   };
 
   return (

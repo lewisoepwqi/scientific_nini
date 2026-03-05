@@ -34,6 +34,14 @@ class EventType(str, Enum):
     ASK_USER_QUESTION = "ask_user_question"  # 等待用户问答输入
     TOKEN_USAGE = "token_usage"  # Token 使用量更新
 
+    # WebSocket 专用事件类型
+    WORKSPACE_UPDATE = "workspace_update"  # 通知前端刷新工作区
+    CODE_EXECUTION = "code_execution"      # 代码执行结果推送
+    STOPPED = "stopped"                    # 停止请求响应
+    SESSION = "session"                    # 返回 session_id
+    PONG = "pong"                          # WebSocket 保活响应
+    SESSION_TITLE = "session_title"        # 自动生成会话标题
+
 
 @dataclass
 class AgentEvent:
