@@ -34,6 +34,9 @@ from nini.models.event_schemas import (
 def build_analysis_plan_event(
     steps: list[dict[str, Any]],
     raw_text: str = "",
+    *,
+    turn_id: str | None = None,
+    seq: int | None = None,
     **extra
 ) -> AgentEvent:
     """构造 ANALYSIS_PLAN 事件。
@@ -41,6 +44,8 @@ def build_analysis_plan_event(
     Args:
         steps: 步骤列表，每项包含 id, title, tool_hint, status, action_id 等
         raw_text: 原始文本内容
+        turn_id: 回合 ID，用于前端消息分组
+        seq: 事件序号，用于前端乱序保护
         **extra: 额外字段（会被合并到数据中）
 
     Returns:
@@ -68,9 +73,15 @@ def build_analysis_plan_event(
     data = event_data.model_dump()
     data.update(extra)  # 合并额外字段
 
+    metadata: dict[str, Any] = {}
+    if seq is not None:
+        metadata["seq"] = seq
+
     return AgentEvent(
         type=EventType.ANALYSIS_PLAN,
         data=data,
+        turn_id=turn_id,
+        metadata=metadata or None,
     )
 
 
@@ -78,6 +89,9 @@ def build_plan_step_update_event(
     step_id: int,
     status: str,
     error: str | None = None,
+    *,
+    turn_id: str | None = None,
+    seq: int | None = None,
     **extra
 ) -> AgentEvent:
     """构造 PLAN_STEP_UPDATE 事件。"""
@@ -90,9 +104,15 @@ def build_plan_step_update_event(
     data = event_data.model_dump()
     data.update(extra)
 
+    metadata: dict[str, Any] = {}
+    if seq is not None:
+        metadata["seq"] = seq
+
     return AgentEvent(
         type=EventType.PLAN_STEP_UPDATE,
         data=data,
+        turn_id=turn_id,
+        metadata=metadata or None,
     )
 
 
@@ -104,6 +124,9 @@ def build_plan_progress_event(
     step_status: str,
     next_hint: str | None = None,
     block_reason: str | None = None,
+    *,
+    turn_id: str | None = None,
+    seq: int | None = None,
     **extra
 ) -> AgentEvent:
     """构造 PLAN_PROGRESS 事件。"""
@@ -132,27 +155,36 @@ def build_plan_progress_event(
     data = event_data.model_dump()
     data.update(extra)
 
+    metadata: dict[str, Any] = {}
+    if seq is not None:
+        metadata["seq"] = seq
+
     return AgentEvent(
         type=EventType.PLAN_PROGRESS,
         data=data,
+        turn_id=turn_id,
+        metadata=metadata or None,
     )
 
 
 def build_task_attempt_event(
-    action_id: str,
-    step_id: int,
+    action_id: str | None,
+    step_id: int | None,
     tool_name: str,
     attempt: int,
     max_attempts: int,
     status: str,
     note: str | None = None,
     error: str | None = None,
+    *,
+    turn_id: str | None = None,
+    seq: int | None = None,
     **extra
 ) -> AgentEvent:
     """构造 TASK_ATTEMPT 事件。"""
     event_data = TaskAttemptEventData(
-        action_id=action_id,
-        step_id=step_id,
+        action_id=action_id or "",
+        step_id=step_id or 0,
         tool_name=tool_name,
         attempt=attempt,
         max_attempts=max_attempts,
@@ -164,9 +196,15 @@ def build_task_attempt_event(
     data = event_data.model_dump()
     data.update(extra)
 
+    metadata: dict[str, Any] = {}
+    if seq is not None:
+        metadata["seq"] = seq
+
     return AgentEvent(
         type=EventType.TASK_ATTEMPT,
         data=data,
+        turn_id=turn_id,
+        metadata=metadata or None,
     )
 
 

@@ -46,7 +46,9 @@ class TestAnalysisPlanEventBuilder:
             },
         ]
 
-        event = build_analysis_plan_event(steps, raw_text="分析计划")
+        event = build_analysis_plan_event(
+            steps, raw_text="分析计划", turn_id="turn_1", seq=1
+        )
 
         assert event.type == EventType.ANALYSIS_PLAN
         assert event.data["raw_text"] == "分析计划"
@@ -56,6 +58,9 @@ class TestAnalysisPlanEventBuilder:
         assert event.data["steps"][1]["action_id"] == "task_2"
         # 验证 raw_status 被正确传递
         assert event.data["steps"][0]["raw_status"] == "completed"
+        # 验证 turn_id 和 seq
+        assert event.turn_id == "turn_1"
+        assert event.metadata["seq"] == 1
 
     def test_build_with_minimal_fields(self):
         """使用最少字段构造分析计划事件。"""
@@ -69,6 +74,9 @@ class TestAnalysisPlanEventBuilder:
         assert step["status"] == "pending"
         assert step["action_id"] is None
         assert step["raw_status"] is None
+        # 验证 turn_id 和 metadata 为 None
+        assert event.turn_id is None
+        assert event.metadata is None
 
 
 class TestPlanStepUpdateEventBuilder:
@@ -127,12 +135,16 @@ class TestTaskAttemptEventBuilder:
             status="retrying",
             note="正在重试",
             error="上次失败的原因",
+            turn_id="turn_1",
+            seq=5,
         )
 
         assert event.type == EventType.TASK_ATTEMPT
         assert event.data["action_id"] == "task_1"
         assert event.data["attempt"] == 2
         assert event.data["status"] == "retrying"
+        assert event.turn_id == "turn_1"
+        assert event.metadata["seq"] == 5
 
 
 class TestTokenUsageEventBuilder:
