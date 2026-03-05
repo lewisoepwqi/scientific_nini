@@ -23,8 +23,14 @@ logger = logging.getLogger(__name__)
 
 _LLM_SUMMARY_PROMPT = (
     "你是一位专业的科研助手。请将以下对话历史压缩为一段简洁的中文摘要，"
-    "保留关键信息（用户需求、分析方法、数据集、关键结论、待解决问题），"
-    "摘要不超过 500 字。只输出摘要内容，不要添加额外说明。\n\n"
+    "**必须**保留以下信息：\n"
+    "① 用户研究问题与分析目标\n"
+    "② 数据集关键信息（样本量、缺失率、异常值情况）\n"
+    "③ 统计方法及选择理由\n"
+    "④ **具体数值结果**（检验统计量、p 值、效应量、置信区间等，不得省略）\n"
+    "⑤ 关键结论与实际意义\n"
+    "⑥ 当前尚未完成的任务或待解决问题\n"
+    "摘要不超过 600 字。只输出摘要内容，不要添加额外说明。\n\n"
     "对话历史：\n{conversation}"
 )
 
@@ -132,9 +138,9 @@ async def _llm_summarize(messages: list[dict[str, Any]]) -> str | None:
         )
         summary = response.text.strip()
         if summary:
-            # 确保不超过 500 字
-            if len(summary) > 500:
-                summary = summary[:500] + "..."
+            # 确保不超过 600 字（放宽以保留科研数值细节）
+            if len(summary) > 600:
+                summary = summary[:600] + "..."
             logger.info("LLM 对话摘要生成成功 (%d 字)", len(summary))
             return summary
     except Exception:

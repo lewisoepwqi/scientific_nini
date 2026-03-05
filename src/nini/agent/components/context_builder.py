@@ -14,6 +14,7 @@ from nini.agent.components.context_dataset import build_dataset_context
 from nini.agent.components.context_knowledge import fallback_knowledge_load, inject_knowledge
 from nini.agent.components.context_memory import (
     build_analysis_memory_context,
+    build_long_term_memory_context,
     build_research_profile_context,
 )
 from nini.agent.components.context_skills import (
@@ -136,6 +137,21 @@ class ContextBuilder:
         )
         if analysis_memory_context:
             context_parts.append(analysis_memory_context)
+
+        # 注入跨会话长期记忆（以当前用户消息检索相关历史分析发现）
+        if last_user_msg:
+            # 构建情境信息用于情境感知重排序
+            ltm_context: dict[str, Any] = {}
+            loaded_datasets = getattr(session, "loaded_datasets", {})
+            if loaded_datasets:
+                ltm_context["dataset_name"] = next(iter(loaded_datasets))
+            long_term_memory_context = await build_long_term_memory_context(
+                last_user_msg,
+                context=ltm_context if ltm_context else None,
+                top_k=3,
+            )
+            if long_term_memory_context:
+                context_parts.append(long_term_memory_context)
 
         research_profile_context = build_research_profile_context(
             session,
