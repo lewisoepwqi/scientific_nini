@@ -163,7 +163,6 @@ TBD - created by archiving change add-conversation-observability-and-hybrid-skil
 - **THEN** 服务端推送 `tool_call` 与 `tool_result` 事件
 - **AND** 持久化执行记录包含 `tool_name=run_r_code` 与 `language=r`
 
-
 ### Requirement: Statistical skills support fallback degradation
 
 The system SHALL automatically fallback to non-parametric alternatives when parametric test assumptions are violated.
@@ -187,4 +186,25 @@ The system SHALL automatically fallback to non-parametric alternatives when para
 - **WHEN** a statistical test is automatically degraded
 - **THEN** the tool_result SHALL indicate the actual test executed
 - **AND** the original requested test name SHALL be preserved in metadata
+
+### Requirement: 技能目录必须区分基础工具与内部编排
+系统 SHALL 在技能目录与查询接口中明确区分“模型可见基础工具”和“内部编排能力”，避免两者以同级工具形式混杂展示。
+
+#### Scenario: 查询技能目录
+- **WHEN** 客户端或 Agent 请求技能清单
+- **THEN** 每个条目包含其层级信息
+- **AND** 能区分基础工具、内部编排与 Markdown 技能
+
+#### Scenario: 构建模型上下文
+- **WHEN** Agent 构建模型可见工具上下文
+- **THEN** 仅注入基础工具层
+- **AND** 内部编排能力仅作为运行时实现细节保留
+
+### Requirement: 技能快照必须反映基础工具收敛结果
+系统 SHALL 在技能快照中反映收敛后的基础工具集合及其职责摘要，避免继续以历史 30 工具作为主要能力描述。
+
+#### Scenario: 刷新技能快照
+- **WHEN** 工具注册表刷新后写出技能快照
+- **THEN** 快照中展示基础工具集合及其职责
+- **AND** 不再将被替换的旧函数工具作为正式模型接口列出
 

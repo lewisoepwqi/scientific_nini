@@ -3,9 +3,7 @@
 ## Purpose
 
 Enable users to generate and download analysis reports from their sessions.
-
 ## Requirements
-
 ### Requirement: Report generation calls backend API
 
 The generateReport function SHALL call the backend API endpoint instead of using setTimeout mock.
@@ -27,3 +25,30 @@ The downloadReport function SHALL fetch the report file from workspace.
 - **THEN** the system SHALL GET /api/sessions/{id}/workspace/files/{path}
 - **AND** it SHALL trigger browser download with correct filename
 - **AND** it SHALL handle download errors gracefully
+
+### Requirement: 报告生成必须支持报告会话生命周期
+系统 SHALL 将报告作为可持续更新的会话资源管理，支持创建、查询、章节级修改和导出，而不是仅支持一次性生成最终文档。
+
+#### Scenario: 创建报告会话
+- **WHEN** 用户或编排层请求创建新报告
+- **THEN** 系统创建报告资源
+- **AND** 返回报告 `resource_id`
+
+#### Scenario: 按章节修改报告
+- **WHEN** 用户或编排层针对已有报告指定章节 patch
+- **THEN** 系统仅更新目标章节内容
+- **AND** 保留其他章节不变
+
+### Requirement: 报告必须可绑定结构化分析资源
+系统 SHALL 支持将统计结果、图表、数据摘要等结构化资源绑定到报告会话，并在导出时稳定解析这些引用。
+
+#### Scenario: 绑定图表资源到报告
+- **WHEN** 报告会话附加图表资源
+- **THEN** 系统记录图表资源引用
+- **AND** 导出报告时包含对应图表内容或下载入口
+
+#### Scenario: 绑定统计结果到报告
+- **WHEN** 报告会话附加统计结果资源
+- **THEN** 系统可在报告章节中引用该结构化结果
+- **AND** 不要求重新手工拼接完整文本
+

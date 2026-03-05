@@ -236,3 +236,42 @@ The system SHALL provide API endpoints for uploading knowledge documents and tri
 - **WHEN** knowledge retrieval is triggered during conversation
 - **THEN** retrieval results SHALL be displayed in UI with source, relevance score, and excerpt
 - **AND** users SHALL be able to click to view source document
+
+### Requirement: 工作区必须统一管理脚本与会话资源
+系统 SHALL 在工作区资源模型中统一管理脚本、图表、报告、中间数据集和其他产物，并为其提供稳定的资源索引。
+
+#### Scenario: 脚本进入工作区资源索引
+- **WHEN** 系统创建新的脚本会话
+- **THEN** 工作区可查询到该脚本资源
+- **AND** 脚本与其执行历史保持关联
+
+#### Scenario: 图表与报告进入统一资源索引
+- **WHEN** 系统创建新的图表或报告会话资源
+- **THEN** 工作区索引中记录其资源类型、名称和定位信息
+
+### Requirement: 受管资源输出必须替代自由路径写入
+系统 SHALL 为脚本、图表和报告提供受管输出目录与索引注册流程，避免模型依赖自由路径写入最终产物。
+
+#### Scenario: 代码执行生成产物
+- **WHEN** 脚本执行请求输出图表或文件产物
+- **THEN** 系统将目标写入受管目录
+- **AND** 自动完成索引注册
+
+#### Scenario: 代码尝试依赖未受管最终路径
+- **WHEN** 代码执行流程尝试将最终产物仅写入自由路径且未注册
+- **THEN** 系统拒绝将该输出视为正式会话资源
+- **AND** 返回需要使用受管输出的提示
+
+### Requirement: 执行历史必须绑定资源与恢复信息
+系统 SHALL 在工作区执行历史中记录脚本资源、执行结果、失败位置和恢复操作，支持定位和重放。
+
+#### Scenario: 记录失败执行
+- **WHEN** 脚本执行失败
+- **THEN** 工作区执行历史保存失败信息
+- **AND** 包含脚本资源标识与错误定位信息
+
+#### Scenario: 记录 patch 后重跑
+- **WHEN** 脚本经过 patch 并再次执行
+- **THEN** 工作区执行历史保存新的执行记录
+- **AND** 与原失败记录建立关联
+
