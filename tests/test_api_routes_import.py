@@ -214,3 +214,109 @@ class TestEndpointsAvailability:
         assert response.status_code != 404 or "detail" in response.text, (
             "端点返回404可能是因为路由未注册，检查错误信息"
         )
+
+
+class TestModelRoutingEndpoint:
+    """测试模型路由端点业务逻辑（回归测试）。
+
+    确保 /api/models/routing POST 端点正确处理请求体字段：
+    - preferred_provider
+    - purpose_routes
+    - purpose_providers
+    """
+
+    @pytest.fixture
+    async def client(self):
+        """创建异步测试客户端。"""
+        import httpx
+        from nini.app import create_app
+
+        app = create_app()
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver"
+        ) as client:
+            yield client
+
+    @pytest.mark.asyncio
+    async def test_set_model_routing_with_purpose_routes(self, client):
+        """POST /api/models/routing 应正确处理 purpose_routes 字段。"""
+        payload = {
+            "purpose_routes": {
+                "chat": {
+                    "provider_id": "zhipu",
+                    "model": "glm-5",
+                    "base_url": None
+                }
+            }
+        }
+
+        response = await client.post("/api/models/routing", json=payload)
+
+        # 应返回 200 成功
+        assert response.status_code == 200, f"请求失败: {response.text}"
+
+        data = response.json()
+        # 验证响应结构
+        assert data.get("success") is True, f"业务逻辑失败: {data.get('error')}"
+        assert "data" in data, "响应缺少 data 字段"
+        # 验证保存的数据
+        assert data["data"]["purpose_routes"]["chat"]["provider_id"] == "zhipu"
+        assert data["data"]["purpose_routes"]["chat"]["model"] == "glm-5"
+
+    @pytest.mark.asyncio
+    async def test_set_model_routing_with_preferred_provider(self, client):
+        """POST /api/models/routing 应正确处理 preferred_provider 字段。"""
+        payload = {
+            "preferred_provider": "deepseek"
+        }
+
+        response = await client.post("/api/models/routing", json=payload)
+
+        assert response.status_code == 200, f"请求失败: {response.text}"
+
+        data = response.json()
+        assert data.get("success") is True
+        assert data["data"]["preferred_provider"] == "deepseek"
+
+    @pytest.mark.asyncio
+    async def test_set_model_routing_with_purpose_providers_compat(self, client):
+        """POST /api/models/routing 应兼容旧版 purpose_providers 字段。"""
+        payload = {
+            "purpose_providers": {
+                "chat": "openai",
+                "title_generation": "anthropic"
+            }
+        }
+
+        response = await client.post("/api/models/routing", json=payload)
+
+        assert response.status_code == 200, f"请求失败: {response.text}"
+
+        data = response.json()
+        assert data.get("success") is True
+        # 验证 purpose_providers 被正确转换
+        assert data["data"]["purpose_providers"]["chat"] == "openai"
+        assert data["data"]["purpose_providers"]["title_generation"] == "anthropic"
+
+    @pytest.mark.asyncio
+    async def test_set_model_routing_invalid_provider_returns_error(self, client):
+        """POST /api/models/routing 对无效提供商应返回错误。"""
+        payload = {
+            "purpose_routes": {
+                "chat": {
+                    "provider_id": "invalid_provider",
+                    "model": "test-model",
+                    "base_url": None
+                }
+            }
+        }
+
+        response = await client.post("/api/models/routing", json=payload)
+
+        # 应返回 200 但 success=false（业务错误）
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("success") is False
+        assert "invalid_provider" in data.get("error", "") or "未知" in data.get("error", "")

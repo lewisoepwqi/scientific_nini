@@ -548,17 +548,41 @@ class ModelResolver:
         if not client:
             return {"success": False, "error": f"未知的提供商: {provider_id}"}
         if not client.is_available():
-            return {"success": False, "error": "提供商未配置或不可用"}
+            return {"success": False, "error": "提供商未配置或不可用（请检查 API Key）"}
         try:
-            # 尝试发送一个简单的请求来测试连接
-            # 这里简化处理，只检查是否可用
+            # 发送一个简单的测试请求验证连接
+            test_messages = [{"role": "user", "content": "Hi"}]
+            response_text = ""
+
+            async for chunk in client.chat(
+                messages=test_messages,
+                temperature=0.3,
+                max_tokens=5,  # 只需要少量 token 验证连接
+            ):
+                if chunk.text:
+                    response_text += chunk.text
+                # 收到第一个 chunk 就说明连接成功
+                if response_text:
+                    break
+
             return {
                 "success": True,
                 "provider": provider_id,
                 "model": client.get_model_name(),
+                "message": "连接成功",
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            error_msg = str(e)
+            # 常见错误友好提示
+            if "authentication" in error_msg.lower() or "api key" in error_msg.lower():
+                error_msg = "API Key 无效或已过期"
+            elif "rate limit" in error_msg.lower():
+                error_msg = "请求过于频繁，请稍后重试"
+            elif "timeout" in error_msg.lower():
+                error_msg = "连接超时，请检查网络或 Base URL"
+            elif "connection" in error_msg.lower():
+                error_msg = "无法连接到服务器，请检查网络或 Base URL"
+            return {"success": False, "error": error_msg}
 
     def set_preferred_model(self, provider: str | None, model: str | None) -> None:
         """设置首选模型。

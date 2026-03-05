@@ -50,6 +50,9 @@ _PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
     "zhipu": {
         "base_url": settings.zhipu_base_url,
         "static": [
+            "glm-5",
+            "glm-5-plus",
+            "glm-5-air",
             "glm-4.7",
             "glm-4.6",
             "glm-4.5",

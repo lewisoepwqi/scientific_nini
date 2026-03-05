@@ -109,7 +109,7 @@ async def compress_session(session_id: str, mode: str = "auto"):
 @router.delete("/{session_id}", response_model=APIResponse)
 async def delete_session(session_id: str) -> APIResponse:
     """删除会话。"""
-    session_manager.delete_session(session_id)
+    session_manager.remove_session(session_id, delete_persistent=True)
     return APIResponse(success=True)
 
 
