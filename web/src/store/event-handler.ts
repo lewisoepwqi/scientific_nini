@@ -271,11 +271,22 @@ export function buildErrorMeta(content: string): Partial<Message> {
 function finalizeReasoningMessages(
   messages: Message[],
   turnId?: string | null,
+  closeAllWhenTurnMissing: boolean = false,
 ): Message[] {
   let changed = false;
   const next = messages.map((msg) => {
     if (!msg.isReasoning || !msg.reasoningLive) return msg;
-    if (turnId && msg.turnId && msg.turnId !== turnId) return msg;
+    if (!turnId && closeAllWhenTurnMissing) {
+      changed = true;
+      return { ...msg, reasoningLive: false };
+    }
+    // 如果提供了 turnId，只关闭匹配该 turnId 的消息
+    if (turnId) {
+      if (msg.turnId && msg.turnId !== turnId) return msg;
+    } else {
+      // 如果没有提供 turnId，只关闭没有 turnId 的消息（避免误关闭其他回合的消息）
+      if (msg.turnId) return msg;
+    }
     changed = true;
     return { ...msg, reasoningLive: false };
   });
@@ -303,6 +314,31 @@ export interface AppStateSubset {
   _planActionTaskMap: Record<string, string>;
   _messageBuffer: MessageBuffer;
   _streamingMetrics: StreamingMetrics;
+  activeModel?: {
+    provider_id: string;
+    provider_name: string;
+    model: string;
+    preferred_provider: string | null;
+  } | null;
+  runtimeModel?: {
+    provider_id: string;
+    provider_name: string;
+    model: string;
+    preferred_provider: string | null;
+  } | null;
+  modelFallback?: {
+    purpose: string;
+    attempt: number;
+    from_provider_id?: string | null;
+    from_provider_name?: string | null;
+    from_model?: string | null;
+    to_provider_id: string;
+    to_provider_name: string;
+    to_model: string;
+    reason?: string | null;
+    fallback_chain?: Array<Record<string, unknown>>;
+    occurred_at: number;
+  } | null;
   analysisPlanProgress: AnalysisPlanProgress | null;
   analysisTasks: AnalysisTaskItem[];
   pendingAskUserQuestion: { toolCallId: string; questions: AskUserQuestionItem[]; createdAt: number } | null;
@@ -363,6 +399,7 @@ export function handleEvent(
         _streamingText: "",
         _currentTurnId: evt.turn_id || null,
         _lastHandledSeq: undefined,
+        modelFallback: null,
         _streamingMetrics: s._streamingMetrics.startedAt
           ? {
               ...s._streamingMetrics,
@@ -374,7 +411,13 @@ export function handleEvent(
     }
 
     case "text": {
-      const text = stripReasoningMarkers((evt.data as string) || "");
+      const rawText =
+        typeof evt.data === "string"
+          ? evt.data
+          : isRecord(evt.data) && typeof evt.data.content === "string"
+            ? evt.data.content
+            : "";
+      const text = stripReasoningMarkers(rawText);
 
       // ============================================================
       // 消息去重架构 (Message Deduplication Architecture)
@@ -510,6 +553,82 @@ export function handleEvent(
         }
         return { messages: msgs, _streamingText: newStreamText, _lastHandledSeq: seq };
       });
+      break;
+    }
+
+    case "model_fallback": {
+      const data = isRecord(evt.data) ? evt.data : null;
+      if (!data) break;
+
+      const toProviderId =
+        typeof data.to_provider_id === "string" ? data.to_provider_id.trim() : "";
+      const toProviderName =
+        typeof data.to_provider_name === "string"
+          ? data.to_provider_name.trim()
+          : toProviderId || "unknown";
+      const toModel =
+        typeof data.to_model === "string" ? data.to_model.trim() : "";
+      if (!toProviderId || !toModel) break;
+
+      const reason =
+        typeof data.reason === "string" && data.reason.trim()
+          ? data.reason.trim()
+          : null;
+      const fromModel =
+        typeof data.from_model === "string" && data.from_model.trim()
+          ? data.from_model.trim()
+          : null;
+
+      const summary = fromModel
+        ? `首选模型 ${fromModel} 不可用，已降级到 ${toModel}${reason ? `（${reason}）` : ""}`
+        : `模型不可用，已降级到 ${toModel}${reason ? `（${reason}）` : ""}`;
+      const turnId = evt.turn_id || get()._currentTurnId || undefined;
+
+      set((s) => ({
+        runtimeModel: {
+          provider_id: toProviderId,
+          provider_name: toProviderName,
+          model: toModel,
+          preferred_provider: s.activeModel?.preferred_provider ?? null,
+        },
+        modelFallback: {
+          purpose:
+            typeof data.purpose === "string" && data.purpose.trim()
+              ? data.purpose.trim()
+              : "chat",
+          attempt:
+            typeof data.attempt === "number" && Number.isFinite(data.attempt)
+              ? Math.max(1, Math.floor(data.attempt))
+              : 1,
+          from_provider_id:
+            typeof data.from_provider_id === "string"
+              ? data.from_provider_id.trim()
+              : null,
+          from_provider_name:
+            typeof data.from_provider_name === "string"
+              ? data.from_provider_name.trim()
+              : null,
+          from_model: fromModel,
+          to_provider_id: toProviderId,
+          to_provider_name: toProviderName,
+          to_model: toModel,
+          reason,
+          fallback_chain: Array.isArray(data.fallback_chain)
+            ? (data.fallback_chain as Array<Record<string, unknown>>)
+            : [],
+          occurred_at: Date.now(),
+        },
+        messages: [
+          ...s.messages,
+          {
+            id: nextId(),
+            role: "assistant",
+            content: `模型降级：${summary}`,
+            turnId,
+            timestamp: Date.now(),
+          },
+        ],
+      }));
       break;
     }
 
@@ -889,10 +1008,21 @@ export function handleEvent(
           : undefined;
 
       // 获取 reasoningLive 状态（流式中=true，完成=false）
-      const isLive =
+      const operation = evt.metadata?.operation;
+      const operationFromData =
+        data && typeof data.operation === "string" ? data.operation : undefined;
+      const explicitReasoningLive =
         data && typeof data.reasoningLive === "boolean"
           ? data.reasoningLive
-          : true; // 默认流式中
+          : data && typeof data.reasoning_live === "boolean"
+            ? data.reasoning_live
+            : undefined;
+      const isLive =
+        typeof explicitReasoningLive === "boolean"
+          ? explicitReasoningLive
+          : operation === "complete" || operationFromData === "complete"
+            ? false
+            : true; // 默认流式中
 
       set((s) => {
         const nextMessages = upsertReasoningMessage(s.messages, {
@@ -908,29 +1038,42 @@ export function handleEvent(
     }
 
     case "tool_call": {
-      const data = evt.data as { name: string; arguments: string };
+      const data = isRecord(evt.data) ? evt.data : {};
+      const toolName =
+        typeof data.name === "string" && data.name.trim()
+          ? data.name
+          : evt.tool_name || "";
+      if (!toolName) break;
+
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
       let toolArgs: Record<string, unknown> = {};
-      try {
-        const parsed = JSON.parse(data.arguments);
-        toolArgs = isRecord(parsed) ? parsed : { value: parsed };
-      } catch {
-        toolArgs = { raw: data.arguments };
+      const rawArguments = data.arguments;
+      if (isRecord(rawArguments)) {
+        toolArgs = rawArguments;
+      } else if (typeof rawArguments === "string") {
+        try {
+          const parsed = JSON.parse(rawArguments);
+          toolArgs = isRecord(parsed) ? parsed : { value: parsed };
+        } catch {
+          toolArgs = { raw: rawArguments };
+        }
+      } else if (rawArguments !== undefined) {
+        toolArgs = { raw: rawArguments };
       }
-      toolArgs = normalizeRunCodeIntent(data.name, toolArgs);
+      toolArgs = normalizeRunCodeIntent(toolName, toolArgs);
       const intent =
         typeof evt.metadata?.intent === "string"
           ? evt.metadata.intent
-          : data.name === "run_code" && typeof toolArgs.intent === "string"
+          : toolName === "run_code" && typeof toolArgs.intent === "string"
             ? toolArgs.intent
             : undefined;
       set((s) => ({
         messages: upsertToolCallMessage(s.messages, {
           content:
-            data.name === "run_code" && intent
-              ? `🔧 ${data.name}: ${intent}`
-              : `调用工具: **${data.name}**`,
-          toolName: data.name,
+            toolName === "run_code" && intent
+              ? `🔧 ${toolName}: ${intent}`
+              : `调用工具: **${toolName}**`,
+          toolName,
           toolCallId: evt.tool_call_id || undefined,
           toolInput: toolArgs,
           toolIntent: intent,
@@ -942,9 +1085,12 @@ export function handleEvent(
     }
 
     case "tool_result": {
-      const data = evt.data as Record<string, unknown>;
+      const data = isRecord(evt.data) ? evt.data : {};
+      const legacyResult =
+        isRecord(data.data) && "result" in data.data ? data.data.result : undefined;
+      const compatResult = data.result ?? legacyResult;
       const normalized = normalizeToolResult(
-        isRecord(data.result) ? JSON.stringify(data.result) : data.message,
+        isRecord(compatResult) ? JSON.stringify(compatResult) : data.message,
       );
       const status =
         (data.status as "success" | "error") || normalized.status || "success";
@@ -1174,6 +1320,12 @@ export function handleEvent(
         if (!current) {
           // 如果没有现有数据，创建新的 TokenUsage
           return {
+            runtimeModel: {
+              provider_id: s.runtimeModel?.provider_id || "",
+              provider_name: s.runtimeModel?.provider_name || "",
+              model,
+              preferred_provider: s.activeModel?.preferred_provider ?? null,
+            },
             _streamingMetrics: nextStreamingMetrics,
             tokenUsage: {
               session_id: s.sessionId || "",
@@ -1224,6 +1376,12 @@ export function handleEvent(
         }
 
         return {
+          runtimeModel: {
+            provider_id: s.runtimeModel?.provider_id || "",
+            provider_name: s.runtimeModel?.provider_name || "",
+            model,
+            preferred_provider: s.activeModel?.preferred_provider ?? null,
+          },
           _streamingMetrics: nextStreamingMetrics,
           tokenUsage: {
             ...current,
@@ -1244,7 +1402,7 @@ export function handleEvent(
       set((s) => {
         let progress = s.analysisPlanProgress;
         let tasks = s.analysisTasks;
-        const turnId = s._currentTurnId;
+        const turnId = evt.turn_id || s._currentTurnId;
         if (progress && progress.step_status === "in_progress") {
           // 使用 turn_id 优先匹配当前回合的任务
           const taskId = findTaskIdByStepAndTurn(
@@ -1278,7 +1436,7 @@ export function handleEvent(
           };
         }
         return {
-          messages: finalizeReasoningMessages(s.messages, turnId),
+          messages: finalizeReasoningMessages(s.messages, turnId, true),
           isStreaming: false,
           pendingAskUserQuestion: null,
           _streamingText: "",
@@ -1299,7 +1457,7 @@ export function handleEvent(
       set((s) => {
         let progress = s.analysisPlanProgress;
         let tasks = s.analysisTasks;
-        const turnId = s._currentTurnId;
+        const turnId = evt.turn_id || s._currentTurnId;
         if (progress && progress.step_status === "in_progress") {
           // 使用 turn_id 优先匹配当前回合的任务
           const taskId = findTaskIdByStepAndTurn(
@@ -1330,7 +1488,7 @@ export function handleEvent(
           };
         }
         return {
-          messages: finalizeReasoningMessages(s.messages, turnId),
+          messages: finalizeReasoningMessages(s.messages, turnId, true),
           isStreaming: false,
           pendingAskUserQuestion: null,
           _streamingText: "",
@@ -1347,7 +1505,7 @@ export function handleEvent(
 
     case "error": {
       const normalizedError = normalizeWsError(evt.data);
-      const turnId = get()._currentTurnId || evt.turn_id || undefined;
+      const turnId = evt.turn_id || get()._currentTurnId || undefined;
       const errMsg: Message = {
         id: nextId(),
         role: "assistant",
@@ -1363,7 +1521,7 @@ export function handleEvent(
       };
       set((s) => ({
         messages: [
-          ...finalizeReasoningMessages(s.messages, turnId),
+          ...finalizeReasoningMessages(s.messages, turnId, true),
           errMsg,
         ],
         isStreaming: false,

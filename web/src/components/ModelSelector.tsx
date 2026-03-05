@@ -24,6 +24,8 @@ export default function ModelSelector({
   align = "right",
 }: ModelSelectorProps) {
   const activeModel = useStore((s) => s.activeModel);
+  const runtimeModel = useStore((s) => s.runtimeModel);
+  const modelFallback = useStore((s) => s.modelFallback);
   const fetchActiveModel = useStore((s) => s.fetchActiveModel);
   const setChatRoute = useStore((s) => s.setChatRoute);
   const modelProviders = useStore((s) => s.modelProviders);
@@ -162,9 +164,11 @@ export default function ModelSelector({
   };
 
   // 显示文本
-  const displayText = activeModel
-    ? activeModel.model || activeModel.provider_name || "未知模型"
-    : "加载中...";
+  const displayText = modelFallback?.to_model
+    || runtimeModel?.model
+    || activeModel?.model
+    || activeModel?.provider_name
+    || "加载中...";
 
   const configuredProviders = modelProviders.filter((p) => p.configured);
   const triggerClass = compact
@@ -188,6 +192,11 @@ export default function ModelSelector({
       >
         <Bot size={13} className="text-blue-500 flex-shrink-0" />
         <span className={`truncate ${maxWidthClass}`}>{displayText}</span>
+        {modelFallback ? (
+          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">
+            已降级
+          </span>
+        ) : null}
         <ChevronDown
           size={12}
           className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}

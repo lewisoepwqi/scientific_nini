@@ -33,6 +33,7 @@ class EventType(str, Enum):
     CONTEXT_COMPRESSED = "context_compressed"  # 上下文自动压缩通知
     ASK_USER_QUESTION = "ask_user_question"  # 等待用户问答输入
     TOKEN_USAGE = "token_usage"  # Token 使用量更新
+    MODEL_FALLBACK = "model_fallback"  # 模型自动降级通知
 
     # WebSocket 专用事件类型
     WORKSPACE_UPDATE = "workspace_update"  # 通知前端刷新工作区
@@ -134,6 +135,8 @@ def create_reasoning_event(
 ) -> AgentEvent:
     """创建推理事件的便捷函数。
 
+    使用 event_builders 构建类型安全的推理事件。
+
     Args:
         step: 决策步骤
         thought: 决策思路
@@ -145,16 +148,13 @@ def create_reasoning_event(
     Returns:
         AgentEvent: 推理事件
     """
-    reasoning_data = ReasoningData(
+    from nini.agent import event_builders as eb
+
+    return eb.build_reasoning_data_event(
         step=step,
         thought=thought,
         rationale=rationale,
         alternatives=alternatives or [],
         confidence=confidence,
-        context=context,
-    )
-
-    return AgentEvent(
-        type=EventType.REASONING,
-        data=reasoning_data.to_dict(),
+        **context,
     )

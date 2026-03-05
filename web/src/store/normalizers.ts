@@ -212,11 +212,23 @@ export function normalizeAnalysisSteps(rawSteps: unknown): AnalysisStep[] {
           ? item.tool_hint.trim()
           : null;
       const status = normalizePlanStepStatus(item.status);
+      // 处理 action_id 字段（用于任务与 action 的映射）
+      const actionId =
+        typeof item.action_id === "string" && item.action_id.trim()
+          ? item.action_id.trim()
+          : null;
+      // 处理 raw_status 字段（后端原始状态）
+      const rawStatus =
+        typeof item.raw_status === "string" && item.raw_status.trim()
+          ? item.raw_status.trim()
+          : undefined;
       return {
         id,
         title,
         tool_hint: toolHint,
         status,
+        action_id: actionId,
+        raw_status: rawStatus,
       };
     });
 }

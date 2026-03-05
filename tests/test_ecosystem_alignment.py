@@ -455,6 +455,14 @@ class TestMCPServer:
 
         assert server is not None
 
+    def test_create_session_returns_valid_session_id(self):
+        """测试 MCP 临时会话构造使用 Session.id 参数。"""
+        from nini.mcp.server import _create_session
+
+        session = _create_session()
+        assert isinstance(session.id, str)
+        assert session.id.startswith("mcp-")
+
     def test_architecture_tools_use_dynamic_executable_capability_enum(self):
         """测试 execute_capability 的枚举值来自可执行能力注册表。"""
         try:

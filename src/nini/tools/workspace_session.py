@@ -31,20 +31,101 @@ class WorkspaceSessionSkill(Skill):
 
     @property
     def description(self) -> str:
-        return "统一管理工作区文件列表、读取、写入、编辑、整理和 URL 抓取。"
+        return (
+            "统一管理工作区文件列表、读取、写入、编辑、整理和 URL 抓取。"
+            "最小示例："
+            '1) 列表: {"operation":"list","query":"report"}；'
+            '2) 读取: {"operation":"read","file_path":"notes/a.md"}；'
+            '3) 写入: {"operation":"write","file_path":"notes/a.md","content":"..."}。'
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
         return {
             "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "enum": ["list", "read", "write", "append", "edit", "organize", "fetch_url"],
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string", "enum": ["list"]},
+                        "query": {"type": "string"},
+                        "kinds": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": ["dataset", "document", "result", "artifact", "note"],
+                            },
+                        },
+                        "path_prefix": {"type": "string"},
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+                    },
+                    "required": ["operation"],
+                    "additionalProperties": False,
                 },
-            },
-            "required": ["operation"],
-            "additionalProperties": True,
+                {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string", "enum": ["read"]},
+                        "file_path": {"type": "string", "description": "工作区相对路径"},
+                        "encoding": {"type": "string", "default": "utf-8"},
+                    },
+                    "required": ["operation", "file_path"],
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string", "enum": ["write", "append"]},
+                        "file_path": {"type": "string", "description": "工作区相对路径"},
+                        "content": {"type": "string"},
+                        "encoding": {"type": "string", "default": "utf-8"},
+                        "create_if_missing": {"type": "boolean", "default": True},
+                    },
+                    "required": ["operation", "file_path", "content"],
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string", "enum": ["edit"]},
+                        "file_path": {"type": "string", "description": "工作区相对路径"},
+                        "old_string": {"type": "string"},
+                        "new_string": {"type": "string"},
+                        "start_line": {"type": "integer", "minimum": 1},
+                        "end_line": {"type": "integer", "minimum": 1},
+                        "encoding": {"type": "string", "default": "utf-8"},
+                    },
+                    "required": ["operation", "file_path"],
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string", "enum": ["organize"]},
+                        "create_folders": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "moves": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                        },
+                        "auto_create_folder": {"type": "boolean", "default": False},
+                    },
+                    "required": ["operation"],
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string", "enum": ["fetch_url"]},
+                        "url": {"type": "string"},
+                        "save_to": {"type": "string"},
+                    },
+                    "required": ["operation", "url"],
+                    "additionalProperties": False,
+                },
+            ],
         }
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:

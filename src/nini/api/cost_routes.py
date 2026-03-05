@@ -69,16 +69,30 @@ def _load_session_token_usage(session_id: str) -> TokenUsage | None:
         tracker = get_tracker(session_id)
         pricing = _load_pricing_config()
 
-        # 计算成本
-        total_cost_usd = tracker.total_cost_usd
+        # 导入成本估算函数用于重新计算缺失的成本
+        from nini.utils.token_counter import estimate_cost
+
+        # 计算成本（对于缺失成本的记录重新估算）
+        total_cost_usd = 0.0
+        for record in tracker.records:
+            if record.cost_usd is None:
+                # 重新计算缺失的成本（兼容旧数据）
+                cost, _ = estimate_cost(
+                    record.model, record.input_tokens, record.output_tokens
+                )
+                record.cost_usd = cost
+            total_cost_usd += record.cost_usd or 0.0
+
         total_cost_cny = total_cost_usd * pricing.usd_to_cny_rate
 
         # 构建模型分解
         model_breakdown: dict[str, Any] = {}
         for record in tracker.records:
-            if record.model not in model_breakdown:
-                model_breakdown[record.model] = {
-                    "model_id": record.model,
+            # 清理模型名称（移除可能的 fallback 标记用于分组）
+            clean_model_name = record.model.replace(" (fallback)", "")
+            if clean_model_name not in model_breakdown:
+                model_breakdown[clean_model_name] = {
+                    "model_id": clean_model_name,
                     "input_tokens": 0,
                     "output_tokens": 0,
                     "total_tokens": 0,
@@ -87,7 +101,7 @@ def _load_session_token_usage(session_id: str) -> TokenUsage | None:
                     "call_count": 0,
                 }
 
-            model_data = model_breakdown[record.model]
+            model_data = model_breakdown[clean_model_name]
             model_data["input_tokens"] += record.input_tokens
             model_data["output_tokens"] += record.output_tokens
             model_data["total_tokens"] += record.input_tokens + record.output_tokens

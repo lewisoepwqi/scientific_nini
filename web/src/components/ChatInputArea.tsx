@@ -134,6 +134,7 @@ export default function ChatInputArea() {
   const isUploading = useStore((s) => s.isUploading);
   const skills = useStore((s) => s.skills);
   const fetchSkills = useStore((s) => s.fetchSkills);
+  const modelFallback = useStore((s) => s.modelFallback);
 
   const [input, setInput] = useState("");
   const [isDragActive, setIsDragActive] = useState(false);
@@ -635,6 +636,13 @@ export default function ChatInputArea() {
             </div>
           )}
         </div>
+
+        {modelFallback ? (
+          <div className="mt-1 px-1 text-[11px] text-amber-600">
+            当前已自动降级到 `{modelFallback.to_model}`
+            {modelFallback.reason ? `（原因：${modelFallback.reason}）` : ""}
+          </div>
+        ) : null}
 
         <div className="mt-1 px-1 text-[11px] text-gray-400">
           Enter 发送，Shift + Enter 换行，输入 / 快速插入技能，可直接拖拽文件到输入框

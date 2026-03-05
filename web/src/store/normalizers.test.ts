@@ -272,6 +272,8 @@ describe('normalizers', () => {
         title: '步骤 1',
         tool_hint: null,
         status: 'not_started',
+        action_id: null,
+        raw_status: undefined,
       })
     })
 

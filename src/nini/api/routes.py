@@ -87,6 +87,7 @@ def _serialize_history_message(msg: dict[str, Any]) -> dict[str, Any]:
         "intent": msg.get("intent"),
         "execution_id": msg.get("execution_id"),
         "reasoning_id": msg.get("reasoning_id"),
+        "reasoning_live": msg.get("reasoning_live"),
         "reasoning_type": msg.get("reasoning_type"),
         "key_decisions": msg.get("key_decisions"),
         "confidence_score": msg.get("confidence_score"),
@@ -584,19 +585,33 @@ async def preview_workspace_file(session_id: str, file_path: str):
 
 
 # 图片文件扩展名集合，用于直接返回文件流
-_IMAGE_EXTENSIONS = frozenset(
-    [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"]
-)
+_IMAGE_EXTENSIONS = frozenset([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"])
 
 # 二进制文件扩展名集合，用于直接返回文件流（不尝试读取为文本）
 _BINARY_EXTENSIONS = frozenset(
     [
         # 文档格式
-        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".ppt",
+        ".pptx",
         # 压缩格式
-        ".zip", ".tar", ".gz", ".bz2", ".xz", ".rar", ".7z",
+        ".zip",
+        ".tar",
+        ".gz",
+        ".bz2",
+        ".xz",
+        ".rar",
+        ".7z",
         # 其他二进制格式
-        ".bin", ".exe", ".dll", ".so", ".dylib",
+        ".bin",
+        ".exe",
+        ".dll",
+        ".so",
+        ".dylib",
     ]
 )
 
@@ -692,7 +707,9 @@ async def get_workspace_file(
         except UnicodeEncodeError:
             ascii_fallback = zip_filename.encode("ascii", errors="replace").decode("ascii")
             utf8_encoded = quote(zip_filename, safe="")
-            disposition = f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{utf8_encoded}"
+            disposition = (
+                f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{utf8_encoded}"
+            )
 
         return Response(
             content=zip_bytes,
@@ -1733,7 +1750,8 @@ async def download_artifact(
     logger.warning(
         "Deprecated API used: /api/artifacts/%s/%s. "
         "Please migrate to /api/workspace/{sid}/files/{path}",
-        session_id, filename
+        session_id,
+        filename,
     )
 
     safe_name = Path(unquote(filename)).name
@@ -1773,7 +1791,8 @@ async def download_workspace_upload(session_id: str, filename: str, inline: bool
     logger.warning(
         "Deprecated API used: /api/workspace/%s/uploads/%s. "
         "Please migrate to /api/workspace/{sid}/files/{path}",
-        session_id, filename
+        session_id,
+        filename,
     )
 
     safe_name = Path(filename).name
@@ -1796,7 +1815,8 @@ async def download_workspace_note(session_id: str, filename: str, inline: bool =
     logger.warning(
         "Deprecated API used: /api/workspace/%s/notes/%s. "
         "Please migrate to /api/workspace/{sid}/files/{path}",
-        session_id, filename
+        session_id,
+        filename,
     )
 
     safe_name = Path(filename).name
@@ -1819,7 +1839,8 @@ async def download_markdown_with_images(session_id: str, filename: str):
     logger.warning(
         "Deprecated API used: /api/workspace/%s/artifacts/%s/bundle. "
         "Please migrate to /api/workspace/{sid}/files/{path}?bundle=1",
-        session_id, filename
+        session_id,
+        filename,
     )
 
     safe_name = Path(unquote(filename)).name
@@ -2030,36 +2051,42 @@ _route_import_errors: list[str] = []
 
 try:
     from .session_routes import router as session_router
+
     router.include_router(session_router)
 except Exception as _e:
     _route_import_errors.append(f"session_routes: {_e}")
 
 try:
     from .workspace_routes import router as workspace_router
+
     router.include_router(workspace_router)
 except Exception as _e:
     _route_import_errors.append(f"workspace_routes: {_e}")
 
 try:
     from .skill_routes import router as skill_router
+
     router.include_router(skill_router)
 except Exception as _e:
     _route_import_errors.append(f"skill_routes: {_e}")
 
 try:
     from .profile_routes import router as profile_router
+
     router.include_router(profile_router)
 except Exception as _e:
     _route_import_errors.append(f"profile_routes: {_e}")
 
 try:
     from .models_routes import router as models_router
+
     router.include_router(models_router)
 except Exception as _e:
     _route_import_errors.append(f"models_routes: {_e}")
 
 try:
     from .intent_routes import router as intent_router
+
     router.include_router(intent_router)
 except Exception as _e:
     _route_import_errors.append(f"intent_routes: {_e}")

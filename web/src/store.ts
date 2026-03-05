@@ -48,6 +48,7 @@ export type {
   Message,
   SessionItem,
   ActiveModelInfo,
+  ModelFallbackInfo,
   ModelProviderInfo,
   CodeExecution,
   MemoryFile,
@@ -80,6 +81,7 @@ import type {
   Message,
   SessionItem,
   ActiveModelInfo,
+  ModelFallbackInfo,
   ModelProviderInfo,
   CodeExecution,
   MemoryFile,
@@ -162,6 +164,8 @@ export interface AppState {
 
   // 模型选择
   activeModel: ActiveModelInfo | null;
+  runtimeModel: ActiveModelInfo | null;
+  modelFallback: ModelFallbackInfo | null;
   modelProviders: ModelProviderInfo[];
   modelProvidersLoading: boolean;
 
@@ -310,6 +314,8 @@ export interface AppState {
 // ============================================================================
 
 const SESSION_RESET_STATE = {
+  runtimeModel: null as ActiveModelInfo | null,
+  modelFallback: null as ModelFallbackInfo | null,
   pendingAskUserQuestion: null as PendingAskUserQuestion | null,
   contextCompressionTick: 0,
   previewTabs: [] as string[],
@@ -350,6 +356,8 @@ export const useStore = create<AppState>((set, get) => ({
   capabilities: [],
   memoryFiles: [],
   activeModel: null,
+  runtimeModel: null,
+  modelFallback: null,
   modelProviders: [],
   modelProvidersLoading: false,
   workspacePanelOpen: false,

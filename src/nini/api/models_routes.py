@@ -67,6 +67,9 @@ _MODEL_PROVIDERS = [
         "id": "zhipu",
         "name": "智谱 AI (GLM)",
         "models": [
+            "glm-5",
+            "glm-5-plus",
+            "glm-5-air",
             "glm-4.7",
             "glm-4.6",
             "glm-4.5",
@@ -175,13 +178,17 @@ async def list_models():
 
 @router.get("/models/{provider_id}/available", response_model=APIResponse)
 async def get_provider_available_models(provider_id: str):
-    """获取指定提供商的可用模型列表。"""
-    from nini.agent.model_resolver import ModelResolver
+    """动态获取指定提供商的可用模型列表。"""
+    from nini.agent.model_lister import list_available_models
+    from nini.config_manager import get_effective_config
 
-    resolver = ModelResolver()
-    models = resolver.get_available_models(provider_id)
-
-    return APIResponse(success=True, data=models)
+    cfg = await get_effective_config(provider_id)
+    result = await list_available_models(
+        provider_id=provider_id,
+        api_key=cfg.get("api_key"),
+        base_url=cfg.get("base_url"),
+    )
+    return APIResponse(data=result)
 
 
 @router.post("/models/priorities", response_model=APIResponse)
@@ -222,47 +229,151 @@ async def get_model_routing():
 
 
 @router.post("/models/routing", response_model=APIResponse)
-async def set_model_routing(request: ModelRoutingRequest):
-    """设置模型路由配置。"""
-    from nini.agent.model_resolver import ModelResolver, get_model_resolver
-    from nini.config_manager import set_model_purpose_routes
+async def set_model_routing(req: ModelRoutingRequest):
+    """保存用途模型路由配置（支持部分更新）。"""
+    from nini.agent.model_resolver import get_model_resolver
+    from nini.config_manager import (
+        set_default_provider,
+        set_model_purpose_routes,
+        VALID_MODEL_PURPOSES,
+        VALID_PROVIDERS,
+    )
 
-    # 更新内存中的配置
-    resolver = ModelResolver()
-    resolver.set_routing_config(request.config)
+    resolver = get_model_resolver()
 
-    # 持久化到数据库
-    if "purpose_routes" in request.config:
-        await set_model_purpose_routes(request.config["purpose_routes"])
+    update_global_preferred = "preferred_provider" in req.model_fields_set
+    preferred_provider: str | None = None
+    if update_global_preferred:
+        preferred_provider_raw = (req.preferred_provider or "").strip()
+        preferred_provider = preferred_provider_raw or None
+        if preferred_provider and preferred_provider not in VALID_PROVIDERS:
+            return APIResponse(success=False, error=f"未知的模型提供商: {preferred_provider}")
 
-    # 同步更新全局 resolver
-    global_resolver = get_model_resolver()
-    if global_resolver is not resolver:
-        global_resolver.set_routing_config(request.config)
+    updates: dict[str, dict[str, str | None]] = {}
+    # 兼容旧版字段：purpose_providers（仅 provider）
+    for purpose, provider in req.purpose_providers.items():
+        if purpose not in VALID_MODEL_PURPOSES:
+            return APIResponse(success=False, error=f"未知的模型用途: {purpose}")
+        provider_id = (provider or "").strip() or None
+        if provider_id and provider_id not in VALID_PROVIDERS:
+            return APIResponse(success=False, error=f"未知的模型提供商: {provider_id}")
+        updates[purpose] = {
+            "provider_id": provider_id,
+            "model": None,
+            "base_url": None,
+        }
 
-    return APIResponse(success=True)
+    # 新版字段：purpose_routes（provider + model + base_url）
+    for purpose, route in req.purpose_routes.items():
+        if purpose not in VALID_MODEL_PURPOSES:
+            return APIResponse(success=False, error=f"未知的模型用途: {purpose}")
+        provider_id = (route.provider_id or "").strip() or None
+        model = (route.model or "").strip() or None
+        base_url = (route.base_url or "").strip() or None
+        if provider_id and provider_id not in VALID_PROVIDERS:
+            return APIResponse(success=False, error=f"未知的模型提供商: {provider_id}")
+        updates[purpose] = {
+            "provider_id": provider_id,
+            "model": model,
+            "base_url": base_url,
+        }
+
+    # 更新全局首选（为空表示清除）
+    if update_global_preferred:
+        await set_default_provider(preferred_provider)
+        resolver.set_preferred_provider(preferred_provider)
+
+    # 更新用途路由（增量）
+    merged_routes = await set_model_purpose_routes(updates)
+    for purpose_key, merged_route in merged_routes.items():
+        resolver.set_purpose_route(
+            purpose_key,
+            provider_id=merged_route.get("provider_id"),
+            model=merged_route.get("model"),
+            base_url=merged_route.get("base_url"),
+        )
+
+    active_by_purpose: dict[str, dict[str, str]] = {}
+    purpose_providers: dict[str, str | None] = {}
+    for item in _MODEL_PURPOSES:
+        purpose_id: str = item["id"]
+        merged_r = merged_routes.get(purpose_id)
+        purpose_providers[purpose_id] = merged_r.get("provider_id") if merged_r else None
+        active_by_purpose[purpose_id] = resolver.get_active_model_info(purpose=purpose_id)
+
+    return APIResponse(
+        data={
+            "preferred_provider": resolver.get_preferred_provider(),
+            "purpose_routes": merged_routes,
+            "purpose_providers": purpose_providers,
+            "active_by_purpose": active_by_purpose,
+        }
+    )
 
 
 @router.post("/models/config", response_model=APIResponse)
 async def update_model_config(request: ModelConfigRequest):
-    """更新模型配置。"""
-    # 这里可以实现模型配置的持久化
-    return APIResponse(success=True)
+    """更新模型配置。
+
+    保存配置到数据库并重新加载模型客户端，使新配置立即生效。
+    """
+    from nini.config_manager import save_model_config, get_all_effective_configs
+    from nini.agent.model_resolver import get_model_resolver
+
+    try:
+        # 保存配置到数据库
+        result = await save_model_config(
+            provider=request.provider_id,
+            api_key=request.api_key,
+            model=request.model,
+            base_url=request.base_url,
+            priority=request.priority,
+            is_active=request.is_active,
+        )
+
+        # 重新加载模型客户端，使新配置生效
+        all_configs = await get_all_effective_configs()
+        resolver = get_model_resolver()
+        resolver.reload_clients(config_overrides=all_configs)
+
+        return APIResponse(
+            success=True,
+            data={
+                "provider": result["provider"],
+                "model": result["model"],
+                "api_key_hint": result["api_key_hint"],
+                "base_url": result["base_url"],
+            },
+        )
+    except ValueError as e:
+        return APIResponse(success=False, error=str(e))
+    except Exception as e:
+        return APIResponse(success=False, error=f"保存配置失败: {e}")
 
 
 @router.post("/models/{provider_id}/test", response_model=APIResponse)
 async def test_model_connection(provider_id: str):
     """测试模型连接。"""
-    from nini.agent.model_resolver import ModelResolver
+    from nini.agent.model_resolver import get_model_resolver
 
-    resolver = ModelResolver()
+    resolver = get_model_resolver()
 
     try:
         result = await resolver.test_connection(provider_id)
-        return APIResponse(
-            success=result.get("success", False),
-            data=result,
-        )
+        if result.get("success"):
+            return APIResponse(
+                success=True,
+                data={
+                    "provider": result.get("provider"),
+                    "model": result.get("model"),
+                    "message": result.get("message", "连接成功"),
+                },
+            )
+        else:
+            return APIResponse(
+                success=False,
+                error=result.get("error", "连接测试失败"),
+            )
     except Exception as e:
         return APIResponse(
             success=False,

@@ -134,6 +134,17 @@ class ModelResolver:
         # 过滤掉不可用的
         return [p for p in priority if p in self._client_map and self._client_map[p].is_available()]
 
+    @staticmethod
+    def _compact_error_message(error: Exception) -> str:
+        """压缩错误信息，避免把长 traceback 直接暴露到前端。"""
+        text = str(error or "").strip()
+        if not text:
+            return error.__class__.__name__
+        first_line = text.splitlines()[0].strip()
+        if len(first_line) > 240:
+            return first_line[:240].rstrip() + "..."
+        return first_line
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -155,8 +166,8 @@ class ModelResolver:
         Yields:
             LLMChunk: 流式输出块
         """
-        priority = self._get_priority_order(purpose)
-        if not priority:
+        ordered_clients = self._get_ordered_clients(purpose)
+        if not ordered_clients:
             yield LLMChunk(
                 text="",
                 finish_reason="error",
@@ -164,12 +175,23 @@ class ModelResolver:
             return
 
         last_error: Exception | None = None
-        for provider_id in priority:
-            client = self._client_map.get(provider_id)
-            if not client or not client.is_available():
-                continue
+        failed_attempts: list[dict[str, Any]] = []
+        for attempt_idx, client in enumerate(ordered_clients, start=1):
+            provider_id = getattr(client, "provider_id", "") or ""
+            provider_name = getattr(client, "provider_name", provider_id) or provider_id
+            model_name = client.get_model_name() or "unknown"
+            fallback_applied = bool(failed_attempts)
+            fallback_from = failed_attempts[-1] if fallback_applied else None
 
             try:
+                success_entry = {
+                    "attempt": attempt_idx,
+                    "provider_id": provider_id,
+                    "provider_name": provider_name,
+                    "model": model_name,
+                    "status": "success",
+                }
+                fallback_chain = [*failed_attempts, success_entry]
                 async for chunk in client.chat(
                     messages=messages,
                     tools=tools,
@@ -186,11 +208,42 @@ class ModelResolver:
                         tool_calls=getattr(chunk, "tool_calls", []),
                         finish_reason=getattr(chunk, "finish_reason", None),
                         usage=getattr(chunk, "usage", None),
+                        provider_id=provider_id,
+                        provider_name=provider_name,
+                        model=model_name,
+                        attempt=attempt_idx,
+                        fallback_applied=fallback_applied,
+                        fallback_from_provider_id=(
+                            str(fallback_from.get("provider_id", "")).strip()
+                            if isinstance(fallback_from, dict)
+                            else None
+                        ),
+                        fallback_from_model=(
+                            str(fallback_from.get("model", "")).strip()
+                            if isinstance(fallback_from, dict)
+                            else None
+                        ),
+                        fallback_reason=(
+                            str(fallback_from.get("error", "")).strip()
+                            if isinstance(fallback_from, dict)
+                            else None
+                        ),
+                        fallback_chain=fallback_chain,
                     )
                 return  # 成功完成
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"Provider {provider_id} failed: {e}")
                 last_error = e
+                failed_attempts.append(
+                    {
+                        "attempt": attempt_idx,
+                        "provider_id": provider_id,
+                        "provider_name": provider_name,
+                        "model": model_name,
+                        "status": "failed",
+                        "error": self._compact_error_message(e),
+                    }
+                )
                 continue
 
         # 全部失败
@@ -548,17 +601,41 @@ class ModelResolver:
         if not client:
             return {"success": False, "error": f"未知的提供商: {provider_id}"}
         if not client.is_available():
-            return {"success": False, "error": "提供商未配置或不可用"}
+            return {"success": False, "error": "提供商未配置或不可用（请检查 API Key）"}
         try:
-            # 尝试发送一个简单的请求来测试连接
-            # 这里简化处理，只检查是否可用
+            # 发送一个简单的测试请求验证连接
+            test_messages = [{"role": "user", "content": "Hi"}]
+            response_text = ""
+
+            async for chunk in client.chat(
+                messages=test_messages,
+                temperature=0.3,
+                max_tokens=5,  # 只需要少量 token 验证连接
+            ):
+                if chunk.text:
+                    response_text += chunk.text
+                # 收到第一个 chunk 就说明连接成功
+                if response_text:
+                    break
+
             return {
                 "success": True,
                 "provider": provider_id,
                 "model": client.get_model_name(),
+                "message": "连接成功",
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            error_msg = str(e)
+            # 常见错误友好提示
+            if "authentication" in error_msg.lower() or "api key" in error_msg.lower():
+                error_msg = "API Key 无效或已过期"
+            elif "rate limit" in error_msg.lower():
+                error_msg = "请求过于频繁，请稍后重试"
+            elif "timeout" in error_msg.lower():
+                error_msg = "连接超时，请检查网络或 Base URL"
+            elif "connection" in error_msg.lower():
+                error_msg = "无法连接到服务器，请检查网络或 Base URL"
+            return {"success": False, "error": error_msg}
 
     def set_preferred_model(self, provider: str | None, model: str | None) -> None:
         """设置首选模型。

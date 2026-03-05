@@ -81,7 +81,7 @@ def _create_session() -> Any:
     """为每次 MCP 工具调用创建一个临时 Session。"""
     from nini.agent.session import Session
 
-    return Session(session_id=f"mcp-{uuid.uuid4().hex[:8]}")
+    return Session(id=f"mcp-{uuid.uuid4().hex[:8]}")
 
 
 def create_mcp_server(

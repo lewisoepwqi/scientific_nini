@@ -552,6 +552,31 @@ def _to_json_safe(value: Any) -> Any:
     return str(value)
 
 
+def _normalize_wire_event_data(event_type: str, data: Any) -> Any:
+    """兼容旧前端/测试的事件载荷格式。"""
+    safe_data = _to_json_safe(data)
+
+    # 兼容旧协议：text 事件 data 直接为字符串
+    if event_type == EventType.TEXT.value and isinstance(safe_data, dict):
+        content = safe_data.get("content")
+        if isinstance(content, str):
+            return content
+
+    # 兼容旧协议：tool_result 将 data.result 提升到顶层 result 字段
+    if event_type == EventType.TOOL_RESULT.value and isinstance(safe_data, dict):
+        nested_data = safe_data.get("data")
+        if isinstance(nested_data, dict) and "result" in nested_data and "result" not in safe_data:
+            return {**safe_data, "result": nested_data.get("result")}
+
+    # 兼容旧协议：error 事件 data 直接为字符串消息
+    if event_type == EventType.ERROR.value and isinstance(safe_data, dict):
+        message = safe_data.get("message")
+        if isinstance(message, str):
+            return message
+
+    return safe_data
+
+
 async def _send_event(
     ws: WebSocket,
     event_type: str,
@@ -571,7 +596,7 @@ async def _send_event(
     try:
         event = WSEvent(
             type=event_type,
-            data=_to_json_safe(data),
+            data=_normalize_wire_event_data(event_type, data),
             session_id=session_id,
             tool_call_id=tool_call_id,
             tool_name=tool_name,

@@ -24,6 +24,17 @@ class LLMChunk:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     finish_reason: str | None = None
     usage: dict[str, int] | None = None
+    # 实际执行模型信息（用于前端展示“当前模型/降级模型”）
+    provider_id: str | None = None
+    provider_name: str | None = None
+    model: str | None = None
+    attempt: int | None = None
+    # 降级轨迹（当首选模型失败并自动切换时）
+    fallback_applied: bool = False
+    fallback_from_provider_id: str | None = None
+    fallback_from_model: str | None = None
+    fallback_reason: str | None = None
+    fallback_chain: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

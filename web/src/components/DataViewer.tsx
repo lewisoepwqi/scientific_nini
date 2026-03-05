@@ -47,14 +47,16 @@ export default function DataViewer({ preview }: Props) {
   const rows = Array.isArray(rowsRaw)
     ? rowsRaw.filter((item): item is Record<string, unknown> => isRecord(item))
     : []
-  const columns = getColumns(preview, rows)
+  const previewRowsRaw = typeof preview.preview_rows === 'number' ? preview.preview_rows : rows.length
+  const previewRows = Math.max(0, Math.floor(previewRowsRaw))
+  const visibleRows = rows.slice(0, previewRows)
+  const columns = getColumns(preview, visibleRows)
 
-  if (rows.length === 0 || columns.length === 0) {
+  if (visibleRows.length === 0 || columns.length === 0) {
     return <div className="text-xs text-gray-500 mt-2">没有可展示的数据行</div>
   }
 
   const totalRows = typeof preview.total_rows === 'number' ? preview.total_rows : rows.length
-  const previewRows = typeof preview.preview_rows === 'number' ? preview.preview_rows : rows.length
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white mt-2 overflow-hidden">
@@ -73,7 +75,7 @@ export default function DataViewer({ preview }: Props) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, idx) => (
+            {visibleRows.map((row, idx) => (
               <tr key={`row-${idx}`} className="odd:bg-white even:bg-gray-50">
                 {columns.map((column) => (
                   <td key={`${idx}-${column}`} className="px-3 py-2 border-b align-top whitespace-nowrap">

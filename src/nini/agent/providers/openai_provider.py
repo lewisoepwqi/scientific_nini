@@ -15,6 +15,24 @@ from .base import BaseLLMClient, LLMChunk, ReasoningStreamParser
 logger = logging.getLogger(__name__)
 
 
+def _merge_tool_arguments(existing: str, incoming: str) -> str:
+    """聚合 tool arguments 片段，兼容增量与累计两种流式实现。"""
+    if not incoming:
+        return existing
+    if not existing:
+        return incoming
+    if incoming == existing:
+        return existing
+    # 累计片段：新值已包含旧值，直接替换避免重复拼接。
+    if incoming.startswith(existing) or existing in incoming:
+        return incoming
+    # 重复回放：旧值尾部已包含新片段，不重复追加。
+    if existing.endswith(incoming):
+        return existing
+    # 增量片段：正常追加。
+    return existing + incoming
+
+
 class OpenAICompatibleClient(BaseLLMClient):
     """OpenAI 兼容 API 适配器基类（OpenAI / Ollama 共用）。"""
 
@@ -119,7 +137,10 @@ class OpenAICompatibleClient(BaseLLMClient):
                             if tc.function.name:
                                 entry["function"]["name"] = tc.function.name
                             if tc.function.arguments:
-                                entry["function"]["arguments"] += tc.function.arguments
+                                entry["function"]["arguments"] = _merge_tool_arguments(
+                                    str(entry["function"]["arguments"]),
+                                    str(tc.function.arguments),
+                                )
 
             # 当 finish_reason 为 tool_calls 时，输出完整的 tool_calls
             if finish == "tool_calls":

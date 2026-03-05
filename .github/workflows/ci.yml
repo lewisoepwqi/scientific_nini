@@ -17,6 +17,9 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - run: pip install -e .[dev]
+      # 检查前后端数据契约一致性（安全：无外部输入）
+      - run: python scripts/check_event_schema_consistency.py
+      # 运行所有测试（包含契约验证测试）
       - run: pytest -q
 
   frontend:

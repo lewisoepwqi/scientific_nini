@@ -793,6 +793,7 @@ class WorkspaceManager:
             ResourceType.CHART.value: self.charts_dir,
             ResourceType.REPORT.value: self.reports_dir,
             ResourceType.DATASET.value: self.uploads_dir,
+            ResourceType.TEMP_DATASET.value: self.uploads_dir,
             ResourceType.STAT_RESULT.value: self.transforms_dir,
             ResourceType.FILE.value: self.notes_dir,
         }
@@ -858,6 +859,9 @@ class WorkspaceManager:
         file_size: int,
         row_count: int,
         column_count: int,
+        resource_type: ResourceType = ResourceType.DATASET,
+        source_kind: str = "datasets",
+        retention: str = "persistent",
     ) -> dict[str, Any]:
         index = self._load_index()
         created_at = _now_iso()
@@ -871,6 +875,9 @@ class WorkspaceManager:
             "row_count": row_count,
             "column_count": column_count,
             "created_at": created_at,
+            "resource_type": resource_type.value,
+            "source_kind": source_kind,
+            "retention": retention,
         }
         datasets = []
         for item in index.get("datasets", []):
@@ -886,9 +893,9 @@ class WorkspaceManager:
             index,
             self._build_resource_summary(
                 resource_id=dataset_id,
-                resource_type=ResourceType.DATASET,
+                resource_type=resource_type,
                 name=name,
-                source_kind="datasets",
+                source_kind=source_kind,
                 path=file_path,
                 download_url=(
                     f"/api/workspace/{self.session_id}/uploads/"
@@ -899,6 +906,7 @@ class WorkspaceManager:
                     "file_size": file_size,
                     "row_count": row_count,
                     "column_count": column_count,
+                    "retention": retention,
                 },
                 created_at=created_at,
             ),
@@ -1123,11 +1131,27 @@ class WorkspaceManager:
         for item in self.list_datasets():
             file_path = Path(str(item.get("file_path", "")))
             subtype = str(item.get("file_type", "")).lower()
+            resource_summary = self.get_resource_summary(str(item.get("id", "")).strip())
+            resource_type = (
+                str(resource_summary.get("resource_type", "")).strip()
+                if isinstance(resource_summary, dict)
+                else str(item.get("resource_type", "")).strip()
+            ) or ResourceType.DATASET.value
+            source_kind = (
+                str(resource_summary.get("source_kind", "")).strip()
+                if isinstance(resource_summary, dict)
+                else str(item.get("source_kind", "")).strip()
+            ) or "datasets"
+            retention = (
+                str(((resource_summary or {}).get("metadata") or {}).get("retention", "")).strip()
+                if isinstance(resource_summary, dict)
+                else str(item.get("retention", "")).strip()
+            ) or "persistent"
             files.append(
                 {
                     "id": item.get("id"),
                     "resource_id": item.get("id"),
-                    "resource_type": ResourceType.DATASET.value,
+                    "resource_type": resource_type,
                     "name": item.get("name"),
                     "kind": "dataset",
                     "size": item.get("file_size", 0),
@@ -1139,6 +1163,8 @@ class WorkspaceManager:
                     ),
                     "meta": {
                         "subtype": subtype,
+                        "source_kind": source_kind,
+                        "retention": retention,
                         "row_count": item.get("row_count"),
                         "column_count": item.get("column_count"),
                         "file_type": item.get("file_type"),

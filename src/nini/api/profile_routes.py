@@ -23,7 +23,7 @@ async def get_research_profile():
     from nini.services.profile import ProfileService
 
     service = ProfileService()
-    profile = service.get_profile()
+    profile = await service.get_profile()
 
     return APIResponse(success=True, data=profile)
 
@@ -34,7 +34,7 @@ async def update_research_profile(request: ResearchProfileUpdateRequest):
     from nini.services.profile import ProfileService
 
     service = ProfileService()
-    profile = service.update_profile(request.dict(exclude_unset=True))
+    profile = await service.update_profile(request.model_dump(exclude_unset=True))
 
     return APIResponse(success=True, data=profile)
 
@@ -45,7 +45,7 @@ async def get_research_profile_prompt():
     from nini.services.profile import ProfileService
 
     service = ProfileService()
-    prompt = service.get_profile_prompt()
+    prompt = await service.get_profile_prompt()
 
     return APIResponse(success=True, data={"prompt": prompt})
 
@@ -62,7 +62,7 @@ async def record_analysis(request: dict[str, Any]):
         raise HTTPException(status_code=400, detail="方法不能为空")
 
     service = ProfileService()
-    service.record_analysis(method, dataset_size)
+    await service.record_analysis(method, dataset_size)
 
     return APIResponse(success=True)
 

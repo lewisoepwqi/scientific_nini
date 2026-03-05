@@ -187,7 +187,7 @@ class EditFile(Skill):
             workspace_resolved = workspace_path.resolve()
 
             # 安全检查：确保文件在工作区内
-            if not str(full_path).startswith(str(workspace_resolved)):
+            if not full_path.is_relative_to(workspace_resolved):
                 logger.warning(f"尝试访问工作区外的路径: {full_path}")
                 return None
 

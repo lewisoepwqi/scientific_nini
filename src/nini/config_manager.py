@@ -59,6 +59,23 @@ class ModelPurposeRoute(TypedDict):
     base_url: str | None
 
 
+async def _ensure_app_settings_table(db: Any) -> None:
+    """确保 app_settings 表存在。
+
+    某些测试场景不会触发应用 lifespan（不会先执行 init_db），
+    这里做就地兜底，避免路由直接读写配置时报 no such table。
+    """
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+
+
 async def save_model_config(
     provider: str,
     api_key: str | None = None,
@@ -339,6 +356,7 @@ async def get_default_provider() -> str | None:
     """
     db = await get_db()
     try:
+        await _ensure_app_settings_table(db)
         cursor = await db.execute("SELECT value FROM app_settings WHERE key = 'default_provider'")
         row = await cursor.fetchone()
         if row and row[0]:
@@ -361,6 +379,7 @@ async def set_default_provider(provider_id: str | None) -> bool:
     """
     db = await get_db()
     try:
+        await _ensure_app_settings_table(db)
         if provider_id is None:
             # 清除默认设置
             await db.execute("DELETE FROM app_settings WHERE key = 'default_provider'")
@@ -453,6 +472,7 @@ async def get_model_purpose_routes() -> dict[str, ModelPurposeRoute]:
     """读取用途级别的模型路由映射。"""
     db = await get_db()
     try:
+        await _ensure_app_settings_table(db)
         cursor = await db.execute(
             "SELECT value FROM app_settings WHERE key = ?",
             (_PURPOSE_ROUTING_KEY,),
@@ -522,6 +542,7 @@ async def set_model_purpose_routes(
 
     db = await get_db()
     try:
+        await _ensure_app_settings_table(db)
         if to_store:
             await db.execute(
                 """

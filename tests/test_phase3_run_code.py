@@ -120,6 +120,28 @@ def test_run_code_large_output_df_does_not_timeout() -> None:
     assert "超时" not in result["message"]
 
 
+def test_run_code_auto_persists_temp_dataset_when_no_save_as() -> None:
+    registry = create_default_registry()
+    session = Session()
+    session.datasets["raw.csv"] = pd.DataFrame({"x": [1, 2, 3]})
+
+    result = asyncio.run(
+        registry.execute(
+            "run_code",
+            session=session,
+            dataset_name="raw.csv",
+            code="output_df = df.assign(x2=df['x'] * 2)",
+        )
+    )
+
+    assert result["success"] is True, result
+    output_resources = result["data"].get("output_resources", [])
+    assert isinstance(output_resources, list) and output_resources
+    assert output_resources[-1]["resource_type"] == "temp_dataset"
+    output_name = result["data"].get("output_dataset_name")
+    assert isinstance(output_name, str) and output_name in session.datasets
+
+
 def test_run_code_routes_through_code_session_history() -> None:
     registry = create_default_registry()
     session = Session()
@@ -147,3 +169,41 @@ def test_run_code_routes_through_code_session_history() -> None:
     assert execution is not None
     assert execution["script_resource_id"] == result["data"]["script_id"]
     assert execution["tool_name"] == "run_code"
+
+
+def test_execute_r_code_limits_dataframe_preview_rows(monkeypatch) -> None:
+    from nini.tools import code_runtime as code_runtime_module
+
+    session = Session()
+
+    async def _fake_r_execute(**kwargs):
+        return {
+            "success": True,
+            "stdout": "",
+            "stderr": "",
+            "datasets": {},
+            "figures": [],
+            "output_df": pd.DataFrame({"x": list(range(35))}),
+        }
+
+    monkeypatch.setattr(code_runtime_module.r_sandbox_executor, "execute", _fake_r_execute)
+    monkeypatch.setattr(
+        code_runtime_module,
+        "_persist_runtime_dataset",
+        lambda _session, **kwargs: {
+            "id": "tmp_ds_1",
+            "resource_type": "temp_dataset",
+            "name": kwargs["dataset_name"],
+        },
+    )
+
+    result = asyncio.run(
+        code_runtime_module.execute_r_code(session=session, code="output_df <- data.frame(x=1:35)")
+    )
+
+    assert result.success is True
+    assert result.has_dataframe is True
+    preview = result.dataframe_preview
+    assert isinstance(preview, dict)
+    assert preview["preview_rows"] == 20
+    assert len(preview["data"]) == 20
