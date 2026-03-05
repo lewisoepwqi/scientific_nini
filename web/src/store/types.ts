@@ -72,6 +72,34 @@ export interface DatasetItem {
   loaded: boolean;
 }
 
+/**
+ * 资源类型 - 统一资源标识系统
+ * 对应后端的 ResourceType
+ */
+export type ResourceType =
+  | "dataset"
+  | "file"
+  | "script"
+  | "chart"
+  | "report"
+  | "stat_result"
+  | "transform"
+  | "artifact";
+
+/**
+ * 资源摘要信息 - 统一资源摘要结构
+ * 对应后端返回的资源摘要
+ */
+export interface ResourceSummary {
+  id: string;
+  resource_type: ResourceType;
+  name: string;
+  source_kind: string;
+  path?: string;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+}
+
 export interface WorkspaceFile {
   id: string;
   name: string;
@@ -82,6 +110,16 @@ export interface WorkspaceFile {
   download_url: string;
   meta?: Record<string, unknown>;
   folder?: string | null;
+  /**
+   * 资源类型标识（新资源系统）
+   * 用于区分 dataset、script、chart、report 等类型
+   */
+  resource_type?: ResourceType;
+  /**
+   * 来源类型（新资源系统）
+   * 如 uploads、datasets、scripts、charts、reports、artifacts、notes 等
+   */
+  source_kind?: string;
 }
 
 export interface WorkspaceFolder {
@@ -402,6 +440,32 @@ export interface CodeExecution {
   tool_args?: Record<string, unknown>;
   context_token_count?: number;
   intent?: string;
+  /**
+   * 脚本资源标识（code_session 使用）
+   * 关联到具体的脚本资源
+   */
+  script_resource_id?: string;
+  /**
+   * 输出资源标识列表（code_session 使用）
+   * 执行生成的数据集等资源ID
+   */
+  output_resource_ids?: string[];
+  /**
+   * 重试关联的执行记录ID
+   * 用于追踪失败后的重试链
+   */
+  retry_of_execution_id?: string;
+  /**
+   * 错误定位信息（失败时使用）
+   */
+  error_location?: {
+    line: number;
+    column?: number;
+  };
+  /**
+   * 恢复提示（失败时使用）
+   */
+  recovery_hint?: string;
 }
 
 export interface MemoryFile {

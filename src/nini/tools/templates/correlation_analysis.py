@@ -18,6 +18,7 @@ import pandas as pd
 from scipy.stats import kendalltau, pearsonr, spearmanr
 
 from nini.agent.session import Session
+from nini.tools.analysis_workflow import AnalysisWorkflowEngine
 from nini.tools.base import Skill, SkillResult
 from nini.utils.chart_fonts import CJK_FONT_FAMILY
 
@@ -82,61 +83,13 @@ class CorrelationAnalysisSkill(Skill):
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
         """执行完整分析。"""
-        dataset_name = kwargs["dataset_name"]
-        columns = kwargs["columns"]
-        method = kwargs.get("method", "pearson")
-        journal_style = kwargs.get("journal_style", "nature")
-
-        # 获取数据
-        df = session.datasets.get(dataset_name)
-        if df is None:
-            return SkillResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
-
-        # 验证列
-        for col in columns:
-            if col not in df.columns:
-                return SkillResult(success=False, message=f"列 '{col}' 不存在")
-
-        if len(columns) < 2:
-            return SkillResult(success=False, message="至少需要 2 列进行相关性分析")
-
-        # 步骤1: 准备数据
-        clean_df = df[columns].dropna()
-        if len(clean_df) < 3:
-            return SkillResult(success=False, message="至少需要 3 个完整观测值")
-
-        # 步骤2: 计算相关矩阵和 p 值矩阵
-        corr_matrix, pvalue_matrix = self._calculate_correlation_matrices(clean_df, columns, method)
-
-        # 步骤3: 识别显著相关
-        significant_pairs = self._identify_significant_correlations(
-            corr_matrix, pvalue_matrix, columns
-        )
-
-        # 步骤4: 可视化
-        chart_data = self._create_visualization(corr_matrix, pvalue_matrix, columns, journal_style)
-
-        # 步骤5: 生成报告
-        report = self._generate_report(
-            corr_matrix, pvalue_matrix, significant_pairs, method, len(clean_df)
-        )
-
-        # 组装结果
-        result_data = {
-            "method": method,
-            "sample_size": len(clean_df),
-            "correlation_matrix": corr_matrix,
-            "pvalue_matrix": pvalue_matrix,
-            "significant_pairs": significant_pairs,
-            "report": report,
-        }
-
-        return SkillResult(
-            success=True,
-            data=result_data,
-            message=report["summary"],
-            has_chart=True,
-            chart_data=chart_data,
+        engine = AnalysisWorkflowEngine()
+        return await engine.correlation_analysis(
+            session,
+            dataset_name=kwargs["dataset_name"],
+            columns=list(kwargs["columns"]),
+            method=kwargs.get("method", "pearson"),
+            journal_style=kwargs.get("journal_style", "nature"),
         )
 
     def _calculate_correlation_matrices(

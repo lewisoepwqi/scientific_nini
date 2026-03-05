@@ -256,7 +256,70 @@ Nini 对外分为两类接口：
 | `error` | 错误信息 |
 | `pong` | `ping` 响应 |
 
-## 技能清单（默认注册）
+## 基础工具清单（新工具基础层）
+
+自 consolidate-tool-foundation 变更后，模型可见的工具收敛为以下 9 个基础工具：
+
+| 工具名 | 职责 | 关键操作 |
+|--------|------|----------|
+| `task_state` | 任务状态管理 | `init`、`update`、`current`、`get` |
+| `dataset_catalog` | 数据集目录与加载 | `list`、`profile` |
+| `dataset_transform` | 结构化数据转换 | `run`、`patch_step`、`get` |
+| `stat_test` | 统计检验 | t检验、ANOVA、Mann-Whitney、Kruskal-Wallis |
+| `stat_model` | 统计建模 | 相关分析、回归分析 |
+| `stat_interpret` | 结果解读 | 生成统计解释文本 |
+| `chart_session` | 图表会话管理 | `create`、`get`、`update`、`export` |
+| `report_session` | 报告会话管理 | `create`、`get`、`patch_section`、`attach_artifact`、`export` |
+| `workspace_session` | 工作区文件操作 | `read`、`write`、`list`、`fetch_url` |
+| `code_session` | 脚本会话管理 | `create_script`、`run_script`、`patch_script`、`rerun`、`promote_output` |
+
+### 资源标识约定
+
+所有基础工具遵循统一的资源契约：
+
+```json
+{
+  "success": true,
+  "message": "操作成功",
+  "data": {
+    "resource_id": "chart_abc123",
+    "resource_type": "chart",
+    "name": "月度趋势图"
+  }
+}
+```
+
+资源类型枚举：
+- `dataset` - 数据集
+- `file` - 工作区文件
+- `script` - 脚本资源
+- `chart` - 图表规格
+- `report` - 报告
+- `stat_result` - 统计结果
+- `transform` - 数据转换记录
+- `artifact` - 产物文件
+
+### 旧工具迁移说明
+
+以下旧工具已从模型可见接口中移除，功能由新基础工具替代：
+
+| 旧工具 | 替代方案 |
+|--------|----------|
+| `t_test`, `anova`, `mann_whitney`, `kruskal_wallis` | `stat_test`（method 参数） |
+| `correlation`, `regression` | `stat_model`（method 参数） |
+| `create_chart`, `export_chart` | `chart_session` |
+| `generate_report`, `export_report` | `report_session` |
+| `run_code`, `run_r_code` | `code_session` |
+| `load_dataset`, `preview_data` | `dataset_catalog` |
+| `clean_data`（高频操作） | `dataset_transform` |
+
+**复合分析技能**（`complete_comparison`, `complete_anova`, `correlation_analysis`, `regression_analysis`）改为内部编排层实现，通过组合基础工具完成，不再作为与基础工具同级的模型接口暴露。
+
+---
+
+## 技能清单（旧版，已弃用）
+
+> **注意**：以下列表为旧版工具，仅作参考。新实现请使用上方的基础工具层。
 
 **任务规划**
 - `task_write`：LLM 驱动的结构化任务列表生成

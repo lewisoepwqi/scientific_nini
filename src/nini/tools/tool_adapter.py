@@ -114,7 +114,11 @@ class ToolAdapter:
         """
         skills = self._registry._skills.values()
         if exposed_only:
-            skills = [s for s in skills if s.expose_to_llm]
+            allowlist = getattr(self._registry, "_llm_exposed_function_tools", None)
+            if allowlist is not None:
+                skills = [s for s in skills if s.name in allowlist]
+            else:
+                skills = [s for s in skills if s.expose_to_llm]
         return [to_openai_tool(s) for s in skills]
 
     def to_mcp_tools(self) -> list[dict[str, Any]]:

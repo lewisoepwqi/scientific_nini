@@ -90,6 +90,7 @@ def test_generate_report_writes_document_and_knowledge() -> None:
     artifact = artifacts[0]
     assert artifact["name"] == "phase6_report.md"
     assert artifact["kind"] == "document"
+    assert result["data"]["report_id"].startswith("report_")
 
     report_path = Path(artifact["path"])
     assert report_path.exists()
@@ -106,6 +107,12 @@ def test_generate_report_writes_document_and_knowledge() -> None:
 
     knowledge_text = session.knowledge_memory.read()
     assert "## 测试报告" in knowledge_text
+
+    resources = WorkspaceManager(session.id).list_resource_summaries()
+    assert any(
+        item["id"] == result["data"]["report_id"] and item["resource_type"] == "report"
+        for item in resources
+    )
 
 
 def test_generate_report_can_include_single_session_stats_section() -> None:
@@ -250,6 +257,41 @@ def test_export_chart_exports_html_artifact() -> None:
     assert artifact["name"] == "phase6_export.html"
     assert Path(artifact["path"]).exists()
     assert artifact["download_url"].endswith("/phase6_export.html")
+
+
+def test_export_chart_can_fallback_to_chart_resource() -> None:
+    registry = create_default_registry()
+    session = Session()
+    session.datasets["exp.csv"] = pd.DataFrame({"group": ["a", "b"], "value": [1.2, 2.4]})
+
+    chart_res = asyncio.run(
+        registry.execute(
+            "chart_session",
+            session=session,
+            operation="create",
+            dataset_name="exp.csv",
+            chart_type="bar",
+            x_column="group",
+            y_column="value",
+            title="Bar Chart Resource",
+        )
+    )
+    assert chart_res["success"] is True, chart_res
+
+    session.artifacts.pop("latest_chart", None)
+
+    export_res = asyncio.run(
+        registry.execute(
+            "export_chart",
+            session=session,
+            format="html",
+            filename="phase6_resource_export",
+        )
+    )
+    assert export_res["success"] is True, export_res
+    artifact = export_res["artifacts"][0]
+    assert artifact["name"] == "phase6_resource_export.html"
+    assert Path(artifact["path"]).exists()
 
 
 def test_skill_execute_runs_in_current_thread() -> None:

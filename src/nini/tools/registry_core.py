@@ -56,6 +56,7 @@ class FunctionToolRegistryOps:
         items: list[dict[str, Any]] = []
         for skill in self._owner._skills.values():
             manifest = skill.to_manifest()
+            exposed_to_llm = self._is_exposed_to_llm(skill)
             items.append(
                 {
                     "type": "function",
@@ -68,7 +69,7 @@ class FunctionToolRegistryOps:
                     "typical_use_cases": manifest.typical_use_cases,
                     "location": f"{skill.__class__.__module__}.{skill.__class__.__name__}",
                     "enabled": True,
-                    "expose_to_llm": skill.expose_to_llm,
+                    "expose_to_llm": exposed_to_llm,
                     "metadata": {
                         "parameters": skill.parameters,
                         "is_idempotent": skill.is_idempotent,
@@ -87,8 +88,14 @@ class FunctionToolRegistryOps:
         return [
             skill.get_tool_definition()
             for skill in self._owner._skills.values()
-            if skill.expose_to_llm
+            if self._is_exposed_to_llm(skill)
         ]
+
+    def _is_exposed_to_llm(self, skill: Skill) -> bool:
+        allowlist = getattr(self._owner, "_llm_exposed_function_tools", None)
+        if allowlist is not None:
+            return skill.name in allowlist
+        return skill.expose_to_llm
 
     async def execute(
         self,

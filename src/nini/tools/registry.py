@@ -9,9 +9,13 @@ from nini.agent.session import Session
 from nini.config import settings
 from nini.sandbox.r_router import detect_r_backend
 from nini.tools.clean_data import CleanDataSkill, RecommendCleaningStrategySkill
+from nini.tools.chart_session import ChartSessionSkill
+from nini.tools.code_session import CodeSessionSkill
 from nini.tools.code_exec import RunCodeSkill
+from nini.tools.dataset_catalog import DatasetCatalogSkill
 from nini.tools.data_ops import DataSummarySkill, LoadDatasetSkill, PreviewDataSkill
 from nini.tools.data_quality import DataQualitySkill
+from nini.tools.dataset_transform import DatasetTransformSkill
 from nini.tools.edit_file import EditFile
 from nini.tools.export import ExportChartSkill
 from nini.tools.export_document import ExportDocumentSkill
@@ -24,6 +28,7 @@ from nini.tools.registry_catalog import ToolCatalogOps
 from nini.tools.registry_core import FunctionToolRegistryOps
 from nini.tools.registry_markdown import MarkdownSkillRegistryOps
 from nini.tools.report import GenerateReportSkill
+from nini.tools.report_session import ReportSessionSkill
 from nini.tools.statistics import (
     ANOVASkill,
     CorrelationSkill,
@@ -33,7 +38,11 @@ from nini.tools.statistics import (
     RegressionSkill,
     TTestSkill,
 )
+from nini.tools.stat_interpret import StatInterpretSkill
+from nini.tools.stat_model import StatModelSkill
+from nini.tools.stat_test import StatTestSkill
 from nini.tools.task_write import TaskWriteSkill
+from nini.tools.task_state import TaskStateSkill
 from nini.tools.templates import (
     CompleteANOVASkill,
     CompleteComparisonSkill,
@@ -42,8 +51,22 @@ from nini.tools.templates import (
 )
 from nini.tools.visualization import CreateChartSkill
 from nini.tools.workspace_files import ListWorkspaceFilesSkill
+from nini.tools.workspace_session import WorkspaceSessionSkill
 
 logger = logging.getLogger(__name__)
+
+LLM_EXPOSED_BASE_TOOL_NAMES = {
+    "task_state",
+    "dataset_catalog",
+    "dataset_transform",
+    "stat_test",
+    "stat_model",
+    "stat_interpret",
+    "chart_session",
+    "report_session",
+    "workspace_session",
+    "code_session",
+}
 
 
 class ToolRegistry:
@@ -60,6 +83,7 @@ class ToolRegistry:
         self._markdown_enabled_overrides: dict[str, bool] = {}
         self._fallback_manager: Any = None
         self._diagnostics: Any = None
+        self._llm_exposed_function_tools = set(LLM_EXPOSED_BASE_TOOL_NAMES)
 
         self._function_ops = FunctionToolRegistryOps(self)
         self._markdown_ops = MarkdownSkillRegistryOps(self)
@@ -188,9 +212,12 @@ def create_default_tool_registry() -> ToolRegistry:
     """创建并注册默认工具集(Tools)。"""
     registry = ToolRegistry()
     registry.register(TaskWriteSkill())
+    registry.register(TaskStateSkill())
     registry.register(LoadDatasetSkill())
     registry.register(PreviewDataSkill())
     registry.register(DataSummarySkill())
+    registry.register(DatasetCatalogSkill())
+    registry.register(DatasetTransformSkill())
     registry.register(TTestSkill())
     registry.register(MannWhitneySkill())
     registry.register(ANOVASkill())
@@ -198,6 +225,10 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(CorrelationSkill())
     registry.register(RegressionSkill())
     registry.register(MultipleComparisonCorrectionSkill())
+    registry.register(StatTestSkill())
+    registry.register(StatModelSkill())
+    registry.register(StatInterpretSkill())
+    registry.register(CodeSessionSkill())
     registry.register(RunCodeSkill())
     if settings.r_enabled:
         backend = detect_r_backend()
@@ -211,12 +242,14 @@ def create_default_tool_registry() -> ToolRegistry:
                 backend["message"],
             )
     registry.register(CreateChartSkill())
+    registry.register(ChartSessionSkill())
     registry.register(ExportChartSkill())
     registry.register(ExportDocumentSkill())
     registry.register(CleanDataSkill())
     registry.register(RecommendCleaningStrategySkill())
     registry.register(DataQualitySkill())
     registry.register(GenerateReportSkill())
+    registry.register(ReportSessionSkill())
     registry.register(ExportReportSkill())
     registry.register(OrganizeWorkspaceSkill())
     registry.register(FetchURLSkill())
@@ -227,6 +260,7 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(InterpretStatisticalResultSkill())
     registry.register(EditFile())
     registry.register(ListWorkspaceFilesSkill())
+    registry.register(WorkspaceSessionSkill())
     registry.reload_markdown_skills()
     registry.write_skills_snapshot()
     return registry

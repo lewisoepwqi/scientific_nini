@@ -44,6 +44,10 @@ class ExportChartSkill(Skill):
         return {
             "type": "object",
             "properties": {
+                "chart_id": {
+                    "type": "string",
+                    "description": "可选。指定图表会话资源 ID，优先从图表会话导出。",
+                },
                 "format": {
                     "type": "string",
                     "enum": self._formats,
@@ -66,6 +70,7 @@ class ExportChartSkill(Skill):
         return False
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+        chart_id = str(kwargs.get("chart_id", "")).strip()
         fmt = str(kwargs.get("format", "png")).lower().strip()
         filename = kwargs.get("filename")
         width = int(kwargs.get("width", 1200))
@@ -75,7 +80,31 @@ class ExportChartSkill(Skill):
         if fmt not in self._formats:
             return SkillResult(success=False, message=f"不支持的导出格式: {fmt}")
 
+        if chart_id:
+            return await self._export_from_chart_session(
+                session,
+                chart_id=chart_id,
+                format=fmt,
+                filename=filename,
+                width=width,
+                height=height,
+                scale=scale,
+            )
+
         latest = session.artifacts.get("latest_chart")
+        if not isinstance(latest, dict) or "chart_data" not in latest:
+            latest_chart_resource = self._find_latest_chart_resource(session.id)
+            if latest_chart_resource is not None:
+                return await self._export_from_chart_session(
+                    session,
+                    chart_id=str(latest_chart_resource.get("id", "")).strip(),
+                    format=fmt,
+                    filename=filename,
+                    width=width,
+                    height=height,
+                    scale=scale,
+                )
+
         if not isinstance(latest, dict) or "chart_data" not in latest:
             return SkillResult(
                 success=False, message="当前会话没有可导出的图表，请先调用 create_chart"
@@ -173,6 +202,30 @@ class ExportChartSkill(Skill):
 
         return self._build_result(session, storage, fig, fmt, full_name, path)
 
+    async def _export_from_chart_session(
+        self,
+        session: Session,
+        *,
+        chart_id: str,
+        format: str,
+        filename: Any,
+        width: int,
+        height: int,
+        scale: float,
+    ) -> SkillResult:
+        from nini.tools.chart_session import ChartSessionSkill
+
+        return await ChartSessionSkill().execute(
+            session,
+            operation="export",
+            chart_id=chart_id,
+            format=format,
+            filename=filename,
+            width=width,
+            height=height,
+            scale=scale,
+        )
+
     async def _try_fallback_export(
         self,
         fig: go.Figure,
@@ -237,3 +290,15 @@ class ExportChartSkill(Skill):
         chart_type = str(latest_chart.get("chart_type", "chart"))
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         return f"{chart_type}_{ts}"
+
+    def _find_latest_chart_resource(self, session_id: str) -> dict[str, Any] | None:
+        workspace = WorkspaceManager(session_id)
+        chart_resources = [
+            item
+            for item in workspace.list_resource_summaries()
+            if isinstance(item, dict) and str(item.get("resource_type", "")).strip() == "chart"
+        ]
+        if not chart_resources:
+            return None
+        chart_resources.sort(key=lambda item: str(item.get("updated_at", "")), reverse=True)
+        return chart_resources[0]
