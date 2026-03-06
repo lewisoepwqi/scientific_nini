@@ -20,10 +20,6 @@ vi.mock('./AskUserQuestionPanel', () => ({
   default: () => <div>question-panel</div>,
 }))
 
-vi.mock('./IntentSummaryCard', () => ({
-  default: () => <div>intent-summary</div>,
-}))
-
 vi.mock('./IntentTimelineItem', () => ({
   default: () => <div>intent-timeline</div>,
 }))
@@ -38,7 +34,6 @@ describe('ChatPanel', () => {
       isStreaming: true,
       pendingAskUserQuestion: null,
       currentIntentAnalysis: null,
-      intentAnalysisLoading: false,
       _streamingMetrics: {
         startedAt: new Date('2026-03-04T12:00:00Z').getTime(),
         turnId: 'turn-1',
