@@ -1282,7 +1282,7 @@ function taskActivityByStatus(status: AnalysisTaskItem["status"]): string | null
   }
 }
 
-function parseTaskWritePayload(
+function parseTaskPlannerPayload(
   rawArguments: string | undefined,
 ): { mode: string; tasks: Array<Record<string, unknown>> } | null {
   if (typeof rawArguments !== "string" || !rawArguments.trim()) {
@@ -1293,8 +1293,14 @@ function parseTaskWritePayload(
     if (!isRecord(parsed) || !Array.isArray(parsed.tasks)) {
       return null;
     }
+    const rawMode =
+      typeof parsed.mode === "string" && parsed.mode.trim()
+        ? parsed.mode.trim()
+        : typeof parsed.operation === "string" && parsed.operation.trim()
+          ? parsed.operation.trim()
+          : "init";
     return {
-      mode: typeof parsed.mode === "string" ? parsed.mode.trim() : "init",
+      mode: rawMode,
       tasks: parsed.tasks.filter((item): item is Record<string, unknown> => isRecord(item)),
     };
   } catch {
@@ -1397,10 +1403,13 @@ export function buildSessionRestoreState(
 
     for (const toolCall of raw.tool_calls) {
       const func = isRecord(toolCall.function) ? toolCall.function : null;
-      if (!func || func.name !== "task_write") {
+      if (
+        !func ||
+        (func.name !== "task_write" && func.name !== "task_state")
+      ) {
         continue;
       }
-      const payload = parseTaskWritePayload(
+      const payload = parseTaskPlannerPayload(
         typeof func.arguments === "string" ? func.arguments : undefined,
       );
       if (!payload) {
@@ -1433,9 +1442,27 @@ export function buildSessionRestoreState(
         if (!nextTask) continue;
 
         const existing = nextPlan.tasks.get(nextTask.plan_step_id);
+        const hasExplicitTitle =
+          typeof rawTask.title === "string" && rawTask.title.trim().length > 0;
+        const hasExplicitToolHint =
+          typeof rawTask.tool_hint === "string" && rawTask.tool_hint.trim().length > 0;
+        const hasExplicitActionId =
+          typeof rawTask.action_id === "string" && rawTask.action_id.trim().length > 0;
         nextPlan.tasks.set(nextTask.plan_step_id, {
           ...(existing ?? nextTask),
           ...nextTask,
+          title:
+            hasExplicitTitle || !existing
+              ? nextTask.title
+              : existing.title,
+          tool_hint:
+            hasExplicitToolHint || !existing
+              ? nextTask.tool_hint
+              : existing.tool_hint,
+          action_id:
+            hasExplicitActionId || !existing
+              ? nextTask.action_id
+              : existing.action_id,
           attempts: existing?.attempts ?? [],
           created_at: existing?.created_at ?? nextTask.created_at,
           updated_at: createdAt,

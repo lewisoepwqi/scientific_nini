@@ -289,6 +289,58 @@ describe("store reconnect / retry / stop", () => {
     expect(useStore.getState().analysisPlanProgress).not.toBeNull();
     expect(useStore.getState().workspacePanelTab).toBe("tasks");
   });
+
+  it("switchSession 应恢复 task_state 历史任务状态", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/api/sessions/session-task-state/messages")) {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: {
+              messages: [
+                {
+                  role: "assistant",
+                  turn_id: "turn-task-state",
+                  _ts: "2026-03-04T10:00:00Z",
+                  tool_calls: [
+                    {
+                      id: "call-init",
+                      type: "function",
+                      function: {
+                        name: "task_state",
+                        arguments: JSON.stringify({
+                          operation: "init",
+                          tasks: [
+                            { id: 1, title: "检查数据质量", status: "pending" },
+                            { id: 2, title: "执行相关性分析", status: "in_progress" },
+                          ],
+                        }),
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        json: async () => ({ success: true, data: {} }),
+      } as Response);
+    });
+
+    await useStore.getState().switchSession("session-task-state");
+
+    expect(useStore.getState().analysisTasks).toHaveLength(2);
+    expect(useStore.getState().analysisTasks[1]).toMatchObject({
+      title: "执行相关性分析",
+      status: "in_progress",
+    });
+    expect(useStore.getState().analysisPlanProgress).not.toBeNull();
+    expect(useStore.getState().workspacePanelTab).toBe("tasks");
+  });
 });
 
 afterAll(() => {

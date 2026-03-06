@@ -11,15 +11,22 @@ interface Props {
   alt?: string
 }
 
-function buildPlotlyFetchUrl(url: string): string {
+export function buildPlotlyFetchUrl(url: string): string {
   const clean = url.split('#')[0]?.split('?')[0]?.toLowerCase() || ''
   if (!clean.endsWith('.plotly.json')) {
     return url
   }
   try {
     const parsed = new URL(url, window.location.origin)
+    const isWorkspaceFileApi =
+      parsed.pathname.includes('/api/workspace/') && parsed.pathname.includes('/files/')
+
     if (!parsed.searchParams.has('raw')) {
       parsed.searchParams.set('raw', '1')
+    }
+    if (isWorkspaceFileApi && !parsed.searchParams.has('download')) {
+      // /api/workspace/{sid}/files/{path} 默认返回 JSON 包装，download=1 才返回原始文件内容。
+      parsed.searchParams.set('download', '1')
     }
     if (url.startsWith('http://') || url.startsWith('https://')) {
       return parsed.toString()
@@ -29,6 +36,34 @@ function buildPlotlyFetchUrl(url: string): string {
     const separator = url.includes('?') ? '&' : '?'
     return `${url}${separator}raw=1`
   }
+}
+
+export function normalizePlotlyPayload(payload: unknown): unknown {
+  if (typeof payload !== 'object' || payload === null) {
+    return payload
+  }
+  const record = payload as Record<string, unknown>
+
+  if (
+    typeof record.success === 'boolean' &&
+    typeof record.data === 'object' &&
+    record.data !== null &&
+    'content' in (record.data as Record<string, unknown>)
+  ) {
+    const content = (record.data as Record<string, unknown>).content
+    if (typeof content === 'string') {
+      try {
+        return JSON.parse(content)
+      } catch {
+        return payload
+      }
+    }
+    if (typeof content === 'object' && content !== null) {
+      return content
+    }
+  }
+
+  return payload
 }
 
 export default function PlotlyFromUrl({ url, alt }: Props) {
@@ -60,7 +95,7 @@ export default function PlotlyFromUrl({ url, alt }: Props) {
         return resp.json()
       })
       .then((payload) => {
-        setChartData(payload)
+        setChartData(normalizePlotlyPayload(payload))
       })
       .catch((err: unknown) => {
         if ((err as { name?: string }).name === 'AbortError') {

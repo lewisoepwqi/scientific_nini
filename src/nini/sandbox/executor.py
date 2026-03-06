@@ -109,6 +109,8 @@ SAFE_BUILTINS: dict[str, Any] = {
     "str": str,
     "sum": sum,
     "tuple": tuple,
+    "type": type,
+    "repr": repr,
     "zip": zip,
     "Exception": Exception,
     "ValueError": ValueError,

@@ -18,6 +18,8 @@ from nini.workspace import WorkspaceManager
 class ReportSessionSkill(Skill):
     """管理报告会话资源。"""
 
+    _EMBEDDED_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".plotly.json")
+
     @property
     def name(self) -> str:
         return "report_session"
@@ -304,7 +306,7 @@ class ReportSessionSkill(Skill):
                 lines.append("")
                 lines.append("### 关联资源")
                 for resource_id in section.attachments:
-                    lines.append(self._resource_markdown_line(manager, resource_id))
+                    lines.extend(self._resource_markdown_lines(manager, resource_id))
             lines.append("")
         manager.save_text_file(rel_path, "\n".join(lines).strip() + "\n")
         return rel_path
@@ -317,15 +319,44 @@ class ReportSessionSkill(Skill):
             normalized += ".md"
         return normalized.lstrip("/").replace("\\", "/")
 
-    def _resource_markdown_line(self, manager: WorkspaceManager, resource_id: str) -> str:
+    def _resource_markdown_lines(self, manager: WorkspaceManager, resource_id: str) -> list[str]:
         resource = manager.get_resource_summary(resource_id)
         if not isinstance(resource, dict):
-            return f"- 资源 `{resource_id}`"
-        name = str(resource.get("name", resource_id))
+            return [f"- 资源 `{resource_id}`"]
+        name = str(resource.get("name", resource_id)).strip() or resource_id
         url = str(resource.get("download_url", "")).strip()
+        if url and self._should_embed_resource(resource, name=name, url=url):
+            return [f"![{name}]({url})", ""]
         if url:
-            return f"- [{name}]({url})"
-        return f"- 资源 `{name}`"
+            return [f"- [{name}]({url})"]
+        return [f"- 资源 `{name}`"]
+
+    def _should_embed_resource(
+        self,
+        resource: dict[str, Any],
+        *,
+        name: str,
+        url: str,
+    ) -> bool:
+        resource_type = str(resource.get("resource_type", "")).strip().lower()
+        if resource_type == ResourceType.CHART.value:
+            return True
+
+        metadata = resource.get("metadata")
+        if isinstance(metadata, dict):
+            mime_type = str(metadata.get("mime_type", "")).strip().lower()
+            if mime_type.startswith("image/"):
+                return True
+
+        mime_type = str(resource.get("mime_type", "")).strip().lower()
+        if mime_type.startswith("image/"):
+            return True
+
+        normalized_name = name.lower()
+        normalized_url = url.lower()
+        return normalized_name.endswith(self._EMBEDDED_IMAGE_SUFFIXES) or normalized_url.endswith(
+            self._EMBEDDED_IMAGE_SUFFIXES
+        )
 
     def _update_latest_report_handles(self, session: Session, record: ReportSessionRecord) -> None:
         if not record.markdown_path:

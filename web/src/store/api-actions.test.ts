@@ -221,6 +221,71 @@ describe("buildMessagesFromHistory", () => {
     expect(restored.analysisPlanProgress).toBeNull();
   });
 
+  it("应从 task_state 历史中恢复任务列表", () => {
+    const rawMessages: RawSessionMessage[] = [
+      {
+        role: "assistant",
+        turn_id: "turn-state-1",
+        _ts: "2026-03-04T10:00:00Z",
+        tool_calls: [
+          {
+            id: "call-init-1",
+            type: "function",
+            function: {
+              name: "task_state",
+              arguments: JSON.stringify({
+                operation: "init",
+                tasks: [
+                  { id: 1, title: "加载数据", status: "pending", tool_hint: "dataset_catalog" },
+                  { id: 2, title: "执行建模", status: "pending", tool_hint: "stat_model" },
+                ],
+              }),
+            },
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        turn_id: "turn-state-1",
+        _ts: "2026-03-04T10:00:05Z",
+        tool_calls: [
+          {
+            id: "call-update-1",
+            type: "function",
+            function: {
+              name: "task_state",
+              arguments: JSON.stringify({
+                operation: "update",
+                tasks: [
+                  { id: 1, title: "加载数据", status: "completed" },
+                  { id: 2, title: "执行建模", status: "in_progress" },
+                ],
+              }),
+            },
+          },
+        ],
+      },
+    ];
+
+    const restored = buildSessionRestoreState(rawMessages);
+
+    expect(restored.analysisTasks).toHaveLength(2);
+    expect(restored.analysisTasks[0]).toMatchObject({
+      turn_id: "turn-state-1",
+      plan_step_id: 1,
+      title: "加载数据",
+      status: "done",
+    });
+    expect(restored.analysisTasks[1]).toMatchObject({
+      turn_id: "turn-state-1",
+      plan_step_id: 2,
+      title: "执行建模",
+      status: "in_progress",
+      tool_hint: "stat_model",
+    });
+    expect(restored.analysisPlanProgress).not.toBeNull();
+  });
+
   it("应从 ask_user_question 历史中恢复用户选择与输入摘要", () => {
     const rawMessages: RawSessionMessage[] = [
       {

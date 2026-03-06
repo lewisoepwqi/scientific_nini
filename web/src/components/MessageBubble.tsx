@@ -18,6 +18,7 @@ import {
 import DataViewer from "./DataViewer";
 import ArtifactDownload from "./ArtifactDownload";
 import MarkdownContent from "./MarkdownContent";
+import PlotlyFromUrl from "./PlotlyFromUrl";
 import ReasoningPanel from "./ReasoningPanel";
 import CitationMarker from "./CitationMarker";
 import CitationList from "./CitationList";
@@ -30,6 +31,45 @@ interface Props {
 }
 
 const ChartViewer = lazy(() => import("./ChartViewer"));
+const TOOL_RESULT_PREVIEW_LIMIT = 72;
+
+function extractPlotlyJsonUrl(chartData: unknown): string | null {
+  if (!chartData || typeof chartData !== "object") {
+    return null;
+  }
+  const record = chartData as Record<string, unknown>;
+  const rawUrl =
+    (typeof record.url === "string" && record.url) ||
+    (typeof record.download_url === "string" && record.download_url) ||
+    "";
+  if (!rawUrl) {
+    return null;
+  }
+  const clean = rawUrl.split("#")[0]?.split("?")[0]?.toLowerCase() || "";
+  return clean.endsWith(".plotly.json") ? rawUrl : null;
+}
+
+function buildToolResultPreview(toolResult?: string): string | null {
+  if (typeof toolResult !== "string") {
+    return null;
+  }
+
+  const compact = toolResult
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, (_, alt: string) => alt || "图片")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[`#>*_~]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!compact || compact === "工具执行完成" || compact === "工具执行失败") {
+    return null;
+  }
+
+  if (compact.length <= TOOL_RESULT_PREVIEW_LIMIT) {
+    return compact;
+  }
+  return `${compact.slice(0, TOOL_RESULT_PREVIEW_LIMIT).trimEnd()}...`;
+}
 
 // 解析引用标记 [1], [2] 等
 function parseCitations(content: string): { text: string; citations: Array<{ index: number; text: string }> } {
@@ -106,6 +146,7 @@ function MessageBubble({
     !!message.chartData ||
     (!!message.images && message.images.length > 0) ||
     hasEmbeddedPlotly;
+  const plotlyUrl = extractPlotlyJsonUrl(message.chartData);
   const thinkingLabelClass = message.reasoningLive
     ? "nini-thinking-shimmer"
     : "";
@@ -244,6 +285,16 @@ function MessageBubble({
   if (isTool) {
     const hasResult = !!message.toolResult;
     const isError = message.toolStatus === "error";
+    const resultPreview = buildToolResultPreview(message.toolResult);
+    const statusLabel = hasResult
+      ? isError
+        ? resultPreview
+          ? `执行失败：${resultPreview}`
+          : "执行失败"
+        : resultPreview
+          ? `执行完成：${resultPreview}`
+          : "执行完成"
+      : null;
 
     // 根据状态确定颜色主题
     const themeColors = isError
@@ -290,39 +341,44 @@ function MessageBubble({
               onClick={() => setToolExpanded(!toolExpanded)}
               className={`w-full flex items-center justify-between px-3 py-2 text-sm ${themeColors.headerBg} transition-colors`}
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 {hasResult ? (
                   isError ? (
-                    <XCircle size={14} className="text-red-600" />
+                    <XCircle size={14} className="text-red-600 flex-shrink-0" />
                   ) : (
-                    <CheckCircle2 size={14} className="text-green-600" />
+                    <CheckCircle2 size={14} className="text-green-600 flex-shrink-0" />
                   )
                 ) : (
-                  <Play size={14} className={themeColors.icon} />
+                  <Play size={14} className={`${themeColors.icon} flex-shrink-0`} />
                 )}
-                <span className={`font-medium ${themeColors.title}`}>
+                <span
+                  className={`inline-flex items-center leading-none font-medium ${themeColors.title} shrink-0`}
+                >
                   {message.toolName || "工具调用"}
                 </span>
+                {statusLabel && (
+                  <span
+                    className={`min-w-0 flex-1 text-left ${isError ? "text-red-700" : "text-green-600"}`}
+                    title={message.toolResult || statusLabel}
+                  >
+                    <span className="block w-full truncate whitespace-nowrap text-left text-xs leading-none">
+                      {statusLabel}
+                    </span>
+                  </span>
+                )}
                 {message.toolIntent && (
                   <span
-                    className={`text-xs ${themeColors.title} opacity-80 truncate max-w-[260px]`}
+                    className={`inline-flex items-center leading-none text-xs ${themeColors.title} opacity-80 truncate max-w-[260px]`}
                     title={message.toolIntent}
                   >
                     {message.toolIntent}
                   </span>
                 )}
-                {hasResult && (
-                  <span
-                    className={`text-xs ${isError ? "text-red-600" : "text-green-600"}`}
-                  >
-                    {isError ? "执行失败" : "执行完成"}
-                  </span>
-                )}
               </div>
               {toolExpanded ? (
-                <ChevronDown size={14} className={themeColors.icon} />
+                <ChevronDown size={14} className={`${themeColors.icon} ml-2 flex-shrink-0`} />
               ) : (
-                <ChevronRight size={14} className={themeColors.icon} />
+                <ChevronRight size={14} className={`${themeColors.icon} ml-2 flex-shrink-0`} />
               )}
             </button>
 
@@ -435,15 +491,19 @@ function MessageBubble({
                 <CitationList retrievals={message.retrievals} />
               )}
               {message.chartData && (
-                <Suspense
-                  fallback={
-                    <div className="text-xs text-gray-500 mt-2">
-                      图表组件加载中...
-                    </div>
-                  }
-                >
-                  <ChartViewer chartData={message.chartData} />
-                </Suspense>
+                plotlyUrl ? (
+                  <PlotlyFromUrl url={plotlyUrl} alt="图表" />
+                ) : (
+                  <Suspense
+                    fallback={
+                      <div className="text-xs text-gray-500 mt-2">
+                        图表组件加载中...
+                      </div>
+                    }
+                  >
+                    <ChartViewer chartData={message.chartData} />
+                  </Suspense>
+                )
               )}
               {message.dataPreview && (
                 <DataViewer preview={message.dataPreview} />

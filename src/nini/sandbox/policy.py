@@ -108,7 +108,6 @@ BANNED_CALLS: set[str] = {
     "locals",
     "vars",
     "dir",
-    "type",
     "breakpoint",
 }
 

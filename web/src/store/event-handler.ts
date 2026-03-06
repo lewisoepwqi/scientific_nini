@@ -445,20 +445,41 @@ export function handleEvent(
           const buffer = { ...s._messageBuffer };
           const turnId = evt.turn_id || s._currentTurnId || undefined;
           const timestamp = Date.now();
-
           const existingEntry = buffer[messageId];
+          const existingMessage = s.messages.find(
+            (msg) =>
+              msg.role === "assistant" &&
+              !msg.isReasoning &&
+              msg.messageId === messageId,
+          );
+          const existingContent = existingMessage?.content ?? existingEntry?.content ?? "";
 
-          if (operation === "complete") {
+          if (!text && operation === "complete") {
             delete buffer[messageId];
             return { _messageBuffer: buffer };
           }
 
+          let effectiveOperation = operation;
+          let finalContent = text;
+          if (operation === "complete") {
+            effectiveOperation = "replace";
+            if (existingContent) {
+              if (text.startsWith(existingContent)) {
+                finalContent = text;
+              } else if (existingContent.startsWith(text)) {
+                finalContent = existingContent;
+              } else {
+                finalContent = `${existingContent}${text}`;
+              }
+            }
+          }
+
           const nextMessages = upsertAssistantTextMessage(s.messages, {
-            content: text,
+            content: finalContent,
             timestamp,
             messageId,
             turnId,
-            operation,
+            operation: effectiveOperation,
           });
           const currentContent =
             nextMessages.find(
@@ -466,15 +487,17 @@ export function handleEvent(
                 msg.role === "assistant" &&
                 !msg.isReasoning &&
                 msg.messageId === messageId,
-            )?.content ??
-            (operation === "append"
-              ? `${existingEntry?.content ?? ""}${text}`
-              : text);
-          buffer[messageId] = {
-            content: currentContent,
-            operation,
-            timestamp,
-          };
+            )?.content ?? finalContent;
+
+          if (operation === "complete") {
+            delete buffer[messageId];
+          } else {
+            buffer[messageId] = {
+              content: currentContent,
+              operation: effectiveOperation,
+              timestamp,
+            };
+          }
 
           return {
             messages: nextMessages,

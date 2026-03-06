@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from nini.agent.session import Session
@@ -115,6 +116,11 @@ class StatModelSkill(Skill):
             return SkillResult(success=False, message=f"不支持的 method: {method}")
 
         params = {k: v for k, v in kwargs.items() if k != "method"}
+        self._normalize_sequence_params(params)
+        validation_error = self._validate_sequence_params(params)
+        if validation_error is not None:
+            return validation_error
+
         dataset_name = self._resolve_dataset_name(session, params)
         if isinstance(dataset_name, SkillResult):
             return dataset_name
@@ -167,3 +173,34 @@ class StatModelSkill(Skill):
             success=False,
             message=f"缺少 dataset_name，当前会话存在多个数据集，请明确指定（可选: {preview}{suffix}）",
         )
+
+    def _normalize_sequence_params(self, params: dict[str, Any]) -> None:
+        """归一化列表参数，兼容模型输出的字符串化 JSON 数组。"""
+        for key in ("columns", "independent_vars"):
+            value = params.get(key)
+            if not isinstance(value, str):
+                continue
+            stripped = value.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("[") and stripped.endswith("]"):
+                try:
+                    parsed = json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(parsed, list):
+                    params[key] = parsed
+
+    def _validate_sequence_params(self, params: dict[str, Any]) -> SkillResult | None:
+        """对列表参数做前置校验，避免下游返回误导性错误。"""
+        for key in ("columns", "independent_vars"):
+            if key not in params:
+                continue
+            value = params[key]
+            if not isinstance(value, list):
+                value_type = type(value).__name__
+                return SkillResult(
+                    success=False,
+                    message=f"参数 {key} 必须是数组（list），当前是 {value_type}",
+                )
+        return None
