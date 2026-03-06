@@ -11,6 +11,7 @@ from contextlib import suppress
 from typing import Any, AsyncGenerator
 
 from nini.config import settings
+from nini.config_manager import BUILTIN_PROVIDER_ID
 
 from .providers import (
     AnthropicClient,
@@ -29,6 +30,11 @@ from .providers import (
 )
 
 logger = logging.getLogger(__name__)
+
+BUILTIN_PROVIDER_NAME = "系统内置"
+BUILTIN_MODE_FAST = "fast"
+BUILTIN_MODE_DEEP = "deep"
+BUILTIN_MODE_TITLE = "title"
 
 # ---- 标题生成廉价模型偏好顺序 ----
 # 按 provider_id 映射到廉价模型名称列表（优先级从高到低）
@@ -127,6 +133,53 @@ class ModelResolver:
         ]
         self._client_map = {c.provider_id: c for c in self._clients}
 
+    def _normalize_builtin_mode(self, purpose: str, mode: str | None) -> str:
+        """归一化系统内置模式标识。"""
+        normalized = (mode or "").strip().lower()
+        if purpose == "title_generation":
+            return BUILTIN_MODE_TITLE
+        if normalized == BUILTIN_MODE_DEEP:
+            return BUILTIN_MODE_DEEP
+        return BUILTIN_MODE_FAST
+
+    def _get_builtin_display_name(self, purpose: str, mode: str | None) -> str:
+        """获取系统内置模式的展示名称。"""
+        normalized = self._normalize_builtin_mode(purpose, mode)
+        if normalized == BUILTIN_MODE_DEEP:
+            return "深度"
+        if normalized == BUILTIN_MODE_TITLE:
+            return "标题生成"
+        return "快速"
+
+    def _get_builtin_model_name(self, purpose: str, mode: str | None) -> str | None:
+        """将系统内置模式映射到实际模型名称。"""
+        normalized = self._normalize_builtin_mode(purpose, mode)
+        if purpose == "title_generation":
+            return settings.builtin_title_model
+        if purpose == "image_analysis":
+            return (
+                settings.builtin_image_deep_model
+                if normalized == BUILTIN_MODE_DEEP
+                else settings.builtin_image_fast_model
+            )
+        return (
+            settings.builtin_chat_deep_model
+            if normalized == BUILTIN_MODE_DEEP
+            else settings.builtin_chat_fast_model
+        )
+
+    def _get_builtin_client(self, purpose: str, mode: str | None) -> BaseLLMClient | None:
+        """构造系统内置客户端。"""
+        model_name = self._get_builtin_model_name(purpose, mode)
+        api_key = settings.builtin_dashscope_api_key or settings.dashscope_api_key
+        base_url = settings.builtin_dashscope_base_url
+        if not model_name:
+            return None
+        client = DashScopeClient(api_key=api_key, base_url=base_url, model=model_name)
+        if client.is_available():
+            return client
+        return None
+
     def _get_priority_order(self, purpose: str = "default") -> list[str]:
         """获取指定用途的提供商优先级顺序。"""
         route = self._purpose_routes.get(purpose, self._purpose_routes["default"])
@@ -222,8 +275,21 @@ class ModelResolver:
         # 1) 有激活供应商时，仅使用该供应商（title_generation 走廉价模型偏好）
         # 2) 无激活供应商但有试用客户端时，仅使用试用客户端
         # 3) 其余场景（主要是测试注入）保留多客户端故障转移能力
+        route = self._purpose_routes.get(
+            purpose,
+            {"provider_id": None, "model": None, "base_url": None},
+        )
+        route_provider = route.get("provider_id")
+        route_model = route.get("model")
+
         clients: list[BaseLLMClient] = []
-        if self._active_provider_id:
+        if route_provider == BUILTIN_PROVIDER_ID:
+            builtin_client = self._get_builtin_client(purpose, route_model)
+            if builtin_client:
+                clients = [builtin_client]
+        elif route_provider:
+            clients = self._get_ordered_clients(purpose)
+        elif self._active_provider_id:
             if purpose == "title_generation":
                 title_client = self._get_title_client()
                 if title_client:
@@ -497,9 +563,6 @@ class ModelResolver:
             包含 provider_id, provider_name, model, preferred_provider 的字典
         """
         # 获取按用途排序的客户端列表
-        ordered = self._get_ordered_clients(purpose)
-
-        # 检查 purpose route 中是否配置了特定模型
         route: PurposeRoute = self._purpose_routes.get(
             purpose,
             self._purpose_routes.get(
@@ -508,6 +571,17 @@ class ModelResolver:
         )
         route_model = route.get("model") if route else None
         route_provider = route.get("provider_id") if route else None
+
+        if route_provider == BUILTIN_PROVIDER_ID:
+            return {
+                "provider_id": BUILTIN_PROVIDER_ID,
+                "provider_name": BUILTIN_PROVIDER_NAME,
+                "model": self._get_builtin_display_name(purpose, route_model),
+                "preferred_provider": BUILTIN_PROVIDER_ID,
+                "purpose_preferred_providers": self.get_preferred_providers_by_purpose(),
+            }
+
+        ordered = self._get_ordered_clients(purpose)
 
         for client in ordered:
             if client.is_available():

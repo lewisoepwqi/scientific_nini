@@ -32,6 +32,9 @@ VALID_PROVIDERS = {
     "ollama",
 }
 
+BUILTIN_PROVIDER_ID = "builtin"
+VALID_ROUTE_PROVIDERS = VALID_PROVIDERS | {BUILTIN_PROVIDER_ID}
+
 # 默认提供商优先级（数值越小优先级越高）
 PROVIDER_PRIORITY_ORDER: tuple[str, ...] = (
     "openai",
@@ -524,7 +527,7 @@ async def set_model_purpose_routes(
             normalized_base_url = base_url.strip() if isinstance(base_url, str) else None
             route["base_url"] = normalized_base_url or None
 
-        if route["provider_id"] and route["provider_id"] not in VALID_PROVIDERS:
+        if route["provider_id"] and route["provider_id"] not in VALID_ROUTE_PROVIDERS:
             raise ValueError(f"不支持的模型提供商: {route['provider_id']}")
         if not route["provider_id"] and (route["model"] or route["base_url"]):
             raise ValueError(f"用途 {purpose} 配置了 model/base_url，但缺少 provider_id")
