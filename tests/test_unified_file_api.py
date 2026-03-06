@@ -15,6 +15,7 @@ import uuid
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
+from typing import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,7 +27,7 @@ from tests.client_utils import LocalASGIClient
 
 
 @pytest.fixture
-def client(tmp_path: Path):
+def client(tmp_path: Path) -> Iterator[LocalASGIClient]:
     """创建测试客户端，使用临时数据目录。"""
     data_dir = tmp_path / "data"
 
@@ -36,7 +37,7 @@ def client(tmp_path: Path):
 
 
 @pytest.fixture
-def session_id(client: TestClient) -> str:
+def session_id(client: TestClient) -> Iterator[str]:
     """创建测试会话并返回会话 ID。"""
     sid = f"test-session-{uuid.uuid4().hex[:8]}"
     # 创建会话

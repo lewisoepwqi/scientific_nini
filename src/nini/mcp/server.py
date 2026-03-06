@@ -14,24 +14,35 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import logging
 import uuid
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
 # MCP SDK 版本要求 >= 1.0.0，作为可选依赖安装
 _MCP_AVAILABLE = False
+mcp: Any = None
+types: Any = None
+Server: Any = None
+NotificationOptions: Any = None
+InitializationOptions: Any = None
 try:
-    import mcp.server.stdio
-    import mcp.types as types
-    from mcp.server.lowlevel import NotificationOptions, Server
-    from mcp.server.models import InitializationOptions
-
-    _MCP_AVAILABLE = True
-except ImportError:
-    pass
+    mcp = importlib.import_module("mcp")
+    importlib.import_module("mcp.server.stdio")
+    types = importlib.import_module("mcp.types")
+    lowlevel_mod = importlib.import_module("mcp.server.lowlevel")
+    models_mod = importlib.import_module("mcp.server.models")
+    Server = getattr(lowlevel_mod, "Server", None)
+    NotificationOptions = getattr(lowlevel_mod, "NotificationOptions", None)
+    InitializationOptions = getattr(models_mod, "InitializationOptions", None)
+    _MCP_AVAILABLE = all(
+        value is not None for value in (mcp, types, Server, NotificationOptions, InitializationOptions)
+    )
+except Exception:
+    _MCP_AVAILABLE = False
 
 _SERVER_NAME = "nini"
 _SERVER_VERSION = "2.0.0"  # 对齐 Nini 2.0 架构
@@ -87,7 +98,7 @@ def _create_session() -> Any:
 def create_mcp_server(
     registry: Any = None,
     capability_registry: Any = None,
-) -> "Server":
+) -> Any:
     """创建并配置 MCP Server 实例。
 
     Args:
@@ -107,9 +118,9 @@ def create_mcp_server(
     server = Server(_SERVER_NAME)
 
     @server.list_tools()
-    async def list_tools() -> list[types.Tool]:
+    async def list_tools() -> list[Any]:
         """列出所有暴露给 LLM 的工具（Function Skills + 架构层工具）。"""
-        tools: list[types.Tool] = []
+        tools: list[Any] = []
 
         # 1. 添加架构层工具（Intent/Capability 层）
         tools.extend(_create_architecture_tools(capability_registry))
@@ -130,7 +141,7 @@ def create_mcp_server(
     @server.call_tool()
     async def call_tool(
         name: str, arguments: dict[str, Any] | None
-    ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+    ) -> list[Any]:
         """执行指定工具并返回结果。"""
         args = arguments or {}
 
@@ -143,7 +154,7 @@ def create_mcp_server(
 
         # 序列化结果
         result_text = json.dumps(result, ensure_ascii=False, default=str)
-        contents: list[types.TextContent | types.ImageContent | types.EmbeddedResource] = [
+        contents: list[Any] = [
             types.TextContent(type="text", text=result_text)
         ]
 
@@ -160,12 +171,12 @@ def create_mcp_server(
         return contents
 
     @server.list_resources()
-    async def list_resources() -> list[types.Resource]:
+    async def list_resources() -> list[Any]:
         """列出可用资源。"""
         return []
 
     @server.list_prompts()
-    async def list_prompts() -> list[types.Prompt]:
+    async def list_prompts() -> list[Any]:
         """列出可用提示模板。"""
         return [
             types.Prompt(
@@ -182,7 +193,7 @@ def create_mcp_server(
         ]
 
     @server.get_prompt()
-    async def get_prompt(name: str, arguments: dict[str, Any] | None) -> types.GetPromptResult:
+    async def get_prompt(name: str, arguments: dict[str, Any] | None) -> Any:
         """获取提示模板。"""
         if name == "scientific_analysis":
             domain = arguments.get("research_domain", "general") if arguments else "general"
@@ -213,7 +224,7 @@ def _get_executable_capability_names(capability_registry: Any) -> list[str]:
     ]
 
 
-def _create_architecture_tools(capability_registry: Any) -> list[types.Tool]:
+def _create_architecture_tools(capability_registry: Any) -> list[Any]:
     """创建架构层工具（Intent/Capability 层）。"""
     _check_mcp_available()
     executable_capabilities = _get_executable_capability_names(capability_registry)
@@ -344,7 +355,10 @@ async def _handle_skill_tool(
     try:
         result = await registry.execute(name, session=session, **args)
         if hasattr(result, "to_dict"):
-            return result.to_dict()
+            payload = result.to_dict()
+            if isinstance(payload, dict):
+                return cast(dict[str, Any], payload)
+            return {"success": True, "result": payload}
         elif isinstance(result, dict):
             return result
         else:

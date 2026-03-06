@@ -295,8 +295,22 @@ class TestEventSerialization:
         """分析计划事件应能正确序列化为 JSON。"""
         event_data = AnalysisPlanEventData(
             steps=[
-                AnalysisPlanStep(id=1, title="步骤1", action_id="task_1"),
-                AnalysisPlanStep(id=2, title="步骤2", status="in_progress"),
+                AnalysisPlanStep(
+                    id=1,
+                    title="步骤1",
+                    tool_hint=None,
+                    status="pending",
+                    action_id="task_1",
+                    raw_status=None,
+                ),
+                AnalysisPlanStep(
+                    id=2,
+                    title="步骤2",
+                    tool_hint=None,
+                    status="in_progress",
+                    action_id=None,
+                    raw_status=None,
+                ),
             ],
             raw_text="测试",
         )
@@ -313,7 +327,16 @@ class TestEventSerialization:
     def test_action_id_field_presence(self) -> None:
         """验证 action_id 字段在序列化中始终存在（即使为 null）。"""
         event_data = AnalysisPlanEventData(
-            steps=[AnalysisPlanStep(id=1, title="步骤1")],
+            steps=[
+                AnalysisPlanStep(
+                    id=1,
+                    title="步骤1",
+                    tool_hint=None,
+                    status="pending",
+                    action_id=None,
+                    raw_status=None,
+                )
+            ],
             raw_text="",
         )
 

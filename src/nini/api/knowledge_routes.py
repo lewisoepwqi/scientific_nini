@@ -77,8 +77,12 @@ def _load_document_store() -> None:
                     "file_type": "txt",
                     "file_size": len(content.encode("utf-8")),
                     "index_status": "indexed",  # 假设已索引
-                    "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-                    "updated_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                    "created_at": datetime.fromtimestamp(
+                        stat.st_mtime, tz=timezone.utc
+                    ).isoformat(),
+                    "updated_at": datetime.fromtimestamp(
+                        stat.st_mtime, tz=timezone.utc
+                    ).isoformat(),
                     "description": "",
                     "domain": "general",
                     "tags": [],
@@ -324,7 +328,9 @@ async def get_document(document_id: str) -> dict[str, Any]:
             "updated_at": doc["updated_at"],
             "chunk_count": doc["chunk_count"],
             # 返回前 1000 字符作为预览
-            "content_preview": doc["content"][:1000] if len(doc["content"]) > 1000 else doc["content"],
+            "content_preview": (
+                doc["content"][:1000] if len(doc["content"]) > 1000 else doc["content"]
+            ),
         }
 
     except HTTPException:
@@ -388,6 +394,44 @@ async def get_index_status() -> dict[str, Any]:
     except Exception as e:
         logger.error(f"获取索引状态失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取状态失败: {e}")
+
+
+@router.get("/context")
+async def get_knowledge_context(query: str | None = None) -> dict[str, Any]:
+    """获取知识上下文（当前仅提供参数校验与占位响应）。"""
+    if not isinstance(query, str) or not query.strip():
+        raise HTTPException(status_code=400, detail="query 不能为空")
+
+    raise HTTPException(status_code=501, detail="知识上下文端点暂未实现")
+
+
+@router.get("/stats")
+async def get_knowledge_stats() -> dict[str, Any]:
+    """获取知识库统计信息。"""
+    indexed = 0
+    indexing = 0
+    failed = 0
+    pending = 0
+    for doc in _document_store.values():
+        status = str(doc.get("index_status", "pending"))
+        if status == "indexed":
+            indexed += 1
+        elif status == "indexing":
+            indexing += 1
+        elif status == "failed":
+            failed += 1
+        else:
+            pending += 1
+
+    return {
+        "document_count": len(_document_store),
+        "status_breakdown": {
+            "indexed": indexed,
+            "indexing": indexing,
+            "failed": failed,
+            "pending": pending,
+        },
+    }
 
 
 # 模块加载时初始化文档存储

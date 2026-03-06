@@ -399,7 +399,7 @@ async def set_preferred_model(request: SetActiveModelRequest):
     from nini.agent.model_resolver import ModelResolver
 
     resolver = ModelResolver()
-    resolver.set_preferred_model(request.provider, request.model)
+    resolver.set_preferred_model(request.provider_id, request.model)
 
     return APIResponse(success=True)
 

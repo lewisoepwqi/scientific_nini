@@ -94,41 +94,38 @@ async def list_report_templates():
 @router.post("/report/generate", response_model=APIResponse)
 async def generate_report(request: ReportGenerateRequest):
     """生成分析报告。"""
-    from nini.tools.report import generate_analysis_report
-
-    try:
-        report = generate_analysis_report(
-            title=request.title,
-            content=request.content,
-            template=request.template,
-        )
-        return APIResponse(success=True, data=report)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"生成报告失败: {e}") from e
+    sections_markdown = "\n\n".join(f"## {section}\n" for section in request.sections)
+    markdown = f"# {request.title}\n\n{sections_markdown}".strip() + "\n"
+    return APIResponse(
+        success=True,
+        data={
+            "title": request.title,
+            "template": request.template,
+            "detail_level": request.detail_level,
+            "include_figures": request.include_figures,
+            "include_tables": request.include_tables,
+            "dataset_names": request.dataset_names or [],
+            "markdown": markdown,
+        },
+    )
 
 
 @router.post("/report/export", response_model=APIResponse)
 async def export_report(request: ReportExportRequest):
     """导出报告。"""
-    from nini.tools.report import export_report
-
-    try:
-        result = export_report(
-            report_id=request.report_id,
-            format=request.format,
-        )
-        return APIResponse(success=True, data=result)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"导出报告失败: {e}") from e
+    return APIResponse(
+        success=False,
+        error=(
+            "报告导出接口待迁移，请使用 report_session + export_document 工作流。"
+            f"当前请求参数: format={request.format}, report_id={request.report_id or ''}"
+        ),
+    )
 
 
 @router.get("/report/preview", response_model=APIResponse)
 async def preview_report(report_id: str):
     """预览报告。"""
-    from nini.tools.report import get_report_preview
-
-    try:
-        preview = get_report_preview(report_id)
-        return APIResponse(success=True, data=preview)
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=f"报告不存在: {e}") from e
+    return APIResponse(
+        success=False,
+        error=f"报告预览接口待迁移，暂不支持 report_id={report_id}",
+    )

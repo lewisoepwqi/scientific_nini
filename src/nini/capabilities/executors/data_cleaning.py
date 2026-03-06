@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 import numpy as np
@@ -154,7 +154,11 @@ class DataCleaningCapability:
         if not await self._validate_data(session, dataset_name, result):
             return result
 
-        df = session.datasets.get(dataset_name).copy()
+        source_df = session.datasets.get(dataset_name)
+        if source_df is None:
+            result.message = f"数据集不存在: {dataset_name}"
+            return result
+        df = source_df.copy()
         result.original_rows = len(df)
 
         # Step 2: 评估清洗前质量
@@ -443,11 +447,11 @@ class DataCleaningCapability:
             q1, q3 = series_clean.quantile([0.25, 0.75])
             iqr = q3 - q1
             lower, upper = q1 - 1.5 * iqr, q3 + 1.5 * iqr
-            return series[(series < lower) | (series > upper)]
+            return cast(pd.Series, series[(series < lower) | (series > upper)])
         elif method == "zscore":
             z_scores = (series_clean - series_clean.mean()) / series_clean.std()
             outlier_idx = z_scores[abs(z_scores) > 3].index
-            return series.loc[outlier_idx]
+            return cast(pd.Series, series.loc[outlier_idx])
 
         return pd.Series(dtype=series.dtype)
 
@@ -531,8 +535,8 @@ class DataCleaningCapability:
         if self._registry is not None:
             return self._registry
         try:
-            from nini.tools.registry import get_default_registry
+            from nini.tools.registry import create_default_registry
 
-            return get_default_registry()
+            return create_default_registry()
         except Exception:
             return None

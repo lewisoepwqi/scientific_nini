@@ -206,14 +206,17 @@ class WebRExecutor:
 
         # webr Python 包的典型 API：RVirtualMachine / Shelter
         # 不同版本的 API 可能有差异，做兼容处理
-        if hasattr(webr, "RVirtualMachine"):
-            self._session = webr.RVirtualMachine()
-        elif hasattr(webr, "Shelter"):
-            self._session = webr.Shelter()
+        r_vm_cls = getattr(webr, "RVirtualMachine", None)
+        if callable(r_vm_cls):
+            self._session = r_vm_cls()
         else:
-            raise RuntimeError(
-                f"未知的 webr API，请检查已安装版本（{getattr(webr, '__version__', '?')}）"
-            )
+            shelter_cls = getattr(webr, "Shelter", None)
+            if callable(shelter_cls):
+                self._session = shelter_cls()
+            else:
+                raise RuntimeError(
+                    f"未知的 webr API，请检查已安装版本（{getattr(webr, '__version__', '?')}）"
+                )
         return self._session
 
     async def execute(

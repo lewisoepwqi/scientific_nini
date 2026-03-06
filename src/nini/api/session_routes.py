@@ -124,11 +124,14 @@ async def rollback_session(session_id: str) -> APIResponse:
     # 恢复压缩前的消息
     from nini.memory.compression import rollback_compression
 
-    rollback_compression(session)
+    rollback_result = rollback_compression(session)
+    if not rollback_result.get("success"):
+        return APIResponse(success=False, error=str(rollback_result.get("message", "回滚失败")))
 
     # 保存回滚状态
-    session_manager.save_session_rollback(
+    session_manager.save_session_compression(
         session_id,
+        compressed_context=session.compressed_context,
         compressed_rounds=session.compressed_rounds,
         last_compressed_at=session.last_compressed_at,
     )

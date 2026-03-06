@@ -47,9 +47,7 @@ class TestAnalysisPlanEventBuilder:
             },
         ]
 
-        event = build_analysis_plan_event(
-            steps, raw_text="分析计划", turn_id="turn_1", seq=1
-        )
+        event = build_analysis_plan_event(steps, raw_text="分析计划", turn_id="turn_1", seq=1)
 
         assert event.type == EventType.ANALYSIS_PLAN
         assert event.data["raw_text"] == "分析计划"
@@ -75,9 +73,9 @@ class TestAnalysisPlanEventBuilder:
         assert step["status"] == "pending"
         assert step["action_id"] is None
         assert step["raw_status"] is None
-        # 验证 turn_id 和 metadata 为 None
+        # 验证 turn_id 与 metadata 默认值
         assert event.turn_id is None
-        assert event.metadata is None
+        assert event.metadata == {}
 
 
 class TestPlanStepUpdateEventBuilder:

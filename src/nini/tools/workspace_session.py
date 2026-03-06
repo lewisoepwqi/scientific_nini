@@ -15,6 +15,8 @@ from nini.tools.workspace_files import ListWorkspaceFilesSkill
 class WorkspaceSessionSkill(Skill):
     """统一工作区读写与抓取入口。"""
 
+    _OPERATIONS = ("list", "read", "write", "append", "edit", "organize", "fetch_url")
+
     def __init__(self) -> None:
         self._edit = EditFile()
         self._fetch = FetchURLSkill()
@@ -43,93 +45,48 @@ class WorkspaceSessionSkill(Skill):
     def parameters(self) -> dict[str, Any]:
         return {
             "type": "object",
-            "oneOf": [
-                {
-                    "type": "object",
-                    "properties": {
-                        "operation": {"type": "string", "enum": ["list"]},
-                        "query": {"type": "string"},
-                        "kinds": {
-                            "type": "array",
-                            "items": {
-                                "type": "string",
-                                "enum": ["dataset", "document", "result", "artifact", "note"],
-                            },
-                        },
-                        "path_prefix": {"type": "string"},
-                        "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+            "properties": {
+                "operation": {"type": "string", "enum": list(self._OPERATIONS)},
+                "query": {"type": "string"},
+                "kinds": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["dataset", "document", "result", "artifact", "note"],
                     },
-                    "required": ["operation"],
-                    "additionalProperties": False,
                 },
-                {
-                    "type": "object",
-                    "properties": {
-                        "operation": {"type": "string", "enum": ["read"]},
-                        "file_path": {"type": "string", "description": "工作区相对路径"},
-                        "encoding": {"type": "string", "default": "utf-8"},
-                    },
-                    "required": ["operation", "file_path"],
-                    "additionalProperties": False,
+                "path_prefix": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+                "file_path": {"type": "string", "description": "工作区相对路径"},
+                "encoding": {"type": "string", "default": "utf-8"},
+                "content": {"type": "string"},
+                "create_if_missing": {"type": "boolean", "default": True},
+                "old_string": {"type": "string"},
+                "new_string": {"type": "string"},
+                "start_line": {"type": "integer", "minimum": 1},
+                "end_line": {"type": "integer", "minimum": 1},
+                "create_folders": {
+                    "type": "array",
+                    "items": {"type": "string"},
                 },
-                {
-                    "type": "object",
-                    "properties": {
-                        "operation": {"type": "string", "enum": ["write", "append"]},
-                        "file_path": {"type": "string", "description": "工作区相对路径"},
-                        "content": {"type": "string"},
-                        "encoding": {"type": "string", "default": "utf-8"},
-                        "create_if_missing": {"type": "boolean", "default": True},
-                    },
-                    "required": ["operation", "file_path", "content"],
-                    "additionalProperties": False,
+                "moves": {
+                    "type": "array",
+                    "items": {"type": "object"},
                 },
-                {
-                    "type": "object",
-                    "properties": {
-                        "operation": {"type": "string", "enum": ["edit"]},
-                        "file_path": {"type": "string", "description": "工作区相对路径"},
-                        "old_string": {"type": "string"},
-                        "new_string": {"type": "string"},
-                        "start_line": {"type": "integer", "minimum": 1},
-                        "end_line": {"type": "integer", "minimum": 1},
-                        "encoding": {"type": "string", "default": "utf-8"},
-                    },
-                    "required": ["operation", "file_path"],
-                    "additionalProperties": False,
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "operation": {"type": "string", "enum": ["organize"]},
-                        "create_folders": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                        },
-                        "moves": {
-                            "type": "array",
-                            "items": {"type": "object"},
-                        },
-                        "auto_create_folder": {"type": "boolean", "default": False},
-                    },
-                    "required": ["operation"],
-                    "additionalProperties": False,
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "operation": {"type": "string", "enum": ["fetch_url"]},
-                        "url": {"type": "string"},
-                        "save_to": {"type": "string"},
-                    },
-                    "required": ["operation", "url"],
-                    "additionalProperties": False,
-                },
-            ],
+                "auto_create_folder": {"type": "boolean", "default": False},
+                "url": {"type": "string"},
+                "save_to": {"type": "string"},
+            },
+            "required": ["operation"],
+            "additionalProperties": False,
         }
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
         operation = str(kwargs.get("operation", "")).strip()
+        validation_error = self._validate_operation_args(operation, kwargs)
+        if validation_error is not None:
+            return validation_error
+
         if operation == "list":
             return await self._list.execute(
                 session,
@@ -179,4 +136,106 @@ class WorkspaceSessionSkill(Skill):
                     "resource_type": "file",
                 }
             return result
-        return SkillResult(success=False, message=f"不支持的 operation: {operation}")
+        return self._invalid_operation_result(operation)
+
+    def _validate_operation_args(
+        self, operation: str, kwargs: dict[str, Any]
+    ) -> SkillResult | None:
+        if not operation:
+            return self._missing_operation_result(kwargs)
+        if operation not in self._OPERATIONS:
+            return self._invalid_operation_result(operation)
+
+        required_fields: dict[str, tuple[str, ...]] = {
+            "list": (),
+            "read": ("file_path",),
+            "write": ("file_path", "content"),
+            "append": ("file_path", "content"),
+            "edit": ("file_path",),
+            "organize": (),
+            "fetch_url": ("url",),
+        }
+
+        missing: list[str] = []
+        for field in required_fields.get(operation, ()):
+            value = kwargs.get(field)
+            if isinstance(value, str):
+                if not value.strip():
+                    missing.append(field)
+            elif value is None:
+                missing.append(field)
+
+        if not missing:
+            return None
+
+        return SkillResult(
+            success=False,
+            message=f"operation='{operation}' 缺少必要参数: {', '.join(missing)}",
+            data={
+                "error_code": "WORKSPACE_OPERATION_ARGS_MISSING",
+                "operation": operation,
+                "missing_fields": missing,
+                "expected_operations": list(self._OPERATIONS),
+                "recovery_hint": self._recovery_hint_for_operation(operation),
+            },
+            metadata={
+                "error_code": "WORKSPACE_OPERATION_ARGS_MISSING",
+                "operation": operation,
+                "missing_fields": missing,
+            },
+        )
+
+    def _missing_operation_result(self, kwargs: dict[str, Any]) -> SkillResult:
+        provided_fields = sorted(
+            key for key, value in kwargs.items() if key != "operation" and value is not None
+        )
+        return SkillResult(
+            success=False,
+            message="workspace_session 缺少 operation 参数。",
+            data={
+                "error_code": "WORKSPACE_OPERATION_REQUIRED",
+                "expected_operations": list(self._OPERATIONS),
+                "provided_fields": provided_fields,
+                "recovery_hint": (
+                    "请显式提供 operation，例如 "
+                    '{"operation":"list"} 或 {"operation":"read","file_path":"notes/a.md"}。'
+                ),
+            },
+            metadata={
+                "error_code": "WORKSPACE_OPERATION_REQUIRED",
+                "provided_fields": provided_fields,
+            },
+        )
+
+    def _invalid_operation_result(self, operation: str) -> SkillResult:
+        return SkillResult(
+            success=False,
+            message=f"不支持的 operation: {operation}",
+            data={
+                "error_code": "WORKSPACE_OPERATION_UNSUPPORTED",
+                "expected_operations": list(self._OPERATIONS),
+                "recovery_hint": (
+                    "可用 operation: "
+                    + ", ".join(self._OPERATIONS)
+                    + "。例如先调用 {'operation':'list'} 获取 path。"
+                ),
+            },
+            metadata={
+                "error_code": "WORKSPACE_OPERATION_UNSUPPORTED",
+                "operation": operation,
+            },
+        )
+
+    def _recovery_hint_for_operation(self, operation: str) -> str:
+        if operation == "read":
+            return "read 需要 file_path，例如 {'operation':'read','file_path':'notes/a.md'}。"
+        if operation in {"write", "append"}:
+            return (
+                f"{operation} 需要 file_path 和 content，"
+                f"例如 {{'operation':'{operation}','file_path':'notes/a.md','content':'...'}}。"
+            )
+        if operation == "fetch_url":
+            return (
+                "fetch_url 需要 url，例如 {'operation':'fetch_url','url':'https://example.com'}。"
+            )
+        return "请根据 operation 补齐必要参数。"

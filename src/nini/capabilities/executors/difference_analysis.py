@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from scipy import stats
 
@@ -156,6 +156,9 @@ class DifferenceAnalysisCapability:
 
         # Step 2: 获取数据特征
         df = session.datasets.get(dataset_name)
+        if df is None:
+            result.message = f"数据集不存在: {dataset_name}"
+            return result
         if group_column:
             groups_data = self._extract_groups(df, value_column, group_column)
             result.n_groups = len(groups_data)
@@ -283,7 +286,8 @@ class DifferenceAnalysisCapability:
         alpha: float,
     ) -> dict[str, Any]:
         """检查统计前提假设。"""
-        assumptions = {"normality": {}, "equal_variance": None}
+        normality_results: dict[str, dict[str, Any]] = {}
+        assumptions: dict[str, Any] = {"normality": normality_results, "equal_variance": None}
 
         df = session.datasets.get(dataset_name)
         if df is None:
@@ -297,33 +301,33 @@ class DifferenceAnalysisCapability:
         # 直接在 Capability 内部完成最小前提检验，避免依赖不存在的 Tool 协议。
         for group_name, group_data in groups_data.items():
             if len(group_data) < 3 or len(group_data) > 5000:
-                assumptions["normality"][group_name] = {
+                normality_results[group_name] = {
                     "tested": False,
                     "reason": "样本量不在 Shapiro-Wilk 适用范围内",
                 }
                 continue
             try:
-                statistic, p_value = stats.shapiro(group_data)
-                assumptions["normality"][group_name] = {
+                normality_stat_raw, normality_p_raw = stats.shapiro(group_data)
+                normality_results[group_name] = {
                     "tested": True,
-                    "statistic": float(statistic),
-                    "p_value": float(p_value),
-                    "normal": bool(p_value > alpha),
+                    "statistic": float(normality_stat_raw),
+                    "p_value": float(normality_p_raw),
+                    "normal": bool(float(normality_p_raw) > alpha),
                 }
             except Exception as exc:
-                assumptions["normality"][group_name] = {
+                normality_results[group_name] = {
                     "tested": False,
                     "reason": f"正态性检验失败: {exc}",
                 }
 
         if len(groups_data) >= 2:
             try:
-                statistic, p_value = stats.levene(*groups_data.values())
+                levene_stat_raw, levene_p_raw = stats.levene(*groups_data.values())
                 assumptions["equal_variance"] = {
                     "tested": True,
-                    "statistic": float(statistic),
-                    "p_value": float(p_value),
-                    "equal_variance": bool(p_value > alpha),
+                    "statistic": float(levene_stat_raw),
+                    "p_value": float(levene_p_raw),
+                    "equal_variance": bool(float(levene_p_raw) > alpha),
                 }
             except Exception as exc:
                 assumptions["equal_variance"] = {
@@ -408,57 +412,72 @@ class DifferenceAnalysisCapability:
         test_value: float | None,
         method: str,
         **kwargs: Any,
-    ) -> SkillResult:
+    ) -> SkillResult | dict[str, Any]:
         """执行统计检验。"""
         registry = self._get_registry()
 
         if method == "t_test":
             if test_value is not None:
                 # 单样本 t 检验
-                return await registry.execute(
-                    "t_test",
-                    session,
-                    dataset_name=dataset_name,
-                    value_column=value_column,
-                    test_value=test_value,
-                    **kwargs,
+                return cast(
+                    SkillResult | dict[str, Any],
+                    await registry.execute(
+                        "t_test",
+                        session,
+                        dataset_name=dataset_name,
+                        value_column=value_column,
+                        test_value=test_value,
+                        **kwargs,
+                    ),
                 )
             else:
                 # 独立样本 t 检验
-                return await registry.execute(
-                    "t_test",
+                return cast(
+                    SkillResult | dict[str, Any],
+                    await registry.execute(
+                        "t_test",
+                        session,
+                        dataset_name=dataset_name,
+                        value_column=value_column,
+                        group_column=group_column,
+                        **kwargs,
+                    ),
+                )
+        elif method == "mann_whitney":
+            return cast(
+                SkillResult | dict[str, Any],
+                await registry.execute(
+                    "mann_whitney",
                     session,
                     dataset_name=dataset_name,
                     value_column=value_column,
                     group_column=group_column,
                     **kwargs,
-                )
-        elif method == "mann_whitney":
-            return await registry.execute(
-                "mann_whitney",
-                session,
-                dataset_name=dataset_name,
-                value_column=value_column,
-                group_column=group_column,
-                **kwargs,
+                ),
             )
         elif method == "anova":
-            return await registry.execute(
-                "anova",
-                session,
-                dataset_name=dataset_name,
-                value_column=value_column,
-                group_column=group_column,
-                **kwargs,
+            return cast(
+                SkillResult | dict[str, Any],
+                await registry.execute(
+                    "anova",
+                    session,
+                    dataset_name=dataset_name,
+                    value_column=value_column,
+                    group_column=group_column,
+                    **kwargs,
+                ),
             )
         elif method == "kruskal_wallis":
-            return await registry.execute(
-                "kruskal_wallis",
-                session,
-                dataset_name=dataset_name,
-                value_column=value_column,
-                group_column=group_column,
-                **kwargs,
+            return cast(
+                SkillResult | dict[str, Any],
+                await registry.execute(
+                    "kruskal_wallis",
+                    session,
+                    dataset_name=dataset_name,
+                    value_column=value_column,
+                    group_column=group_column,
+                    **kwargs,
+                ),
             )
         else:
             from nini.tools.base import SkillResult
@@ -502,7 +521,7 @@ class DifferenceAnalysisCapability:
         value_column: str,
         group_column: str | None,
         method: str,
-    ) -> SkillResult:
+    ) -> SkillResult | dict[str, Any]:
         """创建可视化图表。"""
         registry = self._get_registry()
 
@@ -515,14 +534,17 @@ class DifferenceAnalysisCapability:
         else:
             chart_type = "histogram"
 
-        return await registry.execute(
-            "create_chart",
-            session,
-            dataset_name=dataset_name,
-            chart_type=chart_type,
-            x_column=group_column,
-            y_column=value_column,
-            title=f"{self.display_name} - {value_column}",
+        return cast(
+            SkillResult | dict[str, Any],
+            await registry.execute(
+                "create_chart",
+                session,
+                dataset_name=dataset_name,
+                chart_type=chart_type,
+                x_column=group_column,
+                y_column=value_column,
+                title=f"{self.display_name} - {value_column}",
+            ),
         )
 
     def _generate_interpretation(self, result: DifferenceAnalysisResult) -> str:

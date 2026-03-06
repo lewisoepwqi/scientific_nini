@@ -99,6 +99,7 @@ class SetActiveModelRequest(BaseModel):
     """设置活跃模型请求。"""
 
     provider_id: str
+    model: Optional[str] = None
 
 
 class ModelPurposeRouteRequest(BaseModel):
@@ -280,4 +281,3 @@ class DraftGenerateResponse(BaseModel):
     preview: str = ""  # 文章前500字预览
     error: Optional[str] = None
     sections_generated: list[str] = Field(default_factory=list)
-

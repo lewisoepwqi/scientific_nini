@@ -15,37 +15,38 @@ import pickle
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
 # 延迟导入（避免未安装时导入失败）
-_jieba = None
-_BM25Okapi = None
+_jieba: Any | bool | None = None
+_BM25Okapi: Any | bool | None = None
 
 
-def _get_jieba():
+def _get_jieba() -> Any | bool:
     """获取 jieba 分词器（延迟导入）。"""
     global _jieba
     if _jieba is None:
         try:
-            import jieba
+            import jieba  # type: ignore[import-not-found]
 
             _jieba = jieba
             # 禁用 jieba 日志
-            _jieba.setLogLevel(logging.INFO)
+            if hasattr(_jieba, "setLogLevel"):
+                _jieba.setLogLevel(logging.INFO)
         except ImportError:
             logger.warning("jieba 未安装，将使用简单分词")
             _jieba = False
     return _jieba
 
 
-def _get_bm25():
+def _get_bm25() -> Any | bool:
     """获取 BM25 类（延迟导入）。"""
     global _BM25Okapi
     if _BM25Okapi is None:
         try:
-            from rank_bm25 import BM25Okapi
+            from rank_bm25 import BM25Okapi  # type: ignore[import-not-found]
 
             _BM25Okapi = BM25Okapi
         except ImportError:
@@ -166,20 +167,28 @@ class LocalBM25Retriever:
 
         # 使用 jieba 分词作为基础
         if self._jieba_available:
-            jieba = _get_jieba()
-            words = list(jieba.cut(text))
-            tokens = [t.strip() for t in words if len(t.strip()) > 1]
+            jieba_module = _get_jieba()
+            if jieba_module is not False and hasattr(jieba_module, "cut"):
+                tokenizer = cast(Any, jieba_module)
+                words = list(tokenizer.cut(text))
+                tokens = [t.strip() for t in words if len(t.strip()) > 1]
 
-            # 对长中文词生成 bi-gram，提高部分匹配能力
-            for word in words:
-                word = word.strip()
-                # 中文长词（3字以上）生成 bi-gram
-                if len(word) >= 3 and all('\u4e00' <= c <= '\u9fff' for c in word):
-                    for i in range(len(word) - 1):
-                        bigram = word[i:i + 2]
-                        tokens.append(bigram)
+                # 对长中文词生成 bi-gram，提高部分匹配能力
+                for word in words:
+                    word = word.strip()
+                    # 中文长词（3字以上）生成 bi-gram
+                    if len(word) >= 3 and all('\u4e00' <= c <= '\u9fff' for c in word):
+                        for i in range(len(word) - 1):
+                            bigram = word[i:i + 2]
+                            tokens.append(bigram)
+            else:
+                self._jieba_available = False
         else:
             # 简单分词（回退）
+            tokens = re.findall(r"[a-z][a-z0-9_-]*", text)
+            tokens.extend(re.findall(r"[\u4e00-\u9fff]{2,}", text))
+
+        if not tokens:
             tokens = re.findall(r"[a-z][a-z0-9_-]*", text)
             tokens.extend(re.findall(r"[\u4e00-\u9fff]{2,}", text))
 
@@ -239,13 +248,15 @@ class LocalBM25Retriever:
 
         self._documents = documents
         self._tokenized_docs = tokenized_docs
+        if not callable(BM25Okapi):
+            return False
         self._bm25 = BM25Okapi(tokenized_docs)
 
         return True
 
     def _parse_metadata(self, content: str) -> dict[str, Any]:
         """解析 Markdown 元信息。"""
-        metadata = {}
+        metadata: dict[str, Any] = {}
 
         # 匹配 HTML 注释格式的元信息
         # <!-- keywords: x, y, z -->
@@ -422,6 +433,8 @@ class LocalBM25Retriever:
             self._tokenized_docs = cache_data["tokenized_docs"]
 
             BM25Okapi = _get_bm25()
+            if not callable(BM25Okapi):
+                return False
             self._bm25 = BM25Okapi(self._tokenized_docs)
 
             return True
@@ -462,10 +475,10 @@ class LocalBM25Retriever:
             with open(meta_file, "r", encoding="utf-8") as f:
                 meta = json.load(f)
 
-            saved_hashes = meta.get("file_hashes", {})
+            saved_hashes = cast(dict[str, str], meta.get("file_hashes", {}))
             current_hashes = self._compute_file_hashes()
 
-            return saved_hashes != current_hashes
+            return bool(saved_hashes != current_hashes)
 
         except Exception:
             return True
@@ -474,7 +487,7 @@ class LocalBM25Retriever:
         """计算知识文件哈希。"""
         import hashlib
 
-        hashes = {}
+        hashes: dict[str, str] = {}
         if not self.knowledge_dir.exists():
             return hashes
 

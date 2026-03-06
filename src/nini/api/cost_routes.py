@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,35 @@ def _load_pricing_config() -> PricingConfig:
         return _pricing_config
 
 
+async def _load_session_title(meta_file: Path) -> str:
+    """异步加载会话标题。"""
+    if not meta_file.exists():
+        return "新会话"
+
+    try:
+        content = meta_file.read_text(encoding="utf-8")
+        meta = json.loads(content)
+        if isinstance(meta, dict):
+            title = meta.get("title")
+            if isinstance(title, str) and title.strip():
+                return title
+    except Exception:
+        pass
+    return "新会话"
+
+
+async def _load_pricing_extras(pricing_file: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """异步读取 pricing.yaml 中的扩展配置。"""
+    try:
+        content = pricing_file.read_text(encoding="utf-8")
+        data = yaml.safe_load(content)
+        if isinstance(data, dict):
+            return data.get("tier_definitions", {}), data.get("cost_warnings", {})
+    except Exception as e:
+        logger.warning(f"Failed to load tier definitions: {e}")
+    return {}, {}
+
+
 def _get_session_meta_path(session_id: str) -> Path:
     """获取会话元数据文件路径。"""
     return Path(settings.data_dir) / "sessions" / session_id / "meta.json"
@@ -77,9 +107,7 @@ def _load_session_token_usage(session_id: str) -> TokenUsage | None:
         for record in tracker.records:
             if record.cost_usd is None:
                 # 重新计算缺失的成本（兼容旧数据）
-                cost, _ = estimate_cost(
-                    record.model, record.input_tokens, record.output_tokens
-                )
+                cost, _ = estimate_cost(record.model, record.input_tokens, record.output_tokens)
                 record.cost_usd = cost
             total_cost_usd += record.cost_usd or 0.0
 
@@ -187,7 +215,6 @@ async def get_all_sessions_cost() -> dict[str, Any]:
             },
         }
 
-    pricing = _load_pricing_config()
     sessions = []
     total_input = 0
     total_output = 0
@@ -205,16 +232,7 @@ async def get_all_sessions_cost() -> dict[str, Any]:
         meta_file = session_dir / "meta.json"
 
         # 获取会话标题
-        title = "新会话"
-        if meta_file.exists():
-            try:
-                import json
-
-                with open(meta_file, "r", encoding="utf-8") as f:
-                    meta = json.load(f)
-                    title = meta.get("title", "新会话")
-            except Exception:
-                pass
+        title = await _load_session_title(meta_file)
 
         # 获取 token 使用
         usage = _load_session_token_usage(session_id)
@@ -271,16 +289,7 @@ async def get_pricing_config() -> dict[str, Any]:
 
     # 加载 tier 定义
     pricing_file = Path(__file__).parent.parent / "config" / "pricing.yaml"
-    tier_definitions = {}
-    cost_warnings = {}
-
-    try:
-        with open(pricing_file, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-            tier_definitions = data.get("tier_definitions", {})
-            cost_warnings = data.get("cost_warnings", {})
-    except Exception as e:
-        logger.warning(f"Failed to load tier definitions: {e}")
+    tier_definitions, cost_warnings = await _load_pricing_extras(pricing_file)
 
     return {
         "models": {
@@ -310,7 +319,7 @@ async def get_model_pricing(model_id: str) -> dict[str, Any]:
         模型定价详情
     """
     pricing = _load_pricing_config()
-    model_pricing = pricing.get_model_pricing(model_id)
+    model_pricing, status = pricing.get_model_pricing(model_id)
 
     if model_pricing is None:
         raise HTTPException(status_code=404, detail=f"Model pricing not found: {model_id}")
@@ -321,6 +330,7 @@ async def get_model_pricing(model_id: str) -> dict[str, Any]:
         "output_price": model_pricing.output_price,
         "currency": model_pricing.currency,
         "tier": model_pricing.tier,
+        "status": status,
         "estimated_cost_per_1k_input": model_pricing.input_price,
         "estimated_cost_per_1k_output": model_pricing.output_price,
     }

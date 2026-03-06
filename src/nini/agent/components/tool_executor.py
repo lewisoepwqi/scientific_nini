@@ -127,7 +127,7 @@ def summarize_tool_result_dict(data: dict[str, Any]) -> dict[str, Any]:
     """
     compact: dict[str, Any] = {}
 
-    for key in ("success", "message", "error", "status"):
+    for key in ("success", "message", "error", "status", "error_code", "recovery_hint"):
         if key in data:
             compact[key] = data[key]
 

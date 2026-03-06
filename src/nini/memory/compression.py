@@ -270,6 +270,50 @@ async def compress_session_history_with_llm(
     }
 
 
+def rollback_compression(session: Session) -> dict[str, Any]:
+    """回滚最近一次压缩，将最新归档消息恢复到当前会话。"""
+    archive_dir = settings.sessions_dir / session.id / "archive"
+    if not archive_dir.exists() or not archive_dir.is_dir():
+        return {"success": False, "message": "未找到压缩归档目录"}
+
+    archive_files = sorted(
+        archive_dir.glob("compressed_*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not archive_files:
+        return {"success": False, "message": "未找到可回滚的压缩记录"}
+
+    latest_archive = archive_files[0]
+    try:
+        payload = json.loads(latest_archive.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"success": False, "message": f"读取压缩归档失败: {exc}"}
+
+    if not isinstance(payload, list):
+        return {"success": False, "message": "压缩归档格式无效"}
+
+    restored_messages = [item for item in payload if isinstance(item, dict)]
+    if not restored_messages:
+        return {"success": False, "message": "压缩归档中没有可恢复消息"}
+
+    session.messages = [*restored_messages, *session.messages]
+    session._rewrite_conversation_memory()
+    session.compressed_rounds = max(0, session.compressed_rounds - 1)
+    if session.compressed_rounds == 0:
+        session.compressed_context = ""
+        session.last_compressed_at = None
+
+    return {
+        "success": True,
+        "message": "会话压缩已回滚",
+        "restored_count": len(restored_messages),
+        "archive_path": str(latest_archive),
+        "compressed_rounds": session.compressed_rounds,
+        "last_compressed_at": session.last_compressed_at,
+    }
+
+
 # ---- 结构化记忆压缩 ----
 
 

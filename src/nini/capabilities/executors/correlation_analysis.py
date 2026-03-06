@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 from scipy import stats
@@ -348,10 +348,13 @@ class CorrelationAnalysisCapability:
                 method=method,
             )
             if isinstance(tool_result, dict):
-                if tool_result.get("success") and tool_result.get("data"):
-                    return tool_result["data"]
-            elif hasattr(tool_result, "success") and tool_result.success and tool_result.data:
-                return tool_result.data
+                data_payload = tool_result.get("data")
+                if tool_result.get("success") and isinstance(data_payload, dict):
+                    return cast(dict[str, Any], data_payload)
+            elif hasattr(tool_result, "success") and getattr(tool_result, "success", False):
+                data_payload = getattr(tool_result, "data", None)
+                if isinstance(data_payload, dict):
+                    return cast(dict[str, Any], data_payload)
         except Exception:
             pass
         return None

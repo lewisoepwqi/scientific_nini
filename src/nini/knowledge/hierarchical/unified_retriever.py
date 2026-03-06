@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from nini.config import settings
 from nini.knowledge.hierarchical.cache import RetrievalCache
@@ -133,6 +133,7 @@ class UnifiedRetriever:
         import time
 
         start_time = time.time()
+        cache_key: str | None = None
 
         if not self._initialized:
             await self.initialize()
@@ -158,6 +159,7 @@ class UnifiedRetriever:
         candidates = await self._multi_source_retrieve(query, plan)
 
         # 4. 重排序
+        final_hits: list[dict[str, Any]]
         if enable_rerank and len(candidates) > 0:
             reranker = await self._get_reranker()
             reranked = await reranker.rerank(
@@ -184,12 +186,14 @@ class UnifiedRetriever:
 
         retrieval_results = [
             RetrievalResult(
-                id=h["id"],
-                content=h["content"],
-                score=h["score"],
-                level=h["level"],
-                source=h["source"],
-                metadata=h.get("metadata", {}),
+                id=str(h.get("id", "")),
+                content=str(h.get("content", "")),
+                score=float(h.get("score", 0.0)),
+                level=str(h.get("level", "")),
+                source=str(h.get("source", "")),
+                metadata=cast(dict[str, Any], h.get("metadata", {}))
+                if isinstance(h.get("metadata"), dict)
+                else {},
             )
             for h in final_hits
         ]
@@ -202,7 +206,7 @@ class UnifiedRetriever:
             "total_found": len(candidates),
             "routing_info": routing_metadata,
         }
-        if enable_cache:
+        if enable_cache and cache_key is not None:
             self.cache.set(cache_key, result_data)
 
         query_time_ms = (time.time() - start_time) * 1000

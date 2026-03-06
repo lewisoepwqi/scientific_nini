@@ -347,7 +347,7 @@ class CreateChartSkill(Skill):
             corr = df[columns].corr(numeric_only=True)
             return px.imshow(
                 corr,
-                text_auto=".2f",
+                text_auto=True,
                 color_continuous_scale="RdBu",
                 zmin=-1,
                 zmax=1,

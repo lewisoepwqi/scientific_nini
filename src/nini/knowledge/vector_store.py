@@ -302,9 +302,12 @@ class VectorKnowledgeStore:
             return None
 
         try:
-            from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-
-            return HuggingFaceEmbedding(model_name=settings.knowledge_local_embedding_model)
+            huggingface_module = importlib.import_module("llama_index.embeddings.huggingface")
+            embedding_cls = getattr(huggingface_module, "HuggingFaceEmbedding", None)
+            if not callable(embedding_cls):
+                logger.info("本地 embedding 模块缺少 HuggingFaceEmbedding，已回退到关键词检索")
+                return None
+            return embedding_cls(model_name=settings.knowledge_local_embedding_model)
         except ImportError:
             logger.info("本地 embedding 依赖加载失败，已回退到关键词检索")
         except ValueError as exc:

@@ -21,7 +21,7 @@ import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from nini.config import settings
 
@@ -156,17 +156,23 @@ class KnowledgeLoader:
 
         # 根据策略选择检索方式
         if self._strategy == "bm25" and self.bm25_available:
-            return self._bm25_retriever.search(
-                user_message,
-                top_k=max_entries,
-                max_total_chars=max_total_chars,
+            return cast(
+                tuple[str, list[dict[str, Any]]],
+                self._bm25_retriever.search(
+                    user_message,
+                    top_k=max_entries,
+                    max_total_chars=max_total_chars,
+                ),
             )
 
         if self._strategy == "vector" and self.vector_available:
-            return self._vector_store.query(
-                user_message,
-                top_k=max_entries,
-                max_total_chars=max_total_chars,
+            return cast(
+                tuple[str, list[dict[str, Any]]],
+                self._vector_store.query(
+                    user_message,
+                    top_k=max_entries,
+                    max_total_chars=max_total_chars,
+                ),
             )
 
         if self._strategy == "hybrid" and self.vector_available:

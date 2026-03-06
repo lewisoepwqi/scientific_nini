@@ -171,44 +171,48 @@ def _configure_chart_defaults() -> None:
             import plotly.graph_objects as go
             import plotly.io as pio
 
-            base_template = (
-                pio.templates.get("plotly_white") if hasattr(pio.templates, "get") else None
-            )
-            if base_template is None:
+            try:
+                base_template = pio.templates["plotly_white"]
+            except Exception:
                 base_template = getattr(pio.templates, "default", None)
             try:
                 template = go.layout.Template(base_template)
             except Exception:
                 template = go.layout.Template()
-            template.layout.font = {
-                "family": CJK_FONT_FAMILY,
-                "size": style.font_size,
-                "color": style.text_color,
-            }
-            template.layout.colorway = list(style.colors)
-            template.layout.paper_bgcolor = style.background_color
-            template.layout.plot_bgcolor = style.background_color
-            template.layout.xaxis = {
-                "showline": True,
-                "linecolor": style.axis_color,
-                "ticks": "outside",
-                "tickcolor": style.axis_color,
-                "gridcolor": style.grid_color,
-                "zeroline": False,
-            }
-            template.layout.yaxis = {
-                "showline": True,
-                "linecolor": style.axis_color,
-                "ticks": "outside",
-                "tickcolor": style.axis_color,
-                "gridcolor": style.grid_color,
-                "zeroline": False,
-            }
+            template = go.layout.Template(
+                template,
+                layout={
+                    "font": {
+                        "family": CJK_FONT_FAMILY,
+                        "size": style.font_size,
+                        "color": style.text_color,
+                    },
+                    "colorway": list(style.colors),
+                    "paper_bgcolor": style.background_color,
+                    "plot_bgcolor": style.background_color,
+                    "xaxis": {
+                        "showline": True,
+                        "linecolor": style.axis_color,
+                        "ticks": "outside",
+                        "tickcolor": style.axis_color,
+                        "gridcolor": style.grid_color,
+                        "zeroline": False,
+                    },
+                    "yaxis": {
+                        "showline": True,
+                        "linecolor": style.axis_color,
+                        "ticks": "outside",
+                        "tickcolor": style.axis_color,
+                        "gridcolor": style.grid_color,
+                        "zeroline": False,
+                    },
+                },
+            )
 
             pio.templates["nini_science"] = template
             pio.templates.default = "nini_science"
-            px.defaults.template = "nini_science"
-            px.defaults.color_discrete_sequence = list(style.colors)
+            setattr(px.defaults, "template", "nini_science")
+            setattr(px.defaults, "color_discrete_sequence", list(style.colors))
         except ImportError as exc:
             logger.debug("Plotly 相关依赖不可用，跳过默认样式配置: %s", exc)
         except MemoryError:
@@ -362,6 +366,19 @@ def _collect_figures(
     - 跳过空白图表和序列化失败的对象
     """
     figures: list[dict[str, Any]] = []
+
+    def _extract_figure_title(fig: Any) -> str:
+        suptitle = getattr(fig, "_suptitle", None)
+        if suptitle is not None:
+            get_text = getattr(suptitle, "get_text", None)
+            if callable(get_text):
+                text = str(get_text() or "").strip()
+                if text:
+                    return text
+        axes = fig.get_axes() if hasattr(fig, "get_axes") else []
+        if axes:
+            return str(axes[0].get_title() or "")
+        return ""
     style = build_style_spec()
     seen_ids: set[int] = set()
 
@@ -447,13 +464,7 @@ def _collect_figures(
                     "library": "matplotlib",
                     "title": "",
                 }
-                # 提取标题
-                title_text = (
-                    obj._suptitle.get_text() if hasattr(obj, "_suptitle") and obj._suptitle else ""
-                )
-                if not title_text and obj.get_axes():
-                    title_text = obj.get_axes()[0].get_title()
-                entry["title"] = title_text or ""
+                entry["title"] = _extract_figure_title(obj)
 
                 # SVG
                 svg_buf = io.BytesIO()
@@ -484,14 +495,7 @@ def _collect_figures(
                 "library": "matplotlib",
                 "title": "",
             }
-            title_text = (
-                mpl_gcf_fig._suptitle.get_text()
-                if hasattr(mpl_gcf_fig, "_suptitle") and mpl_gcf_fig._suptitle
-                else ""
-            )
-            if not title_text and mpl_gcf_fig.get_axes():
-                title_text = mpl_gcf_fig.get_axes()[0].get_title()
-            entry["title"] = title_text or ""
+            entry["title"] = _extract_figure_title(mpl_gcf_fig)
 
             svg_buf = io.BytesIO()
             mpl_gcf_fig.savefig(svg_buf, format="svg", bbox_inches="tight")

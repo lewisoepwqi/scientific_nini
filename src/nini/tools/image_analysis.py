@@ -211,9 +211,15 @@ class ImageAnalysisSkill(Skill):
             }
 
         # 4. 检查会话中的上传文件
-        if hasattr(session, "uploaded_files") and session.uploaded_files:
+        uploaded_files_raw = getattr(session, "uploaded_files", None)
+        uploaded_files: dict[str, Any] = (
+            uploaded_files_raw if isinstance(uploaded_files_raw, dict) else {}
+        )
+        if uploaded_files:
             # 获取第一个上传的图片文件
-            for filename, filepath in session.uploaded_files.items():
+            for filename, filepath in uploaded_files.items():
+                if not isinstance(filepath, str):
+                    continue
                 if self._is_image_file(filename):
                     path = Path(filepath)
                     if path.exists():

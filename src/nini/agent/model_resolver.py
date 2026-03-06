@@ -397,7 +397,10 @@ class ModelResolver:
         clients: list[BaseLLMClient] = []
 
         # 检查是否有用途特定的模型覆盖
-        route = self._purpose_routes.get(purpose, {})
+        route: PurposeRoute = self._purpose_routes.get(
+            purpose,
+            {"provider_id": None, "model": None, "base_url": None},
+        )
         purpose_provider = route.get("provider_id")
         purpose_model = route.get("model")
 
@@ -437,7 +440,12 @@ class ModelResolver:
         ordered = self._get_ordered_clients(purpose)
 
         # 检查 purpose route 中是否配置了特定模型
-        route = self._purpose_routes.get(purpose, self._purpose_routes.get("default", {}))
+        route: PurposeRoute = self._purpose_routes.get(
+            purpose,
+            self._purpose_routes.get(
+                "default", {"provider_id": None, "model": None, "base_url": None}
+            ),
+        )
         route_model = route.get("model") if route else None
         route_provider = route.get("provider_id") if route else None
 
@@ -470,7 +478,10 @@ class ModelResolver:
         Returns:
             提供商 ID 或 None
         """
-        route = self._purpose_routes.get(purpose, {})
+        route: PurposeRoute = self._purpose_routes.get(
+            purpose,
+            {"provider_id": None, "model": None, "base_url": None},
+        )
         return route.get("provider_id")
 
     def get_preferred_providers_by_purpose(self) -> dict[str, str | None]:
@@ -480,7 +491,7 @@ class ModelResolver:
             for purpose, route in self._purpose_routes.items()
         }
 
-    def get_purpose_routes(self) -> dict[str, dict[str, Any]]:
+    def get_purpose_routes(self) -> dict[str, PurposeRoute]:
         """获取用途路由配置。"""
         return self._purpose_routes.copy()
 

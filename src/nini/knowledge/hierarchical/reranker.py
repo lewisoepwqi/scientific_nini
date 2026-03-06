@@ -51,10 +51,16 @@ class CrossEncoderReranker:
         """
         try:
             # 延迟导入，避免启动时加载
-            from sentence_transformers import CrossEncoder
+            import importlib
+
+            sentence_transformers = importlib.import_module("sentence_transformers")
+            cross_encoder_cls = getattr(sentence_transformers, "CrossEncoder", None)
+            if not callable(cross_encoder_cls):
+                logger.warning("sentence_transformers 缺少 CrossEncoder，重排序不可用")
+                return False
 
             logger.info(f"加载 Cross-Encoder 模型: {self.model_name}")
-            self._model = CrossEncoder(self.model_name)
+            self._model = cross_encoder_cls(self.model_name)
             self._available = True
             logger.info("Cross-Encoder 模型加载成功")
             return True

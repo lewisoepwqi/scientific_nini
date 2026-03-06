@@ -143,9 +143,9 @@ def _evaluate_condition(condition: str, context: dict[str, Any]) -> bool:
 
     try:
         if operator == "==":
-            return left == right
+            return bool(left == right)
         if operator == "!=":
-            return left != right
+            return bool(left != right)
         if operator == ">":
             return bool(left > right)
         if operator == ">=":
@@ -177,7 +177,10 @@ def _to_result_dict(result: Any) -> dict[str, Any]:
     if isinstance(result, dict):
         return result
     if hasattr(result, "to_dict") and callable(result.to_dict):
-        return result.to_dict()
+        converted = result.to_dict()
+        if isinstance(converted, dict):
+            return converted
+        return {"success": True, "data": converted, "message": "步骤执行完成"}
     if result is None:
         return {"success": False, "message": "步骤未返回结果"}
     return {"success": True, "data": result, "message": "步骤执行完成"}
@@ -319,7 +322,12 @@ async def execute_workflow(
 
                 has_error = bool(result.get("error")) or result.get("success") is False
                 status = "error" if has_error else "success"
-                message = result.get("error") if has_error else result.get("message", "步骤执行完成")
+                raw_message = result.get("error") if has_error else result.get("message")
+                message = (
+                    str(raw_message)
+                    if raw_message is not None
+                    else ("步骤执行失败" if has_error else "步骤执行完成")
+                )
 
                 yield eb.build_tool_result_event(
                     tool_call_id=f"wf-{template.id}-{run_index}",
@@ -368,7 +376,12 @@ async def execute_workflow(
 
             has_error = bool(result.get("error")) or result.get("success") is False
             status = "error" if has_error else "success"
-            message = result.get("error") if has_error else result.get("message", "步骤执行完成")
+            raw_message = result.get("error") if has_error else result.get("message")
+            message = (
+                str(raw_message)
+                if raw_message is not None
+                else ("步骤执行失败" if has_error else "步骤执行完成")
+            )
 
             yield eb.build_tool_result_event(
                 tool_call_id=f"wf-{template.id}-{idx}",

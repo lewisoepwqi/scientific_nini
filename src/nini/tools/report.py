@@ -199,7 +199,8 @@ def _collect_chart_artifacts(session_id: str, max_items: int = 12) -> list[dict[
             continue
 
         name_lower = name.lower()
-        meta = item.get("meta") if isinstance(item.get("meta"), dict) else {}
+        meta_raw = item.get("meta")
+        meta: dict[str, Any] = meta_raw if isinstance(meta_raw, dict) else {}
         artifact_type = str(meta.get("type", "")).lower()
         subtype = str(meta.get("subtype", "")).lower()
         fmt_hint = str(meta.get("format", "")).lower().strip()
@@ -671,7 +672,8 @@ class GenerateReportSkill(Skill):
 
         report_payload = report_result.data if isinstance(report_result.data, dict) else {}
         report_id = str(report_payload.get("report_id", "")).strip()
-        record = report_payload.get("record") if isinstance(report_payload.get("record"), dict) else {}
+        record_raw = report_payload.get("record")
+        record: dict[str, Any] = record_raw if isinstance(record_raw, dict) else {}
         relative_path = str(record.get("markdown_path", "")).strip() or f"notes/reports/{output_name}"
         ws = WorkspaceManager(session.id)
         path = ws.save_text_file(relative_path, preview_md)

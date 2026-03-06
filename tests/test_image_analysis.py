@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pandas as pd
 import pytest
 
@@ -115,12 +116,18 @@ class TestImageAnalysisExecution:
         session = Session()
         skill = ImageAnalysisSkill()
 
-        # 测试无效 URL 的错误处理
-        result = await skill.execute(
-            session,
-            image_url="https://example.com/nonexistent.png",
-            output_format="dataframe",
-        )
+        # 使用 mock 避免真实网络请求导致测试不稳定。
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.get = AsyncMock(side_effect=httpx.ConnectError("network disabled"))
+            mock_client_class.return_value = mock_client
+
+            result = await skill.execute(
+                session,
+                image_url="https://example.com/nonexistent.png",
+                output_format="dataframe",
+            )
 
         # 应该返回 SkillResult（失败）
         assert isinstance(result, SkillResult)

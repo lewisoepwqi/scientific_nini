@@ -113,9 +113,9 @@ def canonicalize_message_entries(entries: list[dict[str, Any]]) -> list[dict[str
             entry.setdefault("operation", "complete")
             message_id = entry.get("message_id")
             if not isinstance(message_id, str) or not message_id.strip():
-                tool_call_id = entry.get("tool_call_id")
-                if isinstance(tool_call_id, str) and tool_call_id.strip():
-                    entry["message_id"] = f"tool-result-{tool_call_id.strip()}"
+                tool_call_id_value = entry.get("tool_call_id")
+                if isinstance(tool_call_id_value, str) and tool_call_id_value.strip():
+                    entry["message_id"] = f"tool-result-{tool_call_id_value.strip()}"
                 else:
                     seq = legacy_tool_seq.get(turn_id, 0)
                     entry["message_id"] = f"legacy-tool-{turn_id}-{seq}"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -28,11 +29,11 @@ def test_configure_chart_defaults_logs_warning_for_matplotlib_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Matplotlib 样式配置异常应记录 warning 并继续执行。"""
-    fake_matplotlib = ModuleType("matplotlib")
+    fake_matplotlib: Any = ModuleType("matplotlib")
     fake_matplotlib.rcParams = {}
     fake_matplotlib.use = lambda *_args, **_kwargs: None
 
-    fake_cycler = ModuleType("cycler")
+    fake_cycler: Any = ModuleType("cycler")
     fake_cycler.cycler = lambda **kwargs: kwargs
 
     monkeypatch.setitem(sys.modules, "matplotlib", fake_matplotlib)
@@ -58,18 +59,18 @@ def test_configure_chart_defaults_logs_warning_for_plotly_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Plotly 样式配置异常应记录 warning 并继续执行。"""
-    fake_matplotlib = ModuleType("matplotlib")
+    fake_matplotlib: Any = ModuleType("matplotlib")
     fake_matplotlib.rcParams = {}
     fake_matplotlib.use = lambda *_args, **_kwargs: None
 
-    fake_cycler = ModuleType("cycler")
+    fake_cycler: Any = ModuleType("cycler")
     fake_cycler.cycler = lambda **kwargs: kwargs
 
-    fake_plotly = ModuleType("plotly")
-    fake_px = ModuleType("plotly.express")
+    fake_plotly: Any = ModuleType("plotly")
+    fake_px: Any = ModuleType("plotly.express")
     fake_px.defaults = SimpleNamespace(template=None, color_discrete_sequence=None)
 
-    fake_go = ModuleType("plotly.graph_objects")
+    fake_go: Any = ModuleType("plotly.graph_objects")
 
     class _Layout:
         @staticmethod
@@ -78,7 +79,7 @@ def test_configure_chart_defaults_logs_warning_for_plotly_failure(
 
     fake_go.layout = _Layout
 
-    fake_pio = ModuleType("plotly.io")
+    fake_pio: Any = ModuleType("plotly.io")
 
     class _Templates(dict):
         default = "plotly_white"
@@ -145,8 +146,8 @@ def test_collect_figures_logs_debug_for_plotly_failure(
         def to_json(self) -> str:
             raise RuntimeError("to_json failed")
 
-    fake_plotly = ModuleType("plotly")
-    fake_go = ModuleType("plotly.graph_objects")
+    fake_plotly: Any = ModuleType("plotly")
+    fake_go: Any = ModuleType("plotly.graph_objects")
     fake_go.Figure = _FakeFigure
     monkeypatch.setitem(sys.modules, "plotly", fake_plotly)
     monkeypatch.setitem(sys.modules, "plotly.graph_objects", fake_go)
