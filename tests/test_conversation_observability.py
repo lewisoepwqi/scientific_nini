@@ -286,6 +286,76 @@ class _EchoSkillRegistry:
         return await self.execute(skill_name, session=session, **kwargs)
 
 
+class _ChartToolResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, tool_calls: list[dict[str, object]]):
+                self.text = text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls == 1:
+            yield _Chunk(
+                text="",
+                tool_calls=[
+                    {
+                        "id": "call_chart_1",
+                        "type": "function",
+                        "function": {
+                            "name": "chart_tool",
+                            "arguments": json.dumps({}, ensure_ascii=False),
+                        },
+                    }
+                ],
+            )
+            return
+
+        yield _Chunk(text="图表已完成", tool_calls=[])
+
+
+class _ChartSkillRegistry:
+    def get_tool_definitions(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "chart_tool",
+                    "description": "返回图表",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
+    async def execute(self, skill_name: str, session: Session, **kwargs):
+        if skill_name != "chart_tool":
+            return {"error": f"unknown skill: {skill_name}"}
+        return {
+            "success": True,
+            "message": "图表已生成",
+            "has_chart": True,
+            "chart_data": {
+                "data": [{"type": "bar", "x": ["A", "B"], "y": [1, 2]}],
+                "layout": {"title": {"text": "demo"}},
+                "chart_type": "bar",
+            },
+            "artifacts": [
+                {
+                    "name": "demo.plotly.json",
+                    "type": "chart",
+                    "download_url": f"/api/artifacts/{session.id}/demo.plotly.json",
+                }
+            ],
+        }
+
+    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
+        return await self.execute(skill_name, session=session, **kwargs)
+
+
 class _RetryEchoSkillRegistry(_EchoSkillRegistry):
     def __init__(self) -> None:
         self.calls = 0
@@ -410,6 +480,131 @@ class _AlwaysFailEchoRegistry(_EchoSkillRegistry):
             "error_code": "ECHO_FAIL",
             "recovery_hint": "请修改参数后再试。",
         }
+
+
+class _CodeSessionBreakerResetResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, tool_calls):
+                self.text = text
+                self.reasoning = ""
+                self.raw_text = text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls == 1:
+            yield _Chunk(
+                text="",
+                tool_calls=[
+                    {
+                        "id": "call_cs_fail_1",
+                        "type": "function",
+                        "function": {
+                            "name": "code_session",
+                            "arguments": json.dumps(
+                                {"operation": "run_script", "script_id": "s1"},
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+            )
+            return
+        if self.calls == 2:
+            yield _Chunk(
+                text="",
+                tool_calls=[
+                    {
+                        "id": "call_cs_fail_2",
+                        "type": "function",
+                        "function": {
+                            "name": "code_session",
+                            "arguments": json.dumps(
+                                {"operation": "run_script", "script_id": "s1"},
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+            )
+            return
+        if self.calls == 3:
+            yield _Chunk(
+                text="",
+                tool_calls=[
+                    {
+                        "id": "call_cs_patch",
+                        "type": "function",
+                        "function": {
+                            "name": "code_session",
+                            "arguments": json.dumps(
+                                {"operation": "patch_script", "script_id": "s1"},
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+            )
+            return
+        if self.calls == 4:
+            yield _Chunk(
+                text="",
+                tool_calls=[
+                    {
+                        "id": "call_cs_after_patch",
+                        "type": "function",
+                        "function": {
+                            "name": "code_session",
+                            "arguments": json.dumps(
+                                {"operation": "run_script", "script_id": "s1"},
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+            )
+            return
+
+        yield _Chunk(text="结束", tool_calls=[])
+
+
+class _CodeSessionBreakerResetRegistry:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def get_tool_definitions(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "code_session",
+                    "description": "代码会话测试工具",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
+    async def execute(self, skill_name: str, session: Session, **kwargs):
+        self.calls += 1
+        if skill_name != "code_session":
+            return {"error": f"unknown skill: {skill_name}"}
+        operation = str(kwargs.get("operation", "")).strip().lower()
+        if operation == "patch_script":
+            return {"success": True, "message": "patched"}
+        return {
+            "success": False,
+            "message": "run failed",
+            "error_code": "CODE_SESSION_FAIL",
+            "recovery_hint": "请更新脚本后重试。",
+        }
+
+    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
+        return await self.execute(skill_name, session=session, **kwargs)
 
 
 class _LoadDatasetBypassResolver:
@@ -702,6 +897,31 @@ async def test_runner_attaches_action_tracking_metadata_no_auto_retry() -> None:
 
 
 @pytest.mark.asyncio
+async def test_runner_chart_event_includes_plotly_download_url_and_figure_payload() -> None:
+    session = Session()
+    session.add_message("user", "生成图表")
+
+    runner = AgentRunner(
+        resolver=_ChartToolResolver(),
+        skill_registry=_ChartSkillRegistry(),
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    events = []
+    async for event in runner.run(session, "继续", append_user_message=False):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    chart_event = next(event for event in events if event.type == EventType.CHART)
+    assert isinstance(chart_event.data, dict)
+    assert chart_event.data.get("url") == f"/api/artifacts/{session.id}/demo.plotly.json"
+    assert chart_event.data.get("download_url") == f"/api/artifacts/{session.id}/demo.plotly.json"
+    assert isinstance(chart_event.data.get("data"), list)
+    assert chart_event.data["data"][0]["type"] == "bar"
+
+
+@pytest.mark.asyncio
 async def test_runner_circuit_breaker_stops_repeated_same_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -745,6 +965,41 @@ async def test_runner_circuit_breaker_stops_repeated_same_failures(
     result = nested_data.get("result")
     assert isinstance(result, dict)
     assert result.get("error_code") == "TOOL_CALL_CIRCUIT_BREAKER"
+
+
+@pytest.mark.asyncio
+async def test_runner_circuit_breaker_resets_after_code_session_patch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = Session()
+    session.add_message("user", "继续")
+
+    resolver = _CodeSessionBreakerResetResolver()
+    registry = _CodeSessionBreakerResetRegistry()
+    runner = AgentRunner(
+        resolver=resolver,
+        skill_registry=registry,
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    monkeypatch.setattr(settings, "tool_circuit_breaker_threshold", 2)
+
+    events = []
+    async for event in runner.run(session, "继续", append_user_message=False):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    # 期望 patch_script 之后，同参数 run_script 不被熔断拦截，真实执行应达到 4 次
+    assert registry.calls == 4
+    breaker_events = [
+        e
+        for e in events
+        if e.type == EventType.TOOL_RESULT
+        and isinstance(e.metadata, dict)
+        and e.metadata.get("breaker_triggered") is True
+    ]
+    assert not breaker_events
 
 
 @pytest.mark.asyncio

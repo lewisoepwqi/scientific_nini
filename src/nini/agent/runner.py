@@ -141,6 +141,48 @@ def _tool_result_message(result: Any, *, is_error: bool) -> str:
     return "工具执行失败" if is_error else "工具执行完成"
 
 
+def _enrich_chart_payload_from_artifacts(
+    chart_data: dict[str, Any],
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """为实时 chart 事件补齐下载地址与名称。
+
+    前端实时消息优先消费 WebSocket 的 chart 事件；若该事件只包含 metadata，
+    会误判为无图表数据。这里优先复用工具返回的 chart artifact，将
+    `.plotly.json` 的 download_url 合并回 chart payload。
+    """
+    enriched = dict(chart_data)
+    artifacts = result.get("artifacts")
+    if not isinstance(artifacts, list):
+        return enriched
+
+    selected_artifact: dict[str, Any] | None = None
+    for item in artifacts:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        artifact_type = str(item.get("type", "")).strip().lower()
+        if name.lower().endswith(".plotly.json"):
+            selected_artifact = item
+            break
+        if artifact_type == "chart" and selected_artifact is None:
+            selected_artifact = item
+
+    if selected_artifact is None:
+        return enriched
+
+    artifact_url = str(selected_artifact.get("download_url", "")).strip()
+    artifact_name = str(selected_artifact.get("name", "")).strip()
+
+    if artifact_url:
+        enriched.setdefault("url", artifact_url)
+        enriched.setdefault("download_url", artifact_url)
+    if artifact_name:
+        enriched.setdefault("name", artifact_name)
+
+    return enriched
+
+
 # ---- Agent Runner ----
 
 
@@ -1116,6 +1158,15 @@ class AgentRunner:
                         tool_name=func_name,
                     )
 
+                if func_name == "code_session":
+                    parsed_func_args = parse_tool_arguments(func_args)
+                    operation = str(parsed_func_args.get("operation", "")).strip().lower()
+                    if operation in {"patch_script", "create_script"}:
+                        # 脚本内容发生变更后，清空 code_session 的失败链路，避免误触熔断。
+                        for signature in list(tool_failure_chains.keys()):
+                            if signature.startswith("code_session::"):
+                                tool_failure_chains.pop(signature, None)
+
                 chain_state = tool_failure_chains.get(tool_args_signature)
                 if (
                     isinstance(chain_state, dict)
@@ -1410,18 +1461,25 @@ class AgentRunner:
                         chart_data: dict[str, Any] = (
                             chart_data_candidate if isinstance(chart_data_candidate, dict) else {}
                         )
+                        chart_data = _enrich_chart_payload_from_artifacts(chart_data, result)
                         session.add_assistant_event(
                             "chart",
                             "图表已生成",
                             turn_id=turn_id,
                             chart_data=chart_data,
                         )
+                        chart_event_extra = {
+                            key: value
+                            for key, value in chart_data.items()
+                            if key not in {"chart_id", "name", "url", "chart_type"}
+                        }
                         yield eb.build_chart_event(
                             chart_id=chart_data.get("id", ""),
                             name=chart_data.get("name", ""),
                             url=chart_data.get("url", ""),
                             chart_type=chart_data.get("chart_type"),
                             turn_id=turn_id,
+                            **chart_event_extra,
                         )
                     if isinstance(result, dict) and result.get("has_dataframe"):
                         raw_data_preview = result.get("dataframe_preview")

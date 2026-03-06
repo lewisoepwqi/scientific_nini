@@ -8,6 +8,8 @@ import logging
 import mimetypes
 import re
 import shutil
+import subprocess
+import sys
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -1666,21 +1668,44 @@ def _extract_image_urls(md_content: str, session_id: str) -> list[dict[str, str]
 
 def _plotly_json_to_png_bytes(json_path: Path) -> bytes | None:
     """将 Plotly JSON 文件转换为 PNG 字节。失败返回 None。"""
-    import json as _json
+    import tempfile
 
-    import plotly.graph_objects as go
+    timeout_seconds = max(float(settings.plotly_export_timeout), 1.0)
+    script = """
+import json
+import sys
+from pathlib import Path
+import plotly.graph_objects as go
+from nini.utils.chart_fonts import apply_plotly_cjk_font_fallback
 
-    from nini.utils.chart_fonts import apply_plotly_cjk_font_fallback
+src = Path(sys.argv[1])
+dst = Path(sys.argv[2])
+chart_data = json.loads(src.read_text(encoding="utf-8"))
+fig = go.Figure(chart_data)
+apply_plotly_cjk_font_fallback(fig)
+fig.write_image(str(dst), format="png", width=1400, height=900, scale=2)
+"""
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        tmp_png = Path(tmp.name)
 
     try:
-        chart_data = _json.loads(json_path.read_text(encoding="utf-8"))
-        fig = go.Figure(chart_data)
-        apply_plotly_cjk_font_fallback(fig)
-        png_data: bytes = fig.to_image(format="png", width=1400, height=900, scale=2)  # type: ignore[assignment]
-        return png_data
+        subprocess.run(
+            [sys.executable, "-c", script, str(json_path), str(tmp_png)],
+            check=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+        )
+        return tmp_png.read_bytes()
+    except subprocess.TimeoutExpired:
+        logger.warning("Plotly PNG 转换超时并已降级为原始文件: %s", json_path.name)
+        return None
     except Exception as exc:
         logger.debug("Plotly PNG 转换失败 (%s): %s", json_path.name, exc)
         return None
+    finally:
+        if tmp_png.exists():
+            tmp_png.unlink()
 
 
 def _bundle_markdown_with_images(

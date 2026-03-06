@@ -234,6 +234,27 @@ print(df.isnull().sum())
         assert "数据形状" in outcome["stdout"]
         assert "缺失值统计" in outcome["stdout"]
 
+    @pytest.mark.asyncio
+    async def test_allows_type_and_repr_for_debugging(self):
+        """调试脚本应允许 type/repr 等只读内建函数。"""
+        code = """
+print(type(df).__name__)
+print(repr(df.columns[0]))
+"""
+        session = Session()
+        session.datasets["demo"] = pd.DataFrame({"col": [1, 2, 3]})
+        outcome = await sandbox_executor.execute(
+            code=code,
+            session_id=session.id,
+            datasets=session.datasets,
+            dataset_name="demo",
+            persist_df=False,
+        )
+
+        assert outcome["success"], f"执行失败: {outcome.get('error')}"
+        assert "DataFrame" in outcome["stdout"]
+        assert "'col'" in outcome["stdout"]
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

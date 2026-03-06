@@ -267,6 +267,30 @@ def test_stat_model_auto_uses_single_dataset_when_dataset_name_missing() -> None
     assert result["data"]["requested_method"] == "correlation"
 
 
+def test_stat_model_accepts_stringified_columns_array() -> None:
+    registry = create_default_registry()
+    session = Session()
+    session.datasets["stats_demo"] = pd.DataFrame(
+        {
+            "x": [1, 2, 3, 4, 5, 6],
+            "y": [2, 4, 6, 8, 10, 12],
+        }
+    )
+
+    result = asyncio.run(
+        registry.execute(
+            "stat_model",
+            session=session,
+            method="correlation",
+            dataset_name="stats_demo",
+            columns='["x", "y"]',
+        )
+    )
+
+    assert result["success"] is True, result
+    assert result["data"]["requested_method"] == "correlation"
+
+
 def test_stat_model_requires_dataset_name_when_multiple_datasets_exist() -> None:
     registry = create_default_registry()
     session = Session()
@@ -286,6 +310,73 @@ def test_stat_model_requires_dataset_name_when_multiple_datasets_exist() -> None
     assert "缺少 dataset_name" in result["message"]
 
 
+def test_stat_test_auto_uses_single_dataset_when_dataset_name_missing() -> None:
+    registry = create_default_registry()
+    session = Session()
+    session.datasets["stats_demo"] = pd.DataFrame(
+        {
+            "group": ["a", "a", "a", "b", "b", "b"],
+            "value": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        }
+    )
+
+    result = asyncio.run(
+        registry.execute(
+            "stat_test",
+            session=session,
+            method="independent_t",
+            value_column="value",
+            group_column="group",
+        )
+    )
+
+    assert result["success"] is True, result
+    assert result["data"]["requested_method"] == "independent_t"
+
+
+def test_stat_test_requires_dataset_name_when_multiple_datasets_exist() -> None:
+    registry = create_default_registry()
+    session = Session()
+    session.datasets["a"] = pd.DataFrame({"group": ["g1", "g1", "g2", "g2"], "value": [1, 2, 3, 4]})
+    session.datasets["b"] = pd.DataFrame({"group": ["g1", "g1", "g2", "g2"], "value": [2, 3, 4, 5]})
+
+    result = asyncio.run(
+        registry.execute(
+            "stat_test",
+            session=session,
+            method="independent_t",
+            value_column="value",
+            group_column="group",
+        )
+    )
+
+    assert result["success"] is False
+    assert "缺少 dataset_name" in result["message"]
+
+
+def test_stat_test_returns_friendly_error_for_missing_required_param() -> None:
+    registry = create_default_registry()
+    session = Session()
+    session.datasets["stats_demo"] = pd.DataFrame(
+        {
+            "group": ["a", "a", "a", "b", "b", "b"],
+            "value": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        }
+    )
+
+    result = asyncio.run(
+        registry.execute(
+            "stat_test",
+            session=session,
+            method="independent_t",
+            group_column="group",
+        )
+    )
+
+    assert result["success"] is False
+    assert result["message"] == "缺少必要参数: value_column"
+
+
 def test_stat_model_schema_explicitly_requires_correlation_dataset_and_columns() -> None:
     registry = create_default_registry()
     skill = registry.get("stat_model")
@@ -297,6 +388,22 @@ def test_stat_model_schema_explicitly_requires_correlation_dataset_and_columns()
     corr_branch = next(b for b in branches if "correlation" in b["properties"]["method"]["enum"])
     assert set(corr_branch["required"]) == {"method", "dataset_name", "columns"}
     assert corr_branch["properties"]["columns"]["minItems"] == 2
+
+
+def test_stat_test_schema_explicitly_requires_dataset_and_columns_for_independent_t() -> None:
+    registry = create_default_registry()
+    skill = registry.get("stat_test")
+    assert skill is not None
+
+    schema = skill.parameters
+    assert schema["type"] == "object"
+    assert set(schema["required"]) == {"method"}
+    method_schema = schema["properties"]["method"]
+    assert "independent_t" in method_schema["enum"]
+    assert "paired_t" in method_schema["enum"]
+    assert "dataset_name" in schema["properties"]
+    assert "value_column" in schema["properties"]
+    assert "group_column" in schema["properties"]
 
 
 def test_workspace_session_schema_requires_file_path_for_read() -> None:
@@ -404,6 +511,36 @@ def test_report_session_persists_sections_and_exports(
         metadata={"title": "源文档"},
     )
 
+    chart_path = manager.resolve_workspace_path("artifacts/scatter.plotly.json", allow_missing=True)
+    chart_path.parent.mkdir(parents=True, exist_ok=True)
+    chart_path.write_text("{}", encoding="utf-8")
+    manager.upsert_managed_resource(
+        resource_id="chart_scatter_demo",
+        resource_type=ResourceType.CHART,
+        name="scatter.plotly.json",
+        path=chart_path,
+        source_kind="artifacts",
+        metadata={"title": "散点图"},
+    )
+
+    import base64
+
+    png_path = manager.resolve_workspace_path("artifacts/scatter.png", allow_missing=True)
+    png_path.write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4"
+            "nGNgYPgPAAEDAQAIicLsAAAABJRU5ErkJggg=="
+        )
+    )
+    manager.upsert_managed_resource(
+        resource_id="file_scatter_png",
+        resource_type=ResourceType.FILE,
+        name="scatter.png",
+        path=png_path,
+        source_kind="artifacts",
+        metadata={"title": "散点图 PNG", "mime_type": "image/png"},
+    )
+
     async def fake_export_workspace_document(
         session: Session,
         source_ref: str | None,
@@ -484,6 +621,30 @@ def test_report_session_persists_sections_and_exports(
     )
     assert attach_result["success"] is True, attach_result
 
+    chart_attach_result = asyncio.run(
+        registry.execute(
+            "report_session",
+            session=session,
+            operation="attach_artifact",
+            report_id="report_demo",
+            section_key="summary",
+            artifact_resource_id="chart_scatter_demo",
+        )
+    )
+    assert chart_attach_result["success"] is True, chart_attach_result
+
+    png_attach_result = asyncio.run(
+        registry.execute(
+            "report_session",
+            session=session,
+            operation="attach_artifact",
+            report_id="report_demo",
+            section_key="summary",
+            artifact_resource_id="file_scatter_png",
+        )
+    )
+    assert png_attach_result["success"] is True, png_attach_result
+
     get_result = asyncio.run(
         registry.execute(
             "report_session",
@@ -501,7 +662,9 @@ def test_report_session_persists_sections_and_exports(
     )
     markdown = markdown_path.read_text(encoding="utf-8")
     assert "补充说明" in markdown
-    assert "source.md" in markdown
+    assert "- [source.md](" in markdown
+    assert "![scatter.plotly.json](" in markdown
+    assert "![scatter.png](" in markdown
 
     export_result = asyncio.run(
         registry.execute(

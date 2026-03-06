@@ -96,6 +96,35 @@ describe("handleEvent 文本去重", () => {
     expect(state.messages[0]?.content).toBe("# 完整报告内容");
   });
 
+  it("complete 操作携带内容时应保留完整消息", () => {
+    const harness = createHarness({ _currentTurnId: "turn-1" });
+
+    harness.dispatch({
+      type: "text",
+      data: "部分内容",
+      turn_id: "turn-1",
+      metadata: {
+        message_id: "turn-1-1",
+        operation: "append",
+      },
+    });
+
+    harness.dispatch({
+      type: "text",
+      data: "完整内容",
+      turn_id: "turn-1",
+      metadata: {
+        message_id: "turn-1-1",
+        operation: "complete",
+      },
+    });
+
+    const state = harness.getState();
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]?.messageId).toBe("turn-1-1");
+    expect(state.messages[0]?.content).toBe("完整内容");
+  });
+
   it("对同一 reasoning_id 应合并为单条 reasoning 消息", () => {
     const harness = createHarness({ _currentTurnId: "turn-1" });
 

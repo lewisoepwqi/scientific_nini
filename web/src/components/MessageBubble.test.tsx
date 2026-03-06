@@ -6,6 +6,9 @@ import MessageBubble from "./MessageBubble";
 vi.mock("./MarkdownContent", () => ({
   default: ({ content }: { content: string }) => <div>{content}</div>,
 }));
+vi.mock("./PlotlyFromUrl", () => ({
+  default: ({ url }: { url: string }) => <div data-testid="plotly-from-url">{url}</div>,
+}));
 
 afterEach(() => {
   vi.useRealTimers();
@@ -83,9 +86,58 @@ describe("MessageBubble reasoning", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /ask_user_question/u }));
 
-    expect(screen.getByText(/分析偏好：效应量/u)).toBeInTheDocument();
+    expect(screen.getAllByText(/分析偏好：效应量/u).length).toBeGreaterThanOrEqual(1);
     expect(
-      screen.getByText(/文件名：gsd_research_report\.md/u),
-    ).toBeInTheDocument();
+      screen.getAllByText(/文件名：gsd_research_report\.md/u).length,
+    ).toBeGreaterThanOrEqual(1);
+  });
+
+  it("成功工具调用在折叠状态应显示结果摘要，展开后显示完整结果", () => {
+    const fullResult =
+      "已生成月度分析报告，包含数据概览、相关性分析、回归建模、异常值检查、稳健性检验、敏感性分析和结论建议，请继续导出 PDF 版本并同步保存 Markdown 副本。";
+
+    render(
+      <MessageBubble
+        message={{
+          id: "tool-report-1",
+          role: "tool",
+          content: fullResult,
+          toolName: "generate_report",
+          toolCallId: "tool-report-1",
+          toolResult: fullResult,
+          toolStatus: "success",
+          timestamp: Date.now(),
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/执行完成：已生成月度分析报告/u)).toBeInTheDocument();
+    expect(screen.queryByText(fullResult)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /generate_report/u }));
+
+    expect(screen.getByText(fullResult)).toBeInTheDocument();
+  });
+
+  it("chart 事件仅包含 plotly.json URL 时应走 URL 渲染分支", () => {
+    render(
+      <MessageBubble
+        message={{
+          id: "chart-url-1",
+          role: "assistant",
+          content: "图表已生成",
+          chartData: {
+            chart_id: "chart_123",
+            name: "示例图",
+            url: "/api/artifacts/sess-1/demo.plotly.json",
+            chart_type: "bar",
+          },
+          timestamp: Date.now(),
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("plotly-from-url")).toBeInTheDocument();
+    expect(screen.getByText("/api/artifacts/sess-1/demo.plotly.json")).toBeInTheDocument();
   });
 });
