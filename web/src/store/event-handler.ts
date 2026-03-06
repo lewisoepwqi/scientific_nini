@@ -1245,6 +1245,31 @@ export function handleEvent(
       break;
     }
 
+    case "trial_expired": {
+      // 试用到期：推送系统消息并通过全局事件通知 UI 打开 AI 设置
+      const expiredMsg = {
+        id: `trial_expired_${Date.now()}`,
+        role: "assistant" as const,
+        content: "试用已结束，请在「AI 设置」中配置自己的 API 密钥继续使用。",
+        timestamp: Date.now(),
+        isError: true,
+        errorKind: "quota" as const,
+        errorHint: "点击右上角「AI 设置」配置自己的密钥",
+      };
+      set((s) => ({
+        isStreaming: false,
+        messages: [...s.messages, expiredMsg],
+      }));
+      window.dispatchEvent(new Event("nini:trial-expired"));
+      break;
+    }
+
+    case "trial_activated": {
+      // 试用激活：刷新横幅状态
+      window.dispatchEvent(new Event("nini:model-config-updated"));
+      break;
+    }
+
     case "code_execution": {
       // 新的代码执行记录
       const execRecord = evt.data as CodeExecution;

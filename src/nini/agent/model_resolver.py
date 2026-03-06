@@ -30,6 +30,16 @@ from .providers import (
 
 logger = logging.getLogger(__name__)
 
+# ---- 标题生成廉价模型偏好顺序 ----
+# 按 provider_id 映射到廉价模型名称列表（优先级从高到低）
+# None 表示使用用户选择的主模型（如 Ollama）
+TITLE_MODEL_PREFERENCE: dict[str, list[str] | None] = {
+    "deepseek":  ["deepseek-chat"],
+    "zhipu":     ["glm-4-flash", "glm-4-air", "glm-4"],
+    "dashscope": ["qwen-turbo", "qwen-plus"],
+    "ollama":    None,
+}
+
 # ---- 用途路由映射 ----
 
 # 内置默认路由，可通过配置覆盖
@@ -91,6 +101,10 @@ class ModelResolver:
         self._client_map: dict[str, BaseLLMClient] = {}
         self._purpose_routes = _load_purpose_routes_from_settings()
         self._config_overrides: dict[str, dict[str, Any]] = {}
+        # 单一激活供应商 ID（None 表示使用试用模式）
+        self._active_provider_id: str | None = None
+        # 试用模式客户端（使用内嵌密钥构造）
+        self._trial_client: BaseLLMClient | None = None
         if clients is not None:
             # 测试注入模式
             self._clients = clients
@@ -145,6 +159,44 @@ class ModelResolver:
             return first_line[:240].rstrip() + "..."
         return first_line
 
+    def _get_single_active_client(self) -> BaseLLMClient | None:
+        """获取单一激活供应商的客户端。
+
+        Returns:
+            激活的客户端，若无激活供应商则返回 None
+        """
+        if not self._active_provider_id:
+            return None
+        client = self._client_map.get(self._active_provider_id)
+        if client and client.is_available():
+            return client
+        return None
+
+    def _get_title_client(self) -> BaseLLMClient | None:
+        """获取用于标题生成的廉价模型客户端。
+
+        按 TITLE_MODEL_PREFERENCE 偏好从激活供应商中选取廉价模型。
+        若无偏好配置或 Ollama，则使用激活供应商的主模型。
+
+        Returns:
+            适合标题生成的客户端，若无激活供应商则返回 None
+        """
+        if not self._active_provider_id:
+            return self._trial_client  # 试用模式直接用试用客户端
+
+        preferred = TITLE_MODEL_PREFERENCE.get(self._active_provider_id)
+        if preferred is None:
+            # Ollama 或无偏好：使用主模型
+            return self._get_single_active_client()
+
+        # 选取偏好列表中的第一个模型构建临时客户端
+        title_model = preferred[0]
+        built = self._build_client_for_provider(self._active_provider_id, model=title_model)
+        if built and built.is_available():
+            return built
+        # 构建失败则回退主模型
+        return self._get_single_active_client()
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -154,103 +206,56 @@ class ModelResolver:
         temperature: float = 0.3,
         max_tokens: int = 4096,
     ) -> AsyncGenerator[LLMChunk, None]:
-        """流式聊天，自动故障转移。
+        """流式聊天（单一激活供应商模式）。
 
         Args:
             messages: OpenAI 格式的消息列表
             tools: 可选的工具定义
-            purpose: 用途标识，影响路由选择
+            purpose: 用途标识（title_generation 时自动使用廉价模型）
             temperature: 采样温度
             max_tokens: 最大生成 token 数
 
         Yields:
             LLMChunk: 流式输出块
         """
-        ordered_clients = self._get_ordered_clients(purpose)
-        if not ordered_clients:
+        # 标题生成使用廉价模型客户端，其余用途使用单一激活客户端
+        if purpose == "title_generation":
+            client = self._get_title_client()
+        else:
+            client = self._get_single_active_client() or self._trial_client
+
+        if not client:
+            raise RuntimeError("未配置 AI 服务，请先在「AI 设置」中配置供应商密钥")
+
+        provider_id = getattr(client, "provider_id", "") or ""
+        provider_name = getattr(client, "provider_name", provider_id) or provider_id
+        model_name = client.get_model_name() or "unknown"
+
+        async for chunk in client.chat(
+            messages=messages,
+            tools=tools,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        ):
+            chunk_text = chunk.text if hasattr(chunk, "text") else ""
+            chunk_reasoning = chunk.reasoning if hasattr(chunk, "reasoning") else ""
             yield LLMChunk(
-                text="",
-                finish_reason="error",
+                text=chunk_text,
+                reasoning=chunk_reasoning,
+                raw_text=getattr(chunk, "raw_text", chunk_text),
+                tool_calls=getattr(chunk, "tool_calls", []),
+                finish_reason=getattr(chunk, "finish_reason", None),
+                usage=getattr(chunk, "usage", None),
+                provider_id=provider_id,
+                provider_name=provider_name,
+                model=model_name,
+                attempt=1,
+                fallback_applied=False,
+                fallback_from_provider_id=None,
+                fallback_from_model=None,
+                fallback_reason=None,
+                fallback_chain=[],
             )
-            return
-
-        last_error: Exception | None = None
-        failed_attempts: list[dict[str, Any]] = []
-        for attempt_idx, client in enumerate(ordered_clients, start=1):
-            provider_id = getattr(client, "provider_id", "") or ""
-            provider_name = getattr(client, "provider_name", provider_id) or provider_id
-            model_name = client.get_model_name() or "unknown"
-            fallback_applied = bool(failed_attempts)
-            fallback_from = failed_attempts[-1] if fallback_applied else None
-
-            try:
-                success_entry = {
-                    "attempt": attempt_idx,
-                    "provider_id": provider_id,
-                    "provider_name": provider_name,
-                    "model": model_name,
-                    "status": "success",
-                }
-                fallback_chain = [*failed_attempts, success_entry]
-                async for chunk in client.chat(
-                    messages=messages,
-                    tools=tools,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                ):
-                    # 注入提供商信息到 chunk（用于前端展示）
-                    chunk_text = chunk.text if hasattr(chunk, "text") else ""
-                    chunk_reasoning = chunk.reasoning if hasattr(chunk, "reasoning") else ""
-                    yield LLMChunk(
-                        text=chunk_text,
-                        reasoning=chunk_reasoning,
-                        raw_text=getattr(chunk, "raw_text", chunk_text),
-                        tool_calls=getattr(chunk, "tool_calls", []),
-                        finish_reason=getattr(chunk, "finish_reason", None),
-                        usage=getattr(chunk, "usage", None),
-                        provider_id=provider_id,
-                        provider_name=provider_name,
-                        model=model_name,
-                        attempt=attempt_idx,
-                        fallback_applied=fallback_applied,
-                        fallback_from_provider_id=(
-                            str(fallback_from.get("provider_id", "")).strip()
-                            if isinstance(fallback_from, dict)
-                            else None
-                        ),
-                        fallback_from_model=(
-                            str(fallback_from.get("model", "")).strip()
-                            if isinstance(fallback_from, dict)
-                            else None
-                        ),
-                        fallback_reason=(
-                            str(fallback_from.get("error", "")).strip()
-                            if isinstance(fallback_from, dict)
-                            else None
-                        ),
-                        fallback_chain=fallback_chain,
-                    )
-                return  # 成功完成
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"Provider {provider_id} failed: {e}")
-                last_error = e
-                failed_attempts.append(
-                    {
-                        "attempt": attempt_idx,
-                        "provider_id": provider_id,
-                        "provider_name": provider_name,
-                        "model": model_name,
-                        "status": "failed",
-                        "error": self._compact_error_message(e),
-                    }
-                )
-                continue
-
-        # 全部失败
-        logger.error(f"All providers failed for purpose '{purpose}'")
-        raise RuntimeError(
-            f"所有 LLM 客户端均失败: {last_error}" if last_error else "所有 LLM 客户端均失败"
-        )
 
     async def chat_complete(
         self,
@@ -675,6 +680,8 @@ class ModelResolver:
         self,
         config_overrides: dict[str, dict[str, Any]] | None = None,
         priorities: dict[str, int] | None = None,
+        active_provider_id: str | None = None,
+        trial_api_key: str | None = None,
     ) -> None:
         """使用新配置重新初始化所有客户端。
 
@@ -682,10 +689,21 @@ class ModelResolver:
             config_overrides: 以 provider 为键的配置字典，
                 每个值包含 api_key、model、base_url 等字段。
                 DB 配置已合并 .env 后传入。
-            priorities: provider -> priority 映射，值越小优先级越高。
+            priorities: provider -> priority 映射，值越小优先级越高（保留兼容，已不影响路由）。
+            active_provider_id: 当前激活的单一供应商 ID。
+            trial_api_key: 内嵌试用密钥（用于构造试用 DeepSeek 客户端）。
         """
         overrides = config_overrides or {}
         self._config_overrides = overrides
+
+        # 更新单一激活供应商
+        self._active_provider_id = active_provider_id
+
+        # 构建试用客户端（仅当有内嵌密钥时）
+        if trial_api_key:
+            self._trial_client = DeepSeekClient(api_key=trial_api_key, model="deepseek-chat")
+        else:
+            self._trial_client = None
 
         def _get(provider: str, key: str) -> str | None:
             return overrides.get(provider, {}).get(key)
@@ -733,21 +751,12 @@ class ModelResolver:
                 model=_get("ollama", "model"),
             ),
         ]
-        default_order = {client.provider_id: idx for idx, client in enumerate(clients)}
-        priority_map = priorities or {}
-        clients.sort(
-            key=lambda client: (
-                int(
-                    priority_map.get(client.provider_id, default_order.get(client.provider_id, 999))
-                ),
-                default_order.get(client.provider_id, 999),
-            )
-        )
         self._clients = clients
         self._client_map = {c.provider_id: c for c in self._clients}
         logger.info(
-            "模型客户端已重新加载，可用客户端: %s",
-            [type(c).__name__ for c in self._clients if c.is_available()],
+            "模型客户端已重新加载，激活供应商: %s，试用模式: %s",
+            active_provider_id or "无",
+            "启用" if self._trial_client else "禁用",
         )
 
 
@@ -772,7 +781,9 @@ def reset_model_resolver() -> None:
 
 async def reload_model_resolver() -> None:
     """从数据库加载配置并重新初始化全局 model_resolver 的客户端。"""
+    from nini.config import settings
     from nini.config_manager import (
+        get_active_provider_id,
         get_all_effective_configs,
         get_model_priorities,
         get_model_purpose_routes,
@@ -781,11 +792,18 @@ async def reload_model_resolver() -> None:
     configs = await get_all_effective_configs()
     priorities = await get_model_priorities()
     purpose_routes = await get_model_purpose_routes()
+    active_provider_id = await get_active_provider_id()
+    trial_api_key = settings.trial_api_key or None
 
     resolver = get_model_resolver()
-    resolver.reload_clients(configs, priorities=priorities)
+    resolver.reload_clients(
+        configs,
+        priorities=priorities,
+        active_provider_id=active_provider_id,
+        trial_api_key=trial_api_key,
+    )
 
-    # 加载 purpose_routes 配置
+    # 兼容保留 purpose_routes 配置（后端保留，不影响新路由逻辑）
     for purpose, route in purpose_routes.items():
         if route.get("provider_id"):
             resolver.set_purpose_route(

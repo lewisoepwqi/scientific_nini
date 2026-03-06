@@ -24,88 +24,37 @@ _MODEL_PURPOSES = [
     {"id": "image_analysis", "label": "图片识别"},
 ]
 
-# 模型提供商配置列表
+# 面向用户暴露的 4 个供应商（外部分发版）
 _MODEL_PROVIDERS = [
-    {
-        "id": "openai",
-        "name": "OpenAI",
-        "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
-        "key_field": "openai_api_key",
-        "model_field": "openai_model",
-    },
-    {
-        "id": "anthropic",
-        "name": "Anthropic Claude",
-        "models": [
-            "claude-sonnet-4-20250514",
-            "claude-3-5-sonnet-20241022",
-            "claude-3-haiku-20240307",
-        ],
-        "key_field": "anthropic_api_key",
-        "model_field": "anthropic_model",
-    },
-    {
-        "id": "moonshot",
-        "name": "Moonshot AI (Kimi)",
-        "models": [
-            "moonshot-v1-8k",
-            "moonshot-v1-32k",
-            "moonshot-v1-128k",
-            "kimi-k2-0711-preview",
-        ],
-        "key_field": "moonshot_api_key",
-        "model_field": "moonshot_model",
-    },
-    {
-        "id": "kimi_coding",
-        "name": "Kimi Coding",
-        "models": ["kimi-for-coding"],
-        "key_field": "kimi_coding_api_key",
-        "model_field": "kimi_coding_model",
-    },
-    {
-        "id": "zhipu",
-        "name": "智谱 AI (GLM)",
-        "models": [
-            "glm-5",
-            "glm-5-plus",
-            "glm-5-air",
-            "glm-4.7",
-            "glm-4.6",
-            "glm-4.5",
-            "glm-4.5-air",
-            "glm-4",
-            "glm-4-plus",
-            "glm-4-flash",
-        ],
-        "key_field": "zhipu_api_key",
-        "model_field": "zhipu_model",
-    },
     {
         "id": "deepseek",
         "name": "DeepSeek",
-        "models": ["deepseek-chat", "deepseek-coder", "deepseek-reasoner"],
+        "description": "国内直连，性价比优先",
+        "key_url": "https://platform.deepseek.com",
         "key_field": "deepseek_api_key",
         "model_field": "deepseek_model",
     },
     {
+        "id": "zhipu",
+        "name": "智谱 GLM",
+        "description": "国内直连，含免费额度",
+        "key_url": "https://open.bigmodel.cn",
+        "key_field": "zhipu_api_key",
+        "model_field": "zhipu_model",
+    },
+    {
         "id": "dashscope",
-        "name": "阿里百炼（通义千问）",
-        "models": ["qwen-plus", "qwen-turbo", "qwen-max"],
+        "name": "通义千问",
+        "description": "阿里百炼，国内直连",
+        "key_url": "https://bailian.console.aliyun.com",
         "key_field": "dashscope_api_key",
         "model_field": "dashscope_model",
     },
     {
-        "id": "minimax",
-        "name": "MiniMax",
-        "models": ["MiniMax-M2.5", "MiniMax-M2.1", "abab6.5s-chat"],
-        "key_field": "minimax_api_key",
-        "model_field": "minimax_model",
-    },
-    {
         "id": "ollama",
-        "name": "Ollama（本地）",
-        "models": ["qwen2.5:7b", "llama3:8b", "mistral:7b"],
+        "name": "本地模型",
+        "description": "数据不出境，需安装 Ollama",
+        "key_url": "https://ollama.com",
         "key_field": None,
         "model_field": "ollama_model",
     },
@@ -114,25 +63,23 @@ _MODEL_PROVIDERS = [
 
 @router.get("/models", response_model=APIResponse)
 async def list_models():
-    """列出所有可用的模型提供商和模型。
-
-    返回所有模型提供商及其配置状态（合并 DB 与 .env 配置）。
-    """
+    """列出面向用户的 4 个供应商及其配置状态（合并 DB 与 .env 配置）。"""
     from nini.config import settings
-    from nini.config_manager import get_model_priorities, load_all_model_configs
+    from nini.config_manager import get_active_provider_id, load_all_model_configs
     from nini.utils.crypto import mask_api_key
 
     try:
         db_configs = await load_all_model_configs()
     except Exception:
         db_configs = {}
+
     try:
-        priorities = await get_model_priorities()
+        active_provider_id = await get_active_provider_id()
     except Exception:
-        priorities = {p["id"]: idx for idx, p in enumerate(_MODEL_PROVIDERS)}
+        active_provider_id = None
 
     result = []
-    for idx, provider in enumerate(_MODEL_PROVIDERS):
+    for provider in _MODEL_PROVIDERS:
         pid = provider["id"]
         key_field = provider["key_field"]
         model_field = provider["model_field"]
@@ -160,18 +107,16 @@ async def list_models():
             {
                 "id": pid,
                 "name": provider["name"],
+                "description": provider.get("description", ""),
+                "key_url": provider.get("key_url", ""),
                 "configured": configured,
+                "is_active": pid == active_provider_id,
                 "current_model": effective_model,
-                "available_models": provider["models"],
                 "api_key_hint": db_cfg.get("api_key_hint") or mask_api_key(env_key or ""),
                 "base_url": effective_base_url,
-                "priority": int(priorities.get(pid, idx)),
                 "config_source": config_source,
             }
         )
-
-    default_idx_map = {provider["id"]: idx for idx, provider in enumerate(_MODEL_PROVIDERS)}
-    result.sort(key=lambda item: (item["priority"], default_idx_map.get(item["id"], 999)))
 
     return APIResponse(success=True, data=result)
 
@@ -317,8 +262,7 @@ async def update_model_config(request: ModelConfigRequest):
 
     保存配置到数据库并重新加载模型客户端，使新配置立即生效。
     """
-    from nini.config_manager import save_model_config, get_all_effective_configs
-    from nini.agent.model_resolver import get_model_resolver
+    from nini.config_manager import save_model_config
 
     try:
         # 保存配置到数据库
@@ -331,10 +275,15 @@ async def update_model_config(request: ModelConfigRequest):
             is_active=request.is_active,
         )
 
+        # 将该供应商设为唯一激活供应商
+        from nini.config_manager import set_active_provider
+
+        await set_active_provider(request.provider_id)
+
         # 重新加载模型客户端，使新配置生效
-        all_configs = await get_all_effective_configs()
-        resolver = get_model_resolver()
-        resolver.reload_clients(config_overrides=all_configs)
+        from nini.agent.model_resolver import reload_model_resolver
+
+        await reload_model_resolver()
 
         return APIResponse(
             success=True,
@@ -379,6 +328,18 @@ async def test_model_connection(provider_id: str):
             success=False,
             error=f"连接测试失败: {e}",
         )
+
+
+@router.get("/trial/status", response_model=APIResponse)
+async def get_trial_status():
+    """获取试用状态（剩余天数、是否到期）。"""
+    from nini.config_manager import get_active_provider_id, get_trial_status
+
+    status = await get_trial_status()
+    # 若已配置自有密钥，前端不需要显示横幅
+    active_provider = await get_active_provider_id()
+    status["has_own_key"] = active_provider is not None
+    return APIResponse(success=True, data=status)
 
 
 @router.get("/models/active", response_model=APIResponse)

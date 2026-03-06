@@ -95,6 +95,10 @@ class Settings(BaseSettings):
     debug: bool = False
     data_dir: Path = _get_user_data_dir()
 
+    # ---- 试用模式 ----
+    trial_api_key: Optional[str] = None  # 内嵌试用密钥（留空则试用模式不可用）
+    trial_days: int = 14                  # 试用有效天数
+
     # ---- LLM ----
     openai_api_key: Optional[str] = None
     openai_base_url: Optional[str] = None
