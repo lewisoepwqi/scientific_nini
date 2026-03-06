@@ -17,10 +17,10 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
 from scipy import stats
+from nini.tools.base import SkillResult
 
 if TYPE_CHECKING:
     from nini.agent.session import Session
-    from nini.tools.base import SkillResult
 
 
 @dataclass
@@ -480,8 +480,6 @@ class DifferenceAnalysisCapability:
                 ),
             )
         else:
-            from nini.tools.base import SkillResult
-
             return SkillResult(success=False, message=f"不支持的方法: {method}")
 
     def _extract_statistical_results(
