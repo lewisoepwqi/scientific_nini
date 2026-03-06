@@ -571,7 +571,10 @@ export default function ChatInputArea() {
               <FileUpload />
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
-              <ModelSelector compact menuDirection="up" align="right" />
+              <ModelSelector
+                compact
+                onOpenSettings={() => window.dispatchEvent(new Event("nini:open-settings"))}
+              />
               <button
                 onClick={() => void handleCompress()}
                 disabled={isStreaming || isCompressing || messageCount < 4}

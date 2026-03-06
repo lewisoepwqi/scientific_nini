@@ -460,7 +460,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                                 获取中
                               </span>
                             ) : (
-                              `${dynamicModelCounts[p.id]?.count ?? p.available_models.length} 个`
+                              `${dynamicModelCounts[p.id]?.count ?? (p.available_models?.length ?? 0)} 个`
                             )}
                           </div>
                         </div>

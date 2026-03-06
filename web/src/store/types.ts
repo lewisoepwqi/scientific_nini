@@ -446,12 +446,15 @@ export interface ModelFallbackInfo {
 export interface ModelProviderInfo {
   id: string;
   name: string;
+  description: string;
+  key_url: string;
   configured: boolean;
+  is_active: boolean;
   current_model: string;
-  available_models: string[];
+  available_models?: string[];
   api_key_hint: string;
   base_url: string;
-  priority: number;
+  priority?: number;
   config_source: "db" | "env" | "none";
 }
 

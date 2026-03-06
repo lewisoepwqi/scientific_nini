@@ -6,6 +6,7 @@ import { useStore } from "./store";
 import ChatPanel from "./components/ChatPanel";
 import SessionList from "./components/SessionList";
 import ModelConfigPanel from "./components/ModelConfigPanel";
+import TrialBanner from "./components/TrialBanner";
 import SkillCatalogPanel from "./components/SkillCatalogPanel";
 import CapabilityPanel from "./components/CapabilityPanel";
 import MarkdownSkillManagerPanel from "./components/MarkdownSkillManagerPanel";
@@ -60,6 +61,17 @@ export default function App() {
       connect();
     });
   }, [initApp, connect]);
+
+  // 监听试用到期 / ModelSelector 点击事件，自动弹出 AI 设置面板
+  useEffect(() => {
+    const handler = () => setShowSettings(true);
+    window.addEventListener("nini:trial-expired", handler);
+    window.addEventListener("nini:open-settings", handler);
+    return () => {
+      window.removeEventListener("nini:trial-expired", handler);
+      window.removeEventListener("nini:open-settings", handler);
+    };
+  }, []);
 
   useEffect(() => {
     const reconnectIfVisible = () => {
@@ -301,6 +313,9 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* 试用状态横幅 */}
+        <TrialBanner onOpenSettings={() => setShowSettings(true)} />
 
         {/* 对话面板 */}
         <ChatPanel />

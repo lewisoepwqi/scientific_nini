@@ -194,6 +194,22 @@ class AgentRunner:
         turn_id = uuid.uuid4().hex[:12]
         if append_user_message:
             session.add_message("user", user_message, turn_id=turn_id)
+
+        # ---- 试用模式前置检查 ----
+        from nini.config_manager import activate_trial, get_active_provider_id, get_trial_status
+
+        active_provider = await get_active_provider_id()
+        if not active_provider:
+            trial_status = await get_trial_status()
+            if trial_status["expired"]:
+                # 试用已到期且无自有密钥 → 推送阻断事件后立即返回
+                yield AgentEvent(type=EventType.TRIAL_EXPIRED, data={"message": "试用已结束，请配置自己的 API 密钥继续使用"})
+                return
+            if not trial_status["activated"]:
+                # 首次发消息激活试用
+                await activate_trial()
+                yield AgentEvent(type=EventType.TRIAL_ACTIVATED, data={"days_remaining": trial_status["days_remaining"]})
+
         max_iter = settings.agent_max_iterations
         should_stop = stop_event.is_set if stop_event else (lambda: False)
         report_markdown_for_turn: str | None = None

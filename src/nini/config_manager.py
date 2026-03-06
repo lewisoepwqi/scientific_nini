@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date, timezone, datetime
 from typing import Any, TypedDict
 
 from nini.config import settings
@@ -585,3 +586,126 @@ async def set_purpose_provider_routes(
         }
     merged = await set_model_purpose_routes(transformed)
     return {purpose: merged[purpose].get("provider_id") for purpose in MODEL_PURPOSES}
+
+
+# ---- 试用模式 ----
+
+_TRIAL_INSTALL_DATE_KEY = "trial_install_date"
+_TRIAL_ACTIVATED_KEY = "trial_activated"
+_ACTIVE_PROVIDER_KEY = "active_provider"
+
+
+async def get_trial_status() -> dict[str, Any]:
+    """读取试用状态并计算剩余天数。
+
+    Returns:
+        包含 activated、days_remaining、expired 的字典
+    """
+    from nini.config import settings
+
+    total_days = settings.trial_days
+    db = await get_db()
+    try:
+        await _ensure_app_settings_table(db)
+        cursor = await db.execute(
+            "SELECT key, value FROM app_settings WHERE key IN (?, ?)",
+            (_TRIAL_INSTALL_DATE_KEY, _TRIAL_ACTIVATED_KEY),
+        )
+        rows = await cursor.fetchall()
+        row_map = {r[0]: r[1] for r in rows}
+
+        activated = row_map.get(_TRIAL_ACTIVATED_KEY) == "true"
+        install_date_str = row_map.get(_TRIAL_INSTALL_DATE_KEY)
+
+        if not activated or not install_date_str:
+            return {"activated": False, "days_remaining": total_days, "expired": False}
+
+        try:
+            install_date = date.fromisoformat(install_date_str)
+        except ValueError:
+            return {"activated": False, "days_remaining": total_days, "expired": False}
+
+        today = datetime.now(timezone.utc).date()
+        elapsed = (today - install_date).days
+        days_remaining = max(0, total_days - elapsed)
+        expired = days_remaining <= 0
+
+        return {"activated": True, "days_remaining": days_remaining, "expired": expired}
+    finally:
+        await db.close()
+
+
+async def activate_trial() -> None:
+    """激活试用模式，记录当前日期到本地存储。"""
+    today_str = datetime.now(timezone.utc).date().isoformat()
+    db = await get_db()
+    try:
+        await _ensure_app_settings_table(db)
+        await db.execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(key) DO NOTHING
+            """,
+            (_TRIAL_INSTALL_DATE_KEY, today_str),
+        )
+        await db.execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES (?, 'true', datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET value = 'true', updated_at = datetime('now')
+            """,
+            (_TRIAL_ACTIVATED_KEY,),
+        )
+        await db.commit()
+        logger.info("试用模式已激活，安装日期: %s", today_str)
+    finally:
+        await db.close()
+
+
+async def get_active_provider_id() -> str | None:
+    """读取当前激活的供应商 ID。"""
+    db = await get_db()
+    try:
+        await _ensure_app_settings_table(db)
+        cursor = await db.execute(
+            "SELECT value FROM app_settings WHERE key = ?",
+            (_ACTIVE_PROVIDER_KEY,),
+        )
+        row = await cursor.fetchone()
+        if row and row[0] and row[0] in VALID_PROVIDERS:
+            return row[0]
+        return None
+    finally:
+        await db.close()
+
+
+async def set_active_provider(provider_id: str | None) -> None:
+    """设置唯一激活供应商（单一激活约束）。
+
+    Args:
+        provider_id: 要激活的供应商 ID，None 表示清除激活状态
+    """
+    if provider_id is not None and provider_id not in VALID_PROVIDERS:
+        raise ValueError(f"不支持的模型提供商: {provider_id}")
+
+    db = await get_db()
+    try:
+        await _ensure_app_settings_table(db)
+        if provider_id is None:
+            await db.execute(
+                "DELETE FROM app_settings WHERE key = ?", (_ACTIVE_PROVIDER_KEY,)
+            )
+        else:
+            await db.execute(
+                """
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES (?, ?, datetime('now'))
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+                """,
+                (_ACTIVE_PROVIDER_KEY, provider_id),
+            )
+        await db.commit()
+        logger.info("激活供应商已设置为: %s", provider_id)
+    finally:
+        await db.close()

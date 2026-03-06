@@ -42,6 +42,8 @@ class EventType(str, Enum):
     SESSION = "session"                    # 返回 session_id
     PONG = "pong"                          # WebSocket 保活响应
     SESSION_TITLE = "session_title"        # 自动生成会话标题
+    TRIAL_EXPIRED = "trial_expired"        # 试用期已到期，阻断消息处理
+    TRIAL_ACTIVATED = "trial_activated"    # 首次消息触发试用激活
 
 
 @dataclass
