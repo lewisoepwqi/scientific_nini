@@ -182,6 +182,7 @@ async def set_model_routing(req: ModelRoutingRequest):
         set_model_purpose_routes,
         VALID_MODEL_PURPOSES,
         VALID_PROVIDERS,
+        VALID_ROUTE_PROVIDERS,
     )
 
     resolver = get_model_resolver()
@@ -200,7 +201,7 @@ async def set_model_routing(req: ModelRoutingRequest):
         if purpose not in VALID_MODEL_PURPOSES:
             return APIResponse(success=False, error=f"未知的模型用途: {purpose}")
         provider_id = (provider or "").strip() or None
-        if provider_id and provider_id not in VALID_PROVIDERS:
+        if provider_id and provider_id not in VALID_ROUTE_PROVIDERS:
             return APIResponse(success=False, error=f"未知的模型提供商: {provider_id}")
         updates[purpose] = {
             "provider_id": provider_id,
@@ -215,7 +216,7 @@ async def set_model_routing(req: ModelRoutingRequest):
         provider_id = (route.provider_id or "").strip() or None
         model = (route.model or "").strip() or None
         base_url = (route.base_url or "").strip() or None
-        if provider_id and provider_id not in VALID_PROVIDERS:
+        if provider_id and provider_id not in VALID_ROUTE_PROVIDERS:
             return APIResponse(success=False, error=f"未知的模型提供商: {provider_id}")
         updates[purpose] = {
             "provider_id": provider_id,

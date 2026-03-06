@@ -156,11 +156,12 @@ class DashScopeClient(OpenAICompatibleClient):
     def __init__(
         self,
         api_key: str | None = None,
+        base_url: str | None = None,
         model: str | None = None,
     ):
         super().__init__(
             api_key=api_key or settings.dashscope_api_key,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            base_url=base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1",
             model=model or settings.dashscope_model,
         )
 

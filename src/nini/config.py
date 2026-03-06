@@ -132,6 +132,15 @@ class Settings(BaseSettings):
     dashscope_api_key: Optional[str] = None
     dashscope_model: str = "qwen-plus"
 
+    # 系统内置模型（阿里百炼）
+    builtin_dashscope_api_key: Optional[str] = None
+    builtin_dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    builtin_chat_fast_model: str = "qwen3.5-27b"
+    builtin_chat_deep_model: str = "qwen3.5-plus"
+    builtin_image_fast_model: str = "qwen3-vl-8b-instruct"
+    builtin_image_deep_model: str = "qwen-vl-plus"
+    builtin_title_model: str = "qwen2.5-14b-instruct"
+
     # MiniMax
     minimax_api_key: Optional[str] = None
     minimax_base_url: str = "https://api.minimaxi.com/v1"
