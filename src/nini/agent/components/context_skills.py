@@ -139,32 +139,52 @@ def build_intent_runtime_context(
     skill_registry: Any,
     *,
     intent_analyzer: Callable[[], Any],
+    intent_analysis: Any = None,
 ) -> str:
-    """构建轻量意图分析上下文。"""
+    """构建轻量意图分析上下文。
+
+    若传入预计算的 intent_analysis，则复用其 capability 结果并补充 skill 分析，
+    避免重复调用 LLM/意图分析器。
+    """
     if not user_message:
         return ""
 
-    capability_catalog = [cap.to_dict() for cap in create_default_capabilities()]
     semantic_skills: list[dict[str, Any]] | None = None
     if skill_registry is not None and hasattr(skill_registry, "get_semantic_catalog"):
         raw_catalog = skill_registry.get_semantic_catalog(skill_type="markdown")
         if isinstance(raw_catalog, list):
             semantic_skills = raw_catalog
 
-    analyzer = intent_analyzer()
-    try:
-        analysis = analyzer.analyze(
-            user_message,
-            capabilities=capability_catalog,
-            semantic_skills=semantic_skills,
-            skill_limit=2,
-        )
-    except TypeError:
-        analysis = analyzer.analyze(
-            user_message,
-            capabilities=capability_catalog,
-            skill_limit=2,
-        )
+    if intent_analysis is not None:
+        # 使用预计算的 capability 分析，避免重复调用；skill 字段单独补充
+        analysis = intent_analysis
+        if semantic_skills:
+            try:
+                skill_analysis = intent_analyzer().analyze(
+                    user_message,
+                    semantic_skills=semantic_skills,
+                    skill_limit=2,
+                )
+                analysis.skill_candidates = skill_analysis.skill_candidates
+                analysis.active_skills = skill_analysis.active_skills
+            except Exception:
+                pass
+    else:
+        capability_catalog = [cap.to_dict() for cap in create_default_capabilities()]
+        analyzer = intent_analyzer()
+        try:
+            analysis = analyzer.analyze(
+                user_message,
+                capabilities=capability_catalog,
+                semantic_skills=semantic_skills,
+                skill_limit=2,
+            )
+        except TypeError:
+            analysis = analyzer.analyze(
+                user_message,
+                capabilities=capability_catalog,
+                skill_limit=2,
+            )
 
     parts: list[str] = []
     if analysis.capability_candidates:

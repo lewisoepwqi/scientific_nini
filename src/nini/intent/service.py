@@ -5,7 +5,16 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from nini.intent.base import IntentAnalysis, IntentCandidate
+from nini.intent.base import IntentAnalysis, IntentCandidate, QueryType
+
+# 闲聊识别正则（与 optimized.py 保持一致）
+_CASUAL_RE = re.compile(
+    r"^(你好|hello|hi|嗨|谢谢|感谢|好的|明白|了解|知道了|收到|okay|ok|嗯|哦|啊|哈哈|"
+    r"再见|bye|不用了|没事|没问题|可以|太好了|厉害|棒|继续|好)[\W]*$",
+    re.IGNORECASE,
+)
+# 工具指令关键词
+_COMMAND_RE = re.compile(r"保存|导出|下载|清除|重置|刷新|删除|移除|整理")
 
 _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]+|[\u4e00-\u9fff]{2,}")
 SLASH_SKILL_WITH_ARGS_RE = re.compile(
@@ -223,7 +232,29 @@ class IntentAnalyzer:
             allowed_tools, sources = self.collect_allowed_tools(active_skills)
             analysis.allowed_tools = sorted(allowed_tools) if allowed_tools else []
             analysis.allowed_tool_sources = sources
+        # 推断查询类型并设置 RAG/LTM 门控标志
+        analysis.query_type = self._classify_query_type(user_message, analysis)
+        analysis.rag_needed = analysis.query_type in {QueryType.DOMAIN_TASK, QueryType.KNOWLEDGE_QA}
+        analysis.ltm_needed = analysis.rag_needed
         return analysis
+
+    def _classify_query_type(self, message: str, analysis: IntentAnalysis) -> QueryType:
+        """根据意图候选结果推断查询类型。"""
+        msg = message.strip()
+        if not msg:
+            return QueryType.DOMAIN_TASK  # 空消息保守兜底
+        if not analysis.capability_candidates:
+            # 无候选命中：区分闲聊和指令
+            if _CASUAL_RE.match(msg) or len(msg) <= 10:
+                return QueryType.CASUAL_CHAT
+            if _COMMAND_RE.search(msg):
+                return QueryType.COMMAND
+            return QueryType.CASUAL_CHAT  # 无候选默认闲聊
+        # 有候选：按分数区分任务和知识问答
+        top_score = analysis.capability_candidates[0].score
+        if top_score >= 5.0:
+            return QueryType.DOMAIN_TASK
+        return QueryType.KNOWLEDGE_QA
 
     def rank_capabilities(
         self,

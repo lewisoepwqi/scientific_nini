@@ -1,6 +1,6 @@
 """意图分析模块。"""
 
-from nini.intent.base import IntentAnalysis, IntentCandidate
+from nini.intent.base import IntentAnalysis, IntentCandidate, QueryType
 from nini.intent.service import IntentAnalyzer, default_intent_analyzer
 from nini.intent.optimized import OptimizedIntentAnalyzer, optimized_intent_analyzer
 
@@ -19,6 +19,7 @@ except ImportError:
 __all__ = [
     "IntentAnalysis",
     "IntentCandidate",
+    "QueryType",
     "IntentAnalyzer",
     "default_intent_analyzer",
     "OptimizedIntentAnalyzer",

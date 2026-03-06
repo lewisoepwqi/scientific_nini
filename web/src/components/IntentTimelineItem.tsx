@@ -41,7 +41,8 @@ function generateConfirmationSummary(analysis: IntentAnalysisView): string {
     return `已确认您的分析意图：${displayName}`;
   }
 
-  return "已理解您的分析需求";
+  // 此分支不应被触发（hasContent 检查已阻止无内容渲染）
+  return "";
 }
 
 export default function IntentTimelineItem({
@@ -53,6 +54,11 @@ export default function IntentTimelineItem({
 
   const hasClarification = analysis.clarification_needed;
   const topCapability = analysis.capability_candidates[0];
+
+  // 无有效内容时不渲染，避免展示无意义的"已理解您的分析需求"
+  const hasContent = hasClarification || !!topCapability;
+  if (!hasContent) return null;
+
   const summary = generateConfirmationSummary(analysis);
 
   return (

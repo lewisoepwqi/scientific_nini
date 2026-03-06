@@ -189,7 +189,6 @@ export interface AppState {
   isStreaming: boolean;
   pendingAskUserQuestion: PendingAskUserQuestion | null;
   currentIntentAnalysis: IntentAnalysisView | null;
-  intentAnalysisLoading: boolean;
   composerDraft: string;
 
   // 内部状态
@@ -336,7 +335,6 @@ const SESSION_RESET_STATE = {
   } as StreamingMetrics,
   analysisTasks: [] as AnalysisTaskItem[],
   currentIntentAnalysis: null as IntentAnalysisView | null,
-  intentAnalysisLoading: false,
   composerDraft: "",
 };
 
@@ -377,7 +375,6 @@ export const useStore = create<AppState>((set, get) => ({
   isStreaming: false,
   pendingAskUserQuestion: null,
   currentIntentAnalysis: null,
-  intentAnalysisLoading: false,
   composerDraft: "",
   _streamingText: "",
   _currentTurnId: null,
@@ -714,7 +711,6 @@ export const useStore = create<AppState>((set, get) => ({
       messages: trimmedMessages,
       isStreaming: true,
       currentIntentAnalysis: null,
-      intentAnalysisLoading: false,
       pendingAskUserQuestion: null,
       _streamingText: "",
       _currentTurnId: null,
@@ -868,12 +864,8 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   async analyzeIntent(content: string) {
-    set({ intentAnalysisLoading: true });
     const result = await api.analyzeIntent(content);
-    set({
-      currentIntentAnalysis: result,
-      intentAnalysisLoading: false,
-    });
+    set({ currentIntentAnalysis: result });
   },
 
   // ============================================================================

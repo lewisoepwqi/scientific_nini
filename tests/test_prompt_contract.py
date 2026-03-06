@@ -41,7 +41,9 @@ async def test_runtime_context_blocks_follow_canonical_order_and_headers(
     monkeypatch.setattr(
         builder,
         "build_intent_runtime_context",
-        lambda _: format_untrusted_context_block("intent_analysis", "- 候选能力: 相关性分析"),
+        lambda _msg, intent_analysis=None: format_untrusted_context_block(
+            "intent_analysis", "- 候选能力: 相关性分析"
+        ),
     )
     monkeypatch.setattr(
         builder,

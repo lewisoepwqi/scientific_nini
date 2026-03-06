@@ -14,7 +14,8 @@ from nini.app import create_app
 from nini.api.websocket import set_skill_registry
 from nini.capabilities import Capability, CapabilityRegistry
 from nini.config import settings
-from nini.intent import IntentAnalyzer, OptimizedIntentAnalyzer
+from nini.intent import IntentAnalyzer, OptimizedIntentAnalyzer, QueryType
+from nini.intent.base import QueryType as QueryTypeBase  # noqa: F401（向后兼容导入路径验证）
 from nini.tools.registry import create_default_registry
 from tests.client_utils import LocalASGIClient
 
@@ -660,6 +661,67 @@ def test_synonym_no_false_positive() -> None:
         capabilities=_DEFAULT_CAPS,
     )
     assert len(analysis.capability_candidates) == 0
+
+
+# ============================================================================
+# QueryType 与 RAG/LTM 门控测试
+# ============================================================================
+
+
+@pytest.fixture
+def sample_capabilities() -> list[dict]:
+    """提供标准测试 capability 集合。"""
+    return _DEFAULT_CAPS
+
+
+@pytest.mark.parametrize("msg", ["你好", "谢谢", "好的", "OK", "嗯嗯"])
+def test_casual_chat_rag_not_needed(intent_analyzer, msg, sample_capabilities):
+    """闲聊消息应被识别为 CASUAL_CHAT，关闭 RAG 和 LTM 检索。"""
+    analysis = intent_analyzer.analyze(msg, capabilities=sample_capabilities)
+    assert analysis.query_type == QueryType.CASUAL_CHAT
+    assert analysis.rag_needed is False
+    assert analysis.ltm_needed is False
+
+
+def test_domain_query_enables_rag(intent_analyzer, sample_capabilities):
+    """有能力候选命中的查询应开启 RAG。"""
+    analysis = intent_analyzer.analyze("帮我做t检验", capabilities=sample_capabilities)
+    assert analysis.capability_candidates, "期望 t检验 至少命中一个候选"
+    assert analysis.rag_needed is True
+
+
+def test_high_confidence_query_is_domain_task(intent_analyzer, sample_capabilities):
+    """高分候选命中（>=5.0）应识别为 DOMAIN_TASK。"""
+    # "差异分析" 直接命中 display_name，得高分
+    analysis = intent_analyzer.analyze("差异分析", capabilities=sample_capabilities)
+    assert analysis.query_type == QueryType.DOMAIN_TASK
+    assert analysis.rag_needed is True
+
+
+def test_empty_message_defaults_to_rag_enabled(intent_analyzer):
+    """空消息应保守兜底（开启 RAG），不误关检索。"""
+    analysis = intent_analyzer.analyze("", capabilities=[])
+    assert analysis.rag_needed is True
+
+
+def test_query_type_consistency_for_casual_chat(sample_capabilities):
+    """两种分析器对同一闲聊消息应返回相同 QueryType。"""
+    msg = "你好"
+    r1 = IntentAnalyzer().analyze(msg, capabilities=sample_capabilities)
+    r2 = OptimizedIntentAnalyzer().analyze(msg, capabilities=sample_capabilities)
+    assert r1.query_type == r2.query_type == QueryType.CASUAL_CHAT
+
+
+def test_intent_analysis_to_dict_includes_query_type_fields() -> None:
+    """to_dict() 应包含 query_type、rag_needed、ltm_needed 字段。"""
+    analyzer = IntentAnalyzer()
+    analysis = analyzer.analyze("你好", capabilities=_DEFAULT_CAPS)
+    d = analysis.to_dict()
+    assert "query_type" in d
+    assert "rag_needed" in d
+    assert "ltm_needed" in d
+    assert d["query_type"] == QueryType.CASUAL_CHAT.value
+    assert d["rag_needed"] is False
 
 
 # ---- OptimizedIntentAnalyzer 专项测试 ----

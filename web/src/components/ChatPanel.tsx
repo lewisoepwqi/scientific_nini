@@ -10,7 +10,6 @@ import { useStore } from '../store'
 import MessageBubble from './MessageBubble'
 import ChatInputArea from './ChatInputArea'
 import AskUserQuestionPanel from './AskUserQuestionPanel'
-import IntentSummaryCard from './IntentSummaryCard'
 import IntentTimelineItem from './IntentTimelineItem'
 import { Loader2 } from 'lucide-react'
 
@@ -25,7 +24,6 @@ export default function ChatPanel() {
   const isStreaming = useStore((s) => s.isStreaming)
   const pendingAskUserQuestion = useStore((s) => s.pendingAskUserQuestion)
   const currentIntentAnalysis = useStore((s) => s.currentIntentAnalysis)
-  const intentAnalysisLoading = useStore((s) => s.intentAnalysisLoading)
   const streamingMetrics = useStore((s) => s._streamingMetrics)
   const setComposerDraft = useStore((s) => s.setComposerDraft)
   const submitAskUserQuestionAnswers = useStore((s) => s.submitAskUserQuestionAnswers)
@@ -143,15 +141,6 @@ export default function ChatPanel() {
       {/* 消息列表 */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         <div className="max-w-3xl mx-auto">
-          {/* 意图理解卡片 */}
-          <div className="mb-3">
-            <IntentSummaryCard
-              analysis={currentIntentAnalysis}
-              loading={intentAnalysisLoading}
-              onApplySuggestion={setComposerDraft}
-            />
-          </div>
-
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-gray-400">
               <div className="text-5xl mb-4">🔬</div>

@@ -3,7 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
+
+
+class QueryType(str, Enum):
+    """查询类型枚举，用于 RAG/LTM 门控路由。"""
+
+    CASUAL_CHAT = "casual_chat"  # 闲聊、问候、感谢、确认等
+    DOMAIN_TASK = "domain_task"  # 科研分析任务（高分候选命中）
+    COMMAND = "command"  # 工具指令（保存/导出/删除等）
+    KNOWLEDGE_QA = "knowledge_qa"  # 知识问答（低分候选命中）
 
 
 @dataclass
@@ -41,6 +51,10 @@ class IntentAnalysis:
     clarification_question: str | None = None
     clarification_options: list[dict[str, str]] = field(default_factory=list)
     analysis_method: str = "rule_based_v2"
+    # 查询类型与 RAG/LTM 门控标志（默认保守：开启检索）
+    query_type: QueryType = QueryType.DOMAIN_TASK
+    rag_needed: bool = True
+    ltm_needed: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         """转换为字典表示。"""
@@ -59,4 +73,7 @@ class IntentAnalysis:
             "clarification_question": self.clarification_question,
             "clarification_options": self.clarification_options,
             "analysis_method": self.analysis_method,
+            "query_type": self.query_type.value,
+            "rag_needed": self.rag_needed,
+            "ltm_needed": self.ltm_needed,
         }
