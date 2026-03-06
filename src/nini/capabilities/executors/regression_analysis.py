@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
@@ -178,6 +178,7 @@ class RegressionAnalysisCapability:
         self.description = "建立变量间的回归模型，进行预测和解释"
         self.icon = "📉"
         self._registry = registry
+        self._vif_results: dict[str, float] = {}
 
     async def execute(
         self,
@@ -258,23 +259,30 @@ class RegressionAnalysisCapability:
         result.bic = regression_result.get("bic")
 
         # 提取系数
-        coeffs = regression_result.get("coefficients", {})
-        result.intercept = self._extract_coefficient("截距", coeffs.get("const", {}))
+        coeffs_raw = regression_result.get("coefficients")
+        coeffs: dict[str, Any] = coeffs_raw if isinstance(coeffs_raw, dict) else {}
+        intercept_data = coeffs.get("const")
+        result.intercept = self._extract_coefficient(
+            "截距", intercept_data if isinstance(intercept_data, dict) else {}
+        )
         for var in independent_vars:
             if var in coeffs:
-                coef_data = coeffs[var]
+                coef_data_raw = coeffs[var]
+                coef_data: dict[str, Any] = (
+                    dict(coef_data_raw) if isinstance(coef_data_raw, dict) else {}
+                )
                 # 添加 VIF 信息
-                if hasattr(result, "_vif_results") and var in result._vif_results:
-                    coef_data["vif"] = result._vif_results[var]
+                if var in self._vif_results:
+                    coef_data["vif"] = self._vif_results[var]
                 result.coefficients.append(self._extract_coefficient(var, coef_data))
 
         # Step 6: 残差诊断
         residuals = regression_result.get("residuals", [])
         fitted = regression_result.get("fitted_values", [])
         if residuals:
-            result.diagnostics = self._diagnose_residuals(
-                residuals, fitted, clean_data[dependent_var].values
-            )
+            residual_list = residuals if isinstance(residuals, list) else []
+            fitted_list = fitted if isinstance(fitted, list) else []
+            result.diagnostics = self._diagnose_residuals(residual_list, fitted_list)
 
         # Step 7: 可视化
         chart_result = await self._create_visualizations(
@@ -378,21 +386,25 @@ class RegressionAnalysisCapability:
         self,
         residuals: list[float],
         fitted: list[float],
-        actual: list[float],
     ) -> RegressionDiagnostics:
         """残差诊断。"""
-        diagnostics = RegressionDiagnostics()
         residuals_arr = np.array(residuals)
+        residual_normality_p: float | None = None
+        residual_normality_passed = False
+        heteroscedasticity_p: float | None = None
+        heteroscedasticity_passed = False
 
         # 残差正态性检验
         if len(residuals_arr) >= 3:
             try:
                 if len(residuals_arr) <= 5000:
-                    stat, p_value = stats.shapiro(residuals_arr)
+                    _, shapiro_p_raw = stats.shapiro(residuals_arr)
+                    normality_p = float(shapiro_p_raw)
                 else:
-                    stat, p_value = stats.normaltest(residuals_arr)
-                diagnostics.residual_normality_p = float(p_value)
-                diagnostics.residual_normality_passed = p_value > 0.05
+                    _, normaltest_p_raw = stats.normaltest(residuals_arr)
+                    normality_p = float(cast(Any, normaltest_p_raw))
+                residual_normality_p = normality_p
+                residual_normality_passed = bool(normality_p > 0.05)
             except Exception:
                 pass
 
@@ -401,9 +413,10 @@ class RegressionAnalysisCapability:
             try:
                 # Breusch-Pagan 检验的简化近似
                 abs_resid = np.abs(residuals_arr)
-                _, p_value = stats.pearsonr(abs_resid, np.array(fitted))
-                diagnostics.heteroscedasticity_p = float(p_value)
-                diagnostics.heteroscedasticity_passed = p_value > 0.05
+                _, hetero_p_raw = stats.pearsonr(abs_resid, np.array(fitted))
+                hetero_p = float(cast(Any, hetero_p_raw))
+                heteroscedasticity_p = hetero_p
+                heteroscedasticity_passed = bool(hetero_p > 0.05)
             except Exception:
                 pass
 
@@ -412,10 +425,17 @@ class RegressionAnalysisCapability:
             residuals_arr / np.std(residuals_arr) if np.std(residuals_arr) > 0 else residuals_arr
         )
         outlier_mask = np.abs(std_residuals) > 2.5
-        diagnostics.outlier_count = int(np.sum(outlier_mask))
-        diagnostics.outlier_indices = np.where(outlier_mask)[0][:10].tolist()  # 最多 10 个
+        outlier_count = int(np.sum(outlier_mask))
+        outlier_indices = np.where(outlier_mask)[0][:10].tolist()  # 最多 10 个
 
-        return diagnostics
+        return RegressionDiagnostics(
+            residual_normality_p=residual_normality_p,
+            residual_normality_passed=residual_normality_passed,
+            heteroscedasticity_p=heteroscedasticity_p,
+            heteroscedasticity_passed=heteroscedasticity_passed,
+            outlier_count=outlier_count,
+            outlier_indices=outlier_indices,
+        )
 
     def _get_registry(self) -> Any:
         """获取工具注册中心。"""
@@ -443,10 +463,19 @@ class RegressionAnalysisCapability:
                 independent_vars=list(independent_vars),
             )
             if isinstance(tool_result, dict):
-                if tool_result.get("success") and tool_result.get("data"):
-                    return tool_result["data"].get("regression", tool_result["data"])
-            elif hasattr(tool_result, "success") and tool_result.success and tool_result.data:
-                return tool_result.data.get("regression", tool_result.data)
+                data_payload = tool_result.get("data")
+                if tool_result.get("success") and isinstance(data_payload, dict):
+                    regression_data = data_payload.get("regression")
+                    if isinstance(regression_data, dict):
+                        return cast(dict[str, Any], regression_data)
+                    return cast(dict[str, Any], data_payload)
+            elif hasattr(tool_result, "success") and getattr(tool_result, "success", False):
+                data_payload = getattr(tool_result, "data", None)
+                if isinstance(data_payload, dict):
+                    regression_data = data_payload.get("regression")
+                    if isinstance(regression_data, dict):
+                        return cast(dict[str, Any], regression_data)
+                    return cast(dict[str, Any], data_payload)
         except Exception:
             pass
         return None
@@ -474,12 +503,16 @@ class RegressionAnalysisCapability:
                 title="实际值 vs 预测值",
                 description="回归模型拟合效果诊断",
             )
-            if isinstance(result, dict) and result.get("success") and result.get("artifacts"):
-                artifacts.extend(result["artifacts"])
-            elif hasattr(result, "success") and result.success and result.artifacts:
-                artifacts.extend(
-                    [a.to_dict() if hasattr(a, "to_dict") else a for a in result.artifacts]
-                )
+            if isinstance(result, dict):
+                result_artifacts = result.get("artifacts")
+                if result.get("success") and isinstance(result_artifacts, list):
+                    artifacts.extend(result_artifacts)
+            elif hasattr(result, "success") and result.success and hasattr(result, "artifacts"):
+                typed_artifacts = getattr(result, "artifacts")
+                if isinstance(typed_artifacts, list):
+                    artifacts.extend(
+                        [a.to_dict() if hasattr(a, "to_dict") else a for a in typed_artifacts]
+                    )
         except Exception:
             pass
 

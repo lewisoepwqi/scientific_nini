@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import json
 import sys
 import types
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, cast
 
 import pytest
 
@@ -643,13 +643,16 @@ async def test_openai_compatible_client_uses_default_http_client_and_closes(
     client._ensure_client()  # noqa: SLF001
 
     assert isinstance(client._http_client, _FakeHttpClient)  # noqa: SLF001
+    assert client._client is not None  # noqa: SLF001
+    typed_client = cast(Any, client._client)
     assert client._http_client.kwargs["trust_env"] is False  # noqa: SLF001
-    assert client._client.kwargs["http_client"] is client._http_client  # noqa: SLF001
-    assert client._client.kwargs["max_retries"] == 3  # noqa: SLF001
+    assert typed_client.kwargs["http_client"] is client._http_client  # noqa: SLF001
+    assert typed_client.kwargs["max_retries"] == 3  # noqa: SLF001
 
-    underlying_client = client._client  # noqa: SLF001
+    underlying_client = cast(Any, client._client)  # noqa: SLF001
     await client.aclose()
 
+    assert underlying_client is not None
     assert underlying_client.closed is True
     assert client._client is None  # noqa: SLF001
     assert client._http_client is None  # noqa: SLF001

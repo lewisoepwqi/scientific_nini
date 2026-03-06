@@ -20,7 +20,7 @@ class ProfileService:
     封装用户画像的业务逻辑，为 API 路由提供简洁接口。
     """
 
-    def __init__(self, manager: UserProfileManager | None = None):
+    def __init__(self, manager: Any | None = None):
         """初始化服务。
 
         Args:

@@ -6,29 +6,29 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
 # 尝试导入 embedding 依赖
 try:
     import numpy as np
-    from numpy.typing import NDArray
     NUMPY_AVAILABLE = True
 except ImportError:
     NUMPY_AVAILABLE = False
     np = None  # type: ignore
-    NDArray = Any
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
     """计算两个向量的余弦相似度。"""
-    if not NUMPY_AVAILABLE:
+    np_module = np if NUMPY_AVAILABLE else None
+    if np_module is None:
         # 纯 Python 实现（较慢，但无依赖）
         dot = sum(x * y for x, y in zip(a, b))
         norm_a = math.sqrt(sum(x * x for x in a))
@@ -38,11 +38,11 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
         return dot / (norm_a * norm_b)
     
     # NumPy 实现（更快）
-    a_arr = np.array(a, dtype=np.float32)
-    b_arr = np.array(b, dtype=np.float32)
-    dot = np.dot(a_arr, b_arr)
-    norm_a = np.linalg.norm(a_arr)
-    norm_b = np.linalg.norm(b_arr)
+    a_arr = np_module.array(a, dtype=np_module.float32)
+    b_arr = np_module.array(b, dtype=np_module.float32)
+    dot = np_module.dot(a_arr, b_arr)
+    norm_a = np_module.linalg.norm(a_arr)
+    norm_b = np_module.linalg.norm(b_arr)
     if norm_a == 0 or norm_b == 0:
         return 0.0
     return float(dot / (norm_a * norm_b))
@@ -116,8 +116,11 @@ class SimpleEmbeddingProvider:
         
         try:
             # 尝试使用 sentence-transformers
-            from sentence_transformers import SentenceTransformer
-            self._local_model = SentenceTransformer("all-MiniLM-L6-v2")
+            sentence_transformers = importlib.import_module("sentence_transformers")
+            model_cls = getattr(sentence_transformers, "SentenceTransformer", None)
+            if not callable(model_cls):
+                return None
+            self._local_model = model_cls("all-MiniLM-L6-v2")
             logger.info("本地 embedding 模型加载成功")
             return self._local_model
         except ImportError:
@@ -144,7 +147,7 @@ class SimpleEmbeddingProvider:
                     model=self.config.model,
                     input=text[:8000],  # 限制长度
                 )
-                return resp.data[0].embedding
+                return cast(list[float], resp.data[0].embedding)
             except Exception as exc:
                 logger.debug("OpenAI embedding 失败: %s", exc)
         
@@ -153,7 +156,7 @@ class SimpleEmbeddingProvider:
         if local_model:
             try:
                 embedding = local_model.encode(text)
-                return embedding.tolist()
+                return cast(list[float], embedding.tolist())
             except Exception as exc:
                 logger.debug("本地 embedding 失败: %s", exc)
         
@@ -171,7 +174,7 @@ class SimpleEmbeddingProvider:
                     input=trimmed,
                 )
                 # 按索引排序
-                embeddings = [None] * len(texts)
+                embeddings: list[list[float] | None] = [None for _ in texts]
                 for item in resp.data:
                     embeddings[item.index] = item.embedding
                 return embeddings

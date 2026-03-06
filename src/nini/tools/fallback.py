@@ -181,7 +181,7 @@ class FallbackManager:
         session: "Session",
         kwargs: dict[str, Any],
         context: dict[str, Any],
-        skill_resolver: Callable[[str], "Skill" | None],
+        skill_resolver: Callable[[str], "Skill | None"],
         skill_executor: Callable[[str, "Session", dict[str, Any]], Awaitable[dict[str, Any]]],
     ) -> dict[str, Any]:
         """执行降级策略。

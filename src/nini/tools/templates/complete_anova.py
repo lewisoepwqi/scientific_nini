@@ -139,21 +139,32 @@ class CompleteANOVASkill(Skill):
 
             comparisons: list[dict[str, Any]] = []
             n_groups = len(tukey.groupsunique)
+            pvalues = getattr(tukey, "pvalues", None)
+            meandiffs = getattr(tukey, "meandiffs", None)
+            reject = getattr(tukey, "reject", None)
+            confint = getattr(tukey, "confint", None)
+            if (
+                pvalues is None
+                or meandiffs is None
+                or reject is None
+                or confint is None
+            ):
+                return {"error": "Tukey 检验结果不完整"}
 
             # 提取成对比较结果
             for i in range(n_groups):
                 for j in range(i + 1, n_groups):
                     idx = len(comparisons)
-                    if idx < len(tukey.pvalues):
+                    if idx < len(pvalues):
                         comparisons.append(
                             {
                                 "group1": str(tukey.groupsunique[i]),
                                 "group2": str(tukey.groupsunique[j]),
-                                "mean_diff": float(tukey.meandiffs[idx]),
-                                "p_value": float(tukey.pvalues[idx]),
-                                "significant": bool(tukey.reject[idx]),
-                                "ci_lower": float(tukey.confint[idx][0]),
-                                "ci_upper": float(tukey.confint[idx][1]),
+                                "mean_diff": float(meandiffs[idx]),
+                                "p_value": float(pvalues[idx]),
+                                "significant": bool(reject[idx]),
+                                "ci_lower": float(confint[idx][0]),
+                                "ci_upper": float(confint[idx][1]),
                             }
                         )
 

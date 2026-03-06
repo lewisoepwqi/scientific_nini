@@ -38,10 +38,16 @@ async def inject_knowledge(
         except Exception as exc:
             logger.debug("加载研究画像用于知识增强失败: %s", exc)
 
+        profile_domain: str | None = None
+        if isinstance(research_profile, dict):
+            raw_domain = research_profile.get("domain")
+            if isinstance(raw_domain, str) and raw_domain.strip():
+                profile_domain = raw_domain.strip()
+
         _, knowledge_context = await inject_knowledge_to_prompt(
             query=last_user_msg,
             system_prompt="",
-            domain=research_profile.get("domain") if research_profile else None,
+            domain=profile_domain,
             research_profile=research_profile,
         )
 

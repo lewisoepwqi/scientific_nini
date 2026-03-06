@@ -145,7 +145,7 @@ class ReasoningStreamParser:
         for attr in ("reasoning_content", "reasoning", "thinking"):
             value = getattr(delta, attr, None)
             if value and isinstance(value, str):
-                return value
+                return str(value)
 
         return ""
 
@@ -257,6 +257,9 @@ class ReasoningStreamParser:
 
 class BaseLLMClient(ABC):
     """LLM 客户端抽象基类。"""
+
+    provider_id: str = ""
+    provider_name: str = ""
 
     @abstractmethod
     async def chat(

@@ -143,6 +143,8 @@ class Settings(BaseSettings):
     # ---- Agent ----
     # <= 0 表示不限制迭代次数（仅受用户中止/模型与工具自然收敛约束）
     agent_max_iterations: int = 0
+    tool_argument_normalization_enabled: bool = True
+    tool_circuit_breaker_threshold: int = 2
 
     # ---- 上传 ----
     max_upload_size: int = 50 * 1024 * 1024  # 50 MB

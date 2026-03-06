@@ -1,0 +1,15 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.12",
+  "include": [
+    "src/nini"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    ".venv",
+    "node_modules",
+    "web/node_modules",
+    "data"
+  ]
+}

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable, cast
 
 import pandas as pd
 from scipy.stats import kendalltau, pearsonr, spearmanr
@@ -78,6 +78,7 @@ class CorrelationSkill(Skill):
             "spearman": spearmanr,
             "kendall": kendalltau,
         }.get(method, pearsonr)
+        corr_func_callable = cast(Callable[[Any, Any], tuple[Any, Any]], corr_func)
 
         for col1 in columns:
             pvalue_matrix[col1] = {}
@@ -85,7 +86,7 @@ class CorrelationSkill(Skill):
                 if col1 == col2:
                     pvalue_matrix[col1][col2] = 0.0
                     continue
-                _, pval = corr_func(data[col1].values, data[col2].values)
+                _, pval = corr_func_callable(data[col1].values, data[col2].values)
                 pvalue_matrix[col1][col2] = _ensure_finite(pval, f"{col1}-{col2} p 值")
 
         result = {

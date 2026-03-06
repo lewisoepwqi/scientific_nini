@@ -127,6 +127,20 @@ _FILE_NAME_CANDIDATE_RE = re.compile(
     r"`([^`\n]+\.[A-Za-z0-9]{1,16})`|[“\"]([^\"\n]+\.[A-Za-z0-9]{1,16})[”\"]"
 )
 
+
+def _tool_result_message(result: Any, *, is_error: bool) -> str:
+    """从工具返回值中提取可展示消息。"""
+    if isinstance(result, dict):
+        if is_error:
+            error_message = result.get("error")
+            if isinstance(error_message, str) and error_message.strip():
+                return error_message
+        message = result.get("message")
+        if isinstance(message, str) and message.strip():
+            return message
+    return "工具执行失败" if is_error else "工具执行完成"
+
+
 # ---- Agent Runner ----
 
 
@@ -143,9 +157,9 @@ class AgentRunner:
 
     def __init__(
         self,
-        resolver: ModelResolver | None = None,
+        resolver: Any | None = None,
         skill_registry: Any = None,
-        knowledge_loader: KnowledgeLoader | None = None,
+        knowledge_loader: Any | None = None,
         ask_user_question_handler: (
             Callable[[Session, str, dict[str, Any]], Awaitable[dict[str, str]]] | None
         ) = None,
@@ -194,6 +208,9 @@ class AgentRunner:
         # 当前消息ID，用于关联同一消息的多个流式片段
         current_message_id: str | None = None
         reasoning_tracker = ReasoningChainTracker()
+        # 同一轮内的工具失败链路：用于重复错误熔断
+        tool_failure_chains: dict[str, dict[str, Any]] = {}
+        breaker_threshold = max(1, int(settings.tool_circuit_breaker_threshold))
         allowed_tool_whitelist, allowed_tool_sources = self._resolve_allowed_tool_recommendations(
             user_message
         )
@@ -204,6 +221,14 @@ class AgentRunner:
             turn_id=turn_id,
         ):
             yield intent_event
+
+        def _build_tool_args_signature(name: str, raw_arguments: str) -> str:
+            parsed = parse_tool_arguments(raw_arguments)
+            if parsed:
+                normalized = json.dumps(parsed, ensure_ascii=False, sort_keys=True, default=str)
+            else:
+                normalized = str(raw_arguments).strip()
+            return f"{name}::{normalized}"
 
         def _to_plan_status(raw_status: str) -> str:
             """将历史计划状态映射为前端统一状态。"""
@@ -476,7 +501,8 @@ class AgentRunner:
                                 "provider_name": str(
                                     getattr(chunk, "provider_name", "") or chunk_provider_id
                                 ).strip(),
-                                "model": str(getattr(chunk, "model", "") or "").strip() or "unknown",
+                                "model": str(getattr(chunk, "model", "") or "").strip()
+                                or "unknown",
                                 "attempt": int(getattr(chunk, "attempt", 1) or 1),
                             }
                             raw_chain = getattr(chunk, "fallback_chain", [])
@@ -490,16 +516,25 @@ class AgentRunner:
                             and bool(getattr(chunk, "fallback_applied", False))
                             and effective_model_info is not None
                         ):
-                            from_provider_id = str(
-                                getattr(chunk, "fallback_from_provider_id", "") or ""
-                            ).strip() or None
-                            from_model = str(getattr(chunk, "fallback_from_model", "") or "").strip() or None
-                            reason = str(getattr(chunk, "fallback_reason", "") or "").strip() or None
+                            from_provider_id = (
+                                str(getattr(chunk, "fallback_from_provider_id", "") or "").strip()
+                                or None
+                            )
+                            from_model = (
+                                str(getattr(chunk, "fallback_from_model", "") or "").strip() or None
+                            )
+                            reason = (
+                                str(getattr(chunk, "fallback_reason", "") or "").strip() or None
+                            )
                             from_provider_name: str | None = None
                             for item in fallback_chain:
-                                if str(item.get("provider_id", "")).strip() != (from_provider_id or ""):
+                                if str(item.get("provider_id", "")).strip() != (
+                                    from_provider_id or ""
+                                ):
                                     continue
-                                from_provider_name = str(item.get("provider_name", "")).strip() or None
+                                from_provider_name = (
+                                    str(item.get("provider_name", "")).strip() or None
+                                )
                                 break
 
                             yield eb.build_model_fallback_event(
@@ -583,7 +618,9 @@ class AgentRunner:
 
             # 记录 token 消耗
             if usage and settings.enable_cost_tracking:
-                model_info = effective_model_info or self._resolver.get_active_model_info(purpose="chat")
+                model_info = effective_model_info or self._resolver.get_active_model_info(
+                    purpose="chat"
+                )
                 tracker = get_tracker(session.id)
                 rec = tracker.record(
                     model=model_info.get("model", "unknown"),
@@ -663,8 +700,9 @@ class AgentRunner:
                             "message": f"等待用户回答失败: {exc}",
                         }
 
-                    has_error = isinstance(result, dict) and (
-                        result.get("error") or result.get("success") is False
+                    has_error = bool(
+                        isinstance(result, dict)
+                        and (result.get("error") or result.get("success") is False)
                     )
                     result_str = serialize_tool_result_for_memory(result)
                     session.add_tool_result(
@@ -680,11 +718,7 @@ class AgentRunner:
                         tool_call_id=tool_call_id,
                         name="ask_user_question",
                         status="error" if has_error else "success",
-                        message=(
-                            result.get("error") or result.get("message", "工具执行失败")
-                            if has_error
-                            else result.get("message", "工具执行完成")
-                        ),
+                        message=_tool_result_message(result, is_error=has_error),
                         data={"result": result},
                         turn_id=turn_id,
                         metadata={"source": "confirmation_fallback"},
@@ -770,7 +804,7 @@ class AgentRunner:
                     )
 
             # 先把 assistant 带 tool_calls 的消息加入会话
-            assistant_tool_msg = {
+            assistant_tool_msg: dict[str, Any] = {
                 "role": "assistant",
                 "content": raw_full_text or full_text or None,
                 "event_type": "tool_call",
@@ -795,6 +829,7 @@ class AgentRunner:
                 tc_id = tc["id"]
                 func_name = tc["function"]["name"]
                 func_args = tc["function"]["arguments"]
+                tool_args_signature = _build_tool_args_signature(func_name, func_args)
                 tool_call_metadata: dict[str, Any] = {}
                 if func_name in {"run_code", "run_r_code"}:
                     try:
@@ -886,8 +921,9 @@ class AgentRunner:
                 # task_state 是 task_write 的代理，也支持 init/update/get/current 操作
                 if func_name in ("task_write", "task_state"):
                     result = await self._execute_tool(session, func_name, func_args)
-                    has_error = isinstance(result, dict) and (
-                        result.get("error") or result.get("success") is False
+                    has_error = bool(
+                        isinstance(result, dict)
+                        and (result.get("error") or result.get("success") is False)
                     )
                     if not has_error:
                         try:
@@ -951,7 +987,7 @@ class AgentRunner:
                         tool_call_id=tc_id,
                         name=func_name,
                         status="success" if not has_error else "error",
-                        message=result.get("message", "") if isinstance(result, dict) else "",
+                        message=_tool_result_message(result, is_error=has_error),
                         data={"result": result},
                         turn_id=turn_id,
                     )
@@ -1015,8 +1051,9 @@ class AgentRunner:
                                 "message": f"等待用户回答失败: {exc}",
                             }
 
-                    has_error = isinstance(result, dict) and (
-                        result.get("error") or result.get("success") is False
+                    has_error = bool(
+                        isinstance(result, dict)
+                        and (result.get("error") or result.get("success") is False)
                     )
                     status = "error" if has_error else "success"
                     result_str = serialize_tool_result_for_memory(result)
@@ -1032,11 +1069,7 @@ class AgentRunner:
                         tool_call_id=tc_id,
                         name=func_name,
                         status=status,
-                        message=(
-                            result.get("error") or result.get("message", "工具执行失败")
-                            if has_error
-                            else result.get("message", "工具执行完成")
-                        ),
+                        message=_tool_result_message(result, is_error=has_error),
                         data={"result": result},
                         turn_id=turn_id,
                     )
@@ -1066,6 +1099,69 @@ class AgentRunner:
                         tool_call_id=tc_id,
                         tool_name=func_name,
                     )
+
+                chain_state = tool_failure_chains.get(tool_args_signature)
+                if (
+                    isinstance(chain_state, dict)
+                    and int(chain_state.get("count", 0)) >= breaker_threshold
+                ):
+                    last_error_code = str(chain_state.get("error_code") or "TOOL_EXECUTION_ERROR")
+                    recovery_hint = str(
+                        chain_state.get("recovery_hint")
+                        or "请调整参数后重试，避免重复发送相同失败调用。"
+                    ).strip()
+                    result = {
+                        "success": False,
+                        "message": (
+                            f"检测到相同工具调用已连续失败 {int(chain_state.get('count', 0))} 次，"
+                            "已触发熔断并阻止本次重复调用。"
+                        ),
+                        "error_code": "TOOL_CALL_CIRCUIT_BREAKER",
+                        "data": {
+                            "last_error_code": last_error_code,
+                            "recovery_hint": recovery_hint,
+                        },
+                        "metadata": {
+                            "breaker_triggered": True,
+                            "breaker_threshold": breaker_threshold,
+                            "repeat_failure_count": int(chain_state.get("count", 0)),
+                            "last_error_code": last_error_code,
+                            "recovery_hint": recovery_hint,
+                            "action_id": matched_action_id,
+                            "retry_count": 0,
+                            "max_retries": max_retries,
+                        },
+                    }
+                    has_error = True
+                    status = "error"
+                    result_str = serialize_tool_result_for_memory(result)
+                    session.add_tool_result(
+                        tc_id,
+                        result_str,
+                        tool_name=func_name,
+                        status=status,
+                        intent=tool_call_metadata.get("intent"),
+                        turn_id=turn_id,
+                        message_id=f"tool-result-{tc_id}",
+                    )
+                    raw_result_metadata = (
+                        result.get("metadata") if isinstance(result, dict) else None
+                    )
+                    event_metadata = (
+                        raw_result_metadata
+                        if isinstance(raw_result_metadata, dict)
+                        else None
+                    )
+                    yield eb.build_tool_result_event(
+                        tool_call_id=tc_id,
+                        name=func_name,
+                        status=status,
+                        message=str(result.get("message", "工具执行失败")),
+                        data={"result": result},
+                        turn_id=turn_id,
+                        metadata=event_metadata,
+                    )
+                    continue
 
                 # 执行工具（max_retries 已在 TOOL_CALL 事件发出前计算）
                 retry_attempt = 0
@@ -1098,17 +1194,31 @@ class AgentRunner:
                         )
                         yield fallback_event
 
-                    has_error = isinstance(result, dict) and (
-                        result.get("error") or result.get("success") is False
+                    has_error = bool(
+                        isinstance(result, dict)
+                        and (result.get("error") or result.get("success") is False)
                     )
 
                     error_reason: str | None = None
+                    error_code: str | None = None
                     if has_error and isinstance(result, dict):
-                        reason = result.get("error") or result.get("message")
-                        if isinstance(reason, str) and reason.strip():
-                            error_reason = reason.strip()
+                        reason_text = result.get("error") or result.get("message")
+                        if isinstance(reason_text, str) and reason_text.strip():
+                            error_reason = reason_text.strip()
+                        raw_error_code = result.get("error_code")
+                        if isinstance(raw_error_code, str) and raw_error_code.strip():
+                            error_code = raw_error_code.strip()
+                        else:
+                            raw_meta = result.get("metadata")
+                            if isinstance(raw_meta, dict):
+                                meta_error_code = raw_meta.get("error_code")
+                                if isinstance(meta_error_code, str) and meta_error_code.strip():
+                                    error_code = meta_error_code.strip()
+                    if has_error and not error_code:
+                        error_code = "TOOL_EXECUTION_ERROR"
 
                     if not has_error:
+                        tool_failure_chains.pop(tool_args_signature, None)
                         yield _new_task_attempt_event(
                             step_id=matched_step_id,
                             action_id=matched_action_id,
@@ -1119,6 +1229,33 @@ class AgentRunner:
                             note=f"第 {attempt_no}/{max_attempts} 次尝试成功",
                         )
                         break
+
+                    existing_chain = tool_failure_chains.get(tool_args_signature)
+                    if isinstance(existing_chain, dict) and str(
+                        existing_chain.get("error_code", "")
+                    ) == str(error_code):
+                        existing_chain["count"] = int(existing_chain.get("count", 0)) + 1
+                        existing_chain["message"] = error_reason or existing_chain.get(
+                            "message", ""
+                        )
+                    else:
+                        next_recovery_hint: str | None = None
+                        if isinstance(result, dict):
+                            raw_hint = result.get("recovery_hint")
+                            if isinstance(raw_hint, str) and raw_hint.strip():
+                                next_recovery_hint = raw_hint.strip()
+                            else:
+                                data_obj = result.get("data")
+                                if isinstance(data_obj, dict):
+                                    data_hint = data_obj.get("recovery_hint")
+                                    if isinstance(data_hint, str) and data_hint.strip():
+                                        next_recovery_hint = data_hint.strip()
+                        tool_failure_chains[tool_args_signature] = {
+                            "count": 1,
+                            "error_code": error_code,
+                            "message": error_reason or "",
+                            "recovery_hint": next_recovery_hint,
+                        }
 
                     if retry_attempt >= max_retries:
                         yield _new_task_attempt_event(
@@ -1155,8 +1292,9 @@ class AgentRunner:
                     )
 
                 # 判断执行状态
-                has_error = isinstance(result, dict) and (
-                    result.get("error") or result.get("success") is False
+                has_error = bool(
+                    isinstance(result, dict)
+                    and (result.get("error") or result.get("success") is False)
                 )
                 status = "error" if has_error else "success"
 
@@ -1193,6 +1331,15 @@ class AgentRunner:
                 result_metadata: dict[str, Any] = (
                     raw_metadata if isinstance(raw_metadata, dict) else {}
                 )
+                top_level_error_code = (
+                    result.get("error_code") if isinstance(result, dict) else None
+                )
+                if (
+                    isinstance(top_level_error_code, str)
+                    and top_level_error_code.strip()
+                    and "error_code" not in result_metadata
+                ):
+                    result_metadata["error_code"] = top_level_error_code.strip()
                 execution_id = result_metadata.get("execution_id")
                 if not isinstance(execution_id, str):
                     execution_id = None
@@ -1232,11 +1379,7 @@ class AgentRunner:
                         tool_call_id=tc_id,
                         name=func_name,
                         status=status,
-                        message=(
-                            result.get("error") or result.get("message", "工具执行失败")
-                            if has_error
-                            else result.get("message", "工具执行完成")
-                        ),
+                        message=_tool_result_message(result, is_error=has_error),
                         data={"result": result},
                         turn_id=turn_id,
                         metadata=result_metadata if isinstance(result_metadata, dict) else None,
@@ -1245,8 +1388,11 @@ class AgentRunner:
                     if isinstance(result, dict) and result.get("has_chart"):
                         raw_chart_data = result.get("chart_data")
                         normalized_chart_data = normalize_chart_payload(raw_chart_data)
-                        chart_data = (
+                        chart_data_candidate = (
                             normalized_chart_data if normalized_chart_data else raw_chart_data
+                        )
+                        chart_data: dict[str, Any] = (
+                            chart_data_candidate if isinstance(chart_data_candidate, dict) else {}
                         )
                         session.add_assistant_event(
                             "chart",
@@ -1262,7 +1408,10 @@ class AgentRunner:
                             turn_id=turn_id,
                         )
                     if isinstance(result, dict) and result.get("has_dataframe"):
-                        data_preview = result.get("dataframe_preview") or {}
+                        raw_data_preview = result.get("dataframe_preview")
+                        data_preview: dict[str, Any] = (
+                            raw_data_preview if isinstance(raw_data_preview, dict) else {}
+                        )
                         session.add_assistant_event(
                             "data",
                             "数据预览如下",
@@ -1472,8 +1621,9 @@ class AgentRunner:
                 "message": f"等待用户回答失败: {exc}",
             }
 
-        has_error = isinstance(result, dict) and (
-            result.get("error") or result.get("success") is False
+        has_error = bool(
+            isinstance(result, dict)
+            and (result.get("error") or result.get("success") is False)
         )
         result_str = serialize_tool_result_for_memory(result)
         session.add_tool_result(
@@ -1489,11 +1639,7 @@ class AgentRunner:
             tool_call_id=tool_call_id,
             name="ask_user_question",
             status="error" if has_error else "success",
-            message=(
-                result.get("error") or result.get("message", "工具执行失败")
-                if has_error
-                else result.get("message", "工具执行完成")
-            ),
+            message=_tool_result_message(result, is_error=has_error),
             data={"result": result},
             turn_id=turn_id,
             metadata={"source": "intent_clarification"},

@@ -7,8 +7,9 @@ import base64
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 from urllib.parse import unquote, urlsplit
 
 from nini.agent.session import Session
@@ -19,6 +20,7 @@ from nini.utils.chart_fonts import CJK_FONT_FAMILY, apply_plotly_cjk_font_fallba
 from nini.workspace import WorkspaceManager
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 # A4 科研论文风格 CSS
 _PDF_CSS_TEMPLATE = """\
@@ -144,11 +146,7 @@ def _md_to_html(md_text: str, title: str) -> str:
 
 def _plain_text_to_html(text: str, title: str) -> str:
     """将纯文本包装为可导出的 HTML。"""
-    escaped = (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+    escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     body_html = "<pre>" + escaped + "</pre>"
     font_face_css, font_family = _build_pdf_font_css()
     css = _PDF_CSS_TEMPLATE.format(font_face=font_face_css, font_family=font_family)
@@ -292,7 +290,12 @@ def _resolve_images_to_base64_with_stats(
             encoded_name = "/".join(parts[3:])  # 支持子路径
             decoded_name = unquote(encoded_name).lstrip("/")
             file_path = (artifacts_dir / decoded_name).resolve()
-        elif len(parts) >= 5 and parts[0] == "api" and parts[1] == "workspace" and parts[3] == "files":
+        elif (
+            len(parts) >= 5
+            and parts[0] == "api"
+            and parts[1] == "workspace"
+            and parts[3] == "files"
+        ):
             encoded_name = "/".join(parts[4:])
             decoded_name = unquote(encoded_name).lstrip("/")
             file_path = (workspace_dir / decoded_name).resolve()
@@ -374,6 +377,13 @@ def _default_export_directory(source_path: str) -> str:
         return "notes/exports"
     parent = str(Path(rel_path).parent)
     return "." if parent in {"", "."} else parent
+
+
+async def _run_blocking_in_isolated_thread(func: Callable[[], _T]) -> _T:
+    """在隔离线程池中执行阻塞任务，避免污染事件循环默认线程池。"""
+    loop = asyncio.get_running_loop()
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="nini-export") as executor:
+        return await loop.run_in_executor(executor, func)
 
 
 def _workspace_relative_path_for_candidate(
@@ -630,8 +640,8 @@ async def export_workspace_document(
                 ),
             )
         try:
-            output_bytes: bytes = await asyncio.to_thread(
-                weasyprint.HTML(string=html).write_pdf,  # type: ignore[union-attr]
+            output_bytes: bytes = await _run_blocking_in_isolated_thread(
+                lambda: weasyprint.HTML(string=html).write_pdf(),  # type: ignore[union-attr]
             )
         except Exception as exc:
             logger.error("PDF 生成失败: %s", exc, exc_info=True)
@@ -640,11 +650,8 @@ async def export_workspace_document(
         try:
             from nini.tools.report_exporter import export_report as export_markdown_report
 
-            output_bytes = await asyncio.to_thread(
-                export_markdown_report,
-                raw_text,
-                "docx",
-                title,
+            output_bytes = await _run_blocking_in_isolated_thread(
+                lambda: export_markdown_report(raw_text, "docx", title),
             )
         except ImportError as exc:
             return SkillResult(success=False, message=f"DOCX 导出依赖缺失: {exc}")

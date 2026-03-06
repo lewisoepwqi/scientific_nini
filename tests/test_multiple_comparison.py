@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from nini.agent.session import Session
 from nini.tools.statistics import (
     MultipleComparisonCorrectionSkill,
     bonferroni_correction,
@@ -184,7 +185,7 @@ class TestMultipleComparisonCorrectionSkill:
     async def test_skill_execution_bonferroni(self):
         skill = MultipleComparisonCorrectionSkill()
         result = await skill.execute(
-            session=None,  # 不需要会话
+            session=Session(),
             p_values=[0.01, 0.02, 0.05],
             method="bonferroni",
             alpha=0.05,
@@ -197,7 +198,7 @@ class TestMultipleComparisonCorrectionSkill:
     async def test_skill_with_recommendation(self):
         skill = MultipleComparisonCorrectionSkill()
         result = await skill.execute(
-            session=None,
+            session=Session(),
             p_values=[0.01, 0.02, 0.05],
             method="bonferroni",
             context="exploratory",
@@ -210,7 +211,7 @@ class TestMultipleComparisonCorrectionSkill:
     async def test_skill_empty_pvalues(self):
         skill = MultipleComparisonCorrectionSkill()
         result = await skill.execute(
-            session=None,
+            session=Session(),
             p_values=[],
             method="bonferroni",
         )
@@ -221,7 +222,7 @@ class TestMultipleComparisonCorrectionSkill:
     async def test_skill_invalid_pvalues(self):
         skill = MultipleComparisonCorrectionSkill()
         result = await skill.execute(
-            session=None,
+            session=Session(),
             p_values=[0.5, 1.5, -0.1],  # 包含无效 p 值
             method="bonferroni",
         )
@@ -232,7 +233,7 @@ class TestMultipleComparisonCorrectionSkill:
     async def test_skill_counts_significant(self):
         skill = MultipleComparisonCorrectionSkill()
         result = await skill.execute(
-            session=None,
+            session=Session(),
             p_values=[0.001, 0.01, 0.1, 0.2],
             method="bonferroni",
             alpha=0.05,

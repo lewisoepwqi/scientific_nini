@@ -339,6 +339,7 @@ class TestRenameAPI:
         assert dataset is not None
         dataset_path = Path(str(dataset["file_path"])).relative_to(manager.workspace_dir).as_posix()
         session = session_manager.get_session(session_id)
+        assert session is not None
         assert "test.csv" in session.datasets
 
         client.post(

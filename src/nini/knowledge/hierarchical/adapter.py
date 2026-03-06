@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from nini.config import settings
 from nini.knowledge.hierarchical.unified_retriever import UnifiedRetriever
@@ -116,11 +116,14 @@ class HierarchicalKnowledgeAdapter:
 
         # 回退到传统检索
         if self._legacy_loader:
-            return self._legacy_loader.select(
-                user_message,
-                dataset_columns=dataset_columns,
-                max_entries=max_entries,
-                max_total_chars=max_total_chars,
+            return cast(
+                str,
+                self._legacy_loader.select(
+                    user_message,
+                    dataset_columns=dataset_columns,
+                    max_entries=max_entries,
+                    max_total_chars=max_total_chars,
+                ),
             )
 
         return ""
@@ -153,11 +156,14 @@ class HierarchicalKnowledgeAdapter:
 
         # 回退到传统检索
         if self._legacy_loader:
-            return self._legacy_loader.select_with_hits(
-                user_message,
-                dataset_columns=dataset_columns,
-                max_entries=max_entries,
-                max_total_chars=max_total_chars,
+            return cast(
+                tuple[str, list[dict[str, Any]]],
+                self._legacy_loader.select_with_hits(
+                    user_message,
+                    dataset_columns=dataset_columns,
+                    max_entries=max_entries,
+                    max_total_chars=max_total_chars,
+                ),
             )
 
         return "", []

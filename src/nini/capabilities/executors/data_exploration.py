@@ -183,7 +183,11 @@ class DataExplorationCapability:
         if not await self._validate_data(session, dataset_name, result):
             return result
 
-        df = session.datasets.get(dataset_name)
+        df_raw = session.datasets.get(dataset_name)
+        if df_raw is None:
+            result.message = f"数据集 '{dataset_name}' 不存在"
+            return result
+        df = df_raw
         result.n_rows = len(df)
         result.n_cols = len(df.columns)
         result.memory_usage = f"{df.memory_usage(deep=True).sum() / 1024:.2f} KB"
@@ -276,7 +280,10 @@ class DataExplorationCapability:
         result: DataExplorationResult,
     ) -> None:
         """评估数据质量。"""
-        df = session.datasets.get(dataset_name)
+        df_raw = session.datasets.get(dataset_name)
+        if df_raw is None:
+            return
+        df = df_raw
         total_cells = df.shape[0] * df.shape[1]
         missing_cells = df.isnull().sum().sum()
         result.total_missing = int(missing_cells)
@@ -319,13 +326,14 @@ class DataExplorationCapability:
             for j, col2 in enumerate(corr_matrix.columns):
                 if i >= j:
                     continue
-                corr_val = corr_matrix.loc[col1, col2]
+                corr_raw: Any = corr_matrix.loc[col1, col2]
+                corr_val = float(corr_raw)
                 if corr_val >= threshold:
                     high_corr.append(
                         {
                             "var1": col1,
                             "var2": col2,
-                            "correlation": round(float(corr_val), 3),
+                            "correlation": round(corr_val, 3),
                         }
                     )
 
@@ -338,7 +346,7 @@ class DataExplorationCapability:
         df: pd.DataFrame,
     ) -> list[dict[str, Any]]:
         """生成探索性可视化。"""
-        artifacts = []
+        artifacts: list[dict[str, Any]] = []
         registry = self._get_registry()
         if registry is None:
             return artifacts
@@ -427,7 +435,7 @@ class DataExplorationCapability:
         )
 
         # 变量类型分布
-        dtypes = {}
+        dtypes: dict[str, int] = {}
         for p in result.column_profiles:
             dtype_cat = "数值" if p.dtype in ["int64", "float64"] else "分类"
             dtypes[dtype_cat] = dtypes.get(dtype_cat, 0) + 1
@@ -483,8 +491,8 @@ class DataExplorationCapability:
         if self._registry is not None:
             return self._registry
         try:
-            from nini.tools.registry import get_default_registry
+            from nini.tools.registry import create_default_tool_registry
 
-            return get_default_registry()
+            return create_default_tool_registry()
         except Exception:
             return None

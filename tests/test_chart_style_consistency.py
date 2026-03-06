@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import multiprocessing as mp
-from typing import Any, cast
+from typing import Any, Iterator, cast
 
 import numpy as np
 import pandas as pd
@@ -21,7 +21,7 @@ from nini.tools.visualization import CreateChartSkill
 
 
 @pytest.fixture(autouse=True)
-def _cleanup_event_loop() -> None:
+def _cleanup_event_loop() -> Iterator[None]:
     """清理模块内可能残留的默认事件循环，避免 ResourceWarning。"""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

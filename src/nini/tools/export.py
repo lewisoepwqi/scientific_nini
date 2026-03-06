@@ -125,7 +125,7 @@ class ExportChartSkill(Skill):
         if fmt == "html":
             fig.write_html(str(path))
         elif fmt == "json":
-            path.write_text(fig.to_json(), encoding="utf-8")
+            path.write_text(str(fig.to_json()), encoding="utf-8")
         elif fmt in _KALEIDO_FORMATS:
             # kaleido 图片导出：在线程池中执行并施加超时保护
             export_timeout = settings.sandbox_image_export_timeout

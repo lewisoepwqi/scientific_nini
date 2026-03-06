@@ -211,14 +211,15 @@ def install_r_packages(packages: set[str]) -> tuple[bool, str]:
 
 
 def _build_preexec_fn(max_memory_mb: int):
-    if resource is None:
+    resource_module = resource
+    if resource_module is None:
         return None
 
     def _limit_resources() -> None:
         try:
-            if hasattr(resource, "RLIMIT_AS") and max_memory_mb > 0:
+            if hasattr(resource_module, "RLIMIT_AS") and max_memory_mb > 0:
                 mem_bytes = int(max(256, max_memory_mb)) * 1024 * 1024
-                resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
+                resource_module.setrlimit(resource_module.RLIMIT_AS, (mem_bytes, mem_bytes))
         except Exception:
             pass
 

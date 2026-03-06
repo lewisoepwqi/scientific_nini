@@ -362,6 +362,56 @@ class _GuardedSkillRegistry(_EchoSkillRegistry):
         return await super().execute(skill_name, session, **kwargs)
 
 
+class _RepeatFailingToolResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, tool_calls):
+                self.text = text
+                self.reasoning = ""
+                self.raw_text = text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls <= 3:
+            yield _Chunk(
+                text="",
+                tool_calls=[
+                    {
+                        "id": f"call_repeat_{self.calls}",
+                        "type": "function",
+                        "function": {
+                            "name": "echo_tool",
+                            "arguments": json.dumps({"value": "repeat"}, ensure_ascii=False),
+                        },
+                    }
+                ],
+            )
+            return
+
+        yield _Chunk(text="结束", tool_calls=[])
+
+
+class _AlwaysFailEchoRegistry(_EchoSkillRegistry):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def execute(self, skill_name: str, session: Session, **kwargs):
+        self.calls += 1
+        if skill_name != "echo_tool":
+            return {"error": f"unknown skill: {skill_name}"}
+        return {
+            "success": False,
+            "message": "echo failed",
+            "error_code": "ECHO_FAIL",
+            "recovery_hint": "请修改参数后再试。",
+        }
+
+
 class _LoadDatasetBypassResolver:
     def __init__(self) -> None:
         self.calls = 0
@@ -649,6 +699,52 @@ async def test_runner_attaches_action_tracking_metadata_no_auto_retry() -> None:
 
     # 工具只被调用 1 次（不自动重试）
     assert registry.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_runner_circuit_breaker_stops_repeated_same_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = Session()
+    session.add_message("user", "请继续")
+
+    resolver = _RepeatFailingToolResolver()
+    registry = _AlwaysFailEchoRegistry()
+    runner = AgentRunner(
+        resolver=resolver,
+        skill_registry=registry,
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    monkeypatch.setattr(settings, "tool_circuit_breaker_threshold", 2)
+
+    events = []
+    async for event in runner.run(session, "继续", append_user_message=False):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    # 解析器总共发起 3 次重复工具调用 + 1 次收尾文本
+    assert resolver.calls == 4
+    # 第 3 次应被熔断，后端真实工具执行只发生 2 次
+    assert registry.calls == 2
+
+    breaker_events = [
+        e
+        for e in events
+        if e.type == EventType.TOOL_RESULT
+        and isinstance(e.metadata, dict)
+        and e.metadata.get("breaker_triggered") is True
+    ]
+    assert breaker_events
+    breaker_event = breaker_events[-1]
+    assert isinstance(breaker_event.data, dict)
+    assert breaker_event.data.get("status") == "error"
+    nested_data = breaker_event.data.get("data")
+    assert isinstance(nested_data, dict)
+    result = nested_data.get("result")
+    assert isinstance(result, dict)
+    assert result.get("error_code") == "TOOL_CALL_CIRCUIT_BREAKER"
 
 
 @pytest.mark.asyncio

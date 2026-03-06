@@ -8,6 +8,7 @@ from typing import Any, cast
 
 from nini.agent.lane_queue import lane_queue
 from nini.agent.session import Session
+from nini.config import settings
 from nini.tools.base import Skill, SkillResult
 from nini.tools.diagnostics import DataDiagnostics
 from nini.tools.fallback import get_fallback_manager
@@ -45,7 +46,7 @@ class FunctionToolRegistryOps:
 
     def get(self, name: str) -> Skill | None:
         """获取工具实例。"""
-        return self._owner._skills.get(name)
+        return cast(Skill | None, self._owner._skills.get(name))
 
     def list_skills(self) -> list[str]:
         """列出所有 Function Tool 名称。"""
@@ -117,15 +118,105 @@ class FunctionToolRegistryOps:
                 }
             return {"success": False, "message": f"未知技能: {skill_name}"}
 
+        normalized_kwargs = kwargs
+        normalization_meta: dict[str, Any] | None = None
+        normalization_error: dict[str, Any] | None = None
+        if settings.tool_argument_normalization_enabled:
+            normalized_kwargs, normalization_meta, normalization_error = (
+                self._normalize_tool_kwargs(
+                    skill_name,
+                    kwargs,
+                )
+            )
+            if normalization_error is not None:
+                return normalization_error
+
         try:
             result = await lane_queue.execute(
                 session.id,
-                self._execute_skill_in_thread(skill=skill, session=session, kwargs=kwargs),
+                self._execute_skill_in_thread(
+                    skill=skill,
+                    session=session,
+                    kwargs=normalized_kwargs,
+                ),
             )
-            return cast(dict[str, Any], result.to_dict())
+            result_dict = cast(dict[str, Any], result.to_dict())
+            metadata = result_dict.get("metadata")
+            result_meta = metadata if isinstance(metadata, dict) else {}
+            if normalization_meta:
+                result_meta = {**result_meta, **normalization_meta}
+                result_dict["metadata"] = result_meta
+            error_code = result_meta.get("error_code")
+            if isinstance(error_code, str) and error_code.strip():
+                result_dict.setdefault("error_code", error_code.strip())
+            return result_dict
         except Exception as exc:
             logger.error("技能 %s 执行失败: %s", skill_name, exc, exc_info=True)
             return {"success": False, "message": f"技能执行失败: {exc}"}
+
+    @staticmethod
+    def _normalize_tool_kwargs(
+        skill_name: str,
+        kwargs: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
+        if skill_name != "workspace_session":
+            return kwargs, None, None
+
+        operation = kwargs.get("operation")
+        if isinstance(operation, str) and operation.strip():
+            return kwargs, None, None
+
+        list_like_fields = {"query", "kinds", "path_prefix", "limit"}
+        provided_fields = {k for k, v in kwargs.items() if k != "operation" and v is not None}
+        safe_to_infer_list = not provided_fields or provided_fields.issubset(list_like_fields)
+        if safe_to_infer_list:
+            normalized_kwargs = dict(kwargs)
+            normalized_kwargs["operation"] = "list"
+            return (
+                normalized_kwargs,
+                {
+                    "normalized": True,
+                    "normalization_reason": "workspace_session_missing_operation_inferred_list",
+                    "original_arguments": kwargs,
+                },
+                None,
+            )
+
+        return (
+            kwargs,
+            {
+                "normalized": False,
+                "normalization_reason": "workspace_session_missing_operation_unsafe_inference",
+                "original_arguments": kwargs,
+            },
+            {
+                "success": False,
+                "message": (
+                    "workspace_session 缺少 operation，且参数包含非 list 语义字段，"
+                    "已拒绝自动纠偏。请显式指定 operation。"
+                ),
+                "error_code": "WORKSPACE_OPERATION_REQUIRED",
+                "expected_operations": [
+                    "list",
+                    "read",
+                    "write",
+                    "append",
+                    "edit",
+                    "organize",
+                    "fetch_url",
+                ],
+                "recovery_hint": (
+                    "示例：{'operation':'list'}；"
+                    "读取文件请使用 {'operation':'read','file_path':'notes/a.md'}。"
+                ),
+                "metadata": {
+                    "normalized": False,
+                    "normalization_reason": "workspace_session_missing_operation_unsafe_inference",
+                    "provided_fields": sorted(provided_fields),
+                    "error_code": "WORKSPACE_OPERATION_REQUIRED",
+                },
+            },
+        )
 
     async def execute_with_fallback(
         self,
@@ -136,11 +227,17 @@ class FunctionToolRegistryOps:
         **kwargs: Any,
     ) -> dict[str, Any]:
         """执行工具，并在需要时触发降级。"""
-        original_result = await skill_executor(skill_name, session=session, **kwargs)
+        original_result = cast(
+            dict[str, Any],
+            await skill_executor(skill_name, session=session, **kwargs),
+        )
 
         if original_result.get("success") and enable_fallback:
-            should_fallback = await self._owner._fallback_manager.should_trigger_fallback(
-                skill_name, session, kwargs
+            should_fallback = cast(
+                dict[str, Any],
+                await self._owner._fallback_manager.should_trigger_fallback(
+                    skill_name, session, kwargs
+                ),
             )
             if should_fallback["trigger"]:
                 return await self._execute_fallback(skill_name, session, kwargs, should_fallback)
@@ -149,7 +246,7 @@ class FunctionToolRegistryOps:
         if original_result.get("success"):
             return original_result
 
-        if enable_fallback and self._owner._fallback_manager.has_fallback(skill_name):
+        if enable_fallback and bool(self._owner._fallback_manager.has_fallback(skill_name)):
             return await self._execute_fallback(
                 skill_name, session, kwargs, {"reason": "原始技能执行失败"}
             )

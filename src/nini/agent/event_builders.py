@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from nini.agent.events import AgentEvent, EventType
@@ -92,7 +93,7 @@ def build_analysis_plan_event(
         type=EventType.ANALYSIS_PLAN,
         data=data,
         turn_id=turn_id,
-        metadata=metadata or None,
+        metadata=metadata,
     )
 
 
@@ -123,7 +124,7 @@ def build_plan_step_update_event(
         type=EventType.PLAN_STEP_UPDATE,
         data=data,
         turn_id=turn_id,
-        metadata=metadata or None,
+        metadata=metadata,
     )
 
 
@@ -174,7 +175,7 @@ def build_plan_progress_event(
         type=EventType.PLAN_PROGRESS,
         data=data,
         turn_id=turn_id,
-        metadata=metadata or None,
+        metadata=metadata,
     )
 
 
@@ -215,7 +216,7 @@ def build_task_attempt_event(
         type=EventType.TASK_ATTEMPT,
         data=data,
         turn_id=turn_id,
-        metadata=metadata or None,
+        metadata=metadata,
     )
 
 
@@ -343,7 +344,6 @@ def build_tool_call_event(
     parsed_args = arguments
     if isinstance(arguments, str):
         try:
-            import json
             parsed_args = json.loads(arguments)
         except json.JSONDecodeError:
             parsed_args = {"raw": arguments}
@@ -361,7 +361,7 @@ def build_tool_call_event(
         type=EventType.TOOL_CALL,
         data=data,
         turn_id=turn_id,
-        metadata=metadata,
+        metadata=metadata or {},
         tool_call_id=tool_call_id,
         tool_name=name,
     )
@@ -394,7 +394,7 @@ def build_tool_result_event(
         type=EventType.TOOL_RESULT,
         data=result_data,
         turn_id=turn_id,
-        metadata=metadata,
+        metadata=metadata or {},
         tool_call_id=tool_call_id,
         tool_name=name,
     )
@@ -417,7 +417,7 @@ def build_text_event(
         type=EventType.TEXT,
         data=data,
         turn_id=turn_id,
-        metadata=metadata,
+        metadata=metadata or {},
     )
 
 
@@ -675,7 +675,7 @@ def build_ask_user_question_event(
         turn_id=turn_id,
         tool_call_id=tool_call_id,
         tool_name=tool_name,
-        metadata=metadata,
+        metadata=metadata or {},
     )
 
 

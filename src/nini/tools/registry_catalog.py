@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from nini.config import settings
 from nini.tools.markdown_scanner import render_skills_snapshot
@@ -73,7 +73,10 @@ class ToolCatalogOps:
 
     def list_skill_catalog(self, skill_type: str | None = None) -> list[dict[str, Any]]:
         """返回聚合后的技能目录。"""
-        all_items = self._owner.list_function_skills() + self._owner.list_markdown_skills()
+        all_items = cast(
+            list[dict[str, Any]],
+            self._owner.list_function_skills() + self._owner.list_markdown_skills(),
+        )
         if skill_type:
             normalized_type = skill_type.strip().lower()
             if normalized_type in {"function", "markdown"}:
@@ -82,11 +85,11 @@ class ToolCatalogOps:
 
     def list_tools_catalog(self) -> list[dict[str, Any]]:
         """返回可执行 Function Tool 目录。"""
-        return self._owner.list_function_skills()
+        return cast(list[dict[str, Any]], self._owner.list_function_skills())
 
     def list_markdown_skill_catalog(self) -> list[dict[str, Any]]:
         """返回 Markdown Skill 目录。"""
-        return self._owner.list_markdown_skills()
+        return cast(list[dict[str, Any]], self._owner.list_markdown_skills())
 
     def write_skills_snapshot(self) -> None:
         """将聚合目录写入快照文件。"""

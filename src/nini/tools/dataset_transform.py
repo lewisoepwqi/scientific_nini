@@ -150,7 +150,8 @@ class DatasetTransformSkill(Skill):
                 step = dict(raw_step) if isinstance(raw_step, dict) else {}
                 step_id = str(step.get("id", "")).strip() or f"s{index}"
                 op = str(step.get("op", "")).strip()
-                params = step.get("params") if isinstance(step.get("params"), dict) else {}
+                params_raw = step.get("params")
+                params: dict[str, Any] = dict(params_raw) if isinstance(params_raw, dict) else {}
                 if op not in self._supported_ops:
                     return SkillResult(
                         success=False, message=f"步骤 {step_id} 使用了不支持的操作: {op}"

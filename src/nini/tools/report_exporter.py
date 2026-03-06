@@ -39,9 +39,9 @@ class DOCXExporter(ReportExporter):
             DOCX 文件字节数据
         """
         try:
-            from docx import Document
-            from docx.shared import Inches, Pt
-            from docx.enum.text import WD_ALIGN_PARAGRAPH
+            from docx import Document  # type: ignore[import-not-found]
+            from docx.shared import Inches, Pt  # type: ignore[import-not-found]
+            from docx.enum.text import WD_ALIGN_PARAGRAPH  # type: ignore[import-not-found]
         except ImportError:
             logger.error("python-docx 未安装，无法导出 DOCX")
             raise ImportError("请安装 python-docx: pip install python-docx")
@@ -49,7 +49,7 @@ class DOCXExporter(ReportExporter):
         doc = Document()
         
         # 设置默认字体
-        style = doc.styles['Normal']
+        style: Any = doc.styles['Normal']
         style.font.name = 'Times New Roman'
         style.font.size = Pt(12)
         
@@ -165,7 +165,12 @@ class DOCXExporter(ReportExporter):
                 # 代码
                 run = paragraph.add_run(part[1:-1])
                 run.font.name = 'Courier New'
-                run.font.size = Pt(10)
+                try:
+                    from docx.shared import Pt
+
+                    run.font.size = Pt(10)
+                except ImportError:
+                    pass
             else:
                 # 普通文本
                 paragraph.add_run(part)
@@ -398,12 +403,12 @@ def export_report(
     format = format.lower()
     
     if format == "docx":
-        exporter = DOCXExporter(markdown_content, title)
-        return exporter.export()
+        docx_exporter = DOCXExporter(markdown_content, title)
+        return docx_exporter.export()
     
     elif format == "pdf":
-        exporter = PDFExporter(markdown_content, title, journal_style)
-        return exporter.export()
+        pdf_exporter = PDFExporter(markdown_content, title, journal_style)
+        return pdf_exporter.export()
     
     else:
         raise ValueError(f"不支持的导出格式: {format}")

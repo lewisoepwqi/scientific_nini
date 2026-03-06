@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import contextmanager, suppress
-from typing import Any, Iterator
+from typing import Any, Iterator, cast
 
 import httpx
 from fastapi import WebSocketDisconnect
@@ -110,7 +110,7 @@ class LocalWebSocketClient:
     async def _start(self) -> None:
         self._lifespan_cm = self._app.router.lifespan_context(self._app)
         await self._lifespan_cm.__aenter__()
-        self._task = self._loop.create_task(websocket_agent(self._ws))
+        self._task = self._loop.create_task(websocket_agent(cast(Any, self._ws)))
         await asyncio.sleep(0)
 
     def send_text(self, text: str) -> None:

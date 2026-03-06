@@ -133,7 +133,7 @@ class RegressionAnalysisSkill(Skill):
         independent_vars: list[str],
     ) -> dict[str, Any]:
         """检验回归假设。"""
-        assumptions = {}
+        assumptions: dict[str, Any] = {}
 
         # 正态性检验（Shapiro-Wilk 或 Kolmogorov-Smirnov）
         y = df[dependent_var].dropna()
@@ -235,8 +235,13 @@ class RegressionAnalysisSkill(Skill):
         independent_vars: list[str],
     ) -> dict[str, Any]:
         """使用 numpy 执行简化回归（无 statsmodels 时备用）。"""
-        y = df[dependent_var].values
-        X = df[independent_vars].select_dtypes(include=[np.number]).values
+        y = pd.to_numeric(df[dependent_var], errors="coerce").to_numpy(dtype=float)
+        X = (
+            df[independent_vars]
+            .apply(pd.to_numeric, errors="coerce")
+            .select_dtypes(include=[np.number])
+            .to_numpy(dtype=float)
+        )
 
         # 添加常数列
         X_with_const = np.column_stack([np.ones(len(X)), X])

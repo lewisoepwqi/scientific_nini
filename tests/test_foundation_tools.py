@@ -305,11 +305,11 @@ def test_workspace_session_schema_requires_file_path_for_read() -> None:
     assert skill is not None
 
     schema = skill.parameters
-    assert "oneOf" in schema
-    read_branch = next(
-        b for b in schema["oneOf"] if b["properties"]["operation"]["enum"] == ["read"]
-    )
-    assert set(read_branch["required"]) == {"operation", "file_path"}
+    assert schema["type"] == "object"
+    assert "operation" in schema["properties"]
+    assert "read" in schema["properties"]["operation"]["enum"]
+    assert "file_path" in schema["properties"]
+    assert set(schema["required"]) == {"operation"}
 
 
 def test_dataset_transform_schema_op_is_strict_enum() -> None:
@@ -582,6 +582,43 @@ def test_workspace_session_unifies_file_ops_and_fetch_save(
     manager = WorkspaceManager(session.id)
     fetched_path = manager.resolve_workspace_path("notes/fetched.md", allow_missing=False)
     assert fetched_path.read_text(encoding="utf-8") == "# fetched"
+
+
+def test_workspace_session_missing_operation_is_auto_normalized_to_list() -> None:
+    registry = create_default_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "workspace_session",
+            session=session,
+        )
+    )
+
+    assert result["success"] is True, result
+    metadata = result.get("metadata")
+    assert isinstance(metadata, dict)
+    assert metadata.get("normalized") is True
+    assert "normalization_reason" in metadata
+
+
+def test_workspace_session_missing_operation_unsafe_inference_is_rejected() -> None:
+    registry = create_default_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "workspace_session",
+            session=session,
+            file_path="notes/a.md",
+        )
+    )
+
+    assert result["success"] is False
+    assert result.get("error_code") == "WORKSPACE_OPERATION_REQUIRED"
+    metadata = result.get("metadata")
+    assert isinstance(metadata, dict)
+    assert metadata.get("normalized") is False
 
 
 def test_code_session_persists_scripts_and_execution_history() -> None:

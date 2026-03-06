@@ -174,19 +174,19 @@ def _save_python_figures(
         if library != "plotly":
             continue
 
-        plotly_json = fig_info.get("plotly_json", "")
-        if not plotly_json:
+        raw_plotly_json = fig_info.get("plotly_json")
+        if not isinstance(raw_plotly_json, str) or not raw_plotly_json:
             continue
-        normalized_plotly_json = plotly_json
+        normalized_plotly_json: str = raw_plotly_json
         normalized_chart_data: dict[str, Any] | None = None
 
         try:
             import json as json_mod
             import plotly.graph_objects as go
 
-            normalized_fig = go.Figure(json_mod.loads(plotly_json))
+            normalized_fig = go.Figure(json_mod.loads(raw_plotly_json))
             apply_plotly_cjk_font_fallback(normalized_fig)
-            normalized_plotly_json = normalized_fig.to_json()
+            normalized_plotly_json = str(normalized_fig.to_json())
             normalized_chart_data = normalized_fig.to_plotly_json()
         except Exception:
             logger.debug("标准化 Plotly 中文字体失败，回退原始图表", exc_info=True)

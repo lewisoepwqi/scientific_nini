@@ -134,7 +134,11 @@ class VisualizationCapability:
         if not await self._validate_data(session, dataset_name, result):
             return result
 
-        df = session.datasets.get(dataset_name)
+        df_raw = session.datasets.get(dataset_name)
+        if df_raw is None:
+            result.message = f"数据集 '{dataset_name}' 不存在"
+            return result
+        df = df_raw
         target_cols = columns or df.columns.tolist()
 
         # Step 2: 分析数据特征
@@ -233,7 +237,7 @@ class VisualizationCapability:
         max_charts: int,
     ) -> list[ChartSpec]:
         """生成分布图表。"""
-        charts = []
+        charts: list[ChartSpec] = []
         registry = self._get_registry()
         if registry is None:
             return charts
@@ -280,7 +284,7 @@ class VisualizationCapability:
         max_charts: int,
     ) -> list[ChartSpec]:
         """生成关系图表。"""
-        charts = []
+        charts: list[ChartSpec] = []
         registry = self._get_registry()
         if registry is None:
             return charts
@@ -348,7 +352,7 @@ class VisualizationCapability:
         max_charts: int,
     ) -> list[ChartSpec]:
         """生成组合图表。"""
-        charts = []
+        charts: list[ChartSpec] = []
         registry = self._get_registry()
         if registry is None:
             return charts
@@ -389,7 +393,7 @@ class VisualizationCapability:
         export_format: str,
     ) -> list[dict[str, Any]]:
         """导出图表。"""
-        exported = []
+        exported: list[dict[str, Any]] = []
         registry = self._get_registry()
         if registry is None:
             return exported
@@ -477,8 +481,8 @@ class VisualizationCapability:
         if self._registry is not None:
             return self._registry
         try:
-            from nini.tools.registry import get_default_registry
+            from nini.tools.registry import create_default_tool_registry
 
-            return get_default_registry()
+            return create_default_tool_registry()
         except Exception:
             return None

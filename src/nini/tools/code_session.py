@@ -32,7 +32,11 @@ class CodeSessionSkill(Skill):
 
     @property
     def description(self) -> str:
-        return "创建、读取和执行持久化脚本会话，统一管理 Python/R 脚本与执行历史。"
+        return (
+            "创建、读取和执行持久化脚本会话，统一管理 Python/R 脚本与执行历史。"
+            "当传入 dataset_name 时，沙箱会自动注入 DataFrame 变量 df。"
+            "禁止通过 import __main__ 或系统级 I/O 探测数据路径。"
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -580,8 +584,12 @@ class CodeSessionSkill(Skill):
                 if resource_id:
                     ids.append(resource_id)
 
-        direct_resource_id = str(data.get("resource_id", "")).strip() if isinstance(data, dict) else ""
-        direct_resource_type = str(data.get("resource_type", "")).strip() if isinstance(data, dict) else ""
+        direct_resource_id = (
+            str(data.get("resource_id", "")).strip() if isinstance(data, dict) else ""
+        )
+        direct_resource_type = (
+            str(data.get("resource_type", "")).strip() if isinstance(data, dict) else ""
+        )
         if direct_resource_id and direct_resource_type in {"dataset", "temp_dataset"}:
             ids.append(direct_resource_id)
 
