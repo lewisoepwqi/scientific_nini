@@ -218,44 +218,99 @@ class ModelResolver:
         Yields:
             LLMChunk: 流式输出块
         """
-        # 标题生成使用廉价模型客户端，其余用途使用单一激活客户端
-        if purpose == "title_generation":
-            client = self._get_title_client()
+        # 单一激活模式：
+        # 1) 有激活供应商时，仅使用该供应商（title_generation 走廉价模型偏好）
+        # 2) 无激活供应商但有试用客户端时，仅使用试用客户端
+        # 3) 其余场景（主要是测试注入）保留多客户端故障转移能力
+        clients: list[BaseLLMClient] = []
+        if self._active_provider_id:
+            if purpose == "title_generation":
+                title_client = self._get_title_client()
+                if title_client:
+                    clients = [title_client]
+            else:
+                active_client = self._get_single_active_client()
+                if active_client:
+                    clients = [active_client]
+        elif self._trial_client:
+            clients = [self._trial_client]
         else:
-            client = self._get_single_active_client() or self._trial_client
+            clients = self._get_ordered_clients(purpose)
 
-        if not client:
+        if not clients:
             raise RuntimeError("未配置 AI 服务，请先在「AI 设置」中配置供应商密钥")
+        fallback_chain: list[dict[str, Any]] = []
+        last_error: Exception | None = None
 
-        provider_id = getattr(client, "provider_id", "") or ""
-        provider_name = getattr(client, "provider_name", provider_id) or provider_id
-        model_name = client.get_model_name() or "unknown"
+        for attempt, client in enumerate(clients, start=1):
+            provider_id = getattr(client, "provider_id", "") or ""
+            provider_name = getattr(client, "provider_name", provider_id) or provider_id
+            model_name = client.get_model_name() or "unknown"
+            success_entry = {
+                "provider_id": provider_id,
+                "provider_name": provider_name,
+                "model": model_name,
+                "attempt": attempt,
+                "status": "success",
+                "error": None,
+            }
+            first_failed = next((item for item in fallback_chain if item.get("status") == "failed"), None)
 
-        async for chunk in client.chat(
-            messages=messages,
-            tools=tools,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        ):
-            chunk_text = chunk.text if hasattr(chunk, "text") else ""
-            chunk_reasoning = chunk.reasoning if hasattr(chunk, "reasoning") else ""
-            yield LLMChunk(
-                text=chunk_text,
-                reasoning=chunk_reasoning,
-                raw_text=getattr(chunk, "raw_text", chunk_text),
-                tool_calls=getattr(chunk, "tool_calls", []),
-                finish_reason=getattr(chunk, "finish_reason", None),
-                usage=getattr(chunk, "usage", None),
-                provider_id=provider_id,
-                provider_name=provider_name,
-                model=model_name,
-                attempt=1,
-                fallback_applied=False,
-                fallback_from_provider_id=None,
-                fallback_from_model=None,
-                fallback_reason=None,
-                fallback_chain=[],
+            try:
+                async for chunk in client.chat(
+                    messages=messages,
+                    tools=tools,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                ):
+                    chunk_text = chunk.text if hasattr(chunk, "text") else ""
+                    chunk_reasoning = chunk.reasoning if hasattr(chunk, "reasoning") else ""
+                    yield LLMChunk(
+                        text=chunk_text,
+                        reasoning=chunk_reasoning,
+                        raw_text=getattr(chunk, "raw_text", chunk_text),
+                        tool_calls=getattr(chunk, "tool_calls", []),
+                        finish_reason=getattr(chunk, "finish_reason", None),
+                        usage=getattr(chunk, "usage", None),
+                        provider_id=provider_id,
+                        provider_name=provider_name,
+                        model=model_name,
+                        attempt=attempt,
+                        fallback_applied=attempt > 1,
+                        fallback_from_provider_id=first_failed.get("provider_id") if first_failed else None,
+                        fallback_from_model=first_failed.get("model") if first_failed else None,
+                        fallback_reason=first_failed.get("error") if first_failed else None,
+                        fallback_chain=[*fallback_chain, success_entry],
+                    )
+                return
+            except Exception as e:
+                last_error = e
+                compact_error = self._compact_error_message(e)
+                fallback_chain.append(
+                    {
+                        "provider_id": provider_id,
+                        "provider_name": provider_name,
+                        "model": model_name,
+                        "attempt": attempt,
+                        "status": "failed",
+                        "error": compact_error,
+                    }
+                )
+                logger.warning(
+                    "LLM 客户端调用失败，尝试下一个提供商: provider=%s model=%s reason=%s",
+                    provider_id,
+                    model_name,
+                    compact_error,
+                )
+
+        if last_error is not None:
+            summary = " | ".join(
+                f"{item.get('provider_id', 'unknown')}: {item.get('error', 'unknown error')}"
+                for item in fallback_chain
             )
+            raise RuntimeError(f"所有 LLM 客户端均失败: {summary}") from last_error
+
+        raise RuntimeError("LLM 调用未返回结果")
 
     async def chat_complete(
         self,
@@ -557,9 +612,11 @@ class ModelResolver:
         Args:
             priorities: provider_id -> priority 映射，值越小优先级越高
         """
-        # 根据优先级重新排序客户端列表
+        # 根据优先级重新排序客户端列表；未配置项沿用当前顺序对应的默认优先级
+        default_priorities = {client.provider_id: idx for idx, client in enumerate(self._clients)}
+
         def get_priority(client: BaseLLMClient) -> int:
-            return priorities.get(client.provider_id, 999)
+            return priorities.get(client.provider_id, default_priorities.get(client.provider_id, 999))
 
         self._clients.sort(key=get_priority)
         # 重新构建客户端映射
@@ -753,6 +810,8 @@ class ModelResolver:
         ]
         self._clients = clients
         self._client_map = {c.provider_id: c for c in self._clients}
+        if priorities:
+            self.set_priorities(priorities)
         logger.info(
             "模型客户端已重新加载，激活供应商: %s，试用模式: %s",
             active_provider_id or "无",

@@ -170,8 +170,10 @@ def test_phase2c_websocket_model_unavailable_returns_error(
         assert session_event["type"] == "session"
         assert "session_id" in session_event["data"]
 
-        # iteration_start 事件在每次迭代开始时发送
+        # 若是首次消息，可能先收到 trial_activated，再进入 iteration_start
         iter_event = ws.receive_json()
+        if iter_event["type"] == "trial_activated":
+            iter_event = ws.receive_json()
         assert iter_event["type"] == "iteration_start"
 
         error_event = ws.receive_json()
