@@ -38,6 +38,7 @@ from nini.agent.prompt_policy import (
 )
 from nini.agent.prompts.scientific import get_system_prompt
 from nini.agent.session import Session
+from nini.capabilities import create_default_capabilities
 from nini.config import settings
 from nini.intent import default_intent_analyzer, optimized_intent_analyzer
 from nini.knowledge.loader import KnowledgeLoader
@@ -106,7 +107,21 @@ class ContextBuilder:
             context_parts.append(dataset_context)
 
         last_user_msg = get_last_user_message(session)
-        intent_runtime_context = self.build_intent_runtime_context(last_user_msg)
+
+        # --- 单次意图分析，结果用于 RAG/LTM 门控和上下文构建 ---
+        _intent_analysis = None
+        if last_user_msg:
+            try:
+                cap_dicts = [cap.to_dict() for cap in create_default_capabilities()]
+                _intent_analysis = _get_intent_analyzer().analyze(
+                    last_user_msg, capabilities=cap_dicts
+                )
+            except Exception as exc:
+                logger.debug("意图预分析失败，保守兜底（启用 RAG）: %s", exc)
+
+        intent_runtime_context = self.build_intent_runtime_context(
+            last_user_msg, intent_analysis=_intent_analysis
+        )
         if intent_runtime_context:
             context_parts.append(intent_runtime_context)
 
@@ -114,7 +129,8 @@ class ContextBuilder:
         if explicit_skill_context:
             context_parts.append(explicit_skill_context)
 
-        if last_user_msg and settings.enable_knowledge:
+        _rag_needed = _intent_analysis.rag_needed if _intent_analysis is not None else True
+        if last_user_msg and settings.enable_knowledge and _rag_needed:
             retrieval_event = await self._inject_knowledge(
                 session=session,
                 last_user_msg=last_user_msg,
@@ -139,7 +155,8 @@ class ContextBuilder:
             context_parts.append(analysis_memory_context)
 
         # 注入跨会话长期记忆（以当前用户消息检索相关历史分析发现）
-        if last_user_msg:
+        _ltm_needed = _intent_analysis.ltm_needed if _intent_analysis is not None else True
+        if last_user_msg and _ltm_needed:
             # 构建情境信息用于情境感知重排序
             ltm_context: dict[str, Any] = {}
             loaded_datasets = getattr(session, "loaded_datasets", {})
@@ -232,12 +249,13 @@ class ContextBuilder:
             runtime_resources_builder=self._build_skill_runtime_resources_note,
         )
 
-    def build_intent_runtime_context(self, user_message: str) -> str:
+    def build_intent_runtime_context(self, user_message: str, intent_analysis: Any = None) -> str:
         """Build lightweight intent analysis context."""
         return build_intent_runtime_context_block(
             user_message,
             self._skill_registry,
             intent_analyzer=_get_intent_analyzer,
+            intent_analysis=intent_analysis,
         )
 
     def _match_skills_by_context(self, user_message: str) -> list[dict[str, Any]]:
