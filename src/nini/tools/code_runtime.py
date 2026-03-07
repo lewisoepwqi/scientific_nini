@@ -137,7 +137,7 @@ def _save_python_figures(
         if label:
             base_name = ws.sanitize_filename(label, default_name=f"fig_{idx}")[:40]
         elif title:
-            base_name = title.replace(" ", "_")[:40]
+            base_name = ws.sanitize_filename(title, default_name=f"fig_{idx}")[:40]
         else:
             base_name = f"{var_name}_{ts}"
 
