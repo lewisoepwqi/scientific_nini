@@ -57,8 +57,8 @@ function createHarness(initial: Partial<AppStateSubset> = {}) {
   const get = () => state;
 
   return {
-    dispatch(evt: WSEvent) {
-      handleEvent(evt, set, get);
+    async dispatch(evt: WSEvent) {
+      await handleEvent(evt, set, get);
     },
     getState() {
       return state;
@@ -67,10 +67,10 @@ function createHarness(initial: Partial<AppStateSubset> = {}) {
 }
 
 describe("handleEvent 文本去重", () => {
-  it("对同一 message_id 的 replace 应更新现有消息，而不是创建新气泡", () => {
+  it("对同一 message_id 的 replace 应更新现有消息，而不是创建新气泡", async () => {
     const harness = createHarness({ _currentTurnId: "turn-1" });
 
-    harness.dispatch({
+    await harness.dispatch({
       type: "text",
       data: "正在生成报告...",
       turn_id: "turn-1",
@@ -80,7 +80,7 @@ describe("handleEvent 文本去重", () => {
       },
     });
 
-    harness.dispatch({
+    await harness.dispatch({
       type: "text",
       data: "# 完整报告内容",
       turn_id: "turn-1",
@@ -96,10 +96,10 @@ describe("handleEvent 文本去重", () => {
     expect(state.messages[0]?.content).toBe("# 完整报告内容");
   });
 
-  it("complete 操作携带内容时应保留完整消息", () => {
+  it("complete 操作携带内容时应保留完整消息", async () => {
     const harness = createHarness({ _currentTurnId: "turn-1" });
 
-    harness.dispatch({
+    await harness.dispatch({
       type: "text",
       data: "部分内容",
       turn_id: "turn-1",
@@ -109,9 +109,9 @@ describe("handleEvent 文本去重", () => {
       },
     });
 
-    harness.dispatch({
+    await harness.dispatch({
       type: "text",
-      data: "完整内容",
+      data: "部分内容，现已完整",
       turn_id: "turn-1",
       metadata: {
         message_id: "turn-1-1",
@@ -122,13 +122,13 @@ describe("handleEvent 文本去重", () => {
     const state = harness.getState();
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0]?.messageId).toBe("turn-1-1");
-    expect(state.messages[0]?.content).toBe("完整内容");
+    expect(state.messages[0]?.content).toBe("部分内容，现已完整");
   });
 
-  it("对同一 reasoning_id 应合并为单条 reasoning 消息", () => {
+  it("对同一 reasoning_id 应合并为单条 reasoning 消息", async () => {
     const harness = createHarness({ _currentTurnId: "turn-1" });
 
-    harness.dispatch({
+    await harness.dispatch({
       type: "reasoning",
       data: {
         content: "先检查字段",
@@ -138,7 +138,7 @@ describe("handleEvent 文本去重", () => {
       turn_id: "turn-1",
     });
 
-    harness.dispatch({
+    await harness.dispatch({
       type: "reasoning",
       data: {
         content: "完整推理结论",
@@ -158,10 +158,10 @@ describe("handleEvent 文本去重", () => {
     });
   });
 
-  it("应识别后端 snake_case 的 reasoning_live=false 并标记为已完成", () => {
+  it("应识别后端 snake_case 的 reasoning_live=false 并标记为已完成", async () => {
     const harness = createHarness({ _currentTurnId: "turn-1" });
 
-    harness.dispatch({
+    await harness.dispatch({
       type: "reasoning",
       data: {
         content: "最终推理结论",
@@ -184,7 +184,7 @@ describe("handleEvent 文本去重", () => {
     });
   });
 
-  it("artifact 事件应生成独立的 canonical assistant 消息", () => {
+  it("artifact 事件应生成独立的 canonical assistant 消息", async () => {
     const harness = createHarness({
       messages: [
         {
@@ -198,7 +198,7 @@ describe("handleEvent 文本去重", () => {
       _currentTurnId: "turn-1",
     });
 
-    harness.dispatch({
+    await harness.dispatch({
       type: "artifact",
       data: {
         name: "report.md",
@@ -224,7 +224,7 @@ describe("handleEvent 文本去重", () => {
     ]);
   });
 
-  it("token_usage 应累加当前请求 token，并绑定 turn_id", () => {
+  it("token_usage 应累加当前请求 token，并绑定 turn_id", async () => {
     const harness = createHarness({
       isStreaming: true,
       _streamingMetrics: {
@@ -235,11 +235,11 @@ describe("handleEvent 文本去重", () => {
       },
     });
 
-    harness.dispatch({
+    await harness.dispatch({
       type: "iteration_start",
       turn_id: "turn-1",
     });
-    harness.dispatch({
+    await harness.dispatch({
       type: "token_usage",
       turn_id: "turn-1",
       data: {
@@ -251,7 +251,7 @@ describe("handleEvent 文本去重", () => {
         session_total_cost: 0.1,
       },
     });
-    harness.dispatch({
+    await harness.dispatch({
       type: "token_usage",
       turn_id: "turn-1",
       data: {
@@ -273,7 +273,7 @@ describe("handleEvent 文本去重", () => {
     expect(state.tokenUsage?.total_tokens).toBe(820);
   });
 
-  it("不同 turn 的 token_usage 不应污染当前请求指标", () => {
+  it("不同 turn 的 token_usage 不应污染当前请求指标", async () => {
     const harness = createHarness({
       isStreaming: true,
       _streamingMetrics: {
@@ -284,7 +284,7 @@ describe("handleEvent 文本去重", () => {
       },
     });
 
-    harness.dispatch({
+    await harness.dispatch({
       type: "token_usage",
       turn_id: "turn-2",
       data: {
@@ -301,7 +301,7 @@ describe("handleEvent 文本去重", () => {
     expect(state.tokenUsage).toBeNull();
   });
 
-  it("done 后应清空当前请求指标", () => {
+  it("done 后应清空当前请求指标", async () => {
     const harness = createHarness({
       isStreaming: true,
       _currentTurnId: "turn-1",
@@ -313,7 +313,7 @@ describe("handleEvent 文本去重", () => {
       },
     });
 
-    harness.dispatch({
+    await harness.dispatch({
       type: "done",
       turn_id: "turn-1",
     });
@@ -326,7 +326,7 @@ describe("handleEvent 文本去重", () => {
     });
   });
 
-  it("done 在缺少 currentTurnId 时应兜底关闭所有运行中的 reasoning", () => {
+  it("done 在缺少 currentTurnId 时应兜底关闭所有运行中的 reasoning", async () => {
     const now = Date.now();
     const harness = createHarness({
       _currentTurnId: null,
@@ -352,7 +352,7 @@ describe("handleEvent 文本去重", () => {
       ],
     });
 
-    harness.dispatch({
+    await harness.dispatch({
       type: "done",
       turn_id: undefined,
     });
@@ -363,10 +363,10 @@ describe("handleEvent 文本去重", () => {
     expect(state.messages[1]?.reasoningLive).toBe(false);
   });
 
-  it("ask_user_question 的工具结果应先展示问题再展示用户回答", () => {
+  it("ask_user_question 的工具结果应先展示问题再展示用户回答", async () => {
     const harness = createHarness({ _currentTurnId: "turn-ask-1" });
 
-    harness.dispatch({
+    await harness.dispatch({
       type: "tool_result",
       tool_name: "ask_user_question",
       tool_call_id: "tool-ask-1",
@@ -415,5 +415,46 @@ describe("handleEvent 文本去重", () => {
     const questionIndex = toolResult.indexOf("你更关注哪类结果？");
     const answerIndex = toolResult.indexOf("→ 效应量");
     expect(questionIndex).toBeLessThan(answerIndex);
+  });
+
+  it("analysis_plan 事件应通过扩展处理器更新计划状态", async () => {
+    const harness = createHarness({ _currentTurnId: "turn-plan-1" });
+
+    await harness.dispatch({
+      type: "analysis_plan",
+      turn_id: "turn-plan-1",
+      data: {
+        raw_text: "分析计划",
+        steps: [
+          { id: 1, title: "读取数据", status: "in_progress" },
+          { id: 2, title: "生成图表", status: "not_started" },
+        ],
+      },
+    });
+
+    const state = harness.getState();
+    expect(state.analysisPlanProgress?.total_steps).toBe(2);
+    expect(state.analysisTasks).toHaveLength(2);
+    expect(state.workspacePanelTab).toBe("tasks");
+  });
+
+  it("retrieval 事件不应误触发试用到期状态", async () => {
+    const harness = createHarness({ _currentTurnId: "turn-ret-1" });
+
+    await harness.dispatch({
+      type: "retrieval",
+      turn_id: "turn-ret-1",
+      data: {
+        query: "test query",
+        results: [
+          { source: "paper-1", snippet: "snippet", score: 0.9 },
+        ],
+      },
+    });
+
+    const state = harness.getState();
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]?.content).toBe("检索上下文：test query");
+    expect(state.messages[0]?.isError).not.toBe(true);
   });
 });

@@ -630,6 +630,9 @@ export function handleEvent(
     case "plan_step_update":
     case "plan_progress":
     case "task_attempt":
+      return import("./event-handler-extended").then(({ handleExtendedEvent }) => {
+        handleExtendedEvent(evt, set, get);
+      });
 
     case "ask_user_question": {
       const data = isRecord(evt.data) ? evt.data : null;
@@ -826,6 +829,9 @@ export function handleEvent(
     case "image":
     case "session_title":
     case "workspace_update":
+      return import("./event-handler-extended").then(({ handleExtendedEvent }) => {
+        handleExtendedEvent(evt, set, get);
+      });
 
     case "trial_expired": {
       // 试用到期：推送系统消息并通过全局事件通知 UI 打开 AI 设置

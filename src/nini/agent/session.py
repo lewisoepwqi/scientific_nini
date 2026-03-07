@@ -457,12 +457,11 @@ class SessionManager:
         updated_meta = dict(meta)
         updated_meta["message_count"] = count
         updated_meta["_memory_mtime"] = current_mtime
-        if not isinstance(updated_meta.get("updated_at"), str) or not updated_meta.get(
-            "updated_at"
-        ):
-            updated_meta["updated_at"] = datetime.fromtimestamp(
-                current_mtime, timezone.utc
-            ).isoformat()
+        updated_meta["updated_at"] = datetime.fromtimestamp(
+            current_mtime, timezone.utc
+        ).isoformat()
+        meta.clear()
+        meta.update(updated_meta)
         self._save_session_meta_fields(session_id, updated_meta)
         return count
 

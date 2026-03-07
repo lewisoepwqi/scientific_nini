@@ -175,7 +175,16 @@ export default function SessionList({ onClose }: Props) {
     if (deletingIdsRef.current.has(id)) return
     deletingIdsRef.current.add(id)
     try {
-      await deleteSession(id)
+      const success = await deleteSession(id)
+      if (!success) {
+        setHiddenSessionIds((prev) => {
+          const next = { ...prev }
+          delete next[id]
+          return next
+        })
+        setPendingDelete((prev) => (prev?.id === id ? null : prev))
+        return
+      }
       setPagedSessions((prev) => prev.filter((item) => item.id !== id))
       setPendingDelete((prev) => (prev?.id === id ? null : prev))
       setHiddenSessionIds((prev) => {

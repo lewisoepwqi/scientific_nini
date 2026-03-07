@@ -267,7 +267,7 @@ export interface AppState {
   compressCurrentSession: () => Promise<{ success: boolean; message: string }>;
   createNewSession: () => Promise<void>;
   switchSession: (sessionId: string) => Promise<void>;
-  deleteSession: (sessionId: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<boolean>;
   updateSessionTitle: (sessionId: string, title: string) => Promise<void>;
 
   // 记忆文件操作
@@ -1047,7 +1047,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   async deleteSession(targetSessionId: string) {
     const success = await api.deleteSession(targetSessionId);
-    if (!success) return;
+    if (!success) return false;
 
     const { sessionId } = get();
     await get().fetchSessions();
@@ -1061,6 +1061,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
     emitSessionsChanged({ reason: "delete" });
+    return true;
   },
 
   async updateSessionTitle(targetSessionId: string, title: string) {

@@ -119,8 +119,12 @@ export async function switchSession(
 
 export async function deleteSession(targetSessionId: string): Promise<boolean> {
   try {
-    await fetch(`/api/sessions/${targetSessionId}`, { method: "DELETE" });
-    return true;
+    const resp = await fetch(`/api/sessions/${targetSessionId}`, { method: "DELETE" });
+    if (!resp.ok) {
+      return false;
+    }
+    const payload = await resp.json();
+    return payload?.success === true;
   } catch (e) {
     console.error("删除会话失败:", e);
     return false;
