@@ -11,6 +11,7 @@ from typing import Any, AsyncGenerator, cast
 import pytest
 
 from nini.agent.model_resolver import ModelResolver
+from nini.builtin_key_crypto import encrypt_key
 from nini.agent.providers import (
     AnthropicClient,
     BaseLLMClient,
@@ -905,3 +906,17 @@ def test_get_active_model_info_falls_back_to_client_model() -> None:
     # 应返回客户端默认模型
     assert info["provider_id"] == "zhipu"
     assert info["model"] == "glm-5"
+
+
+def test_model_resolver_load_builtin_api_key_from_packaged_blob(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """运行时应从已打包模块解密内置 Key，而非依赖 scripts 目录。"""
+    encrypted = encrypt_key("sk-builtin-123")
+    module = types.ModuleType("nini._builtin_key")
+    module.ENCRYPTED_BUILTIN_KEY = encrypted
+    monkeypatch.setitem(sys.modules, "nini._builtin_key", module)
+    monkeypatch.setattr("nini.agent.model_resolver.settings.builtin_dashscope_api_key", "")
+    monkeypatch.setattr("nini.agent.model_resolver.settings.dashscope_api_key", "")
+
+    assert ModelResolver._load_builtin_api_key() == "sk-builtin-123"  # noqa: SLF001

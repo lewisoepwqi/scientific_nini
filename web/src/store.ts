@@ -144,6 +144,7 @@ import { handleEvent } from "./store/event-handler";
 // ---- API 动作导入 ----
 import * as api from "./store/api-actions";
 import { emitSessionsChanged } from "./store/session-lifecycle";
+import { preloadRenderersForMessages } from "./components/message-renderer-preload";
 
 // ============================================================================
 // Store 状态接口
@@ -219,6 +220,7 @@ export interface AppState {
 
   // 用户展示偏好
   displayPreference: DisplayPreference;
+  appBootstrapping: boolean;
 
   // ---- 操作 ----
 
@@ -414,6 +416,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
     return "simplified";
   })(),
+  appBootstrapping: true,
 
   // ============================================================================
   // WebSocket 操作
@@ -445,6 +448,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     const ws = new WebSocket(getWsUrl());
     let heartbeatTimer: number | undefined;
+    let eventProcessingQueue = Promise.resolve();
 
     ws.onopen = () => {
       const wasReconnecting = get()._reconnectAttempts > 0;
@@ -509,13 +513,15 @@ export const useStore = create<AppState>((set, get) => ({
     };
 
     ws.onmessage = (event) => {
-      try {
-        const evt: WSEvent = JSON.parse(event.data);
-        if (evt.type === "pong") return;
-        handleEvent(evt, set, get);
-      } catch {
-        // 忽略非法消息
-      }
+      eventProcessingQueue = eventProcessingQueue.then(async () => {
+        try {
+          const evt: WSEvent = JSON.parse(event.data);
+          if (evt.type === "pong") return;
+          await handleEvent(evt, set, get);
+        } catch {
+          // 忽略非法消息
+        }
+      });
     };
 
     set({ ws });
@@ -562,8 +568,10 @@ export const useStore = create<AppState>((set, get) => ({
   // ============================================================================
 
   async initApp() {
-    await get().fetchSessions();
-    await get().fetchSkills();
+    set({ appBootstrapping: true });
+
+    const fetchSkillsPromise = get().fetchSkills().catch(() => undefined);
+    const fetchSessionsPromise = get().fetchSessions();
 
     const handleModelConfigUpdated = () => {
       void get().fetchActiveModel();
@@ -572,19 +580,26 @@ export const useStore = create<AppState>((set, get) => ({
     window.removeEventListener("nini:model-config-updated", handleModelConfigUpdated);
     window.addEventListener("nini:model-config-updated", handleModelConfigUpdated);
 
-    const savedSessionId = localStorage.getItem("nini_last_session_id");
-    const { sessions } = get();
+    try {
+      await fetchSessionsPromise;
 
-    if (savedSessionId) {
-      const sessionExists = sessions.some((s) => s.id === savedSessionId);
-      if (sessionExists) {
-        await get().switchSession(savedSessionId);
-        return;
+      const savedSessionId = localStorage.getItem("nini_last_session_id");
+      const { sessions } = get();
+
+      if (savedSessionId) {
+        const sessionExists = sessions.some((s) => s.id === savedSessionId);
+        if (sessionExists) {
+          await get().switchSession(savedSessionId);
+          return;
+        }
       }
-    }
 
-    if (sessions.length > 0) {
-      await get().switchSession(sessions[0].id);
+      if (sessions.length > 0) {
+        await get().switchSession(sessions[0].id);
+      }
+    } finally {
+      await fetchSkillsPromise;
+      set({ appBootstrapping: false });
     }
   },
 
@@ -1007,6 +1022,8 @@ export const useStore = create<AppState>((set, get) => ({
       rawMessages as RawSessionMessage[],
     );
 
+    await preloadRenderersForMessages(restored.messages);
+
     set({
       sessionId: targetSessionId,
       ...SESSION_RESET_STATE,
@@ -1020,10 +1037,12 @@ export const useStore = create<AppState>((set, get) => ({
     });
     localStorage.setItem("nini_last_session_id", targetSessionId);
 
-    await get().fetchDatasets();
-    await get().fetchWorkspaceFiles();
-    await get().fetchCodeExecutions();
-    await get().fetchFolders();
+    await Promise.all([
+      get().fetchDatasets(),
+      get().fetchWorkspaceFiles(),
+      get().fetchCodeExecutions(),
+      get().fetchFolders(),
+    ]);
   },
 
   async deleteSession(targetSessionId: string) {

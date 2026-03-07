@@ -795,10 +795,6 @@ async def increment_builtin_usage(mode: str) -> None:
     if mode not in ("fast", "deep"):
         return
 
-    usage = await get_builtin_usage()
-    usage[mode] += 1
-
-    # 写入数据库
     key = _BUILTIN_FAST_USAGE_KEY if mode == "fast" else _BUILTIN_DEEP_USAGE_KEY
     db = await get_db()
     try:
@@ -806,22 +802,39 @@ async def increment_builtin_usage(mode: str) -> None:
         await db.execute(
             """
             INSERT INTO app_settings (key, value, updated_at)
-            VALUES (?, ?, datetime('now'))
+            VALUES (?, '1', datetime('now'))
             ON CONFLICT(key) DO UPDATE SET
-                value = excluded.value,
-                updated_at = excluded.updated_at
+                value = CAST(COALESCE(app_settings.value, '0') AS INTEGER) + 1,
+                updated_at = datetime('now')
             """,
-            (key, str(usage[mode])),
+            (key,),
         )
+        cursor = await db.execute(
+            "SELECT key, value FROM app_settings WHERE key IN (?, ?)",
+            (_BUILTIN_FAST_USAGE_KEY, _BUILTIN_DEEP_USAGE_KEY),
+        )
+        rows = await cursor.fetchall()
         await db.commit()
     except Exception as e:
         logger.warning("写入数据库用量失败: %s", e)
+        rows = []
     finally:
         await db.close()
 
-    # 写入系统文件
-    _write_system_usage(fast=usage["fast"], deep=usage["deep"])
-    logger.debug("内置用量更新: mode=%s, 累计=%d", mode, usage[mode])
+    row_map = {r[0]: r[1] for r in rows}
+    db_usage = {
+        "fast": max(0, int(row_map.get(_BUILTIN_FAST_USAGE_KEY, 0) or 0)),
+        "deep": max(0, int(row_map.get(_BUILTIN_DEEP_USAGE_KEY, 0) or 0)),
+    }
+    sys_usage = _read_system_usage()
+    merged_fast = max(db_usage["fast"], sys_usage["fast"])
+    merged_deep = max(db_usage["deep"], sys_usage["deep"])
+    _write_system_usage(fast=merged_fast, deep=merged_deep)
+    logger.debug(
+        "内置用量更新: mode=%s, 累计=%d",
+        mode,
+        merged_fast if mode == "fast" else merged_deep,
+    )
 
 
 async def is_builtin_exhausted(mode: str) -> bool:

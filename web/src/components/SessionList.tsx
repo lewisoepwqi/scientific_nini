@@ -14,6 +14,7 @@ interface Props {
 
 export default function SessionList({ onClose }: Props) {
   const sessionId = useStore((s) => s.sessionId)
+  const appBootstrapping = useStore((s) => s.appBootstrapping)
   const createNewSession = useStore((s) => s.createNewSession)
   const switchSession = useStore((s) => s.switchSession)
   const deleteSession = useStore((s) => s.deleteSession)
@@ -33,6 +34,7 @@ export default function SessionList({ onClose }: Props) {
   const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null)
   const [hiddenSessionIds, setHiddenSessionIds] = useState<Record<string, true>>({})
   const [creatingSession, setCreatingSession] = useState(false)
+  const [firstPageResolved, setFirstPageResolved] = useState(false)
   const editRef = useRef<HTMLInputElement>(null)
   const deleteTimerRef = useRef<number | null>(null)
   const offsetRef = useRef(0)
@@ -48,26 +50,30 @@ export default function SessionList({ onClose }: Props) {
     loadingMoreRef.current = true
     setLoadingMore(true)
     const offset = reset ? 0 : offsetRef.current
-    const result = await api.fetchSessions({
-      q: query || undefined,
-      limit: PAGE_SIZE,
-      offset,
-    })
-    if (requestId !== requestIdRef.current) {
-      loadingMoreRef.current = false
-      setLoadingMore(false)
-      return
+    try {
+      const result = await api.fetchSessions({
+        q: query || undefined,
+        limit: PAGE_SIZE,
+        offset,
+      })
+      if (requestId !== requestIdRef.current) {
+        return
+      }
+      if (reset) {
+        setPagedSessions(result)
+        offsetRef.current = result.length
+        setFirstPageResolved(true)
+      } else {
+        setPagedSessions((prev) => [...prev, ...result])
+        offsetRef.current += result.length
+      }
+      setHasMore(result.length === PAGE_SIZE)
+    } finally {
+      if (requestId === requestIdRef.current) {
+        loadingMoreRef.current = false
+        setLoadingMore(false)
+      }
     }
-    if (reset) {
-      setPagedSessions(result)
-      offsetRef.current = result.length
-    } else {
-      setPagedSessions((prev) => [...prev, ...result])
-      offsetRef.current += result.length
-    }
-    setHasMore(result.length === PAGE_SIZE)
-    loadingMoreRef.current = false
-    setLoadingMore(false)
   }, [debouncedQuery, PAGE_SIZE])
 
   // 编辑状态时自动聚焦
@@ -87,6 +93,7 @@ export default function SessionList({ onClose }: Props) {
     offsetRef.current = 0
     setHasMore(true)
     setFocusedIndex(-1)
+    setFirstPageResolved(false)
     void loadPage(true)
   }, [debouncedQuery, loadPage])
 
@@ -307,6 +314,10 @@ export default function SessionList({ onClose }: Props) {
     }
   }, [createNewSession, creatingSession, onClose])
 
+  const showListSkeleton = !firstPageResolved || appBootstrapping
+  const showEmptyState = firstPageResolved && !appBootstrapping && filteredSessions.length === 0
+  const showSessionRows = firstPageResolved && !appBootstrapping
+
   return (
     <div className="flex flex-col h-full bg-gradient-to-b from-slate-50/80 to-white">
       <div className="p-4 border-b border-slate-200/70 flex items-center justify-between">
@@ -343,98 +354,127 @@ export default function SessionList({ onClose }: Props) {
       {/* 会话列表 */}
       <div
         ref={listRef}
-        className="flex-1 overflow-y-auto p-3 space-y-1.5 outline-none"
+        className="relative flex-1 overflow-y-auto p-3 outline-none"
         tabIndex={0}
         onKeyDown={handleListKeyDown}
         onScroll={handleScroll}
       >
-        {filteredSessions.length === 0 && (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-white/80 px-4 py-6 text-center">
-            <p className="text-xs text-slate-400">暂无会话记录</p>
-            <p className="text-[11px] text-slate-300 mt-1">点击上方“新建会话”开始</p>
-          </div>
-        )}
-        {visibleSessions.map((s, idx) => {
-          const isActive = s.id === sessionId
-          const isFocused = idx === focusedIndex
-          // 优先显示真实标题，无标题时显示友好占位符
-          const displayTitle = s.title && s.title !== '新会话' ? s.title : '新会话'
-
-          if (editingId === s.id) {
-            return (
-              <div key={s.id} className="flex items-center gap-1">
-                <input
-                  ref={editRef}
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  onBlur={() => handleRenameSubmit(s.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleRenameSubmit(s.id)
-                    if (e.key === 'Escape') setEditingId(null)
-                  }}
-                  className="flex-1 rounded-lg px-3 py-2 text-sm border border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                  placeholder="输入会话名称"
-                />
-              </div>
-            )
-          }
-
-          return (
+        <div
+          className={`space-y-2.5 transition-all duration-300 ${
+            showListSkeleton
+              ? 'opacity-100 translate-y-0'
+              : 'pointer-events-none absolute inset-x-3 top-3 opacity-0 -translate-y-1'
+          }`}
+        >
+          {showListSkeleton && Array.from({ length: 7 }).map((_, index) => (
             <div
-              key={s.id}
-              className={`group flex items-center gap-2 overflow-hidden rounded-xl px-2.5 border ${
-                isActive
-                  ? 'bg-sky-50/80 border-sky-200/80 shadow-[0_1px_0_rgba(14,165,233,0.08)]'
-                  : isFocused
-                    ? 'bg-white border-slate-300/90 ring-1 ring-slate-200'
-                    : 'bg-white/90 border-slate-200/80 hover:bg-slate-50/90'
-              }`}
+              key={`session-skeleton-${index}`}
+              className="rounded-xl border border-slate-200/70 bg-white/80 px-3 py-3 shadow-[0_1px_0_rgba(15,23,42,0.03)]"
             >
-              <button
-                type="button"
-                className={`flex-1 min-w-0 px-1 py-2.5 text-sm cursor-pointer transition-colors text-left ${
-                  isActive ? 'text-slate-900' : 'text-slate-700'
-                }`}
-                onClick={() => handleClick(s.id)}
-                onDoubleClick={() => handleDoubleClick(s.id, s.title)}
-                onFocus={() => setFocusedIndex(idx)}
-                onBlur={() => setFocusedIndex((prev) => (prev === idx ? -1 : prev))}
-              >
-                <span className="block min-w-0">
-                  <span className="block truncate text-left" title={s.title || s.id}>
-                    {displayTitle}
-                  </span>
-                </span>
-              </button>
-              <div className="w-20 flex items-center justify-end flex-shrink-0">
-                <span className="text-[11px] text-slate-400 text-right group-hover:hidden">
-                  {formatRelativeTime(s.created_at || s.updated_at || s.last_message_at)}
-                </span>
-                <div className="hidden group-hover:flex items-center justify-end gap-1">
-                  <button
-                    type="button"
-                    onClick={() => handleDoubleClick(s.id, s.title)}
-                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600
-                               transition-all w-7 h-7 flex items-center justify-center"
-                    title="重命名会话"
-                  >
-                    <Pencil size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => queueDelete(s.id, displayTitle)}
-                    className="p-1.5 rounded-lg hover:bg-rose-100 text-slate-400 hover:text-rose-500
-                               transition-all w-7 h-7 flex items-center justify-center"
-                    title="删除会话"
-                    disabled={pendingDelete?.id === s.id}
-                  >
-                    <Trash2 size={14} />
-                  </button>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div
+                    className={`h-3 rounded-full bg-slate-200/80 animate-pulse ${
+                      index % 3 === 0 ? 'w-2/3' : index % 3 === 1 ? 'w-3/4' : 'w-1/2'
+                    }`}
+                  />
                 </div>
+                <div className="h-3 w-12 rounded-full bg-slate-100 animate-pulse" />
               </div>
             </div>
-          )
-        })}
+          ))}
+        </div>
+
+        <div
+          className={`space-y-1.5 transition-all duration-300 ${
+            showListSkeleton ? 'opacity-0 translate-y-1' : 'opacity-100 translate-y-0'
+          }`}
+        >
+          {showEmptyState && (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-white/80 px-4 py-6 text-center">
+              <p className="text-xs text-slate-400">暂无会话记录</p>
+              <p className="text-[11px] text-slate-300 mt-1">点击上方“新建会话”开始</p>
+            </div>
+          )}
+          {showSessionRows && visibleSessions.map((s, idx) => {
+            const isActive = s.id === sessionId
+            const isFocused = idx === focusedIndex
+            const displayTitle = s.title && s.title !== '新会话' ? s.title : '新会话'
+
+            if (editingId === s.id) {
+              return (
+                <div key={s.id} className="flex items-center gap-1">
+                  <input
+                    ref={editRef}
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    onBlur={() => handleRenameSubmit(s.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleRenameSubmit(s.id)
+                      if (e.key === 'Escape') setEditingId(null)
+                    }}
+                    className="flex-1 rounded-lg px-3 py-2 text-sm border border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    placeholder="输入会话名称"
+                  />
+                </div>
+              )
+            }
+
+            return (
+              <div
+                key={s.id}
+                className={`group flex items-center gap-2 overflow-hidden rounded-xl px-2.5 border ${
+                  isActive
+                    ? 'bg-sky-50/80 border-sky-200/80 shadow-[0_1px_0_rgba(14,165,233,0.08)]'
+                    : isFocused
+                      ? 'bg-white border-slate-300/90 ring-1 ring-slate-200'
+                      : 'bg-white/90 border-slate-200/80 hover:bg-slate-50/90'
+                }`}
+              >
+                <button
+                  type="button"
+                  className={`flex-1 min-w-0 px-1 py-2.5 text-sm cursor-pointer transition-colors text-left ${
+                    isActive ? 'text-slate-900' : 'text-slate-700'
+                  }`}
+                  onClick={() => handleClick(s.id)}
+                  onDoubleClick={() => handleDoubleClick(s.id, s.title)}
+                  onFocus={() => setFocusedIndex(idx)}
+                  onBlur={() => setFocusedIndex((prev) => (prev === idx ? -1 : prev))}
+                >
+                  <span className="block min-w-0">
+                    <span className="block truncate text-left" title={s.title || s.id}>
+                      {displayTitle}
+                    </span>
+                  </span>
+                </button>
+                <div className="w-20 flex items-center justify-end flex-shrink-0">
+                  <span className="text-[11px] text-slate-400 text-right group-hover:hidden">
+                    {formatRelativeTime(s.created_at || s.updated_at || s.last_message_at)}
+                  </span>
+                  <div className="hidden group-hover:flex items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleDoubleClick(s.id, s.title)}
+                      className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all w-7 h-7 flex items-center justify-center"
+                      title="重命名会话"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => queueDelete(s.id, displayTitle)}
+                      className="p-1.5 rounded-lg hover:bg-rose-100 text-slate-400 hover:text-rose-500 transition-all w-7 h-7 flex items-center justify-center"
+                      title="删除会话"
+                      disabled={pendingDelete?.id === s.id}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       {pendingDelete && (
@@ -458,7 +498,7 @@ export default function SessionList({ onClose }: Props) {
       )}
 
       <div className="px-3 pb-3 text-[11px] text-slate-400">
-        共 {filteredSessions.length} 条会话
+        {firstPageResolved && !appBootstrapping ? `共 ${filteredSessions.length} 条会话` : '正在恢复会话...'}
       </div>
     </div>
   )

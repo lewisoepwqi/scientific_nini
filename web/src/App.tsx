@@ -1,20 +1,10 @@
 /**
  * 应用根组件 —— 三栏布局（会话列表 + 对话面板 + 工作区面板），支持移动端响应式。
  */
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useStore } from "./store";
 import ChatPanel from "./components/ChatPanel";
 import SessionList from "./components/SessionList";
-import ModelConfigPanel from "./components/ModelConfigPanel";
-import SkillCatalogPanel from "./components/SkillCatalogPanel";
-import CapabilityPanel from "./components/CapabilityPanel";
-import MarkdownSkillManagerPanel from "./components/MarkdownSkillManagerPanel";
-import WorkspaceSidebar from "./components/WorkspaceSidebar";
-import MemoryPanel from "./components/MemoryPanel";
-import ResearchProfilePanel from "./components/ResearchProfilePanel";
-import ArticleDraftPanel from "./components/ArticleDraftPanel";
-import CostPanel from "./components/CostPanel";
-import KnowledgePanel from "./components/KnowledgePanel";
 import { getWsStatusMeta } from "./store/websocket-status";
 import {
   BookOpen,
@@ -32,6 +22,21 @@ import {
   Coins,
   Library,
 } from "lucide-react";
+
+const ModelConfigPanel = lazy(() => import("./components/ModelConfigPanel"));
+const SkillCatalogPanel = lazy(() => import("./components/SkillCatalogPanel"));
+const CapabilityPanel = lazy(() => import("./components/CapabilityPanel"));
+const MarkdownSkillManagerPanel = lazy(
+  () => import("./components/MarkdownSkillManagerPanel"),
+);
+const WorkspaceSidebar = lazy(() => import("./components/WorkspaceSidebar"));
+const MemoryPanel = lazy(() => import("./components/MemoryPanel"));
+const ResearchProfilePanel = lazy(
+  () => import("./components/ResearchProfilePanel"),
+);
+const ArticleDraftPanel = lazy(() => import("./components/ArticleDraftPanel"));
+const CostPanel = lazy(() => import("./components/CostPanel"));
+const KnowledgePanel = lazy(() => import("./components/KnowledgePanel"));
 
 export default function App() {
   const connect = useStore((s) => s.connect);
@@ -161,6 +166,24 @@ export default function App() {
       window.removeEventListener("mouseup", onMouseUp);
     };
   }, [resizingWorkspace]);
+
+  const workspacePanelFallback = (
+    <div className="flex h-full items-center justify-center bg-white/80">
+      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-500 shadow-sm">
+        <Loader2 size={12} className="animate-spin" />
+        正在打开工作区...
+      </div>
+    </div>
+  );
+
+  const dialogFallback = (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/10 backdrop-blur-[2px]">
+      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-500 shadow-lg">
+        <Loader2 size={12} className="animate-spin" />
+        正在加载面板...
+      </div>
+    </div>
+  );
 
   return (
     <div className="flex h-screen bg-white">
@@ -329,9 +352,13 @@ export default function App() {
             title="拖拽调整宽度"
           />
           <div className="flex-1 min-h-0">
-            <WorkspaceSidebar />
+            <Suspense fallback={workspacePanelFallback}>
+              <WorkspaceSidebar />
+            </Suspense>
           </div>
-          <MemoryPanel />
+          <Suspense fallback={null}>
+            <MemoryPanel />
+          </Suspense>
         </div>
       )}
 
@@ -344,49 +371,64 @@ export default function App() {
           />
           <div className="fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-xl md:hidden flex flex-col">
             <div className="flex-1 min-h-0">
-              <WorkspaceSidebar />
+              <Suspense fallback={workspacePanelFallback}>
+                <WorkspaceSidebar />
+              </Suspense>
             </div>
-            <MemoryPanel />
+            <Suspense fallback={null}>
+              <MemoryPanel />
+            </Suspense>
           </div>
         </>
       )}
 
       {/* 模型配置弹窗 */}
-      <ModelConfigPanel
-        open={showSettings}
-        onClose={() => setShowSettings(false)}
-      />
+      {(showSettings ||
+        showTools ||
+        showCapabilities ||
+        showSkillManager ||
+        showResearchProfile ||
+        showReportTemplate ||
+        showCostPanel ||
+        showKnowledgePanel) && (
+        <Suspense fallback={dialogFallback}>
+          <ModelConfigPanel
+            open={showSettings}
+            onClose={() => setShowSettings(false)}
+          />
 
-      <SkillCatalogPanel
-        open={showTools}
-        onClose={() => setShowTools(false)}
-      />
-      <CapabilityPanel
-        open={showCapabilities}
-        onClose={() => setShowCapabilities(false)}
-      />
-      <MarkdownSkillManagerPanel
-        open={showSkillManager}
-        onClose={() => setShowSkillManager(false)}
-      />
-      <ResearchProfilePanel
-        isOpen={showResearchProfile}
-        onClose={() => setShowResearchProfile(false)}
-      />
-      <ArticleDraftPanel
-        isOpen={showReportTemplate}
-        onClose={() => setShowReportTemplate(false)}
-        sessionId={sessionId}
-        onStartDraftDialog={handleStartDraftDialog}
-      />
-      <CostPanel
-        isOpen={showCostPanel}
-        onClose={() => setShowCostPanel(false)}
-      />
-      <KnowledgePanel
-        isOpen={showKnowledgePanel}
-        onClose={() => setShowKnowledgePanel(false)}
-      />
+          <SkillCatalogPanel
+            open={showTools}
+            onClose={() => setShowTools(false)}
+          />
+          <CapabilityPanel
+            open={showCapabilities}
+            onClose={() => setShowCapabilities(false)}
+          />
+          <MarkdownSkillManagerPanel
+            open={showSkillManager}
+            onClose={() => setShowSkillManager(false)}
+          />
+          <ResearchProfilePanel
+            isOpen={showResearchProfile}
+            onClose={() => setShowResearchProfile(false)}
+          />
+          <ArticleDraftPanel
+            isOpen={showReportTemplate}
+            onClose={() => setShowReportTemplate(false)}
+            sessionId={sessionId}
+            onStartDraftDialog={handleStartDraftDialog}
+          />
+          <CostPanel
+            isOpen={showCostPanel}
+            onClose={() => setShowCostPanel(false)}
+          />
+          <KnowledgePanel
+            isOpen={showKnowledgePanel}
+            onClose={() => setShowKnowledgePanel(false)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

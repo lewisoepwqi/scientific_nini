@@ -8,48 +8,11 @@
 若为空则回退读取本文件中的加密 blob 并解密。
 """
 
-import base64
 import os
-import struct
 import sys
 from pathlib import Path
 
-# 固定密钥派生材料（混淆用，非真正安全密钥）
-_SALT = b"nini-builtin-v1\x00"
-_XOR_KEY = b"Sc13nc3N1n1K3y!!"  # 16 字节 XOR 掩码
-
-
-def _derive_mask(length: int) -> bytes:
-    """从固定盐值循环派生掩码（简单 XOR 混淆）。"""
-    cycle = (_XOR_KEY * ((length // len(_XOR_KEY)) + 1))[:length]
-    return cycle
-
-
-def encrypt_key(plain: str) -> str:
-    """加密明文 API Key，返回 Base64 编码字符串。"""
-    data = plain.encode("utf-8")
-    mask = _derive_mask(len(data))
-    xored = bytes(a ^ b for a, b in zip(data, mask))
-    # 添加长度前缀和盐后缀，增加识别难度
-    payload = struct.pack(">H", len(data)) + _SALT[:4] + xored
-    return base64.b64encode(payload).decode("ascii")
-
-
-def decrypt_key(encrypted: str) -> str:
-    """解密加密后的 API Key。"""
-    try:
-        payload = base64.b64decode(encrypted.encode("ascii"))
-        if len(payload) < 6:
-            return ""
-        length = struct.unpack(">H", payload[:2])[0]
-        # 跳过盐前缀
-        xored = payload[6 : 6 + length]
-        if len(xored) != length:
-            return ""
-        mask = _derive_mask(length)
-        return bytes(a ^ b for a, b in zip(xored, mask)).decode("utf-8")
-    except Exception:
-        return ""
+from nini.builtin_key_crypto import decrypt_key, encrypt_key
 
 
 def main() -> None:
