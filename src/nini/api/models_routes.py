@@ -368,12 +368,14 @@ async def set_preferred_model(request: SetActiveModelRequest):
 
 @router.delete("/models/{provider_id}/config", response_model=APIResponse)
 async def delete_model_config(provider_id: str):
-    """删除指定供应商的配置，并清除其激活状态。"""
+    """删除指定供应商的配置，并清除其激活状态与用途路由。"""
     from nini.agent.model_resolver import reload_model_resolver
     from nini.config_manager import (
         get_active_provider_id,
+        get_model_purpose_routes,
         remove_model_config,
         set_active_provider,
+        set_model_purpose_routes,
     )
 
     try:
@@ -381,6 +383,16 @@ async def delete_model_config(provider_id: str):
         active_id = await get_active_provider_id()
         if active_id == provider_id:
             await set_active_provider(None)
+
+        # 清除所有指向该供应商的用途路由，避免残留路由干扰后续行为
+        current_routes = await get_model_purpose_routes()
+        routes_to_clear = {
+            purpose: {"provider_id": None, "model": None, "base_url": None}
+            for purpose, route in current_routes.items()
+            if route.get("provider_id") == provider_id
+        }
+        if routes_to_clear:
+            await set_model_purpose_routes(routes_to_clear)
 
         await remove_model_config(provider_id)
         await reload_model_resolver()

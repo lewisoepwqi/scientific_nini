@@ -291,8 +291,18 @@ class ModelResolver:
                 clients = [builtin_client]
         elif route_provider:
             clients = self._get_ordered_clients(purpose)
+        elif self._active_provider_id:
+            # 用户已通过 UI 配置了外部供应商，使用该供应商
+            if purpose == "title_generation":
+                title_client = self._get_title_client()
+                if title_client:
+                    clients = [title_client]
+            else:
+                active_client = self._get_single_active_client()
+                if active_client:
+                    clients = [active_client]
         else:
-            # 无显式路由：优先系统内置（快速模式），再回退到激活供应商/试用
+            # 未配置外部供应商：优先系统内置（快速模式），再试用，最后 fallback
             # 测试注入模式下跳过系统内置，直接使用注入的客户端
             builtin_client = (
                 None if self._injected_clients
@@ -300,15 +310,6 @@ class ModelResolver:
             )
             if builtin_client:
                 clients = [builtin_client]
-            elif self._active_provider_id:
-                if purpose == "title_generation":
-                    title_client = self._get_title_client()
-                    if title_client:
-                        clients = [title_client]
-                else:
-                    active_client = self._get_single_active_client()
-                    if active_client:
-                        clients = [active_client]
             elif self._trial_client:
                 clients = [self._trial_client]
             else:
@@ -592,17 +593,16 @@ class ModelResolver:
                 "purpose_preferred_providers": self.get_preferred_providers_by_purpose(),
             }
 
-        # 无显式路由时优先返回系统内置（快速模式），测试注入模式下跳过
-        if route_provider is None and not self._injected_clients:
-            builtin_client = self._get_builtin_client(purpose, BUILTIN_MODE_FAST)
-            if builtin_client:
-                return {
-                    "provider_id": BUILTIN_PROVIDER_ID,
-                    "provider_name": BUILTIN_PROVIDER_NAME,
-                    "model": self._get_builtin_display_name(purpose, BUILTIN_MODE_FAST),
-                    "preferred_provider": BUILTIN_PROVIDER_ID,
-                    "purpose_preferred_providers": self.get_preferred_providers_by_purpose(),
-                }
+        # 无显式路由且未配置外部供应商时，默认展示系统内置（不检查可用性，
+        # 由 chat() 方法在实际发送时再决定是否降级）
+        if route_provider is None and self._active_provider_id is None and not self._injected_clients:
+            return {
+                "provider_id": BUILTIN_PROVIDER_ID,
+                "provider_name": BUILTIN_PROVIDER_NAME,
+                "model": self._get_builtin_display_name(purpose, BUILTIN_MODE_FAST),
+                "preferred_provider": BUILTIN_PROVIDER_ID,
+                "purpose_preferred_providers": self.get_preferred_providers_by_purpose(),
+            }
 
         ordered = self._get_ordered_clients(purpose)
 
@@ -970,15 +970,29 @@ async def reload_model_resolver() -> None:
         trial_api_key=trial_api_key,
     )
 
-    # 兼容保留 purpose_routes 配置（后端保留，不影响新路由逻辑）
+    # 应用 purpose_routes，但过滤掉指向未配置供应商的过期路由，
+    # 避免历史配置干扰（如曾选 zhipu 但密钥已删除，不应再路由到 zhipu）
     for purpose, route in purpose_routes.items():
-        if route.get("provider_id"):
+        provider_id = route.get("provider_id")
+        if not provider_id:
+            continue
+        # builtin 路由始终应用；外部供应商须有有效 api_key 或 base_url 才应用
+        if provider_id == BUILTIN_PROVIDER_ID:
             resolver.set_purpose_route(
                 purpose=purpose,
-                provider_id=route.get("provider_id"),
+                provider_id=provider_id,
                 model=route.get("model"),
                 base_url=route.get("base_url"),
             )
+        elif configs.get(provider_id, {}).get("api_key") or configs.get(provider_id, {}).get("base_url"):
+            resolver.set_purpose_route(
+                purpose=purpose,
+                provider_id=provider_id,
+                model=route.get("model"),
+                base_url=route.get("base_url"),
+            )
+        else:
+            logger.debug("跳过过期的用途路由: purpose=%s provider=%s（供应商未配置）", purpose, provider_id)
 
 
 # Module-level singleton for convenient access
