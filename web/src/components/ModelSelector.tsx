@@ -58,6 +58,15 @@ export default function ModelSelector({
   const [providerModels, setProviderModels] = useState<
     Record<string, ProviderModelsState>
   >({});
+  // 缓存各供应商已加载的模型数量，避免每次打开时从 0 → 1 → 真实数量闪烁
+  const [cachedModelCounts, setCachedModelCounts] = useState<Record<string, number>>(() => {
+    try {
+      const raw = localStorage.getItem("nini:provider_model_counts");
+      return raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    } catch {
+      return {};
+    }
+  });
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -186,6 +195,18 @@ export default function ModelSelector({
           error: models.length === 0,
         },
       }));
+      // 持久化模型数量缓存，下次打开时直接显示正确数量
+      if (models.length > 0) {
+        setCachedModelCounts((prev) => {
+          const next = { ...prev, [providerId]: models.length };
+          try {
+            localStorage.setItem("nini:provider_model_counts", JSON.stringify(next));
+          } catch {
+            // localStorage 不可用时忽略
+          }
+          return next;
+        });
+      }
     } catch {
       setProviderModels((prev) => ({
         ...prev,
@@ -468,7 +489,7 @@ export default function ModelSelector({
                           <span className="whitespace-nowrap">
                             {loadedState?.loading
                               ? "加载中"
-                              : `${loadedCount || buildFallbackModels(provider.id).length} 个模型`}
+                              : `${loadedCount || cachedModelCounts[provider.id] || buildFallbackModels(provider.id).length} 个模型`}
                           </span>
                         </div>
                       </div>

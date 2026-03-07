@@ -366,6 +366,32 @@ async def set_preferred_model(request: SetActiveModelRequest):
     return APIResponse(success=True)
 
 
+@router.delete("/models/{provider_id}/config", response_model=APIResponse)
+async def delete_model_config(provider_id: str):
+    """删除指定供应商的配置，并清除其激活状态。"""
+    from nini.agent.model_resolver import reload_model_resolver
+    from nini.config_manager import (
+        get_active_provider_id,
+        remove_model_config,
+        set_active_provider,
+    )
+
+    try:
+        # 若被删供应商是当前激活供应商，先清除激活状态
+        active_id = await get_active_provider_id()
+        if active_id == provider_id:
+            await set_active_provider(None)
+
+        await remove_model_config(provider_id)
+        await reload_model_resolver()
+
+        return APIResponse(success=True, data={"provider": provider_id})
+    except ValueError as e:
+        return APIResponse(success=False, error=str(e))
+    except Exception as e:
+        return APIResponse(success=False, error=f"删除配置失败: {e}")
+
+
 @router.get("/models/default", response_model=APIResponse)
 async def get_default_model():
     """获取默认模型配置。"""

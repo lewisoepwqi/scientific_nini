@@ -111,6 +111,8 @@ class ModelResolver:
         self._active_provider_id: str | None = None
         # 试用模式客户端（使用内嵌密钥构造）
         self._trial_client: BaseLLMClient | None = None
+        # 测试注入标志：构造时传入 clients 则跳过系统内置优先逻辑
+        self._injected_clients: bool = clients is not None
         if clients is not None:
             # 测试注入模式
             self._clients = clients
@@ -289,19 +291,28 @@ class ModelResolver:
                 clients = [builtin_client]
         elif route_provider:
             clients = self._get_ordered_clients(purpose)
-        elif self._active_provider_id:
-            if purpose == "title_generation":
-                title_client = self._get_title_client()
-                if title_client:
-                    clients = [title_client]
-            else:
-                active_client = self._get_single_active_client()
-                if active_client:
-                    clients = [active_client]
-        elif self._trial_client:
-            clients = [self._trial_client]
         else:
-            clients = self._get_ordered_clients(purpose)
+            # 无显式路由：优先系统内置（快速模式），再回退到激活供应商/试用
+            # 测试注入模式下跳过系统内置，直接使用注入的客户端
+            builtin_client = (
+                None if self._injected_clients
+                else self._get_builtin_client(purpose, BUILTIN_MODE_FAST)
+            )
+            if builtin_client:
+                clients = [builtin_client]
+            elif self._active_provider_id:
+                if purpose == "title_generation":
+                    title_client = self._get_title_client()
+                    if title_client:
+                        clients = [title_client]
+                else:
+                    active_client = self._get_single_active_client()
+                    if active_client:
+                        clients = [active_client]
+            elif self._trial_client:
+                clients = [self._trial_client]
+            else:
+                clients = self._get_ordered_clients(purpose)
 
         if not clients:
             raise RuntimeError("未配置 AI 服务，请先在「AI 设置」中配置供应商密钥")
@@ -580,6 +591,18 @@ class ModelResolver:
                 "preferred_provider": BUILTIN_PROVIDER_ID,
                 "purpose_preferred_providers": self.get_preferred_providers_by_purpose(),
             }
+
+        # 无显式路由时优先返回系统内置（快速模式），测试注入模式下跳过
+        if route_provider is None and not self._injected_clients:
+            builtin_client = self._get_builtin_client(purpose, BUILTIN_MODE_FAST)
+            if builtin_client:
+                return {
+                    "provider_id": BUILTIN_PROVIDER_ID,
+                    "provider_name": BUILTIN_PROVIDER_NAME,
+                    "model": self._get_builtin_display_name(purpose, BUILTIN_MODE_FAST),
+                    "preferred_provider": BUILTIN_PROVIDER_ID,
+                    "purpose_preferred_providers": self.get_preferred_providers_by_purpose(),
+                }
 
         ordered = self._get_ordered_clients(purpose)
 
