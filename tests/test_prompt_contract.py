@@ -26,7 +26,9 @@ async def test_runner_delegates_message_building_to_canonical_context_builder() 
     result = await runner._build_messages_and_retrieval(session)
 
     assert result == expected
-    runner._context_builder.build_messages_and_retrieval.assert_awaited_once_with(session)
+    runner._context_builder.build_messages_and_retrieval.assert_awaited_once_with(
+        session, context_ratio=0.0
+    )
 
 
 @pytest.mark.asyncio
@@ -54,7 +56,9 @@ async def test_runtime_context_blocks_follow_canonical_order_and_headers(
         ),
     )
 
-    async def _fake_inject(session, last_user_msg, columns, context_parts):  # noqa: ANN001
+    async def _fake_inject(
+        session, last_user_msg, columns, context_parts, knowledge_max_chars=None
+    ):  # noqa: ANN001
         context_parts.append(
             format_untrusted_context_block("knowledge_reference", "相关背景知识\n[1] 方法学摘要")
         )
@@ -69,6 +73,8 @@ async def test_runtime_context_blocks_follow_canonical_order_and_headers(
 
     class _Memory:
         dataset_name = "demo.csv"
+        statistics: list = []
+        findings: list = []
 
         def get_context_prompt(self) -> str:
             return "这是一条分析记忆。"
@@ -132,12 +138,19 @@ def test_prompt_builder_budget_protection_keeps_core_directives(
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
     monkeypatch.setattr(settings, "prompt_component_max_chars", 20000)
     monkeypatch.setattr(settings, "prompt_total_max_chars", 2600)
-    (settings.prompt_components_dir / "user.md").write_text("用户画像\n" + ("U" * 6000), encoding="utf-8")
-    (settings.prompt_components_dir / "memory.md").write_text("长期记忆\n" + ("M" * 6000), encoding="utf-8")
+    (settings.prompt_components_dir / "user.md").write_text(
+        "用户画像\n" + ("U" * 6000), encoding="utf-8"
+    )
+    (settings.prompt_components_dir / "memory.md").write_text(
+        "长期记忆\n" + ("M" * 6000), encoding="utf-8"
+    )
 
     prompt = get_system_prompt()
 
     assert "你是 Nini" in prompt
     assert "标准分析流程（必须遵循）" in prompt
     assert "安全与注入防护（必须遵循）" in prompt
-    assert "...[user 已截断以控制上下文大小]" in prompt or "...[memory 已截断以控制上下文大小]" in prompt
+    assert (
+        "...[user 已截断以控制上下文大小]" in prompt
+        or "...[memory 已截断以控制上下文大小]" in prompt
+    )

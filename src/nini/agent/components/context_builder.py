@@ -33,6 +33,7 @@ from nini.agent.components.context_utils import (
 )
 from nini.agent.prompt_policy import (
     AGENTS_MD_MAX_CHARS,
+    PDCA_DETAIL_BLOCK,
     compose_runtime_context_message,
     format_untrusted_context_block,
 )
@@ -96,8 +97,14 @@ class ContextBuilder:
     async def build_messages_and_retrieval(
         self,
         session: Session,
+        context_ratio: float = 0.0,
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-        """Build messages for LLM and return retrieval event data."""
+        """Build messages for LLM and return retrieval event data.
+
+        Args:
+            session: 当前会话
+            context_ratio: 上一轮 context 使用率（0.0 ~ 1.0），用于自适应截断预算
+        """
         system_prompt = get_system_prompt()
         context_parts: list[str] = []
         retrieval_event: dict[str, Any] | None = None
@@ -129,6 +136,17 @@ class ContextBuilder:
         if explicit_skill_context:
             context_parts.append(explicit_skill_context)
 
+        # 检测分析阶段，用于调整知识注入配额
+        from nini.agent.components.analysis_stage_detector import (
+            detect_current_stage,
+            get_knowledge_max_chars,
+        )
+
+        current_stage = detect_current_stage(session)
+        effective_knowledge_max_chars = get_knowledge_max_chars(
+            settings.knowledge_max_chars, current_stage
+        )
+
         _rag_needed = _intent_analysis.rag_needed if _intent_analysis is not None else True
         if last_user_msg and settings.enable_knowledge and _rag_needed:
             retrieval_event = await self._inject_knowledge(
@@ -136,7 +154,17 @@ class ContextBuilder:
                 last_user_msg=last_user_msg,
                 columns=columns,
                 context_parts=context_parts,
+                knowledge_max_chars=effective_knowledge_max_chars,
             )
+
+        # 按意图类型条件注入 PDCA 详情（仅 DOMAIN_TASK 需要完整指南）
+        if _intent_analysis is not None:
+            from nini.intent.base import QueryType
+
+            if _intent_analysis.query_type == QueryType.DOMAIN_TASK:
+                context_parts.append(
+                    format_untrusted_context_block("pdca_detail", PDCA_DETAIL_BLOCK)
+                )
 
         agents_md_content = self._discover_agents_md()
         if agents_md_content:
@@ -196,7 +224,7 @@ class ContextBuilder:
             )
 
         valid_messages = filter_valid_messages(session.messages)
-        prepared_messages = prepare_messages_for_llm(valid_messages)
+        prepared_messages = prepare_messages_for_llm(valid_messages, context_ratio=context_ratio)
 
         if settings.auto_compress_enabled and prepared_messages:
             threshold = settings.auto_compress_threshold_tokens
@@ -219,6 +247,7 @@ class ContextBuilder:
         last_user_msg: str,
         columns: list[str],
         context_parts: list[str],
+        knowledge_max_chars: int | None = None,
     ) -> dict[str, Any] | None:
         """注入知识上下文。"""
         return await inject_knowledge(
@@ -227,6 +256,7 @@ class ContextBuilder:
             last_user_msg,
             columns,
             context_parts,
+            knowledge_max_chars=knowledge_max_chars,
         )
 
     def _fallback_knowledge_load(

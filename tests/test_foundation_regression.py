@@ -40,10 +40,12 @@ class TestOrchestrationLayer:
         skill = CompleteComparisonSkill()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "value": [10.2, 11.5, 9.8, 10.5, 11.1, 20.1, 21.5, 19.8, 20.5, 21.2],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [10.2, 11.5, 9.8, 10.5, 11.1, 20.1, 21.5, 19.8, 20.5, 21.2],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await skill.execute(
@@ -66,10 +68,12 @@ class TestOrchestrationLayer:
         skill = CompleteANOVASkill()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "value": [10.2, 11.5, 9.8, 10.5, 11.1, 20.1, 21.5, 19.8, 20.5, 21.2, 15.0, 15.5],
-            "group": ["A"] * 5 + ["B"] * 5 + ["C"] * 2,
-        })
+        test_data = pd.DataFrame(
+            {
+                "value": [10.2, 11.5, 9.8, 10.5, 11.1, 20.1, 21.5, 19.8, 20.5, 21.2, 15.0, 15.5],
+                "group": ["A"] * 5 + ["B"] * 5 + ["C"] * 2,
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await skill.execute(
@@ -90,10 +94,12 @@ class TestOrchestrationLayer:
         skill = CorrelationAnalysisSkill()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "x": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-            "y": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20],
-        })
+        test_data = pd.DataFrame(
+            {
+                "x": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                "y": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20],
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await skill.execute(
@@ -113,10 +119,12 @@ class TestOrchestrationLayer:
         skill = RegressionAnalysisSkill()
         session = Session()
 
-        test_data = pd.DataFrame({
-            "x": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-            "y": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20],
-        })
+        test_data = pd.DataFrame(
+            {
+                "x": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                "y": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20],
+            }
+        )
         session.datasets["test_data"] = test_data
 
         result = await skill.execute(
@@ -145,7 +153,9 @@ class TestResourceIdPropagation:
                 session=session,
                 operation="run",
                 input_datasets=["source"],
-                steps=[{"id": "1", "op": "derive_column", "params": {"column": "b", "expr": "a * 2"}}],
+                steps=[
+                    {"id": "1", "op": "derive_column", "params": {"column": "b", "expr": "a * 2"}}
+                ],
                 output_dataset_name="output",
             )
         )
@@ -376,6 +386,7 @@ class TestOldToolsNotExposed:
             "report_session",
             "workspace_session",
             "code_session",
+            "analysis_memory",
         }
 
         assert LLM_EXPOSED_BASE_TOOL_NAMES == expected_base_tools
@@ -398,8 +409,16 @@ class TestDatasetTransformStepPatch:
                 operation="run",
                 input_datasets=["input"],
                 steps=[
-                    {"id": "step1", "op": "derive_column", "params": {"column": "c", "expr": "a + b"}},
-                    {"id": "step2", "op": "derive_column", "params": {"column": "d", "expr": "a * 2"}},
+                    {
+                        "id": "step1",
+                        "op": "derive_column",
+                        "params": {"column": "c", "expr": "a + b"},
+                    },
+                    {
+                        "id": "step2",
+                        "op": "derive_column",
+                        "params": {"column": "d", "expr": "a * 2"},
+                    },
                 ],
                 output_dataset_name="output",
             )

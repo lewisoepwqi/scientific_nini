@@ -102,7 +102,7 @@ class KeywordIndex:
 
 
 class HybridRetriever:
-    """混合检索器（向量 + 关键词）。"""
+    """混合检索器（向量 + BM25 + 关键词 TF-IDF）。"""
 
     def __init__(
         self,
@@ -127,11 +127,16 @@ class HybridRetriever:
         if storage_dir is None:
             storage_dir = settings.knowledge_dir / "vector_store"
 
+        self._knowledge_dir = knowledge_dir
         self.vector_store = VectorKnowledgeStore(
             knowledge_dir=knowledge_dir,
             storage_dir=storage_dir,
         )
+        # TF-IDF 关键词索引（用于动态添加/删除文档回退）
         self.keyword_index = KeywordIndex()
+        # BM25 检索器（文件级知识库，懒初始化）
+        self._bm25_retriever: Any = None
+        self._bm25_available = False
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -141,12 +146,31 @@ class HybridRetriever:
 
         try:
             await self.vector_store.initialize()
-            self._initialized = True
-            logger.info("混合检索器初始化完成")
         except Exception as e:
             logger.warning(f"向量存储初始化失败: {e}")
-            # 关键词索引仍可使用
-            self._initialized = True
+
+        # 初始化 BM25 检索器（同步，在线程池中执行）
+        try:
+            from nini.knowledge.local_bm25 import LocalBM25Retriever
+
+            bm25 = LocalBM25Retriever(
+                knowledge_dir=self._knowledge_dir,
+                cache_dir=self._knowledge_dir / ".bm25_cache",
+            )
+            import asyncio
+
+            success = await asyncio.get_event_loop().run_in_executor(None, bm25.initialize)
+            if success:
+                self._bm25_retriever = bm25
+                self._bm25_available = True
+                logger.info("BM25 检索器初始化完成")
+            else:
+                logger.warning("BM25 初始化失败，回退到 TF-IDF")
+        except Exception as e:
+            logger.warning("BM25 初始化失败，回退到 TF-IDF: %s", e)
+
+        self._initialized = True
+        logger.info("混合检索器初始化完成")
 
     async def add_document(
         self,
@@ -221,46 +245,65 @@ class HybridRetriever:
         top_k = top_k or self.config.top_k
 
         # 向量检索
-        vector_results = []
+        vector_results: list[tuple[str, float]] = []
         if self.vector_store._initialized:
             try:
                 vector_results = await self.vector_store.search(query, top_k=top_k * 2)
             except Exception as e:
                 logger.warning(f"向量检索失败: {e}")
 
-        # 关键词检索
+        # BM25 检索（文件级知识库）
+        bm25_results: list[tuple[str, float]] = []
+        if self._bm25_available and self._bm25_retriever is not None:
+            try:
+                import asyncio
+
+                _, bm25_raw = await asyncio.get_event_loop().run_in_executor(
+                    None, self._bm25_retriever.search, query, top_k * 2
+                )
+                bm25_results = [(r["id"], float(r["score"])) for r in bm25_raw]
+            except Exception as e:
+                logger.warning(f"BM25 检索失败: {e}")
+
+        # TF-IDF 关键词检索（动态添加文档的补充）
         keyword_results = self.keyword_index.search(query, top_k=top_k * 2)
 
-        # 合并结果（加权）
-        combined_scores: dict[str, tuple[float, str]] = {}  # doc_id -> (score, source)
+        # RRF 融合（Reciprocal Rank Fusion，k=60）
+        def _rrf(rank: int, k: int = 60) -> float:
+            """计算 RRF 分数。"""
+            return 1.0 / (k + rank + 1)
 
-        # 添加向量结果
-        max_vector_score = max((r[1] for r in vector_results), default=1.0) or 1.0
-        for doc_id, score in vector_results:
-            normalized_score = score / max_vector_score * self.config.vector_weight
-            combined_scores[doc_id] = (normalized_score, "vector")
+        rrf_scores: dict[str, float] = {}
+        source_map: dict[str, str] = {}
 
-        # 添加关键词结果
-        max_keyword_score = max((r[1] for r in keyword_results), default=1.0) or 1.0
-        for doc_id, score in keyword_results:
-            normalized_score = score / max_keyword_score * self.config.keyword_weight
-            if doc_id in combined_scores:
-                # 已在向量结果中，累加分数
-                existing_score, _ = combined_scores[doc_id]
-                combined_scores[doc_id] = (existing_score + normalized_score, "hybrid")
-            else:
-                combined_scores[doc_id] = (normalized_score, "keyword")
+        for rank, (doc_id, _) in enumerate(vector_results):
+            rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + _rrf(rank)
+            source_map[doc_id] = "vector"
 
-        # 按分数排序
+        for rank, (doc_id, _) in enumerate(bm25_results):
+            prev = rrf_scores.get(doc_id, 0.0)
+            rrf_scores[doc_id] = prev + _rrf(rank)
+            # 标记来源：已在向量结果则变为 hybrid
+            source_map[doc_id] = "hybrid" if doc_id in source_map else "bm25"
+
+        for rank, (doc_id, _) in enumerate(keyword_results):
+            prev = rrf_scores.get(doc_id, 0.0)
+            rrf_scores[doc_id] = prev + _rrf(rank)
+            if doc_id not in source_map:
+                source_map[doc_id] = "keyword"
+            elif source_map[doc_id] != "hybrid":
+                source_map[doc_id] = "hybrid"
+
         sorted_results = sorted(
-            combined_scores.items(),
-            key=lambda x: x[1][0],
+            rrf_scores.items(),
+            key=lambda x: x[1],
             reverse=True,
         )[:top_k]
 
         # 构建文档列表
         documents = []
-        for doc_id, (score, source) in sorted_results:
+        for doc_id, score in sorted_results:
+            source = source_map.get(doc_id, "hybrid")
             # 从向量存储获取完整信息
             doc_info = None
             if self.vector_store._initialized:
@@ -344,10 +387,14 @@ class HybridRetriever:
         Returns:
             状态信息
         """
-        return {
+        status: dict[str, Any] = {
             "vector_store_available": self.vector_store._initialized,
             "keyword_index_documents": len(self.keyword_index.documents),
+            "bm25_available": self._bm25_available,
         }
+        if self._bm25_available and self._bm25_retriever is not None:
+            status["bm25_stats"] = self._bm25_retriever.get_stats()
+        return status
 
 
 # 全局混合检索器实例

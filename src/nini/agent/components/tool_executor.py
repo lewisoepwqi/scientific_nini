@@ -155,6 +155,9 @@ def summarize_tool_result_dict(data: dict[str, Any]) -> dict[str, Any]:
                 "questions": data_obj.get("questions"),
                 "answers": data_obj.get("answers"),
             }
+        elif _is_dataset_profile(data_obj):
+            # 特殊处理数据集 profile：保留完整列信息
+            compact["data_summary"] = _summarize_dataset_profile(data_obj)
         else:
             compact["data_summary"] = summarize_nested_dict(data_obj)
         excerpt = extract_reference_excerpt(
@@ -163,6 +166,14 @@ def summarize_tool_result_dict(data: dict[str, Any]) -> dict[str, Any]:
         )
         if excerpt:
             compact["data_excerpt"] = excerpt
+
+    # 特殊处理 code_session 结果：保留尾部输出而非头部截断
+    if _is_code_session_result(data):
+        output = str(data.get("message", "") or "")
+        lines = output.split("\n")
+        if len(lines) > 30:
+            compact["execution_output_tail"] = "\n".join(lines[-30:])
+            compact["execution_output_lines_total"] = len(lines)
 
     artifacts = data.get("artifacts")
     if isinstance(artifacts, list):
@@ -256,3 +267,65 @@ def summarize_nested_dict(data_obj: dict[str, Any]) -> dict[str, Any]:
 
     summary["keys"] = list(data_obj.keys())[:10]
     return summary
+
+
+def _is_dataset_profile(data_obj: dict[str, Any]) -> bool:
+    """判断数据对象是否为数据集 profile 结构。"""
+    return "dataset_name" in data_obj and (
+        "basic" in data_obj or "columns" in data_obj or "column_names" in data_obj
+    )
+
+
+def _summarize_dataset_profile(data_obj: dict[str, Any]) -> dict[str, Any]:
+    """提取数据集 profile 的关键信息，保留完整列名。"""
+    summary: dict[str, Any] = {}
+
+    # 数据集基本信息
+    summary["dataset_name"] = data_obj.get("dataset_name", "")
+
+    # 行列数（支持多种结构）
+    basic = data_obj.get("basic", {})
+    if isinstance(basic, dict):
+        if "rows" in basic:
+            summary["rows"] = basic["rows"]
+        if "columns" in basic:
+            summary["columns"] = basic["columns"]
+    if "rows" in data_obj and isinstance(data_obj["rows"], int):
+        summary["rows"] = data_obj["rows"]
+    if "columns" in data_obj and isinstance(data_obj["columns"], int):
+        summary["columns"] = data_obj["columns"]
+
+    # 完整列名（最多 50 列）
+    col_names: list[str] | None = None
+    if isinstance(data_obj.get("column_names"), list):
+        col_names = [str(c) for c in data_obj["column_names"]]
+    elif isinstance(data_obj.get("columns"), list):
+        col_names = [str(c) for c in data_obj["columns"]]
+    elif isinstance(basic, dict) and isinstance(basic.get("column_names"), list):
+        col_names = [str(c) for c in basic["column_names"]]
+
+    if col_names is not None:
+        if len(col_names) > 50:
+            summary["column_names"] = col_names[:50]
+            summary["column_names_truncated"] = len(col_names) - 50
+        else:
+            summary["column_names"] = col_names
+
+    # 列类型信息
+    dtypes = data_obj.get("dtypes") or (isinstance(basic, dict) and basic.get("dtypes"))
+    if isinstance(dtypes, dict):
+        summary["dtypes"] = dtypes
+
+    # 缺失值信息
+    null_counts = data_obj.get("null_counts") or (
+        isinstance(basic, dict) and basic.get("null_counts")
+    )
+    if isinstance(null_counts, dict):
+        summary["null_counts"] = null_counts
+
+    return summary
+
+
+def _is_code_session_result(data: dict[str, Any]) -> bool:
+    """判断工具结果是否为 code_session 执行结果。"""
+    return "execution_id" in data or "script_id" in data

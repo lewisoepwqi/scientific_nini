@@ -50,6 +50,7 @@ from nini.tools.templates import (
     RegressionAnalysisSkill,
 )
 from nini.tools.visualization import CreateChartSkill
+from nini.tools.analysis_memory_tool import AnalysisMemorySkill
 from nini.tools.workspace_files import ListWorkspaceFilesSkill
 from nini.tools.workspace_session import WorkspaceSessionSkill
 
@@ -66,6 +67,7 @@ LLM_EXPOSED_BASE_TOOL_NAMES = {
     "report_session",
     "workspace_session",
     "code_session",
+    "analysis_memory",
 }
 
 
@@ -261,6 +263,7 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(EditFile())
     registry.register(ListWorkspaceFilesSkill())
     registry.register(WorkspaceSessionSkill())
+    registry.register(AnalysisMemorySkill())
     registry.reload_markdown_skills()
     registry.write_skills_snapshot()
     return registry

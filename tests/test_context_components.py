@@ -201,12 +201,15 @@ async def test_inject_knowledge_falls_back_when_new_pipeline_fails(
 
 
 def test_build_analysis_memory_context_formats_each_memory() -> None:
-    """分析记忆上下文应按数据集分块渲染。"""
+    """分析记忆上下文应按数据集分块渲染（条目较少时使用完整模式）。"""
 
     class _Memory:
         def __init__(self, dataset_name: str, prompt: str):
             self.dataset_name = dataset_name
             self._prompt = prompt
+            # 条目数 ≤ 8 时应使用完整模式
+            self.statistics: list = []
+            self.findings: list = []
 
         def get_context_prompt(self) -> str:
             return self._prompt
@@ -218,6 +221,32 @@ def test_build_analysis_memory_context_formats_each_memory() -> None:
 
     assert "### 数据集: demo.csv" in context
     assert "使用过稳健统计" in context
+
+
+def test_build_analysis_memory_context_uses_summary_mode_when_many_entries() -> None:
+    """当总条目数 > 8 时，应切换为摘要模式并引导调用 analysis_memory 工具。"""
+
+    class _Stat:
+        pass
+
+    class _Memory:
+        def __init__(self, dataset_name: str):
+            self.dataset_name = dataset_name
+            self.statistics = [_Stat()] * 5
+            self.findings = [_Stat()] * 5
+            self.decisions: list = []
+
+        def get_context_prompt(self) -> str:
+            return "不应出现在摘要模式中"
+
+    context = build_analysis_memory_context(
+        "session-1",
+        list_memories=lambda session_id: [_Memory("demo.csv")],
+    )
+
+    assert "analysis_memory" in context
+    assert "不应出现在摘要模式中" not in context
+    assert "demo.csv" in context
 
 
 def test_build_research_profile_context_uses_default_profile_id() -> None:
