@@ -7,6 +7,7 @@ import json
 import sys
 import types
 from typing import Any, AsyncGenerator, cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -158,6 +159,45 @@ async def test_model_resolver_supports_purpose_routing() -> None:
     assert "".join(c.text for c in title_chunks) == "from-zhipu"
     assert resolver.get_preferred_provider() == "openai"
     assert resolver.get_preferred_provider(purpose="title_generation") == "zhipu"
+
+
+@pytest.mark.asyncio
+async def test_model_resolver_uses_builtin_fast_for_trial_title_generation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolver = ModelResolver()
+    captured: dict[str, str | None] = {}
+
+    def _fake_builtin_client(purpose: str, mode: str | None) -> FakeClient:
+        captured["purpose"] = purpose
+        captured["mode"] = mode
+        return FakeClient(
+            provider_id="builtin",
+            model="qwen3.5-27b",
+            available=True,
+            chunks=[LLMChunk(text="trial-title", finish_reason="stop")],
+        )
+
+    monkeypatch.setattr(resolver, "_get_builtin_client", _fake_builtin_client)
+
+    with (
+        patch("nini.config_manager.is_builtin_exhausted", AsyncMock(return_value=False)),
+        patch("nini.config_manager.increment_builtin_usage", AsyncMock()) as increment_usage,
+        patch(
+            "nini.config_manager.list_user_configured_provider_ids", AsyncMock(return_value=[])
+        ),
+    ):
+        chunks = [
+            chunk
+            async for chunk in resolver.chat(
+                [{"role": "user", "content": "请生成标题"}],
+                purpose="title_generation",
+            )
+        ]
+
+    assert "".join(chunk.text for chunk in chunks) == "trial-title"
+    assert captured == {"purpose": "default", "mode": "fast"}
+    increment_usage.assert_awaited_once_with("fast")
 
 
 def test_model_resolver_get_active_model_info_by_purpose() -> None:

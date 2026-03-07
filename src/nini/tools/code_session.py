@@ -21,6 +21,11 @@ class CodeSessionSkill(Skill):
     """管理持久化脚本资源与执行历史。"""
 
     _LANGUAGES = {"python": "py", "r": "R"}
+    _PYTHON_FILE_IO_PATTERNS: tuple[re.Pattern[str], ...] = (
+        re.compile(r"\bpd\.(read_csv|read_excel|read_parquet|read_json|read_pickle)\s*\("),
+        re.compile(r"\bopen\s*\("),
+        re.compile(r"\bPath\s*\([^)]*\)\s*\.(read_text|read_bytes|open)\s*\("),
+    )
 
     @property
     def name(self) -> str:
@@ -284,6 +289,39 @@ class CodeSessionSkill(Skill):
             return next(iter(session.datasets.keys()))
         return None
 
+    def _guard_dataset_injected_python_script(
+        self,
+        *,
+        content: str,
+        dataset_name: str | None,
+    ) -> SkillResult | None:
+        """在 dataset_name 已提供时，拦截仍手工读文件的脚本。"""
+        if not dataset_name:
+            return None
+
+        for pattern in self._PYTHON_FILE_IO_PATTERNS:
+            matched = pattern.search(content)
+            if matched is None:
+                continue
+            return SkillResult(
+                success=False,
+                message=(
+                    "脚本已提供 dataset_name，禁止再通过文件路径读取数据；"
+                    "请直接使用沙箱注入的变量 df"
+                ),
+                data={
+                    "error_code": "CODE_SESSION_DATASET_IO_CONFLICT",
+                    "dataset_name": dataset_name,
+                    "error_location": {"line": content[: matched.start()].count('\n') + 1},
+                    "recovery_hint": (
+                        "删除 pd.read_csv/pd.read_excel/open 等文件读取语句，"
+                        f"直接对数据集 '{dataset_name}' 使用变量 df。"
+                    ),
+                },
+                metadata={"error_code": "CODE_SESSION_DATASET_IO_CONFLICT"},
+            )
+        return None
+
     async def _execute_record(
         self,
         session: Session,
@@ -301,16 +339,23 @@ class CodeSessionSkill(Skill):
         content = self._read_script_content(record)
 
         if record.language == "python":
-            result = await execute_python_code(
-                session,
-                code=content,
+            guarded = self._guard_dataset_injected_python_script(
+                content=content,
                 dataset_name=dataset_name,
-                persist_df=persist_df,
-                save_as=save_as,
-                purpose=purpose,
-                label=label,
-                intent=intent,
             )
+            if guarded is not None:
+                result = guarded
+            else:
+                result = await execute_python_code(
+                    session,
+                    code=content,
+                    dataset_name=dataset_name,
+                    persist_df=persist_df,
+                    save_as=save_as,
+                    purpose=purpose,
+                    label=label,
+                    intent=intent,
+                )
             language = "python"
         elif record.language == "r":
             result = await execute_r_code(
@@ -694,6 +739,8 @@ class CodeSessionSkill(Skill):
         message = result.message
         if "策略拦截" in message:
             return "移除受限导入或危险调用后重跑脚本"
+        if "禁止再通过文件路径读取数据" in message:
+            return "删除文件读取语句并直接使用注入的 df 后，用 patch_script 或 rerun 重试"
         if "数据集" in message and "不存在" in message:
             return "确认 dataset_name 或先将目标数据集提升到会话资源后重跑"
         if "除零" in message or "ZeroDivisionError" in message:

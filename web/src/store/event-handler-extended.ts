@@ -145,6 +145,8 @@ function applyPlanProgressPayload(
   };
 }
 
+import { emitSessionsChanged } from "./session-lifecycle";
+
 export function handleExtendedEvent(
   evt: WSEvent,
   set: SetStateFn,
@@ -512,6 +514,11 @@ export function handleExtendedEvent(
             sess.id === data.session_id ? { ...sess, title: data.title } : sess,
           ),
         }));
+        emitSessionsChanged({
+          reason: "rename",
+          sessionId: data.session_id,
+          title: data.title,
+        });
       }
       return true;
     }

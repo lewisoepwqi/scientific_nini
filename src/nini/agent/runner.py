@@ -214,6 +214,8 @@ class AgentRunner:
             skill_registry=skill_registry,
         )
         self._ask_user_question_handler = ask_user_question_handler
+        # 跟踪 context 使用率（0.0 初始，用于自适应工具结果截断预算）
+        self._context_ratio: float = 0.0
 
     async def run(
         self,
@@ -238,16 +240,24 @@ class AgentRunner:
             session.add_message("user", user_message, turn_id=turn_id)
 
         # ---- 试用模式前置检查 ----
-        from nini.config_manager import activate_trial, get_active_provider_id, get_trial_status
+        from nini.config_manager import (
+            activate_trial,
+            get_active_provider_id,
+            get_trial_status,
+            list_user_configured_provider_ids,
+        )
 
         active_provider = await get_active_provider_id()
+        configured_provider_ids = await list_user_configured_provider_ids()
         if not active_provider:
             trial_status = await get_trial_status()
-            if trial_status["expired"]:
+            if trial_status["expired"] and not configured_provider_ids:
                 # 试用已到期且无自有密钥 → 推送阻断事件后立即返回
                 yield AgentEvent(
                     type=EventType.TRIAL_EXPIRED,
-                    data={"message": "试用已结束，请配置自己的 API 密钥继续使用"},
+                    data={
+                        "message": "系统内置试用额度已全部用完，请在「AI 设置」中配置自己的模型服务商继续使用。"
+                    },
                 )
                 return
             if not trial_status["activated"]:
@@ -682,6 +692,13 @@ class AgentRunner:
                     confidence_score=confidence_score,
                     parent_id=reasoning_node.get("parent_id"),
                 )
+
+            # 更新 context 使用率（用于下一轮自适应工具结果截断预算）
+            if usage:
+                input_tokens = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
+                if input_tokens > 0:
+                    # 使用保守的 128K 上限作为默认值
+                    self._context_ratio = min(1.0, input_tokens / 128000)
 
             # 记录 token 消耗
             if usage and settings.enable_cost_tracking:
@@ -1623,7 +1640,9 @@ class AgentRunner:
         session: Session,
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         """通过 canonical context builder 构建发送给 LLM 的消息列表。"""
-        return await self._context_builder.build_messages_and_retrieval(session)
+        return await self._context_builder.build_messages_and_retrieval(
+            session, context_ratio=self._context_ratio
+        )
 
     def _build_explicit_skill_context(self, user_message: str) -> str:
         """兼容旧测试入口，委托给 canonical context builder。"""

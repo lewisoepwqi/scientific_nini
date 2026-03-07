@@ -354,12 +354,12 @@ async def test_model_connection(provider_id: str):
 async def get_trial_status():
     """获取试用状态（按调用次数限额、是否耗尽、内置用量）。"""
     from nini.config import settings
-    from nini.config_manager import get_active_provider_id, get_trial_status
+    from nini.config_manager import get_trial_status, list_user_configured_provider_ids
 
     status = await get_trial_status()
     # 若已配置自有密钥，前端不需要显示横幅
-    active_provider = await get_active_provider_id()
-    status["has_own_key"] = active_provider is not None
+    configured_provider_ids = await list_user_configured_provider_ids()
+    status["has_own_key"] = len(configured_provider_ids) > 0
     # 附加限额上限，方便前端展示进度条
     status["fast_limit"] = settings.builtin_fast_limit
     status["deep_limit"] = settings.builtin_deep_limit

@@ -59,11 +59,31 @@ def build_analysis_memory_context(
     *,
     list_memories: Callable[[str], list[Any]],
 ) -> str:
-    """构建分析记忆上下文。"""
+    """构建分析记忆上下文。
+
+    当记忆条目较少时（总计 ≤ 8 条），注入完整详情；
+    超出阈值时切换为摘要模式，引导 LLM 主动调用 analysis_memory 工具检索。
+    """
     analysis_memories = list_memories(session_id)
     if not analysis_memories:
         return ""
 
+    # 统计总条目数以决定注入模式
+    total_entries = sum(len(m.statistics) + len(m.findings) for m in analysis_memories)
+
+    if total_entries > 8:
+        # 摘要模式：仅注入数据集名和条目数，引导 LLM 按需检索
+        summary_lines = [
+            "分析记忆摘要（条目较多，可调用 analysis_memory(operation='find') 检索具体数值）："
+        ]
+        for memory in analysis_memories:
+            summary_lines.append(
+                f"- {memory.dataset_name}: {len(memory.findings)} 项发现，"
+                f"{len(memory.statistics)} 项统计结果，{len(memory.decisions)} 项决策"
+            )
+        return format_untrusted_context_block("analysis_memory", "\n".join(summary_lines))
+
+    # 完整模式：注入所有记忆详情
     mem_parts: list[str] = []
     for memory in analysis_memories:
         prompt = memory.get_context_prompt()

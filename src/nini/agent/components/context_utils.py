@@ -13,6 +13,7 @@ from nini.agent.prompt_policy import (
     NON_DIALOG_EVENT_TYPES,
     SANITIZE_MAX_LEN,
     SUSPICIOUS_CONTEXT_PATTERNS,
+    get_adaptive_tool_budget,
 )
 from nini.agent.session import Session
 from nini.agent.components.tool_executor import summarize_tool_result_dict
@@ -125,8 +126,19 @@ def compact_tool_content_for_preparation(content: Any, *, max_chars: int) -> str
     return text
 
 
-def prepare_messages_for_llm(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """去掉 UI 噪音和大载荷字段，得到适合 LLM 的消息列表。"""
+def prepare_messages_for_llm(
+    messages: list[dict[str, Any]],
+    context_ratio: float = 0.0,
+) -> list[dict[str, Any]]:
+    """去掉 UI 噪音和大载荷字段，得到适合 LLM 的消息列表。
+
+    Args:
+        messages: 原始消息列表
+        context_ratio: 当前 context 使用率（0.0 ~ 1.0），用于动态调整工具结果截断预算
+    """
+    # 根据 context 使用率计算工具结果预算
+    adaptive_max_chars = get_adaptive_tool_budget(context_ratio)
+
     prepared: list[dict[str, Any]] = []
     for msg in messages:
         role = msg.get("role")
@@ -153,9 +165,7 @@ def prepare_messages_for_llm(messages: list[dict[str, Any]]) -> list[dict[str, A
         if role == "tool":
             tool_name = str(cleaned.get("tool_name", "") or "").strip().lower()
             max_chars = (
-                FETCH_URL_TOOL_CONTEXT_MAX_CHARS
-                if tool_name == "fetch_url"
-                else DEFAULT_TOOL_CONTEXT_MAX_CHARS
+                FETCH_URL_TOOL_CONTEXT_MAX_CHARS if tool_name == "fetch_url" else adaptive_max_chars
             )
             cleaned.pop("tool_name", None)
             cleaned.pop("status", None)

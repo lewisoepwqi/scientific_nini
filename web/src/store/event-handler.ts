@@ -835,10 +835,15 @@ export function handleEvent(
 
     case "trial_expired": {
       // 试用到期：推送系统消息并通过全局事件通知 UI 打开 AI 设置
+      const payload = isRecord(evt.data) ? evt.data : {};
+      const message =
+        typeof payload.message === "string" && payload.message.trim()
+          ? payload.message.trim()
+          : "试用已结束，请在「AI 设置」中配置自己的 API 密钥继续使用。";
       const expiredMsg = {
         id: `trial_expired_${Date.now()}`,
         role: "assistant" as const,
-        content: "试用已结束，请在「AI 设置」中配置自己的 API 密钥继续使用。",
+        content: message,
         timestamp: Date.now(),
         isError: true,
         errorKind: "quota" as const,

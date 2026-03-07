@@ -485,6 +485,7 @@ class AnalysisMemory:
                     "test_statistic": s.test_statistic,
                     "p_value": s.p_value,
                     "effect_size": s.effect_size,
+                    "effect_type": s.effect_type,
                     "significant": s.significant,
                 }
                 for s in self.statistics
@@ -645,9 +646,18 @@ class AnalysisMemory:
 
         if self.statistics:
             parts.append(f"**统计结果**（{len(self.statistics)} 项）：")
-            for s in self.statistics[:3]:  # 最多显示 3 项
+            for s in self.statistics[:5]:  # 最多显示 5 项
                 sig = "显著" if s.significant else "不显著"
-                parts.append(f"- {s.test_name}: {sig}")
+                nums: list[str] = []
+                if s.test_statistic is not None:
+                    nums.append(f"统计量={s.test_statistic:.4f}")
+                if s.p_value is not None:
+                    nums.append(f"p={s.p_value:.4f}")
+                if s.effect_size is not None:
+                    label = s.effect_type or "效应量"
+                    nums.append(f"{label}={s.effect_size:.4f}")
+                num_str = f"（{'，'.join(nums)}）" if nums else ""
+                parts.append(f"- {s.test_name}: {sig}{num_str}")
 
         if self.decisions:
             parts.append(f"**方法决策**（{len(self.decisions)} 项）：")

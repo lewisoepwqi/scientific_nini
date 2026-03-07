@@ -691,6 +691,20 @@ class _LoadDatasetGuardedSkillRegistry:
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
     session_manager._sessions.clear()
+
+    # 跳过试用模式数据库检查，避免测试中触发 SQLite 查询
+    async def _mock_get_active_provider_id():
+        return "dummy"
+
+    async def _mock_list_user_configured_provider_ids():
+        return ["dummy"]
+
+    monkeypatch.setattr("nini.config_manager.get_active_provider_id", _mock_get_active_provider_id)
+    monkeypatch.setattr(
+        "nini.config_manager.list_user_configured_provider_ids",
+        _mock_list_user_configured_provider_ids,
+    )
+
     yield
     session_manager._sessions.clear()
 

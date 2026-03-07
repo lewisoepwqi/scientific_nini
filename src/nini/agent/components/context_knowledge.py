@@ -19,8 +19,21 @@ async def inject_knowledge(
     last_user_msg: str,
     columns: list[str],
     context_parts: list[str],
+    knowledge_max_chars: int | None = None,
 ) -> dict[str, Any] | None:
-    """注入知识上下文，优先使用新检索链路，失败时回退。"""
+    """注入知识上下文，优先使用新检索链路，失败时回退。
+
+    Args:
+        knowledge_loader: 知识加载器
+        session: 当前会话
+        last_user_msg: 最后一条用户消息
+        columns: 数据集列名列表
+        context_parts: 上下文部分列表（原地追加）
+        knowledge_max_chars: 知识注入最大字符数，为 None 时使用全局配置
+    """
+    effective_max_chars = (
+        knowledge_max_chars if knowledge_max_chars is not None else settings.knowledge_max_chars
+    )
     retrieval_event: dict[str, Any] | None = None
     try:
         from nini.knowledge.context_injector import inject_knowledge_to_prompt
@@ -55,7 +68,7 @@ async def inject_knowledge(
             knowledge_text = knowledge_context.format_for_prompt()
             sanitized_knowledge = sanitize_reference_text(
                 knowledge_text,
-                max_len=settings.knowledge_max_chars,
+                max_len=effective_max_chars,
             )
             context_parts.append(
                 format_untrusted_context_block(
