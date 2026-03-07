@@ -20,6 +20,9 @@ const compactTokenFormatter = new Intl.NumberFormat('en-US', {
 })
 
 export default function ChatPanel() {
+  const sessionId = useStore((s) => s.sessionId)
+  const appBootstrapping = useStore((s) => s.appBootstrapping)
+  const createNewSession = useStore((s) => s.createNewSession)
   const messages = useStore((s) => s.messages)
   const isStreaming = useStore((s) => s.isStreaming)
   const pendingAskUserQuestion = useStore((s) => s.pendingAskUserQuestion)
@@ -32,6 +35,7 @@ export default function ChatPanel() {
   const [displayedTokenCount, setDisplayedTokenCount] = useState(() =>
     streamingMetrics.hasTokenUsage ? streamingMetrics.totalTokens : 0,
   )
+  const [creatingSession, setCreatingSession] = useState(false)
   const displayedTokenCountRef = useRef(
     streamingMetrics.hasTokenUsage ? streamingMetrics.totalTokens : 0,
   )
@@ -136,12 +140,69 @@ export default function ChatPanel() {
     retryLastTurn()
   }, [isStreaming, canRetry, retryLastTurn])
 
+  const handleCreateSession = useCallback(async () => {
+    if (creatingSession) return
+    setCreatingSession(true)
+    try {
+      await createNewSession()
+    } finally {
+      setCreatingSession(false)
+    }
+  }, [createNewSession, creatingSession])
+
+  const isNoSession = !sessionId
+  const showBootstrapState = appBootstrapping
+  const showConversationContent = !appBootstrapping
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* 消息列表 */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="max-w-3xl mx-auto">
-          {messages.length === 0 && (
+        <div className="relative max-w-3xl mx-auto">
+          <div
+            className={`transition-all duration-300 ${
+              showBootstrapState
+                ? 'opacity-100 translate-y-0'
+                : 'pointer-events-none absolute inset-x-0 top-0 opacity-0 -translate-y-2'
+            }`}
+          >
+          {showBootstrapState && (
+            <div className="min-h-[60vh] px-1 py-4">
+              <div className="mx-auto max-w-2xl">
+                <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-6 shadow-[0_18px_45px_-32px_rgba(15,23,42,0.45)]">
+                  <div className="flex items-center gap-4">
+                    <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-sky-100 to-teal-50" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-40 rounded-full bg-slate-200 animate-pulse" />
+                      <div className="h-3 w-72 max-w-full rounded-full bg-slate-100 animate-pulse" />
+                    </div>
+                  </div>
+                  <div className="mt-8 space-y-4">
+                    <div className="ml-auto max-w-[62%] rounded-3xl rounded-br-xl bg-slate-100/90 px-5 py-4">
+                      <div className="h-3 w-28 rounded-full bg-slate-200 animate-pulse" />
+                    </div>
+                    <div className="max-w-[72%] rounded-3xl rounded-bl-xl border border-slate-200/80 bg-white px-5 py-4">
+                      <div className="space-y-2">
+                        <div className="h-3 w-5/6 rounded-full bg-slate-200 animate-pulse" />
+                        <div className="h-3 w-2/3 rounded-full bg-slate-100 animate-pulse" />
+                      </div>
+                    </div>
+                    <div className="ml-auto max-w-[54%] rounded-3xl rounded-br-xl bg-slate-100/90 px-5 py-4">
+                      <div className="h-3 w-24 rounded-full bg-slate-200 animate-pulse" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          </div>
+
+          <div
+            className={`transition-all duration-300 ${
+              showConversationContent ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
+            }`}
+          >
+          {showConversationContent && messages.length === 0 && !isNoSession && (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-gray-400">
               <div className="text-5xl mb-4">🔬</div>
               <h2 className="text-xl font-semibold text-gray-600 mb-2">Nini 科研分析助手</h2>
@@ -153,8 +214,27 @@ export default function ChatPanel() {
             </div>
           )}
 
+          {showConversationContent && isNoSession && (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-gray-400">
+              <div className="text-5xl mb-4">🔬</div>
+              <h2 className="text-xl font-semibold text-gray-600 mb-2">Nini 科研分析助手</h2>
+              <p className="text-sm text-center max-w-md">
+                上传数据文件，然后用自然语言描述你的分析需求。
+                <br />
+                例如："帮我对 treatment 组和 control 组做 t 检验"
+              </p>
+              <button
+                type="button"
+                onClick={() => { void handleCreateSession() }}
+                disabled={creatingSession}
+                className="mt-5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+              >
+                {creatingSession ? '新建中...' : '新建会话'}
+              </button>
+            </div>
+          )}
           {/* 所有消息按原始顺序展示 */}
-          {messages.map((msg) => {
+          {showConversationContent && messages.map((msg) => {
             const isUser = msg.role === 'user'
             const isLastUser = isUser && msg.id === lastUserMessageId
             const showRetry =
@@ -182,6 +262,7 @@ export default function ChatPanel() {
               </div>
             )
           })}
+          </div>
 
           {isStreaming && (
             <div className="flex items-center gap-2 text-gray-400 text-sm ml-11">
@@ -220,13 +301,13 @@ export default function ChatPanel() {
       </div>
 
       {/* 输入区 */}
-      {pendingAskUserQuestion && (
+      {!appBootstrapping && !isNoSession && pendingAskUserQuestion && (
         <AskUserQuestionPanel
           pending={pendingAskUserQuestion}
           onSubmit={submitAskUserQuestionAnswers}
         />
       )}
-      <ChatInputArea />
+      {!appBootstrapping && !isNoSession && <ChatInputArea />}
     </div>
   )
 }

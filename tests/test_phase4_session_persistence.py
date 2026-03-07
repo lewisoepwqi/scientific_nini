@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import io
+import json
+import time
 import zipfile
 from pathlib import Path
 from urllib.parse import quote
@@ -112,6 +115,98 @@ def test_list_sessions_includes_disk_sessions() -> None:
     assert found is not None
     assert found["source"] == "disk"
     assert found["message_count"] >= 1
+
+
+def test_list_sessions_sorts_by_updated_at_desc() -> None:
+    older = session_manager.create_session()
+    older.add_message("user", "old")
+    newer = session_manager.create_session()
+    newer.add_message("user", "new")
+
+    session_manager._sessions.clear()
+    older_mtime = (settings.sessions_dir / older.id / "memory.jsonl").stat().st_mtime
+    newer_mtime = (settings.sessions_dir / newer.id / "memory.jsonl").stat().st_mtime
+    session_manager._save_session_meta_fields(
+        older.id,
+        {
+            "updated_at": "2026-01-01T00:00:00+00:00",
+            "_memory_mtime": older_mtime,
+            "message_count": 1,
+        },
+    )
+    session_manager._save_session_meta_fields(
+        newer.id,
+        {
+            "updated_at": "2026-01-02T00:00:00+00:00",
+            "_memory_mtime": newer_mtime,
+            "message_count": 1,
+        },
+    )
+
+    sessions = session_manager.list_sessions()
+    ids = [item["id"] for item in sessions]
+    assert ids.index(newer.id) < ids.index(older.id)
+
+
+def test_list_sessions_refreshes_updated_at_when_memory_file_changes() -> None:
+    session = session_manager.create_session()
+    session.add_message("user", "first")
+    session_id = session.id
+
+    session_manager._sessions.clear()
+    session_manager._save_session_meta_fields(
+        session_id,
+        {"updated_at": "2026-01-01T00:00:00+00:00"},
+    )
+
+    memory_path = settings.sessions_dir / session_id / "memory.jsonl"
+    assert memory_path.exists()
+    time.sleep(0.01)
+    with memory_path.open("a", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "content": "second",
+                    "_ts": "2026-03-07T00:00:00+00:00",
+                    "event_type": "text",
+                },
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
+
+    sessions = session_manager.list_sessions()
+    found = next(item for item in sessions if item["id"] == session_id)
+    expected_updated_at = datetime.fromtimestamp(
+        memory_path.stat().st_mtime, timezone.utc
+    ).isoformat()
+
+    assert found["updated_at"] == expected_updated_at
+
+
+def test_list_sessions_supports_query_and_pagination(client: LocalASGIClient) -> None:
+    alpha = session_manager.create_session()
+    alpha.title = "Alpha session"
+    session_manager.save_session_title(alpha.id, alpha.title)
+
+    beta = session_manager.create_session()
+    beta.title = "Beta analysis"
+    session_manager.save_session_title(beta.id, beta.title)
+
+    gamma = session_manager.create_session()
+    gamma.title = "Gamma notes"
+    session_manager.save_session_title(gamma.id, gamma.title)
+
+    resp = client.get("/api/sessions?q=beta&limit=1&offset=0")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["success"] is True
+    data = payload["data"]
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["id"] == beta.id
+    assert "updated_at" in data[0]
 
 
 # ---- GET /api/sessions/{session_id}/messages 端点测试 ----

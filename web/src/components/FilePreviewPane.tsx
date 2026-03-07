@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Download, X, Loader2 } from 'lucide-react'
 import { useStore } from '../store'
-import MarkdownContent from './MarkdownContent'
+import LazyMarkdownContent from './LazyMarkdownContent'
 import PlotlyFromUrl from './PlotlyFromUrl'
 import { resolveDownloadUrl } from './downloadUtils'
 
@@ -199,7 +199,7 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
         <div>
           {isMarkdown ? (
             <div className="markdown-body prose prose-sm max-w-none">
-              <MarkdownContent content={preview.content || ''} />
+              <LazyMarkdownContent content={preview.content || ''} />
             </div>
           ) : (
             <pre className="text-xs font-mono bg-gray-50 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words">

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from nini.agent.session import session_manager
 from nini.config import settings
@@ -14,9 +14,20 @@ router = APIRouter(prefix="/sessions")
 
 
 @router.get("", response_model=APIResponse)
-async def list_sessions() -> APIResponse:
+async def list_sessions(
+    q: str | None = Query(default=None, description="按会话标题关键词过滤"),
+    limit: int | None = Query(default=None, ge=1, le=500, description="返回条数上限"),
+    offset: int = Query(default=0, ge=0, description="分页偏移量"),
+) -> APIResponse:
     """获取所有会话列表。"""
     sessions = session_manager.list_sessions()
+    keyword = (q or "").strip().lower()
+    if keyword:
+        sessions = [item for item in sessions if keyword in str(item.get("title", "")).lower()]
+    if offset > 0:
+        sessions = sessions[offset:]
+    if limit is not None:
+        sessions = sessions[:limit]
     return APIResponse(
         success=True,
         data=[
@@ -24,6 +35,10 @@ async def list_sessions() -> APIResponse:
                 "id": s["id"],
                 "title": s["title"],
                 "message_count": s["message_count"],
+                "source": s.get("source"),
+                "created_at": s.get("created_at"),
+                "updated_at": s.get("updated_at"),
+                "last_message_at": s.get("last_message_at"),
             }
             for s in sessions
         ],

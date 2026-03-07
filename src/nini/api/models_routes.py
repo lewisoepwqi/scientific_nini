@@ -61,6 +61,16 @@ _MODEL_PROVIDERS = [
 ]
 
 
+def _is_settings_field_explicit(field_name: str) -> bool:
+    """判断 settings 字段是否由环境/.env 显式提供，而非默认值。"""
+    try:
+        from nini.config import settings
+
+        return field_name in settings.model_fields_set
+    except Exception:
+        return False
+
+
 @router.get("/models", response_model=APIResponse)
 async def list_models():
     """列出面向用户的 4 个供应商及其配置状态（合并 DB 与 .env 配置）。"""
@@ -89,16 +99,21 @@ async def list_models():
         effective_key = db_cfg.get("api_key") or env_key or ""
         env_model = getattr(settings, model_field, "") if model_field else ""
         effective_model = db_cfg.get("model") or env_model
-        effective_base_url = db_cfg.get("base_url") or ""
+        env_base_url = getattr(settings, f"{pid}_base_url", "") if pid == "ollama" else ""
+        effective_base_url = db_cfg.get("base_url") or env_base_url or ""
 
         if pid == "ollama":
-            # Ollama 无 API Key 概念，"已配置"须依赖 DB 中的显式记录。
-            # settings.ollama_base_url / ollama_model 均有非空默认值，不能作为
-            # 判断依据，否则删除配置后 configured 仍为 True。
+            # Ollama 无 API Key 概念，配置状态应同时兼容 DB 与 .env。
             db_base = db_cfg.get("base_url") or ""
             db_model = db_cfg.get("model") or ""
-            configured = bool(db_base or db_model)
-            config_source = "db" if configured else "none"
+            has_env_base = _is_settings_field_explicit("ollama_base_url") and bool(env_base_url)
+            has_env_model = _is_settings_field_explicit("ollama_model") and bool(env_model)
+            configured = bool(db_base or db_model or has_env_base or has_env_model)
+            config_source = (
+                "db"
+                if (db_base or db_model)
+                else ("env" if (has_env_base or has_env_model) else "none")
+            )
         else:
             configured = bool(effective_key)
             config_source = (
@@ -337,7 +352,7 @@ async def test_model_connection(provider_id: str):
 
 @router.get("/trial/status", response_model=APIResponse)
 async def get_trial_status():
-    """获取试用状态（剩余天数、是否到期、内置用量）。"""
+    """获取试用状态（按调用次数限额、是否耗尽、内置用量）。"""
     from nini.config import settings
     from nini.config_manager import get_active_provider_id, get_trial_status
 

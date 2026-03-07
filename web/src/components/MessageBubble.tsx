@@ -17,11 +17,7 @@ import {
 } from "lucide-react";
 import DataViewer from "./DataViewer";
 import ArtifactDownload from "./ArtifactDownload";
-import MarkdownContent from "./MarkdownContent";
-import PlotlyFromUrl from "./PlotlyFromUrl";
-import ReasoningPanel from "./ReasoningPanel";
-import CitationMarker from "./CitationMarker";
-import CitationList from "./CitationList";
+import LazyMarkdownContent from "./LazyMarkdownContent";
 
 interface Props {
   message: Message;
@@ -31,6 +27,10 @@ interface Props {
 }
 
 const ChartViewer = lazy(() => import("./ChartViewer"));
+const PlotlyFromUrl = lazy(() => import("./PlotlyFromUrl"));
+const ReasoningPanel = lazy(() => import("./ReasoningPanel"));
+const CitationMarker = lazy(() => import("./CitationMarker"));
+const CitationList = lazy(() => import("./CitationList"));
 const TOOL_RESULT_PREVIEW_LIMIT = 72;
 
 function extractPlotlyJsonUrl(chartData: unknown): string | null {
@@ -216,19 +216,27 @@ function MessageBubble({
             <Lightbulb size={14} />
           </div>
           <div className="flex-1 min-w-0">
-            <ReasoningPanel
-              data={{
-                step: reasoningData.step,
-                thought: reasoningData.thought,
-                rationale: reasoningData.rationale || "",
-                alternatives: reasoningData.alternatives,
-                confidence: reasoningData.confidence,
-                reasoning_type: reasoningData.reasoning_type,
-                key_decisions: reasoningData.key_decisions,
-                tags: reasoningData.tags,
-              }}
-              defaultExpanded={false}
-            />
+            <Suspense
+              fallback={
+                <div className="rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-xs text-slate-500">
+                  正在加载推理面板...
+                </div>
+              }
+            >
+              <ReasoningPanel
+                data={{
+                  step: reasoningData.step,
+                  thought: reasoningData.thought,
+                  rationale: reasoningData.rationale || "",
+                  alternatives: reasoningData.alternatives,
+                  confidence: reasoningData.confidence,
+                  reasoning_type: reasoningData.reasoning_type,
+                  key_decisions: reasoningData.key_decisions,
+                  tags: reasoningData.tags,
+                }}
+                defaultExpanded={false}
+              />
+            </Suspense>
           </div>
         </div>
       );
@@ -255,7 +263,7 @@ function MessageBubble({
               {/* 引用块样式容器：左边竖线 + 轻微背景 */}
               <div className="mt-1 pl-3 py-2 border-l-2 border-slate-300 bg-slate-50/60 dark:border-slate-600 dark:bg-slate-800/40 rounded-r">
                 <div className="markdown-body reasoning-markdown text-[13px] text-slate-600 dark:text-slate-400">
-                  <MarkdownContent content={reasoningDisplay} />
+                  <LazyMarkdownContent content={reasoningDisplay} />
                   {showTypingCursor && (
                     <span
                       className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-slate-500 align-middle"
@@ -412,7 +420,7 @@ function MessageBubble({
                     <div
                       className={`text-xs ${themeColors.resultBg} border ${themeColors.resultBorder} rounded px-2 py-1.5 ${themeColors.resultText} markdown-body prose prose-sm max-w-none`}
                     >
-                      <MarkdownContent content={message.toolResult!} />
+                      <LazyMarkdownContent content={message.toolResult!} />
                     </div>
                   </div>
                 )}
@@ -488,11 +496,21 @@ function MessageBubble({
               </div>
               {/* 新的引用列表展示 */}
               {message.retrievals && message.retrievals.length > 0 && (
-                <CitationList retrievals={message.retrievals} />
+                <Suspense fallback={null}>
+                  <CitationList retrievals={message.retrievals} />
+                </Suspense>
               )}
               {message.chartData && (
                 plotlyUrl ? (
-                  <PlotlyFromUrl url={plotlyUrl} alt="图表" />
+                  <Suspense
+                    fallback={
+                      <div className="text-xs text-gray-500 mt-2">
+                        图表组件加载中...
+                      </div>
+                    }
+                  >
+                    <PlotlyFromUrl url={plotlyUrl} alt="图表" />
+                  </Suspense>
                 ) : (
                   <Suspense
                     fallback={
@@ -568,7 +586,7 @@ function CitationContent({
 
   // 如果没有引用，直接渲染 Markdown
   if (citations.length === 0) {
-    return <MarkdownContent content={content} />;
+    return <LazyMarkdownContent content={content} />;
   }
 
   // 将内容按引用标记分割，插入 CitationMarker 组件
@@ -583,15 +601,23 @@ function CitationContent({
             const citationIndex = parseInt(match[1], 10);
             const retrieval = retrievals?.[citationIndex - 1];
             return (
-              <CitationMarker
+              <Suspense
                 key={idx}
-                index={citationIndex}
-                retrieval={retrieval}
-              />
+                fallback={
+                  <span className="mx-0.5 inline-flex min-w-[18px] items-center justify-center rounded bg-blue-50 px-1 py-0 text-xs font-medium text-blue-600 align-super leading-none">
+                    [{citationIndex}]
+                  </span>
+                }
+              >
+                <CitationMarker
+                  index={citationIndex}
+                  retrieval={retrieval}
+                />
+              </Suspense>
             );
           }
           // 渲染普通文本
-          return <MarkdownContent key={idx} content={part} />;
+          return <LazyMarkdownContent key={idx} content={part} />;
         })}
       </div>
     </div>

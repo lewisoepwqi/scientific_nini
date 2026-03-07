@@ -13,7 +13,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { AnalysisPlanData } from "../store";
-import MarkdownContent from "./MarkdownContent";
+import LazyMarkdownContent from "./LazyMarkdownContent";
 
 interface Props {
   content: string;
@@ -104,7 +104,7 @@ export default function AnalysisPlanCard({ content, analysisPlan }: Props) {
                 </ul>
               ) : (
                 <div className="mt-2 text-sm text-indigo-900 markdown-body prose prose-sm max-w-none prose-headings:text-indigo-900 prose-strong:text-indigo-900">
-                  <MarkdownContent content={content} />
+                  <LazyMarkdownContent content={content} />
                 </div>
               )}
             </div>

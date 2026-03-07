@@ -143,6 +143,8 @@ import { handleEvent } from "./store/event-handler";
 
 // ---- API 动作导入 ----
 import * as api from "./store/api-actions";
+import { emitSessionsChanged } from "./store/session-lifecycle";
+import { preloadRenderersForMessages } from "./components/message-renderer-preload";
 
 // ============================================================================
 // Store 状态接口
@@ -218,6 +220,7 @@ export interface AppState {
 
   // 用户展示偏好
   displayPreference: DisplayPreference;
+  appBootstrapping: boolean;
 
   // ---- 操作 ----
 
@@ -264,7 +267,7 @@ export interface AppState {
   compressCurrentSession: () => Promise<{ success: boolean; message: string }>;
   createNewSession: () => Promise<void>;
   switchSession: (sessionId: string) => Promise<void>;
-  deleteSession: (sessionId: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<boolean>;
   updateSessionTitle: (sessionId: string, title: string) => Promise<void>;
 
   // 记忆文件操作
@@ -413,6 +416,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
     return "simplified";
   })(),
+  appBootstrapping: true,
 
   // ============================================================================
   // WebSocket 操作
@@ -444,6 +448,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     const ws = new WebSocket(getWsUrl());
     let heartbeatTimer: number | undefined;
+    let eventProcessingQueue = Promise.resolve();
 
     ws.onopen = () => {
       const wasReconnecting = get()._reconnectAttempts > 0;
@@ -508,13 +513,15 @@ export const useStore = create<AppState>((set, get) => ({
     };
 
     ws.onmessage = (event) => {
-      try {
-        const evt: WSEvent = JSON.parse(event.data);
-        if (evt.type === "pong") return;
-        handleEvent(evt, set, get);
-      } catch {
-        // 忽略非法消息
-      }
+      eventProcessingQueue = eventProcessingQueue.then(async () => {
+        try {
+          const evt: WSEvent = JSON.parse(event.data);
+          if (evt.type === "pong") return;
+          await handleEvent(evt, set, get);
+        } catch {
+          // 忽略非法消息
+        }
+      });
     };
 
     set({ ws });
@@ -561,8 +568,10 @@ export const useStore = create<AppState>((set, get) => ({
   // ============================================================================
 
   async initApp() {
-    await get().fetchSessions();
-    await get().fetchSkills();
+    set({ appBootstrapping: true });
+
+    const fetchSkillsPromise = get().fetchSkills().catch(() => undefined);
+    const fetchSessionsPromise = get().fetchSessions();
 
     const handleModelConfigUpdated = () => {
       void get().fetchActiveModel();
@@ -571,19 +580,26 @@ export const useStore = create<AppState>((set, get) => ({
     window.removeEventListener("nini:model-config-updated", handleModelConfigUpdated);
     window.addEventListener("nini:model-config-updated", handleModelConfigUpdated);
 
-    const savedSessionId = localStorage.getItem("nini_last_session_id");
-    const { sessions } = get();
+    try {
+      await fetchSessionsPromise;
 
-    if (savedSessionId) {
-      const sessionExists = sessions.some((s) => s.id === savedSessionId);
-      if (sessionExists) {
-        await get().switchSession(savedSessionId);
-        return;
+      const savedSessionId = localStorage.getItem("nini_last_session_id");
+      const { sessions } = get();
+
+      if (savedSessionId) {
+        const sessionExists = sessions.some((s) => s.id === savedSessionId);
+        if (sessionExists) {
+          await get().switchSession(savedSessionId);
+          return;
+        }
       }
-    }
 
-    if (sessions.length > 0) {
-      await get().switchSession(sessions[0].id);
+      if (sessions.length > 0) {
+        await get().switchSession(sessions[0].id);
+      }
+    } finally {
+      await fetchSkillsPromise;
+      set({ appBootstrapping: false });
     }
   },
 
@@ -841,6 +857,7 @@ export const useStore = create<AppState>((set, get) => ({
   async fetchSessions() {
     const sessions = await api.fetchSessions();
     set({ sessions });
+    emitSessionsChanged({ reason: "refresh" });
   },
 
   async fetchDatasets() {
@@ -955,19 +972,57 @@ export const useStore = create<AppState>((set, get) => ({
   async createNewSession() {
     const newSessionId = await api.createNewSession();
     if (newSessionId) {
-      await get().fetchSessions();
-      await get().switchSession(newSessionId);
+      // 先乐观切到新会话，避免按钮长时间停留在“创建中”
+      set((s) => ({
+        sessionId: newSessionId,
+        ...SESSION_RESET_STATE,
+        messages: [],
+        datasets: [],
+        workspaceFiles: [],
+        sessions: s.sessions.some((item) => item.id === newSessionId)
+          ? s.sessions
+          : [
+              {
+                id: newSessionId,
+                title: "新会话",
+                message_count: 0,
+                source: "memory",
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                last_message_at: new Date().toISOString(),
+              },
+              ...s.sessions,
+            ],
+      }));
+      localStorage.setItem("nini_last_session_id", newSessionId);
+      // 列表刷新与会话数据恢复放到后台，不阻塞交互
+      void get().fetchSessions();
+      void get().switchSession(newSessionId);
+      emitSessionsChanged({ reason: "create", sessionId: newSessionId, title: "新会话" });
     }
   },
 
   async switchSession(targetSessionId: string) {
     const result = await api.switchSession(targetSessionId);
-    if (!result.success) return;
+    if (!result.success) {
+      if (get().sessionId === targetSessionId) {
+        set({
+          ...SESSION_RESET_STATE,
+          sessionId: null,
+          messages: [],
+          datasets: [],
+          workspaceFiles: [],
+        });
+      }
+      return;
+    }
 
     const rawMessages = result.messages || [];
     const restored = api.buildSessionRestoreState(
       rawMessages as RawSessionMessage[],
     );
+
+    await preloadRenderersForMessages(restored.messages);
 
     set({
       sessionId: targetSessionId,
@@ -982,15 +1037,17 @@ export const useStore = create<AppState>((set, get) => ({
     });
     localStorage.setItem("nini_last_session_id", targetSessionId);
 
-    await get().fetchDatasets();
-    await get().fetchWorkspaceFiles();
-    await get().fetchCodeExecutions();
-    await get().fetchFolders();
+    await Promise.all([
+      get().fetchDatasets(),
+      get().fetchWorkspaceFiles(),
+      get().fetchCodeExecutions(),
+      get().fetchFolders(),
+    ]);
   },
 
   async deleteSession(targetSessionId: string) {
     const success = await api.deleteSession(targetSessionId);
-    if (!success) return;
+    if (!success) return false;
 
     const { sessionId } = get();
     await get().fetchSessions();
@@ -1003,6 +1060,8 @@ export const useStore = create<AppState>((set, get) => ({
         get().clearMessages();
       }
     }
+    emitSessionsChanged({ reason: "delete" });
+    return true;
   },
 
   async updateSessionTitle(targetSessionId: string, title: string) {
@@ -1014,6 +1073,7 @@ export const useStore = create<AppState>((set, get) => ({
         sess.id === targetSessionId ? { ...sess, title } : sess
       ),
     }));
+    emitSessionsChanged({ reason: "rename" });
   },
 
   // ============================================================================

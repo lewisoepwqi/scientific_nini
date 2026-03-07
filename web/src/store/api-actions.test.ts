@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { buildMessagesFromHistory, buildSessionRestoreState } from "./api-actions";
+import { buildMessagesFromHistory, buildSessionRestoreState, deleteSession } from "./api-actions";
 import type { RawSessionMessage } from "./types";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("buildMessagesFromHistory", () => {
   it("应基于 canonical 字段合并历史文本、reasoning 与工具结果", () => {
@@ -358,5 +362,16 @@ describe("buildMessagesFromHistory", () => {
     expect(messages[0]?.toolResult).toContain("→ 效应量");
     expect(messages[0]?.toolResult).toContain("文件名：请输入导出文件名");
     expect(messages[0]?.toolResult).toContain("→ gsd_research_report.md");
+  });
+});
+
+describe("deleteSession", () => {
+  it("后端返回 success=false 时不应视为删除成功", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: false }),
+    } as Response);
+
+    await expect(deleteSession("sess-1")).resolves.toBe(false);
   });
 });

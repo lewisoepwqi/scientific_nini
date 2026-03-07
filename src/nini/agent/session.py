@@ -7,6 +7,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -387,32 +388,124 @@ class SessionManager:
         sessions: dict[str, dict[str, Any]] = {}
 
         for sid, session in self._sessions.items():
+            updated_at = self._get_session_updated_at_in_memory(session)
+            created_at = self._get_session_created_at_in_memory(session)
             sessions[sid] = {
                 "id": sid,
                 "title": session.title,
                 "message_count": len(session.messages),
                 "source": "memory",
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "last_message_at": updated_at,
             }
 
         for sid in self._list_persisted_session_ids():
             if sid in sessions:
                 continue
-            mem = ConversationMemory(sid)
-            msg_count = len(mem.load_messages())
-            # 尝试从元数据文件读取标题
-            title = self._load_session_title(sid)
+            meta = self._load_session_meta(sid)
+            message_count = self._load_cached_message_count(sid, meta)
+            title = str(meta.get("title", "新会话") or "新会话")
+            updated_at = self._derive_session_updated_at_iso(sid, meta)
+            created_at = self._derive_session_created_at_iso(sid, meta, updated_at)
             sessions[sid] = {
                 "id": sid,
                 "title": title,
-                "message_count": msg_count,
+                "message_count": message_count,
                 "source": "disk",
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "last_message_at": updated_at,
             }
 
         return sorted(
             sessions.values(),
-            key=lambda item: item["id"],
+            key=lambda item: (str(item.get("updated_at") or ""), str(item["id"])),
             reverse=True,
         )
+
+    def _get_session_updated_at_in_memory(self, session: Session) -> str:
+        for message in reversed(session.messages):
+            raw_ts = message.get("_ts")
+            if isinstance(raw_ts, str) and raw_ts:
+                return raw_ts
+        return datetime.now(timezone.utc).isoformat()
+
+    def _get_session_created_at_in_memory(self, session: Session) -> str:
+        for message in session.messages:
+            raw_ts = message.get("_ts")
+            if isinstance(raw_ts, str) and raw_ts:
+                return raw_ts
+        return datetime.now(timezone.utc).isoformat()
+
+    def _memory_path(self, session_id: str) -> Path:
+        return settings.sessions_dir / session_id / "memory.jsonl"
+
+    def _load_cached_message_count(self, session_id: str, meta: dict[str, Any]) -> int:
+        memory_path = self._memory_path(session_id)
+        if not memory_path.exists():
+            return 0
+
+        current_mtime = memory_path.stat().st_mtime
+        cached_mtime = meta.get("_memory_mtime")
+        cached_count = meta.get("message_count")
+        if isinstance(cached_mtime, (float, int)) and isinstance(cached_count, int):
+            if abs(float(cached_mtime) - current_mtime) < 1e-6:
+                return cached_count
+
+        count = self._count_message_entries(memory_path)
+        updated_meta = dict(meta)
+        updated_meta["message_count"] = count
+        updated_meta["_memory_mtime"] = current_mtime
+        updated_meta["updated_at"] = datetime.fromtimestamp(
+            current_mtime, timezone.utc
+        ).isoformat()
+        meta.clear()
+        meta.update(updated_meta)
+        self._save_session_meta_fields(session_id, updated_meta)
+        return count
+
+    def _count_message_entries(self, memory_path: Path) -> int:
+        """按行快速统计带 role 字段的记录数，避免全量 canonicalize。"""
+        count = 0
+        try:
+            with memory_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    if '"role"' in line:
+                        count += 1
+        except Exception:
+            return 0
+        return count
+
+    def _derive_session_updated_at_iso(self, session_id: str, meta: dict[str, Any]) -> str:
+        raw_updated = meta.get("updated_at")
+        if isinstance(raw_updated, str) and raw_updated:
+            return raw_updated
+
+        memory_path = self._memory_path(session_id)
+        if memory_path.exists():
+            return datetime.fromtimestamp(memory_path.stat().st_mtime, timezone.utc).isoformat()
+
+        session_dir = settings.sessions_dir / session_id
+        if session_dir.exists():
+            return datetime.fromtimestamp(session_dir.stat().st_mtime, timezone.utc).isoformat()
+
+        return datetime.now(timezone.utc).isoformat()
+
+    def _derive_session_created_at_iso(
+        self,
+        session_id: str,
+        meta: dict[str, Any],
+        fallback_updated: str,
+    ) -> str:
+        raw_created = meta.get("created_at")
+        if isinstance(raw_created, str) and raw_created:
+            return raw_created
+
+        session_dir = settings.sessions_dir / session_id
+        if session_dir.exists():
+            return datetime.fromtimestamp(session_dir.stat().st_ctime, timezone.utc).isoformat()
+        return fallback_updated
 
     def save_session_title(self, session_id: str, title: str) -> None:
         """将会话标题持久化到元数据文件。"""
@@ -465,6 +558,10 @@ class SessionManager:
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         meta = self._load_session_meta(session_id)
         meta.update(fields)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        meta.setdefault("created_at", now_iso)
+        if "updated_at" not in fields:
+            meta["updated_at"] = now_iso
         meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
     def save_session_token_usage(self, session_id: str, token_usage: dict[str, Any]) -> None:

@@ -245,12 +245,21 @@ class AgentRunner:
             trial_status = await get_trial_status()
             if trial_status["expired"]:
                 # 试用已到期且无自有密钥 → 推送阻断事件后立即返回
-                yield AgentEvent(type=EventType.TRIAL_EXPIRED, data={"message": "试用已结束，请配置自己的 API 密钥继续使用"})
+                yield AgentEvent(
+                    type=EventType.TRIAL_EXPIRED,
+                    data={"message": "试用已结束，请配置自己的 API 密钥继续使用"},
+                )
                 return
             if not trial_status["activated"]:
                 # 首次发消息激活试用
                 await activate_trial()
-                yield AgentEvent(type=EventType.TRIAL_ACTIVATED, data={"days_remaining": trial_status["days_remaining"]})
+                yield AgentEvent(
+                    type=EventType.TRIAL_ACTIVATED,
+                    data={
+                        "fast_calls_remaining": trial_status.get("fast_calls_remaining"),
+                        "deep_calls_remaining": trial_status.get("deep_calls_remaining"),
+                    },
+                )
 
         max_iter = settings.agent_max_iterations
         should_stop = stop_event.is_set if stop_event else (lambda: False)
@@ -1215,9 +1224,7 @@ class AgentRunner:
                         result.get("metadata") if isinstance(result, dict) else None
                     )
                     event_metadata = (
-                        raw_result_metadata
-                        if isinstance(raw_result_metadata, dict)
-                        else None
+                        raw_result_metadata if isinstance(raw_result_metadata, dict) else None
                     )
                     yield eb.build_tool_result_event(
                         tool_call_id=tc_id,
@@ -1696,8 +1703,7 @@ class AgentRunner:
             }
 
         has_error = bool(
-            isinstance(result, dict)
-            and (result.get("error") or result.get("success") is False)
+            isinstance(result, dict) and (result.get("error") or result.get("success") is False)
         )
         result_str = serialize_tool_result_for_memory(result)
         session.add_tool_result(

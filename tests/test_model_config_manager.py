@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+import asyncio
 
 import pytest
 
+from nini.app import create_app
 from nini.config import settings
 from nini.config_manager import (
+    get_builtin_usage,
     get_effective_config,
     get_model_priorities,
     get_model_purpose_routes,
+    increment_builtin_usage,
     get_purpose_provider_routes,
     save_model_config,
     set_model_priorities,
@@ -18,6 +22,7 @@ from nini.config_manager import (
     set_purpose_provider_routes,
 )
 from nini.models.database import init_db
+from tests.client_utils import LocalASGIClient
 
 
 @pytest.fixture(autouse=True)
@@ -184,3 +189,152 @@ async def test_get_effective_config_supports_minimax_provider() -> None:
     assert cfg["api_key"] == "sk-minimax-test-12345678"
     assert cfg["model"] == "MiniMax-M2.5"
     assert cfg["base_url"] == "https://api.minimax.chat/v1"
+
+
+@pytest.mark.asyncio
+async def test_increment_builtin_usage_is_atomic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """并发递增时不应丢失计数。"""
+    usage_file = tmp_path / "builtin_usage.json"
+    monkeypatch.setattr("nini.config_manager._get_system_usage_path", lambda: usage_file)
+    await init_db()
+
+    await asyncio.gather(*(increment_builtin_usage("fast") for _ in range(20)))
+
+    usage = await get_builtin_usage()
+    assert usage["fast"] == 20
+
+
+def _configure_ollama_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    explicit_env_fields: set[str],
+) -> None:
+    """配置测试环境中的 Ollama 设置。"""
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    monkeypatch.setattr(settings, "ollama_base_url", "http://localhost:11434")
+    monkeypatch.setattr(settings, "ollama_model", "qwen2.5:7b")
+    monkeypatch.setattr(
+        "nini.api.models_routes._is_settings_field_explicit",
+        lambda field: field in explicit_env_fields,
+    )
+
+
+def _get_ollama_entry(client: LocalASGIClient) -> dict[str, object]:
+    """请求 `/api/models` 并返回 Ollama 条目。"""
+    response = client.get("/api/models")
+    assert response.status_code == 200
+    payload = response.json()
+    return next(item for item in payload["data"] if item["id"] == "ollama")
+
+
+@pytest.mark.parametrize(
+    ("explicit_env_fields", "expected_configured", "expected_source"),
+    [
+        (
+            {"ollama_base_url", "ollama_model"},
+            True,
+            "env",
+        ),
+        (
+            set(),
+            False,
+            "none",
+        ),
+    ],
+    ids=[
+        "env-explicit-configured",
+        "defaults-only-not-configured",
+    ],
+)
+def test_list_models_ollama_env_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    explicit_env_fields: set[str],
+    expected_configured: bool,
+    expected_source: str,
+) -> None:
+    """Ollama 的 env/default 配置状态应符合预期。"""
+    _configure_ollama_settings(
+        tmp_path,
+        monkeypatch,
+        explicit_env_fields=explicit_env_fields,
+    )
+
+    app = create_app()
+    client = LocalASGIClient(app)
+    try:
+        ollama = _get_ollama_entry(client)
+    finally:
+        client.close()
+
+    assert ollama["configured"] is expected_configured
+    assert ollama["config_source"] == expected_source
+
+
+@pytest.mark.parametrize(
+    ("explicit_env_fields", "expected_configured", "expected_source"),
+    [
+        (
+            set(),
+            False,
+            "none",
+        ),
+        (
+            {"ollama_base_url", "ollama_model"},
+            True,
+            "env",
+        ),
+    ],
+    ids=[
+        "delete-db-falls-back-to-none",
+        "delete-db-falls-back-to-env",
+    ],
+)
+def test_list_models_ollama_status_after_delete_db_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    explicit_env_fields: set[str],
+    expected_configured: bool,
+    expected_source: str,
+) -> None:
+    """删除 Ollama DB 配置后，应按 env 显式性回退状态。"""
+    _configure_ollama_settings(
+        tmp_path,
+        monkeypatch,
+        explicit_env_fields=explicit_env_fields,
+    )
+    asyncio.run(init_db())
+
+    app = create_app()
+    client = LocalASGIClient(app)
+    try:
+        save_response = client.post(
+            "/api/models/config",
+            json={
+                "provider_id": "ollama",
+                "model": "llama3.1:8b",
+                "base_url": "http://127.0.0.1:11434",
+                "is_active": True,
+            },
+        )
+        assert save_response.status_code == 200
+        assert save_response.json()["success"] is True
+
+        configured_ollama = _get_ollama_entry(client)
+        assert configured_ollama["configured"] is True
+        assert configured_ollama["config_source"] == "db"
+
+        delete_response = client.delete("/api/models/ollama/config")
+        assert delete_response.status_code == 200
+        assert delete_response.json()["success"] is True
+
+        final_ollama = _get_ollama_entry(client)
+    finally:
+        client.close()
+
+    assert final_ollama["configured"] is expected_configured
+    assert final_ollama["config_source"] == expected_source

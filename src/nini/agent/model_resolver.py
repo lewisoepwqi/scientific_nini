@@ -11,6 +11,7 @@ from contextlib import suppress
 from typing import Any, AsyncGenerator
 
 from nini.config import settings
+from nini.builtin_key_crypto import decrypt_key
 from nini.config_manager import BUILTIN_PROVIDER_ID
 
 from .providers import (
@@ -40,10 +41,10 @@ BUILTIN_MODE_TITLE = "title"
 # 按 provider_id 映射到廉价模型名称列表（优先级从高到低）
 # None 表示使用用户选择的主模型（如 Ollama）
 TITLE_MODEL_PREFERENCE: dict[str, list[str] | None] = {
-    "deepseek":  ["deepseek-chat"],
-    "zhipu":     ["glm-4-flash", "glm-4-air", "glm-4"],
+    "deepseek": ["deepseek-chat"],
+    "zhipu": ["glm-4-flash", "glm-4-air", "glm-4"],
     "dashscope": ["qwen-turbo", "qwen-plus"],
-    "ollama":    None,
+    "ollama": None,
 }
 
 # ---- 用途路由映射 ----
@@ -183,7 +184,6 @@ class ModelResolver:
         # 打包模式：从加密模块解密
         try:
             from nini._builtin_key import ENCRYPTED_BUILTIN_KEY  # type: ignore[import]
-            from scripts.encrypt_builtin_key import decrypt_key  # type: ignore[import]
 
             return decrypt_key(ENCRYPTED_BUILTIN_KEY) or None
         except ImportError:
@@ -314,6 +314,7 @@ class ModelResolver:
             mode_candidate = self._normalize_builtin_mode(purpose, route_model)
             if mode_candidate != BUILTIN_MODE_TITLE:
                 from nini.config_manager import is_builtin_exhausted
+
                 exhausted = await is_builtin_exhausted(mode_candidate)
             else:
                 exhausted = False
@@ -346,6 +347,7 @@ class ModelResolver:
             else:
                 if not self._injected_clients:
                     from nini.config_manager import is_builtin_exhausted
+
                     exhausted = await is_builtin_exhausted(BUILTIN_MODE_FAST)
                     if not exhausted:
                         builtin_client = self._get_builtin_client(purpose, BUILTIN_MODE_FAST)
@@ -365,6 +367,7 @@ class ModelResolver:
         # 在流式传输开始前计费（防止用户中止导致漏计）
         if builtin_mode_to_count is not None and clients:
             from nini.config_manager import increment_builtin_usage
+
             await increment_builtin_usage(builtin_mode_to_count)
 
         if not clients:
@@ -384,7 +387,9 @@ class ModelResolver:
                 "status": "success",
                 "error": None,
             }
-            first_failed = next((item for item in fallback_chain if item.get("status") == "failed"), None)
+            first_failed = next(
+                (item for item in fallback_chain if item.get("status") == "failed"), None
+            )
 
             try:
                 async for chunk in client.chat(
@@ -407,7 +412,9 @@ class ModelResolver:
                         model=model_name,
                         attempt=attempt,
                         fallback_applied=attempt > 1,
-                        fallback_from_provider_id=first_failed.get("provider_id") if first_failed else None,
+                        fallback_from_provider_id=(
+                            first_failed.get("provider_id") if first_failed else None
+                        ),
                         fallback_from_model=first_failed.get("model") if first_failed else None,
                         fallback_reason=first_failed.get("error") if first_failed else None,
                         fallback_chain=[*fallback_chain, success_entry],
@@ -483,8 +490,12 @@ class ModelResolver:
             if chunk.tool_calls:
                 tool_calls.extend(chunk.tool_calls)
             if chunk.usage:
-                usage["input_tokens"] = usage.get("input_tokens", 0) + chunk.usage.get("input_tokens", 0)
-                usage["output_tokens"] = usage.get("output_tokens", 0) + chunk.usage.get("output_tokens", 0)
+                usage["input_tokens"] = usage.get("input_tokens", 0) + chunk.usage.get(
+                    "input_tokens", 0
+                )
+                usage["output_tokens"] = usage.get("output_tokens", 0) + chunk.usage.get(
+                    "output_tokens", 0
+                )
             if chunk.finish_reason:
                 finish_reasons.append(chunk.finish_reason)
 
@@ -696,17 +707,14 @@ class ModelResolver:
     def get_preferred_providers_by_purpose(self) -> dict[str, str | None]:
         """获取各用途的首选提供商。"""
         return {
-            purpose: route.get("provider_id")
-            for purpose, route in self._purpose_routes.items()
+            purpose: route.get("provider_id") for purpose, route in self._purpose_routes.items()
         }
 
     def get_purpose_routes(self) -> dict[str, PurposeRoute]:
         """获取用途路由配置。"""
         return self._purpose_routes.copy()
 
-    def set_preferred_provider(
-        self, provider_id: str | None, purpose: str = "default"
-    ) -> None:
+    def set_preferred_provider(self, provider_id: str | None, purpose: str = "default") -> None:
         """设置指定用途的首选提供商。
 
         Args:
@@ -776,7 +784,9 @@ class ModelResolver:
         default_priorities = {client.provider_id: idx for idx, client in enumerate(self._clients)}
 
         def get_priority(client: BaseLLMClient) -> int:
-            return priorities.get(client.provider_id, default_priorities.get(client.provider_id, 999))
+            return priorities.get(
+                client.provider_id, default_priorities.get(client.provider_id, 999)
+            )
 
         self._clients.sort(key=get_priority)
         # 重新构建客户端映射
@@ -1036,7 +1046,9 @@ async def reload_model_resolver() -> None:
                 model=route.get("model"),
                 base_url=route.get("base_url"),
             )
-        elif configs.get(provider_id, {}).get("api_key") or configs.get(provider_id, {}).get("base_url"):
+        elif configs.get(provider_id, {}).get("api_key") or configs.get(provider_id, {}).get(
+            "base_url"
+        ):
             resolver.set_purpose_route(
                 purpose=purpose,
                 provider_id=provider_id,
@@ -1044,7 +1056,9 @@ async def reload_model_resolver() -> None:
                 base_url=route.get("base_url"),
             )
         else:
-            logger.debug("跳过过期的用途路由: purpose=%s provider=%s（供应商未配置）", purpose, provider_id)
+            logger.debug(
+                "跳过过期的用途路由: purpose=%s provider=%s（供应商未配置）", purpose, provider_id
+            )
 
 
 # Module-level singleton for convenient access
