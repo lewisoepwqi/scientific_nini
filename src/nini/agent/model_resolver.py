@@ -291,29 +291,29 @@ class ModelResolver:
                 clients = [builtin_client]
         elif route_provider:
             clients = self._get_ordered_clients(purpose)
-        elif self._active_provider_id:
-            # 用户已通过 UI 配置了外部供应商，使用该供应商
+        else:
+            # 无显式路由：优先系统内置 → 激活供应商 → 试用 → fallback
+            # 测试注入模式下跳过系统内置，直接使用注入的客户端
             if purpose == "title_generation":
+                # 标题生成走廉价模型偏好，不强制内置
                 title_client = self._get_title_client()
                 if title_client:
                     clients = [title_client]
             else:
-                active_client = self._get_single_active_client()
-                if active_client:
-                    clients = [active_client]
-        else:
-            # 未配置外部供应商：优先系统内置（快速模式），再试用，最后 fallback
-            # 测试注入模式下跳过系统内置，直接使用注入的客户端
-            builtin_client = (
-                None if self._injected_clients
-                else self._get_builtin_client(purpose, BUILTIN_MODE_FAST)
-            )
-            if builtin_client:
-                clients = [builtin_client]
-            elif self._trial_client:
-                clients = [self._trial_client]
-            else:
-                clients = self._get_ordered_clients(purpose)
+                builtin_client = (
+                    None if self._injected_clients
+                    else self._get_builtin_client(purpose, BUILTIN_MODE_FAST)
+                )
+                if builtin_client:
+                    clients = [builtin_client]
+                elif self._active_provider_id:
+                    active_client = self._get_single_active_client()
+                    if active_client:
+                        clients = [active_client]
+                elif self._trial_client:
+                    clients = [self._trial_client]
+                else:
+                    clients = self._get_ordered_clients(purpose)
 
         if not clients:
             raise RuntimeError("未配置 AI 服务，请先在「AI 设置」中配置供应商密钥")
@@ -593,9 +593,9 @@ class ModelResolver:
                 "purpose_preferred_providers": self.get_preferred_providers_by_purpose(),
             }
 
-        # 无显式路由且未配置外部供应商时，默认展示系统内置（不检查可用性，
-        # 由 chat() 方法在实际发送时再决定是否降级）
-        if route_provider is None and self._active_provider_id is None and not self._injected_clients:
+        # 无显式路由时，默认展示系统内置（不检查可用性；实际发送时由 chat() 降级）
+        # 注意：不依赖 _active_provider_id，已配置供应商不影响默认展示
+        if route_provider is None and not self._injected_clients:
             return {
                 "provider_id": BUILTIN_PROVIDER_ID,
                 "provider_name": BUILTIN_PROVIDER_NAME,
