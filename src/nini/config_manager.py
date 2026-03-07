@@ -12,7 +12,7 @@ import json
 import logging
 import os
 import platform
-from datetime import date, timezone, datetime
+from datetime import timezone, datetime
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -72,15 +72,13 @@ async def _ensure_app_settings_table(db: Any) -> None:
     某些测试场景不会触发应用 lifespan（不会先执行 init_db），
     这里做就地兜底，避免路由直接读写配置时报 no such table。
     """
-    await db.execute(
-        """
+    await db.execute("""
         CREATE TABLE IF NOT EXISTS app_settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
-        """
-    )
+        """)
 
 
 async def save_model_config(
@@ -602,61 +600,41 @@ _ACTIVE_PROVIDER_KEY = "active_provider"
 
 
 async def get_trial_status() -> dict[str, Any]:
-    """读取试用状态并计算剩余天数。
+    """读取试用状态并计算剩余调用次数（按次数限额）。
 
     Returns:
-        包含 activated、days_remaining、expired 的字典
+        包含 activated、expired、内置模型用量与剩余额度的字典
     """
-    from nini.config import settings
+    fast_limit = max(0, int(settings.builtin_fast_limit))
+    deep_limit = max(0, int(settings.builtin_deep_limit))
+    usage = await get_builtin_usage()
+    fast_remaining = max(0, fast_limit - usage["fast"]) if fast_limit > 0 else 10**9
+    deep_remaining = max(0, deep_limit - usage["deep"]) if deep_limit > 0 else 10**9
 
-    total_days = settings.trial_days
+    # 仅当两个模式都达到上限时才视为试用耗尽
+    expired = (fast_limit > 0 and fast_remaining <= 0) and (deep_limit > 0 and deep_remaining <= 0)
+
     db = await get_db()
     try:
         await _ensure_app_settings_table(db)
         cursor = await db.execute(
-            "SELECT key, value FROM app_settings WHERE key IN (?, ?)",
-            (_TRIAL_INSTALL_DATE_KEY, _TRIAL_ACTIVATED_KEY),
+            "SELECT key, value FROM app_settings WHERE key IN (?)", (_TRIAL_ACTIVATED_KEY,)
         )
         rows = await cursor.fetchall()
         row_map = {r[0]: r[1] for r in rows}
 
         activated = row_map.get(_TRIAL_ACTIVATED_KEY) == "true"
-        install_date_str = row_map.get(_TRIAL_INSTALL_DATE_KEY)
+        # 向后兼容：若历史数据未激活但已有调用次数，视为已激活。
+        if not activated and (usage["fast"] > 0 or usage["deep"] > 0):
+            activated = True
 
-        if not activated or not install_date_str:
-            usage = await get_builtin_usage()
-            return {
-                "activated": False,
-                "days_remaining": total_days,
-                "expired": False,
-                "fast_calls_used": usage["fast"],
-                "deep_calls_used": usage["deep"],
-            }
-
-        try:
-            install_date = date.fromisoformat(install_date_str)
-        except ValueError:
-            usage = await get_builtin_usage()
-            return {
-                "activated": False,
-                "days_remaining": total_days,
-                "expired": False,
-                "fast_calls_used": usage["fast"],
-                "deep_calls_used": usage["deep"],
-            }
-
-        today = datetime.now(timezone.utc).date()
-        elapsed = (today - install_date).days
-        days_remaining = max(0, total_days - elapsed)
-        expired = days_remaining <= 0
-
-        usage = await get_builtin_usage()
         return {
-            "activated": True,
-            "days_remaining": days_remaining,
+            "activated": activated,
             "expired": expired,
             "fast_calls_used": usage["fast"],
             "deep_calls_used": usage["deep"],
+            "fast_calls_remaining": fast_remaining if fast_limit > 0 else None,
+            "deep_calls_remaining": deep_remaining if deep_limit > 0 else None,
         }
     finally:
         await db.close()
@@ -878,9 +856,7 @@ async def set_active_provider(provider_id: str | None) -> None:
     try:
         await _ensure_app_settings_table(db)
         if provider_id is None:
-            await db.execute(
-                "DELETE FROM app_settings WHERE key = ?", (_ACTIVE_PROVIDER_KEY,)
-            )
+            await db.execute("DELETE FROM app_settings WHERE key = ?", (_ACTIVE_PROVIDER_KEY,))
         else:
             await db.execute(
                 """

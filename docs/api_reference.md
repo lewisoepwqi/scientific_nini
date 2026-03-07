@@ -21,7 +21,13 @@ Nini 对外分为两类接口：
 
 ### 2) `GET /api/sessions`
 
-获取会话列表（内存 + 磁盘持久化）。
+获取会话列表（内存 + 磁盘持久化），默认按最近活跃时间倒序。
+
+查询参数（可选）：
+
+- `q`：按标题关键词过滤（不区分大小写）
+- `limit`：返回条数上限（1-500）
+- `offset`：分页偏移量（>=0）
 
 响应示例：
 
@@ -29,8 +35,24 @@ Nini 对外分为两类接口：
 {
   "success": true,
   "data": [
-    {"id": "abc123", "message_count": 12, "source": "memory"},
-    {"id": "def456", "message_count": 4, "source": "disk"}
+    {
+      "id": "abc123",
+      "title": "回归分析",
+      "message_count": 12,
+      "source": "memory",
+      "created_at": "2026-03-05T01:23:45+00:00",
+      "updated_at": "2026-03-06T09:00:00+00:00",
+      "last_message_at": "2026-03-06T09:00:00+00:00"
+    },
+    {
+      "id": "def456",
+      "title": "新会话",
+      "message_count": 4,
+      "source": "disk",
+      "created_at": "2026-03-01T08:00:00+00:00",
+      "updated_at": "2026-03-02T12:00:00+00:00",
+      "last_message_at": "2026-03-02T12:00:00+00:00"
+    }
   ]
 }
 ```

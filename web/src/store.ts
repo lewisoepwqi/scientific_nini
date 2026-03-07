@@ -143,6 +143,7 @@ import { handleEvent } from "./store/event-handler";
 
 // ---- API 动作导入 ----
 import * as api from "./store/api-actions";
+import { emitSessionsChanged } from "./store/session-lifecycle";
 
 // ============================================================================
 // Store 状态接口
@@ -841,6 +842,7 @@ export const useStore = create<AppState>((set, get) => ({
   async fetchSessions() {
     const sessions = await api.fetchSessions();
     set({ sessions });
+    emitSessionsChanged({ reason: "refresh" });
   },
 
   async fetchDatasets() {
@@ -955,14 +957,50 @@ export const useStore = create<AppState>((set, get) => ({
   async createNewSession() {
     const newSessionId = await api.createNewSession();
     if (newSessionId) {
-      await get().fetchSessions();
-      await get().switchSession(newSessionId);
+      // 先乐观切到新会话，避免按钮长时间停留在“创建中”
+      set((s) => ({
+        sessionId: newSessionId,
+        ...SESSION_RESET_STATE,
+        messages: [],
+        datasets: [],
+        workspaceFiles: [],
+        sessions: s.sessions.some((item) => item.id === newSessionId)
+          ? s.sessions
+          : [
+              {
+                id: newSessionId,
+                title: "新会话",
+                message_count: 0,
+                source: "memory",
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                last_message_at: new Date().toISOString(),
+              },
+              ...s.sessions,
+            ],
+      }));
+      localStorage.setItem("nini_last_session_id", newSessionId);
+      // 列表刷新与会话数据恢复放到后台，不阻塞交互
+      void get().fetchSessions();
+      void get().switchSession(newSessionId);
+      emitSessionsChanged({ reason: "create", sessionId: newSessionId, title: "新会话" });
     }
   },
 
   async switchSession(targetSessionId: string) {
     const result = await api.switchSession(targetSessionId);
-    if (!result.success) return;
+    if (!result.success) {
+      if (get().sessionId === targetSessionId) {
+        set({
+          ...SESSION_RESET_STATE,
+          sessionId: null,
+          messages: [],
+          datasets: [],
+          workspaceFiles: [],
+        });
+      }
+      return;
+    }
 
     const rawMessages = result.messages || [];
     const restored = api.buildSessionRestoreState(
@@ -1003,6 +1041,7 @@ export const useStore = create<AppState>((set, get) => ({
         get().clearMessages();
       }
     }
+    emitSessionsChanged({ reason: "delete" });
   },
 
   async updateSessionTitle(targetSessionId: string, title: string) {
@@ -1014,6 +1053,7 @@ export const useStore = create<AppState>((set, get) => ({
         sess.id === targetSessionId ? { ...sess, title } : sess
       ),
     }));
+    emitSessionsChanged({ reason: "rename" });
   },
 
   // ============================================================================

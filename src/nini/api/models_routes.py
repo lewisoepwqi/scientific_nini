@@ -337,7 +337,7 @@ async def test_model_connection(provider_id: str):
 
 @router.get("/trial/status", response_model=APIResponse)
 async def get_trial_status():
-    """获取试用状态（剩余天数、是否到期、内置用量）。"""
+    """获取试用状态（按调用次数限额、是否耗尽、内置用量）。"""
     from nini.config import settings
     from nini.config_manager import get_active_provider_id, get_trial_status
 

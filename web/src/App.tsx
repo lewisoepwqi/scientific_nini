@@ -6,7 +6,6 @@ import { useStore } from "./store";
 import ChatPanel from "./components/ChatPanel";
 import SessionList from "./components/SessionList";
 import ModelConfigPanel from "./components/ModelConfigPanel";
-import TrialBanner from "./components/TrialBanner";
 import SkillCatalogPanel from "./components/SkillCatalogPanel";
 import CapabilityPanel from "./components/CapabilityPanel";
 import MarkdownSkillManagerPanel from "./components/MarkdownSkillManagerPanel";
@@ -313,9 +312,6 @@ export default function App() {
             </div>
           </div>
         </div>
-
-        {/* 试用状态横幅 */}
-        <TrialBanner onOpenSettings={() => setShowSettings(true)} />
 
         {/* 对话面板 */}
         <ChatPanel />

@@ -420,6 +420,9 @@ export interface SessionItem {
   title: string;
   message_count: number;
   source: "memory" | "disk";
+  created_at?: string;
+  updated_at?: string;
+  last_message_at?: string;
 }
 
 export interface ActiveModelInfo {

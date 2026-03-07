@@ -114,6 +114,51 @@ def test_list_sessions_includes_disk_sessions() -> None:
     assert found["message_count"] >= 1
 
 
+def test_list_sessions_sorts_by_updated_at_desc() -> None:
+    older = session_manager.create_session()
+    older.add_message("user", "old")
+    newer = session_manager.create_session()
+    newer.add_message("user", "new")
+
+    session_manager._sessions.clear()
+    session_manager._save_session_meta_fields(
+        older.id,
+        {"updated_at": "2026-01-01T00:00:00+00:00"},
+    )
+    session_manager._save_session_meta_fields(
+        newer.id,
+        {"updated_at": "2026-01-02T00:00:00+00:00"},
+    )
+
+    sessions = session_manager.list_sessions()
+    ids = [item["id"] for item in sessions]
+    assert ids.index(newer.id) < ids.index(older.id)
+
+
+def test_list_sessions_supports_query_and_pagination(client: LocalASGIClient) -> None:
+    alpha = session_manager.create_session()
+    alpha.title = "Alpha session"
+    session_manager.save_session_title(alpha.id, alpha.title)
+
+    beta = session_manager.create_session()
+    beta.title = "Beta analysis"
+    session_manager.save_session_title(beta.id, beta.title)
+
+    gamma = session_manager.create_session()
+    gamma.title = "Gamma notes"
+    session_manager.save_session_title(gamma.id, gamma.title)
+
+    resp = client.get("/api/sessions?q=beta&limit=1&offset=0")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["success"] is True
+    data = payload["data"]
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["id"] == beta.id
+    assert "updated_at" in data[0]
+
+
 # ---- GET /api/sessions/{session_id}/messages 端点测试 ----
 
 

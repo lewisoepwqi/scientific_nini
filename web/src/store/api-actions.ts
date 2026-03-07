@@ -45,9 +45,32 @@ import { normalizeToolResult } from "./tool-result";
 
 // ---- 会话相关 API ----
 
-export async function fetchSessions(): Promise<SessionItem[]> {
+export interface SessionQueryOptions {
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+function buildSessionQuery(options?: SessionQueryOptions): string {
+  if (!options) return "";
+  const params = new URLSearchParams();
+  if (typeof options.q === "string" && options.q.trim()) {
+    params.set("q", options.q.trim());
+  }
+  if (typeof options.limit === "number" && options.limit > 0) {
+    params.set("limit", String(options.limit));
+  }
+  if (typeof options.offset === "number" && options.offset >= 0) {
+    params.set("offset", String(options.offset));
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+export async function fetchSessions(options?: SessionQueryOptions): Promise<SessionItem[]> {
   try {
-    const resp = await fetch("/api/sessions");
+    const query = buildSessionQuery(options);
+    const resp = await fetch(`/api/sessions${query}`);
     const payload = await resp.json();
     if (payload.success && Array.isArray(payload.data)) {
       return payload.data as SessionItem[];

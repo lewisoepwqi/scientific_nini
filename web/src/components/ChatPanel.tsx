@@ -20,6 +20,8 @@ const compactTokenFormatter = new Intl.NumberFormat('en-US', {
 })
 
 export default function ChatPanel() {
+  const sessionId = useStore((s) => s.sessionId)
+  const createNewSession = useStore((s) => s.createNewSession)
   const messages = useStore((s) => s.messages)
   const isStreaming = useStore((s) => s.isStreaming)
   const pendingAskUserQuestion = useStore((s) => s.pendingAskUserQuestion)
@@ -32,6 +34,7 @@ export default function ChatPanel() {
   const [displayedTokenCount, setDisplayedTokenCount] = useState(() =>
     streamingMetrics.hasTokenUsage ? streamingMetrics.totalTokens : 0,
   )
+  const [creatingSession, setCreatingSession] = useState(false)
   const displayedTokenCountRef = useRef(
     streamingMetrics.hasTokenUsage ? streamingMetrics.totalTokens : 0,
   )
@@ -136,12 +139,24 @@ export default function ChatPanel() {
     retryLastTurn()
   }, [isStreaming, canRetry, retryLastTurn])
 
+  const handleCreateSession = useCallback(async () => {
+    if (creatingSession) return
+    setCreatingSession(true)
+    try {
+      await createNewSession()
+    } finally {
+      setCreatingSession(false)
+    }
+  }, [createNewSession, creatingSession])
+
+  const isNoSession = !sessionId
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* 消息列表 */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         <div className="max-w-3xl mx-auto">
-          {messages.length === 0 && (
+          {messages.length === 0 && !isNoSession && (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-gray-400">
               <div className="text-5xl mb-4">🔬</div>
               <h2 className="text-xl font-semibold text-gray-600 mb-2">Nini 科研分析助手</h2>
@@ -153,6 +168,25 @@ export default function ChatPanel() {
             </div>
           )}
 
+          {isNoSession && (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-gray-400">
+              <div className="text-5xl mb-4">🔬</div>
+              <h2 className="text-xl font-semibold text-gray-600 mb-2">Nini 科研分析助手</h2>
+              <p className="text-sm text-center max-w-md">
+                上传数据文件，然后用自然语言描述你的分析需求。
+                <br />
+                例如："帮我对 treatment 组和 control 组做 t 检验"
+              </p>
+              <button
+                type="button"
+                onClick={() => { void handleCreateSession() }}
+                disabled={creatingSession}
+                className="mt-5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+              >
+                {creatingSession ? '新建中...' : '新建会话'}
+              </button>
+            </div>
+          )}
           {/* 所有消息按原始顺序展示 */}
           {messages.map((msg) => {
             const isUser = msg.role === 'user'
@@ -220,13 +254,13 @@ export default function ChatPanel() {
       </div>
 
       {/* 输入区 */}
-      {pendingAskUserQuestion && (
+      {!isNoSession && pendingAskUserQuestion && (
         <AskUserQuestionPanel
           pending={pendingAskUserQuestion}
           onSubmit={submitAskUserQuestionAnswers}
         />
       )}
-      <ChatInputArea />
+      {!isNoSession && <ChatInputArea />}
     </div>
   )
 }
