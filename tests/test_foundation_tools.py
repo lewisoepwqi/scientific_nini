@@ -1040,3 +1040,37 @@ def test_code_session_run_script_auto_uses_single_dataset_when_dataset_name_miss
     )
     assert run_result["success"] is True, run_result
     assert run_result["data"]["result"] == 12
+
+
+def test_code_session_rejects_file_io_when_dataset_name_provided() -> None:
+    registry = create_default_registry()
+    session = Session()
+    session.datasets["all.xlsx"] = pd.DataFrame({"x": [1, 2, 3]})
+
+    create_result = asyncio.run(
+        registry.execute(
+            "code_session",
+            session=session,
+            operation="create_script",
+            script_id="script_dataset_guard",
+            language="python",
+            content="import pandas as pd\ndf = pd.read_excel('all.xlsx')\nresult = len(df)\n",
+        )
+    )
+    assert create_result["success"] is True, create_result
+
+    run_result = asyncio.run(
+        registry.execute(
+            "code_session",
+            session=session,
+            operation="run_script",
+            script_id="script_dataset_guard",
+            dataset_name="all.xlsx",
+            intent="验证防呆",
+        )
+    )
+
+    assert run_result["success"] is False, run_result
+    assert run_result["error_code"] == "CODE_SESSION_DATASET_IO_CONFLICT"
+    assert "直接使用沙箱注入的变量 df" in run_result["message"]
+    assert "删除文件读取语句并直接使用注入的 df" in run_result["data"]["recovery_hint"]

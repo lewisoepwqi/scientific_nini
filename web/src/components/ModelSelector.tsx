@@ -170,8 +170,8 @@ export default function ModelSelector({
         setBuiltinUsage({
           fast_calls_used: d.fast_calls_used ?? 0,
           deep_calls_used: d.deep_calls_used ?? 0,
-          fast_limit: d.fast_limit ?? 50,
-          deep_limit: d.deep_limit ?? 20,
+          fast_limit: d.fast_limit ?? 100,
+          deep_limit: d.deep_limit ?? 50,
         });
       }
     } catch {

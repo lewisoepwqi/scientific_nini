@@ -138,6 +138,16 @@ class EditFile(Skill):
                 return SkillResult(
                     success=False,
                     message=f"文件路径无效或超出工作区范围: {file_path}",
+                    data={
+                        "error_code": "WORKSPACE_PATH_OUT_OF_SCOPE",
+                        "file_path": str(file_path),
+                        "recovery_hint": (
+                            "仅支持当前会话 workspace 下的相对路径。"
+                            "请先调用 workspace_session(operation='list') 获取可用 path，"
+                            "不要传仓库绝对路径、系统路径或 .nini/skills 路径。"
+                        ),
+                    },
+                    metadata={"error_code": "WORKSPACE_PATH_OUT_OF_SCOPE"},
                 )
 
             # 根据操作类型执行相应逻辑

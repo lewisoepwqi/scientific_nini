@@ -100,8 +100,8 @@ class Settings(BaseSettings):
     trial_days: int = 14                  # 试用有效天数
 
     # ---- 系统内置用量限额 ----
-    builtin_fast_limit: int = 50   # 快速模式最大调用次数
-    builtin_deep_limit: int = 20   # 深度模式最大调用次数
+    builtin_fast_limit: int = 100  # 快速模式最大调用次数
+    builtin_deep_limit: int = 50   # 深度模式最大调用次数
 
     # ---- LLM ----
     openai_api_key: Optional[str] = None

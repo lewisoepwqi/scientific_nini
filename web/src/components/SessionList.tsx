@@ -128,6 +128,11 @@ export default function SessionList({ onClose }: Props) {
           ]
         })
       }
+      if (event.reason === 'rename' && event.sessionId && event.title) {
+        setPagedSessions((prev) => prev.map((item) => (
+          item.id === event.sessionId ? { ...item, title: event.title ?? item.title } : item
+        )))
+      }
       offsetRef.current = 0
       setHasMore(true)
       void loadPage(true)

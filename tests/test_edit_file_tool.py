@@ -97,6 +97,8 @@ async def test_absolute_path_rejected(skill: EditFile, mock_session: MagicMock, 
     result = await skill.execute(mock_session, file_path="/etc/passwd", operation="read")
     assert not result.success
     assert "无效" in result.message or "超出工作区" in result.message
+    assert result.data["error_code"] == "WORKSPACE_PATH_OUT_OF_SCOPE"
+    assert "workspace_session(operation='list')" in result.data["recovery_hint"]
 
 
 async def test_workspace_prefix_bypass_rejected(

@@ -592,6 +592,60 @@ async def set_purpose_provider_routes(
     return {purpose: merged[purpose].get("provider_id") for purpose in MODEL_PURPOSES}
 
 
+def _is_settings_field_explicit(field_name: str) -> bool:
+    """判断 settings 字段是否由环境变量或 .env 显式提供。"""
+    try:
+        return field_name in settings.model_fields_set
+    except Exception:
+        return False
+
+
+async def list_user_configured_provider_ids() -> list[str]:
+    """返回用户已配置的提供商列表。
+
+    说明：
+    - 仅统计用户自行配置的供应商，不包含系统内置试用模型。
+    - API Key 型供应商要求 DB 或环境中存在密钥。
+    - Ollama 仅在用户显式配置 DB 或环境字段时才计入，避免把默认值误判为已配置。
+    """
+    db_configs = await load_all_model_configs()
+    configured: list[str] = []
+
+    env_key_fields = {
+        "openai": "openai_api_key",
+        "anthropic": "anthropic_api_key",
+        "moonshot": "moonshot_api_key",
+        "kimi_coding": "kimi_coding_api_key",
+        "zhipu": "zhipu_api_key",
+        "deepseek": "deepseek_api_key",
+        "dashscope": "dashscope_api_key",
+        "minimax": "minimax_api_key",
+    }
+
+    for provider_id in PROVIDER_PRIORITY_ORDER:
+        db_cfg = db_configs.get(provider_id, {})
+        if provider_id == "ollama":
+            db_base = str(db_cfg.get("base_url") or "").strip()
+            db_model = str(db_cfg.get("model") or "").strip()
+            has_env_base = _is_settings_field_explicit("ollama_base_url") and bool(
+                str(settings.ollama_base_url or "").strip()
+            )
+            has_env_model = _is_settings_field_explicit("ollama_model") and bool(
+                str(settings.ollama_model or "").strip()
+            )
+            if db_base or db_model or has_env_base or has_env_model:
+                configured.append(provider_id)
+            continue
+
+        env_key_field = env_key_fields.get(provider_id)
+        env_key = getattr(settings, env_key_field, None) if env_key_field else None
+        db_key = db_cfg.get("api_key")
+        if str(db_key or "").strip() or str(env_key or "").strip():
+            configured.append(provider_id)
+
+    return configured
+
+
 # ---- 试用模式 ----
 
 _TRIAL_INSTALL_DATE_KEY = "trial_install_date"

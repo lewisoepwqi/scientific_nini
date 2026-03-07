@@ -171,6 +171,69 @@ class ModelResolver:
             else settings.builtin_chat_fast_model
         )
 
+    async def _get_user_configured_provider_ids(self) -> list[str]:
+        """获取用户已配置且可参与路由的提供商列表。"""
+        if self._injected_clients:
+            return [
+                client.provider_id
+                for client in self._clients
+                if client.provider_id and client.is_available()
+            ]
+
+        from nini.config_manager import list_user_configured_provider_ids
+
+        return await list_user_configured_provider_ids()
+
+    async def _build_builtin_quota_error(self, exhausted_mode: str) -> RuntimeError:
+        """根据内置模式耗尽情况构造分场景提示。"""
+        from nini.config_manager import is_builtin_exhausted
+
+        configured_provider_ids = await self._get_user_configured_provider_ids()
+        has_user_provider = len(configured_provider_ids) > 0
+
+        normalized = exhausted_mode if exhausted_mode == BUILTIN_MODE_DEEP else BUILTIN_MODE_FAST
+        exhausted_label = "深度" if normalized == BUILTIN_MODE_DEEP else "快速"
+        switch_mode = BUILTIN_MODE_FAST if normalized == BUILTIN_MODE_DEEP else BUILTIN_MODE_DEEP
+        switch_label = "快速" if switch_mode == BUILTIN_MODE_FAST else "深度"
+        switch_available = not await is_builtin_exhausted(switch_mode)
+
+        if switch_available:
+            if has_user_provider:
+                return RuntimeError(
+                    f"系统内置「{exhausted_label}」试用额度已用完，请切换到「{switch_label}」或你已配置的模型继续使用。"
+                )
+            return RuntimeError(
+                f"系统内置「{exhausted_label}」试用额度已用完，请切换到「{switch_label}」继续使用。"
+            )
+
+        if has_user_provider:
+            return RuntimeError("系统内置试用额度已全部用完，请切换到你已配置的模型继续使用。")
+
+        return RuntimeError("系统内置试用额度已全部用完，请在「AI 设置」中配置自己的模型服务商继续使用。")
+
+    def _get_specific_client_for_route(
+        self,
+        provider_id: str,
+        *,
+        model: str | None = None,
+        base_url: str | None = None,
+    ) -> BaseLLMClient | None:
+        """按指定 provider 精确获取单个客户端，不启用自动降级。"""
+        built_client = None
+        if model or base_url:
+            built_client = self._build_client_for_provider(
+                provider_id,
+                model=model,
+                base_url=base_url,
+            )
+        if built_client and built_client.is_available():
+            return built_client
+
+        client = self._client_map.get(provider_id)
+        if client and client.is_available():
+            return client
+        return None
+
     @staticmethod
     def _load_builtin_api_key() -> str | None:
         """加载内置 API Key。
@@ -202,6 +265,14 @@ class ModelResolver:
         if client.is_available():
             return client
         return None
+
+    def _should_use_builtin_fast_for_trial_title(self, purpose: str) -> bool:
+        """判断试用模式的标题生成是否应改走内置快速模型。"""
+        return (
+            purpose == "title_generation"
+            and not self._active_provider_id
+            and not self._injected_clients
+        )
 
     def _get_priority_order(self, purpose: str = "default") -> list[str]:
         """获取指定用途的提供商优先级顺序。"""
@@ -304,6 +375,9 @@ class ModelResolver:
         )
         route_provider = route.get("provider_id")
         route_model = route.get("model")
+        route_base_url = route.get("base_url")
+        configured_provider_ids = await self._get_user_configured_provider_ids()
+        allow_user_fallback = len(configured_provider_ids) > 1
 
         # 待计费的内置模式（title 不计入限额）
         builtin_mode_to_count: str | None = None
@@ -311,7 +385,14 @@ class ModelResolver:
         clients: list[BaseLLMClient] = []
         if route_provider == BUILTIN_PROVIDER_ID:
             # 显式路由到内置供应商：检查限额
-            mode_candidate = self._normalize_builtin_mode(purpose, route_model)
+            use_trial_fast_title = self._should_use_builtin_fast_for_trial_title(purpose)
+            builtin_purpose = "default" if use_trial_fast_title else purpose
+            builtin_mode = BUILTIN_MODE_FAST if use_trial_fast_title else route_model
+            mode_candidate = (
+                BUILTIN_MODE_FAST
+                if use_trial_fast_title
+                else self._normalize_builtin_mode(purpose, route_model)
+            )
             if mode_candidate != BUILTIN_MODE_TITLE:
                 from nini.config_manager import is_builtin_exhausted
 
@@ -319,31 +400,45 @@ class ModelResolver:
             else:
                 exhausted = False
             if not exhausted:
-                builtin_client = self._get_builtin_client(purpose, route_model)
+                builtin_client = self._get_builtin_client(builtin_purpose, builtin_mode)
                 if builtin_client:
                     if mode_candidate != BUILTIN_MODE_TITLE:
                         builtin_mode_to_count = mode_candidate
                     clients = [builtin_client]
-            # 耗尽时：不填充 clients，后续降级逻辑接管
             if not clients:
-                if self._active_provider_id:
-                    active_client = self._get_single_active_client()
-                    if active_client:
-                        clients = [active_client]
-                elif self._trial_client:
-                    clients = [self._trial_client]
-                else:
-                    clients = self._get_ordered_clients(purpose)
+                raise await self._build_builtin_quota_error(mode_candidate)
         elif route_provider:
-            clients = self._get_ordered_clients(purpose)
+            if allow_user_fallback:
+                clients = self._get_ordered_clients(purpose)
+            else:
+                selected_client = self._get_specific_client_for_route(
+                    route_provider,
+                    model=route_model,
+                    base_url=route_base_url,
+                )
+                if selected_client:
+                    clients = [selected_client]
         else:
-            # 无显式路由：优先系统内置 → 激活供应商 → 试用 → fallback
+            # 无显式路由：默认走系统内置；仅在用户明确配置多个服务商时才允许降级。
             # 测试注入模式下跳过系统内置，直接使用注入的客户端
             if purpose == "title_generation":
-                # 标题生成走廉价模型偏好，不强制内置，且不计入限额
-                title_client = self._get_title_client()
-                if title_client:
-                    clients = [title_client]
+                # 试用模式下标题生成复用快速模式模型，避免依赖用户私有 AI 配置。
+                if self._should_use_builtin_fast_for_trial_title(purpose):
+                    from nini.config_manager import is_builtin_exhausted
+
+                    exhausted = await is_builtin_exhausted(BUILTIN_MODE_FAST)
+                    if not exhausted:
+                        builtin_client = self._get_builtin_client("default", BUILTIN_MODE_FAST)
+                        if builtin_client:
+                            builtin_mode_to_count = BUILTIN_MODE_FAST
+                            clients = [builtin_client]
+                    else:
+                        raise await self._build_builtin_quota_error(BUILTIN_MODE_FAST)
+                if not clients:
+                    # 已配置供应商时，标题生成仍优先走廉价模型偏好。
+                    title_client = self._get_title_client()
+                    if title_client:
+                        clients = [title_client]
             else:
                 if not self._injected_clients:
                     from nini.config_manager import is_builtin_exhausted
@@ -354,6 +449,8 @@ class ModelResolver:
                         if builtin_client:
                             builtin_mode_to_count = BUILTIN_MODE_FAST
                             clients = [builtin_client]
+                    else:
+                        raise await self._build_builtin_quota_error(BUILTIN_MODE_FAST)
                 if not clients:
                     if self._active_provider_id:
                         active_client = self._get_single_active_client()
@@ -361,7 +458,7 @@ class ModelResolver:
                             clients = [active_client]
                     elif self._trial_client:
                         clients = [self._trial_client]
-                    else:
+                    elif allow_user_fallback:
                         clients = self._get_ordered_clients(purpose)
 
         # 在流式传输开始前计费（防止用户中止导致漏计）
