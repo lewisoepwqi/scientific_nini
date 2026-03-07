@@ -12,10 +12,13 @@ import {
   ChevronRight,
   ExternalLink,
   Loader2,
+  Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import { useStore } from "../store";
-import type { ModelProviderInfo } from "../store/types";
+import type { ActiveModelInfo, ModelProviderInfo } from "../store/types";
+import { deleteProviderConfig } from "../store/api-actions";
 
 // 已知模型的友好名称映射：{ provider_id: { model_id: [显示名, 描述] } }
 const MODEL_DISPLAY_NAMES: Record<string, Record<string, [string, string]>> = {
@@ -55,6 +58,7 @@ interface Props {
 
 export default function ModelConfigPanel({ open, onClose }: Props) {
   const modelProviders = useStore((s) => s.modelProviders);
+  const activeModel = useStore((s) => s.activeModel);
   const fetchModelProviders = useStore((s) => s.fetchModelProviders);
   const fetchActiveModel = useStore((s) => s.fetchActiveModel);
 
@@ -124,6 +128,7 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
         <div className="flex-1 overflow-y-auto">
           {screen === "status" && (
             <StatusScreen
+              activeModel={activeModel}
               activeProvider={activeProvider}
               providers={modelProviders}
               onSwitch={() => setScreen("select-provider")}
@@ -150,77 +155,124 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
 // ---- 屏 1：当前状态 ----
 
 function StatusScreen({
+  activeModel,
   activeProvider,
   providers,
   onSwitch,
 }: {
+  activeModel: ActiveModelInfo | null;
   activeProvider: ModelProviderInfo | null;
   providers: ModelProviderInfo[];
   onSwitch: () => void;
 }) {
-  if (!activeProvider) {
+  const isBuiltin = activeModel?.provider_id === "builtin";
+
+  // 系统内置模式
+  if (isBuiltin) {
     return (
       <div className="px-5 py-6 space-y-4">
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          <div className="font-medium mb-1">当前使用试用模式</div>
-          <div className="text-xs text-amber-600">
-            配置自己的密钥，不消耗试用额度，可无限使用
+        <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles size={16} className="text-blue-500" />
+            <span className="text-sm font-medium text-gray-800">系统内置</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+              当前使用
+            </span>
+          </div>
+          <div className="text-xs text-gray-500">
+            模式：<span className="text-gray-700">{activeModel?.model ?? "快速"}</span>
           </div>
         </div>
         <button
           onClick={onSwitch}
-          className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-sm font-medium"
+          className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl border hover:bg-gray-50 transition-colors text-sm text-gray-600"
         >
-          配置自己的密钥
-          <ChevronRight size={16} />
+          配置自己的密钥 / 切换服务商
+          <ChevronRight size={16} className="text-gray-400" />
         </button>
         <div className="text-xs text-gray-400 text-center">
-          支持 DeepSeek · 智谱 GLM · 通义千问 · 本地 Ollama
+          {providers.filter((p) => p.configured).length > 0
+            ? `共 ${providers.filter((p) => p.configured).length} 个自有供应商已配置`
+            : "支持 DeepSeek · 智谱 GLM · 通义千问 · 本地 Ollama"}
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="px-5 py-6 space-y-4">
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <CheckCircle2 size={16} className="text-emerald-500" />
-          <span className="text-sm font-medium text-gray-800">
-            {activeProvider.name}
-          </span>
+  // 外部供应商已激活
+  if (activeProvider) {
+    return (
+      <div className="px-5 py-6 space-y-4">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <CheckCircle2 size={16} className="text-emerald-500" />
+            <span className="text-sm font-medium text-gray-800">
+              {activeProvider.name}
+            </span>
+          </div>
+          <div className="text-xs text-gray-500 space-y-1">
+            {activeProvider.id !== "ollama" ? (
+              <div>
+                密钥：
+                <span className="font-mono text-gray-700">
+                  {activeProvider.api_key_hint || "已配置"}
+                </span>
+              </div>
+            ) : (
+              <div>
+                服务地址：
+                <span className="font-mono text-gray-700">
+                  {activeProvider.base_url || "http://localhost:11434"}
+                </span>
+              </div>
+            )}
+            <div>
+              当前模型：
+              <span className="text-gray-700">
+                {activeProvider.id !== "ollama"
+                  ? getModelDisplayName(
+                      activeProvider.id,
+                      activeProvider.current_model
+                    )[0]
+                  : activeProvider.current_model || "自动检测"}
+              </span>
+            </div>
+          </div>
         </div>
-        <div className="text-xs text-gray-500 space-y-1">
-          <div>
-            密钥：
-            <span className="font-mono text-gray-700">
-              {activeProvider.api_key_hint || "已配置"}
-            </span>
-          </div>
-          <div>
-            当前模型：
-            <span className="text-gray-700">
-              {activeProvider.id !== "ollama"
-                ? getModelDisplayName(
-                    activeProvider.id,
-                    activeProvider.current_model
-                  )[0]
-                : activeProvider.current_model || "自动检测"}
-            </span>
-          </div>
+
+        <button
+          onClick={onSwitch}
+          className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl border hover:bg-gray-50 transition-colors text-sm text-gray-600"
+        >
+          切换服务商
+          <ChevronRight size={16} className="text-gray-400" />
+        </button>
+
+        <div className="text-xs text-gray-400 text-center">
+          共 {providers.filter((p) => p.configured).length} 个供应商已配置
         </div>
       </div>
+    );
+  }
 
+  // 试用模式
+  return (
+    <div className="px-5 py-6 space-y-4">
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        <div className="font-medium mb-1">当前使用试用模式</div>
+        <div className="text-xs text-amber-600">
+          配置自己的密钥，不消耗试用额度，可无限使用
+        </div>
+      </div>
       <button
         onClick={onSwitch}
-        className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl border hover:bg-gray-50 transition-colors text-sm text-gray-600"
+        className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-sm font-medium"
       >
-        切换服务商
-        <ChevronRight size={16} className="text-gray-400" />
+        配置自己的密钥
+        <ChevronRight size={16} />
       </button>
-
       <div className="text-xs text-gray-400 text-center">
-        共 {providers.filter((p) => p.configured).length} 个供应商已配置
+        支持 DeepSeek · 智谱 GLM · 通义千问 · 本地 Ollama
       </div>
     </div>
   );
@@ -246,25 +298,20 @@ function SelectProviderScreen({
             key={p.id}
             onClick={() => onSelect(p)}
             className={`flex flex-col items-start p-4 rounded-xl border text-left hover:border-blue-300 hover:bg-blue-50/50 transition-colors ${
-              p.is_active
-                ? "border-blue-300 bg-blue-50"
-                : p.configured
-                  ? "border-emerald-200 bg-emerald-50/40"
-                  : "border-gray-200 bg-gray-50/60"
+              p.configured
+                ? "border-emerald-200 bg-emerald-50/40"
+                : "border-gray-200 bg-gray-50/60"
             }`}
           >
             <div className="flex items-center justify-between w-full mb-1">
               <span className="text-sm font-medium text-gray-800">{p.name}</span>
-              {p.is_active && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                  使用中
-                </span>
-              )}
-              {!p.is_active && p.configured && (
+              {p.configured && (
                 <CheckCircle2 size={13} className="text-emerald-500" />
               )}
             </div>
-            <span className="text-[11px] text-gray-400">{p.description}</span>
+            <span className="text-[11px] text-gray-400">
+              {p.configured && p.current_model ? p.current_model : p.description}
+            </span>
           </button>
         ))}
       </div>
@@ -300,6 +347,8 @@ function ConfigureScreen({
     success: boolean;
     message: string;
   } | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   // Ollama：初始自动检测
   const [ollamaDetected, setOllamaDetected] = useState(false);
 
@@ -406,6 +455,26 @@ function ConfigureScreen({
 
   const handleFetchModels = () => {
     void fetchModels();
+  };
+
+  const handleRemove = async () => {
+    if (!confirmRemove) {
+      setConfirmRemove(true);
+      return;
+    }
+    setRemoving(true);
+    try {
+      const ok = await deleteProviderConfig(provider.id);
+      if (ok) {
+        window.dispatchEvent(new Event("nini:model-config-updated"));
+        onSaved();
+      } else {
+        setSaveError("移除配置失败，请重试");
+      }
+    } finally {
+      setRemoving(false);
+      setConfirmRemove(false);
+    }
   };
 
   const displayModels = availableModels.length > 0 ? availableModels : [];
@@ -607,6 +676,31 @@ function ConfigureScreen({
           }`}
         >
           {testResult.message}
+        </div>
+      )}
+
+      {provider.configured && (
+        <div className="pt-2 border-t border-gray-100">
+          <button
+            onClick={() => void handleRemove()}
+            disabled={removing || saving}
+            className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 disabled:opacity-50 transition-colors"
+          >
+            {removing ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <Trash2 size={12} />
+            )}
+            {confirmRemove ? "再次点击确认移除" : "移除此供应商配置"}
+          </button>
+          {confirmRemove && (
+            <button
+              onClick={() => setConfirmRemove(false)}
+              className="mt-1 text-xs text-gray-400 hover:text-gray-600"
+            >
+              取消
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -683,6 +683,24 @@ async def get_active_provider_id() -> str | None:
         await db.close()
 
 
+async def remove_model_config(provider: str) -> None:
+    """从数据库删除指定供应商的配置行。
+
+    Args:
+        provider: 供应商 ID
+    """
+    if provider not in VALID_PROVIDERS:
+        raise ValueError(f"不支持的模型提供商: {provider}")
+
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM model_configs WHERE provider = ?", (provider,))
+        await db.commit()
+        logger.info("已删除供应商配置: provider=%s", provider)
+    finally:
+        await db.close()
+
+
 async def set_active_provider(provider_id: str | None) -> None:
     """设置唯一激活供应商（单一激活约束）。
 

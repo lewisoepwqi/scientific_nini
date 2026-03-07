@@ -926,6 +926,22 @@ export async function setChatRoute(
   }
 }
 
+export async function deleteProviderConfig(providerId: string): Promise<boolean> {
+  try {
+    const resp = await fetch(`/api/models/${providerId}/config`, {
+      method: "DELETE",
+    });
+    const payload = await resp.json();
+    if (!payload.success) {
+      console.error("删除供应商配置失败:", payload.error);
+    }
+    return payload.success === true;
+  } catch (e) {
+    console.error("删除供应商配置失败:", e);
+    return false;
+  }
+}
+
 export async function fetchModelProviders(): Promise<ModelProviderInfo[]> {
   try {
     const resp = await fetch("/api/models");
