@@ -51,6 +51,13 @@ function getModelDisplayName(
 
 type Screen = "status" | "select-provider" | "configure";
 
+interface BuiltinUsage {
+  fast_calls_used: number;
+  deep_calls_used: number;
+  fast_limit: number;
+  deep_limit: number;
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -65,14 +72,34 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
   const [screen, setScreen] = useState<Screen>("status");
   const [selectedProvider, setSelectedProvider] =
     useState<ModelProviderInfo | null>(null);
+  const [builtinUsage, setBuiltinUsage] = useState<BuiltinUsage | null>(null);
+
+  const fetchBuiltinUsage = useCallback(async () => {
+    try {
+      const resp = await fetch("/api/trial/status");
+      const data = await resp.json();
+      if (data.success && data.data) {
+        const d = data.data as Record<string, number>;
+        setBuiltinUsage({
+          fast_calls_used: d.fast_calls_used ?? 0,
+          deep_calls_used: d.deep_calls_used ?? 0,
+          fast_limit: d.fast_limit ?? 50,
+          deep_limit: d.deep_limit ?? 20,
+        });
+      }
+    } catch {
+      // 静默失败
+    }
+  }, []);
 
   useEffect(() => {
     if (open) {
       void fetchModelProviders();
       void fetchActiveModel();
+      void fetchBuiltinUsage();
       setScreen("status");
     }
-  }, [open, fetchModelProviders, fetchActiveModel]);
+  }, [open, fetchModelProviders, fetchActiveModel, fetchBuiltinUsage]);
 
   const activeProvider = modelProviders.find((p) => p.is_active) ?? null;
 
@@ -131,6 +158,7 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
               activeModel={activeModel}
               activeProvider={activeProvider}
               providers={modelProviders}
+              builtinUsage={builtinUsage}
               onSwitch={() => setScreen("select-provider")}
             />
           )}
@@ -154,34 +182,122 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
 
 // ---- 屏 1：当前状态 ----
 
+function UsageBar({
+  label,
+  used,
+  limit,
+}: {
+  label: string;
+  used: number;
+  limit: number;
+}) {
+  const pct = Math.min(100, Math.round((used / limit) * 100));
+  const isWarning = pct >= 80;
+  const isExhausted = used >= limit;
+  return (
+    <div className="space-y-0.5">
+      <div className="flex justify-between text-[11px]">
+        <span className={isExhausted ? "text-red-500 font-medium" : "text-gray-500"}>
+          {label}
+        </span>
+        <span
+          className={
+            isExhausted
+              ? "text-red-500 font-medium"
+              : isWarning
+              ? "text-amber-600"
+              : "text-gray-400"
+          }
+        >
+          {used} / {limit}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${
+            isExhausted
+              ? "bg-red-400"
+              : isWarning
+              ? "bg-amber-400"
+              : "bg-blue-400"
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function StatusScreen({
   activeModel,
   activeProvider,
   providers,
+  builtinUsage,
   onSwitch,
 }: {
   activeModel: ActiveModelInfo | null;
   activeProvider: ModelProviderInfo | null;
   providers: ModelProviderInfo[];
+  builtinUsage: BuiltinUsage | null;
   onSwitch: () => void;
 }) {
   const isBuiltin = activeModel?.provider_id === "builtin";
 
   // 系统内置模式
   if (isBuiltin) {
+    const fastExhausted =
+      builtinUsage && builtinUsage.fast_calls_used >= builtinUsage.fast_limit;
+    const deepExhausted =
+      builtinUsage && builtinUsage.deep_calls_used >= builtinUsage.deep_limit;
+    const anyExhausted = fastExhausted || deepExhausted;
+
     return (
       <div className="px-5 py-6 space-y-4">
-        <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Sparkles size={16} className="text-blue-500" />
+        <div
+          className={`rounded-xl border p-4 ${
+            anyExhausted
+              ? "border-amber-200 bg-amber-50/60"
+              : "border-blue-200 bg-blue-50/60"
+          }`}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles
+              size={16}
+              className={anyExhausted ? "text-amber-500" : "text-blue-500"}
+            />
             <span className="text-sm font-medium text-gray-800">系统内置</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                anyExhausted
+                  ? "bg-amber-100 text-amber-700"
+                  : "bg-blue-100 text-blue-700"
+              }`}
+            >
               当前使用
             </span>
           </div>
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-gray-500 mb-3">
             模式：<span className="text-gray-700">{activeModel?.model ?? "快速"}</span>
           </div>
+          {builtinUsage && (
+            <div className="space-y-2">
+              <UsageBar
+                label="快速模式"
+                used={builtinUsage.fast_calls_used}
+                limit={builtinUsage.fast_limit}
+              />
+              <UsageBar
+                label="深度模式"
+                used={builtinUsage.deep_calls_used}
+                limit={builtinUsage.deep_limit}
+              />
+              {anyExhausted && (
+                <p className="text-[11px] text-amber-700 pt-1">
+                  部分模式已用完试用额度，配置自己的密钥可无限使用
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <button
           onClick={onSwitch}

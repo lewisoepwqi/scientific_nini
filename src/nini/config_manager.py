@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import platform
 from datetime import date, timezone, datetime
+from pathlib import Path
 from typing import Any, TypedDict
 
 from nini.config import settings
@@ -621,19 +624,40 @@ async def get_trial_status() -> dict[str, Any]:
         install_date_str = row_map.get(_TRIAL_INSTALL_DATE_KEY)
 
         if not activated or not install_date_str:
-            return {"activated": False, "days_remaining": total_days, "expired": False}
+            usage = await get_builtin_usage()
+            return {
+                "activated": False,
+                "days_remaining": total_days,
+                "expired": False,
+                "fast_calls_used": usage["fast"],
+                "deep_calls_used": usage["deep"],
+            }
 
         try:
             install_date = date.fromisoformat(install_date_str)
         except ValueError:
-            return {"activated": False, "days_remaining": total_days, "expired": False}
+            usage = await get_builtin_usage()
+            return {
+                "activated": False,
+                "days_remaining": total_days,
+                "expired": False,
+                "fast_calls_used": usage["fast"],
+                "deep_calls_used": usage["deep"],
+            }
 
         today = datetime.now(timezone.utc).date()
         elapsed = (today - install_date).days
         days_remaining = max(0, total_days - elapsed)
         expired = days_remaining <= 0
 
-        return {"activated": True, "days_remaining": days_remaining, "expired": expired}
+        usage = await get_builtin_usage()
+        return {
+            "activated": True,
+            "days_remaining": days_remaining,
+            "expired": expired,
+            "fast_calls_used": usage["fast"],
+            "deep_calls_used": usage["deep"],
+        }
     finally:
         await db.close()
 
@@ -699,6 +723,146 @@ async def remove_model_config(provider: str) -> None:
         logger.info("已删除供应商配置: provider=%s", provider)
     finally:
         await db.close()
+
+
+# ---- 内置用量追踪 ----
+
+_BUILTIN_FAST_USAGE_KEY = "builtin_fast_calls_used"
+_BUILTIN_DEEP_USAGE_KEY = "builtin_deep_calls_used"
+
+
+def _get_system_usage_path() -> Path:
+    """获取系统级内置用量文件路径（跨重装持久化）。
+
+    - macOS/Linux: ~/.config/nini/builtin_usage.json
+    - Windows:     %APPDATA%\\nini\\builtin_usage.json
+    """
+    if platform.system() == "Windows":
+        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return base / "nini" / "builtin_usage.json"
+
+
+def _read_system_usage() -> dict[str, int]:
+    """从系统文件读取内置用量计数。"""
+    path = _get_system_usage_path()
+    try:
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return {
+                "fast": max(0, int(data.get("fast", 0))),
+                "deep": max(0, int(data.get("deep", 0))),
+            }
+    except Exception as e:
+        logger.warning("读取系统用量文件失败: %s", e)
+    return {"fast": 0, "deep": 0}
+
+
+def _write_system_usage(fast: int, deep: int) -> None:
+    """将内置用量计数写入系统文件。"""
+    path = _get_system_usage_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"fast": fast, "deep": deep}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        logger.warning("写入系统用量文件失败: %s", e)
+
+
+async def _read_db_usage() -> dict[str, int]:
+    """从数据库读取内置用量计数。"""
+    db = await get_db()
+    try:
+        await _ensure_app_settings_table(db)
+        cursor = await db.execute(
+            "SELECT key, value FROM app_settings WHERE key IN (?, ?)",
+            (_BUILTIN_FAST_USAGE_KEY, _BUILTIN_DEEP_USAGE_KEY),
+        )
+        rows = await cursor.fetchall()
+        row_map = {r[0]: r[1] for r in rows}
+        return {
+            "fast": max(0, int(row_map.get(_BUILTIN_FAST_USAGE_KEY, 0) or 0)),
+            "deep": max(0, int(row_map.get(_BUILTIN_DEEP_USAGE_KEY, 0) or 0)),
+        }
+    except Exception as e:
+        logger.warning("读取数据库用量失败: %s", e)
+        return {"fast": 0, "deep": 0}
+    finally:
+        await db.close()
+
+
+async def get_builtin_usage() -> dict[str, int]:
+    """获取内置用量（取 DB 与系统文件的最大值，防止 DB 重置绕过限额）。
+
+    Returns:
+        {"fast": <已用快速次数>, "deep": <已用深度次数>}
+    """
+    db_usage = await _read_db_usage()
+    sys_usage = _read_system_usage()
+    return {
+        "fast": max(db_usage["fast"], sys_usage["fast"]),
+        "deep": max(db_usage["deep"], sys_usage["deep"]),
+    }
+
+
+async def increment_builtin_usage(mode: str) -> None:
+    """递增内置用量计数（同时写入 DB 和系统文件）。
+
+    Args:
+        mode: "fast" 或 "deep"
+    """
+    if mode not in ("fast", "deep"):
+        return
+
+    usage = await get_builtin_usage()
+    usage[mode] += 1
+
+    # 写入数据库
+    key = _BUILTIN_FAST_USAGE_KEY if mode == "fast" else _BUILTIN_DEEP_USAGE_KEY
+    db = await get_db()
+    try:
+        await _ensure_app_settings_table(db)
+        await db.execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            """,
+            (key, str(usage[mode])),
+        )
+        await db.commit()
+    except Exception as e:
+        logger.warning("写入数据库用量失败: %s", e)
+    finally:
+        await db.close()
+
+    # 写入系统文件
+    _write_system_usage(fast=usage["fast"], deep=usage["deep"])
+    logger.debug("内置用量更新: mode=%s, 累计=%d", mode, usage[mode])
+
+
+async def is_builtin_exhausted(mode: str) -> bool:
+    """检查指定模式的内置用量是否已耗尽。
+
+    Args:
+        mode: "fast" 或 "deep"
+
+    Returns:
+        True 表示已耗尽（不可再用内置模型）
+    """
+    from nini.config import settings
+
+    if mode not in ("fast", "deep"):
+        return False
+
+    usage = await get_builtin_usage()
+    limit = settings.builtin_fast_limit if mode == "fast" else settings.builtin_deep_limit
+    return usage[mode] >= limit
 
 
 async def set_active_provider(provider_id: str | None) -> None:

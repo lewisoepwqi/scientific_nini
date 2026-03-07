@@ -333,13 +333,17 @@ async def test_model_connection(provider_id: str):
 
 @router.get("/trial/status", response_model=APIResponse)
 async def get_trial_status():
-    """获取试用状态（剩余天数、是否到期）。"""
+    """获取试用状态（剩余天数、是否到期、内置用量）。"""
+    from nini.config import settings
     from nini.config_manager import get_active_provider_id, get_trial_status
 
     status = await get_trial_status()
     # 若已配置自有密钥，前端不需要显示横幅
     active_provider = await get_active_provider_id()
     status["has_own_key"] = active_provider is not None
+    # 附加限额上限，方便前端展示进度条
+    status["fast_limit"] = settings.builtin_fast_limit
+    status["deep_limit"] = settings.builtin_deep_limit
     return APIResponse(success=True, data=status)
 
 
