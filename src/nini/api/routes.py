@@ -567,6 +567,24 @@ def _resolve_file_path(session_id: str, file_path: str) -> Path | None:
     if legacy_path.exists() and legacy_path.is_file():
         return legacy_path
 
+    # 6. 模糊匹配（兼容文件名含控制字符如 \n 的历史数据）
+    # 前端构建 URL 时可能丢弃控制字符，此处规范化后重新匹配
+    def _normalize_name(name: str) -> str:
+        return re.sub(r"[\x00-\x1f]", "", name)
+
+    normalized_filename = _normalize_name(filename)
+    for search_dir in (
+        workspace_dir / "artifacts",
+        workspace_dir / "notes",
+        workspace_dir / "uploads",
+        session_dir / "artifacts",
+    ):
+        if not search_dir.is_dir():
+            continue
+        for entry in search_dir.iterdir():
+            if entry.is_file() and _normalize_name(entry.name) == normalized_filename:
+                return entry
+
     return None
 
 

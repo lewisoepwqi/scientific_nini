@@ -127,6 +127,27 @@ class WorkspaceManager:
             raise FileNotFoundError(relative_path)
         return target
 
+    def _resolve_fuzzy_filename(self, relative_path: str) -> Path | None:
+        """忽略文件名中的控制字符，在父目录中模糊查找实际文件。
+
+        用于兼容历史数据中含 \\n 等控制字符的文件名：前端构建 URL 时会丢弃控制字符，
+        导致路径与磁盘文件名不匹配；此方法将两者的文件名都规范化后再做比较。
+        """
+        raw = relative_path.strip().replace("\\", "/")
+        rel = Path(raw)
+        parent_dir = (self.workspace_dir / rel.parent).resolve()
+        if not parent_dir.is_dir():
+            return None
+        # 规范化：去除所有控制字符（ASCII 0-31）
+        def _normalize(name: str) -> str:
+            return re.sub(r"[\x00-\x1f]", "", name)
+
+        want = _normalize(rel.name)
+        for entry in parent_dir.iterdir():
+            if _normalize(entry.name) == want:
+                return entry
+        return None
+
     def build_artifact_download_url(self, filename: str) -> str:
         """构建产物下载 URL（文件名统一做单次编码）。"""
         try:
@@ -1634,7 +1655,13 @@ class WorkspaceManager:
 
     def get_file_preview_by_path(self, relative_path: str) -> dict[str, Any]:
         """按路径获取文件预览。"""
-        target = self.resolve_workspace_path(relative_path, allow_missing=False)
+        try:
+            target = self.resolve_workspace_path(relative_path, allow_missing=False)
+        except FileNotFoundError:
+            # 文件名可能含换行符等控制字符，尝试在父目录模糊匹配
+            target = self._resolve_fuzzy_filename(relative_path)
+            if target is None:
+                raise FileNotFoundError(relative_path)
         if target.is_dir():
             raise IsADirectoryError(relative_path)
 
