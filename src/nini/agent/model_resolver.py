@@ -170,10 +170,31 @@ class ModelResolver:
             else settings.builtin_chat_fast_model
         )
 
+    @staticmethod
+    def _load_builtin_api_key() -> str | None:
+        """加载内置 API Key。
+
+        优先读取 settings.builtin_dashscope_api_key（.env 开发模式），
+        若为空则尝试从构建时生成的 _builtin_key.py 解密读取。
+        """
+        # 开发模式：直接使用 .env 中配置的明文 Key
+        if settings.builtin_dashscope_api_key:
+            return settings.builtin_dashscope_api_key
+        # 打包模式：从加密模块解密
+        try:
+            from nini._builtin_key import ENCRYPTED_BUILTIN_KEY  # type: ignore[import]
+            from scripts.encrypt_builtin_key import decrypt_key  # type: ignore[import]
+
+            return decrypt_key(ENCRYPTED_BUILTIN_KEY) or None
+        except ImportError:
+            pass
+        # 最终回退：用用户自己的 dashscope key
+        return settings.dashscope_api_key
+
     def _get_builtin_client(self, purpose: str, mode: str | None) -> BaseLLMClient | None:
         """构造系统内置客户端。"""
         model_name = self._get_builtin_model_name(purpose, mode)
-        api_key = settings.builtin_dashscope_api_key or settings.dashscope_api_key
+        api_key = self._load_builtin_api_key()
         base_url = settings.builtin_dashscope_base_url
         if not model_name:
             return None
@@ -284,29 +305,27 @@ class ModelResolver:
         route_provider = route.get("provider_id")
         route_model = route.get("model")
 
+        # 待计费的内置模式（title 不计入限额）
+        builtin_mode_to_count: str | None = None
+
         clients: list[BaseLLMClient] = []
         if route_provider == BUILTIN_PROVIDER_ID:
-            builtin_client = self._get_builtin_client(purpose, route_model)
-            if builtin_client:
-                clients = [builtin_client]
-        elif route_provider:
-            clients = self._get_ordered_clients(purpose)
-        else:
-            # 无显式路由：优先系统内置 → 激活供应商 → 试用 → fallback
-            # 测试注入模式下跳过系统内置，直接使用注入的客户端
-            if purpose == "title_generation":
-                # 标题生成走廉价模型偏好，不强制内置
-                title_client = self._get_title_client()
-                if title_client:
-                    clients = [title_client]
+            # 显式路由到内置供应商：检查限额
+            mode_candidate = self._normalize_builtin_mode(purpose, route_model)
+            if mode_candidate != BUILTIN_MODE_TITLE:
+                from nini.config_manager import is_builtin_exhausted
+                exhausted = await is_builtin_exhausted(mode_candidate)
             else:
-                builtin_client = (
-                    None if self._injected_clients
-                    else self._get_builtin_client(purpose, BUILTIN_MODE_FAST)
-                )
+                exhausted = False
+            if not exhausted:
+                builtin_client = self._get_builtin_client(purpose, route_model)
                 if builtin_client:
+                    if mode_candidate != BUILTIN_MODE_TITLE:
+                        builtin_mode_to_count = mode_candidate
                     clients = [builtin_client]
-                elif self._active_provider_id:
+            # 耗尽时：不填充 clients，后续降级逻辑接管
+            if not clients:
+                if self._active_provider_id:
                     active_client = self._get_single_active_client()
                     if active_client:
                         clients = [active_client]
@@ -314,6 +333,39 @@ class ModelResolver:
                     clients = [self._trial_client]
                 else:
                     clients = self._get_ordered_clients(purpose)
+        elif route_provider:
+            clients = self._get_ordered_clients(purpose)
+        else:
+            # 无显式路由：优先系统内置 → 激活供应商 → 试用 → fallback
+            # 测试注入模式下跳过系统内置，直接使用注入的客户端
+            if purpose == "title_generation":
+                # 标题生成走廉价模型偏好，不强制内置，且不计入限额
+                title_client = self._get_title_client()
+                if title_client:
+                    clients = [title_client]
+            else:
+                if not self._injected_clients:
+                    from nini.config_manager import is_builtin_exhausted
+                    exhausted = await is_builtin_exhausted(BUILTIN_MODE_FAST)
+                    if not exhausted:
+                        builtin_client = self._get_builtin_client(purpose, BUILTIN_MODE_FAST)
+                        if builtin_client:
+                            builtin_mode_to_count = BUILTIN_MODE_FAST
+                            clients = [builtin_client]
+                if not clients:
+                    if self._active_provider_id:
+                        active_client = self._get_single_active_client()
+                        if active_client:
+                            clients = [active_client]
+                    elif self._trial_client:
+                        clients = [self._trial_client]
+                    else:
+                        clients = self._get_ordered_clients(purpose)
+
+        # 在流式传输开始前计费（防止用户中止导致漏计）
+        if builtin_mode_to_count is not None and clients:
+            from nini.config_manager import increment_builtin_usage
+            await increment_builtin_usage(builtin_mode_to_count)
 
         if not clients:
             raise RuntimeError("未配置 AI 服务，请先在「AI 设置」中配置供应商密钥")

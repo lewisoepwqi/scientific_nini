@@ -92,16 +92,20 @@ async def list_models():
         effective_base_url = db_cfg.get("base_url") or ""
 
         if pid == "ollama":
-            env_base = settings.ollama_base_url
-            configured = bool((effective_base_url or env_base) and effective_model)
+            # Ollama 无 API Key 概念，"已配置"须依赖 DB 中的显式记录。
+            # settings.ollama_base_url / ollama_model 均有非空默认值，不能作为
+            # 判断依据，否则删除配置后 configured 仍为 True。
+            db_base = db_cfg.get("base_url") or ""
+            db_model = db_cfg.get("model") or ""
+            configured = bool(db_base or db_model)
+            config_source = "db" if configured else "none"
         else:
             configured = bool(effective_key)
-
-        config_source = (
-            "db"
-            if db_cfg.get("api_key") or db_cfg.get("model")
-            else ("env" if (env_key or env_model) else "none")
-        )
+            config_source = (
+                "db"
+                if db_cfg.get("api_key") or db_cfg.get("model")
+                else ("env" if env_key else "none")
+            )
 
         result.append(
             {
@@ -333,13 +337,17 @@ async def test_model_connection(provider_id: str):
 
 @router.get("/trial/status", response_model=APIResponse)
 async def get_trial_status():
-    """获取试用状态（剩余天数、是否到期）。"""
+    """获取试用状态（剩余天数、是否到期、内置用量）。"""
+    from nini.config import settings
     from nini.config_manager import get_active_provider_id, get_trial_status
 
     status = await get_trial_status()
     # 若已配置自有密钥，前端不需要显示横幅
     active_provider = await get_active_provider_id()
     status["has_own_key"] = active_provider is not None
+    # 附加限额上限，方便前端展示进度条
+    status["fast_limit"] = settings.builtin_fast_limit
+    status["deep_limit"] = settings.builtin_deep_limit
     return APIResponse(success=True, data=status)
 
 

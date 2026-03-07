@@ -24,6 +24,13 @@ interface ProviderModelsState {
   error: boolean;
 }
 
+interface BuiltinUsage {
+  fast_calls_used: number;
+  deep_calls_used: number;
+  fast_limit: number;
+  deep_limit: number;
+}
+
 const BUILTIN_PROVIDER_ID = "builtin";
 const BUILTIN_PROVIDER_NAME = "系统内置";
 const BUILTIN_MODE_OPTIONS = [
@@ -53,6 +60,7 @@ export default function ModelSelector({
   const setChatRoute = useStore((s) => s.setChatRoute);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [builtinUsage, setBuiltinUsage] = useState<BuiltinUsage | null>(null);
   const [switchingKey, setSwitchingKey] = useState<string | null>(null);
   const [expandedProviderId, setExpandedProviderId] = useState<string | null>(null);
   const [providerModels, setProviderModels] = useState<
@@ -153,12 +161,31 @@ export default function ModelSelector({
     );
   };
 
+  const fetchBuiltinUsage = async () => {
+    try {
+      const resp = await fetch("/api/trial/status");
+      const data = await resp.json();
+      if (data.success && data.data) {
+        const d = data.data as Record<string, number>;
+        setBuiltinUsage({
+          fast_calls_used: d.fast_calls_used ?? 0,
+          deep_calls_used: d.deep_calls_used ?? 0,
+          fast_limit: d.fast_limit ?? 50,
+          deep_limit: d.deep_limit ?? 20,
+        });
+      }
+    } catch {
+      // 静默失败
+    }
+  };
+
   const handleToggleMenu = () => {
     const nextOpen = !menuOpen;
     setMenuOpen(nextOpen);
     if (nextOpen) {
       void fetchModelProviders();
       void fetchActiveModel();
+      void fetchBuiltinUsage();
     }
   };
 
@@ -372,6 +399,21 @@ export default function ModelSelector({
                       selectedProviderId === BUILTIN_PROVIDER_ID &&
                       selectedModel === option.label;
 
+                    // 剩余次数计算
+                    const used = builtinUsage
+                      ? option.id === "fast"
+                        ? builtinUsage.fast_calls_used
+                        : builtinUsage.deep_calls_used
+                      : null;
+                    const limit = builtinUsage
+                      ? option.id === "fast"
+                        ? builtinUsage.fast_limit
+                        : builtinUsage.deep_limit
+                      : null;
+                    const remaining = used !== null && limit !== null ? limit - used : null;
+                    const isExhausted = remaining !== null && remaining <= 0;
+                    const isLow = remaining !== null && remaining > 0 && remaining <= Math.ceil((limit ?? 0) * 0.2);
+
                     return (
                       <button
                         key={optionKey}
@@ -413,7 +455,20 @@ export default function ModelSelector({
                             {option.description}
                           </div>
                         </div>
-                        {isSelected ? <Check size={14} /> : null}
+                        {remaining !== null && (
+                          <span
+                            className={`flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                              isExhausted
+                                ? "bg-red-100 text-red-600"
+                                : isLow
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-slate-100 text-slate-500"
+                            }`}
+                          >
+                            {isExhausted ? "已用完" : `剩余 ${remaining}`}
+                          </span>
+                        )}
+                        {isSelected && remaining === null ? <Check size={14} /> : null}
                       </button>
                     );
                   })}
