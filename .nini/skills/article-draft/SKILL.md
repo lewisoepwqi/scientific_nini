@@ -10,11 +10,14 @@ typical-use-cases:
   - 生成可供人工润色的结构化论文草稿
 allowed-tools:
   - ask_user_question
+  - data_summary
   - dataset_catalog
+  - list_workspace_files
   - stat_test
   - stat_model
   - stat_interpret
   - chart_session
+  - edit_file
   - workspace_session
   - report_session
   - code_session
@@ -31,6 +34,7 @@ allowed-tools:
 ## 执行前提
 
 在调用本技能前，用户应已完成：
+- 兼容旧工作流时，`data_summary` 可视为 `dataset_catalog` 的等价入口
 - 数据加载（`dataset_catalog`）
 - 至少一项统计分析（如 `stat_test`、`stat_model`、`code_session`、`chart_session` 等）
 - 可选：图表生成（`chart_session` 或复杂场景下的 `code_session`）
@@ -80,6 +84,8 @@ allowed-tools:
 
 使用 `workspace_session`（operation=write）创建文件，写入文章标题和结构大纲：
 
+兼容旧工作流描述时，可将 `edit_file` 视为 `workspace_session` 的文件写入/追加能力封装。
+
 然后使用 `workspace_session`（operation=append）依次追加各章节内容：
 
 **摘要（Abstract）**
@@ -111,6 +117,7 @@ allowed-tools:
 ```
 
 - 图表 URL 获取方式：调用 `workspace_session(operation="list")` 获取图表的 `download_url`
+- 若沿用旧提示词，`list_workspace_files` 对应当前 `workspace_session(operation="list")`
 - 优先使用工具返回的实际 `download_url`；不要通过 `code_session` 枚举工作区目录
 - 支持的图表格式：PNG、JPEG、SVG 等图片格式可直接渲染；HTML 格式使用链接 `[查看交互图表](url)`
 - 正文中引用图表时使用「如图 1 所示」格式

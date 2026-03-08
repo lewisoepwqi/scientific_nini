@@ -19,6 +19,7 @@ class ReportSessionSkill(Skill):
     """管理报告会话资源。"""
 
     _EMBEDDED_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")
+    _EMBEDDED_CHART_SUFFIXES = (".plotly.json",)
 
     @property
     def name(self) -> str:
@@ -395,8 +396,14 @@ class ReportSessionSkill(Skill):
 
         normalized_name = name.lower()
         normalized_url = url.lower()
-        return normalized_name.endswith(self._EMBEDDED_IMAGE_SUFFIXES) or normalized_url.endswith(
+        if normalized_name.endswith(self._EMBEDDED_IMAGE_SUFFIXES) or normalized_url.endswith(
             self._EMBEDDED_IMAGE_SUFFIXES
+        ):
+            return True
+
+        return resource_type == ResourceType.CHART.value and (
+            normalized_name.endswith(self._EMBEDDED_CHART_SUFFIXES)
+            or normalized_url.endswith(self._EMBEDDED_CHART_SUFFIXES)
         )
 
     def _update_latest_report_handles(self, session: Session, record: ReportSessionRecord) -> None:
