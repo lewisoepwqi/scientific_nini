@@ -7,6 +7,7 @@
 生成目录：dist/nini/（onedir 模式），配合 NSIS 制作安装包。
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -46,6 +47,22 @@ _candidate_datas = [
     (ROOT / "skills", "skills", False),
 ]
 
+_optional_dir_envs = [
+    ("NINI_OLLAMA_BUNDLE_DIR", "runtime/ollama"),
+    ("NINI_OLLAMA_MODELS_DIR", "runtime/ollama-models"),
+]
+
+for env_name, dest in _optional_dir_envs:
+    raw_path = os.environ.get(env_name, "").strip()
+    if not raw_path:
+        continue
+    src = Path(raw_path).expanduser().resolve()
+    if src.exists():
+        _candidate_datas.append((src, dest, False))
+        print(f"  INFO: Including optional bundle from {env_name}: {src}")
+    else:
+        print(f"  WARN: {env_name} points to missing path, skipping: {src}")
+
 # 添加 choreographer Chrome 到打包数据
 if _choreo_chrome_dir is not None:
     _candidate_datas.append(
@@ -65,7 +82,10 @@ for src, dest, required in _candidate_datas:
         print(f"  WARN: Optional data directory not found, skipping: {src}")
 
 a = Analysis(
-    [str(ROOT / "src" / "nini" / "__main__.py")],
+    [
+        str(ROOT / "src" / "nini" / "__main__.py"),
+        str(ROOT / "src" / "nini" / "windows_launcher.py"),
+    ],
     pathex=[str(ROOT / "src")],
     binaries=[],
     datas=_datas,
@@ -146,12 +166,19 @@ a.datas += Tree(str(ROOT / "src" / "nini"), prefix="nini", excludes=["__pycache_
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-exe = EXE(
+
+def _select_script(toc, script_stem):
+    for entry in toc:
+        if entry[0] == script_stem:
+            return [entry]
+    raise KeyError(f"Script entry not found in Analysis.scripts: {script_stem}")
+
+cli_exe = EXE(
     pyz,
-    a.scripts,
+    _select_script(a.scripts, "__main__"),
     [],
     exclude_binaries=True,  # onedir 模式
-    name="nini",
+    name="nini-cli",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -165,8 +192,28 @@ exe = EXE(
     icon=str(ROOT / "packaging" / "nini.ico") if (ROOT / "packaging" / "nini.ico").exists() else None,
 )
 
+launcher_exe = EXE(
+    pyz,
+    _select_script(a.scripts, "windows_launcher"),
+    [],
+    exclude_binaries=True,
+    name="nini",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,  # GUI 启动器，双击不弹终端
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=str(ROOT / "packaging" / "nini.ico") if (ROOT / "packaging" / "nini.ico").exists() else None,
+)
+
 coll = COLLECT(
-    exe,
+    cli_exe,
+    launcher_exe,
     a.binaries,
     a.zipfiles,
     a.datas,

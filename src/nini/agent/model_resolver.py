@@ -247,7 +247,9 @@ class ModelResolver:
         if has_user_provider:
             return RuntimeError("系统内置试用额度已全部用完，请切换到你已配置的模型继续使用。")
 
-        return RuntimeError("系统内置试用额度已全部用完，请在「AI 设置」中配置自己的模型服务商继续使用。")
+        return RuntimeError(
+            "系统内置试用额度已全部用完，请在「AI 设置」中配置自己的模型服务商继续使用。"
+        )
 
     def _get_specific_client_for_route(
         self,
@@ -273,6 +275,19 @@ class ModelResolver:
         return None
 
     @staticmethod
+    def _load_encrypted_packaged_secret(name: str) -> str | None:
+        """从打包阶段生成的模块中读取并解密密钥。"""
+        try:
+            from nini import _builtin_key  # type: ignore[import]
+
+            value = getattr(_builtin_key, name, None)
+            if isinstance(value, str) and value:
+                return decrypt_key(value) or None
+        except ImportError:
+            pass
+        return None
+
+    @staticmethod
     def _load_builtin_api_key() -> str | None:
         """加载内置 API Key。
 
@@ -283,14 +298,18 @@ class ModelResolver:
         if settings.builtin_dashscope_api_key:
             return settings.builtin_dashscope_api_key
         # 打包模式：从加密模块解密
-        try:
-            from nini._builtin_key import ENCRYPTED_BUILTIN_KEY  # type: ignore[import]
-
-            return decrypt_key(ENCRYPTED_BUILTIN_KEY) or None
-        except ImportError:
-            pass
+        packaged_key = ModelResolver._load_encrypted_packaged_secret("ENCRYPTED_BUILTIN_KEY")
+        if packaged_key:
+            return packaged_key
         # 最终回退：用用户自己的 dashscope key
         return settings.dashscope_api_key
+
+    @staticmethod
+    def _load_trial_api_key() -> str | None:
+        """加载试用模式 API Key。"""
+        if settings.trial_api_key:
+            return settings.trial_api_key
+        return ModelResolver._load_encrypted_packaged_secret("ENCRYPTED_TRIAL_KEY")
 
     def _get_builtin_client(self, purpose: str, mode: str | None) -> BaseLLMClient | None:
         """构造系统内置客户端。"""
@@ -1316,7 +1335,7 @@ async def reload_model_resolver() -> None:
     priorities = await get_model_priorities()
     purpose_routes = await get_model_purpose_routes()
     active_provider_id = await get_active_provider_id()
-    trial_api_key = settings.trial_api_key or None
+    trial_api_key = ModelResolver._load_trial_api_key()
 
     resolver = get_model_resolver()
     resolver.reload_clients(
