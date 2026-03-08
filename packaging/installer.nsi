@@ -14,10 +14,13 @@
 
 ; ---- 基本信息 ----
 !define PRODUCT_NAME "Nini"
+!ifndef PRODUCT_VERSION
 !define PRODUCT_VERSION "0.1.0"
+!endif
 !define PRODUCT_PUBLISHER "Nini Project"
 !define PRODUCT_DESCRIPTION "科研数据分析 AI Agent"
 !define PRODUCT_EXE "nini.exe"
+!define PRODUCT_CLI_EXE "nini-cli.exe"
 !define PRODUCT_ICON "nini.ico"
 
 Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
@@ -34,7 +37,6 @@ SetCompressor /SOLID lzma
 !define MUI_WELCOMEPAGE_TITLE "欢迎安装 ${PRODUCT_NAME}"
 !define MUI_WELCOMEPAGE_TEXT "Nini 是一个本地优先的科研数据分析 AI Agent。$\r$\n$\r$\n安装程序将引导您完成安装过程。"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXE}"
-!define MUI_FINISHPAGE_RUN_PARAMETERS "start"
 !define MUI_FINISHPAGE_RUN_TEXT "启动 Nini"
 
 ; ---- 安装页面 ----
@@ -67,13 +69,16 @@ Section "主程序" SecMain
 
     ; 创建桌面快捷方式（默认包含）
     CreateShortCut "$DESKTOP\${PRODUCT_NAME}.lnk" \
-        "$INSTDIR\${PRODUCT_EXE}" "start" \
+        "$INSTDIR\${PRODUCT_EXE}" "" \
         "$INSTDIR\${PRODUCT_ICON}" 0
 
     ; 创建开始菜单快捷方式
     CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"
     CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk" \
-        "$INSTDIR\${PRODUCT_EXE}" "start" \
+        "$INSTDIR\${PRODUCT_EXE}" "" \
+        "$INSTDIR\${PRODUCT_ICON}" 0
+    CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\命令行工具.lnk" \
+        "$INSTDIR\${PRODUCT_CLI_EXE}" "" \
         "$INSTDIR\${PRODUCT_ICON}" 0
     CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\卸载 ${PRODUCT_NAME}.lnk" \
         "$INSTDIR\uninstall.exe" "" "$INSTDIR\uninstall.exe" 0

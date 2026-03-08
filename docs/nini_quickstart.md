@@ -42,6 +42,9 @@ nini init --force
 至少配置一条路由（多选时按优先级自动路由，失败自动降级）：
 
 ```env
+# 可选：试用模式内嵌密钥（发布包建议构建机注入）
+# NINI_TRIAL_API_KEY=sk-...
+
 # OpenAI
 NINI_OPENAI_API_KEY=sk-...
 NINI_OPENAI_MODEL=gpt-4o

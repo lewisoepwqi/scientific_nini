@@ -184,9 +184,7 @@ async def test_model_resolver_uses_builtin_fast_for_trial_title_generation(
     with (
         patch("nini.config_manager.is_builtin_exhausted", AsyncMock(return_value=False)),
         patch("nini.config_manager.increment_builtin_usage", AsyncMock()) as increment_usage,
-        patch(
-            "nini.config_manager.list_user_configured_provider_ids", AsyncMock(return_value=[])
-        ),
+        patch("nini.config_manager.list_user_configured_provider_ids", AsyncMock(return_value=[])),
     ):
         chunks = [
             chunk
@@ -1261,3 +1259,16 @@ def test_model_resolver_load_builtin_api_key_from_packaged_blob(
     monkeypatch.setattr("nini.agent.model_resolver.settings.dashscope_api_key", "")
 
     assert ModelResolver._load_builtin_api_key() == "sk-builtin-123"  # noqa: SLF001
+
+
+def test_model_resolver_load_trial_api_key_from_packaged_blob(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """运行时应支持从打包模块读取试用密钥。"""
+    encrypted = encrypt_key("sk-trial-123")
+    module = types.ModuleType("nini._builtin_key")
+    module.ENCRYPTED_TRIAL_KEY = encrypted
+    monkeypatch.setitem(sys.modules, "nini._builtin_key", module)
+    monkeypatch.setattr("nini.agent.model_resolver.settings.trial_api_key", "")
+
+    assert ModelResolver._load_trial_api_key() == "sk-trial-123"  # noqa: SLF001

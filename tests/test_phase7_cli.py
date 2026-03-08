@@ -23,6 +23,7 @@ def test_cli_init_creates_env_file(tmp_path: Path) -> None:
     assert ret == 0
     assert env_path.exists()
     text = env_path.read_text(encoding="utf-8")
+    assert "NINI_TRIAL_API_KEY=" in text
     assert "NINI_OPENAI_API_KEY=" in text
     assert "NINI_OLLAMA_BASE_URL=" in text
     assert "NINI_KIMI_CODING_API_KEY=" in text

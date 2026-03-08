@@ -4,6 +4,12 @@ setlocal enabledelayedexpansion
 echo === Nini Windows Build ===
 echo.
 
+for /f "usebackq delims=" %%I in (`python -c "import pathlib, re; text=pathlib.Path('pyproject.toml').read_text(encoding='utf-8'); m=re.search(r'^version\\s*=\\s*\"([^\"]+)\"', text, re.M); print(m.group(1) if m else '0.1.0')"` ) do set "NINI_VERSION=%%I"
+if not defined NINI_VERSION set "NINI_VERSION=0.1.0"
+
+set "GENERATED_SECRET_FILE=src\nini\_builtin_key.py"
+set "GENERATED_SECRET=0"
+
 echo [1/4] Installing dependencies...
 pip install -e .[packaging,webr]
 if !errorlevel! neq 0 (
@@ -11,6 +17,26 @@ if !errorlevel! neq 0 (
     goto :error
 )
 echo [1/4] Done.
+echo.
+
+echo [1.2/4] Preparing packaged secrets...
+if defined NINI_BUILTIN_DASHSCOPE_API_KEY (
+    set "HAS_PACKAGED_SECRET=1"
+)
+if defined NINI_TRIAL_API_KEY (
+    set "HAS_PACKAGED_SECRET=1"
+)
+if defined HAS_PACKAGED_SECRET (
+    python scripts\encrypt_builtin_key.py
+    if !errorlevel! neq 0 (
+        echo [FAIL] Secret generation failed.
+        goto :error
+    )
+    set "GENERATED_SECRET=1"
+) else (
+    echo [SKIP] No packaged secret configured. Set NINI_BUILTIN_DASHSCOPE_API_KEY and/or NINI_TRIAL_API_KEY to embed trial credentials.
+)
+echo [1.2/4] Done.
 echo.
 
 echo [1.5/4] Downloading Chromium for kaleido chart export...
@@ -52,6 +78,20 @@ if !KALEIDO_CHROME_OK! neq 1 (
 echo [1.5/4] Done.
 echo.
 
+echo [1.8/4] Checking optional local-model bundle inputs...
+if defined NINI_OLLAMA_BUNDLE_DIR (
+    echo [INFO] NINI_OLLAMA_BUNDLE_DIR=!NINI_OLLAMA_BUNDLE_DIR!
+) else (
+    echo [INFO] NINI_OLLAMA_BUNDLE_DIR not set. Portable Ollama runtime will not be bundled.
+)
+if defined NINI_OLLAMA_MODELS_DIR (
+    echo [INFO] NINI_OLLAMA_MODELS_DIR=!NINI_OLLAMA_MODELS_DIR!
+) else (
+    echo [INFO] NINI_OLLAMA_MODELS_DIR not set. Ollama model weights will not be bundled.
+)
+echo [1.8/4] Done.
+echo.
+
 echo [2/4] Building frontend...
 pushd web
 if !errorlevel! neq 0 (
@@ -86,7 +126,7 @@ echo.
 echo [4/4] Creating installer...
 where makensis >nul 2>nul
 if !errorlevel! equ 0 (
-    makensis /INPUTCHARSET UTF8 packaging\installer.nsi
+    makensis /INPUTCHARSET UTF8 /DPRODUCT_VERSION=!NINI_VERSION! packaging\installer.nsi
     if !errorlevel! neq 0 (
         echo [WARN] makensis failed, but portable build is still available.
     )
@@ -97,13 +137,20 @@ if !errorlevel! equ 0 (
 echo.
 
 echo === Build complete! ===
-echo Portable: dist\nini\nini.exe
-echo Installer: dist\Nini-0.1.0-Setup.exe (if NSIS available)
+echo GUI Launcher: dist\nini\nini.exe
+echo CLI Entry : dist\nini\nini-cli.exe
+echo Installer : dist\Nini-!NINI_VERSION!-Setup.exe (if NSIS available)
+if !GENERATED_SECRET! equ 1 (
+    del /q "!GENERATED_SECRET_FILE!" >nul 2>nul
+)
 endlocal
 goto :eof
 
 :error
 echo.
 echo === Build failed! ===
+if !GENERATED_SECRET! equ 1 (
+    del /q "!GENERATED_SECRET_FILE!" >nul 2>nul
+)
 endlocal
 exit /b 1
