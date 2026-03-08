@@ -14,7 +14,7 @@ import os
 import platform
 from datetime import timezone, datetime
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, Mapping, TypedDict
 
 from nini.config import settings
 from nini.models.database import get_db
@@ -98,6 +98,21 @@ def infer_api_mode_from_base_url(provider: str, base_url: str | None) -> str | N
         if normalized == default_base_url.rstrip("/"):
             return api_mode
     return None
+
+
+def has_material_model_config(config: Mapping[str, Any] | None) -> bool:
+    """判断配置是否包含真实可用内容，而不是仅有优先级等占位数据。"""
+    if not config:
+        return False
+    for field_name in ("api_key", "model", "base_url", "api_mode"):
+        value = config.get(field_name)
+        if isinstance(value, str):
+            if value.strip():
+                return True
+            continue
+        if value is not None:
+            return True
+    return False
 
 # 默认提供商优先级（数值越小优先级越高）
 PROVIDER_PRIORITY_ORDER: tuple[str, ...] = (
@@ -201,13 +216,23 @@ async def save_model_config(
     try:
         # 先查询是否已存在该 provider 的记录
         cursor = await db.execute(
-            "SELECT id, encrypted_api_key, api_key_hint, priority FROM model_configs WHERE provider = ?",
+            "SELECT id, encrypted_api_key, api_key_hint, priority, model, api_mode, base_url "
+            "FROM model_configs WHERE provider = ?",
             (provider,),
         )
         existing = await cursor.fetchone()
 
         if existing:
-            if provider in SUPPORTED_API_MODES_BY_PROVIDER:
+            existing_cfg = {
+                "api_key": existing[1],
+                "model": existing[4],
+                "api_mode": existing[5],
+                "base_url": existing[6],
+            }
+            if (
+                provider in SUPPORTED_API_MODES_BY_PROVIDER
+                and has_material_model_config(existing_cfg)
+            ):
                 raise ValueError("该供应商已配置，如需修改请先删除当前配置后重新配置")
             # 更新：如果未提供新 Key 则保留旧值
             final_encrypted_key = encrypted_key if has_new_key else existing[1]
@@ -381,8 +406,13 @@ async def get_effective_config(provider: str) -> dict[str, Any]:
 
     env_cfg = env_map.get(provider, {})
     env_api_mode = normalize_api_mode(provider, env_cfg.get("api_mode"))
+    explicit_env_model = env_cfg.get("model") or ""
+    if provider in SUPPORTED_API_MODES_BY_PROVIDER and env_api_mode:
+        if explicit_env_model == DEFAULT_MODELS_BY_PROVIDER_MODE[provider][API_MODE_STANDARD]:
+            explicit_env_model = ""
+
     effective_api_mode = db_api_mode or env_api_mode
-    effective_model = db_cfg.get("model") or env_cfg.get("model") or ""
+    effective_model = db_cfg.get("model") or explicit_env_model or ""
     if not effective_model and effective_api_mode:
         effective_model = get_default_model_for_mode(provider, effective_api_mode) or ""
 

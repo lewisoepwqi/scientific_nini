@@ -258,6 +258,23 @@ async def test_dashscope_coding_plan_uses_mode_default_model() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dashscope_env_coding_plan_uses_mode_default_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`.env` 仅切换到 Coding Plan 端点时，应回退模式默认模型而非普通默认模型。"""
+    await init_db()
+
+    monkeypatch.setattr(settings, "dashscope_api_key", "sk-dashscope-env-12345678")
+    monkeypatch.setattr(settings, "dashscope_base_url", "https://coding.dashscope.aliyuncs.com/v1")
+    monkeypatch.setattr(settings, "dashscope_model", "qwen-plus")
+
+    cfg = await get_effective_config("dashscope")
+
+    assert cfg["api_mode"] == API_MODE_CODING_PLAN
+    assert cfg["model"] == "qwen3-coder-plus"
+
+
+@pytest.mark.asyncio
 async def test_save_model_config_requires_api_mode_for_dual_mode_provider() -> None:
     """智谱和阿里在首次保存时必须显式选择模式。"""
     await init_db()
@@ -289,6 +306,25 @@ async def test_dual_mode_provider_must_delete_before_reconfigure() -> None:
             model="qwen-max",
             api_mode=API_MODE_CODING_PLAN,
         )
+
+
+@pytest.mark.asyncio
+async def test_priority_placeholder_does_not_block_first_dual_mode_config() -> None:
+    """仅有优先级占位记录时，双模式供应商仍应允许首次配置。"""
+    await init_db()
+    await set_model_priorities({"dashscope": 2})
+
+    result = await save_model_config(
+        provider="dashscope",
+        api_key="sk-dashscope-test-12345678",
+        api_mode=API_MODE_CODING_PLAN,
+    )
+    cfg = await get_effective_config("dashscope")
+
+    assert result["provider"] == "dashscope"
+    assert cfg["api_key"] == "sk-dashscope-test-12345678"
+    assert cfg["api_mode"] == API_MODE_CODING_PLAN
+    assert cfg["model"] == "qwen3-coder-plus"
 
 
 def test_infer_api_mode_from_base_url() -> None:
@@ -525,6 +561,33 @@ def test_list_models_dashscope_coding_plan_uses_mode_aware_available_models(
     assert "qwen-plus" not in dashscope["available_models"]
     assert "qwen-turbo" not in dashscope["available_models"]
     assert "qwen-max" not in dashscope["available_models"]
+
+
+def test_list_models_dashscope_env_coding_plan_uses_mode_default_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`/api/models` 在 env Coding Plan 场景下应展示模式默认模型。"""
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    monkeypatch.setattr(settings, "dashscope_api_key", "sk-dashscope-env-12345678")
+    monkeypatch.setattr(settings, "dashscope_base_url", "https://coding.dashscope.aliyuncs.com/v1")
+    monkeypatch.setattr(settings, "dashscope_model", "qwen-plus")
+    asyncio.run(init_db())
+
+    app = create_app()
+    client = LocalASGIClient(app)
+    try:
+        response = client.get("/api/models")
+        assert response.status_code == 200
+        payload = response.json()
+        dashscope = next(item for item in payload["data"] if item["id"] == "dashscope")
+    finally:
+        client.close()
+
+    assert dashscope["configured"] is True
+    assert dashscope["config_source"] == "env"
+    assert dashscope["api_mode"] == "coding_plan"
+    assert dashscope["current_model"] == "qwen3-coder-plus"
 
 
 def test_dual_mode_provider_can_reconfigure_after_delete(

@@ -121,6 +121,8 @@ async def list_models():
     from nini.config_manager import (
         SUPPORTED_API_MODES_BY_PROVIDER,
         get_active_provider_id,
+        get_default_model_for_mode,
+        has_material_model_config,
         infer_api_mode_from_base_url,
         load_all_model_configs,
     )
@@ -147,12 +149,20 @@ async def list_models():
         env_key = getattr(settings, key_field, None) if key_field else None
         effective_key = db_cfg.get("api_key") or env_key or ""
         env_model = getattr(settings, model_field, "") if model_field else ""
-        effective_model = db_cfg.get("model") or env_model
         env_base_url = getattr(settings, f"{pid}_base_url", "")
-        effective_base_url = db_cfg.get("base_url") or env_base_url or ""
         env_api_mode = infer_api_mode_from_base_url(pid, env_base_url)
+        if (
+            pid in SUPPORTED_API_MODES_BY_PROVIDER
+            and env_api_mode
+            and env_model == get_default_model_for_mode(pid, "standard")
+        ):
+            env_model = ""
+        effective_model = db_cfg.get("model") or env_model
+        effective_base_url = db_cfg.get("base_url") or env_base_url or ""
         effective_api_mode = db_api_mode or env_api_mode
-        has_db_config = bool(db_cfg.get("api_key") or db_cfg.get("model") or db_cfg.get("base_url"))
+        if not effective_model and effective_api_mode:
+            effective_model = get_default_model_for_mode(pid, effective_api_mode) or ""
+        has_db_config = has_material_model_config(db_cfg)
 
         if pid == "ollama":
             # Ollama 无 API Key 概念，配置状态应同时兼容 DB 与 .env。
