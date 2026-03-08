@@ -134,6 +134,7 @@ class Settings(BaseSettings):
 
     # 阿里百炼（通义千问）
     dashscope_api_key: Optional[str] = None
+    dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_model: str = "qwen-plus"
 
     # 系统内置模型（阿里百炼）

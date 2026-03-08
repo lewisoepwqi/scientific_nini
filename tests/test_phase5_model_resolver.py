@@ -13,6 +13,7 @@ import pytest
 
 from nini.agent.model_resolver import ModelResolver
 from nini.builtin_key_crypto import encrypt_key
+from nini.config import settings
 from nini.agent.providers import (
     AnthropicClient,
     BaseLLMClient,
@@ -200,6 +201,135 @@ async def test_model_resolver_uses_builtin_fast_for_trial_title_generation(
     increment_usage.assert_awaited_once_with("fast")
 
 
+@pytest.mark.asyncio
+async def test_title_generation_invalid_route_falls_back_to_title_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """标题路由无效时，应回退到标题客户端而不是优先级旧供应商。"""
+
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(
+                provider_id="moonshot",
+                model="moonshot-v1-8k",
+                available=True,
+                chunks=[LLMChunk(text="old-provider", finish_reason="stop")],
+            ),
+            FakeClient(
+                provider_id="anthropic",
+                model="claude-sonnet",
+                available=False,
+            ),
+        ]
+    )
+    resolver.set_purpose_route("title_generation", provider_id="anthropic")
+
+    async def _fake_title_client() -> FakeClient:
+        return FakeClient(
+            provider_id="dashscope",
+            model="qwen-turbo",
+            available=True,
+            chunks=[LLMChunk(text="title-from-active", finish_reason="stop")],
+        )
+
+    monkeypatch.setattr(resolver, "_get_title_client", _fake_title_client)
+
+    chunks = [
+        chunk
+        async for chunk in resolver.chat(
+            [{"role": "user", "content": "请生成标题"}],
+            purpose="title_generation",
+        )
+    ]
+
+    assert "".join(chunk.text for chunk in chunks) == "title-from-active"
+    assert all(chunk.provider_id != "moonshot" for chunk in chunks)
+
+
+def test_select_title_model_from_available_prefers_dynamic_matchers() -> None:
+    """标题模型应优先从当前可用模型列表里动态匹配。"""
+
+    selected = ModelResolver._select_title_model_from_available(
+        "dashscope",
+        ["qwen-max", "qwen-turbo-latest", "qwen-plus"],
+    )
+
+    assert selected == "qwen-turbo-latest"
+
+
+@pytest.mark.asyncio
+async def test_get_title_client_uses_dynamic_available_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """标题客户端应根据服务商当前可用模型动态选择。"""
+
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(
+                provider_id="dashscope",
+                model="qwen-plus",
+                available=True,
+            ),
+        ]
+    )
+    resolver._active_provider_id = "dashscope"  # noqa: SLF001
+    resolver._config_overrides = {  # noqa: SLF001
+        "dashscope": {"api_key": "sk-test", "base_url": None, "model": "qwen-plus"}
+    }
+
+    async def _fake_list_available_models(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return {"models": ["qwen-max", "qwen-turbo-latest", "qwen-plus"], "source": "remote"}
+
+    def _fake_build(provider_id: str, *, model: str | None = None, base_url: str | None = None):  # type: ignore[no-untyped-def]
+        return FakeClient(
+            provider_id=provider_id,
+            model=model or "fallback-model",
+            available=True,
+        )
+
+    monkeypatch.setattr(
+        "nini.agent.model_lister.list_available_models",
+        _fake_list_available_models,
+    )
+    monkeypatch.setattr(resolver, "_build_client_for_provider", _fake_build)
+
+    client = await resolver._get_title_client()  # noqa: SLF001
+
+    assert client is not None
+    assert client.provider_id == "dashscope"
+    assert client.get_model_name() == "qwen-turbo-latest"
+
+
+@pytest.mark.asyncio
+async def test_get_title_client_falls_back_to_active_model_when_no_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """动态列表匹配不到标题模型时应回退当前主模型。"""
+
+    active_client = FakeClient(
+        provider_id="dashscope",
+        model="qwen-plus",
+        available=True,
+    )
+    resolver = ModelResolver(clients=[active_client])
+    resolver._active_provider_id = "dashscope"  # noqa: SLF001
+    resolver._config_overrides = {  # noqa: SLF001
+        "dashscope": {"api_key": "sk-test", "base_url": None, "model": "qwen-plus"}
+    }
+
+    async def _fake_list_available_models(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return {"models": ["qwen-max"], "source": "remote"}
+
+    monkeypatch.setattr(
+        "nini.agent.model_lister.list_available_models",
+        _fake_list_available_models,
+    )
+
+    client = await resolver._get_title_client()  # noqa: SLF001
+
+    assert client is active_client
+
+
 def test_model_resolver_get_active_model_info_by_purpose() -> None:
     resolver = ModelResolver(
         clients=[
@@ -216,6 +346,34 @@ def test_model_resolver_get_active_model_info_by_purpose() -> None:
     assert chat_info["provider_id"] == "openai"
     assert image_info["provider_id"] == "zhipu"
     assert image_info["model"] == "glm-4"
+
+
+def test_reload_clients_resets_stale_purpose_routes() -> None:
+    """重载客户端时应清空旧的内存态用途路由。"""
+
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="zhipu", model="glm-4", available=True),
+        ]
+    )
+    resolver.set_purpose_route("title_generation", provider_id="anthropic", model="claude-3")
+
+    resolver.reload_clients(
+        {
+            "dashscope": {
+                "api_key": "sk-test",
+                "model": "qwen-plus",
+                "base_url": None,
+            }
+        },
+        active_provider_id="dashscope",
+    )
+
+    route = resolver.get_purpose_routes()["title_generation"]
+
+    assert route["provider_id"] is None
+    assert route["model"] is None
+    assert route["base_url"] is None
 
 
 def test_model_resolver_builds_purpose_model_override_client(
@@ -505,6 +663,15 @@ def test_dashscope_client_base_url_and_availability() -> None:
     assert client.is_available() is True
     assert client._base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"  # noqa: SLF001
     assert client._model == "qwen-plus"  # noqa: SLF001
+
+
+def test_dashscope_client_uses_settings_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """阿里百炼客户端应尊重 settings 中的自定义 base_url。"""
+    monkeypatch.setattr(settings, "dashscope_base_url", "https://coding.dashscope.aliyuncs.com/v1")
+
+    client = DashScopeClient(api_key="sk-dashscope-test", model="qwen-plus")
+
+    assert client._base_url == "https://coding.dashscope.aliyuncs.com/v1"  # noqa: SLF001
 
 
 def test_dashscope_client_unavailable_without_key() -> None:
@@ -843,6 +1010,140 @@ async def test_test_connection_returns_success_for_available() -> None:
 
     assert result["success"] is True
     assert result["provider"] == "zhipu"
+
+
+@pytest.mark.asyncio
+async def test_test_connection_prefers_remote_available_model_for_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """测试连接在未显式指定模型时，应优先使用远端返回的可用模型。"""
+    resolver = ModelResolver(clients=[])
+
+    async def _fake_list_available_models(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return {
+            "models": ["qwen-coder-plus", "qwen-plus"],
+            "source": "remote",
+            "supports_remote_listing": True,
+        }
+
+    def _fake_build(
+        provider_id: str,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ):  # type: ignore[no-untyped-def]
+        return FakeClient(
+            provider_id=provider_id,
+            model=model or "fallback-model",
+            available=True,
+            chunks=[LLMChunk(text="ok")],
+        )
+
+    monkeypatch.setattr(
+        "nini.agent.model_lister.list_available_models",
+        _fake_list_available_models,
+    )
+    monkeypatch.setattr(resolver, "_build_client_for_provider", _fake_build)
+
+    result = await resolver.test_connection(
+        "dashscope",
+        api_key="sk-test",
+        base_url="https://coding.dashscope.aliyuncs.com/v1",
+    )
+
+    assert result["success"] is True
+    assert result["model"] == "qwen-coder-plus"
+
+
+@pytest.mark.asyncio
+async def test_test_connection_falls_back_to_static_available_model_for_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """远端模型列表不可用时，测试连接应回退到静态候选中的首个模型。"""
+    resolver = ModelResolver(clients=[])
+
+    async def _fake_list_available_models(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return {
+            "models": ["qwen3-coder-plus", "qwen3-max-2026-01-23"],
+            "source": "static",
+            "supports_remote_listing": False,
+        }
+
+    def _fake_build(
+        provider_id: str,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ):  # type: ignore[no-untyped-def]
+        return FakeClient(
+            provider_id=provider_id,
+            model=model or "fallback-model",
+            available=True,
+            chunks=[LLMChunk(text="ok")],
+        )
+
+    monkeypatch.setattr(
+        "nini.agent.model_lister.list_available_models",
+        _fake_list_available_models,
+    )
+    monkeypatch.setattr(resolver, "_build_client_for_provider", _fake_build)
+
+    result = await resolver.test_connection(
+        "dashscope",
+        api_key="sk-test",
+        base_url="https://coding.dashscope.aliyuncs.com/v1",
+    )
+
+    assert result["success"] is True
+    assert result["model"] == "qwen3-coder-plus"
+
+
+@pytest.mark.asyncio
+async def test_test_connection_does_not_use_static_fallback_when_remote_listing_supported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """支持远端模型列表的服务商，拉取失败时不应再拿静态模型硬试。"""
+    resolver = ModelResolver(clients=[])
+    captured: dict[str, str | None] = {}
+
+    async def _fake_list_available_models(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return {
+            "models": ["qwen-plus", "qwen-turbo"],
+            "source": "static",
+            "supports_remote_listing": True,
+        }
+
+    def _fake_build(
+        provider_id: str,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ):  # type: ignore[no-untyped-def]
+        captured["model"] = model
+        return FakeClient(
+            provider_id=provider_id,
+            model=model or "settings-default-model",
+            available=True,
+            chunks=[LLMChunk(text="ok")],
+        )
+
+    monkeypatch.setattr(
+        "nini.agent.model_lister.list_available_models",
+        _fake_list_available_models,
+    )
+    monkeypatch.setattr(resolver, "_build_client_for_provider", _fake_build)
+
+    result = await resolver.test_connection(
+        "dashscope",
+        api_key="sk-test",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    )
+
+    assert result["success"] is True
+    assert captured["model"] is None
 
 
 @pytest.mark.asyncio

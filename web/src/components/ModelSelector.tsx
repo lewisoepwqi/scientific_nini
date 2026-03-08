@@ -2,7 +2,7 @@
  * 模型选择器。
  * 默认提供对话内快速切换；完整配置仍通过 AI 设置面板处理。
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import {
   Bot,
@@ -85,6 +85,13 @@ export default function ModelSelector({
   // 监听配置更新，刷新显示
   useEffect(() => {
     const handler = () => {
+      setProviderModels({});
+      setCachedModelCounts({});
+      try {
+        localStorage.removeItem("nini:provider_model_counts");
+      } catch {
+        // localStorage 不可用时忽略
+      }
       void fetchActiveModel();
       void fetchModelProviders();
     };
@@ -148,18 +155,21 @@ export default function ModelSelector({
     : "px-2.5 py-1 text-xs";
   const menuWidthClass = compact ? "w-[300px]" : "w-[340px]";
 
-  const buildFallbackModels = (providerId: string) => {
-    const provider = configuredProviders.find((item) => item.id === providerId);
-    if (!provider) return [];
+  const buildFallbackModels = useCallback(
+    (providerId: string) => {
+      const provider = configuredProviders.find((item) => item.id === providerId);
+      if (!provider) return [];
 
-    return Array.from(
-      new Set(
-        [provider.current_model, ...(provider.available_models ?? [])].filter(
-          (model): model is string => Boolean(model && model.trim()),
+      return Array.from(
+        new Set(
+          [provider.current_model, ...(provider.available_models ?? [])].filter(
+            (model): model is string => Boolean(model && model.trim()),
+          ),
         ),
-      ),
-    );
-  };
+      );
+    },
+    [configuredProviders],
+  );
 
   const fetchBuiltinUsage = async () => {
     try {
@@ -189,62 +199,69 @@ export default function ModelSelector({
     }
   };
 
-  const loadProviderModels = async (providerId: string) => {
-    const current = providerModels[providerId];
-    if (current?.loading) return;
-    if (current && current.models.length > 0 && !current.error) return;
+  const loadProviderModels = useCallback(
+    async (providerId: string) => {
+      const current = providerModels[providerId];
+      if (current?.loading) return;
+      if (current && current.models.length > 0 && !current.error) return;
 
-    const fallbackModels = buildFallbackModels(providerId);
-    setProviderModels((prev) => ({
-      ...prev,
-      [providerId]: {
-        loading: true,
-        models: prev[providerId]?.models ?? fallbackModels,
-        error: false,
-      },
-    }));
-
-    try {
-      const resp = await fetch(`/api/models/${providerId}/available`);
-      const data = await resp.json();
-      const remoteModels =
-        data.success && Array.isArray(data.data?.models)
-          ? (data.data.models as string[])
-          : [];
-      const models = Array.from(
-        new Set([...remoteModels, ...fallbackModels].filter(Boolean)),
-      );
+      const fallbackModels = buildFallbackModels(providerId);
       setProviderModels((prev) => ({
         ...prev,
         [providerId]: {
-          loading: false,
-          models,
-          error: models.length === 0,
+          loading: true,
+          models: prev[providerId]?.models ?? fallbackModels,
+          error: false,
         },
       }));
-      // 持久化模型数量缓存，下次打开时直接显示正确数量
-      if (models.length > 0) {
-        setCachedModelCounts((prev) => {
-          const next = { ...prev, [providerId]: models.length };
-          try {
-            localStorage.setItem("nini:provider_model_counts", JSON.stringify(next));
-          } catch {
-            // localStorage 不可用时忽略
-          }
-          return next;
-        });
+
+      try {
+        const resp = await fetch(`/api/models/${providerId}/available`);
+        const data = await resp.json();
+        const remoteModels =
+          data.success && Array.isArray(data.data?.models)
+            ? (data.data.models as string[])
+            : [];
+        const models = Array.from(
+          new Set([...remoteModels, ...fallbackModels].filter(Boolean)),
+        );
+        setProviderModels((prev) => ({
+          ...prev,
+          [providerId]: {
+            loading: false,
+            models,
+            error: models.length === 0,
+          },
+        }));
+        if (models.length > 0) {
+          setCachedModelCounts((prev) => {
+            const next = { ...prev, [providerId]: models.length };
+            try {
+              localStorage.setItem("nini:provider_model_counts", JSON.stringify(next));
+            } catch {
+              // localStorage 不可用时忽略
+            }
+            return next;
+          });
+        }
+      } catch {
+        setProviderModels((prev) => ({
+          ...prev,
+          [providerId]: {
+            loading: false,
+            models: fallbackModels,
+            error: true,
+          },
+        }));
       }
-    } catch {
-      setProviderModels((prev) => ({
-        ...prev,
-        [providerId]: {
-          loading: false,
-          models: fallbackModels,
-          error: true,
-        },
-      }));
-    }
-  };
+    },
+    [buildFallbackModels, providerModels],
+  );
+
+  useEffect(() => {
+    if (!activeProvider?.id) return;
+    void loadProviderModels(activeProvider.id);
+  }, [activeProvider?.id, loadProviderModels]);
 
   const handleToggleProvider = (providerId: string) => {
     if (expandedProviderId === providerId) {

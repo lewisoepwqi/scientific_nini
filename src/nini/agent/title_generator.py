@@ -15,8 +15,12 @@ logger = logging.getLogger(__name__)
 
 # 标题生成提示词
 _TITLE_PROMPT = (
-    "根据以下对话内容，生成一个简短的中文会话标题（8-15个字）。"
-    "只输出标题本身，不要加引号或其他标点。\n\n"
+    "根据以下对话内容，生成一个中文会话标题。\n"
+    "硬性要求：\n"
+    "1. 只输出 1 行标题，不要解释、不要思考过程、不要代码块、不要前后缀。\n"
+    "2. 标题控制在 8-12 个中文字符内，绝对不要超过 15 个中文字符。\n"
+    "3. 禁止输出“标题：”“会话标题：”“你好”“请问”“好的”等空泛词。\n"
+    "4. 若信息不足，请输出“数据分析讨论”。\n\n"
 )
 
 
@@ -26,22 +30,52 @@ _CODE_BLOCK_RE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`[^`]+`")
 _URL_RE = re.compile(r"https?://\S+")
 _SENTENCE_SPLIT_RE = re.compile(r"[。！？.!?\n]+")
+_LEADING_FILLER_RE = re.compile(
+    r"^(?:你好|您好|嗨|哈喽|hi|hello|请问|请|麻烦你|麻烦|帮我|请帮我|请帮忙|"
+    r"可以|能否|想请你|我想请你|我想让你|帮忙)[，,、\s]*",
+    re.IGNORECASE,
+)
+_GENERIC_TITLES = {
+    "你好",
+    "您好",
+    "嗨",
+    "哈喽",
+    "hi",
+    "hello",
+    "请问",
+    "帮我",
+    "麻烦",
+    "开始",
+    "继续",
+    "好的",
+    "谢谢",
+}
+_TITLE_HARD_LIMIT = 15
 _TITLE_MAX_TOKENS = 50
 _TITLE_RETRY_MAX_TOKENS = 120
 
 
 def _collect_relevant_messages(messages: list[dict[str, Any]]) -> list[tuple[str, str]]:
-    """提取前几条有内容的用户/助手消息。"""
+    """优先提取前几条有内容的用户消息，必要时再补助手消息。"""
     relevant: list[tuple[str, str]] = []
+    assistant_buffer: list[tuple[str, str]] = []
     for msg in messages:
         role = msg.get("role", "")
         content = msg.get("content")
         if role in ("user", "assistant") and isinstance(content, str):
             stripped = content.strip()
             if stripped:
-                relevant.append((role, stripped))
-        if len(relevant) >= 4:
-            break
+                if role == "user":
+                    relevant.append((role, stripped))
+                    if len(relevant) >= 2:
+                        break
+                else:
+                    assistant_buffer.append((role, stripped))
+    if len(relevant) < 2:
+        for item in assistant_buffer:
+            relevant.append(item)
+            if len(relevant) >= 2:
+                break
     return relevant
 
 
@@ -52,6 +86,8 @@ def _normalize_title(raw: str) -> str:
         return ""
     text = _TITLE_PREFIX_RE.sub("", text)
     text = text.strip(_EDGE_CHARS)
+    text = text.splitlines()[0].strip()
+    text = re.split(r"[。！？.!?]", text, maxsplit=1)[0].strip()
     text = re.sub(r"\s+", " ", text).strip()
     if not re.search(r"[\w\u4e00-\u9fff]", text):
         return ""
@@ -71,30 +107,85 @@ def _clean_message(content: str) -> str:
     return text
 
 
+def _strip_leading_filler(text: str) -> str:
+    """去掉寒暄或客套开头，保留真正任务主体。"""
+    stripped = text.strip()
+    while stripped:
+        updated = _LEADING_FILLER_RE.sub("", stripped, count=1).strip()
+        if updated == stripped:
+            break
+        stripped = updated
+    return stripped
+
+
+def _is_generic_title(text: str) -> bool:
+    """判断标题是否过于空泛。"""
+    normalized = text.strip().lower()
+    if not normalized:
+        return True
+    if normalized in _GENERIC_TITLES:
+        return True
+    if any(
+        marker in normalized
+        for marker in ("可以帮你", "有什么可以帮你", "有什么能帮你", "请问有什么")
+    ):
+        return True
+    return len(normalized) <= 4 and normalized in {"好的", "收到", "在吗", "你好啊"}
+
+
+def _score_fallback_candidate(text: str, role: str, index: int) -> tuple[int, int, int]:
+    """为规则回退候选标题打分，优先挑选信息量更高的用户消息。"""
+    length_score = min(len(text), 30)
+    role_score = 20 if role == "user" else 0
+    position_score = max(0, 10 - index)
+    return (role_score + length_score + position_score, role_score, -index)
+
+
+def _trim_title_length(text: str, *, limit: int = _TITLE_HARD_LIMIT) -> str:
+    """按标题语义优先裁剪长度，避免简单硬截断。"""
+    normalized = _normalize_title(text)
+    if not normalized:
+        return ""
+    if len(normalized) <= limit:
+        return normalized
+
+    splitters = (" - ", "｜", "|", "：", ":", "，", ",", "、", "（", "(")
+    for splitter in splitters:
+        head = normalized.split(splitter, 1)[0].strip(_EDGE_CHARS + " ，,、：:")
+        if head and len(head) <= limit:
+            return head
+
+    for idx in range(limit, max(3, limit - 4), -1):
+        candidate = normalized[:idx].rstrip(_EDGE_CHARS + " ，,、：:")
+        if candidate:
+            return candidate
+    return normalized[:limit].rstrip(_EDGE_CHARS + " ，,、：:")
+
+
 def _fallback_title(messages: list[dict[str, Any]]) -> str | None:
     """当 LLM 结果为空时，基于用户消息构造标题。"""
-    candidate = ""
-    for msg in messages:
-        if msg.get("role") == "user" and isinstance(msg.get("content"), str):
-            candidate = msg["content"]
-            break
-    if not candidate:
-        for msg in messages:
-            if isinstance(msg.get("content"), str):
-                candidate = msg["content"]
-                break
-    cleaned = _clean_message(candidate)
-    if not cleaned:
+    candidates: list[tuple[tuple[int, int, int], str]] = []
+    for index, msg in enumerate(messages):
+        role = str(msg.get("role") or "")
+        content = msg.get("content")
+        if role not in ("user", "assistant") or not isinstance(content, str):
+            continue
+        cleaned = _clean_message(content)
+        if not cleaned:
+            continue
+        parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split(cleaned) if p.strip()]
+        if not parts:
+            parts = [cleaned]
+        for part in parts[:2]:
+            normalized = _trim_title_length(_strip_leading_filler(part))
+            if not normalized or _is_generic_title(normalized):
+                continue
+            candidates.append((_score_fallback_candidate(normalized, role, index), normalized))
+
+    if not candidates:
         return None
-    parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split(cleaned) if p.strip()]
-    if parts:
-        cleaned = parts[0]
-    cleaned = _normalize_title(cleaned)
-    if not cleaned:
-        return None
-    if len(cleaned) > 30:
-        cleaned = cleaned[:30]
-    return cleaned
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
 
 
 def _preview_text(text: str, max_len: int = 120) -> str:
@@ -109,8 +200,8 @@ def _preview_text(text: str, max_len: int = 120) -> str:
 def _build_title_prompt(
     relevant_msgs: list[tuple[str, str]],
     *,
-    max_messages: int = 4,
-    max_content_chars: int = 200,
+    max_messages: int = 2,
+    max_content_chars: int = 100,
 ) -> str:
     """构建标题生成提示词。"""
     relevant: list[str] = []
@@ -131,7 +222,7 @@ async def generate_title(messages: list[dict[str, Any]]) -> str | None:
     """
     logger.debug("开始生成会话标题，消息总数: %d", len(messages))
 
-    # 提取前 4 条有内容的消息用于生成标题
+    # 标题更依赖用户意图，默认只取前 1-2 条短消息，降低跑题概率
     relevant_msgs = _collect_relevant_messages(messages)
     logger.debug("过滤后的相关消息数: %d", len(relevant_msgs))
 
@@ -139,8 +230,8 @@ async def generate_title(messages: list[dict[str, Any]]) -> str | None:
         logger.debug("没有可用的消息内容，跳过标题生成")
         return None
 
-    default_prompt = _build_title_prompt(relevant_msgs, max_messages=4, max_content_chars=200)
-    retry_prompt = _build_title_prompt(relevant_msgs, max_messages=2, max_content_chars=100)
+    default_prompt = _build_title_prompt(relevant_msgs, max_messages=2, max_content_chars=80)
+    retry_prompt = _build_title_prompt(relevant_msgs, max_messages=1, max_content_chars=60)
     strategies = [
         ("default", default_prompt, _TITLE_MAX_TOKENS),
         ("length_retry", retry_prompt, _TITLE_RETRY_MAX_TOKENS),
@@ -162,10 +253,7 @@ async def generate_title(messages: list[dict[str, Any]]) -> str | None:
             finish_reasons = getattr(response, "finish_reasons", [])
             usage = getattr(response, "usage", {})
             tool_calls = getattr(response, "tool_calls", [])
-            title = _normalize_title(raw_title)
-            # 限制标题长度
-            if len(title) > 30:
-                title = title[:30]
+            title = _trim_title_length(raw_title)
             if title:
                 logger.info(
                     "会话标题生成成功: %s (strategy=%s, raw_len=%d, finish_reason=%s)",

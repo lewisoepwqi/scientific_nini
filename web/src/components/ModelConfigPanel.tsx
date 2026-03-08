@@ -6,6 +6,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   Bot,
   CheckCircle2,
@@ -47,6 +48,36 @@ function getModelDisplayName(
   modelId: string
 ): [string, string] {
   return MODEL_DISPLAY_NAMES[providerId]?.[modelId] ?? [modelId, ""];
+}
+
+function getApiModeLabel(apiMode?: string | null): string {
+  if (apiMode === "standard") return "普通";
+  if (apiMode === "coding_plan") return "Coding Plan";
+  if (apiMode === "unknown") return "未知";
+  return "未选择";
+}
+
+function getProviderModeBaseUrl(
+  providerId: string,
+  apiMode: string
+): string | null {
+  if (providerId === "zhipu") {
+    if (apiMode === "standard") {
+      return "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+    }
+    if (apiMode === "coding_plan") {
+      return "https://open.bigmodel.cn/api/coding/paas/v4";
+    }
+  }
+  if (providerId === "dashscope") {
+    if (apiMode === "standard") {
+      return "https://dashscope.aliyuncs.com/compatible-mode/v1";
+    }
+    if (apiMode === "coding_plan") {
+      return "https://coding.dashscope.aliyuncs.com/v1";
+    }
+  }
+  return null;
 }
 
 type Screen = "status" | "select-provider" | "configure";
@@ -353,6 +384,14 @@ function StatusScreen({
                   : activeProvider.current_model || "自动检测"}
               </span>
             </div>
+            {activeProvider.api_mode && (
+              <div>
+                接口模式：
+                <span className="text-gray-700">
+                  {getApiModeLabel(activeProvider.api_mode)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -426,7 +465,11 @@ function SelectProviderScreen({
               )}
             </div>
             <span className="text-[11px] text-gray-400">
-              {p.configured && p.current_model ? p.current_model : p.description}
+              {p.configured && p.api_mode
+                ? `${getApiModeLabel(p.api_mode)} · ${p.current_model || p.description}`
+                : p.configured && p.current_model
+                ? p.current_model
+                : p.description}
             </span>
           </button>
         ))}
@@ -445,17 +488,17 @@ function ConfigureScreen({
   onSaved: () => void;
 }) {
   const isOllama = provider.id === "ollama";
+  const supportsApiMode = (provider.supported_api_modes?.length ?? 0) > 0;
+  const lockedConfig = provider.configured && provider.can_edit_in_place === false;
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(
-    isOllama ? provider.base_url || "http://localhost:11434" : ""
+    provider.base_url || (isOllama ? "http://localhost:11434" : "")
   );
-  const [selectedModel, setSelectedModel] = useState(
-    provider.current_model || ""
+  const [selectedApiMode, setSelectedApiMode] = useState<string>(
+    provider.configured && provider.api_mode && provider.api_mode !== "unknown"
+      ? provider.api_mode
+      : ""
   );
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(false);
-  const [modelsFetchError, setModelsFetchError] = useState(false);
-  const [customModel, setCustomModel] = useState("");
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -464,76 +507,49 @@ function ConfigureScreen({
     message: string;
   } | null>(null);
   const [removing, setRemoving] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState(false);
-  // Ollama：初始自动检测
-  const [ollamaDetected, setOllamaDetected] = useState(false);
-
-  const fetchModels = useCallback(
-    async (keyOverride?: string, urlOverride?: string) => {
-      setModelsLoading(true);
-      setModelsFetchError(false);
-      try {
-        // 先保存临时配置（密钥）以便后端能调用供应商 API
-        if (!isOllama && (keyOverride ?? apiKey)) {
-          await fetch("/api/models/config", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              provider_id: provider.id,
-              api_key: keyOverride ?? apiKey,
-              is_active: false, // 仅预存，不激活
-            }),
-          });
-        }
-        const url = urlOverride ?? baseUrl;
-        const queryParam = isOllama && url ? `?base_url=${encodeURIComponent(url)}` : "";
-        const resp = await fetch(
-          `/api/models/${provider.id}/available${queryParam}`
-        );
-        const data = await resp.json();
-        if (data.success && Array.isArray(data.data?.models)) {
-          const models: string[] = data.data.models;
-          setAvailableModels(models);
-          if (!selectedModel && models.length > 0) {
-            setSelectedModel(models[0]);
-          }
-          if (isOllama) setOllamaDetected(true);
-        } else {
-          setModelsFetchError(true);
-        }
-      } catch {
-        setModelsFetchError(true);
-      } finally {
-        setModelsLoading(false);
-      }
-    },
-    [provider.id, isOllama, apiKey, baseUrl, selectedModel]
-  );
-
-  // Ollama 自动检测
-  useEffect(() => {
-    if (isOllama) {
-      void fetchModels();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
 
   const handleTestAndSave = async () => {
     setSaving(true);
     setSaveError(null);
     setTestResult(null);
     try {
-      // 保存配置（激活该供应商）
+      // 先用临时配置测试，成功后再保存，避免测试失败也落库。
+      const resolvedBaseUrl =
+        supportsApiMode && selectedApiMode
+          ? getProviderModeBaseUrl(provider.id, selectedApiMode)
+          : null;
       const body: Record<string, unknown> = {
         provider_id: provider.id,
-        model: selectedModel || customModel || undefined,
       };
+      if (supportsApiMode) {
+        body.api_mode = selectedApiMode || undefined;
+      }
       if (!isOllama && apiKey.trim()) {
         body.api_key = apiKey.trim();
       }
-      if (isOllama && baseUrl.trim()) {
+      if (resolvedBaseUrl) {
+        body.base_url = resolvedBaseUrl;
+      } else if (baseUrl.trim()) {
         body.base_url = baseUrl.trim();
       }
+      setTesting(true);
+      const testResp = await fetch(`/api/models/${provider.id}/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const testData = await testResp.json();
+      setTestResult({
+        success: testData.success,
+        message: testData.success
+          ? testData.data?.message ?? "连接成功"
+          : testData.error ?? "连接测试失败",
+      });
+      if (!testData.success) {
+        return;
+      }
+
       const saveResp = await fetch("/api/models/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -545,22 +561,7 @@ function ConfigureScreen({
         return;
       }
 
-      // 测试连接
-      setTesting(true);
-      const testResp = await fetch(`/api/models/${provider.id}/test`, {
-        method: "POST",
-      });
-      const testData = await testResp.json();
-      setTestResult({
-        success: testData.success,
-        message: testData.success
-          ? testData.data?.message ?? "连接成功"
-          : testData.error ?? "连接测试失败",
-      });
-
-      if (testData.success) {
-        setTimeout(onSaved, 600);
-      }
+      setTimeout(onSaved, 600);
     } catch (e) {
       setSaveError(`请求失败: ${String(e)}`);
     } finally {
@@ -569,15 +570,7 @@ function ConfigureScreen({
     }
   };
 
-  const handleFetchModels = () => {
-    void fetchModels();
-  };
-
   const handleRemove = async () => {
-    if (!confirmRemove) {
-      setConfirmRemove(true);
-      return;
-    }
     setRemoving(true);
     try {
       const ok = await deleteProviderConfig(provider.id);
@@ -589,14 +582,51 @@ function ConfigureScreen({
       }
     } finally {
       setRemoving(false);
-      setConfirmRemove(false);
+      setConfirmRemoveOpen(false);
     }
   };
 
-  const displayModels = availableModels.length > 0 ? availableModels : [];
-
   return (
     <div className="px-5 py-5 space-y-4">
+      {lockedConfig ? (
+        <>
+          <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-800">
+            <div className="font-medium">当前配置已锁定</div>
+            <div className="mt-1 text-xs text-amber-700">
+              如需修改模式、密钥、模型或端点，请先移除当前配置后重新配置。
+            </div>
+          </div>
+          <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 space-y-3 text-sm">
+            <div>
+              <div className="text-xs text-gray-400">接口模式</div>
+              <div className="mt-1 text-gray-700">
+                {getApiModeLabel(provider.api_mode)}
+              </div>
+            </div>
+            {!isOllama && (
+              <div>
+                <div className="text-xs text-gray-400">API Key</div>
+                <div className="mt-1 font-mono text-gray-700">
+                  {provider.api_key_hint || "已配置"}
+                </div>
+              </div>
+            )}
+            <div>
+              <div className="text-xs text-gray-400">Base URL</div>
+              <div className="mt-1 break-all text-gray-700">
+                {provider.base_url || "默认端点"}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-400">当前模型</div>
+              <div className="mt-1 text-gray-700">
+                {provider.current_model || "未选择"}
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
       {/* 密钥获取引导 */}
       {!isOllama && (
         <a
@@ -621,6 +651,33 @@ function ConfigureScreen({
         </a>
       )}
 
+      {supportsApiMode && (
+        <div>
+          <label className="text-xs text-gray-500 mb-1.5 block">
+            接口模式
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {(provider.supported_api_modes ?? []).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setSelectedApiMode(mode)}
+                className={`rounded-xl border px-3 py-2.5 text-sm transition-colors ${
+                  selectedApiMode === mode
+                    ? "border-blue-300 bg-blue-50 text-blue-700"
+                    : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                {getApiModeLabel(mode)}
+              </button>
+            ))}
+          </div>
+          <div className="mt-1 text-[11px] text-gray-400">
+            必须先选择模式，保存后如需变更请删除配置后重配
+          </div>
+        </div>
+      )}
+
       {/* 密钥输入（非 Ollama） */}
       {!isOllama && (
         <div>
@@ -632,20 +689,11 @@ function ConfigureScreen({
             onChange={(e) => setApiKey(e.target.value)}
             placeholder={
               provider.api_key_hint
-                ? `当前：${provider.api_key_hint}（留空保持不变）`
+                ? `当前：${provider.api_key_hint}`
                 : "粘贴你的密钥"
             }
             className="w-full px-3 py-2.5 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300"
           />
-          {/* 密钥填写后拉取模型列表 */}
-          {apiKey.trim() && availableModels.length === 0 && !modelsLoading && (
-            <button
-              onClick={() => void fetchModels(apiKey.trim())}
-              className="mt-2 text-xs text-blue-600 hover:underline"
-            >
-              获取可用模型列表
-            </button>
-          )}
         </div>
       )}
 
@@ -655,116 +703,28 @@ function ConfigureScreen({
           <label className="text-xs text-gray-500 mb-1 block">
             服务器地址
           </label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="http://localhost:11434"
-              className="flex-1 px-3 py-2.5 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300"
-            />
-            <button
-              onClick={handleFetchModels}
-              disabled={modelsLoading}
-              className="px-3 py-2 text-xs border rounded-xl hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap"
-            >
-              {modelsLoading ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                "检测模型"
-              )}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 模型选择 */}
-      {modelsLoading && (
-        <div className="flex items-center gap-2 text-xs text-gray-400">
-          <Loader2 size={12} className="animate-spin" />
-          获取模型列表中...
-        </div>
-      )}
-
-      {modelsFetchError && isOllama && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-          未检测到 Ollama 服务，请确认已安装并启动
-          <a
-            href={provider.key_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ml-1 underline"
-          >
-            查看教程
-          </a>
-        </div>
-      )}
-
-      {displayModels.length > 0 && (
-        <div>
-          <label className="text-xs text-gray-500 mb-1.5 block">
-            选择模型
-          </label>
-          <div className="space-y-1.5 max-h-48 overflow-y-auto">
-            {displayModels.map((modelId) => {
-              const [displayName, desc] = getModelDisplayName(
-                provider.id,
-                modelId
-              );
-              return (
-                <label
-                  key={modelId}
-                  className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
-                    selectedModel === modelId
-                      ? "border-blue-300 bg-blue-50"
-                      : "border-gray-200 hover:bg-gray-50"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="model"
-                    value={modelId}
-                    checked={selectedModel === modelId}
-                    onChange={() => setSelectedModel(modelId)}
-                    className="text-blue-600"
-                  />
-                  <div>
-                    <div className="text-sm text-gray-800">{displayName}</div>
-                    {desc && (
-                      <div className="text-[11px] text-gray-400">{desc}</div>
-                    )}
-                  </div>
-                </label>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* 模型列表拉取失败时的手动输入降级 */}
-      {modelsFetchError && !isOllama && (
-        <div>
-          <label className="text-xs text-gray-500 mb-1 block">
-            手动输入模型名（模型列表获取失败）
-          </label>
           <input
             type="text"
-            value={customModel}
-            onChange={(e) => setCustomModel(e.target.value)}
-            placeholder="如：deepseek-chat"
-            className="w-full px-3 py-2 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="http://localhost:11434"
+            className="w-full px-3 py-2.5 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300"
           />
         </div>
+      )}
+        </>
       )}
 
       {/* 保存按钮 */}
       <button
         onClick={() => void handleTestAndSave()}
         disabled={
+          lockedConfig ||
           saving ||
           testing ||
           (!isOllama && !apiKey.trim() && !provider.configured) ||
-          (isOllama && !ollamaDetected && displayModels.length === 0)
+          (supportsApiMode && !selectedApiMode) ||
+          (isOllama && !baseUrl.trim())
         }
         className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
@@ -795,11 +755,11 @@ function ConfigureScreen({
         </div>
       )}
 
-      {provider.configured && (
+      {(provider.configured || lockedConfig) && (
         <div className="pt-2 border-t border-gray-100">
           <button
-            onClick={() => void handleRemove()}
-            disabled={removing || saving}
+            onClick={() => setConfirmRemoveOpen(true)}
+            disabled={removing || saving || provider.can_delete_config === false}
             className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 disabled:opacity-50 transition-colors"
           >
             {removing ? (
@@ -807,16 +767,53 @@ function ConfigureScreen({
             ) : (
               <Trash2 size={12} />
             )}
-            {confirmRemove ? "再次点击确认移除" : "移除此供应商配置"}
+            {provider.can_delete_config === false
+              ? "当前为环境变量配置，请通过环境变量修改"
+              : "移除此供应商配置"}
           </button>
-          {confirmRemove && (
-            <button
-              onClick={() => setConfirmRemove(false)}
-              className="mt-1 text-xs text-gray-400 hover:text-gray-600"
-            >
-              取消
-            </button>
-          )}
+        </div>
+      )}
+
+      {confirmRemoveOpen && provider.can_delete_config !== false && (
+        <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/30 px-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 rounded-full bg-red-100 p-2 text-red-600">
+                <AlertTriangle size={16} />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-gray-900">
+                  确认移除配置
+                </div>
+                <div className="mt-1 text-sm text-gray-600">
+                  确认移除「{provider.name}
+                  {provider.api_mode ? ` · ${getApiModeLabel(provider.api_mode)}` : ""}
+                  」配置？
+                </div>
+                <div className="mt-2 text-xs text-gray-500">
+                  移除后将删除当前 API 配置；如需切换普通模式或 Coding Plan，需要重新配置。
+                </div>
+              </div>
+            </div>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmRemoveOpen(false)}
+                disabled={removing}
+                className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleRemove()}
+                disabled={removing}
+                className="rounded-xl bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {removing ? "移除中..." : "确认移除"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

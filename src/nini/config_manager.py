@@ -14,7 +14,7 @@ import os
 import platform
 from datetime import timezone, datetime
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, Mapping, TypedDict
 
 from nini.config import settings
 from nini.models.database import get_db
@@ -37,6 +37,82 @@ VALID_PROVIDERS = {
 
 BUILTIN_PROVIDER_ID = "builtin"
 VALID_ROUTE_PROVIDERS = VALID_PROVIDERS | {BUILTIN_PROVIDER_ID}
+
+API_MODE_STANDARD = "standard"
+API_MODE_CODING_PLAN = "coding_plan"
+SUPPORTED_API_MODES_BY_PROVIDER: dict[str, tuple[str, ...]] = {
+    "zhipu": (API_MODE_STANDARD, API_MODE_CODING_PLAN),
+    "dashscope": (API_MODE_STANDARD, API_MODE_CODING_PLAN),
+}
+DEFAULT_BASE_URLS_BY_PROVIDER_MODE: dict[str, dict[str, str]] = {
+    "zhipu": {
+        API_MODE_STANDARD: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        API_MODE_CODING_PLAN: "https://open.bigmodel.cn/api/coding/paas/v4",
+    },
+    "dashscope": {
+        API_MODE_STANDARD: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        API_MODE_CODING_PLAN: "https://coding.dashscope.aliyuncs.com/v1",
+    },
+}
+DEFAULT_MODELS_BY_PROVIDER_MODE: dict[str, dict[str, str]] = {
+    "zhipu": {
+        API_MODE_STANDARD: "glm-4",
+        API_MODE_CODING_PLAN: "glm-4.7",
+    },
+    "dashscope": {
+        API_MODE_STANDARD: "qwen-plus",
+        API_MODE_CODING_PLAN: "qwen3-coder-plus",
+    },
+}
+
+
+def normalize_api_mode(provider: str, api_mode: str | None) -> str | None:
+    """归一化 API 模式，仅对支持双模式的供应商生效。"""
+    if provider not in SUPPORTED_API_MODES_BY_PROVIDER:
+        return None
+    normalized = api_mode.strip().lower() if isinstance(api_mode, str) else ""
+    if normalized in SUPPORTED_API_MODES_BY_PROVIDER[provider]:
+        return normalized
+    return None
+
+
+def get_default_base_url_for_mode(provider: str, api_mode: str) -> str:
+    """根据供应商与模式返回默认端点。"""
+    try:
+        return DEFAULT_BASE_URLS_BY_PROVIDER_MODE[provider][api_mode]
+    except KeyError as exc:
+        raise ValueError(f"不支持的 API 模式: {provider}/{api_mode}") from exc
+
+
+def get_default_model_for_mode(provider: str, api_mode: str) -> str | None:
+    """根据供应商与模式返回默认模型。"""
+    return DEFAULT_MODELS_BY_PROVIDER_MODE.get(provider, {}).get(api_mode)
+
+
+def infer_api_mode_from_base_url(provider: str, base_url: str | None) -> str | None:
+    """根据端点反推 API 模式。"""
+    normalized = base_url.strip().rstrip("/") if isinstance(base_url, str) else ""
+    if not normalized:
+        return None
+    for api_mode, default_base_url in DEFAULT_BASE_URLS_BY_PROVIDER_MODE.get(provider, {}).items():
+        if normalized == default_base_url.rstrip("/"):
+            return api_mode
+    return None
+
+
+def has_material_model_config(config: Mapping[str, Any] | None) -> bool:
+    """判断配置是否包含真实可用内容，而不是仅有优先级等占位数据。"""
+    if not config:
+        return False
+    for field_name in ("api_key", "model", "base_url", "api_mode"):
+        value = config.get(field_name)
+        if isinstance(value, str):
+            if value.strip():
+                return True
+            continue
+        if value is not None:
+            return True
+    return False
 
 # 默认提供商优先级（数值越小优先级越高）
 PROVIDER_PRIORITY_ORDER: tuple[str, ...] = (
@@ -86,6 +162,7 @@ async def save_model_config(
     api_key: str | None = None,
     model: str | None = None,
     base_url: str | None = None,
+    api_mode: str | None = None,
     priority: int | None = None,
     is_active: bool = True,
 ) -> dict[str, Any]:
@@ -96,6 +173,7 @@ async def save_model_config(
         api_key: 明文 API Key（将加密存储）
         model: 模型名称
         base_url: 自定义 API 端点
+        api_mode: API 模式，仅部分供应商支持
         priority: 优先级（数值越小越优先）
         is_active: 是否启用
 
@@ -112,6 +190,24 @@ async def save_model_config(
     if normalized_api_key == "":
         normalized_api_key = None
     has_new_key = normalized_api_key is not None
+    normalized_base_url = base_url.strip() if isinstance(base_url, str) else None
+    if normalized_base_url == "":
+        normalized_base_url = None
+
+    normalized_api_mode = normalize_api_mode(provider, api_mode)
+    normalized_model = model.strip() if isinstance(model, str) else None
+    if normalized_model == "":
+        normalized_model = None
+    if provider in SUPPORTED_API_MODES_BY_PROVIDER:
+        if not normalized_api_mode:
+            raise ValueError(f"{provider} 必须选择 API 模式")
+        final_base_url = normalized_base_url or get_default_base_url_for_mode(
+            provider, normalized_api_mode
+        )
+        final_model = normalized_model or get_default_model_for_mode(provider, normalized_api_mode)
+    else:
+        final_base_url = normalized_base_url
+        final_model = normalized_model
 
     encrypted_key = encrypt_api_key(normalized_api_key) if normalized_api_key is not None else None
     key_hint = mask_api_key(normalized_api_key) if normalized_api_key is not None else ""
@@ -120,12 +216,24 @@ async def save_model_config(
     try:
         # 先查询是否已存在该 provider 的记录
         cursor = await db.execute(
-            "SELECT id, encrypted_api_key, api_key_hint, priority FROM model_configs WHERE provider = ?",
+            "SELECT id, encrypted_api_key, api_key_hint, priority, model, api_mode, base_url "
+            "FROM model_configs WHERE provider = ?",
             (provider,),
         )
         existing = await cursor.fetchone()
 
         if existing:
+            existing_cfg = {
+                "api_key": existing[1],
+                "model": existing[4],
+                "api_mode": existing[5],
+                "base_url": existing[6],
+            }
+            if (
+                provider in SUPPORTED_API_MODES_BY_PROVIDER
+                and has_material_model_config(existing_cfg)
+            ):
+                raise ValueError("该供应商已配置，如需修改请先删除当前配置后重新配置")
             # 更新：如果未提供新 Key 则保留旧值
             final_encrypted_key = encrypted_key if has_new_key else existing[1]
             final_key_hint = key_hint if has_new_key else (existing[2] or "")
@@ -134,14 +242,15 @@ async def save_model_config(
                 """
                 UPDATE model_configs
                 SET model = ?, encrypted_api_key = ?, api_key_hint = ?,
-                    base_url = ?, priority = ?, is_active = ?, updated_at = datetime('now')
+                    base_url = ?, api_mode = ?, priority = ?, is_active = ?, updated_at = datetime('now')
                 WHERE provider = ?
                 """,
                 (
-                    model or "",
+                    final_model or "",
                     final_encrypted_key,
                     final_key_hint,
-                    base_url,
+                    final_base_url,
+                    normalized_api_mode,
                     final_priority,
                     int(is_active),
                     provider,
@@ -157,28 +266,30 @@ async def save_model_config(
             await db.execute(
                 """
                 INSERT INTO model_configs (
-                    provider, model, encrypted_api_key, api_key_hint, base_url, priority, is_active, updated_at
+                    provider, model, encrypted_api_key, api_key_hint, api_mode, base_url, priority, is_active, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 """,
                 (
                     provider,
-                    model or "",
+                    final_model or "",
                     encrypted_key,
                     key_hint,
-                    base_url,
+                    normalized_api_mode,
+                    final_base_url,
                     final_priority,
                     int(is_active),
                 ),
             )
         await db.commit()
-        logger.info("已保存模型配置: provider=%s, model=%s", provider, model)
+        logger.info("已保存模型配置: provider=%s, model=%s", provider, final_model)
 
         return {
             "provider": provider,
-            "model": model or "",
+            "model": final_model or "",
             "api_key_hint": final_key_hint,
-            "base_url": base_url,
+            "api_mode": normalized_api_mode,
+            "base_url": final_base_url,
             "priority": final_priority,
             "is_active": is_active,
         }
@@ -195,7 +306,7 @@ async def load_all_model_configs() -> dict[str, dict[str, Any]]:
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT provider, model, encrypted_api_key, api_key_hint, base_url, priority, is_active "
+            "SELECT provider, model, encrypted_api_key, api_key_hint, api_mode, base_url, priority, is_active "
             "FROM model_configs WHERE is_active = 1"
         )
         rows = await cursor.fetchall()
@@ -211,9 +322,10 @@ async def load_all_model_configs() -> dict[str, dict[str, Any]]:
                 "model": row[1],
                 "api_key": api_key,
                 "api_key_hint": row[3] or "",
-                "base_url": row[4],
-                "priority": int(row[5] or 0),
-                "is_active": bool(row[6]),
+                "api_mode": normalize_api_mode(provider, row[4]),
+                "base_url": row[5],
+                "priority": int(row[6] or 0),
+                "is_active": bool(row[7]),
             }
         return configs
     finally:
@@ -232,6 +344,7 @@ async def get_effective_config(provider: str) -> dict[str, Any]:
     # 从 DB 加载
     db_configs = await load_all_model_configs()
     db_cfg = db_configs.get(provider, {})
+    db_api_mode = normalize_api_mode(provider, db_cfg.get("api_mode"))
 
     # .env 配置映射
     env_map: dict[str, dict[str, str | None]] = {
@@ -239,55 +352,75 @@ async def get_effective_config(provider: str) -> dict[str, Any]:
             "api_key": settings.openai_api_key,
             "model": settings.openai_model,
             "base_url": settings.openai_base_url,
+            "api_mode": None,
         },
         "anthropic": {
             "api_key": settings.anthropic_api_key,
             "model": settings.anthropic_model,
             "base_url": None,
+            "api_mode": None,
         },
         "moonshot": {
             "api_key": settings.moonshot_api_key,
             "model": settings.moonshot_model,
             "base_url": None,
+            "api_mode": None,
         },
         "kimi_coding": {
             "api_key": settings.kimi_coding_api_key,
             "model": settings.kimi_coding_model,
             "base_url": settings.kimi_coding_base_url,
+            "api_mode": None,
         },
         "zhipu": {
             "api_key": settings.zhipu_api_key,
             "model": settings.zhipu_model,
             "base_url": settings.zhipu_base_url,
+            "api_mode": infer_api_mode_from_base_url("zhipu", settings.zhipu_base_url),
         },
         "deepseek": {
             "api_key": settings.deepseek_api_key,
             "model": settings.deepseek_model,
             "base_url": None,
+            "api_mode": None,
         },
         "dashscope": {
             "api_key": settings.dashscope_api_key,
             "model": settings.dashscope_model,
-            "base_url": None,
+            "base_url": settings.dashscope_base_url,
+            "api_mode": infer_api_mode_from_base_url("dashscope", settings.dashscope_base_url),
         },
         "minimax": {
             "api_key": settings.minimax_api_key,
             "model": settings.minimax_model,
             "base_url": settings.minimax_base_url,
+            "api_mode": None,
         },
         "ollama": {
             "api_key": None,
             "model": settings.ollama_model,
             "base_url": settings.ollama_base_url,
+            "api_mode": None,
         },
     }
 
     env_cfg = env_map.get(provider, {})
+    env_api_mode = normalize_api_mode(provider, env_cfg.get("api_mode"))
+    explicit_env_model = env_cfg.get("model") or ""
+    if provider in SUPPORTED_API_MODES_BY_PROVIDER and env_api_mode:
+        if explicit_env_model == DEFAULT_MODELS_BY_PROVIDER_MODE[provider][API_MODE_STANDARD]:
+            explicit_env_model = ""
+
+    effective_api_mode = db_api_mode or env_api_mode
+    effective_model = db_cfg.get("model") or explicit_env_model or ""
+    if not effective_model and effective_api_mode:
+        effective_model = get_default_model_for_mode(provider, effective_api_mode) or ""
 
     # DB 优先，.env 兜底
     return {
         "api_key": db_cfg.get("api_key") or env_cfg.get("api_key"),
-        "model": db_cfg.get("model") or env_cfg.get("model") or "",
+        "model": effective_model,
+        "api_mode": effective_api_mode,
         "base_url": db_cfg.get("base_url") or env_cfg.get("base_url"),
     }
 

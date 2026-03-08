@@ -250,11 +250,15 @@ class LongTermMemoryStore:
                     finally:
                         LongTermMemoryStore._consolidating.discard(sid)
 
+                consolidate_coro = _do_consolidate(source_session_id)
                 try:
                     import asyncio
 
-                    asyncio.get_event_loop().create_task(_do_consolidate(source_session_id))
+                    task = asyncio.get_event_loop().create_task(consolidate_coro)
+                    if not isinstance(task, asyncio.Task):
+                        consolidate_coro.close()
                 except Exception:
+                    consolidate_coro.close()
                     LongTermMemoryStore._consolidating.discard(source_session_id)
                     logger.debug("高重要性记忆触发沉淀失败，忽略", exc_info=True)
 

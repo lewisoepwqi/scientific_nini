@@ -10,3 +10,13 @@
 !fonts/**
 !prompt_components/
 !prompt_components/**
+
+# 保留内置知识库静态内容
+!knowledge/
+!knowledge/metadata.json
+!knowledge/methods/
+!knowledge/methods/*.md
+!knowledge/pitfalls/
+!knowledge/pitfalls/*.md
+!knowledge/reporting/
+!knowledge/reporting/*.md

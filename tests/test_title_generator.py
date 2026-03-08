@@ -72,6 +72,14 @@ def test_normalize_title_strips_english_prefix_with_dash() -> None:
     assert title == "实验结果分析"
 
 
+def test_trim_title_length_prefers_prefix_boundary() -> None:
+    """本地截断应优先按分隔符保留前半段标题。"""
+
+    title = title_generator._trim_title_length("实验结果分析：方差检验与回归建模")
+
+    assert title == "实验结果分析"
+
+
 def test_fallback_title_removes_url() -> None:
     """回退标题应清理 URL。"""
 
@@ -81,6 +89,20 @@ def test_fallback_title_removes_url() -> None:
 
     assert title is not None
     assert "http" not in title
+
+
+def test_fallback_title_skips_generic_greeting() -> None:
+    """回退标题应跳过寒暄，提取后续真实意图。"""
+
+    messages = [
+        {"role": "user", "content": "你好"},
+        {"role": "assistant", "content": "你好，我在。"},
+        {"role": "user", "content": "请帮我分析 GDP 数据并画图"},
+    ]
+
+    title = title_generator._fallback_title(messages)
+
+    assert title == "分析 GDP 数据并画图"
 
 
 @pytest.mark.asyncio
@@ -132,6 +154,55 @@ async def test_generate_title_retry_once_when_length_raw_empty(
 
 
 @pytest.mark.asyncio
+async def test_generate_title_trims_long_model_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    """模型返回超长标题时应优先本地裁剪，而不是依赖重试。"""
+
+    async def _fake_chat_complete(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return _DummyResponse("实验结果分析：方差检验与回归建模")
+
+    monkeypatch.setattr(title_generator.model_resolver, "chat_complete", _fake_chat_complete)
+
+    messages = [
+        {"role": "user", "content": "请帮我分析实验结果并总结统计结论"},
+    ]
+
+    title = await title_generator.generate_title(messages)
+
+    assert title == "实验结果分析"
+
+
+@pytest.mark.asyncio
+async def test_generate_title_prompt_uses_shorter_user_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """标题提示词应优先使用少量用户消息并缩短上下文。"""
+
+    captured_prompt = ""
+
+    async def _fake_chat_complete(*args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal captured_prompt
+        captured_prompt = args[0][0]["content"]
+        return _DummyResponse("实验结果分析")
+
+    monkeypatch.setattr(title_generator.model_resolver, "chat_complete", _fake_chat_complete)
+
+    messages = [
+        {"role": "user", "content": "第一条用户问题。" + "补充说明" * 40},
+        {"role": "assistant", "content": "第一条助手回复。" + "回复细节" * 40},
+        {"role": "user", "content": "第二条用户问题。" + "更多背景" * 40},
+        {"role": "assistant", "content": "第二条助手回复。" + "更多结果" * 40},
+    ]
+
+    title = await title_generator.generate_title(messages)
+
+    assert title == "实验结果分析"
+    assert "用户:" in captured_prompt
+    assert captured_prompt.count("用户:") == 2
+    assert "助手:" not in captured_prompt
+    assert "回复细节回复细节回复细节回复细节回复细节回复细节" not in captured_prompt
+
+
+@pytest.mark.asyncio
 async def test_generate_title_no_retry_when_not_length(monkeypatch: pytest.MonkeyPatch) -> None:
     """非 length 空返回不应重试。"""
 
@@ -157,3 +228,24 @@ async def test_generate_title_no_retry_when_not_length(monkeypatch: pytest.Monke
 
     assert title == "开始分析数据"
     assert call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_title_returns_none_when_only_generic_greeting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """只有寒暄时不应生成空泛标题。"""
+
+    async def _fake_chat_complete(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return _DummyResponse("", finish_reason="stop")
+
+    monkeypatch.setattr(title_generator.model_resolver, "chat_complete", _fake_chat_complete)
+
+    messages = [
+        {"role": "user", "content": "你好"},
+        {"role": "assistant", "content": "你好，请问有什么可以帮你？"},
+    ]
+
+    title = await title_generator.generate_title(messages)
+
+    assert title is None
