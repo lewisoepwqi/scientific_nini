@@ -37,14 +37,19 @@ BUILTIN_MODE_FAST = "fast"
 BUILTIN_MODE_DEEP = "deep"
 BUILTIN_MODE_TITLE = "title"
 
-# ---- 标题生成廉价模型偏好顺序 ----
-# 按 provider_id 映射到廉价模型名称列表（优先级从高到低）
-# None 表示使用用户选择的主模型（如 Ollama）
-TITLE_MODEL_PREFERENCE: dict[str, list[str] | None] = {
-    "deepseek": ["deepseek-chat"],
-    "zhipu": ["glm-4-flash", "glm-4-air", "glm-4"],
-    "dashscope": ["qwen-turbo", "qwen-plus"],
-    "ollama": None,
+# ---- 标题生成动态选模规则 ----
+# 每个 provider 配置一组关键词偏好，按顺序从可用模型列表中动态匹配。
+# 空列表表示不切换标题专用模型，直接复用当前主模型。
+TITLE_MODEL_MATCHERS: dict[str, list[tuple[str, ...]]] = {
+    "deepseek": [("chat",), ("coder",)],
+    "zhipu": [("flash",), ("air",), ("glm-4",), ("glm-5",)],
+    "dashscope": [("turbo",), ("plus",)],
+    "moonshot": [("8k",), ("32k",), ("kimi", "chat")],
+    "kimi_coding": [],
+    "anthropic": [("haiku",), ("sonnet",)],
+    "openai": [("mini",), ("gpt-4.1",), ("gpt-4o",)],
+    "minimax": [("abab",), ("m2.1",), ("m2.5",)],
+    "ollama": [],
 }
 
 # ---- 用途路由映射 ----
@@ -105,6 +110,28 @@ def _load_purpose_routes_from_settings() -> dict[str, PurposeRoute]:
     return routes
 
 
+def _empty_purpose_routes() -> dict[str, PurposeRoute]:
+    """返回一份新的用途路由默认值，避免重载时复用旧内存态。"""
+    routes = {
+        key: {
+            "provider_id": value.get("provider_id"),
+            "model": value.get("model"),
+            "base_url": value.get("base_url"),
+        }
+        for key, value in _load_purpose_routes_from_settings().items()
+    }
+    for purpose in ("chat", "title_generation", "image_analysis"):
+        routes.setdefault(
+            purpose,
+            {
+                "provider_id": None,
+                "model": None,
+                "base_url": None,
+            },
+        )
+    return routes
+
+
 # ---- 模型解析器 ----
 
 
@@ -117,7 +144,7 @@ class ModelResolver:
     def __init__(self, clients: list[BaseLLMClient] | None = None) -> None:
         self._clients: list[BaseLLMClient] = []
         self._client_map: dict[str, BaseLLMClient] = {}
-        self._purpose_routes = _load_purpose_routes_from_settings()
+        self._purpose_routes = _empty_purpose_routes()
         self._config_overrides: dict[str, dict[str, Any]] = {}
         # 单一激活供应商 ID（None 表示使用试用模式）
         self._active_provider_id: str | None = None
@@ -330,30 +357,98 @@ class ModelResolver:
             return client
         return None
 
-    def _get_title_client(self) -> BaseLLMClient | None:
-        """获取用于标题生成的廉价模型客户端。
+    @staticmethod
+    def _select_title_model_from_available(
+        provider_id: str,
+        available_models: list[str],
+    ) -> str | None:
+        """从当前可用模型列表中动态挑选适合标题生成的模型。"""
+        matchers = TITLE_MODEL_MATCHERS.get(provider_id, [])
+        if not matchers:
+            return None
 
-        按 TITLE_MODEL_PREFERENCE 偏好从激活供应商中选取廉价模型。
-        若无偏好配置或 Ollama，则使用激活供应商的主模型。
+        normalized_models = [
+            (model, model.strip().lower()) for model in available_models if str(model).strip()
+        ]
+        for matcher in matchers:
+            for original, normalized in normalized_models:
+                if all(keyword in normalized for keyword in matcher):
+                    return original
+        return None
 
-        Returns:
-            适合标题生成的客户端，若无激活供应商则返回 None
+    async def _get_title_client(self) -> BaseLLMClient | None:
+        """获取用于标题生成的客户端。
+
+        优先基于当前服务商的可用模型列表动态选取更轻量的标题模型，
+        匹配失败时回退到当前激活供应商的主模型。
         """
         if not self._active_provider_id:
             return self._trial_client  # 试用模式直接用试用客户端
 
-        preferred = TITLE_MODEL_PREFERENCE.get(self._active_provider_id)
-        if preferred is None:
-            # Ollama 或无偏好：使用主模型
-            return self._get_single_active_client()
+        active_client = self._get_single_active_client()
+        if active_client is None:
+            return None
 
-        # 选取偏好列表中的第一个模型构建临时客户端
-        title_model = preferred[0]
+        from nini.agent.model_lister import list_available_models
+
+        override = self._config_overrides.get(self._active_provider_id, {})
+        api_key = override.get("api_key")
+        base_url = override.get("base_url")
+        model_source = "fallback_active_model"
+        try:
+            result = await list_available_models(
+                provider_id=self._active_provider_id,
+                api_key=api_key,
+                base_url=base_url,
+            )
+            model_source = str(result.get("source") or "unknown")
+            title_model = self._select_title_model_from_available(
+                self._active_provider_id,
+                result.get("models", []),
+            )
+        except Exception as exc:
+            logger.debug(
+                "动态选择标题模型失败，回退主模型: provider=%s err=%s",
+                self._active_provider_id,
+                exc,
+            )
+            title_model = None
+
+        if not title_model:
+            logger.info(
+                "标题生成模型已确定: provider=%s model=%s source=%s",
+                self._active_provider_id,
+                active_client.get_model_name() or "unknown",
+                "fallback_active_model",
+            )
+            return active_client
+
+        if title_model == active_client.get_model_name():
+            logger.info(
+                "标题生成模型已确定: provider=%s model=%s source=%s",
+                self._active_provider_id,
+                active_client.get_model_name() or "unknown",
+                model_source,
+            )
+            return active_client
+
         built = self._build_client_for_provider(self._active_provider_id, model=title_model)
         if built and built.is_available():
+            logger.info(
+                "标题生成模型已确定: provider=%s model=%s source=%s",
+                self._active_provider_id,
+                title_model,
+                model_source,
+            )
             return built
-        # 构建失败则回退主模型
-        return self._get_single_active_client()
+
+        logger.info(
+            "标题生成模型已确定: provider=%s model=%s source=%s",
+            self._active_provider_id,
+            active_client.get_model_name() or "unknown",
+            "fallback_active_model",
+        )
+        return active_client
 
     async def chat(
         self,
@@ -419,16 +514,21 @@ class ModelResolver:
             if not clients:
                 raise await self._build_builtin_quota_error(mode_candidate)
         elif route_provider:
-            if allow_user_fallback:
+            selected_client = self._get_specific_client_for_route(
+                route_provider,
+                model=route_model,
+                base_url=route_base_url,
+            )
+            if selected_client:
+                clients = [selected_client]
+            elif purpose == "title_generation":
+                # 标题生成遇到无效路由时，优先回退到当前激活/试用来源，
+                # 避免意外命中历史残留供应商。
+                title_client = await self._get_title_client()
+                if title_client:
+                    clients = [title_client]
+            elif allow_user_fallback:
                 clients = self._get_ordered_clients(purpose)
-            else:
-                selected_client = self._get_specific_client_for_route(
-                    route_provider,
-                    model=route_model,
-                    base_url=route_base_url,
-                )
-                if selected_client:
-                    clients = [selected_client]
         else:
             # 无显式路由：默认走系统内置；仅在用户明确配置多个服务商时才允许降级。
             # 测试注入模式下跳过系统内置，直接使用注入的客户端
@@ -447,7 +547,7 @@ class ModelResolver:
                         raise await self._build_builtin_quota_error(BUILTIN_MODE_FAST)
                 if not clients:
                     # 已配置供应商时，标题生成仍优先走廉价模型偏好。
-                    title_client = self._get_title_client()
+                    title_client = await self._get_title_client()
                     if title_client:
                         clients = [title_client]
             else:
@@ -632,6 +732,7 @@ class ModelResolver:
         self,
         provider_id: str,
         *,
+        api_key: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
     ) -> BaseLLMClient | None:
@@ -659,11 +760,12 @@ class ModelResolver:
 
         # 获取配置覆盖
         override = self._config_overrides.get(provider_id, {})
-        api_key = override.get("api_key")
+        default_api_key = override.get("api_key")
         default_model = override.get("model")
         default_base_url = override.get("base_url")
 
         # 使用传入的参数或配置覆盖
+        final_api_key = api_key or default_api_key
         final_model = model or default_model
         final_base_url = base_url or default_base_url
 
@@ -684,8 +786,8 @@ class ModelResolver:
             return None
 
         kwargs: dict[str, Any] = {}
-        if api_key:
-            kwargs["api_key"] = api_key
+        if final_api_key:
+            kwargs["api_key"] = final_api_key
         if final_model:
             kwargs["model"] = final_model
         if final_base_url:
@@ -928,7 +1030,14 @@ class ModelResolver:
         if "preferred_provider" in config:
             self.set_preferred_provider(config["preferred_provider"])
 
-    async def test_connection(self, provider_id: str) -> dict[str, Any]:
+    async def test_connection(
+        self,
+        provider_id: str,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ) -> dict[str, Any]:
         """测试指定提供商的连接。
 
         Args:
@@ -937,7 +1046,58 @@ class ModelResolver:
         Returns:
             包含测试结果的字典
         """
-        client = self._client_map.get(provider_id)
+        resolved_model = model
+        if not resolved_model and provider_id != "anthropic":
+            from nini.agent.model_lister import list_available_models
+
+            try:
+                available = await list_available_models(
+                    provider_id=provider_id,
+                    api_key=api_key,
+                    base_url=base_url,
+                )
+                supports_remote_listing = available.get("supports_remote_listing") is not False
+                if available.get("source") == "remote":
+                    models = available.get("models", [])
+                    if isinstance(models, list):
+                        first_model = next(
+                            (
+                                item.strip()
+                                for item in models
+                                if isinstance(item, str) and item.strip()
+                            ),
+                            None,
+                        )
+                        if first_model:
+                            resolved_model = first_model
+                if not resolved_model and not supports_remote_listing:
+                    models = available.get("models", [])
+                    if isinstance(models, list):
+                        first_model = next(
+                            (
+                                item.strip()
+                                for item in models
+                                if isinstance(item, str) and item.strip()
+                            ),
+                            None,
+                        )
+                        if first_model:
+                            resolved_model = first_model
+            except Exception:
+                # 测试连接仍应继续尝试默认模型，避免模型列表接口失败直接中断。
+                pass
+
+        has_override = any(value is not None for value in (api_key, model, base_url))
+        client = (
+            self._build_client_for_provider(
+                provider_id,
+                api_key=api_key,
+                model=resolved_model,
+                base_url=base_url,
+            )
+            if has_override
+            else self._client_map.get(provider_id)
+        )
         if not client:
             return {"success": False, "error": f"未知的提供商: {provider_id}"}
         if not client.is_available():
@@ -1030,6 +1190,7 @@ class ModelResolver:
         """
         overrides = config_overrides or {}
         self._config_overrides = overrides
+        self._purpose_routes = _empty_purpose_routes()
 
         # 更新单一激活供应商
         self._active_provider_id = active_provider_id
@@ -1074,6 +1235,7 @@ class ModelResolver:
             ),
             DashScopeClient(
                 api_key=_get("dashscope", "api_key"),
+                base_url=_get("dashscope", "base_url"),
                 model=_get("dashscope", "model"),
             ),
             MiniMaxClient(

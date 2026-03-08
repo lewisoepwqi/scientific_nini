@@ -459,9 +459,13 @@ export interface ModelProviderInfo {
   current_model: string;
   available_models?: string[];
   api_key_hint: string;
+  api_mode?: "standard" | "coding_plan" | "unknown" | null;
+  supported_api_modes?: Array<"standard" | "coding_plan">;
   base_url: string;
   priority?: number;
   config_source: "db" | "env" | "none";
+  can_edit_in_place?: boolean;
+  can_delete_config?: boolean;
 }
 
 export interface CodeExecution {

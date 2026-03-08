@@ -60,6 +60,49 @@ _MODEL_PROVIDERS = [
     },
 ]
 
+_MODE_AWARE_AVAILABLE_MODELS: dict[str, dict[str, list[str]]] = {
+    "zhipu": {
+        "standard": [
+            "glm-5",
+            "glm-5-plus",
+            "glm-5-air",
+            "glm-4.7",
+            "glm-4.6",
+            "glm-4.5",
+            "glm-4.5-air",
+            "glm-4",
+            "glm-4-plus",
+            "glm-4-flash",
+        ],
+        "coding_plan": [
+            "glm-5",
+            "glm-4.7",
+        ],
+    },
+    "dashscope": {
+        "standard": ["qwen-plus", "qwen-turbo", "qwen-max"],
+        "coding_plan": [
+            "qwen3-max-2026-01-23",
+            "qwen3-coder-plus",
+            "qwen3-coder-next",
+            "qwen3.5-plus",
+            "glm-5",
+            "glm-4.7",
+            "kimi-k2.5",
+            "MiniMax-M2.5",
+        ],
+    },
+}
+
+
+def _get_mode_aware_available_models(provider_id: str, api_mode: str | None) -> list[str]:
+    """根据 provider 与模式返回页面展示用的静态候选模型。"""
+    if provider_id not in _MODE_AWARE_AVAILABLE_MODELS:
+        return []
+    if api_mode and api_mode in _MODE_AWARE_AVAILABLE_MODELS[provider_id]:
+        return _MODE_AWARE_AVAILABLE_MODELS[provider_id][api_mode]
+    return _MODE_AWARE_AVAILABLE_MODELS[provider_id].get("standard", [])
+
 
 def _is_settings_field_explicit(field_name: str) -> bool:
     """判断 settings 字段是否由环境/.env 显式提供，而非默认值。"""
@@ -75,7 +118,12 @@ def _is_settings_field_explicit(field_name: str) -> bool:
 async def list_models():
     """列出面向用户的 4 个供应商及其配置状态（合并 DB 与 .env 配置）。"""
     from nini.config import settings
-    from nini.config_manager import get_active_provider_id, load_all_model_configs
+    from nini.config_manager import (
+        SUPPORTED_API_MODES_BY_PROVIDER,
+        get_active_provider_id,
+        infer_api_mode_from_base_url,
+        load_all_model_configs,
+    )
     from nini.utils.crypto import mask_api_key
 
     try:
@@ -94,13 +142,17 @@ async def list_models():
         key_field = provider["key_field"]
         model_field = provider["model_field"]
         db_cfg = db_configs.get(pid, {})
+        db_api_mode = db_cfg.get("api_mode")
 
         env_key = getattr(settings, key_field, None) if key_field else None
         effective_key = db_cfg.get("api_key") or env_key or ""
         env_model = getattr(settings, model_field, "") if model_field else ""
         effective_model = db_cfg.get("model") or env_model
-        env_base_url = getattr(settings, f"{pid}_base_url", "") if pid == "ollama" else ""
+        env_base_url = getattr(settings, f"{pid}_base_url", "")
         effective_base_url = db_cfg.get("base_url") or env_base_url or ""
+        env_api_mode = infer_api_mode_from_base_url(pid, env_base_url)
+        effective_api_mode = db_api_mode or env_api_mode
+        has_db_config = bool(db_cfg.get("api_key") or db_cfg.get("model") or db_cfg.get("base_url"))
 
         if pid == "ollama":
             # Ollama 无 API Key 概念，配置状态应同时兼容 DB 与 .env。
@@ -118,9 +170,16 @@ async def list_models():
             configured = bool(effective_key)
             config_source = (
                 "db"
-                if db_cfg.get("api_key") or db_cfg.get("model")
+                if has_db_config
                 else ("env" if env_key else "none")
             )
+
+        can_edit_in_place = not (
+            pid in SUPPORTED_API_MODES_BY_PROVIDER and configured
+        )
+        can_delete_config = configured and config_source == "db"
+        if pid in SUPPORTED_API_MODES_BY_PROVIDER and configured and not effective_api_mode:
+            effective_api_mode = "unknown"
 
         result.append(
             {
@@ -131,9 +190,14 @@ async def list_models():
                 "configured": configured,
                 "is_active": pid == active_provider_id,
                 "current_model": effective_model,
+                "available_models": _get_mode_aware_available_models(pid, effective_api_mode),
                 "api_key_hint": db_cfg.get("api_key_hint") or mask_api_key(env_key or ""),
+                "api_mode": effective_api_mode,
+                "supported_api_modes": list(SUPPORTED_API_MODES_BY_PROVIDER.get(pid, ())),
                 "base_url": effective_base_url,
                 "config_source": config_source,
+                "can_edit_in_place": can_edit_in_place,
+                "can_delete_config": can_delete_config,
             }
         )
 
@@ -141,16 +205,23 @@ async def list_models():
 
 
 @router.get("/models/{provider_id}/available", response_model=APIResponse)
-async def get_provider_available_models(provider_id: str):
+async def get_provider_available_models(
+    provider_id: str,
+    base_url: str | None = None,
+    api_mode: str | None = None,
+):
     """动态获取指定提供商的可用模型列表。"""
     from nini.agent.model_lister import list_available_models
-    from nini.config_manager import get_effective_config
+    from nini.config_manager import get_default_base_url_for_mode, get_effective_config, normalize_api_mode
 
     cfg = await get_effective_config(provider_id)
+    normalized_api_mode = normalize_api_mode(provider_id, api_mode)
+    if normalized_api_mode and not base_url:
+        base_url = get_default_base_url_for_mode(provider_id, normalized_api_mode)
     result = await list_available_models(
         provider_id=provider_id,
         api_key=cfg.get("api_key"),
-        base_url=cfg.get("base_url"),
+        base_url=base_url or cfg.get("base_url"),
     )
     return APIResponse(data=result)
 
@@ -285,20 +356,22 @@ async def update_model_config(request: ModelConfigRequest):
     from nini.config_manager import save_model_config
 
     try:
+        payload = request.model_dump()
         # 保存配置到数据库
         result = await save_model_config(
-            provider=request.provider_id,
-            api_key=request.api_key,
-            model=request.model,
-            base_url=request.base_url,
-            priority=request.priority,
-            is_active=request.is_active,
+            provider=str(payload["provider_id"]),
+            api_key=payload.get("api_key"),
+            model=payload.get("model"),
+            base_url=payload.get("base_url"),
+            api_mode=payload.get("api_mode"),
+            priority=payload.get("priority"),
+            is_active=bool(payload.get("is_active", True)),
         )
 
         # 将该供应商设为唯一激活供应商
         from nini.config_manager import set_active_provider
 
-        await set_active_provider(request.provider_id)
+        await set_active_provider(str(payload["provider_id"]))
 
         # 重新加载模型客户端，使新配置生效
         from nini.agent.model_resolver import reload_model_resolver
@@ -311,6 +384,7 @@ async def update_model_config(request: ModelConfigRequest):
                 "provider": result["provider"],
                 "model": result["model"],
                 "api_key_hint": result["api_key_hint"],
+                "api_mode": result["api_mode"],
                 "base_url": result["base_url"],
             },
         )
@@ -321,14 +395,37 @@ async def update_model_config(request: ModelConfigRequest):
 
 
 @router.post("/models/{provider_id}/test", response_model=APIResponse)
-async def test_model_connection(provider_id: str):
+async def test_model_connection(provider_id: str, request: ModelConfigRequest | None = None):
     """测试模型连接。"""
     from nini.agent.model_resolver import get_model_resolver
+    from nini.config_manager import get_default_base_url_for_mode, normalize_api_mode
 
     resolver = get_model_resolver()
 
     try:
-        result = await resolver.test_connection(provider_id)
+        api_key = None
+        model = None
+        base_url = None
+        payload: dict[str, Any] | None = None
+        if request is not None:
+            payload = request.model_dump()
+            request_provider_id = str(payload["provider_id"])
+            if request_provider_id != provider_id:
+                return APIResponse(success=False, error="provider_id 与路径参数不一致")
+            api_key = str(payload.get("api_key") or "").strip() or None
+            model = str(payload.get("model") or "").strip() or None
+            base_url = str(payload.get("base_url") or "").strip() or None
+            api_mode = normalize_api_mode(provider_id, payload.get("api_mode"))
+            if api_mode and not base_url:
+                base_url = get_default_base_url_for_mode(provider_id, api_mode)
+
+        resolver_any: Any = resolver
+        result = await resolver_any.test_connection(
+            provider_id,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+        )
         if result.get("success"):
             return APIResponse(
                 success=True,
@@ -409,7 +506,7 @@ async def delete_model_config(provider_id: str):
 
         # 清除所有指向该供应商的用途路由，避免残留路由干扰后续行为
         current_routes = await get_model_purpose_routes()
-        routes_to_clear = {
+        routes_to_clear: dict[str, dict[str, str | None]] = {
             purpose: {"provider_id": None, "model": None, "base_url": None}
             for purpose, route in current_routes.items()
             if route.get("provider_id") == provider_id

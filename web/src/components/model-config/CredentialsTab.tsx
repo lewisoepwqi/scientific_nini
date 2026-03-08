@@ -12,8 +12,10 @@ import {
   Save,
   Search,
   ChevronDown,
+  Trash2,
 } from "lucide-react";
 import { useStore } from "../../store";
+import { deleteProviderConfig } from "../../store/api-actions";
 import type { SaveStatus, TestResult } from "./types";
 
 interface EditForm {
@@ -35,6 +37,13 @@ function sourceLabel(s: string) {
   return "未配置";
 }
 
+function apiModeLabel(apiMode?: string | null) {
+  if (apiMode === "standard") return "普通";
+  if (apiMode === "coding_plan") return "Coding Plan";
+  if (apiMode === "unknown") return "未知";
+  return "未设置";
+}
+
 interface CredentialsTabProps {
   onConfigSaved: () => void;
 }
@@ -54,6 +63,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
   const [testResults, setTestResults] = useState<Record<string, TestResult>>(
     {},
   );
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const [providerQuery, setProviderQuery] = useState("");
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all");
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
@@ -215,6 +225,28 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
     }
   }, []);
 
+  const handleDelete = useCallback(
+    async (providerId: string) => {
+      setRemovingId(providerId);
+      try {
+        const ok = await deleteProviderConfig(providerId);
+        setSaveStatus((prev) => ({
+          ...prev,
+          [providerId]: ok
+            ? { loading: false, success: true, message: "配置已移除" }
+            : { loading: false, success: false, message: "移除失败" },
+        }));
+        if (ok) {
+          await fetchActiveModel();
+          onConfigSaved();
+        }
+      } finally {
+        setRemovingId(null);
+      }
+    },
+    [fetchActiveModel, onConfigSaved],
+  );
+
   if (modelProvidersLoading && modelProviders.length === 0) {
     return (
       <div className="flex items-center justify-center py-16 text-gray-400">
@@ -304,6 +336,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
           const save = saveStatus[p.id];
           const isEditing = editingId === p.id;
           const isExpanded = expandedId === p.id;
+          const lockedConfig = p.configured && p.can_edit_in_place === false;
 
           return (
             <div
@@ -341,6 +374,11 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                       <span className="px-1.5 py-0.5 rounded bg-white/80 border text-[10px] text-gray-500">
                         {sourceLabel(p.config_source)}
                       </span>
+                      {p.api_mode && (
+                        <span className="px-1.5 py-0.5 rounded bg-white/80 border text-[10px] text-gray-500">
+                          {apiModeLabel(p.api_mode)}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -442,6 +480,54 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                         </button>
                       </div>
                     </div>
+                  ) : lockedConfig ? (
+                    <>
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+                        当前配置已锁定，如需修改模式或密钥，请先移除后重新配置。
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                        <div className="rounded-lg border border-gray-200 bg-white p-2">
+                          <div className="text-gray-400">Base URL</div>
+                          <div className="text-gray-700 mt-1 break-all">
+                            {p.base_url || "默认端点"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-gray-200 bg-white p-2">
+                          <div className="text-gray-400">当前模式</div>
+                          <div className="text-gray-700 mt-1">
+                            {apiModeLabel(p.api_mode)}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={() => handleTest(p.id)}
+                          disabled={!p.configured || test?.loading}
+                          className="px-3 py-1.5 text-xs rounded-lg border disabled:opacity-40 disabled:cursor-not-allowed hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                        >
+                          {test?.loading ? (
+                            <span className="inline-flex items-center gap-1">
+                              <Loader2 size={12} className="animate-spin" />
+                              测试中
+                            </span>
+                          ) : (
+                            "测试连接"
+                          )}
+                        </button>
+                        <button
+                          onClick={() => void handleDelete(p.id)}
+                          disabled={removingId === p.id || p.can_delete_config === false}
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          {removingId === p.id ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <Trash2 size={12} />
+                          )}
+                          {p.can_delete_config === false ? "环境变量配置不可删除" : "移除配置"}
+                        </button>
+                      </div>
+                    </>
                   ) : (
                     <>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">

@@ -84,6 +84,7 @@ class ModelConfigRequest(BaseModel):
     provider_id: str
     api_key: Optional[str] = None
     model: Optional[str] = None
+    api_mode: Optional[str] = None
     base_url: Optional[str] = None
     priority: Optional[int] = None
     is_active: bool = True

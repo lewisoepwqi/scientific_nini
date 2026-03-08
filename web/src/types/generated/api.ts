@@ -61,6 +61,7 @@ export interface MarkdownSkillUpdateRequest {
 /** ModelConfigRequest */
 export interface ModelConfigRequest {
   api_key?: string | null;
+  api_mode?: string | null;
   base_url?: string | null;
   is_active?: boolean;
   model?: string | null;

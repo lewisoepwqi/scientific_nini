@@ -67,7 +67,7 @@ _PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
         "static": ["deepseek-chat", "deepseek-coder", "deepseek-reasoner"],
     },
     "dashscope": {
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "base_url": settings.dashscope_base_url,
         "static": ["qwen-plus", "qwen-turbo", "qwen-max"],
     },
     "minimax": {
@@ -79,6 +79,17 @@ _PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
         "static": ["qwen2.5:7b", "llama3:8b", "mistral:7b"],
     },
 }
+
+_DASHSCOPE_CODING_PLAN_MODELS = [
+    "qwen3-max-2026-01-23",
+    "qwen3-coder-plus",
+    "qwen3-coder-next",
+    "qwen3.5-plus",
+    "glm-5",
+    "glm-4.7",
+    "kimi-k2.5",
+    "MiniMax-M2.5",
+]
 
 
 async def list_available_models(
@@ -94,7 +105,7 @@ async def list_available_models(
         base_url: 自定义 base URL
 
     Returns:
-        {"models": [...], "source": "remote" | "static"}
+        {"models": [...], "source": "remote" | "static", "supports_remote_listing": bool}
     """
     config = _PROVIDER_CONFIG.get(provider_id, {})
     static_models = config.get("static", [])
@@ -103,28 +114,36 @@ async def list_available_models(
     cache_key = f"{provider_id}:{api_key or ''}:{base_url or ''}"
     cached = _cache.get(cache_key)
     if cached and (time.time() - cached[0]) < _CACHE_TTL:
-        return {"models": cached[1], "source": "remote"}
+        return {"models": cached[1], "source": "remote", "supports_remote_listing": True}
 
     # Anthropic 不支持动态获取
     if provider_id == "anthropic":
-        return {"models": static_models, "source": "static"}
+        return {"models": static_models, "source": "static", "supports_remote_listing": False}
 
     # 确定 API 端点
     effective_base = base_url or config.get("base_url")
     if not effective_base:
-        return {"models": static_models, "source": "static"}
+        return {"models": static_models, "source": "static", "supports_remote_listing": True}
 
     # Ollama 使用不同的端点格式
     if provider_id == "ollama":
         return await _list_ollama_models(effective_base, static_models, cache_key)
 
+    # 阿里 Coding Plan 不支持 /v1/models，直接返回官方支持模型清单。
+    if provider_id == "dashscope" and _is_dashscope_coding_plan_base_url(effective_base):
+        return {
+            "models": _DASHSCOPE_CODING_PLAN_MODELS,
+            "source": "static",
+            "supports_remote_listing": False,
+        }
+
     # 没有 API Key 的提供商无法调用
     if not api_key:
-        return {"models": static_models, "source": "static"}
+        return {"models": static_models, "source": "static", "supports_remote_listing": True}
 
     # 调用 OpenAI 兼容的 /v1/models 端点
     try:
-        models_url = f"{effective_base.rstrip('/')}/models"
+        models_url = _build_models_url(provider_id, effective_base)
         async with httpx.AsyncClient(timeout=10, trust_env=settings.llm_trust_env_proxy) as client:
             resp = await client.get(
                 models_url,
@@ -146,12 +165,26 @@ async def list_available_models(
             others = sorted(m for m in model_list if m not in static_set)
             result = prioritized + others
             _cache[cache_key] = (time.time(), result)
-            return {"models": result, "source": "remote"}
+            return {"models": result, "source": "remote", "supports_remote_listing": True}
 
-        return {"models": static_models, "source": "static"}
+        return {"models": static_models, "source": "static", "supports_remote_listing": True}
     except Exception as e:
         logger.debug("获取 %s 模型列表失败: %s", provider_id, e)
-        return {"models": static_models, "source": "static"}
+        return {"models": static_models, "source": "static", "supports_remote_listing": True}
+
+
+def _build_models_url(provider_id: str, base_url: str) -> str:
+    """为不同形态的兼容端点拼接模型列表地址。"""
+    normalized = base_url.rstrip("/")
+    if provider_id == "zhipu" and normalized.endswith("/chat/completions"):
+        normalized = normalized[: -len("/chat/completions")]
+    return f"{normalized}/models"
+
+
+def _is_dashscope_coding_plan_base_url(base_url: str) -> bool:
+    """判断是否为阿里 Coding Plan OpenAI 兼容端点。"""
+    normalized = base_url.strip().rstrip("/").lower()
+    return normalized == "https://coding.dashscope.aliyuncs.com/v1"
 
 
 async def _list_ollama_models(
@@ -175,9 +208,9 @@ async def _list_ollama_models(
 
         if models:
             _cache[cache_key] = (time.time(), models)
-            return {"models": models, "source": "remote"}
+            return {"models": models, "source": "remote", "supports_remote_listing": True}
 
-        return {"models": static_models, "source": "static"}
+        return {"models": static_models, "source": "static", "supports_remote_listing": True}
     except Exception as e:
         logger.debug("获取 Ollama 模型列表失败: %s", e)
-        return {"models": static_models, "source": "static"}
+        return {"models": static_models, "source": "static", "supports_remote_listing": True}

@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS model_configs (
     model TEXT NOT NULL,
     encrypted_api_key TEXT,
     api_key_hint TEXT,
+    api_mode TEXT,
     base_url TEXT,
     priority INTEGER DEFAULT 0,
     is_active INTEGER DEFAULT 1,
@@ -178,6 +179,10 @@ async def _migrate_model_configs(db: AsyncSQLiteConnection) -> None:
         (
             "updated_at",
             "ALTER TABLE model_configs ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))",
+        ),
+        (
+            "api_mode",
+            "ALTER TABLE model_configs ADD COLUMN api_mode TEXT",
         ),
         (
             "is_default",
