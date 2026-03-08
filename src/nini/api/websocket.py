@@ -73,6 +73,7 @@ async def websocket_agent(ws: WebSocket):
     active_chat_task: asyncio.Task[None] | None = None
     active_stop_event: asyncio.Event | None = None
     pending_question_futures: dict[str, asyncio.Future[dict[str, str]]] = {}
+    session: Any = None  # 在 chat 消息到达前保持 None
 
     def _cancel_pending_questions() -> None:
         """取消所有等待中的 ask_user_question 回答。"""
@@ -80,6 +81,17 @@ async def websocket_agent(ws: WebSocket):
             if not future.done():
                 future.cancel()
         pending_question_futures.clear()
+
+    def _trigger_memory_consolidation(s: Any) -> None:
+        """安全地异步触发会话记忆沉淀，忽略导入或运行错误。"""
+        if s is None:
+            return
+        try:
+            from nini.memory.long_term_memory import consolidate_session_memories
+
+            asyncio.create_task(consolidate_session_memories(s.id))
+        except Exception:
+            logger.debug("记忆沉淀触发失败，忽略", exc_info=True)
 
     async def _wait_for_ask_user_question_answers(
         session: Any,
@@ -308,6 +320,8 @@ async def websocket_agent(ws: WebSocket):
                     with suppress(asyncio.CancelledError):
                         await task
                     _cancel_pending_questions()
+                    # 停止后异步触发记忆沉淀
+                    _trigger_memory_consolidation(session)
                     await _send_event(ws, EventType.STOPPED.value, data="已停止当前请求")
                 else:
                     await _send_event(ws, EventType.STOPPED.value, data="当前没有进行中的请求")
@@ -442,6 +456,8 @@ async def websocket_agent(ws: WebSocket):
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+        # 断开连接时触发记忆沉淀
+        _trigger_memory_consolidation(session)
         keepalive_task.cancel()
         try:
             await keepalive_task

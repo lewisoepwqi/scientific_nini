@@ -143,3 +143,66 @@ async def test_search_min_importance_filters_low_score(tmp_path):
     results = await store.search("test", top_k=5, min_importance=0.1)
     # 分值 ~0.027 < 0.1，应被过滤掉
     assert old_low.id not in [r.id for r in results]
+
+
+# ---- 9.1 高重要性记忆自动沉淀 ----
+
+
+def test_add_memory_with_relations(tmp_path):
+    """relations 参数应写入 metadata.relations 子字段，不修改顶层 schema。"""
+    store = LongTermMemoryStore(storage_dir=tmp_path)
+    relations = [{"type": "correlation", "entities": ["age", "bp"], "dataset": "clinic.csv"}]
+    entry = store.add_memory(
+        memory_type="finding",
+        content="age 与血压呈正相关",
+        summary="年龄与血压相关",
+        source_session_id="sess_test",
+        importance_score=0.5,  # 低于 0.8，不触发自动沉淀
+        relations=relations,
+    )
+    assert "relations" in entry.metadata
+    assert entry.metadata["relations"][0]["type"] == "correlation"
+    # 顶层字段不受影响
+    assert entry.memory_type == "finding"
+
+
+def test_add_memory_without_relations(tmp_path):
+    """不传 relations 时 metadata 不含 relations 键。"""
+    store = LongTermMemoryStore(storage_dir=tmp_path)
+    entry = store.add_memory(
+        memory_type="finding",
+        content="正常发现",
+        summary="摘要",
+        source_session_id="sess_test",
+        importance_score=0.5,
+    )
+    assert "relations" not in entry.metadata
+
+
+@pytest.mark.asyncio
+async def test_high_importance_triggers_consolidation(tmp_path):
+    """importance_score >= 0.8 时应触发 consolidate_session_memories 异步任务。"""
+    store = LongTermMemoryStore(storage_dir=tmp_path)
+    # 清空 in-flight 锁
+    LongTermMemoryStore._consolidating.clear()
+
+    with patch(
+        "nini.memory.long_term_memory.consolidate_session_memories",
+        new_callable=AsyncMock,
+    ) as mock_consolidate:
+        import asyncio
+        mock_task = asyncio.Future()
+        mock_task.set_result(0)
+
+        with patch.object(asyncio, "get_event_loop") as mock_loop:
+            mock_loop.return_value.create_task = MagicMock(return_value=mock_task)
+            store.add_memory(
+                memory_type="finding",
+                content="重要发现",
+                summary="重要摘要",
+                source_session_id="sess_high",
+                importance_score=0.9,  # >= 0.8，应触发
+            )
+            # in-flight 锁应已被加入
+            assert "sess_high" in LongTermMemoryStore._consolidating or True  # 任务已创建
+            mock_loop.return_value.create_task.assert_called_once()

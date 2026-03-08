@@ -22,6 +22,7 @@ class TaskItem:
     status: TaskStatus = "pending"
     tool_hint: str | None = None
     action_id: str | None = None  # 格式 "task_{id}"，用于 TASK_ATTEMPT 事件关联
+    depends_on: list[int] = field(default_factory=list)  # 依赖的任务 id 列表，用于 wave 并行调度
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +58,8 @@ class TaskManager:
         items: list[TaskItem] = []
         for t in raw_tasks:
             task_id = int(t.get("id", len(items) + 1))
+            raw_depends = t.get("depends_on", [])
+            depends_on = [int(d) for d in raw_depends if str(d).isdigit()] if isinstance(raw_depends, list) else []
             items.append(
                 TaskItem(
                     id=task_id,
@@ -64,9 +67,54 @@ class TaskManager:
                     status=t.get("status", "pending"),
                     tool_hint=t.get("tool_hint") or None,
                     action_id=f"task_{task_id}",
+                    depends_on=depends_on,
                 )
             )
         return TaskManager(tasks=items, initialized=True)
+
+    def group_into_waves(self) -> list[list[TaskItem]]:
+        """拓扑排序将任务分组为并行 wave。
+
+        同一 wave 内的任务互不依赖，可通过 asyncio.gather() 并行触发。
+        只考虑 pending 状态的任务，已完成/跳过/失败的任务不参与分组。
+
+        Returns:
+            有序的 wave 列表，每个 wave 是可并行执行的任务列表。
+            若存在循环依赖则退化为顺序执行（每个任务单独一个 wave）。
+        """
+        pending = [t for t in self.tasks if t.status == "pending"]
+        id_to_task = {t.id: t for t in pending}
+
+        # 拓扑排序（Kahn 算法）
+        in_degree = {t.id: 0 for t in pending}
+        for t in pending:
+            for dep in t.depends_on:
+                if dep in id_to_task:
+                    in_degree[t.id] += 1
+
+        waves: list[list[TaskItem]] = []
+        ready = [t for t in pending if in_degree[t.id] == 0]
+
+        while ready:
+            wave = sorted(ready, key=lambda x: x.id)
+            waves.append(wave)
+            ready = []
+            for task in wave:
+                # 找出依赖当前 task 的后继
+                for other in pending:
+                    if task.id in other.depends_on:
+                        in_degree[other.id] -= 1
+                        if in_degree[other.id] == 0:
+                            ready.append(other)
+
+        # 检测循环依赖：若有 pending 任务未被分组，退化为顺序执行
+        grouped_ids = {t.id for wave in waves for t in wave}
+        remaining = [t for t in pending if t.id not in grouped_ids]
+        if remaining:
+            for t in remaining:
+                waves.append([t])
+
+        return waves
 
     def update_tasks(self, raw_updates: list[dict[str, Any]]) -> "UpdateResult":
         """按 id 更新部分任务状态，返回 UpdateResult。

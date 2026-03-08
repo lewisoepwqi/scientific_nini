@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable
 
 from nini.agent.prompt_policy import format_untrusted_context_block
+
+logger = logging.getLogger(__name__)
 
 
 async def build_long_term_memory_context(
@@ -35,11 +38,18 @@ async def build_long_term_memory_context(
         )
 
         store = get_long_term_memory_store()
+        min_importance = 0.3
         entries = await store.search(
             query.strip(),
             top_k=top_k,
-            min_importance=0.3,
+            min_importance=min_importance,
             context=context,
+        )
+        logger.debug(
+            "长期记忆检索完成: injected_count=%d query_len=%d min_importance=%.2f",
+            len(entries),
+            len(query.strip()),
+            min_importance,
         )
         if not entries:
             return ""

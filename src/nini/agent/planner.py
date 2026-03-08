@@ -13,11 +13,31 @@ from nini.agent.model_resolver import ModelResolver, model_resolver
 from nini.models.execution_plan import (
     ActionType,
     ExecutionPlan,
+    MustHave,
     PhaseType,
     PlanAction,
     PlanPhase,
     PlanStatus,
 )
+
+# 规划提示词：要求 LLM 输出结构化意图分析，包含 must_haves 数组
+_INTENT_ANALYSIS_PROMPT = """你是科研数据分析规划助手。根据用户消息和会话上下文，识别用户分析意图。
+
+请以 JSON 格式输出：
+{{
+  "intent": "用户意图的一句话描述",
+  "must_haves": [
+    {{"type": "truth", "description": "必须验证的统计事实"}},
+    {{"type": "artifact", "description": "必须生成的产物（图/报告/表格）"}},
+    {{"type": "key_link", "description": "关键推理链条"}}
+  ]
+}}
+
+type 枚举值：truth（统计事实）、artifact（产物）、key_link（推理链）。
+must_haves 数组可包含 0-5 项，只列出真正必要的条件。
+仅输出 JSON，不要添加任何额外文字。
+
+用户消息：{user_message}"""
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +74,8 @@ class PlannerAgent:
         Returns:
             ExecutionPlan: 生成的执行计划
         """
-        # 分析意图
-        intent = await self._analyze_intent(session, user_message)
+        # 分析意图（含 must_haves 生成）
+        intent, must_haves = await self._analyze_intent_with_must_haves(session, user_message)
 
         # 检查是否有数据
         has_data = len(session.datasets) > 0
@@ -139,17 +159,50 @@ class PlannerAgent:
             user_intent=intent,
             phases=phases,
             status=PlanStatus.PENDING,
+            must_haves=must_haves,
         )
 
-    async def _analyze_intent(
+    async def _analyze_intent_with_must_haves(
         self,
         session: Session,
         user_message: str,
-    ) -> str:
-        """分析用户意图。"""
-        # 简单的关键词匹配（实际应该使用 LLM）
-        message_lower = user_message.lower()
+    ) -> tuple[str, list[MustHave]]:
+        """通过 LLM 分析用户意图，同时生成 must_haves 清单。
 
+        失败时降级为关键词匹配，must_haves 返回空列表。
+        """
+        import json
+
+        try:
+            prompt = _INTENT_ANALYSIS_PROMPT.format(user_message=user_message)
+            messages = [{"role": "user", "content": prompt}]
+            full_text = ""
+            # 显式传 purpose="planning" 以便后续可针对规划任务配置专用路由
+            async for chunk in self._resolver.chat(
+                messages,
+                stream=False,
+                purpose="planning",
+            ):
+                if hasattr(chunk, "content") and chunk.content:
+                    full_text += chunk.content
+            data = json.loads(full_text.strip())
+            intent = str(data.get("intent", "数据分析")).strip() or "数据分析"
+            raw_must_haves = data.get("must_haves", [])
+            must_haves = []
+            for item in raw_must_haves:
+                if isinstance(item, dict) and "type" in item and "description" in item:
+                    try:
+                        must_haves.append(MustHave(**item))
+                    except Exception:
+                        pass
+            return intent, must_haves
+        except Exception:
+            logger.debug("LLM 意图分析失败，降级为关键词匹配", exc_info=True)
+            return self._keyword_intent(user_message), []
+
+    def _keyword_intent(self, user_message: str) -> str:
+        """关键词匹配兜底意图分析。"""
+        message_lower = user_message.lower()
         if any(word in message_lower for word in ["差异", "不同", "比较", "对照"]):
             return "比较两组或多组数据的差异"
         elif any(word in message_lower for word in ["关系", "相关", "关联"]):

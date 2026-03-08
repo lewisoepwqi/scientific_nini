@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from nini import config as nini_config
 from nini.config import settings
 
 logger = logging.getLogger(__name__)
@@ -133,6 +134,7 @@ _PRIORITY: dict[str, int] = {
     "skills_snapshot": 70,
     "workflow": 60,
     "agents": 65,
+    "agents_external_md": 80,  # 项目根 AGENTS.md 进入 trusted boundary
     "user": 30,
     "memory": 20,
 }
@@ -217,7 +219,32 @@ class PromptBuilder:
                     priority=_PRIORITY.get(comp_name, 50),
                 )
             )
+
+        # 项目根目录 AGENTS.md 进入 trusted assembly（仅根目录，子目录单独作用域不合并）
+        agents_md_text = self._load_root_agents_md()
+        if agents_md_text:
+            components.append(
+                PromptComponent(
+                    name="agents_external_md",
+                    text=agents_md_text,
+                    priority=_PRIORITY.get("agents_external_md", 80),
+                )
+            )
+
         return components
+
+    @staticmethod
+    def _load_root_agents_md() -> str:
+        """仅读取项目根目录的 AGENTS.md，进入 trusted boundary。"""
+        try:
+            root = nini_config._get_bundle_root()
+            agents_file = root / "AGENTS.md"
+            if agents_file.exists() and agents_file.is_file():
+                content = agents_file.read_text(encoding="utf-8").strip()
+                return content if content else ""
+        except Exception as exc:
+            logger.debug("读取根目录 AGENTS.md 失败: %s", exc)
+        return ""
 
     def _load_component_text(self, path: Path, filename: str) -> str:
         """只加载受信组件文件，并保留默认回退与热刷新。"""

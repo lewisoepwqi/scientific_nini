@@ -826,6 +826,27 @@ class AgentRunner:
                     operation="complete",
                     **final_message_extra,
                 )
+                # must_haves 对照检查（不阻断，仅日志 + validation_warning 事件）
+                if active_plan is not None and active_plan.must_haves:
+                    for mh in active_plan.must_haves:
+                        mh_type = mh.get("type", "")
+                        mh_desc = mh.get("description", "")
+                        logger.warning(
+                            "must_have 待确认: type=%s description=%s session_id=%s",
+                            mh_type,
+                            mh_desc,
+                            session.id,
+                        )
+                        yield AgentEvent(
+                            type=EventType.ERROR,
+                            data={
+                                "level": "validation_warning",
+                                "must_have_type": mh_type,
+                                "message": f"[must_have/{mh_type}] {mh_desc}",
+                            },
+                            turn_id=turn_id,
+                        )
+
                 yield eb.build_done_event(turn_id=turn_id)
 
                 # 会话结束后异步沉淀分析记忆为跨会话长期记忆
@@ -987,18 +1008,47 @@ class AgentRunner:
                     metadata=_tc_metadata or None,
                 )
 
-                # Markdown Skill 的 allowed_tools 仅作推荐提示，不做硬阻断。
-                if allowed_tool_whitelist is not None and func_name not in allowed_tool_whitelist:
+                # allowed-tools 硬约束：白名单存在时阻断越界工具调用。
+                # 内部系统工具（task_write/task_state）豁免，不受约束。
+                # 无白名单声明时保持默认行为（不收缩）。
+                _exempt_tools = ("task_write", "task_state")
+                if (
+                    allowed_tool_whitelist is not None
+                    and func_name not in allowed_tool_whitelist
+                    and func_name not in _exempt_tools
+                ):
                     allowed_sorted = ", ".join(sorted(allowed_tool_whitelist))
                     source_text = (
                         ", ".join(allowed_tool_sources) if allowed_tool_sources else "当前技能"
                     )
-                    logger.info(
-                        "工具 '%s' 不在技能推荐工具集合内（来源技能: %s；推荐工具: %s），继续执行。",
+                    logger.warning(
+                        "工具调用越界被阻断: tool=%s 来源技能=%s 允许工具=%s",
                         func_name,
                         source_text,
                         allowed_sorted,
                     )
+                    error_msg = (
+                        f"工具 '{func_name}' 不在当前技能声明的 allowed-tools 范围内"
+                        f"（来源技能: {source_text}；允许: {allowed_sorted}）"
+                    )
+                    session.add_tool_result(
+                        tc_id,
+                        error_msg,
+                        tool_name=func_name,
+                        status="error",
+                        turn_id=turn_id,
+                    )
+                    yield AgentEvent(
+                        type=EventType.ERROR,
+                        data={
+                            "level": "allowed_tools_violation",
+                            "tool": func_name,
+                            "message": error_msg,
+                        },
+                        turn_id=turn_id,
+                    )
+                    iteration += 1
+                    continue
 
                 # ── task_write/task_state 特殊处理 ────────────────────────────────
                 # task_write 由 LLM 调用来声明/更新任务列表，不走正常执行流程

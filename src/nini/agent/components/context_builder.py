@@ -166,14 +166,7 @@ class ContextBuilder:
                     format_untrusted_context_block("pdca_detail", PDCA_DETAIL_BLOCK)
                 )
 
-        agents_md_content = self._discover_agents_md()
-        if agents_md_content:
-            sanitized_agents = sanitize_reference_text(
-                agents_md_content,
-                max_len=AGENTS_MD_MAX_CHARS,
-            )
-            if sanitized_agents:
-                context_parts.append(format_untrusted_context_block("agents_md", sanitized_agents))
+        # AGENTS.md 已移至 trusted system prompt，不在此注入 untrusted context
 
         analysis_memory_context = build_analysis_memory_context(
             session.id,
@@ -196,7 +189,19 @@ class ContextBuilder:
                 top_k=3,
             )
             if long_term_memory_context:
+                # 粗略估算 token 数（按字符数 / 4 近似）
+                estimated_tokens = len(long_term_memory_context) // 4
+                logger.debug(
+                    "长期记忆已注入: session_id=%s estimated_tokens=%d",
+                    getattr(session, "id", "unknown"),
+                    estimated_tokens,
+                )
                 context_parts.append(long_term_memory_context)
+            else:
+                logger.debug(
+                    "长期记忆未注入（无相关条目）: session_id=%s",
+                    getattr(session, "id", "unknown"),
+                )
 
         research_profile_context = build_research_profile_context(
             session,
@@ -208,6 +213,10 @@ class ContextBuilder:
 
         messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         if context_parts:
+            # 预算控制：按优先级裁剪，Skill 辅助资料不挤占对话历史
+            from nini.agent.prompt_policy import trim_runtime_context_by_priority
+
+            context_parts = trim_runtime_context_by_priority(context_parts)
             messages.append(
                 {
                     "role": "assistant",
