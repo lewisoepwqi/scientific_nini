@@ -2,39 +2,39 @@
 
 ## 1. 提案与规范
 
-- [ ] 1.1 补写 `proposal.md`，明确当前缺口、目标状态、受影响能力和非目标
-- [ ] 1.2 补写 `design.md`，锁定两条边界、四层披露、引用展开和预算策略
-- [ ] 1.3 修改 `skills` spec，补充渐进式披露、引用内容层和工具白名单契约
-- [ ] 1.3.1 同步修改既有“技能快照生成与注入” requirement，消除与 trusted prompt 边界的新冲突
-- [ ] 1.4 修改 `prompt-system-composition` spec，收敛 trusted system prompt 边界
-- [ ] 1.5 修改 `prompt-runtime-context-safety` spec，定义 Skill 相关 runtime context 的统一协议和预算规则
+- [x] 1.1 补写 `proposal.md`，明确当前缺口、目标状态、受影响能力和非目标
+- [x] 1.2 补写 `design.md`，锁定两条边界、四层披露、引用展开和预算策略
+- [x] 1.3 修改 `skills` spec，补充渐进式披露、引用内容层和工具白名单契约
+- [x] 1.3.1 同步修改既有”技能快照生成与注入” requirement，消除与 trusted prompt 边界的新冲突
+- [x] 1.4 修改 `prompt-system-composition` spec，收敛 trusted system prompt 边界
+- [x] 1.5 修改 `prompt-runtime-context-safety` spec，定义 Skill 相关 runtime context 的统一协议和预算规则
 
 ## 2. Skills 契约拆解
 
-- [ ] 2.1 定义索引层、说明层、资源清单层、引用内容层四级披露行为
-- [ ] 2.2 定义 Skill 正文引用资源的路径解析、根目录校验、缺失处理，以及“未引用资源不得读取正文”
-- [ ] 2.3 定义 `allowed-tools` 的激活规则、阻断规则、错误反馈要求和“仅约束模型发起工具调用”的边界
-- [ ] 2.4 定义默认路径输出为相对路径或逻辑标识，覆盖技能列表、运行时资源和文件树接口
+- [x] 2.1 定义索引层、说明层、资源清单层、引用内容层四级披露行为
+- [x] 2.2 定义 Skill 正文引用资源的路径解析、根目录校验、缺失处理，以及”未引用资源不得读取正文”
+- [x] 2.3 定义 `allowed-tools` 的激活规则、阻断规则、错误反馈要求和”仅约束模型发起工具调用”的边界
+- [x] 2.4 定义默认路径输出为相对路径或逻辑标识，覆盖技能列表、运行时资源和文件树接口
 
 ## 3. Prompt 边界拆解
 
-- [ ] 3.1 定义 `SKILLS_SNAPSHOT` 仅可承载系统生成技能摘要，不得承载可编辑 Skill 原文
-- [ ] 3.2 定义 `AGENTS.md` 进入 trusted assembly boundary 的要求，包括根目录与子目录的优先级/合并规则
-- [ ] 3.3 定义 Markdown Skill 正文和引用资源必须停留在 untrusted runtime context
-- [ ] 3.4 定义 Skill runtime context 的独立预算、裁剪顺序和稳定排序
+- [x] 3.1 定义 `SKILLS_SNAPSHOT` 仅可承载系统生成技能摘要，不得承载可编辑 Skill 原文
+- [x] 3.2 定义 `AGENTS.md` 进入 trusted assembly boundary 的要求，包括根目录与子目录的优先级/合并规则
+- [x] 3.3 定义 Markdown Skill 正文和引用资源必须停留在 untrusted runtime context
+- [x] 3.4 定义 Skill runtime context 的独立预算、裁剪顺序和稳定排序
 
 ## 4. 验证场景
 
-- [ ] 4.1 为 `skills` spec 编写按需读取、未引用资源不加载、路径穿越拒绝等场景
-- [ ] 4.2 为 `prompt-system-composition` spec 编写“不可信 skill 元数据不得进入 trusted prompt”场景
-- [ ] 4.3 为 `prompt-runtime-context-safety` spec 编写“Skill 大上下文优先裁剪自身而非仅裁剪历史消息”场景
-- [ ] 4.4 为 `allowed-tools` 编写“越界工具调用被阻断”场景
+- [x] 4.1 为 `skills` spec 编写按需读取、未引用资源不加载、路径穿越拒绝等场景
+- [x] 4.2 为 `prompt-system-composition` spec 编写”不可信 skill 元数据不得进入 trusted prompt”场景
+- [x] 4.3 为 `prompt-runtime-context-safety` spec 编写”Skill 大上下文优先裁剪自身而非仅裁剪历史消息”场景
+- [x] 4.4 为 `allowed-tools` 编写”越界工具调用被阻断”场景
 
 ## 5. OpenSpec 校验
 
-- [ ] 5.1 运行 `openspec validate align-skills-industry-standard --strict`
-- [ ] 5.2 若校验失败，使用 `openspec show align-skills-industry-standard --json --deltas-only` 定位问题并修正
-- [ ] 5.3 确认 proposal、design、tasks 和 spec deltas 可直接交给实现阶段执行
+- [x] 5.1 运行 `openspec validate align-skills-industry-standard --strict`
+- [x] 5.2 若校验失败，使用 `openspec show align-skills-industry-standard --json --deltas-only` 定位问题并修正
+- [x] 5.3 确认 proposal、design、tasks 和 spec deltas 可直接交给实现阶段执行
 
 ## 6. Wave 1 — 基础强化（立即可做，不依赖规范完成）
 
@@ -68,6 +68,6 @@
 
 ## 10. P3 — 远期能力（Wave 4 完成后）
 
-- [ ] 10.1 **记忆冲突检测**：在 `LongTermMemoryStore.add_memory()` 检测同 dataset + analysis_type 的矛盾发现，策略：最新覆盖 + 日志告警
-- [ ] 10.2 **主动记忆推送**：在 `ContextBuilder` 识别到 dataset 加载时，自动注入该 dataset 的历史记忆摘要（复用 Wave 4A 的预算控制确定可用空间）
-- [ ] 10.3 **前端 depends_on 展示**：将 `TaskItem.depends_on` 加入 `to_analysis_plan_dict()` 的 steps 输出，前端 `store.ts` 同步支持依赖关系展示
+- [x] 10.1 **记忆冲突检测**：在 `LongTermMemoryStore.add_memory()` 检测同 dataset + analysis_type 的矛盾发现，策略：最新覆盖 + 日志告警
+- [x] 10.2 **主动记忆推送**：在 `ContextBuilder` 识别到 dataset 加载时，自动注入该 dataset 的历史记忆摘要（复用 Wave 4A 的预算控制确定可用空间）
+- [x] 10.3 **前端 depends_on 展示**：将 `TaskItem.depends_on` 加入 `to_analysis_plan_dict()` 的 steps 输出，前端 `store.ts` 同步支持依赖关系展示

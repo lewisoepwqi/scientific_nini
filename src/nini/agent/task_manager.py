@@ -31,6 +31,7 @@ class TaskItem:
             "status": self.status,
             "tool_hint": self.tool_hint,
             "action_id": self.action_id,
+            "depends_on": self.depends_on,
         }
 
 
@@ -187,6 +188,7 @@ class TaskManager:
                     "tool_hint": t.tool_hint,
                     "status": t.status,
                     "action_id": t.action_id,
+                    "depends_on": t.depends_on,
                 }
                 for t in self.tasks
             ],

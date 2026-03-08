@@ -1009,9 +1009,10 @@ class AgentRunner:
                 )
 
                 # allowed-tools 硬约束：白名单存在时阻断越界工具调用。
-                # 内部系统工具（task_write/task_state）豁免，不受约束。
+                # 内部系统工具（task_write/task_state）和数据加载工具（load_dataset）豁免，不受约束。
+                # load_dataset 是技能运行的数据基础，禁用会阻断所有需要数据的技能。
                 # 无白名单声明时保持默认行为（不收缩）。
-                _exempt_tools = ("task_write", "task_state")
+                _exempt_tools = ("task_write", "task_state", "load_dataset")
                 if (
                     allowed_tool_whitelist is not None
                     and func_name not in allowed_tool_whitelist

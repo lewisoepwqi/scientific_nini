@@ -48,12 +48,15 @@ def test_init_tasks_missing_depends_on():
     assert tm.tasks[0].depends_on == []
 
 
-def test_to_analysis_plan_dict_does_not_expose_depends_on():
-    """to_analysis_plan_dict 初版不暴露 depends_on（避免前端阻塞）。"""
-    tm = _make_manager([{"id": 1, "title": "A", "depends_on": []}])
+def test_to_analysis_plan_dict_exposes_depends_on():
+    """to_analysis_plan_dict 应在 steps 中暴露 depends_on（10.3 前端依赖关系展示）。"""
+    tm = _make_manager([
+        {"id": 1, "title": "A", "depends_on": []},
+        {"id": 2, "title": "B", "depends_on": [1]},
+    ])
     plan_dict = tm.to_analysis_plan_dict()
-    for step in plan_dict["steps"]:
-        assert "depends_on" not in step
+    assert plan_dict["steps"][0]["depends_on"] == []
+    assert plan_dict["steps"][1]["depends_on"] == [1]
 
 
 # ---- group_into_waves 拓扑排序 ----

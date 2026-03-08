@@ -1432,6 +1432,7 @@ function toPlanStep(task: AnalysisTaskItem): AnalysisStep {
     status: task.status,
     raw_status: task.raw_status,
     action_id: task.action_id,
+    depends_on: task.depends_on,
   };
 }
 
