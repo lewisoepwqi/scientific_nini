@@ -307,7 +307,14 @@ class VectorKnowledgeStore:
             if not callable(embedding_cls):
                 logger.info("本地 embedding 模块缺少 HuggingFaceEmbedding，已回退到关键词检索")
                 return None
-            return embedding_cls(model_name=settings.knowledge_local_embedding_model)
+            model_name = settings.knowledge_local_embedding_model
+            # 优先离线加载（避免每次启动都向 HuggingFace Hub 发起网络请求）
+            # 若本地缓存不存在则回退到在线加载
+            try:
+                return embedding_cls(model_name=model_name, local_files_only=True)
+            except Exception:
+                logger.info("本地 embedding 缓存未命中，尝试在线下载: model=%s", model_name)
+                return embedding_cls(model_name=model_name)
         except ImportError:
             logger.info("本地 embedding 依赖加载失败，已回退到关键词检索")
         except ValueError as exc:

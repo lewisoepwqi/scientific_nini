@@ -46,71 +46,41 @@ class StatModelSkill(Skill):
     def parameters(self) -> dict[str, Any]:
         return {
             "type": "object",
-            "oneOf": [
-                {
-                    "type": "object",
-                    "properties": {
-                        "method": {
-                            "type": "string",
-                            "enum": ["correlation"],
-                            "description": "建模方法：相关性分析",
-                        },
-                        "dataset_name": {
-                            "type": "string",
-                            "description": "数据集名称。多数据集会话必须显式指定",
-                        },
-                        "columns": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "minItems": 2,
-                            "description": "需要计算相关性的数值列名（至少两列）",
-                        },
-                        "correlation_method": {
-                            "type": "string",
-                            "enum": ["pearson", "spearman", "kendall"],
-                            "description": "相关性方法别名（会映射为 method）",
-                        },
-                        "method_detail": {
-                            "type": "string",
-                            "enum": ["pearson", "spearman", "kendall"],
-                            "description": "相关性方法（兼容别名）",
-                        },
-                    },
-                    "required": ["method", "dataset_name", "columns"],
-                    "additionalProperties": False,
+            "properties": {
+                "method": {
+                    "type": "string",
+                    "enum": ["correlation", "linear_regression", "multiple_regression"],
+                    "description": (
+                        "【必填】分析方法。"
+                        "correlation=相关性分析（需 columns）；"
+                        "linear_regression/multiple_regression=回归分析（需 dependent_var + independent_vars）"
+                    ),
                 },
-                {
-                    "type": "object",
-                    "properties": {
-                        "method": {
-                            "type": "string",
-                            "enum": ["linear_regression", "multiple_regression"],
-                            "description": "建模方法：线性/多元回归",
-                        },
-                        "dataset_name": {
-                            "type": "string",
-                            "description": "数据集名称。多数据集会话必须显式指定",
-                        },
-                        "dependent_var": {
-                            "type": "string",
-                            "description": "因变量（Y）列名",
-                        },
-                        "independent_vars": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "minItems": 1,
-                            "description": "自变量（X）列名列表",
-                        },
-                    },
-                    "required": [
-                        "method",
-                        "dataset_name",
-                        "dependent_var",
-                        "independent_vars",
-                    ],
-                    "additionalProperties": False,
+                "dataset_name": {
+                    "type": "string",
+                    "description": "数据集名称。多数据集会话必须显式指定，单数据集可省略",
                 },
-            ],
+                "columns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "【correlation 必填】参与相关性计算的数值列名，至少 2 列，例如 [\"收缩压/Hgmm\", \"舒张压/Hgmm\", \"心率次/分\"]",
+                },
+                "correlation_method": {
+                    "type": "string",
+                    "enum": ["pearson", "spearman", "kendall"],
+                    "description": "相关性系数类型，默认 pearson；数据非正态时推荐 spearman",
+                },
+                "dependent_var": {
+                    "type": "string",
+                    "description": "【回归必填】因变量（Y）列名",
+                },
+                "independent_vars": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "【回归必填】自变量（X）列名列表，例如 [\"年龄\", \"体重\"]",
+                },
+            },
+            "required": ["method"],
         }
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
