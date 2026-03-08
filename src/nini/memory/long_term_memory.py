@@ -193,6 +193,29 @@ class LongTermMemoryStore:
             metadata=merged_metadata,
         )
 
+        # 冲突检测：同 source_dataset + analysis_type + memory_type 的已有条目视为矛盾
+        # 策略：最新覆盖（软删除旧条目） + 日志告警
+        if source_dataset and analysis_type and memory_type in ("finding", "statistic"):
+            for existing_id, existing in list(self._entries.items()):
+                if (
+                    existing.source_dataset == source_dataset
+                    and existing.analysis_type == analysis_type
+                    and existing.memory_type == memory_type
+                    and existing_id != entry.id
+                ):
+                    logger.warning(
+                        "记忆冲突检测：新条目覆盖旧条目 "
+                        "dataset=%s analysis_type=%s memory_type=%s "
+                        "old_id=%s new_id=%s",
+                        source_dataset,
+                        analysis_type,
+                        memory_type,
+                        existing_id,
+                        entry.id,
+                    )
+                    # 软删除：从内存移除，不修改持久化历史
+                    del self._entries[existing_id]
+
         self._entries[entry.id] = entry
         self._save_entries()
 
