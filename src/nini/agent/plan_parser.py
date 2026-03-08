@@ -37,6 +37,8 @@ class AnalysisPlan:
 
     steps: list[AnalysisStep] = field(default_factory=list)
     raw_text: str = ""
+    # 执行必须满足的条件清单，由规划层填充；done 分支对照检查（不阻断）
+    must_haves: list[dict[str, str]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {

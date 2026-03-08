@@ -91,6 +91,9 @@ class LongTermMemoryStore:
     管理长期记忆的持久化和向量索引。
     """
 
+    # session 级 in-flight 锁，防止高重要性记忆触发的沉淀任务并发重复执行
+    _consolidating: set[str] = set()
+
     def __init__(self, storage_dir: Path | None = None) -> None:
         self._storage_dir = storage_dir or settings.sessions_dir / "../long_term_memory"
         self._storage_dir.mkdir(parents=True, exist_ok=True)
@@ -151,6 +154,7 @@ class LongTermMemoryStore:
         importance_score: float = 0.5,
         tags: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
+        relations: list[dict[str, Any]] | None = None,
     ) -> LongTermMemoryEntry:
         """添加记忆。
 
@@ -169,6 +173,12 @@ class LongTermMemoryStore:
         Returns:
             创建的记忆条目
         """
+        # 将 relations 写入 metadata 的标准子字段（不修改顶层 schema）
+        merged_metadata: dict[str, Any] = dict(metadata or {})
+        if relations:
+            # 每个 relation 应包含 type/entities/dataset 字段
+            merged_metadata["relations"] = [dict(r) for r in relations if isinstance(r, dict)]
+
         entry = LongTermMemoryEntry(
             id=str(uuid.uuid4()),
             memory_type=memory_type,
@@ -180,8 +190,31 @@ class LongTermMemoryStore:
             confidence=confidence,
             importance_score=importance_score,
             tags=tags or [],
-            metadata=metadata or {},
+            metadata=merged_metadata,
         )
+
+        # 冲突检测：同 source_dataset + analysis_type + memory_type 的已有条目视为矛盾
+        # 策略：最新覆盖（软删除旧条目） + 日志告警
+        if source_dataset and analysis_type and memory_type in ("finding", "statistic"):
+            for existing_id, existing in list(self._entries.items()):
+                if (
+                    existing.source_dataset == source_dataset
+                    and existing.analysis_type == analysis_type
+                    and existing.memory_type == memory_type
+                    and existing_id != entry.id
+                ):
+                    logger.warning(
+                        "记忆冲突检测：新条目覆盖旧条目 "
+                        "dataset=%s analysis_type=%s memory_type=%s "
+                        "old_id=%s new_id=%s",
+                        source_dataset,
+                        analysis_type,
+                        memory_type,
+                        existing_id,
+                        entry.id,
+                    )
+                    # 软删除：从内存移除，不修改持久化历史
+                    del self._entries[existing_id]
 
         self._entries[entry.id] = entry
         self._save_entries()
@@ -205,6 +238,26 @@ class LongTermMemoryStore:
                 logger.warning(f"添加记忆到向量索引失败: {e}")
 
         logger.info(f"添加长期记忆: {entry.memory_type} - {entry.summary[:50]}...")
+
+        # 高重要性记忆自动触发沉淀（importance_score >= 0.8），使用 in-flight 锁防并发
+        if importance_score >= 0.8 and source_session_id:
+            if source_session_id not in LongTermMemoryStore._consolidating:
+                LongTermMemoryStore._consolidating.add(source_session_id)
+
+                async def _do_consolidate(sid: str) -> None:
+                    try:
+                        await consolidate_session_memories(sid)
+                    finally:
+                        LongTermMemoryStore._consolidating.discard(sid)
+
+                try:
+                    import asyncio
+
+                    asyncio.get_event_loop().create_task(_do_consolidate(source_session_id))
+                except Exception:
+                    LongTermMemoryStore._consolidating.discard(source_session_id)
+                    logger.debug("高重要性记忆触发沉淀失败，忽略", exc_info=True)
+
         return entry
 
     @staticmethod

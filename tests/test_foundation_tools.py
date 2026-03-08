@@ -378,16 +378,21 @@ def test_stat_test_returns_friendly_error_for_missing_required_param() -> None:
 
 
 def test_stat_model_schema_explicitly_requires_correlation_dataset_and_columns() -> None:
+    """stat_model 使用扁平 schema（非 oneOf），method 为唯一 required 字段。"""
     registry = create_default_registry()
     skill = registry.get("stat_model")
     assert skill is not None
 
     schema = skill.parameters
-    assert "oneOf" in schema
-    branches = schema["oneOf"]
-    corr_branch = next(b for b in branches if "correlation" in b["properties"]["method"]["enum"])
-    assert set(corr_branch["required"]) == {"method", "dataset_name", "columns"}
-    assert corr_branch["properties"]["columns"]["minItems"] == 2
+    # 扁平 schema：不使用 oneOf，避免模型并行调用时参数丢失
+    assert "oneOf" not in schema
+    assert schema["type"] == "object"
+    assert schema["required"] == ["method"]
+    props = schema["properties"]
+    assert "correlation" in props["method"]["enum"]
+    assert "columns" in props
+    assert "dependent_var" in props
+    assert "independent_vars" in props
 
 
 def test_stat_test_schema_explicitly_requires_dataset_and_columns_for_independent_t() -> None:

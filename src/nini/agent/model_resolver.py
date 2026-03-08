@@ -76,6 +76,17 @@ DEFAULT_PURPOSE_ROUTES: dict[str, PurposeRoute] = {
         "model": None,
         "base_url": None,
     },
+    # 以下两个 key 复用默认路由（None），预留给后续专项配置
+    "planning": {
+        "provider_id": None,
+        "model": None,
+        "base_url": None,
+    },
+    "verification": {
+        "provider_id": None,
+        "model": None,
+        "base_url": None,
+    },
 }
 
 

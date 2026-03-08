@@ -88,10 +88,12 @@ class MarkdownSkillRegistryOps:
         if not skill_path.exists() or not skill_path.is_file():
             return None
         payload = get_markdown_skill_instruction(skill_path)
+        # 对外返回逻辑标识符而非服务端绝对路径，防止路径信息泄露
+        skill_name = str(item.get("name", "")).strip()
         return {
-            "name": item.get("name"),
+            "name": skill_name,
             "instruction": payload["instruction"],
-            "location": str(skill_path),
+            "location": f"skill:{skill_name}",
             "metadata": dict(item.get("metadata") or {}),
         }
 

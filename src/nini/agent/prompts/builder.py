@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from nini import config as nini_config
 from nini.config import settings
 
 logger = logging.getLogger(__name__)
@@ -133,6 +134,7 @@ _PRIORITY: dict[str, int] = {
     "skills_snapshot": 70,
     "workflow": 60,
     "agents": 65,
+    "agents_external_md": 80,  # 项目根 AGENTS.md 进入 trusted boundary
     "user": 30,
     "memory": 20,
 }
@@ -217,7 +219,43 @@ class PromptBuilder:
                     priority=_PRIORITY.get(comp_name, 50),
                 )
             )
+
+        # 项目根目录 AGENTS.md 进入 trusted assembly（仅根目录，子目录单独作用域不合并）
+        agents_md_text = self._load_root_agents_md()
+        if agents_md_text:
+            components.append(
+                PromptComponent(
+                    name="agents_external_md",
+                    text=agents_md_text,
+                    priority=_PRIORITY.get("agents_external_md", 80),
+                )
+            )
+
         return components
+
+    @staticmethod
+    def _load_root_agents_md() -> str:
+        """读取 nini 专用的 AGENTS.md，进入 trusted boundary。
+
+        查找顺序：
+        1. data/AGENTS.md（nini 专用，优先；打包模式为 ~/.nini/AGENTS.md）
+        2. <项目根>/AGENTS.md（兜底，仅当 data/ 下无文件时读取）
+
+        根目录的 AGENTS.md 通常由 Codex/OpenCode 等编码智能体使用，
+        nini 的项目级 AI 指令应放在 data/AGENTS.md 以避免冲突。
+        """
+        try:
+            data_dir = nini_config._get_user_data_dir()
+            root = nini_config._get_bundle_root()
+            for candidate in [data_dir / "AGENTS.md", root / "AGENTS.md"]:
+                if candidate.exists() and candidate.is_file():
+                    content = candidate.read_text(encoding="utf-8").strip()
+                    if content:
+                        logger.debug("已加载 AGENTS.md: %s", candidate)
+                        return content
+        except Exception as exc:
+            logger.debug("读取 AGENTS.md 失败: %s", exc)
+        return ""
 
     def _load_component_text(self, path: Path, filename: str) -> str:
         """只加载受信组件文件，并保留默认回退与热刷新。"""

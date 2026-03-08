@@ -32,88 +32,77 @@ class StatModelSkill(Skill):
     def description(self) -> str:
         return (
             "统一执行相关分析和线性/多元回归分析。"
+            "【必须】始终传入 method 字段，否则调用会失败。"
             "最小示例："
-            '1) 相关性: {"method":"correlation","dataset_name":"demo","columns":["x","y"]}；'
-            '2) 回归: {"method":"linear_regression","dataset_name":"demo",'
-            '"dependent_var":"y","independent_vars":["x1","x2"]}。'
+            '1) 相关性分析: {"method":"correlation","dataset_name":"demo","columns":["x","y"]}；'
+            '2) 线性回归: {"method":"linear_regression","dataset_name":"demo",'
+            '"dependent_var":"y","independent_vars":["x1","x2"]}；'
+            '3) 多元回归: {"method":"multiple_regression","dataset_name":"demo",'
+            '"dependent_var":"y","independent_vars":["x1","x2","x3"]}。'
+            "若不确定列名，请先用 dataset_catalog 查看数据集结构。"
         )
 
     @property
     def parameters(self) -> dict[str, Any]:
         return {
             "type": "object",
-            "oneOf": [
-                {
-                    "type": "object",
-                    "properties": {
-                        "method": {
-                            "type": "string",
-                            "enum": ["correlation"],
-                            "description": "建模方法：相关性分析",
-                        },
-                        "dataset_name": {
-                            "type": "string",
-                            "description": "数据集名称。多数据集会话必须显式指定",
-                        },
-                        "columns": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "minItems": 2,
-                            "description": "需要计算相关性的数值列名（至少两列）",
-                        },
-                        "correlation_method": {
-                            "type": "string",
-                            "enum": ["pearson", "spearman", "kendall"],
-                            "description": "相关性方法别名（会映射为 method）",
-                        },
-                        "method_detail": {
-                            "type": "string",
-                            "enum": ["pearson", "spearman", "kendall"],
-                            "description": "相关性方法（兼容别名）",
-                        },
-                    },
-                    "required": ["method", "dataset_name", "columns"],
-                    "additionalProperties": False,
+            "properties": {
+                "method": {
+                    "type": "string",
+                    "enum": ["correlation", "linear_regression", "multiple_regression"],
+                    "description": (
+                        "【必填】分析方法。"
+                        "correlation=相关性分析（需 columns）；"
+                        "linear_regression/multiple_regression=回归分析（需 dependent_var + independent_vars）"
+                    ),
                 },
-                {
-                    "type": "object",
-                    "properties": {
-                        "method": {
-                            "type": "string",
-                            "enum": ["linear_regression", "multiple_regression"],
-                            "description": "建模方法：线性/多元回归",
-                        },
-                        "dataset_name": {
-                            "type": "string",
-                            "description": "数据集名称。多数据集会话必须显式指定",
-                        },
-                        "dependent_var": {
-                            "type": "string",
-                            "description": "因变量（Y）列名",
-                        },
-                        "independent_vars": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "minItems": 1,
-                            "description": "自变量（X）列名列表",
-                        },
-                    },
-                    "required": [
-                        "method",
-                        "dataset_name",
-                        "dependent_var",
-                        "independent_vars",
-                    ],
-                    "additionalProperties": False,
+                "dataset_name": {
+                    "type": "string",
+                    "description": "数据集名称。多数据集会话必须显式指定，单数据集可省略",
                 },
-            ],
+                "columns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "【correlation 必填】参与相关性计算的数值列名，至少 2 列，例如 [\"收缩压/Hgmm\", \"舒张压/Hgmm\", \"心率次/分\"]",
+                },
+                "correlation_method": {
+                    "type": "string",
+                    "enum": ["pearson", "spearman", "kendall"],
+                    "description": "相关性系数类型，默认 pearson；数据非正态时推荐 spearman",
+                },
+                "dependent_var": {
+                    "type": "string",
+                    "description": "【回归必填】因变量（Y）列名",
+                },
+                "independent_vars": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "【回归必填】自变量（X）列名列表，例如 [\"年龄\", \"体重\"]",
+                },
+            },
+            "required": ["method"],
         }
 
     async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
         method = str(kwargs.get("method", "")).strip()
         delegate = self._delegates.get(method)
         if delegate is None:
-            return SkillResult(success=False, message=f"不支持的 method: {method}")
+            supported = list(self._delegates.keys())
+            if not method:
+                return SkillResult(
+                    success=False,
+                    message=(
+                        "缺少必要参数 method，请指定分析类型。"
+                        f"支持的值：{supported}。"
+                        '示例（相关性）：{{"method":"correlation","dataset_name":"<数据集名>","columns":["列A","列B"]}}。'
+                        '示例（回归）：{{"method":"linear_regression","dataset_name":"<数据集名>",'
+                        '"dependent_var":"Y列","independent_vars":["X1","X2"]}}'
+                    ),
+                )
+            return SkillResult(
+                success=False,
+                message=f"不支持的 method: '{method}'，支持的值：{supported}",
+            )
 
         params = {k: v for k, v in kwargs.items() if k != "method"}
         self._normalize_sequence_params(params)

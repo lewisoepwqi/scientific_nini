@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,18 @@ class PlanStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     REQUIRES_REVISION = "requires_revision"
+
+
+class MustHave(BaseModel):
+    """规划阶段要求 LLM 明确声明的"必须满足"条件。
+
+    用于在 done 分支对照检查，生成 validation_warnings（不阻断执行）。
+    """
+
+    type: Literal["truth", "artifact", "key_link"] = Field(
+        description="must_have 类型：truth=统计事实, artifact=产物, key_link=关键推理链"
+    )
+    description: str = Field(description="具体要求描述")
 
 
 class PlanAction(BaseModel):
@@ -72,6 +84,9 @@ class ExecutionPlan(BaseModel):
     # 验证结果
     validation_errors: list[str] = Field(default_factory=list, description="验证错误列表")
     suggestions: list[str] = Field(default_factory=list, description="改进建议")
+
+    # 规划质量强化：必须满足的条件清单（done 分支对照检查）
+    must_haves: list[MustHave] = Field(default_factory=list, description="执行必须满足的条件")
 
     def model_post_init(self, __context: Any) -> None:
         """初始化后验证。"""

@@ -113,6 +113,14 @@ class ContextBuilder:
         if dataset_context:
             context_parts.append(dataset_context)
 
+        # 主动记忆推送：识别到 dataset 加载时，注入该 dataset 的历史记忆摘要
+        loaded_datasets = getattr(session, "loaded_datasets", {})
+        if loaded_datasets:
+            first_dataset_name = next(iter(loaded_datasets))
+            dataset_memory_context = await _build_dataset_history_memory(first_dataset_name)
+            if dataset_memory_context:
+                context_parts.append(dataset_memory_context)
+
         last_user_msg = get_last_user_message(session)
 
         # --- 单次意图分析，结果用于 RAG/LTM 门控和上下文构建 ---
@@ -166,14 +174,7 @@ class ContextBuilder:
                     format_untrusted_context_block("pdca_detail", PDCA_DETAIL_BLOCK)
                 )
 
-        agents_md_content = self._discover_agents_md()
-        if agents_md_content:
-            sanitized_agents = sanitize_reference_text(
-                agents_md_content,
-                max_len=AGENTS_MD_MAX_CHARS,
-            )
-            if sanitized_agents:
-                context_parts.append(format_untrusted_context_block("agents_md", sanitized_agents))
+        # AGENTS.md 已移至 trusted system prompt，不在此注入 untrusted context
 
         analysis_memory_context = build_analysis_memory_context(
             session.id,
@@ -196,7 +197,19 @@ class ContextBuilder:
                 top_k=3,
             )
             if long_term_memory_context:
+                # 粗略估算 token 数（按字符数 / 4 近似）
+                estimated_tokens = len(long_term_memory_context) // 4
+                logger.debug(
+                    "长期记忆已注入: session_id=%s estimated_tokens=%d",
+                    getattr(session, "id", "unknown"),
+                    estimated_tokens,
+                )
                 context_parts.append(long_term_memory_context)
+            else:
+                logger.debug(
+                    "长期记忆未注入（无相关条目）: session_id=%s",
+                    getattr(session, "id", "unknown"),
+                )
 
         research_profile_context = build_research_profile_context(
             session,
@@ -208,6 +221,10 @@ class ContextBuilder:
 
         messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         if context_parts:
+            # 预算控制：按优先级裁剪，Skill 辅助资料不挤占对话历史
+            from nini.agent.prompt_policy import trim_runtime_context_by_priority
+
+            context_parts = trim_runtime_context_by_priority(context_parts)
             messages.append(
                 {
                     "role": "assistant",
@@ -309,3 +326,46 @@ class ContextBuilder:
         combined = scan_agents_md(max_chars=AGENTS_MD_MAX_CHARS)
         cls._agents_md_cache = combined if combined else None
         return combined
+
+
+async def _build_dataset_history_memory(dataset_name: str) -> str:
+    """主动推送指定 dataset 的历史分析记忆摘要。
+
+    当 ContextBuilder 识别到 dataset 加载时调用，通过 dataset_name 过滤
+    LongTermMemoryStore 中的已有 finding/statistic 条目，格式化后注入上下文。
+    若无历史记忆或检索失败则静默返回空字符串。
+    """
+    if not dataset_name or not dataset_name.strip():
+        return ""
+    try:
+        from nini.memory.long_term_memory import (
+            format_memories_for_context,
+            get_long_term_memory_store,
+        )
+        from nini.agent.prompt_policy import format_untrusted_context_block
+
+        store = get_long_term_memory_store()
+        # 使用 dataset_name 作为查询，并通过 context 感知重排序过滤
+        entries = await store.search(
+            dataset_name,
+            top_k=5,
+            min_importance=0.4,
+            context={"dataset_name": dataset_name},
+        )
+        if not entries:
+            return ""
+        text = format_memories_for_context(entries)
+        if not text:
+            return ""
+        logger.debug(
+            "主动记忆推送: dataset=%s injected_count=%d",
+            dataset_name,
+            len(entries),
+        )
+        return format_untrusted_context_block(
+            "long_term_memory",
+            f"[数据集 {dataset_name} 历史分析记忆]\n{text}",
+        )
+    except Exception:
+        logger.debug("主动记忆推送失败，忽略", exc_info=True)
+        return ""

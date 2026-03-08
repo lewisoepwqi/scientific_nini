@@ -120,7 +120,11 @@ class SimpleEmbeddingProvider:
             model_cls = getattr(sentence_transformers, "SentenceTransformer", None)
             if not callable(model_cls):
                 return None
-            self._local_model = model_cls("all-MiniLM-L6-v2")
+            # 优先离线加载，避免向 HuggingFace Hub 发起版本检查请求
+            try:
+                self._local_model = model_cls("all-MiniLM-L6-v2", local_files_only=True)
+            except Exception:
+                self._local_model = model_cls("all-MiniLM-L6-v2")
             logger.info("本地 embedding 模型加载成功")
             return self._local_model
         except ImportError:

@@ -193,6 +193,7 @@ export function handleExtendedEvent(
           created_at: now,
           updated_at: now,
           turn_id: currentTurnId,
+          depends_on: step.depends_on,
         }));
         const filteredActionMap = currentTurnId
           ? Object.fromEntries(

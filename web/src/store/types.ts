@@ -159,6 +159,8 @@ export interface AnalysisStep {
   raw_status?: string;
   /** 动作 ID，用于任务关联（与后端 TaskItem.action_id 对应） */
   action_id?: string | null;
+  /** 依赖的步骤 ID 列表，用于依赖关系展示 */
+  depends_on?: number[];
 }
 
 export interface AnalysisPlanData {
@@ -208,6 +210,7 @@ export interface AnalysisTaskItem {
   created_at: number;
   updated_at: number;
   turn_id?: string | null; // 关联的回合ID，用于区分不同对话的任务
+  depends_on?: number[]; // 依赖的步骤 ID 列表
 }
 
 // ---- 意图分析类型 ----

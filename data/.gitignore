@@ -2,6 +2,9 @@
 *
 !.gitignore
 
+# nini AI 指令（项目级配置，纳入版本管理）
+!AGENTS.md
+
 # 保留打包需要的静态资源目录
 !fonts/
 !fonts/**

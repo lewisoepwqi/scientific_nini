@@ -30,6 +30,8 @@ export interface AnalysisStep {
   action_id?: string | null;
   /** 后端原始状态 */
   raw_status?: string;
+  /** 依赖的步骤 ID 列表，用于依赖关系展示 */
+  depends_on?: number[];
 }
 
 /** 分析计划数据结构
@@ -93,6 +95,7 @@ export interface AnalysisTaskItem {
   created_at: number;
   updated_at: number;
   turn_id?: string | null;
+  depends_on?: number[]; // 依赖的步骤 ID 列表
 }
 
 /** 计划步骤更新数据

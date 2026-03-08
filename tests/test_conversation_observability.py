@@ -1108,7 +1108,8 @@ async def test_runner_preserves_raw_assistant_content_for_tool_calls() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runner_does_not_block_tool_outside_allowed_tools_recommendation() -> None:
+async def test_runner_blocks_tool_outside_allowed_tools_hard_constraint() -> None:
+    """技能声明 allowed_tools 后，越界工具调用应被硬阻断并发出 error 事件（task 8.3）。"""
     session = Session()
     registry = _GuardedSkillRegistry()
     runner = AgentRunner(
@@ -1123,12 +1124,25 @@ async def test_runner_does_not_block_tool_outside_allowed_tools_recommendation()
         if event.type == EventType.DONE:
             break
 
-    tool_results = [e for e in events if e.type == EventType.TOOL_RESULT]
-    assert tool_results
-    last_result = tool_results[-1]
-    assert isinstance(last_result.data, dict)
-    assert last_result.data.get("status") == "success"
-    assert registry.execute_calls == 1
+    # 越界工具调用被阻断：不应有成功的 TOOL_RESULT
+    success_results = [
+        e
+        for e in events
+        if e.type == EventType.TOOL_RESULT
+        and isinstance(e.data, dict)
+        and e.data.get("status") == "success"
+        and e.tool_name == "echo_tool"
+    ]
+    assert not success_results, "越界工具 echo_tool 不应成功执行"
+    # 应发出 allowed_tools_violation 错误事件
+    violation_events = [
+        e
+        for e in events
+        if e.type == EventType.ERROR
+        and isinstance(e.data, dict)
+        and e.data.get("level") == "allowed_tools_violation"
+    ]
+    assert violation_events, "应发出 allowed_tools_violation 错误事件"
 
 
 @pytest.mark.asyncio
