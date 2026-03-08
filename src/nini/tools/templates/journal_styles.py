@@ -85,12 +85,10 @@ _DEFAULT_TEMPLATES: dict[str, dict[str, Any]] = {
 }
 
 # 项目/bundle 根目录（支持冻结模式）
-from nini.config import _get_bundle_root
-
-_ROOT = _get_bundle_root()
+from nini.config import _get_bundle_templates_dir
 
 # 内置模板目录
-_BUILTIN_TEMPLATES_DIR = _ROOT / "templates" / "journal_styles"
+_BUILTIN_TEMPLATES_DIR = _get_bundle_templates_dir()
 
 # 用户自定义模板目录（在 data_dir 下）
 _USER_TEMPLATES_DIR = settings.data_dir / "templates" / "journal_styles"
@@ -143,7 +141,7 @@ def _load_all_yaml_templates() -> dict[str, dict[str, Any]]:
     """从所有模板目录加载 YAML 配置。
 
     加载顺序：
-    1. 先加载内置模板（项目目录下的 templates/journal_styles/）
+    1. 先加载内置模板（开发模式为项目目录，打包模式为 bundle/assets/templates/journal_styles/）
     2. 再加载用户自定义模板（data_dir 下的 templates/journal_styles/），允许覆盖内置模板
 
     Returns:

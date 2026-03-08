@@ -65,6 +65,15 @@ router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
 
 
+def _windows_subprocess_kwargs() -> dict[str, Any]:
+    """Windows 下隐藏短生命周期子进程窗口。"""
+    if sys.platform != "win32":
+        return {}
+    return {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    }
+
+
 # Excel 序列日期关键词（用于启发式检测）
 _DATE_HINTS = {"日期", "时间", "时刻", "date", "time", "datetime", "timestamp"}
 _SKILL_UPLOAD_EXTENSIONS = {".md", ".markdown", ".txt"}
@@ -678,9 +687,9 @@ async def get_workspace_file(
 
     filename = target_path.name
 
-    # 图片文件默认直接返回文件流（支持 markdown 内嵌图片显示）
+    # 图片文件默认内联返回，兼容 Markdown/预览；显式 download=1 时改为附件下载。
     if _is_image_file(filename):
-        return _build_download_response(target_path, filename, inline=True)
+        return _build_download_response(target_path, filename, inline=inline if download else True)
 
     # 二进制文件（PDF、Office 文档等）默认直接返回文件流
     # 注意：尊重 inline 参数，用于 PDF 预览（inline=True）vs 下载（inline=False）
@@ -1713,6 +1722,7 @@ fig.write_image(str(dst), format="png", width=1400, height=900, scale=2)
             check=True,
             capture_output=True,
             timeout=timeout_seconds,
+            **_windows_subprocess_kwargs(),
         )
         return tmp_png.read_bytes()
     except subprocess.TimeoutExpired:

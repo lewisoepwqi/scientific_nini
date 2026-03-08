@@ -21,11 +21,21 @@ aliases:
   - 根系分析
   - root length analysis
 allowed-tools:
-  - load_dataset
-  - run_code
+  - ask_user_question
+  - dataset_catalog
+  - code_session
   - run_r_code
-  - create_chart
-  - generate_report
+  - chart_session
+  - report_session
+  - export_document
+  - export_report
+  - workspace_session
+  - stat_test
+  - stat_model
+  - stat_interpret
+  - report_session
+  - task_state
+  - analysis_memory
 argument-hint: "<data-file-path>"
 user-invocable: true
 disable-model-invocation: false
@@ -34,7 +44,7 @@ license: MIT
 
 # 植物根长度分析
 
-使用ANOVA方差分析、Tukey HSD事后检验和出版级图表，对植物根长度数据进行专业的统计分析和可视化。
+使用 `dataset_catalog`、`run_r_code`、`code_session`、`chart_session` 和 `report_session`，对植物根长度数据进行专业的统计分析、可视化与结果整理。
 
 ## 快速开始
 

@@ -3,7 +3,7 @@
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useStore, type WorkspaceFile } from '../store'
-import { resolveDownloadUrl } from './downloadUtils'
+import { downloadFileFromUrl, resolveDownloadUrl } from './downloadUtils'
 import {
   FileSpreadsheet,
   FileImage,
@@ -87,6 +87,17 @@ export default function FileListItem({ file }: Props) {
     await deleteWorkspaceFile(file.path)
   }, [file.name, file.path, deleteWorkspaceFile])
   const downloadUrl = resolveDownloadUrl(file.download_url, file.name) || file.download_url
+  const handleDownload = useCallback(
+    async (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation()
+      try {
+        await downloadFileFromUrl(downloadUrl, file.name)
+      } catch (error) {
+        console.error('工作区文件下载失败:', error)
+      }
+    },
+    [downloadUrl, file.name],
+  )
 
   return (
     <div className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-100 transition-colors">
@@ -143,16 +154,13 @@ export default function FileListItem({ file }: Props) {
       {/* 操作按钮 */}
       {!isRenaming && (
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <a
-            href={downloadUrl}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(e) => e.stopPropagation()}
+          <button
+            onClick={handleDownload}
             className="p-1 rounded hover:bg-gray-200 text-gray-500"
             title="下载"
           >
             <Download size={12} />
-          </a>
+          </button>
           <button
             onClick={(e) => {
               e.stopPropagation()

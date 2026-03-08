@@ -6,12 +6,22 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
 from nini.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _force_offline_local_models() -> bool:
+    """是否强制仅使用本地离线模型。"""
+    return (
+        os.environ.get("NINI_FORCE_LOCAL_MODELS") == "1"
+        or os.environ.get("HF_HUB_OFFLINE") == "1"
+        or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
+    )
 
 
 @dataclass
@@ -60,7 +70,13 @@ class CrossEncoderReranker:
                 return False
 
             logger.info(f"加载 Cross-Encoder 模型: {self.model_name}")
-            self._model = cross_encoder_cls(self.model_name)
+            try:
+                self._model = cross_encoder_cls(self.model_name, local_files_only=True)
+            except Exception:
+                if _force_offline_local_models():
+                    logger.warning("离线模式下未命中本地重排序模型缓存: %s", self.model_name)
+                    return False
+                self._model = cross_encoder_cls(self.model_name)
             self._available = True
             logger.info("Cross-Encoder 模型加载成功")
             return True

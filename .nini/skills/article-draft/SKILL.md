@@ -9,13 +9,17 @@ typical-use-cases:
   - 将统计分析结果整理为标准学术论文格式
   - 生成可供人工润色的结构化论文草稿
 allowed-tools:
-  - data_summary
-  - preview_data
-  - interpret_stat_result
-  - create_chart
-  - edit_file
-  - list_workspace_files
-  - generate_report
+  - ask_user_question
+  - dataset_catalog
+  - stat_test
+  - stat_model
+  - stat_interpret
+  - chart_session
+  - workspace_session
+  - report_session
+  - code_session
+  - task_state
+  - analysis_memory
   - export_document
   - export_report
 ---
@@ -27,28 +31,28 @@ allowed-tools:
 ## 执行前提
 
 在调用本技能前，用户应已完成：
-- 数据加载（`load_dataset`）
-- 至少一项统计分析（如 `t_test`、`regression`、`correlation` 等）
-- 可选：图表生成（`create_chart`）
+- 数据加载（`dataset_catalog`）
+- 至少一项统计分析（如 `stat_test`、`stat_model`、`code_session`、`chart_session` 等）
+- 可选：图表生成（`chart_session` 或复杂场景下的 `code_session`）
 
 ## 工作流步骤
 
 ### 第一步：收集数据与分析概况
 
-调用 `data_summary` 获取已加载数据集的基本统计信息（样本量、变量列表、缺失值等）。
+调用 `dataset_catalog` 获取已加载数据集的基本统计信息（样本量、变量列表、缺失值等）。
 
 若用户已描述分析目标，结合会话历史中已生成的统计结果（t 值、p 值、回归系数、相关系数等）作为写作素材。
 
 ### 第二步：解读统计结果（如需要）
 
-若会话中有统计分析结果但尚未进行文字解读，调用 `interpret_stat_result` 生成结果的自然语言描述，作为「结果」章节的写作依据。
+若会话中有统计分析结果但尚未进行文字解读，调用 `stat_interpret` 生成结果的自然语言描述，作为「结果」章节的写作依据。
 
 ### 第三步：生成配图（如需要）
 
 根据分析类型补充必要图表：
-- 回归分析 → 散点图 + 回归线（`create_chart` type=scatter）
-- 差异分析 → 箱线图（`create_chart` type=box）
-- 相关分析 → 热力图（`create_chart` type=heatmap）
+- 回归分析 → 散点图 + 回归线（`chart_session` 或 `code_session`）
+- 差异分析 → 箱线图（`chart_session`）
+- 相关分析 → 热力图（`chart_session` 或 `code_session`）
 
 ### 第四步：确定文件名并创建文章
 
@@ -74,9 +78,9 @@ allowed-tools:
 
 **4.3 创建初始文件**
 
-使用 `edit_file`（operation=write）创建文件，写入文章标题和结构大纲：
+使用 `workspace_session`（operation=write）创建文件，写入文章标题和结构大纲：
 
-然后使用 `edit_file`（operation=append）依次追加各章节内容：
+然后使用 `workspace_session`（operation=append）依次追加各章节内容：
 
 **摘要（Abstract）**
 - 约 250 字
@@ -93,7 +97,7 @@ allowed-tools:
 
 **结果（Results）**
 - 约 400-600 字
-- 包含：描述性统计（引用 data_summary 结果）、推断性统计（引用 interpret_stat_result 结果，汇报统计量、p 值、效应量）
+- 包含：描述性统计（引用 `dataset_catalog` 结果）、推断性统计（引用 `stat_interpret` 结果，汇报统计量、p 值、效应量）
 - **图表嵌入**：使用 Markdown 图片引用语法直接嵌入图表，格式如下：
 
 ```markdown
@@ -106,8 +110,8 @@ allowed-tools:
 ![图2：{图表描述}]({图表下载URL})
 ```
 
-- 图表 URL 获取方式：调用 `list_workspace_files(kinds=["result"])` 获取图表的 `download_url`
-- 优先使用工具返回的实际 `download_url`；不要通过 `run_code` 枚举工作区目录
+- 图表 URL 获取方式：调用 `workspace_session(operation="list")` 获取图表的 `download_url`
+- 优先使用工具返回的实际 `download_url`；不要通过 `code_session` 枚举工作区目录
 - 支持的图表格式：PNG、JPEG、SVG 等图片格式可直接渲染；HTML 格式使用链接 `[查看交互图表](url)`
 - 正文中引用图表时使用「如图 1 所示」格式
 
@@ -127,8 +131,8 @@ allowed-tools:
 
 若用户需要 DOCX 或 PDF 格式：
 1. 若工作区中已经存在文章草稿 Markdown 文件，优先调用 `export_document`
-2. 仅当用户明确要求重新生成标准结构化分析报告时，再调用 `generate_report`
-3. `export_report` 仅作为旧报告流程兼容，不是文章草稿导出的首选
+2. 仅当用户明确要求重新生成标准结构化分析报告时，再调用 `report_session`
+3. `export_report` 仅在明确需要 PDF/DOCX 导出且已有报告资源时使用
 
 ## 输出规范
 
@@ -147,7 +151,7 @@ allowed-tools:
 - **文件名确认**：生成文件前，建议先向用户展示建议的文件名并确认，提升用户体验
 - **图表嵌入技巧**：
   - 优先使用 Markdown 图片语法 `![描述](url)` 嵌入，可在文档中直接预览
-  - 使用 `list_workspace_files` 获取工作区中图表结果文件的实际 `download_url`
+  - 使用 `workspace_session(operation="list")` 获取工作区中图表结果文件的实际 `download_url`
   - 如有多张图表，按顺序编号并添加描述性标题
 - **完成提示**：生成完毕后，主动告知用户文件位置、文件名，并询问是否需要进一步修改
 
@@ -166,7 +170,7 @@ Agent: 我将为您生成科研论文初稿。
 
 ### Step 2: 创建文件并写入标题和大纲
 ```python
-edit_file(
+workspace_session(
     file_path="heart_rate_blood_pressure_correlation_20250302.md",
     operation="write",
     content="# 心率与血压相关性研究\n\n## 摘要\n\n[待补充]\n\n## 引言\n\n[待补充]\n..."
@@ -174,7 +178,7 @@ edit_file(
 ```
 
 ### Step 3: 逐章追加内容
-每章使用 `edit_file(operation="append")` 追加。
+每章使用 `workspace_session(operation="append")` 追加。
 
 ### Step 4: 嵌入图表
 在「结果」章节中嵌入图表：

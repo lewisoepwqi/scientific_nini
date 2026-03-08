@@ -6,7 +6,7 @@ import { Download, X, Loader2 } from 'lucide-react'
 import { useStore } from '../store'
 import LazyMarkdownContent from './LazyMarkdownContent'
 import PlotlyFromUrl from './PlotlyFromUrl'
-import { resolveDownloadUrl } from './downloadUtils'
+import { downloadFileFromUrl, resolveDownloadUrl } from './downloadUtils'
 
 interface PreviewData {
   id: string
@@ -112,6 +112,13 @@ export default function FilePreviewPane() {
     fileInfo?.download_url,
     preview?.name || fileInfo?.name,
   )
+  const handleDownload = useCallback(async () => {
+    try {
+      await downloadFileFromUrl(resolvedDownloadUrl, preview?.name || fileInfo?.name)
+    } catch (error) {
+      console.error('预览文件下载失败:', error)
+    }
+  }, [fileInfo?.name, preview?.name, resolvedDownloadUrl])
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -128,15 +135,13 @@ export default function FilePreviewPane() {
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {resolvedDownloadUrl && (
-            <a
-              href={resolvedDownloadUrl}
-              target="_blank"
-              rel="noreferrer"
+            <button
+              onClick={handleDownload}
               className="p-1 rounded hover:bg-gray-100 text-gray-500"
               title="下载"
             >
               <Download size={13} />
-            </a>
+            </button>
           )}
           <button
             onClick={handleClose}

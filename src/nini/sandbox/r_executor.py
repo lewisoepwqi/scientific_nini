@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from typing import Any
@@ -49,6 +50,15 @@ _PACKAGE_REF_RE = re.compile(
 )
 
 
+def _windows_subprocess_kwargs() -> dict[str, Any]:
+    """Windows 下隐藏子进程控制台窗口。"""
+    if sys.platform != "win32":
+        return {}
+    return {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    }
+
+
 def _r_env() -> dict[str, str]:
     lib_dir = settings.data_dir / "r_libs"
     lib_dir.mkdir(parents=True, exist_ok=True)
@@ -88,6 +98,7 @@ def detect_r_installation() -> dict[str, Any]:
             text=True,
             timeout=10,
             check=False,
+            **_windows_subprocess_kwargs(),
         )
         version_text = (proc.stdout or proc.stderr or "").strip()
         return {
@@ -142,6 +153,7 @@ def check_r_packages(packages: set[str]) -> dict[str, bool]:
         timeout=max(10, int(settings.r_sandbox_timeout // 2)),
         check=False,
         env=_r_env(),
+        **_windows_subprocess_kwargs(),
     )
 
     status: dict[str, bool] = {pkg: False for pkg in packages}
@@ -200,6 +212,7 @@ def install_r_packages(packages: set[str]) -> tuple[bool, str]:
             timeout=int(settings.r_package_install_timeout),
             check=False,
             env=_r_env(),
+            **_windows_subprocess_kwargs(),
         )
     except subprocess.TimeoutExpired:
         return False, f"R 包安装超时（>{settings.r_package_install_timeout}s）"
@@ -480,6 +493,7 @@ class RSandboxExecutor:
                 check=False,
                 env=env,
                 preexec_fn=_build_preexec_fn(self.max_memory_mb),
+                **_windows_subprocess_kwargs(),
             )
         except subprocess.TimeoutExpired:
             return {

@@ -2,6 +2,16 @@
 name: publication_figure
 description: 生成符合顶级学术期刊（Nature、Science、Cell 等）发表标准的科研图表
 category: visualization
+allowed-tools:
+  - ask_user_question
+  - dataset_catalog
+  - stat_test
+  - stat_model
+  - stat_interpret
+  - code_session
+  - chart_session
+  - export_chart
+  - workspace_session
 ---
 
 # 顶级期刊图表制作技能 (Publication-Quality Figure Skill)

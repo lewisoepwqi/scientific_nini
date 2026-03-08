@@ -22,6 +22,9 @@
 !define PRODUCT_EXE "nini.exe"
 !define PRODUCT_CLI_EXE "nini-cli.exe"
 !define PRODUCT_ICON "nini.ico"
+!ifndef PRODUCT_SOURCE_DIR
+!define PRODUCT_SOURCE_DIR "..\dist\nini-installer"
+!endif
 
 Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
 OutFile "..\dist\Nini-${PRODUCT_VERSION}-Setup.exe"
@@ -58,8 +61,8 @@ Section "主程序" SecMain
 
     SetOutPath "$INSTDIR"
 
-    ; 复制 PyInstaller 输出的全部文件
-    File /r "..\dist\nini\*.*"
+    ; 复制安装器专用瘦身目录（由 build_windows.bat 预先生成）
+    File /r "${PRODUCT_SOURCE_DIR}\*.*"
 
     ; 复制图标文件到安装目录（供快捷方式使用）
     File "nini.ico"

@@ -311,6 +311,11 @@ class ModelResolver:
             return settings.trial_api_key
         return ModelResolver._load_encrypted_packaged_secret("ENCRYPTED_TRIAL_KEY")
 
+    @staticmethod
+    def _has_builtin_client_available() -> bool:
+        """检查当前环境是否存在可用的系统内置客户端配置。"""
+        return bool(ModelResolver._load_builtin_api_key())
+
     def _get_builtin_client(self, purpose: str, mode: str | None) -> BaseLLMClient | None:
         """构造系统内置客户端。"""
         model_name = self._get_builtin_model_name(purpose, mode)
@@ -597,16 +602,11 @@ class ModelResolver:
                     elif allow_user_fallback:
                         clients = self._get_ordered_clients(purpose)
 
-        # 在流式传输开始前计费（防止用户中止导致漏计）
-        if builtin_mode_to_count is not None and clients:
-            from nini.config_manager import increment_builtin_usage
-
-            await increment_builtin_usage(builtin_mode_to_count)
-
         if not clients:
             raise RuntimeError("未配置 AI 服务，请先在「AI 设置」中配置供应商密钥")
         fallback_chain: list[dict[str, Any]] = []
         last_error: Exception | None = None
+        builtin_usage_counted = False
 
         for attempt, client in enumerate(clients, start=1):
             provider_id = getattr(client, "provider_id", "") or ""
@@ -631,6 +631,11 @@ class ModelResolver:
                     temperature=temperature,
                     max_tokens=max_tokens,
                 ):
+                    if builtin_mode_to_count is not None and not builtin_usage_counted:
+                        from nini.config_manager import increment_builtin_usage
+
+                        await increment_builtin_usage(builtin_mode_to_count)
+                        builtin_usage_counted = True
                     chunk_text = chunk.text if hasattr(chunk, "text") else ""
                     chunk_reasoning = chunk.reasoning if hasattr(chunk, "reasoning") else ""
                     yield LLMChunk(
@@ -1239,7 +1244,7 @@ class ModelResolver:
         self._active_provider_id = active_provider_id
 
         # 构建试用客户端（仅当有内嵌密钥时）
-        if trial_api_key:
+        if trial_api_key and not self._has_builtin_client_available():
             self._trial_client = DeepSeekClient(api_key=trial_api_key, model="deepseek-chat")
         else:
             self._trial_client = None

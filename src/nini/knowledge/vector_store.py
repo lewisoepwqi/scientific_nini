@@ -10,6 +10,7 @@ import hashlib
 import importlib.util
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,15 @@ logger = logging.getLogger(__name__)
 
 # 延迟导入标记：避免未安装 llama-index 时模块加载失败
 _LLAMA_INDEX_AVAILABLE: bool | None = None
+
+
+def _force_offline_local_models() -> bool:
+    """是否强制仅使用本地离线模型。"""
+    return (
+        os.environ.get("NINI_FORCE_LOCAL_MODELS") == "1"
+        or os.environ.get("HF_HUB_OFFLINE") == "1"
+        or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
+    )
 
 
 def _check_llama_index() -> bool:
@@ -308,11 +318,12 @@ class VectorKnowledgeStore:
                 logger.info("本地 embedding 模块缺少 HuggingFaceEmbedding，已回退到关键词检索")
                 return None
             model_name = settings.knowledge_local_embedding_model
-            # 优先离线加载（避免每次启动都向 HuggingFace Hub 发起网络请求）
-            # 若本地缓存不存在则回退到在线加载
             try:
                 return embedding_cls(model_name=model_name, local_files_only=True)
             except Exception:
+                if _force_offline_local_models():
+                    logger.info("离线模式下未命中本地知识 embedding 模型缓存: %s", model_name)
+                    return None
                 logger.info("本地 embedding 缓存未命中，尝试在线下载: model=%s", model_name)
                 return embedding_cls(model_name=model_name)
         except ImportError:

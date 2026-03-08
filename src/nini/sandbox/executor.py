@@ -10,6 +10,7 @@ import multiprocessing
 from multiprocessing.connection import Connection
 import os
 import pickle
+import subprocess
 import sys
 import time
 import traceback
@@ -38,6 +39,7 @@ except Exception:  # pragma: no cover - Windows 等平台可能不存在
 logger = logging.getLogger(__name__)
 
 _BENIGN_STDERR_PATTERNS = ("FigureCanvasAgg is non-interactive, and thus cannot be shown",)
+_WINDOWS_SPAWN_PATCHED = False
 
 
 def _format_exception_detail(exc: Exception) -> str:
@@ -59,6 +61,89 @@ def _strip_benign_stderr(stderr_text: str) -> str:
             continue
         kept_lines.append(raw_line)
     return "\n".join(kept_lines).strip()
+
+
+def _patch_windows_spawn_no_window() -> None:
+    """在 Windows 上为 multiprocessing spawn 子进程关闭控制台窗口。"""
+    global _WINDOWS_SPAWN_PATCHED
+    if _WINDOWS_SPAWN_PATCHED or sys.platform != "win32":
+        return
+
+    try:
+        import multiprocessing.popen_spawn_win32 as spawn_win32
+    except Exception:
+        return
+
+    original_popen = spawn_win32.Popen
+    if getattr(original_popen, "_nini_no_window_patch", False):
+        _WINDOWS_SPAWN_PATCHED = True
+        return
+
+    class HiddenWindowPopen(original_popen):  # type: ignore[misc,valid-type]
+        """复用标准库 spawn 实现，但在 Windows 下隐藏子进程窗口。"""
+
+        _nini_no_window_patch = True
+
+        def __init__(self, process_obj: Any):
+            prep_data = spawn_win32.spawn.get_preparation_data(process_obj._name)
+            rhandle, whandle = spawn_win32._winapi.CreatePipe(None, 0)
+            wfd = spawn_win32.msvcrt.open_osfhandle(whandle, 0)
+            cmd = spawn_win32.spawn.get_command_line(
+                parent_pid=os.getpid(),
+                pipe_handle=rhandle,
+            )
+
+            python_exe = spawn_win32.spawn.get_executable()
+            if spawn_win32.WINENV and spawn_win32._path_eq(python_exe, sys.executable):
+                cmd[0] = python_exe = sys._base_executable
+                env = os.environ.copy()
+                env["__PYVENV_LAUNCHER__"] = sys.executable
+            else:
+                env = None
+
+            cmdline = " ".join('"%s"' % x for x in cmd)
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            startupinfo = spawn_win32.STARTUPINFO(
+                dwFlags=spawn_win32.STARTF_FORCEOFFFEEDBACK
+            )
+
+            with open(wfd, "wb", closefd=True) as to_child:
+                try:
+                    hp, ht, pid, tid = spawn_win32._winapi.CreateProcess(
+                        python_exe,
+                        cmdline,
+                        None,
+                        None,
+                        False,
+                        creationflags,
+                        env,
+                        None,
+                        startupinfo,
+                    )
+                    spawn_win32._winapi.CloseHandle(ht)
+                except Exception:
+                    spawn_win32._winapi.CloseHandle(rhandle)
+                    raise
+
+                self.pid = pid
+                self.returncode = None
+                self._handle = hp
+                self.sentinel = int(hp)
+                self.finalizer = spawn_win32.util.Finalize(
+                    self,
+                    spawn_win32._close_handles,
+                    (self.sentinel, int(rhandle)),
+                )
+
+                spawn_win32.set_spawning_popen(self)
+                try:
+                    spawn_win32.reduction.dump(prep_data, to_child)
+                    spawn_win32.reduction.dump(process_obj, to_child)
+                finally:
+                    spawn_win32.set_spawning_popen(None)
+
+    spawn_win32.Popen = HiddenWindowPopen
+    _WINDOWS_SPAWN_PATCHED = True
 
 
 def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -631,6 +716,7 @@ class SandboxExecutor:
         working_dir = settings.sessions_dir / session_id / "sandbox_tmp"
         working_dir.mkdir(parents=True, exist_ok=True)
 
+        _patch_windows_spawn_no_window()
         ctx = multiprocessing.get_context("spawn")
         parent_conn, child_conn = ctx.Pipe(duplex=False)
         process = ctx.Process(
