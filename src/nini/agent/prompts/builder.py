@@ -235,15 +235,26 @@ class PromptBuilder:
 
     @staticmethod
     def _load_root_agents_md() -> str:
-        """仅读取项目根目录的 AGENTS.md，进入 trusted boundary。"""
+        """读取 nini 专用的 AGENTS.md，进入 trusted boundary。
+
+        查找顺序：
+        1. data/AGENTS.md（nini 专用，优先；打包模式为 ~/.nini/AGENTS.md）
+        2. <项目根>/AGENTS.md（兜底，仅当 data/ 下无文件时读取）
+
+        根目录的 AGENTS.md 通常由 Codex/OpenCode 等编码智能体使用，
+        nini 的项目级 AI 指令应放在 data/AGENTS.md 以避免冲突。
+        """
         try:
+            data_dir = nini_config._get_user_data_dir()
             root = nini_config._get_bundle_root()
-            agents_file = root / "AGENTS.md"
-            if agents_file.exists() and agents_file.is_file():
-                content = agents_file.read_text(encoding="utf-8").strip()
-                return content if content else ""
+            for candidate in [data_dir / "AGENTS.md", root / "AGENTS.md"]:
+                if candidate.exists() and candidate.is_file():
+                    content = candidate.read_text(encoding="utf-8").strip()
+                    if content:
+                        logger.debug("已加载 AGENTS.md: %s", candidate)
+                        return content
         except Exception as exc:
-            logger.debug("读取根目录 AGENTS.md 失败: %s", exc)
+            logger.debug("读取 AGENTS.md 失败: %s", exc)
         return ""
 
     def _load_component_text(self, path: Path, filename: str) -> str:
