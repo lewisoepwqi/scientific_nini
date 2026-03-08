@@ -486,14 +486,14 @@ models:
   # GLM-5 系列 (2025年最新)
   # https://open.bigmodel.cn/pricing
   glm-5:
-    input_price: 0.015
-    output_price: 0.015
+    input_price: 0.0004
+    output_price: 0.0015
     currency: USD
     tier: "premium"
 
   glm-5-plus:
-    input_price: 0.02
-    output_price: 0.02
+    input_price: 0.0008
+    output_price: 0.003
     currency: USD
     tier: "premium"
 

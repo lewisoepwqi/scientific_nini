@@ -2,6 +2,20 @@
 name: literature_chart_driven_analysis
 description: 基于用户上传文献 PDF 或参考图表，先提炼分析方法与作图思路，再对上传数据执行复现分析并输出图表与报告
 category: workflow
+allowed-tools:
+  - ask_user_question
+  - dataset_catalog
+  - workspace_session
+  - clean_data
+  - evaluate_data_quality
+  - stat_test
+  - stat_model
+  - stat_interpret
+  - code_session
+  - chart_session
+  - export_chart
+  - report_session
+  - export_report
 ---
 
 # 文献/图表驱动分析技能（Literature & Chart Driven Analysis）
@@ -104,13 +118,13 @@ category: workflow
 
 ## 推荐工具协同（供执行时参考）
 
-- 数据读取与预览：`load_dataset` / `preview_data` / `data_summary`
-- 数据治理：`data_quality` / `clean_data`
-- 统计分析：`t_test`、`anova`、`correlation`、`regression` 等
+- 数据读取与预览：`dataset_catalog` / `workspace_session`
+- 数据治理：`evaluate_data_quality` / `clean_data`
+- 统计分析：`stat_test`、`stat_model`、`stat_interpret` 等
 - 参考图解读：`image_analysis`
-- 自定义复现代码：`run_code`
-- 图表导出：`create_chart` / `export_chart`
-- 报告导出：`generate_report` / `export_report`
+- 自定义复现代码：`code_session`
+- 图表导出：`chart_session` / `export_chart`
+- 报告导出：`report_session` / `export_report`
 
 ---
 

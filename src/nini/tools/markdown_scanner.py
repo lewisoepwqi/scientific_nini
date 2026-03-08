@@ -159,6 +159,34 @@ def _to_str_list(value: Any) -> list[str]:
     return []
 
 
+_ALLOWED_TOOL_COMPAT_MAP: dict[str, list[str]] = {
+    "data_summary": ["dataset_catalog"],
+    "preview_data": ["dataset_catalog"],
+    "interpret_stat_result": ["stat_interpret"],
+    "create_chart": ["chart_session"],
+    "edit_file": ["workspace_session"],
+    "list_workspace_files": ["workspace_session"],
+    "generate_report": ["report_session"],
+    "load_dataset": ["dataset_catalog"],
+    "run_code": ["code_session"],
+}
+
+
+def _expand_allowed_tools(raw_tools: list[str]) -> list[str]:
+    """展开技能声明中的旧工具名，兼容当前运行时主工具体系。"""
+    expanded: list[str] = []
+    for raw in raw_tools:
+        tool_name = str(raw).strip()
+        if not tool_name:
+            continue
+        if tool_name not in expanded:
+            expanded.append(tool_name)
+        for alias in _ALLOWED_TOOL_COMPAT_MAP.get(tool_name, []):
+            if alias not in expanded:
+                expanded.append(alias)
+    return expanded
+
+
 def _normalize_brief_description(raw_brief: Any, description: str) -> str:
     brief = str(raw_brief or "").strip()
     if brief:
@@ -346,7 +374,7 @@ def scan_markdown_skills(skills_dir: Path | Iterable[Path]) -> list[MarkdownSkil
                 metadata["aliases"] = aliases
             allowed_tools = _to_str_list(meta.get("allowed-tools") or meta.get("allowed_tools"))
             if allowed_tools:
-                metadata["allowed_tools"] = allowed_tools
+                metadata["allowed_tools"] = _expand_allowed_tools(allowed_tools)
             argument_hint = str(
                 meta.get("argument-hint") or meta.get("argument_hint") or ""
             ).strip()

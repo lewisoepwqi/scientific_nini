@@ -6,7 +6,11 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import re
+import subprocess
+import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, TypeVar
@@ -21,6 +25,24 @@ from nini.workspace import WorkspaceManager
 
 logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
+
+
+def _format_pdf_export_failure(exc: Exception) -> str:
+    """格式化 PDF 导出异常，补充 Windows 原生依赖提示。"""
+    message = str(exc)
+    lowered = message.lower()
+    if "chromium" in lowered or "chrome" in lowered:
+        return (
+            "PDF 导出失败：未找到可用的 Chromium/Chrome，或浏览器无头导出失败。\n"
+            "请先执行 `kaleido_get_chrome` 下载浏览器，或检查打包版是否包含 Chromium。"
+        )
+    if "libgobject-2.0-0" in lowered or "gobject" in lowered:
+        return (
+            "PDF 导出失败：缺少 WeasyPrint 所需的系统图形库（GTK/Pango/Cairo/GObject）。\n"
+            "当前 Windows 环境未找到 `libgobject-2.0-0`，这通常不是模型依赖问题。\n"
+            "请安装并加入 GTK3 Runtime，或先改用 DOCX 导出。"
+        )
+    return f"PDF 生成失败: {exc}"
 
 # A4 科研论文风格 CSS
 _PDF_CSS_TEMPLATE = """\
@@ -205,6 +227,105 @@ def _document_to_export_payload(source_path: Path) -> tuple[str, str, str]:
     if ext in {".html", ".htm"}:
         return raw_text, title, _normalize_html_document(raw_text, title)
     raise ValueError(f"暂不支持导出此文档类型: {ext or source_path.name}")
+
+
+def _windows_subprocess_kwargs() -> dict[str, Any]:
+    """Windows 下隐藏短生命周期子进程窗口。"""
+    if sys.platform != "win32":
+        return {}
+    return {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    }
+
+
+def _guess_chrome_candidates() -> list[Path]:
+    """收集可能可用的 Chromium/Chrome 路径。"""
+    candidates: list[Path] = []
+
+    browser_path = os.environ.get("BROWSER_PATH")
+    if browser_path:
+        candidates.append(Path(browser_path))
+
+    try:
+        import choreographer.cli._cli_utils as cli  # type: ignore[import-not-found,import-untyped]
+
+        browser_root = Path(cli.default_download_path)
+        candidates.extend(
+            [
+                browser_root / "chrome-win64" / "chrome.exe",
+                browser_root / "chrome-win32" / "chrome.exe",
+                browser_root / "chrome-linux64" / "chrome",
+            ]
+        )
+    except Exception:
+        pass
+
+    if sys.platform == "win32":
+        candidates.extend(
+            [
+                Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+                Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+                Path(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
+                Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+            ]
+        )
+
+    unique_candidates: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_candidates.append(candidate)
+    return unique_candidates
+
+
+def _find_chrome_executable() -> Path:
+    """查找可用于无头 PDF 导出的 Chromium/Chrome。"""
+    for candidate in _guess_chrome_candidates():
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError("未找到可用的 Chromium/Chrome 可执行文件")
+
+
+def _render_pdf_with_chromium(html: str) -> bytes:
+    """使用 Chromium 无头模式将 HTML 渲染为 PDF。"""
+    chrome_path = _find_chrome_executable()
+    with tempfile.TemporaryDirectory(prefix="nini-pdf-") as temp_dir:
+        temp_root = Path(temp_dir)
+        html_path = temp_root / "report.html"
+        pdf_path = temp_root / "report.pdf"
+        html_path.write_text(html, encoding="utf-8")
+
+        command = [
+            str(chrome_path),
+            "--headless=new",
+            "--disable-gpu",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--allow-file-access-from-files",
+            "--enable-local-file-accesses",
+            "--print-to-pdf-no-header",
+            f"--print-to-pdf={pdf_path}",
+            html_path.resolve().as_uri(),
+        ]
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            **_windows_subprocess_kwargs(),
+        )
+        if completed.returncode != 0:
+            error_text = (completed.stderr or completed.stdout or "").strip()
+            raise RuntimeError(
+                f"Chromium PDF 导出失败（exit={completed.returncode}）: {error_text or '未知错误'}"
+            )
+        if not pdf_path.exists():
+            raise RuntimeError("Chromium PDF 导出失败：未生成 PDF 文件")
+        return pdf_path.read_bytes()
 
 
 def _normalize_plotly_figure_payload(chart_data: Any) -> dict[str, Any] | None:
@@ -626,26 +747,50 @@ async def export_workspace_document(
                     "请先检查图表文件有效性或运行 `nini doctor` 后重试。"
                 ),
             )
-        try:
-            import weasyprint  # type: ignore[import-not-found,import-untyped]
-        except ImportError:
-            return SkillResult(
-                success=False,
-                message=(
-                    "PDF 导出需要 weasyprint 库，当前未安装。\n"
-                    "请执行以下命令之一安装后重试：\n"
-                    "- `pip install -e .[dev]`（源码开发环境，推荐）\n"
-                    "- `pip install -e .[pdf]`（源码开发环境，仅补装 PDF）\n"
-                    "- `pip install nini[pdf]`（已发布包环境）"
-                ),
-            )
-        try:
-            output_bytes: bytes = await _run_blocking_in_isolated_thread(
-                lambda: weasyprint.HTML(string=html).write_pdf(),  # type: ignore[union-attr]
-            )
-        except Exception as exc:
-            logger.error("PDF 生成失败: %s", exc, exc_info=True)
-            return SkillResult(success=False, message=f"PDF 生成失败: {exc}")
+        chromium_exc: Exception | None = None
+        if sys.platform == "win32":
+            try:
+                output_bytes = await _run_blocking_in_isolated_thread(
+                    lambda: _render_pdf_with_chromium(html)
+                )
+            except Exception as exc:
+                chromium_exc = exc
+                logger.warning("Chromium PDF 导出失败，回退 weasyprint: %s", exc)
+            else:
+                chromium_exc = None
+        if sys.platform == "win32" and chromium_exc is not None:
+            logger.info("Windows PDF 导出回退到 weasyprint")
+        if sys.platform != "win32" or chromium_exc is not None:
+            try:
+                import weasyprint  # type: ignore[import-not-found,import-untyped]
+            except ImportError:
+                if chromium_exc is not None:
+                    return SkillResult(success=False, message=_format_pdf_export_failure(chromium_exc))
+                return SkillResult(
+                    success=False,
+                    message=(
+                        "PDF 导出需要 weasyprint 库，当前未安装。\n"
+                        "请执行以下命令之一安装后重试：\n"
+                        "- `pip install -e .[dev]`（源码开发环境，推荐）\n"
+                        "- `pip install -e .[pdf]`（源码开发环境，仅补装 PDF）\n"
+                        "- `pip install nini[pdf]`（已发布包环境）"
+                    ),
+                )
+            try:
+                output_bytes = await _run_blocking_in_isolated_thread(
+                    lambda: weasyprint.HTML(string=html).write_pdf(),  # type: ignore[union-attr]
+                )
+            except Exception as exc:
+                logger.error("PDF 生成失败: %s", exc, exc_info=True)
+                if chromium_exc is not None:
+                    return SkillResult(
+                        success=False,
+                        message=(
+                            _format_pdf_export_failure(chromium_exc)
+                            + "\n已尝试回退 weasyprint，但回退链路也失败。"
+                        ),
+                    )
+                return SkillResult(success=False, message=_format_pdf_export_failure(exc))
     else:
         try:
             from nini.tools.report_exporter import export_report as export_markdown_report

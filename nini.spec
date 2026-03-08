@@ -11,6 +11,8 @@ import os
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_submodules
+
 block_cipher = None
 
 # 项目根目录
@@ -18,10 +20,10 @@ ROOT = Path(SPECPATH)
 
 # ── 自动检测 choreographer 的 Chrome 下载目录 ──────────────────────────────
 # kaleido 使用 choreographer 库调用 Chromium 来导出图表为图片。
-# 运行 `kaleido_get_chrome -y` 后，Chrome 会下载到 choreographer/cli/browser_exe/。
+# 运行 `kaleido_get_chrome` 后，Chrome 会下载到 choreographer 默认缓存目录。
 # 如果命令不在 PATH，可改用：
 # `python -c "from choreographer.cli._cli_utils import get_chrome_sync; print(get_chrome_sync())"`。
-# 打包时需要将该目录一起包含，否则打包产物无法使用图片导出功能。
+# 打包时会把该目录归档到 runtime/browser/chromium 下，否则打包产物无法使用图片导出功能。
 _choreo_chrome_dir = None
 try:
     import choreographer.cli._cli_utils as _cli
@@ -40,16 +42,19 @@ except Exception as e:
 # 构建 datas 列表：只包含实际存在的目录，避免打包时报错
 _candidate_datas = [
     # (源路径, bundle 内目标路径, 是否必须)
-    (ROOT / "web" / "dist", "web/dist", True),
-    (ROOT / "data" / "fonts", "data/fonts", False),
-    (ROOT / "data" / "prompt_components", "data/prompt_components", False),
-    (ROOT / "templates" / "journal_styles", "templates/journal_styles", False),
-    (ROOT / "skills", "skills", False),
+    (ROOT / "web" / "dist", "app/web/dist", True),
+    (ROOT / "data" / "fonts", "assets/fonts", False),
+    (ROOT / "data" / "prompt_components", "assets/prompt_components", False),
+    (ROOT / "templates" / "journal_styles", "assets/templates/journal_styles", False),
+    (ROOT / ".nini" / "skills", "assets/skills/nini", False),
+    (ROOT / "skills", "assets/skills/shared", False),
 ]
 
 _optional_dir_envs = [
-    ("NINI_OLLAMA_BUNDLE_DIR", "runtime/ollama"),
-    ("NINI_OLLAMA_MODELS_DIR", "runtime/ollama-models"),
+    ("NINI_OLLAMA_BUNDLE_DIR", "runtime/ollama/bin"),
+    ("NINI_OLLAMA_MODELS_DIR", "runtime/ollama/models"),
+    ("NINI_HF_HOME", "runtime/models/huggingface"),
+    ("NINI_SENTENCE_TRANSFORMERS_HOME", "runtime/models/sentence-transformers"),
 ]
 
 for env_name, dest in _optional_dir_envs:
@@ -66,7 +71,7 @@ for env_name, dest in _optional_dir_envs:
 # 添加 choreographer Chrome 到打包数据
 if _choreo_chrome_dir is not None:
     _candidate_datas.append(
-        (_choreo_chrome_dir, "choreographer/cli/browser_exe", False),
+        (_choreo_chrome_dir, "runtime/browser/chromium", False),
     )
 
 _datas = []
@@ -81,6 +86,79 @@ for src, dest, required in _candidate_datas:
     else:
         print(f"  WARN: Optional data directory not found, skipping: {src}")
 
+
+def _collect_optional_submodules(package_name: str) -> list[str]:
+    """收集可选依赖的子模块；未安装时静默跳过。"""
+    try:
+        modules = collect_submodules(package_name)
+        print(f"  INFO: Collected optional submodules for {package_name}: {len(modules)}")
+        return modules
+    except Exception as exc:
+        print(f"  WARN: Cannot collect optional submodules for {package_name}: {exc}")
+        return []
+
+
+_hiddenimports = [
+    # ----- nini 自身模块 -----
+    "nini",
+    "nini.app",
+    "nini.config",
+    "nini.agent.runner",
+    "nini.agent.session",
+    "nini.agent.model_resolver",
+    "nini.agent.planner",
+    "nini.agent.plan_parser",
+    "nini.agent.task_manager",
+    "nini.api.routes",
+    "nini.api.websocket",
+    "nini.models.database",
+    "nini.tools.registry",
+    # ----- uvicorn 内部模块（动态加载） -----
+    "uvicorn.logging",
+    "uvicorn.loops",
+    "uvicorn.loops.auto",
+    "uvicorn.loops.asyncio",
+    "uvicorn.protocols",
+    "uvicorn.protocols.http",
+    "uvicorn.protocols.http.auto",
+    "uvicorn.protocols.http.h11_impl",
+    "uvicorn.protocols.websockets",
+    "uvicorn.protocols.websockets.auto",
+    "uvicorn.protocols.websockets.websockets_impl",
+    "uvicorn.lifespan",
+    "uvicorn.lifespan.on",
+    "uvicorn.lifespan.off",
+    # ----- tiktoken 编码注册表 -----
+    "tiktoken_ext",
+    "tiktoken_ext.openai_public",
+    # ----- 科学计算（PyInstaller 自带 hook 已覆盖大部分） -----
+    "statsmodels.tsa",
+    # ----- 可视化 -----
+    "matplotlib.backends.backend_agg",
+    "matplotlib.backends.backend_svg",
+    "matplotlib.backends.backend_pdf",
+    # ----- 数据库 -----
+    "aiosqlite",
+    # ----- Pydantic -----
+    "pydantic",
+    "pydantic_settings",
+    # ----- Markdown -----
+    "markdown",
+    "markdown.extensions",
+    "markdown.extensions.tables",
+    "markdown.extensions.fenced_code",
+]
+
+for optional_package in [
+    "sentence_transformers",
+    "transformers",
+    "huggingface_hub",
+    "tokenizers",
+    "safetensors",
+    "llama_index.embeddings.huggingface",
+]:
+    _hiddenimports.extend(_collect_optional_submodules(optional_package))
+
 a = Analysis(
     [
         str(ROOT / "src" / "nini" / "__main__.py"),
@@ -89,56 +167,7 @@ a = Analysis(
     pathex=[str(ROOT / "src")],
     binaries=[],
     datas=_datas,
-    hiddenimports=[
-        # ----- nini 自身模块 -----
-        "nini",
-        "nini.app",
-        "nini.config",
-        "nini.agent.runner",
-        "nini.agent.session",
-        "nini.agent.model_resolver",
-        "nini.agent.planner",
-        "nini.agent.plan_parser",
-        "nini.agent.task_manager",
-        "nini.api.routes",
-        "nini.api.websocket",
-        "nini.models.database",
-        "nini.tools.registry",
-        # ----- uvicorn 内部模块（动态加载） -----
-        "uvicorn.logging",
-        "uvicorn.loops",
-        "uvicorn.loops.auto",
-        "uvicorn.loops.asyncio",
-        "uvicorn.protocols",
-        "uvicorn.protocols.http",
-        "uvicorn.protocols.http.auto",
-        "uvicorn.protocols.http.h11_impl",
-        "uvicorn.protocols.websockets",
-        "uvicorn.protocols.websockets.auto",
-        "uvicorn.protocols.websockets.websockets_impl",
-        "uvicorn.lifespan",
-        "uvicorn.lifespan.on",
-        "uvicorn.lifespan.off",
-        # ----- tiktoken 编码注册表 -----
-        "tiktoken_ext",
-        "tiktoken_ext.openai_public",
-        # ----- 科学计算（PyInstaller 自带 hook 已覆盖大部分） -----
-        "statsmodels.tsa",
-        # ----- 可视化 -----
-        "matplotlib.backends.backend_agg",
-        "matplotlib.backends.backend_svg",
-        "matplotlib.backends.backend_pdf",
-        # ----- 数据库 -----
-        "aiosqlite",
-        # ----- Pydantic -----
-        "pydantic",
-        "pydantic_settings",
-        # ----- Markdown -----
-        "markdown",
-        "markdown.extensions",
-        "markdown.extensions.tables",
-        "markdown.extensions.fenced_code",
-    ],
+    hiddenimports=_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

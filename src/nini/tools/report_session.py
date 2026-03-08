@@ -18,7 +18,8 @@ from nini.workspace import WorkspaceManager
 class ReportSessionSkill(Skill):
     """管理报告会话资源。"""
 
-    _EMBEDDED_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".plotly.json")
+    _EMBEDDED_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")
+    _EMBEDDED_CHART_SUFFIXES = (".plotly.json",)
 
     @property
     def name(self) -> str:
@@ -323,6 +324,9 @@ class ReportSessionSkill(Skill):
         resource = manager.get_resource_summary(resource_id)
         if not isinstance(resource, dict):
             return [f"- 资源 `{resource_id}`"]
+        embedded_resource = self._resolve_embeddable_resource(manager, resource)
+        if embedded_resource is not None:
+            resource = embedded_resource
         name = str(resource.get("name", resource_id)).strip() or resource_id
         url = str(resource.get("download_url", "")).strip()
         if url and self._should_embed_resource(resource, name=name, url=url):
@@ -330,6 +334,47 @@ class ReportSessionSkill(Skill):
         if url:
             return [f"- [{name}]({url})"]
         return [f"- 资源 `{name}`"]
+
+    def _resolve_embeddable_resource(
+        self,
+        manager: WorkspaceManager,
+        resource: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """将图表会话资源解析到可直接嵌入的图片产物。"""
+        if not isinstance(resource, dict):
+            return None
+        resource_type = str(resource.get("resource_type", "")).strip().lower()
+        if resource_type != ResourceType.CHART.value:
+            return None
+
+        metadata = resource.get("metadata")
+        if not isinstance(metadata, dict):
+            return None
+
+        candidate_ids: list[str] = []
+        for field in ("last_export_ids", "artifact_ids"):
+            raw_ids = metadata.get(field)
+            if not isinstance(raw_ids, list):
+                continue
+            for item in raw_ids:
+                candidate_id = str(item).strip()
+                if candidate_id and candidate_id not in candidate_ids:
+                    candidate_ids.append(candidate_id)
+
+        for candidate_id in candidate_ids:
+            candidate = manager.get_resource_summary(candidate_id)
+            if not isinstance(candidate, dict):
+                continue
+            candidate_name = str(candidate.get("name", "")).strip().lower()
+            candidate_url = str(candidate.get("download_url", "")).strip().lower()
+            candidate_mime = str(candidate.get("mime_type", "")).strip().lower()
+            if candidate_mime.startswith("image/"):
+                return candidate
+            if candidate_name.endswith(self._EMBEDDED_IMAGE_SUFFIXES):
+                return candidate
+            if candidate_url.endswith(self._EMBEDDED_IMAGE_SUFFIXES):
+                return candidate
+        return None
 
     def _should_embed_resource(
         self,
@@ -339,9 +384,6 @@ class ReportSessionSkill(Skill):
         url: str,
     ) -> bool:
         resource_type = str(resource.get("resource_type", "")).strip().lower()
-        if resource_type == ResourceType.CHART.value:
-            return True
-
         metadata = resource.get("metadata")
         if isinstance(metadata, dict):
             mime_type = str(metadata.get("mime_type", "")).strip().lower()
@@ -354,8 +396,14 @@ class ReportSessionSkill(Skill):
 
         normalized_name = name.lower()
         normalized_url = url.lower()
-        return normalized_name.endswith(self._EMBEDDED_IMAGE_SUFFIXES) or normalized_url.endswith(
+        if normalized_name.endswith(self._EMBEDDED_IMAGE_SUFFIXES) or normalized_url.endswith(
             self._EMBEDDED_IMAGE_SUFFIXES
+        ):
+            return True
+
+        return resource_type == ResourceType.CHART.value and (
+            normalized_name.endswith(self._EMBEDDED_CHART_SUFFIXES)
+            or normalized_url.endswith(self._EMBEDDED_CHART_SUFFIXES)
         )
 
     def _update_latest_report_handles(self, session: Session, record: ReportSessionRecord) -> None:

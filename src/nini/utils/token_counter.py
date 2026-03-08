@@ -175,8 +175,8 @@ _PRICING: dict[str, dict[str, float]] = {
     "glm-4.7": {"input": 0.012, "output": 0.012},
     "glm-4.5-air": {"input": 0.0005, "output": 0.0005},
     # GLM-5 系列 (2025年最新)
-    "glm-5": {"input": 0.015, "output": 0.015},
-    "glm-5-plus": {"input": 0.02, "output": 0.02},
+    "glm-5": {"input": 0.0004, "output": 0.0015},
+    "glm-5-plus": {"input": 0.0008, "output": 0.003},
     "glm-5-air": {"input": 0.0005, "output": 0.0005},
     # ==================== Moonshot (Kimi) ====================
     "moonshot-v1-8k": {"input": 0.0006, "output": 0.0006},

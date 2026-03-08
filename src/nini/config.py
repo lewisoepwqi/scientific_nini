@@ -24,31 +24,59 @@ def _get_bundle_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def _get_bundle_web_dist_dir() -> Path:
+    """获取前端构建产物目录。"""
+    root = _get_bundle_root()
+    if IS_FROZEN:
+        return root / "app" / "web" / "dist"
+    return root / "web" / "dist"
+
+
+def _get_bundle_templates_dir() -> Path:
+    """获取内置期刊模板目录。"""
+    root = _get_bundle_root()
+    if IS_FROZEN:
+        return root / "assets" / "templates" / "journal_styles"
+    return root / "templates" / "journal_styles"
+
+
+def _get_bundle_skill_dirs() -> list[Path]:
+    """获取随安装包携带的内置技能目录。"""
+    root = _get_bundle_root()
+    if IS_FROZEN:
+        return [
+            root / "assets" / "skills" / "nini",
+            root / "assets" / "skills" / "shared",
+        ]
+    return [root / ".nini" / "skills", root / "skills"]
+
+
+def _get_default_skills_dir() -> Path:
+    """获取默认技能写入目录。"""
+    if IS_FROZEN:
+        return _get_user_data_dir() / "skills"
+    return _get_bundle_root() / ".nini" / "skills"
+
+
 def _setup_frozen_chrome_path() -> None:
     """在打包模式下设置 BROWSER_PATH 环境变量，让 choreographer 找到打包的 Chrome。"""
     if not IS_FROZEN:
         return
     if os.environ.get("BROWSER_PATH"):
         return  # 用户已手动设置
-    bundle = _get_bundle_root()
+    browser_root = _get_bundle_root() / "runtime" / "browser" / "chromium"
     # Windows: chrome-win64/chrome.exe; Linux: chrome-linux64/chrome
     for candidate in [
-        bundle / "choreographer" / "cli" / "browser_exe" / "chrome-win64" / "chrome.exe",
-        bundle / "choreographer" / "cli" / "browser_exe" / "chrome-win32" / "chrome.exe",
-        bundle / "choreographer" / "cli" / "browser_exe" / "chrome-linux64" / "chrome",
-        bundle
-        / "choreographer"
-        / "cli"
-        / "browser_exe"
+        browser_root / "chrome-win64" / "chrome.exe",
+        browser_root / "chrome-win32" / "chrome.exe",
+        browser_root / "chrome-linux64" / "chrome",
+        browser_root
         / "chrome-mac-x64"
         / "Google Chrome for Testing.app"
         / "Contents"
         / "MacOS"
         / "Google Chrome for Testing",
-        bundle
-        / "choreographer"
-        / "cli"
-        / "browser_exe"
+        browser_root
         / "chrome-mac-arm64"
         / "Google Chrome for Testing.app"
         / "Contents"
@@ -61,6 +89,35 @@ def _setup_frozen_chrome_path() -> None:
 
 
 _setup_frozen_chrome_path()
+
+
+def _setup_frozen_model_cache_paths() -> None:
+    """在打包模式下注入离线模型缓存路径。"""
+    if not IS_FROZEN:
+        return
+
+    bundle = _get_bundle_root()
+    huggingface_home = bundle / "runtime" / "models" / "huggingface"
+    sentence_transformers_home = bundle / "runtime" / "models" / "sentence-transformers"
+    offline_bundle_found = False
+
+    if huggingface_home.exists():
+        os.environ.setdefault("HF_HOME", str(huggingface_home))
+        os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(huggingface_home / "hub"))
+        offline_bundle_found = True
+
+    if sentence_transformers_home.exists():
+        os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", str(sentence_transformers_home))
+        offline_bundle_found = True
+
+    if offline_bundle_found:
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+        os.environ.setdefault("NINI_FORCE_LOCAL_MODELS", "1")
+        os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+
+
+_setup_frozen_model_cache_paths()
 
 
 def _get_user_data_dir() -> Path:
@@ -224,7 +281,7 @@ class Settings(BaseSettings):
     prompt_total_max_chars: int = 60000
     # ---- Skills 目录配置 ----
     # 主 Skills 目录（Nini 品牌路径）
-    skills_dir_path: Path = _ROOT / ".nini" / "skills"
+    skills_dir_path: Path = _get_default_skills_dir()
     # 额外的 Skills 目录（逗号分隔的路径列表）
     skills_extra_dirs: str = ""
     # 自动发现兼容目录（.claude/skills/、.codex/skills/ 等）
@@ -295,15 +352,19 @@ class Settings(BaseSettings):
             seen.add(resolved)
             dirs.append(resolved)
 
-        if self.skills_auto_discover_compat_dirs:
+        if not IS_FROZEN and self.skills_auto_discover_compat_dirs:
             # 行业标准兼容目录（按优先级）
             _append(_ROOT / ".codex" / "skills")
             _append(_ROOT / ".claude" / "skills")
             _append(_ROOT / ".opencode" / "skills")
             _append(_ROOT / ".agents" / "skills")
 
-        # 配置的 Skills 目录（向后兼容）
+        # 用户技能目录优先，便于覆盖内置技能。
         _append(self.skills_dir)
+
+        # 安装包内置技能目录。
+        for builtin_dir in _get_bundle_skill_dirs():
+            _append(builtin_dir)
 
         # 用户显式追加目录（最低优先）
         for raw in self.skills_extra_dirs.split(","):

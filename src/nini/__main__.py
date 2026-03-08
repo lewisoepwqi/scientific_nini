@@ -456,9 +456,9 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         ("Rscript（run_r_code，可选）", r_ok if settings.r_enabled else True, r_detail, False)
     )
 
-    from nini.config import _get_bundle_root
+    from nini.config import _get_bundle_web_dist_dir
 
-    web_dist = _get_bundle_root() / "web" / "dist"
+    web_dist = _get_bundle_web_dist_dir()
     checks.append(("前端构建产物存在（可选）", web_dist.exists(), str(web_dist), False))
 
     print("Nini 环境检查:")
@@ -659,9 +659,9 @@ class {class_name}(Skill):
 
 def _create_markdown_skill(name: str, description: str, category: str) -> int:
     """创建 Markdown Skill 脚手架。"""
-    from nini.config import _get_bundle_root
+    from nini.config import settings
 
-    skills_dir = _get_bundle_root() / "skills"
+    skills_dir = settings.skills_dir
     target_dir = skills_dir / name
     target = target_dir / "SKILL.md"
 
