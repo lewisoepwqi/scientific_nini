@@ -32,10 +32,14 @@ class StatModelSkill(Skill):
     def description(self) -> str:
         return (
             "统一执行相关分析和线性/多元回归分析。"
+            "【必须】始终传入 method 字段，否则调用会失败。"
             "最小示例："
-            '1) 相关性: {"method":"correlation","dataset_name":"demo","columns":["x","y"]}；'
-            '2) 回归: {"method":"linear_regression","dataset_name":"demo",'
-            '"dependent_var":"y","independent_vars":["x1","x2"]}。'
+            '1) 相关性分析: {"method":"correlation","dataset_name":"demo","columns":["x","y"]}；'
+            '2) 线性回归: {"method":"linear_regression","dataset_name":"demo",'
+            '"dependent_var":"y","independent_vars":["x1","x2"]}；'
+            '3) 多元回归: {"method":"multiple_regression","dataset_name":"demo",'
+            '"dependent_var":"y","independent_vars":["x1","x2","x3"]}。'
+            "若不确定列名，请先用 dataset_catalog 查看数据集结构。"
         )
 
     @property
@@ -113,7 +117,22 @@ class StatModelSkill(Skill):
         method = str(kwargs.get("method", "")).strip()
         delegate = self._delegates.get(method)
         if delegate is None:
-            return SkillResult(success=False, message=f"不支持的 method: {method}")
+            supported = list(self._delegates.keys())
+            if not method:
+                return SkillResult(
+                    success=False,
+                    message=(
+                        "缺少必要参数 method，请指定分析类型。"
+                        f"支持的值：{supported}。"
+                        '示例（相关性）：{{"method":"correlation","dataset_name":"<数据集名>","columns":["列A","列B"]}}。'
+                        '示例（回归）：{{"method":"linear_regression","dataset_name":"<数据集名>",'
+                        '"dependent_var":"Y列","independent_vars":["X1","X2"]}}'
+                    ),
+                )
+            return SkillResult(
+                success=False,
+                message=f"不支持的 method: '{method}'，支持的值：{supported}",
+            )
 
         params = {k: v for k, v in kwargs.items() if k != "method"}
         self._normalize_sequence_params(params)

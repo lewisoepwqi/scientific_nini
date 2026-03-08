@@ -283,8 +283,8 @@ class HybridRetriever:
         for rank, (doc_id, _) in enumerate(bm25_results):
             prev = rrf_scores.get(doc_id, 0.0)
             rrf_scores[doc_id] = prev + _rrf(rank)
-            # 标记来源：已在向量结果则变为 hybrid
-            source_map[doc_id] = "hybrid" if doc_id in source_map else "bm25"
+            # 标记来源：已在向量结果则变为 hybrid；BM25 属于关键词检索，映射为 "keyword"
+            source_map[doc_id] = "hybrid" if doc_id in source_map else "keyword"
 
         for rank, (doc_id, _) in enumerate(keyword_results):
             prev = rrf_scores.get(doc_id, 0.0)
