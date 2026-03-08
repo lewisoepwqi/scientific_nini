@@ -520,7 +520,13 @@ class ModelResolver:
                 base_url=route_base_url,
             )
             if selected_client:
-                clients = [selected_client]
+                if allow_user_fallback:
+                    clients = self._merge_fallback_clients(
+                        selected_client,
+                        self._get_ordered_clients(purpose),
+                    )
+                else:
+                    clients = [selected_client]
             elif purpose == "title_generation":
                 # 标题生成遇到无效路由时，优先回退到当前激活/试用来源，
                 # 避免意外命中历史残留供应商。
@@ -837,6 +843,24 @@ class ModelResolver:
                 clients.append(client)
 
         return clients
+
+    @staticmethod
+    def _merge_fallback_clients(
+        primary_client: BaseLLMClient,
+        fallback_clients: list[BaseLLMClient],
+    ) -> list[BaseLLMClient]:
+        """合并首选客户端与降级链，按 provider 去重保留首次出现项。"""
+        merged: list[BaseLLMClient] = []
+        seen_provider_ids: set[str] = set()
+
+        for client in [primary_client, *fallback_clients]:
+            provider_id = getattr(client, "provider_id", "") or ""
+            if provider_id in seen_provider_ids:
+                continue
+            seen_provider_ids.add(provider_id)
+            merged.append(client)
+
+        return merged
 
     def get_active_model_info(self, purpose: str = "default") -> dict[str, Any]:
         """获取指定用途的活跃模型信息。
