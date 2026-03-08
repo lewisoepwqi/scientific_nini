@@ -47,11 +47,12 @@ uploads/
 *.db
 *.sqlite
 *.sqlite3
+
+# Coding AI Agent
 .claude/
 .codex/
 .specify/
-科研数据分析作图工具现状分析报告.md
-综合优化建议报告.md
+.opencode
 
 # 研究参考库（外部克隆，不纳入版本控制）
 research/agent-protocol/
