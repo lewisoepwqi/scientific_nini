@@ -432,6 +432,89 @@ class _GuardedSkillRegistry(_EchoSkillRegistry):
         return await super().execute(skill_name, session, **kwargs)
 
 
+class _HighRiskWorkspaceResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, tool_calls):
+                self.text = text
+                self.reasoning = ""
+                self.raw_text = text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls <= 2:
+            yield _Chunk(
+                text="尝试写入工作区",
+                tool_calls=[
+                    {
+                        "id": f"call_workspace_{self.calls}",
+                        "type": "function",
+                        "function": {
+                            "name": "workspace_session",
+                            "arguments": json.dumps(
+                                {
+                                    "operation": "write",
+                                    "file_path": "notes/test.md",
+                                    "content": "hello",
+                                },
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+            )
+            return
+
+        yield _Chunk(text="流程结束", tool_calls=[])
+
+
+class _HighRiskWorkspaceRegistry:
+    def __init__(self) -> None:
+        self.execute_calls = 0
+
+    def get_tool_definitions(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "workspace_session",
+                    "description": "工作区会话工具",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
+    def list_markdown_skills(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "markdown",
+                "name": "guarded-skill",
+                "description": "受限技能",
+                "category": "workflow",
+                "location": "/tmp/guarded/SKILL.md",
+                "enabled": True,
+                "metadata": {
+                    "user_invocable": True,
+                    "allowed_tools": ["run_code"],
+                },
+            }
+        ]
+
+    async def execute(self, skill_name: str, session: Session, **kwargs):
+        self.execute_calls += 1
+        if skill_name != "workspace_session":
+            return {"error": f"unknown skill: {skill_name}"}
+        return {"success": True, "message": "workspace write ok"}
+
+    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
+        return await self.execute(skill_name, session=session, **kwargs)
+
+
 class _RepeatFailingToolResolver:
     def __init__(self) -> None:
         self.calls = 0
@@ -1108,8 +1191,8 @@ async def test_runner_preserves_raw_assistant_content_for_tool_calls() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runner_blocks_tool_outside_allowed_tools_hard_constraint() -> None:
-    """技能声明 allowed_tools 后，越界工具调用应被硬阻断并发出 error 事件（task 8.3）。"""
+async def test_runner_allows_low_risk_tool_outside_allowed_tools_with_warning() -> None:
+    """技能声明 allowed_tools 后，低风险越界工具应继续执行并记录 soft violation。"""
     session = Session()
     registry = _GuardedSkillRegistry()
     runner = AgentRunner(
@@ -1124,7 +1207,6 @@ async def test_runner_blocks_tool_outside_allowed_tools_hard_constraint() -> Non
         if event.type == EventType.DONE:
             break
 
-    # 越界工具调用被阻断：不应有成功的 TOOL_RESULT
     success_results = [
         e
         for e in events
@@ -1133,8 +1215,41 @@ async def test_runner_blocks_tool_outside_allowed_tools_hard_constraint() -> Non
         and e.data.get("status") == "success"
         and e.tool_name == "echo_tool"
     ]
-    assert not success_results, "越界工具 echo_tool 不应成功执行"
-    # 应发出 allowed_tools_violation 错误事件
+    assert success_results, "低风险越界工具 echo_tool 应继续执行"
+    violation_events = [
+        e
+        for e in events
+        if e.type == EventType.ERROR
+        and isinstance(e.data, dict)
+        and e.data.get("level") == "allowed_tools_soft_violation"
+    ]
+    assert violation_events, "应发出 allowed_tools_soft_violation 告警事件"
+    assert registry.execute_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_runner_requests_approval_for_high_risk_tool_outside_allowed_tools() -> None:
+    session = Session()
+    registry = _HighRiskWorkspaceRegistry()
+
+    async def _ask_handler(_session: Session, _tool_call_id: str, _payload: dict[str, object]):
+        return {"approval": "拒绝此次调用"}
+
+    runner = AgentRunner(
+        resolver=_HighRiskWorkspaceResolver(),
+        skill_registry=registry,
+        knowledge_loader=_DummyKnowledgeLoader(),
+        ask_user_question_handler=_ask_handler,
+    )
+
+    events = []
+    async for event in runner.run(session, "/guarded-skill 执行流程"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    approval_events = [e for e in events if e.type == EventType.ASK_USER_QUESTION]
+    assert approval_events, "高风险越界工具应请求用户确认"
     violation_events = [
         e
         for e in events
@@ -1142,7 +1257,39 @@ async def test_runner_blocks_tool_outside_allowed_tools_hard_constraint() -> Non
         and isinstance(e.data, dict)
         and e.data.get("level") == "allowed_tools_violation"
     ]
-    assert violation_events, "应发出 allowed_tools_violation 错误事件"
+    assert violation_events, "拒绝后应发出 allowed_tools_violation 错误事件"
+    assert registry.execute_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_runner_reuses_session_level_tool_approval_for_high_risk_tool() -> None:
+    session = Session()
+    registry = _HighRiskWorkspaceRegistry()
+
+    async def _ask_handler(_session: Session, _tool_call_id: str, _payload: dict[str, object]):
+        return {"approval": "本会话同类工具都放行"}
+
+    runner = AgentRunner(
+        resolver=_HighRiskWorkspaceResolver(),
+        skill_registry=registry,
+        knowledge_loader=_DummyKnowledgeLoader(),
+        ask_user_question_handler=_ask_handler,
+    )
+
+    events = []
+    async for event in runner.run(session, "/guarded-skill 执行流程"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    approval_events = [e for e in events if e.type == EventType.ASK_USER_QUESTION]
+    assert len(approval_events) == 1, "本会话授权后同类高风险工具不应重复确认"
+    tool_results = [
+        e for e in events if e.type == EventType.TOOL_RESULT and e.tool_name == "workspace_session"
+    ]
+    assert len(tool_results) == 2
+    assert registry.execute_calls == 2
+    assert session.has_tool_approval("workspace_session:write")
 
 
 @pytest.mark.asyncio

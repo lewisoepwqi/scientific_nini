@@ -249,12 +249,12 @@ class TestContextMatching:
 
 
 # ===========================================================================
-# 3. allowed-tools 推荐提示
+# 3. allowed-tools 首选工具提示
 # ===========================================================================
 
 
 class TestAllowedToolsAdvisory:
-    """测试 allowed-tools 推荐工具提示注入。"""
+    """测试 allowed-tools 首选工具提示注入。"""
 
     def test_allowed_tools_in_context(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         from nini.agent.runner import AgentRunner
@@ -282,7 +282,8 @@ class TestAllowedToolsAdvisory:
 
         runner = AgentRunner(skill_registry=registry)
         context = runner._build_explicit_skill_context("/test-skill my_data.csv")
-        assert "推荐工具" in context
+        assert "首选工具" in context
+        assert "高风险越界会请求用户确认" in context
         assert "run_code" in context
         assert "create_chart" in context
 
@@ -344,7 +345,7 @@ class TestAllowedToolsAdvisory:
 
         runner = AgentRunner(skill_registry=registry)
         context = runner._build_explicit_skill_context("/simple-skill")
-        assert "推荐工具" not in context
+        assert "首选工具" not in context
 
 
 # ===========================================================================

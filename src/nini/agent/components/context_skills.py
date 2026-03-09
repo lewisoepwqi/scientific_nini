@@ -72,9 +72,7 @@ def build_explicit_skill_context(
             allowed_tools = metadata.get("allowed_tools")
             if isinstance(allowed_tools, list) and allowed_tools:
                 tools_str = ", ".join(str(tool) for tool in allowed_tools)
-                allowed_tools_note = (
-                    f"- 此技能声明的推荐工具: {tools_str}。可优先使用这些工具完成任务。\n"
-                )
+                allowed_tools_note = f"- 此技能声明的首选工具: {tools_str}。低风险越界可继续执行，高风险越界会请求用户确认。\n"
 
         blocks.append(
             f"### /{name}\n"
@@ -114,9 +112,7 @@ def build_explicit_skill_context(
                     allowed_tools = metadata.get("allowed_tools")
             if isinstance(allowed_tools, list) and allowed_tools:
                 tools_str = ", ".join(str(tool) for tool in allowed_tools)
-                allowed_tools_note = (
-                    f"- 此技能声明的推荐工具: {tools_str}。可优先使用这些工具完成任务。\n"
-                )
+                allowed_tools_note = f"- 此技能声明的首选工具: {tools_str}。低风险越界可继续执行，高风险越界会请求用户确认。\n"
 
             blocks.append(
                 f"### {name}\n"

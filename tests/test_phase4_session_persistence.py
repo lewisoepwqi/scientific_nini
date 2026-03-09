@@ -12,7 +12,8 @@ from urllib.parse import quote
 
 import pytest
 
-from nini.agent.session import session_manager
+from nini.agent.runner import AgentRunner, EventType
+from nini.agent.session import Session, session_manager
 from nini.app import create_app
 from nini.config import settings
 from nini.memory.conversation import ConversationMemory
@@ -24,6 +25,18 @@ from tests.client_utils import LocalASGIClient
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
     session_manager._sessions.clear()
+
+    async def _mock_get_active_provider_id():
+        return "dummy"
+
+    async def _mock_list_user_configured_provider_ids():
+        return ["dummy"]
+
+    monkeypatch.setattr("nini.config_manager.get_active_provider_id", _mock_get_active_provider_id)
+    monkeypatch.setattr(
+        "nini.config_manager.list_user_configured_provider_ids",
+        _mock_list_user_configured_provider_ids,
+    )
     yield
     session_manager._sessions.clear()
 
@@ -38,6 +51,85 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     yield client
     client.close()
     session_manager._sessions.clear()
+
+
+class _ApprovalResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, tool_calls):
+                self.text = text
+                self.reasoning = ""
+                self.raw_text = text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls == 1:
+            yield _Chunk(
+                text="尝试写文件",
+                tool_calls=[
+                    {
+                        "id": "call_workspace_1",
+                        "type": "function",
+                        "function": {
+                            "name": "workspace_session",
+                            "arguments": json.dumps(
+                                {
+                                    "operation": "write",
+                                    "file_path": "notes/test.md",
+                                    "content": "hello",
+                                },
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+            )
+            return
+
+        yield _Chunk(text="完成", tool_calls=[])
+
+
+class _ApprovalRegistry:
+    def get_tool_definitions(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "workspace_session",
+                    "description": "工作区会话工具",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
+    def list_markdown_skills(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "markdown",
+                "name": "guarded-skill",
+                "description": "受限技能",
+                "category": "workflow",
+                "location": "/tmp/guarded/SKILL.md",
+                "enabled": True,
+                "metadata": {
+                    "user_invocable": True,
+                    "allowed_tools": ["run_code"],
+                },
+            }
+        ]
+
+    async def execute(self, skill_name: str, session: Session, **kwargs):
+        if skill_name != "workspace_session":
+            return {"error": f"unknown skill: {skill_name}"}
+        return {"success": True, "message": "workspace write ok"}
+
+    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
+        return await self.execute(skill_name, session=session, **kwargs)
 
 
 def test_session_messages_persist_and_restore() -> None:
@@ -56,6 +148,46 @@ def test_session_messages_persist_and_restore() -> None:
     assert restored.messages[0]["content"] == "你好"
     assert restored.messages[1]["content"] == "已收到"
     assert restored.messages[2]["role"] == "tool"
+
+
+def test_session_tool_approvals_persist_and_restore() -> None:
+    session = session_manager.create_session()
+    session.add_message("user", "请继续")
+    session.grant_tool_approval("workspace_session:write")
+    session_id = session.id
+
+    session_manager._sessions.clear()
+    restored = session_manager.get_or_create(session_id)
+
+    assert restored.id == session_id
+    assert restored.has_tool_approval("workspace_session:write")
+    assert restored.tool_approval_grants == {"workspace_session:write": "session"}
+
+
+@pytest.mark.asyncio
+async def test_runner_tool_approval_persists_across_restart() -> None:
+    session = session_manager.create_session()
+
+    async def _ask_handler(_session: Session, _tool_call_id: str, _payload: dict[str, object]):
+        return {"approval": "本会话同类工具都放行"}
+
+    runner = AgentRunner(
+        resolver=_ApprovalResolver(),
+        skill_registry=_ApprovalRegistry(),
+        ask_user_question_handler=_ask_handler,
+    )
+
+    async for event in runner.run(session, "/guarded-skill 执行流程"):
+        if event.type == EventType.DONE:
+            break
+
+    session_id = session.id
+    assert session.has_tool_approval("workspace_session:write")
+
+    session_manager._sessions.clear()
+    restored = session_manager.get_or_create(session_id)
+
+    assert restored.has_tool_approval("workspace_session:write")
 
 
 def test_session_messages_persist_canonical_metadata() -> None:
