@@ -135,6 +135,74 @@ describe("buildMessagesFromHistory", () => {
     });
   });
 
+  it("应忽略被工具参数污染的 reasoning 历史", () => {
+    const rawMessages: RawSessionMessage[] = [
+      {
+        role: "assistant",
+        content: "这是正文",
+        event_type: "text",
+        turn_id: "turn-polluted-1",
+        _ts: "2026-03-09T10:00:00Z",
+      },
+      {
+        role: "assistant",
+        content: "content</arg_key><arg_value># 正文内容</arg_value></tool_call>",
+        event_type: "reasoning",
+        reasoning_id: "reason-polluted-1",
+        turn_id: "turn-polluted-1",
+        _ts: "2026-03-09T10:00:01Z",
+      },
+    ];
+
+    const messages = buildMessagesFromHistory(rawMessages);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      role: "assistant",
+      content: "这是正文",
+    });
+    expect(messages[0]?.isReasoning).not.toBe(true);
+  });
+
+  it("应优先将无 message_id 的 artifact 历史并入同轮 assistant 消息", () => {
+    const rawMessages: RawSessionMessage[] = [
+      {
+        role: "assistant",
+        content: "报告已更新",
+        event_type: "text",
+        turn_id: "turn-artifact-1",
+        message_id: "turn-artifact-1-0",
+        _ts: "2026-03-09T10:02:00Z",
+      },
+      {
+        role: "assistant",
+        event_type: "artifact",
+        turn_id: "turn-artifact-1",
+        artifacts: [
+          {
+            name: "report.html",
+            type: "artifact",
+            download_url: "/api/artifacts/sess/report.html",
+          },
+        ],
+        _ts: "2026-03-09T10:02:01Z",
+      },
+    ];
+
+    const messages = buildMessagesFromHistory(rawMessages);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      role: "assistant",
+      content: "报告已更新",
+      artifacts: [
+        {
+          name: "report.html",
+          type: "artifact",
+          download_url: "/api/artifacts/sess/report.html",
+        },
+      ],
+    });
+  });
+
   it("应从 task_write 历史中恢复任务列表", () => {
     const rawMessages: RawSessionMessage[] = [
       {
@@ -222,7 +290,11 @@ describe("buildMessagesFromHistory", () => {
       title: "生成报告",
       status: "done",
     });
-    expect(restored.analysisPlanProgress).toBeNull();
+    expect(restored.analysisPlanProgress).not.toBeNull();
+    expect(restored.analysisPlanProgress?.steps.map((step) => step.title)).toEqual([
+      "检查数据质量",
+      "执行相关性分析",
+    ]);
   });
 
   it("应从 task_state 历史中恢复任务列表", () => {
@@ -288,6 +360,74 @@ describe("buildMessagesFromHistory", () => {
       tool_hint: "stat_model",
     });
     expect(restored.analysisPlanProgress).not.toBeNull();
+  });
+
+  it("应跨 turn 继承最近计划链中的任务标题", () => {
+    const rawMessages: RawSessionMessage[] = [
+      {
+        role: "assistant",
+        turn_id: "turn-plan-1",
+        _ts: "2026-03-09T10:10:00Z",
+        tool_calls: [
+          {
+            id: "call-plan-init",
+            type: "function",
+            function: {
+              name: "task_state",
+              arguments: JSON.stringify({
+                operation: "init",
+                tasks: [
+                  { id: 1, title: "读取工作区文章", status: "completed" },
+                  { id: 2, title: "生成相关性热图", status: "completed" },
+                  { id: 3, title: "更新文章图片引用", status: "pending" },
+                  { id: 4, title: "整理最终稿", status: "pending" },
+                ],
+              }),
+            },
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        turn_id: "turn-plan-2",
+        _ts: "2026-03-09T10:10:05Z",
+        tool_calls: [
+          {
+            id: "call-plan-update",
+            type: "function",
+            function: {
+              name: "task_state",
+              arguments: JSON.stringify({
+                operation: "update",
+                tasks: [
+                  { id: 3, status: "completed" },
+                  { id: 4, status: "in_progress" },
+                ],
+              }),
+            },
+          },
+        ],
+      },
+    ];
+
+    const restored = buildSessionRestoreState(rawMessages);
+    expect(restored.analysisTasks).toHaveLength(4);
+    expect(restored.analysisTasks[2]).toMatchObject({
+      plan_step_id: 3,
+      title: "更新文章图片引用",
+      status: "done",
+    });
+    expect(restored.analysisTasks[3]).toMatchObject({
+      plan_step_id: 4,
+      title: "整理最终稿",
+      status: "in_progress",
+    });
+    expect(restored.analysisPlanProgress?.steps.map((step) => step.title)).toEqual([
+      "读取工作区文章",
+      "生成相关性热图",
+      "更新文章图片引用",
+      "整理最终稿",
+    ]);
   });
 
   it("应从 ask_user_question 历史中恢复用户选择与输入摘要", () => {

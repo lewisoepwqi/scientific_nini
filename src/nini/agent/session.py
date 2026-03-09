@@ -28,6 +28,7 @@ class Session:
     datasets: dict[str, pd.DataFrame] = field(default_factory=dict)
     artifacts: dict[str, Any] = field(default_factory=dict)
     documents: dict[str, Any] = field(default_factory=dict)
+    tool_approval_grants: dict[str, str] = field(default_factory=dict)
     compressed_context: str = ""
     compressed_rounds: int = 0
     last_compressed_at: str | None = None
@@ -177,6 +178,20 @@ class Session:
                 msg[key] = value
         self._append_entry(msg)
 
+    def grant_tool_approval(self, approval_key: str, *, scope: str = "session") -> None:
+        """记录工具授权状态。"""
+        key = str(approval_key or "").strip()
+        normalized_scope = str(scope or "").strip().lower()
+        if not key or normalized_scope != "session":
+            return
+        self.tool_approval_grants[key] = normalized_scope
+        session_manager.save_session_tool_approvals(self.id, self.tool_approval_grants)
+
+    def has_tool_approval(self, approval_key: str) -> bool:
+        """检查当前会话是否已放行指定工具。"""
+        key = str(approval_key or "").strip()
+        return bool(key) and self.tool_approval_grants.get(key) == "session"
+
     def rollback_last_turn(self) -> str | None:
         """回滚最后一轮：保留最后一条用户消息，删除其后的 Agent 输出。"""
         last_user_idx = -1
@@ -308,6 +323,7 @@ class SessionManager:
         compressed_rounds = 0
         last_compressed_at: str | None = None
         research_profile_id = "default"
+        tool_approval_grants: dict[str, str] = {}
         if load_persisted_messages:
             meta = self._load_session_meta(sid)
             loaded_title = str(meta.get("title", "")).strip()
@@ -321,10 +337,14 @@ class SessionManager:
             loaded_profile_id = str(meta.get("research_profile_id", "") or "").strip()
             if loaded_profile_id:
                 research_profile_id = loaded_profile_id
+            tool_approval_grants = self._normalize_tool_approval_grants(
+                meta.get("tool_approval_grants")
+            )
 
         session = Session(
             id=sid,
             title=title,
+            tool_approval_grants=tool_approval_grants,
             compressed_context=compressed_context,
             compressed_rounds=compressed_rounds,
             last_compressed_at=last_compressed_at,
@@ -457,9 +477,7 @@ class SessionManager:
         updated_meta = dict(meta)
         updated_meta["message_count"] = count
         updated_meta["_memory_mtime"] = current_mtime
-        updated_meta["updated_at"] = datetime.fromtimestamp(
-            current_mtime, timezone.utc
-        ).isoformat()
+        updated_meta["updated_at"] = datetime.fromtimestamp(current_mtime, timezone.utc).isoformat()
         meta.clear()
         meta.update(updated_meta)
         self._save_session_meta_fields(session_id, updated_meta)
@@ -535,6 +553,31 @@ class SessionManager:
             session_id,
             {"research_profile_id": str(research_profile_id or "").strip() or "default"},
         )
+
+    def save_session_tool_approvals(
+        self,
+        session_id: str,
+        tool_approval_grants: dict[str, Any],
+    ) -> None:
+        """持久化会话级工具放行状态。"""
+        self._save_session_meta_fields(
+            session_id,
+            {"tool_approval_grants": self._normalize_tool_approval_grants(tool_approval_grants)},
+        )
+
+    @staticmethod
+    def _normalize_tool_approval_grants(raw: Any) -> dict[str, str]:
+        """规范化持久化的工具放行字典。"""
+        if not isinstance(raw, dict):
+            return {}
+        normalized: dict[str, str] = {}
+        for raw_key, raw_value in raw.items():
+            key = str(raw_key or "").strip()
+            value = str(raw_value or "").strip().lower()
+            if not key or value != "session":
+                continue
+            normalized[key] = value
+        return normalized
 
     def _load_session_title(self, session_id: str) -> str:
         """从元数据文件读取会话标题。"""

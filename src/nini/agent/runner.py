@@ -126,6 +126,66 @@ _FILE_NAME_CONFIRMATION_RE = re.compile(
 _FILE_NAME_CANDIDATE_RE = re.compile(
     r"`([^`\n]+\.[A-Za-z0-9]{1,16})`|[“\"]([^\"\n]+\.[A-Za-z0-9]{1,16})[”\"]"
 )
+_TRANSITIONAL_EXECUTION_RE = re.compile(
+    r"(让我|我来|我将|我会|我现在需要|接下来|下一步|先|首先|现在先|尝试).{0,48}"
+    r"(调用|查看|获取|检查|分析|运行|执行|绘制|生成|预览|读取|加载|更新|整理)"
+)
+_COMPLETION_SIGNAL_RE = re.compile(
+    r"(已完成|完成分析|最终答案|最终回复|结论|总结如下|分析结果|结果如下|如下所示)"
+)
+_REASONING_TOOL_WRAP_RE = re.compile(
+    r"</?(tool_call|arg_key|arg_value)>|</arg_key><arg_value>",
+    re.IGNORECASE,
+)
+_REASONING_TOOL_LEAK_RE = re.compile(
+    r"(content|file_path|operation|tasks|chart_id)</arg_key><arg_value>",
+    re.IGNORECASE,
+)
+_TOOL_FOLLOWUP_RECOVERY_PROMPT = (
+    "继续执行当前任务，不要只描述下一步。"
+    "如果需要操作，请直接调用最合适的工具；只有在任务确实完成时才输出最终结论。"
+)
+
+_ALLOWED_TOOLS_ALWAYS_ALLOW = {
+    "ask_user_question",
+    "load_dataset",
+    "task_state",
+    "task_write",
+}
+_ALLOWED_TOOLS_HIGH_RISK = {
+    "edit_file",
+    "export_chart",
+    "export_document",
+    "export_report",
+    "fetch_url",
+    "organize_workspace",
+}
+_ALLOWED_TOOLS_HIGH_RISK_OPERATIONS: dict[str, set[str]] = {
+    "chart_session": {"export"},
+    "report_session": {"export"},
+    "workspace_session": {"append", "edit", "fetch_url", "organize", "write"},
+}
+_ALLOWED_TOOLS_RISK_HINTS: dict[str, str] = {
+    "chart_session": "其中 export 属于高风险越界操作，未授权时会请求用户确认。",
+    "report_session": "其中 export 属于高风险越界操作，未授权时会请求用户确认。",
+    "workspace_session": (
+        "其中 write、append、edit、organize、fetch_url 属于高风险越界操作，"
+        "未授权时会请求用户确认。"
+    ),
+}
+_ALLOWED_TOOLS_APPROVAL_ALLOW_ONCE = "仅放行这一次"
+_ALLOWED_TOOLS_APPROVAL_ALLOW_SESSION = "本会话同类工具都放行"
+_ALLOWED_TOOLS_APPROVAL_DENY = "拒绝此次调用"
+
+
+@dataclass(frozen=True)
+class AllowedToolDecision:
+    """当前工具调用在 allowed-tools 下的执行策略。"""
+
+    mode: str
+    risk_level: str
+    approval_key: str | None = None
+    operation: str | None = None
 
 
 def _tool_result_message(result: Any, *, is_error: bool) -> str:
@@ -139,6 +199,22 @@ def _tool_result_message(result: Any, *, is_error: bool) -> str:
         if isinstance(message, str) and message.strip():
             return message
     return "工具执行失败" if is_error else "工具执行完成"
+
+
+def _looks_like_reasoning_pollution(text: str) -> bool:
+    """识别被工具调用包装片段污染的 reasoning。"""
+    normalized = str(text or "").strip()
+    if not normalized:
+        return False
+    if _REASONING_TOOL_WRAP_RE.search(normalized):
+        return True
+    if _REASONING_TOOL_LEAK_RE.search(normalized):
+        return True
+    return (
+        len(normalized) > 240
+        and "</arg_key><arg_value>" in normalized
+        and "</arg_value>" in normalized
+    )
 
 
 def _enrich_chart_payload_from_artifacts(
@@ -291,6 +367,8 @@ class AgentRunner:
         allowed_tool_whitelist, allowed_tool_sources = self._resolve_allowed_tool_recommendations(
             user_message
         )
+        tool_followup_retry_used = False
+        pending_followup_prompt: str | None = None
 
         async for intent_event in self._maybe_handle_intent_clarification(
             session,
@@ -487,7 +565,16 @@ class AgentRunner:
                 messages, _ = await self._build_messages_and_retrieval(session)
 
             # 获取工具定义
-            tools = self._get_tool_definitions()
+            tools = self._get_tool_definitions(preferred_tools=allowed_tool_whitelist)
+            if pending_followup_prompt:
+                messages = [
+                    *messages,
+                    {
+                        "role": "user",
+                        "content": pending_followup_prompt,
+                    },
+                ]
+                pending_followup_prompt = None
 
             # 调用 LLM（流式）；若遇到上下文超限错误，自动压缩后重试一次
             full_text = ""
@@ -529,15 +616,23 @@ class AgentRunner:
                             full_reasoning += stripped
                             # 流式推送 reasoning（如果启用）
                             if settings.enable_reasoning and stripped:
-                                if current_reasoning_id is None:
-                                    current_reasoning_id = str(uuid.uuid4())
+                                combined_reasoning = streamed_reasoning_buffer + stripped
                                 streamed_reasoning_buffer += stripped
-                                yield eb.build_reasoning_event(
-                                    content=stripped,
-                                    reasoning_id=current_reasoning_id,
-                                    reasoning_live=True,
-                                    turn_id=turn_id,
-                                )
+                                if _looks_like_reasoning_pollution(combined_reasoning):
+                                    logger.warning(
+                                        "检测到被工具参数污染的 reasoning，已跳过流式推送: session=%s turn=%s",
+                                        session.id,
+                                        turn_id,
+                                    )
+                                else:
+                                    if current_reasoning_id is None:
+                                        current_reasoning_id = str(uuid.uuid4())
+                                    yield eb.build_reasoning_event(
+                                        content=stripped,
+                                        reasoning_id=current_reasoning_id,
+                                        reasoning_live=True,
+                                        turn_id=turn_id,
+                                    )
 
                         chunk_raw_text = getattr(chunk, "raw_text", "")
                         if chunk_raw_text:
@@ -655,15 +750,25 @@ class AgentRunner:
                     return
                 break
 
-            if full_reasoning.strip() and settings.enable_reasoning:
+            final_reasoning = full_reasoning.strip()
+            if final_reasoning and settings.enable_reasoning:
+                if _looks_like_reasoning_pollution(final_reasoning):
+                    logger.warning(
+                        "检测到被工具参数污染的 reasoning，已跳过持久化: session=%s turn=%s",
+                        session.id,
+                        turn_id,
+                    )
+                    final_reasoning = ""
+
+            if final_reasoning and settings.enable_reasoning:
                 # Detect enhanced reasoning metadata
-                reasoning_type = detect_reasoning_type(full_reasoning)
-                key_decisions = detect_key_decisions(full_reasoning)
-                confidence_score = calculate_confidence_score(full_reasoning)
+                reasoning_type = detect_reasoning_type(final_reasoning)
+                key_decisions = detect_key_decisions(final_reasoning)
+                confidence_score = calculate_confidence_score(final_reasoning)
 
                 # Track in reasoning chain
                 reasoning_node = reasoning_tracker.add_reasoning(
-                    content=full_reasoning.strip(),
+                    content=final_reasoning,
                     reasoning_type=reasoning_type,
                     key_decisions=key_decisions,
                     confidence_score=confidence_score,
@@ -674,7 +779,7 @@ class AgentRunner:
                 final_reasoning_id = current_reasoning_id or reasoning_node.get("id")
                 # 先保存到 session 持久化
                 session.add_reasoning(
-                    content=full_reasoning.strip(),
+                    content=final_reasoning,
                     reasoning_type=reasoning_type,
                     key_decisions=key_decisions,
                     confidence_score=confidence_score,
@@ -683,7 +788,7 @@ class AgentRunner:
                     turn_id=turn_id,
                 )
                 yield eb.build_reasoning_event(
-                    content=full_reasoning.strip(),
+                    content=final_reasoning,
                     reasoning_id=final_reasoning_id,
                     reasoning_live=False,
                     turn_id=turn_id,
@@ -730,6 +835,32 @@ class AgentRunner:
             # 如果没有 tool_calls → 纯文本回复，结束循环
             if not tool_calls:
                 final_text = full_text or raw_full_text
+                if self._should_retry_transitional_text(
+                    final_text,
+                    active_plan=active_plan,
+                    retry_used=tool_followup_retry_used,
+                    tools=tools,
+                ):
+                    tool_followup_retry_used = True
+                    recovery_note = (
+                        "检测到模型输出了过渡性执行文本但未实际调用工具，"
+                        "系统将自动要求其继续执行当前任务。"
+                    )
+                    session.add_reasoning(
+                        recovery_note,
+                        reasoning_type="decision",
+                        turn_id=turn_id,
+                        tags=["tool_followup_recovery"],
+                    )
+                    yield eb.build_reasoning_event(
+                        content=recovery_note,
+                        turn_id=turn_id,
+                        reasoning_live=False,
+                        source="tool_followup_recovery",
+                    )
+                    pending_followup_prompt = _TOOL_FOLLOWUP_RECOVERY_PROMPT
+                    iteration += 1
+                    continue
                 confirmation_payload = self._build_confirmation_question_payload(final_text)
                 if confirmation_payload and self._ask_user_question_handler is not None:
                     tool_call_id = f"confirm-ask-{uuid.uuid4().hex[:8]}"
@@ -1008,48 +1139,101 @@ class AgentRunner:
                     metadata=_tc_metadata or None,
                 )
 
-                # allowed-tools 硬约束：白名单存在时阻断越界工具调用。
-                # 内部系统工具（task_write/task_state）和数据加载工具（load_dataset）豁免，不受约束。
-                # load_dataset 是技能运行的数据基础，禁用会阻断所有需要数据的技能。
-                # 无白名单声明时保持默认行为（不收缩）。
-                _exempt_tools = ("task_write", "task_state", "load_dataset")
+                # allowed-tools 分级约束：
+                # - 内部系统工具与数据加载工具直接豁免
+                # - 低风险越界继续执行，但记录 soft_violation
+                # - 高风险越界进入 ask_user_question 确认流程
                 if (
                     allowed_tool_whitelist is not None
                     and func_name not in allowed_tool_whitelist
-                    and func_name not in _exempt_tools
+                    and func_name not in _ALLOWED_TOOLS_ALWAYS_ALLOW
                 ):
-                    allowed_sorted = ", ".join(sorted(allowed_tool_whitelist))
-                    source_text = (
-                        ", ".join(allowed_tool_sources) if allowed_tool_sources else "当前技能"
-                    )
-                    logger.warning(
-                        "工具调用越界被阻断: tool=%s 来源技能=%s 允许工具=%s",
-                        func_name,
-                        source_text,
-                        allowed_sorted,
-                    )
-                    error_msg = (
-                        f"工具 '{func_name}' 不在当前技能声明的 allowed-tools 范围内"
-                        f"（来源技能: {source_text}；允许: {allowed_sorted}）"
-                    )
-                    session.add_tool_result(
-                        tc_id,
-                        error_msg,
-                        tool_name=func_name,
-                        status="error",
-                        turn_id=turn_id,
-                    )
-                    yield AgentEvent(
-                        type=EventType.ERROR,
-                        data={
-                            "level": "allowed_tools_violation",
-                            "tool": func_name,
-                            "message": error_msg,
-                        },
-                        turn_id=turn_id,
-                    )
-                    iteration += 1
-                    continue
+                    decision = self._decide_allowed_tool_handling(func_name, func_args)
+                    if decision.mode == "allow":
+                        warning_msg = self._build_allowed_tools_notice(
+                            tool_name=func_name,
+                            allowed_tool_whitelist=allowed_tool_whitelist,
+                            allowed_tool_sources=allowed_tool_sources,
+                            continued=True,
+                        )
+                        logger.warning("工具低风险越界继续执行: %s", warning_msg)
+                        session.add_reasoning(
+                            warning_msg,
+                            reasoning_type="decision",
+                            tags=["allowed_tools", "soft_violation"],
+                            turn_id=turn_id,
+                        )
+                        yield AgentEvent(
+                            type=EventType.ERROR,
+                            data={
+                                "level": "allowed_tools_soft_violation",
+                                "tool": func_name,
+                                "risk_level": decision.risk_level,
+                                "message": warning_msg,
+                            },
+                            turn_id=turn_id,
+                        )
+                    else:
+                        assert decision.approval_key is not None
+                        if session.has_tool_approval(decision.approval_key):
+                            logger.info(
+                                "复用会话级工具放行: session=%s tool=%s approval_key=%s",
+                                session.id,
+                                func_name,
+                                decision.approval_key,
+                            )
+                        else:
+                            approval_payload = self._build_tool_approval_payload(
+                                tool_name=func_name,
+                                operation=decision.operation,
+                                allowed_tool_whitelist=allowed_tool_whitelist,
+                                allowed_tool_sources=allowed_tool_sources,
+                            )
+                            choice, approval_events = await self._request_tool_approval(
+                                session,
+                                turn_id=turn_id,
+                                tool_name=func_name,
+                                approval_payload=approval_payload,
+                                approval_key=decision.approval_key,
+                            )
+                            for approval_event in approval_events:
+                                yield approval_event
+
+                            if choice == "allow_session":
+                                session.grant_tool_approval(decision.approval_key, scope="session")
+                            elif choice == "allow_once":
+                                pass
+                            else:
+                                error_msg = self._build_allowed_tools_notice(
+                                    tool_name=func_name,
+                                    allowed_tool_whitelist=allowed_tool_whitelist,
+                                    allowed_tool_sources=allowed_tool_sources,
+                                    continued=False,
+                                )
+                                if choice == "unavailable":
+                                    error_msg = f"{error_msg[:-1]}，且当前通道不支持 ask_user_question 人工确认。"
+                                else:
+                                    error_msg = f"{error_msg[:-1]}，用户未批准此次高风险调用。"
+                                session.add_tool_result(
+                                    tc_id,
+                                    error_msg,
+                                    tool_name=func_name,
+                                    status="error",
+                                    turn_id=turn_id,
+                                )
+                                yield AgentEvent(
+                                    type=EventType.ERROR,
+                                    data={
+                                        "level": "allowed_tools_violation",
+                                        "tool": func_name,
+                                        "risk_level": decision.risk_level,
+                                        "approval_key": decision.approval_key,
+                                        "message": error_msg,
+                                    },
+                                    turn_id=turn_id,
+                                )
+                                iteration += 1
+                                continue
 
                 # ── task_write/task_state 特殊处理 ────────────────────────────────
                 # task_write 由 LLM 调用来声明/更新任务列表，不走正常执行流程
@@ -1931,7 +2115,10 @@ class AgentRunner:
         cls._agents_md_cache = ContextBuilder._agents_md_cache
         return result
 
-    def _get_tool_definitions(self) -> list[dict[str, Any]]:
+    def _get_tool_definitions(
+        self,
+        preferred_tools: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """获取所有已注册技能的工具定义。"""
         tools: list[dict[str, Any]] = []
         if self._skill_registry is not None:
@@ -1948,7 +2135,57 @@ class AgentRunner:
         )
         if not has_ask_user_question:
             tools.append(self._ask_user_question_tool_definition())
-        return tools
+
+        normalized_preferred = {
+            str(name).strip() for name in preferred_tools or set() if str(name).strip()
+        }
+        annotated = [
+            self._annotate_tool_definition(item, preferred_tools=normalized_preferred)
+            for item in tools
+        ]
+        if not normalized_preferred:
+            return annotated
+        return sorted(
+            annotated,
+            key=lambda item: (
+                (
+                    0
+                    if isinstance(item.get("function"), dict)
+                    and item["function"].get("name") in normalized_preferred
+                    else 1
+                ),
+                str(item.get("function", {}).get("name", "")),
+            ),
+        )
+
+    @staticmethod
+    def _annotate_tool_definition(
+        item: dict[str, Any],
+        *,
+        preferred_tools: set[str],
+    ) -> dict[str, Any]:
+        """为当前回合工具补充首选/风险提示。"""
+        annotated = dict(item)
+        function = annotated.get("function")
+        if not isinstance(function, dict):
+            return annotated
+
+        func_copy = dict(function)
+        name = str(func_copy.get("name", "")).strip()
+        description = str(func_copy.get("description", "")).strip()
+        notes: list[str] = []
+        if name in preferred_tools:
+            notes.append("当前激活技能的首选工具。")
+        if name in _ALLOWED_TOOLS_HIGH_RISK:
+            notes.append("该工具属于高风险操作，越界使用时需要用户确认。")
+        risk_hint = _ALLOWED_TOOLS_RISK_HINTS.get(name)
+        if risk_hint:
+            notes.append(risk_hint)
+        if notes:
+            prefix = " ".join(notes)
+            func_copy["description"] = f"{prefix} {description}".strip()
+        annotated["function"] = func_copy
+        return annotated
 
     @staticmethod
     def _ask_user_question_tool_definition() -> dict[str, Any]:
@@ -2086,6 +2323,250 @@ class AgentRunner:
             normalized_answers[key] = value
 
         return normalized_answers
+
+    @staticmethod
+    def _looks_like_transitional_execution_text(text: str) -> bool:
+        """判断文本是否像“下一步要执行，但尚未真正执行”的中间态。"""
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        if len(normalized) > 120:
+            return False
+        if _COMPLETION_SIGNAL_RE.search(normalized):
+            return False
+        return _TRANSITIONAL_EXECUTION_RE.search(normalized) is not None
+
+    def _should_retry_transitional_text(
+        self,
+        text: str,
+        *,
+        active_plan: AnalysisPlan | None,
+        retry_used: bool,
+        tools: list[dict[str, Any]],
+    ) -> bool:
+        """对明显未完成的过渡文本做一次自动续跑。"""
+        if retry_used:
+            return False
+        if not tools:
+            return False
+        if not self._looks_like_transitional_execution_text(text):
+            return False
+        if active_plan is None:
+            return True
+        return any(step.status != "completed" for step in active_plan.steps)
+
+    @staticmethod
+    def _extract_tool_operation(arguments: str) -> str | None:
+        """从工具参数中提取 operation。"""
+        try:
+            payload = json.loads(arguments)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        operation = payload.get("operation")
+        if not isinstance(operation, str):
+            return None
+        normalized = operation.strip().lower()
+        return normalized or None
+
+    def _decide_allowed_tool_handling(
+        self,
+        tool_name: str,
+        arguments: str,
+    ) -> AllowedToolDecision:
+        """判定越界工具是软放行还是需要人工确认。"""
+        if tool_name in _ALLOWED_TOOLS_ALWAYS_ALLOW:
+            return AllowedToolDecision(mode="allow", risk_level="internal")
+
+        operation = self._extract_tool_operation(arguments)
+        if tool_name in _ALLOWED_TOOLS_HIGH_RISK:
+            approval_key = f"{tool_name}:{operation}" if operation else tool_name
+            return AllowedToolDecision(
+                mode="confirm",
+                risk_level="high",
+                approval_key=approval_key,
+                operation=operation,
+            )
+
+        risky_operations = _ALLOWED_TOOLS_HIGH_RISK_OPERATIONS.get(tool_name, set())
+        if operation and operation in risky_operations:
+            return AllowedToolDecision(
+                mode="confirm",
+                risk_level="high",
+                approval_key=f"{tool_name}:{operation}",
+                operation=operation,
+            )
+
+        return AllowedToolDecision(mode="allow", risk_level="low", operation=operation)
+
+    @staticmethod
+    def _build_allowed_tools_notice(
+        *,
+        tool_name: str,
+        allowed_tool_whitelist: set[str],
+        allowed_tool_sources: list[str],
+        continued: bool,
+    ) -> str:
+        source_text = ", ".join(allowed_tool_sources) if allowed_tool_sources else "当前技能"
+        allowed_sorted = ", ".join(sorted(allowed_tool_whitelist))
+        action_text = "本次已按低风险越界继续执行" if continued else "当前不会直接执行"
+        return (
+            f"工具 '{tool_name}' 不在当前技能声明的 allowed-tools 首选集合内"
+            f"（来源技能: {source_text}；首选: {allowed_sorted}）；{action_text}。"
+        )
+
+    @staticmethod
+    def _build_tool_approval_payload(
+        *,
+        tool_name: str,
+        operation: str | None,
+        allowed_tool_whitelist: set[str],
+        allowed_tool_sources: list[str],
+    ) -> dict[str, Any]:
+        """构造高风险越界时的确认问题。"""
+        source_text = ", ".join(allowed_tool_sources) if allowed_tool_sources else "当前技能"
+        allowed_sorted = ", ".join(sorted(allowed_tool_whitelist))
+        display_name = f"{tool_name}({operation})" if operation else tool_name
+        return {
+            "questions": [
+                {
+                    "header": "工具放行",
+                    "question": (
+                        f"工具 `{display_name}` 不在当前技能声明的 allowed-tools 首选集合内。"
+                        f"来源技能: {source_text}；首选工具: {allowed_sorted}。是否允许继续执行这次高风险操作？"
+                    ),
+                    "options": [
+                        {
+                            "label": _ALLOWED_TOOLS_APPROVAL_ALLOW_ONCE,
+                            "description": "仅放行这一次，后续同类操作仍需再次确认。",
+                        },
+                        {
+                            "label": _ALLOWED_TOOLS_APPROVAL_ALLOW_SESSION,
+                            "description": "当前会话内同类工具/operation 后续自动放行，新会话重置。",
+                        },
+                        {
+                            "label": _ALLOWED_TOOLS_APPROVAL_DENY,
+                            "description": "拒绝这次调用，让 Agent 改走其他路径。",
+                        },
+                    ],
+                    "multiSelect": False,
+                    "allowTextInput": True,
+                }
+            ]
+        }
+
+    @staticmethod
+    def _resolve_tool_approval_choice(answers: dict[str, str]) -> str:
+        """归一化工具授权回答。"""
+        for raw_value in answers.values():
+            text = str(raw_value or "").strip()
+            if not text:
+                continue
+            if "会话" in text:
+                return "allow_session"
+            if "一次" in text or "本次" in text:
+                return "allow_once"
+            if "拒绝" in text or "deny" in text.lower():
+                return "deny"
+        return "deny"
+
+    async def _request_tool_approval(
+        self,
+        session: Session,
+        *,
+        turn_id: str,
+        tool_name: str,
+        approval_payload: dict[str, Any],
+        approval_key: str,
+    ) -> tuple[str, list[AgentEvent]]:
+        """通过 ask_user_question 请求用户确认高风险越界调用。"""
+        if self._ask_user_question_handler is None:
+            return "unavailable", []
+
+        tool_call_id = f"approval-ask-{uuid.uuid4().hex[:8]}"
+        arguments = json.dumps(approval_payload, ensure_ascii=False)
+        session.add_tool_call(
+            tool_call_id,
+            "ask_user_question",
+            arguments,
+            turn_id=turn_id,
+            message_id=f"tool-call-{tool_call_id}",
+        )
+        events: list[AgentEvent] = [
+            eb.build_tool_call_event(
+                tool_call_id=tool_call_id,
+                name="ask_user_question",
+                arguments={"name": "ask_user_question", "arguments": arguments},
+                turn_id=turn_id,
+                metadata={"source": "allowed_tools_approval", "approval_key": approval_key},
+            ),
+            eb.build_ask_user_question_event(
+                questions=approval_payload.get("questions", []),
+                turn_id=turn_id,
+                tool_call_id=tool_call_id,
+                tool_name="ask_user_question",
+                metadata={"source": "allowed_tools_approval", "approval_key": approval_key},
+            ),
+        ]
+
+        try:
+            raw_answers = await self._ask_user_question_handler(
+                session, tool_call_id, approval_payload
+            )
+            normalized_answers = self._normalize_ask_user_question_answers(raw_answers)
+            result = {
+                "success": True,
+                "message": "已收到用户的工具放行决定。",
+                "data": {
+                    "questions": approval_payload["questions"],
+                    "answers": normalized_answers,
+                    "approval_key": approval_key,
+                },
+            }
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "工具放行确认失败: session=%s tool=%s approval_key=%s err=%s",
+                session.id,
+                tool_name,
+                approval_key,
+                exc,
+            )
+            normalized_answers = {}
+            result = {
+                "success": False,
+                "message": f"等待工具放行确认失败: {exc}",
+            }
+
+        has_error = bool(
+            isinstance(result, dict) and (result.get("error") or result.get("success") is False)
+        )
+        result_str = serialize_tool_result_for_memory(result)
+        session.add_tool_result(
+            tool_call_id,
+            result_str,
+            tool_name="ask_user_question",
+            status="error" if has_error else "success",
+            intent="allowed_tools_approval",
+            turn_id=turn_id,
+            message_id=f"tool-result-{tool_call_id}",
+        )
+        events.append(
+            eb.build_tool_result_event(
+                tool_call_id=tool_call_id,
+                name="ask_user_question",
+                status="error" if has_error else "success",
+                message=_tool_result_message(result, is_error=has_error),
+                data={"result": result},
+                turn_id=turn_id,
+                metadata={"source": "allowed_tools_approval", "approval_key": approval_key},
+            )
+        )
+        if has_error:
+            return "deny", events
+        return self._resolve_tool_approval_choice(normalized_answers), events
 
     async def _execute_tool(
         self,

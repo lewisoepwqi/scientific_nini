@@ -27,6 +27,7 @@ import {
 } from "./utils";
 
 import {
+  looksLikeToolCallReasoningPollution,
   mergePlanStepStatus,
   stripReasoningMarkers,
 } from "./normalizers";
@@ -699,6 +700,7 @@ export function handleEvent(
           ? stripReasoningMarkers(data.content)
           : "";
       if (!content) break;
+      if (looksLikeToolCallReasoningPollution(content)) break;
 
       // 获取 reasoning_id（如果后端提供）
       const reasoningId =

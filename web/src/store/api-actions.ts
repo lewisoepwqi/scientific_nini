@@ -33,7 +33,10 @@ import type {
 } from "./types";
 
 import { isRecord, nextId, makePlanProgressFromSteps } from "./utils";
-import { normalizePlanStepStatus } from "./normalizers";
+import {
+  looksLikeToolCallReasoningPollution,
+  normalizePlanStepStatus,
+} from "./normalizers";
 import {
   normalizeMessageTimestamp,
   upsertAssistantTextMessage,
@@ -1208,18 +1211,28 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
         continue;
       }
       if (eventType === "artifact") {
-        const nextMessages = upsertAssistantTextMessage(messages, {
-          content:
-            typeof raw.content === "string" && raw.content
-              ? raw.content
-              : "产物已生成",
-          timestamp,
-          messageId,
-          turnId,
-          operation,
-          artifacts: Array.isArray(raw.artifacts) ? raw.artifacts : [],
-        });
-        messages.splice(0, messages.length, ...nextMessages);
+        const artifacts = Array.isArray(raw.artifacts) ? raw.artifacts : [];
+        const attached = !messageId
+          ? attachArtifactsToLatestAssistantMessage(messages, {
+              artifacts,
+              turnId,
+              timestamp,
+            })
+          : false;
+        if (!attached) {
+          const nextMessages = upsertAssistantTextMessage(messages, {
+            content:
+              typeof raw.content === "string" && raw.content
+                ? raw.content
+                : "产物已生成",
+            timestamp,
+            messageId,
+            turnId,
+            operation,
+            artifacts,
+          });
+          messages.splice(0, messages.length, ...nextMessages);
+        }
         continue;
       }
       if (eventType === "image") {
@@ -1238,6 +1251,10 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
         continue;
       }
       if (eventType === "reasoning") {
+        const content = typeof raw.content === "string" ? raw.content : "";
+        if (looksLikeToolCallReasoningPollution(content)) {
+          continue;
+        }
         const reasoningLive =
           typeof raw.reasoning_live === "boolean"
             ? raw.reasoning_live
@@ -1245,7 +1262,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
               ? raw.reasoningLive
               : false;
         const nextMessages = upsertReasoningMessage(messages, {
-          content: typeof raw.content === "string" ? raw.content : "",
+          content,
           reasoningLive,
           reasoningId:
             typeof raw.reasoning_id === "string" ? raw.reasoning_id : undefined,
@@ -1330,6 +1347,60 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
   }
 
   return messages;
+}
+
+function mergeArtifactLists(
+  existing: Message["artifacts"],
+  incoming: Message["artifacts"],
+): Message["artifacts"] {
+  const merged = [...(existing ?? [])];
+  for (const artifact of incoming ?? []) {
+    const duplicate = merged.some(
+      (item) =>
+        item.name === artifact.name &&
+        item.download_url === artifact.download_url &&
+        item.type === artifact.type,
+    );
+    if (!duplicate) {
+      merged.push(artifact);
+    }
+  }
+  return merged;
+}
+
+function attachArtifactsToLatestAssistantMessage(
+  messages: Message[],
+  options: {
+    artifacts: Message["artifacts"];
+    turnId?: string;
+    timestamp: number;
+  },
+): boolean {
+  const { artifacts, turnId, timestamp } = options;
+  if (!artifacts || artifacts.length === 0) {
+    return false;
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== "assistant" || message.isReasoning) {
+      continue;
+    }
+    if (turnId && message.turnId !== turnId) {
+      continue;
+    }
+    if (message.content === "产物已生成" && message.artifacts?.length) {
+      continue;
+    }
+    messages[index] = {
+      ...message,
+      artifacts: mergeArtifactLists(message.artifacts, artifacts),
+      timestamp: Math.max(message.timestamp, timestamp),
+    };
+    return true;
+  }
+
+  return false;
 }
 
 function taskActivityByStatus(status: AnalysisTaskItem["status"]): string | null {
@@ -1440,21 +1511,114 @@ function isPlanTerminal(steps: AnalysisStep[]): boolean {
   return steps.every((step) => step.status === "done" || step.status === "skipped");
 }
 
+interface RestoredPlanChain {
+  turnIds: Set<string>;
+  seed: string;
+  createdAt: number;
+  updatedAt: number;
+  tasks: Map<number, AnalysisTaskItem>;
+}
+
+function planHasTaskIds(
+  plan: RestoredPlanChain,
+  taskIds: number[],
+): boolean {
+  return taskIds.some((taskId) => plan.tasks.has(taskId));
+}
+
+function planIsTerminal(plan: RestoredPlanChain): boolean {
+  if (plan.tasks.size === 0) return false;
+  return isPlanTerminal([...plan.tasks.values()].map(toPlanStep));
+}
+
+function resolveRestorePlan(
+  plans: RestoredPlanChain[],
+  planByTurn: Map<string, RestoredPlanChain>,
+  options: {
+    mode: string;
+    turnId: string | null;
+    taskIds: number[];
+    createdAt: number;
+  },
+): RestoredPlanChain {
+  const { mode, turnId, taskIds, createdAt } = options;
+
+  if (mode === "init") {
+    const seed = turnId ?? `turnless-${plans.length + 1}`;
+    const plan: RestoredPlanChain = {
+      turnIds: new Set(turnId ? [turnId] : []),
+      seed,
+      createdAt,
+      updatedAt: createdAt,
+      tasks: new Map<number, AnalysisTaskItem>(),
+    };
+    plans.push(plan);
+    if (turnId) {
+      planByTurn.set(turnId, plan);
+    }
+    return plan;
+  }
+
+  if (turnId) {
+    const byTurn = planByTurn.get(turnId);
+    if (byTurn) {
+      return byTurn;
+    }
+  }
+
+  const nonTerminalPlans = plans.filter((plan) => !planIsTerminal(plan));
+  const overlappingOpenPlan = [...nonTerminalPlans]
+    .reverse()
+    .find((plan) => planHasTaskIds(plan, taskIds));
+  if (overlappingOpenPlan) {
+    if (turnId) {
+      overlappingOpenPlan.turnIds.add(turnId);
+      planByTurn.set(turnId, overlappingOpenPlan);
+    }
+    return overlappingOpenPlan;
+  }
+
+  const overlappingPlan = [...plans]
+    .reverse()
+    .find((plan) => planHasTaskIds(plan, taskIds));
+  if (overlappingPlan) {
+    if (turnId) {
+      overlappingPlan.turnIds.add(turnId);
+      planByTurn.set(turnId, overlappingPlan);
+    }
+    return overlappingPlan;
+  }
+
+  const latestOpenPlan = [...nonTerminalPlans].reverse()[0];
+  if (latestOpenPlan) {
+    if (turnId) {
+      latestOpenPlan.turnIds.add(turnId);
+      planByTurn.set(turnId, latestOpenPlan);
+    }
+    return latestOpenPlan;
+  }
+
+  const seed = turnId ?? `turnless-${plans.length + 1}`;
+  const fallbackPlan: RestoredPlanChain = {
+    turnIds: new Set(turnId ? [turnId] : []),
+    seed,
+    createdAt,
+    updatedAt: createdAt,
+    tasks: new Map<number, AnalysisTaskItem>(),
+  };
+  plans.push(fallbackPlan);
+  if (turnId) {
+    planByTurn.set(turnId, fallbackPlan);
+  }
+  return fallbackPlan;
+}
+
 export function buildSessionRestoreState(
   rawMessages: RawSessionMessage[],
 ): RestoredSessionState {
   const messages = buildMessagesFromHistory(rawMessages);
-  const plans = new Map<
-    string,
-    {
-      turnId: string | null;
-      seed: string;
-      createdAt: number;
-      updatedAt: number;
-      tasks: Map<number, AnalysisTaskItem>;
-    }
-  >();
-  let unnamedPlanCounter = 0;
+  const plans: RestoredPlanChain[] = [];
+  const planByTurn = new Map<string, RestoredPlanChain>();
 
   for (const raw of rawMessages) {
     if (!Array.isArray(raw.tool_calls) || raw.tool_calls.length === 0) {
@@ -1465,7 +1629,6 @@ export function buildSessionRestoreState(
       typeof raw.turn_id === "string" && raw.turn_id.trim()
         ? raw.turn_id.trim()
         : null;
-    const planKey = turnId ?? `turnless-${++unnamedPlanCounter}`;
 
     for (const toolCall of raw.tool_calls) {
       const func = isRecord(toolCall.function) ? toolCall.function : null;
@@ -1482,18 +1645,20 @@ export function buildSessionRestoreState(
         continue;
       }
 
-      const currentPlan = plans.get(planKey);
-      const seed = turnId ?? planKey;
-      const nextPlan =
-        payload.mode === "init" || !currentPlan
-          ? {
-              turnId,
-              seed,
-              createdAt,
-              updatedAt: createdAt,
-              tasks: new Map<number, AnalysisTaskItem>(),
-            }
-          : currentPlan;
+      const taskIds = payload.tasks
+        .map((task) => {
+          const rawId = task.id;
+          return typeof rawId === "number" && Number.isFinite(rawId) && rawId > 0
+            ? Math.floor(rawId)
+            : null;
+        })
+        .filter((taskId): taskId is number => taskId !== null);
+      const nextPlan = resolveRestorePlan(plans, planByTurn, {
+        mode: payload.mode,
+        turnId,
+        taskIds,
+        createdAt,
+      });
 
       if (payload.mode === "init") {
         nextPlan.tasks.clear();
@@ -1503,7 +1668,7 @@ export function buildSessionRestoreState(
         const nextTask = buildTaskItem(rawTask, {
           turnId,
           createdAt,
-          seed,
+          seed: nextPlan.seed,
         });
         if (!nextTask) continue;
 
@@ -1542,16 +1707,21 @@ export function buildSessionRestoreState(
       }
 
       nextPlan.updatedAt = createdAt;
-      plans.set(planKey, nextPlan);
+      if (turnId) {
+        nextPlan.turnIds.add(turnId);
+        planByTurn.set(turnId, nextPlan);
+      }
     }
   }
 
-  const sortedPlans = [...plans.values()].sort((a, b) => a.createdAt - b.createdAt);
+  const sortedPlans = [...plans].sort((a, b) => a.createdAt - b.createdAt);
   const analysisTasks = sortedPlans.flatMap((plan) =>
     [...plan.tasks.values()].sort((a, b) => a.plan_step_id - b.plan_step_id),
   );
 
-  const latestPlan = sortedPlans[sortedPlans.length - 1];
+  const latestPlan =
+    [...sortedPlans].reverse().find((plan) => !planIsTerminal(plan)) ??
+    sortedPlans[sortedPlans.length - 1];
   const latestSteps = latestPlan
     ? [...latestPlan.tasks.values()]
         .sort((a, b) => a.plan_step_id - b.plan_step_id)

@@ -46,3 +46,5 @@ class TestFewShotExamples:
         assert "resource_id" in prompt
         assert ".nini/skills" in prompt
         assert "不要再次调用 workspace_session 去读取 SKILL.md" in prompt
+        assert "当系统已注入某个技能的 skill_definition 运行时上下文时" in prompt
+        assert "必须先读取该技能定义文件" not in prompt

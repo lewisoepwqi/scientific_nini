@@ -80,6 +80,15 @@ class KnowledgeLoader:
             self._init_vector_store()
 
     @property
+    def supports_context_injector(self) -> bool:
+        """是否支持新版知识注入链路。
+
+        显式传入的测试替身或定制 loader 默认不具备该属性，
+        运行时应直接走 fallback_knowledge_load，避免误触全局混合检索器。
+        """
+        return True
+
+    @property
     def entries(self) -> list[KnowledgeEntry]:
         """所有已加载的知识条目（只读）。"""
         return list(self._entries)

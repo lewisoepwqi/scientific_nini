@@ -145,6 +145,8 @@ class EditFile(Skill):
                             "仅支持当前会话 workspace 下的相对路径。"
                             "请先调用 workspace_session(operation='list') 获取可用 path，"
                             "不要传仓库绝对路径、系统路径或 .nini/skills 路径。"
+                            "若要执行 Markdown Skill，请改为依赖系统注入的 skill_definition 上下文，"
+                            "不要重试读取 SKILL.md。"
                         ),
                     },
                     metadata={"error_code": "WORKSPACE_PATH_OUT_OF_SCOPE"},

@@ -163,6 +163,43 @@ class _TwoStepToolResolver:
         yield _Chunk(text="最终回复", tool_calls=[])
 
 
+class _TransitionalTextThenToolResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, tool_calls: list[dict[str, object]]):
+                self.text = text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls == 1:
+            yield _Chunk(text="让我先查看数据概况。", tool_calls=[])
+            return
+        if self.calls == 2:
+            last_user = messages[-1]["content"] if messages else ""
+            assert "不要只描述下一步" in str(last_user)
+            yield _Chunk(
+                text="",
+                tool_calls=[
+                    {
+                        "id": "call_transition_1",
+                        "type": "function",
+                        "function": {
+                            "name": "echo_tool",
+                            "arguments": json.dumps({"value": "ok"}, ensure_ascii=False),
+                        },
+                    }
+                ],
+            )
+            return
+
+        yield _Chunk(text="已完成分析", tool_calls=[])
+
+
 class _PlanAwareToolResolver:
     def __init__(self) -> None:
         self.calls = 0
@@ -221,6 +258,20 @@ class _ReasoningOnlyResolver:
             text = "最终答案"
             reasoning = "先检查数据分布。"
             raw_text = "<think>先检查数据分布。</think>最终答案"
+            tool_calls = []
+            usage = None
+
+        yield _Chunk()
+
+
+class _PollutedReasoningResolver:
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        class _Chunk:
+            text = "最终答案"
+            reasoning = "content</arg_key><arg_value># 正文内容</arg_value></tool_call>"
+            raw_text = (
+                "<think>content</arg_key><arg_value># 正文内容</arg_value></tool_call></think>最终答案"
+            )
             tool_calls = []
             usage = None
 
@@ -430,6 +481,89 @@ class _GuardedSkillRegistry(_EchoSkillRegistry):
     async def execute(self, skill_name: str, session: Session, **kwargs):
         self.execute_calls += 1
         return await super().execute(skill_name, session, **kwargs)
+
+
+class _HighRiskWorkspaceResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, tool_calls):
+                self.text = text
+                self.reasoning = ""
+                self.raw_text = text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls <= 2:
+            yield _Chunk(
+                text="尝试写入工作区",
+                tool_calls=[
+                    {
+                        "id": f"call_workspace_{self.calls}",
+                        "type": "function",
+                        "function": {
+                            "name": "workspace_session",
+                            "arguments": json.dumps(
+                                {
+                                    "operation": "write",
+                                    "file_path": "notes/test.md",
+                                    "content": "hello",
+                                },
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+            )
+            return
+
+        yield _Chunk(text="流程结束", tool_calls=[])
+
+
+class _HighRiskWorkspaceRegistry:
+    def __init__(self) -> None:
+        self.execute_calls = 0
+
+    def get_tool_definitions(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "workspace_session",
+                    "description": "工作区会话工具",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
+    def list_markdown_skills(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "markdown",
+                "name": "guarded-skill",
+                "description": "受限技能",
+                "category": "workflow",
+                "location": "/tmp/guarded/SKILL.md",
+                "enabled": True,
+                "metadata": {
+                    "user_invocable": True,
+                    "allowed_tools": ["run_code"],
+                },
+            }
+        ]
+
+    async def execute(self, skill_name: str, session: Session, **kwargs):
+        self.execute_calls += 1
+        if skill_name != "workspace_session":
+            return {"error": f"unknown skill: {skill_name}"}
+        return {"success": True, "message": "workspace write ok"}
+
+    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
+        return await self.execute(skill_name, session=session, **kwargs)
 
 
 class _RepeatFailingToolResolver:
@@ -1060,7 +1194,19 @@ async def test_runner_auto_compresses_and_retries_on_context_overflow(
 
 
 @pytest.mark.asyncio
-async def test_runner_emits_reasoning_event_and_keeps_final_answer_clean() -> None:
+async def test_runner_emits_reasoning_event_and_keeps_final_answer_clean(monkeypatch) -> None:
+    async def _fake_consolidate_session_memories(session_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "nini.memory.long_term_memory.consolidate_session_memories",
+        _fake_consolidate_session_memories,
+    )
+    monkeypatch.setattr(
+        "nini.agent.runner.asyncio.create_task",
+        lambda coro: coro.close(),
+    )
+
     session = Session()
     runner = AgentRunner(
         resolver=_ReasoningOnlyResolver(),
@@ -1080,6 +1226,42 @@ async def test_runner_emits_reasoning_event_and_keeps_final_answer_clean() -> No
         for payload in reasoning_payloads
     )
     assert session.messages[-1]["role"] == "assistant"
+    assert session.messages[-1]["content"] == "最终答案"
+
+
+@pytest.mark.asyncio
+async def test_runner_skips_polluted_reasoning_from_persistence(monkeypatch) -> None:
+    async def _fake_consolidate_session_memories(session_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "nini.memory.long_term_memory.consolidate_session_memories",
+        _fake_consolidate_session_memories,
+    )
+    monkeypatch.setattr(
+        "nini.agent.runner.asyncio.create_task",
+        lambda coro: coro.close(),
+    )
+
+    session = Session()
+    runner = AgentRunner(
+        resolver=_PollutedReasoningResolver(),
+        skill_registry=_EchoSkillRegistry(),
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    events = []
+    async for event in runner.run(session, "继续分析"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    reasoning_payloads = [e.data for e in events if e.type == EventType.REASONING]
+    assert reasoning_payloads == []
+    assert not any(
+        msg.get("event_type") == "reasoning" and "arg_value" in str(msg.get("content", ""))
+        for msg in session.messages
+    )
     assert session.messages[-1]["content"] == "最终答案"
 
 
@@ -1108,8 +1290,45 @@ async def test_runner_preserves_raw_assistant_content_for_tool_calls() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runner_blocks_tool_outside_allowed_tools_hard_constraint() -> None:
-    """技能声明 allowed_tools 后，越界工具调用应被硬阻断并发出 error 事件（task 8.3）。"""
+async def test_runner_retries_when_model_outputs_transitional_text_without_tool_call() -> None:
+    session = Session()
+    resolver = _TransitionalTextThenToolResolver()
+    runner = AgentRunner(
+        resolver=resolver,
+        skill_registry=_EchoSkillRegistry(),
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    events = []
+    async for event in runner.run(session, "继续分析"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    tool_results = [
+        e for e in events if e.type == EventType.TOOL_RESULT and e.tool_name == "echo_tool"
+    ]
+    recovery_events = [
+        e
+        for e in events
+        if e.type == EventType.REASONING
+        and isinstance(e.data, dict)
+        and e.data.get("source") == "tool_followup_recovery"
+    ]
+    assert resolver.calls == 3
+    assert recovery_events, "应记录一次过渡文本自动续跑事件"
+    assert tool_results, "自动续跑后应成功执行工具"
+    assert session.messages[-1]["content"] == "已完成分析"
+    assert all(
+        msg.get("content") != "让我先查看数据概况。"
+        for msg in session.messages
+        if msg.get("role") == "assistant"
+    )
+
+
+@pytest.mark.asyncio
+async def test_runner_allows_low_risk_tool_outside_allowed_tools_with_warning() -> None:
+    """技能声明 allowed_tools 后，低风险越界工具应继续执行并记录 soft violation。"""
     session = Session()
     registry = _GuardedSkillRegistry()
     runner = AgentRunner(
@@ -1124,7 +1343,6 @@ async def test_runner_blocks_tool_outside_allowed_tools_hard_constraint() -> Non
         if event.type == EventType.DONE:
             break
 
-    # 越界工具调用被阻断：不应有成功的 TOOL_RESULT
     success_results = [
         e
         for e in events
@@ -1133,8 +1351,41 @@ async def test_runner_blocks_tool_outside_allowed_tools_hard_constraint() -> Non
         and e.data.get("status") == "success"
         and e.tool_name == "echo_tool"
     ]
-    assert not success_results, "越界工具 echo_tool 不应成功执行"
-    # 应发出 allowed_tools_violation 错误事件
+    assert success_results, "低风险越界工具 echo_tool 应继续执行"
+    violation_events = [
+        e
+        for e in events
+        if e.type == EventType.ERROR
+        and isinstance(e.data, dict)
+        and e.data.get("level") == "allowed_tools_soft_violation"
+    ]
+    assert violation_events, "应发出 allowed_tools_soft_violation 告警事件"
+    assert registry.execute_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_runner_requests_approval_for_high_risk_tool_outside_allowed_tools() -> None:
+    session = Session()
+    registry = _HighRiskWorkspaceRegistry()
+
+    async def _ask_handler(_session: Session, _tool_call_id: str, _payload: dict[str, object]):
+        return {"approval": "拒绝此次调用"}
+
+    runner = AgentRunner(
+        resolver=_HighRiskWorkspaceResolver(),
+        skill_registry=registry,
+        knowledge_loader=_DummyKnowledgeLoader(),
+        ask_user_question_handler=_ask_handler,
+    )
+
+    events = []
+    async for event in runner.run(session, "/guarded-skill 执行流程"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    approval_events = [e for e in events if e.type == EventType.ASK_USER_QUESTION]
+    assert approval_events, "高风险越界工具应请求用户确认"
     violation_events = [
         e
         for e in events
@@ -1142,7 +1393,39 @@ async def test_runner_blocks_tool_outside_allowed_tools_hard_constraint() -> Non
         and isinstance(e.data, dict)
         and e.data.get("level") == "allowed_tools_violation"
     ]
-    assert violation_events, "应发出 allowed_tools_violation 错误事件"
+    assert violation_events, "拒绝后应发出 allowed_tools_violation 错误事件"
+    assert registry.execute_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_runner_reuses_session_level_tool_approval_for_high_risk_tool() -> None:
+    session = Session()
+    registry = _HighRiskWorkspaceRegistry()
+
+    async def _ask_handler(_session: Session, _tool_call_id: str, _payload: dict[str, object]):
+        return {"approval": "本会话同类工具都放行"}
+
+    runner = AgentRunner(
+        resolver=_HighRiskWorkspaceResolver(),
+        skill_registry=registry,
+        knowledge_loader=_DummyKnowledgeLoader(),
+        ask_user_question_handler=_ask_handler,
+    )
+
+    events = []
+    async for event in runner.run(session, "/guarded-skill 执行流程"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    approval_events = [e for e in events if e.type == EventType.ASK_USER_QUESTION]
+    assert len(approval_events) == 1, "本会话授权后同类高风险工具不应重复确认"
+    tool_results = [
+        e for e in events if e.type == EventType.TOOL_RESULT and e.tool_name == "workspace_session"
+    ]
+    assert len(tool_results) == 2
+    assert registry.execute_calls == 2
+    assert session.has_tool_approval("workspace_session:write")
 
 
 @pytest.mark.asyncio
