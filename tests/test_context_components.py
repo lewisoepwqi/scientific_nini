@@ -55,7 +55,7 @@ def test_build_skill_runtime_resources_note_lists_preview_files() -> None:
 
 
 def test_build_explicit_skill_context_replaces_arguments_and_includes_tools() -> None:
-    """显式技能上下文应替换参数占位符并带上推荐工具。"""
+    """显式技能上下文应替换参数占位符并带上首选工具。"""
 
     class _Analyzer:
         def parse_explicit_skill_calls(self, user_message: str, limit: int):

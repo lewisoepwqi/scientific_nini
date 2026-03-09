@@ -219,13 +219,14 @@ The system SHALL automatically fallback to non-parametric alternatives when para
 
 #### Scenario: 激活技能后限制工具调用
 - **WHEN** 当前回合激活的 Markdown Skill 声明了 `allowed-tools`
-- **THEN** 后续工具调用必须属于该白名单
-- **AND** 调用白名单外工具时系统必须阻断执行并返回清晰错误
+- **THEN** `allowed-tools` 应作为当前技能的首选工具集合
+- **AND** 低风险的越界工具调用可以继续执行，但系统必须记录清晰告警
+- **AND** 高风险的越界工具调用必须先请求用户确认，再决定是否执行
 
 #### Scenario: 白名单只约束模型发起的工具调用
 - **WHEN** 系统执行当前回合的框架级恢复、兼容、审计或其他非模型发起动作
-- **THEN** `allowed-tools` 白名单不应阻断这些内部动作
-- **AND** 白名单仅用于约束激活技能后由模型直接发起的工具调用
+- **THEN** `allowed-tools` 首选集合不应阻断这些内部动作
+- **AND** 分级约束仅用于处理激活技能后由模型直接发起的工具调用
 
 #### Scenario: 未声明白名单时保持默认工具行为
 - **WHEN** 当前回合激活的 Markdown Skill 未声明 `allowed-tools`
