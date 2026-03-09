@@ -85,6 +85,12 @@ build_windows.bat
 
 脚本会自动完成：安装依赖 → 可选生成打包版密钥 → 下载 Chromium（图表导出用） → 构建前端 → PyInstaller 打包 → 生成安装包（如果已安装 NSIS）。
 
+当前桌面壳默认行为：
+
+1. 双击 `nini.exe` 直接打开内嵌 WebView2 窗口，不再默认拉起系统浏览器。
+2. 若用户显式执行 `nini.exe --external-browser`，则回退到浏览器兼容模式。
+3. NSIS 安装器会检测 WebView2 Runtime，缺失时自动下载安装。
+
 ### 方式一补充：常用打包环境变量
 
 ```powershell
@@ -142,7 +148,7 @@ powershell -Command "(Get-ChildItem dist\nini -Recurse | Measure-Object -Propert
 
 ```
 dist\nini\
-+-- nini.exe                  # GUI 启动器（双击仅打开网页，不弹终端）
++-- nini.exe                  # GUI 启动器（双击直接打开内嵌桌面窗口，不弹终端）
 +-- nini-cli.exe              # CLI 入口（doctor/init/start 等）
 +-- web\dist\                 # 前端静态文件
 +-- data\
@@ -188,7 +194,7 @@ notepad %USERPROFILE%\.nini\.env
 # 4. 启动服务（CLI 调试模式）
 dist\nini\nini-cli.exe start
 
-# 5. 用户双击 GUI 启动器时不会弹终端
+# 5. 用户双击 GUI 启动器时不会弹终端，并直接显示内嵌桌面窗口
 dist\nini\nini.exe
 ```
 
@@ -197,9 +203,9 @@ dist\nini\nini.exe
 | 检查项 | 预期结果 |
 |--------|---------|
 | `nini-cli.exe doctor` | 检查通过，无 FAIL |
-| `nini.exe` | 不弹终端，只打开浏览器 |
+| `nini.exe` | 不弹终端，直接打开内嵌桌面窗口 |
 | `nini-cli.exe start` | 控制台输出启动日志 |
-| 浏览器 `127.0.0.1:8000` | 显示前端界面 |
+| 内嵌窗口首页 | 显示前端界面 |
 | 发送一条消息 | Agent 正常响应 |
 | 上传 CSV 文件 | 数据加载成功 |
 
