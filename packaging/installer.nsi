@@ -22,6 +22,8 @@
 !define PRODUCT_EXE "nini.exe"
 !define PRODUCT_CLI_EXE "nini-cli.exe"
 !define PRODUCT_ICON "nini.ico"
+!define WEBVIEW2_BOOTSTRAPPER_URL "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+!define WEBVIEW2_BOOTSTRAPPER_EXE "$TEMP\MicrosoftEdgeWebView2Setup.exe"
 !ifndef PRODUCT_SOURCE_DIR
 !define PRODUCT_SOURCE_DIR "..\dist\nini-installer"
 !endif
@@ -55,11 +57,48 @@ SetCompressor /SOLID lzma
 ; ---- 语言 ----
 !insertmacro MUI_LANGUAGE "SimpChinese"
 
+; ---- WebView2 Runtime 检测与补齐 ----
+Function HasWebView2Runtime
+    StrCpy $0 "0"
+    IfFileExists "$PROGRAMFILES32\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" found
+    IfFileExists "$PROGRAMFILES64\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" found
+    IfFileExists "$LOCALAPPDATA\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe" found
+    Return
+found:
+    StrCpy $0 "1"
+FunctionEnd
+
+Function EnsureWebView2Runtime
+    Call HasWebView2Runtime
+    StrCmp $0 "1" done
+
+    DetailPrint "未检测到 WebView2 Runtime，准备自动安装..."
+    Delete "${WEBVIEW2_BOOTSTRAPPER_EXE}"
+    ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -UseBasicParsing -Uri ''${WEBVIEW2_BOOTSTRAPPER_URL}'' -OutFile ''${WEBVIEW2_BOOTSTRAPPER_EXE}'' } catch { exit 1 }"' $1
+    StrCmp $1 0 +3
+    MessageBox MB_ICONSTOP|MB_OK "WebView2 Runtime 下载失败，无法继续安装。请确认当前网络可访问微软下载服务。" /SD IDOK
+    Abort
+
+    ExecWait '"${WEBVIEW2_BOOTSTRAPPER_EXE}" /silent /install' $1
+    Delete "${WEBVIEW2_BOOTSTRAPPER_EXE}"
+    StrCmp $1 0 +3
+    MessageBox MB_ICONSTOP|MB_OK "WebView2 Runtime 安装失败，无法继续安装。请手动安装后重试。" /SD IDOK
+    Abort
+
+    Call HasWebView2Runtime
+    StrCmp $0 "1" done
+    MessageBox MB_ICONSTOP|MB_OK "安装程序未能检测到 WebView2 Runtime，无法继续安装。" /SD IDOK
+    Abort
+done:
+FunctionEnd
+
 ; ---- 安装部分 ----
 Section "主程序" SecMain
     SectionIn RO  ; 必选
 
     SetOutPath "$INSTDIR"
+
+    Call EnsureWebView2Runtime
 
     ; 复制安装器专用瘦身目录（由 build_windows.bat 预先生成）
     File /r "${PRODUCT_SOURCE_DIR}\*.*"

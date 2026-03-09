@@ -150,6 +150,7 @@ _hiddenimports = [
 ]
 
 for optional_package in [
+    "webview",
     "sentence_transformers",
     "transformers",
     "huggingface_hub",
