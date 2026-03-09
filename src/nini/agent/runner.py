@@ -126,6 +126,25 @@ _FILE_NAME_CONFIRMATION_RE = re.compile(
 _FILE_NAME_CANDIDATE_RE = re.compile(
     r"`([^`\n]+\.[A-Za-z0-9]{1,16})`|[“\"]([^\"\n]+\.[A-Za-z0-9]{1,16})[”\"]"
 )
+_TRANSITIONAL_EXECUTION_RE = re.compile(
+    r"(让我|我来|我将|我会|我现在需要|接下来|下一步|先|首先|现在先|尝试).{0,48}"
+    r"(调用|查看|获取|检查|分析|运行|执行|绘制|生成|预览|读取|加载|更新|整理)"
+)
+_COMPLETION_SIGNAL_RE = re.compile(
+    r"(已完成|完成分析|最终答案|最终回复|结论|总结如下|分析结果|结果如下|如下所示)"
+)
+_REASONING_TOOL_WRAP_RE = re.compile(
+    r"</?(tool_call|arg_key|arg_value)>|</arg_key><arg_value>",
+    re.IGNORECASE,
+)
+_REASONING_TOOL_LEAK_RE = re.compile(
+    r"(content|file_path|operation|tasks|chart_id)</arg_key><arg_value>",
+    re.IGNORECASE,
+)
+_TOOL_FOLLOWUP_RECOVERY_PROMPT = (
+    "继续执行当前任务，不要只描述下一步。"
+    "如果需要操作，请直接调用最合适的工具；只有在任务确实完成时才输出最终结论。"
+)
 
 _ALLOWED_TOOLS_ALWAYS_ALLOW = {
     "ask_user_question",
@@ -180,6 +199,22 @@ def _tool_result_message(result: Any, *, is_error: bool) -> str:
         if isinstance(message, str) and message.strip():
             return message
     return "工具执行失败" if is_error else "工具执行完成"
+
+
+def _looks_like_reasoning_pollution(text: str) -> bool:
+    """识别被工具调用包装片段污染的 reasoning。"""
+    normalized = str(text or "").strip()
+    if not normalized:
+        return False
+    if _REASONING_TOOL_WRAP_RE.search(normalized):
+        return True
+    if _REASONING_TOOL_LEAK_RE.search(normalized):
+        return True
+    return (
+        len(normalized) > 240
+        and "</arg_key><arg_value>" in normalized
+        and "</arg_value>" in normalized
+    )
 
 
 def _enrich_chart_payload_from_artifacts(
@@ -332,6 +367,8 @@ class AgentRunner:
         allowed_tool_whitelist, allowed_tool_sources = self._resolve_allowed_tool_recommendations(
             user_message
         )
+        tool_followup_retry_used = False
+        pending_followup_prompt: str | None = None
 
         async for intent_event in self._maybe_handle_intent_clarification(
             session,
@@ -529,6 +566,15 @@ class AgentRunner:
 
             # 获取工具定义
             tools = self._get_tool_definitions(preferred_tools=allowed_tool_whitelist)
+            if pending_followup_prompt:
+                messages = [
+                    *messages,
+                    {
+                        "role": "user",
+                        "content": pending_followup_prompt,
+                    },
+                ]
+                pending_followup_prompt = None
 
             # 调用 LLM（流式）；若遇到上下文超限错误，自动压缩后重试一次
             full_text = ""
@@ -570,15 +616,23 @@ class AgentRunner:
                             full_reasoning += stripped
                             # 流式推送 reasoning（如果启用）
                             if settings.enable_reasoning and stripped:
-                                if current_reasoning_id is None:
-                                    current_reasoning_id = str(uuid.uuid4())
+                                combined_reasoning = streamed_reasoning_buffer + stripped
                                 streamed_reasoning_buffer += stripped
-                                yield eb.build_reasoning_event(
-                                    content=stripped,
-                                    reasoning_id=current_reasoning_id,
-                                    reasoning_live=True,
-                                    turn_id=turn_id,
-                                )
+                                if _looks_like_reasoning_pollution(combined_reasoning):
+                                    logger.warning(
+                                        "检测到被工具参数污染的 reasoning，已跳过流式推送: session=%s turn=%s",
+                                        session.id,
+                                        turn_id,
+                                    )
+                                else:
+                                    if current_reasoning_id is None:
+                                        current_reasoning_id = str(uuid.uuid4())
+                                    yield eb.build_reasoning_event(
+                                        content=stripped,
+                                        reasoning_id=current_reasoning_id,
+                                        reasoning_live=True,
+                                        turn_id=turn_id,
+                                    )
 
                         chunk_raw_text = getattr(chunk, "raw_text", "")
                         if chunk_raw_text:
@@ -696,15 +750,25 @@ class AgentRunner:
                     return
                 break
 
-            if full_reasoning.strip() and settings.enable_reasoning:
+            final_reasoning = full_reasoning.strip()
+            if final_reasoning and settings.enable_reasoning:
+                if _looks_like_reasoning_pollution(final_reasoning):
+                    logger.warning(
+                        "检测到被工具参数污染的 reasoning，已跳过持久化: session=%s turn=%s",
+                        session.id,
+                        turn_id,
+                    )
+                    final_reasoning = ""
+
+            if final_reasoning and settings.enable_reasoning:
                 # Detect enhanced reasoning metadata
-                reasoning_type = detect_reasoning_type(full_reasoning)
-                key_decisions = detect_key_decisions(full_reasoning)
-                confidence_score = calculate_confidence_score(full_reasoning)
+                reasoning_type = detect_reasoning_type(final_reasoning)
+                key_decisions = detect_key_decisions(final_reasoning)
+                confidence_score = calculate_confidence_score(final_reasoning)
 
                 # Track in reasoning chain
                 reasoning_node = reasoning_tracker.add_reasoning(
-                    content=full_reasoning.strip(),
+                    content=final_reasoning,
                     reasoning_type=reasoning_type,
                     key_decisions=key_decisions,
                     confidence_score=confidence_score,
@@ -715,7 +779,7 @@ class AgentRunner:
                 final_reasoning_id = current_reasoning_id or reasoning_node.get("id")
                 # 先保存到 session 持久化
                 session.add_reasoning(
-                    content=full_reasoning.strip(),
+                    content=final_reasoning,
                     reasoning_type=reasoning_type,
                     key_decisions=key_decisions,
                     confidence_score=confidence_score,
@@ -724,7 +788,7 @@ class AgentRunner:
                     turn_id=turn_id,
                 )
                 yield eb.build_reasoning_event(
-                    content=full_reasoning.strip(),
+                    content=final_reasoning,
                     reasoning_id=final_reasoning_id,
                     reasoning_live=False,
                     turn_id=turn_id,
@@ -771,6 +835,32 @@ class AgentRunner:
             # 如果没有 tool_calls → 纯文本回复，结束循环
             if not tool_calls:
                 final_text = full_text or raw_full_text
+                if self._should_retry_transitional_text(
+                    final_text,
+                    active_plan=active_plan,
+                    retry_used=tool_followup_retry_used,
+                    tools=tools,
+                ):
+                    tool_followup_retry_used = True
+                    recovery_note = (
+                        "检测到模型输出了过渡性执行文本但未实际调用工具，"
+                        "系统将自动要求其继续执行当前任务。"
+                    )
+                    session.add_reasoning(
+                        recovery_note,
+                        reasoning_type="decision",
+                        turn_id=turn_id,
+                        tags=["tool_followup_recovery"],
+                    )
+                    yield eb.build_reasoning_event(
+                        content=recovery_note,
+                        turn_id=turn_id,
+                        reasoning_live=False,
+                        source="tool_followup_recovery",
+                    )
+                    pending_followup_prompt = _TOOL_FOLLOWUP_RECOVERY_PROMPT
+                    iteration += 1
+                    continue
                 confirmation_payload = self._build_confirmation_question_payload(final_text)
                 if confirmation_payload and self._ask_user_question_handler is not None:
                     tool_call_id = f"confirm-ask-{uuid.uuid4().hex[:8]}"
@@ -2233,6 +2323,37 @@ class AgentRunner:
             normalized_answers[key] = value
 
         return normalized_answers
+
+    @staticmethod
+    def _looks_like_transitional_execution_text(text: str) -> bool:
+        """判断文本是否像“下一步要执行，但尚未真正执行”的中间态。"""
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        if len(normalized) > 120:
+            return False
+        if _COMPLETION_SIGNAL_RE.search(normalized):
+            return False
+        return _TRANSITIONAL_EXECUTION_RE.search(normalized) is not None
+
+    def _should_retry_transitional_text(
+        self,
+        text: str,
+        *,
+        active_plan: AnalysisPlan | None,
+        retry_used: bool,
+        tools: list[dict[str, Any]],
+    ) -> bool:
+        """对明显未完成的过渡文本做一次自动续跑。"""
+        if retry_used:
+            return False
+        if not tools:
+            return False
+        if not self._looks_like_transitional_execution_text(text):
+            return False
+        if active_plan is None:
+            return True
+        return any(step.status != "completed" for step in active_plan.steps)
 
     @staticmethod
     def _extract_tool_operation(arguments: str) -> str | None:

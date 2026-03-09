@@ -86,6 +86,10 @@ function resolveImageUrl(src: string, sessionId: string | null): string {
     return src
   }
 
+  if (/^chart_[A-Za-z0-9]+$/u.test(src)) {
+    return `/api/charts/${sessionId}/${normalizePathSegment(src)}.plotly.json`
+  }
+
   // 处理 ./产物/xxx.png 或 ./artifacts/xxx.png 格式的路径
   if (src.startsWith('./')) {
     const path = src.slice(2) // 移除 ./

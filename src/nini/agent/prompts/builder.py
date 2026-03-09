@@ -107,9 +107,9 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
     "agents.md": (
         "技能调用协议（Markdown Skills）：\n"
         "- 你会看到文件型技能清单（SKILLS_SNAPSHOT）。\n"
-        "- 当你计划使用某个 Markdown Skill 时，必须先读取该技能定义文件，再执行其中步骤。\n"
-        "- 禁止在未读取定义文件时直接猜测参数或执行流程。\n"
-        "- 若技能定义文件不可读或不存在，必须中止该技能并告知用户。"
+        "- 当系统已注入某个技能的 skill_definition 运行时上下文时，直接按该定义执行，不要再次调用 workspace_session 读取 SKILL.md。\n"
+        "- 若当前回合缺少该技能的 skill_definition 上下文，必须中止该技能并告知用户，不能猜测参数或执行流程。\n"
+        "- 禁止使用 workspace_session 读取仓库内 .nini/skills/*、.codex/skills/*、.claude/skills/* 等技能定义路径。"
     ),
     "user.md": "用户画像：默认未知。若用户提供偏好，按会话内最新信息更新。",
     "memory.md": "长期记忆：当前会话未提供额外长期记忆。",

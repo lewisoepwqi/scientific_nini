@@ -141,10 +141,26 @@ export function normalizeTaskAttemptStatus(raw: unknown): AnalysisTaskAttemptSta
 }
 
 const REASONING_MARKER_PATTERN = /<\/?think>|<\/?thinking>|◁think▷|◁\/think▷/gi;
+const REASONING_TOOL_WRAP_PATTERN =
+  /<\/?(tool_call|arg_key|arg_value)>|<\/arg_key><arg_value>/gi;
+const REASONING_TOOL_LEAK_PATTERN =
+  /(content|file_path|operation|tasks|chart_id)<\/arg_key><arg_value>/i;
 
 export function stripReasoningMarkers(text: string): string {
   if (!text) return text;
   return text.replace(REASONING_MARKER_PATTERN, "");
+}
+
+export function looksLikeToolCallReasoningPollution(text: string): boolean {
+  const normalized = String(text || "").trim();
+  if (!normalized) return false;
+  if (REASONING_TOOL_WRAP_PATTERN.test(normalized)) return true;
+  if (REASONING_TOOL_LEAK_PATTERN.test(normalized)) return true;
+  return (
+    normalized.length > 240 &&
+    normalized.includes("</arg_key><arg_value>") &&
+    normalized.includes("</arg_value>")
+  );
 }
 
 export function isTerminalPlanStepStatus(status: PlanStepStatus): boolean {

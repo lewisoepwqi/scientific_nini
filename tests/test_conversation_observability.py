@@ -163,6 +163,43 @@ class _TwoStepToolResolver:
         yield _Chunk(text="最终回复", tool_calls=[])
 
 
+class _TransitionalTextThenToolResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, tool_calls: list[dict[str, object]]):
+                self.text = text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls == 1:
+            yield _Chunk(text="让我先查看数据概况。", tool_calls=[])
+            return
+        if self.calls == 2:
+            last_user = messages[-1]["content"] if messages else ""
+            assert "不要只描述下一步" in str(last_user)
+            yield _Chunk(
+                text="",
+                tool_calls=[
+                    {
+                        "id": "call_transition_1",
+                        "type": "function",
+                        "function": {
+                            "name": "echo_tool",
+                            "arguments": json.dumps({"value": "ok"}, ensure_ascii=False),
+                        },
+                    }
+                ],
+            )
+            return
+
+        yield _Chunk(text="已完成分析", tool_calls=[])
+
+
 class _PlanAwareToolResolver:
     def __init__(self) -> None:
         self.calls = 0
@@ -221,6 +258,20 @@ class _ReasoningOnlyResolver:
             text = "最终答案"
             reasoning = "先检查数据分布。"
             raw_text = "<think>先检查数据分布。</think>最终答案"
+            tool_calls = []
+            usage = None
+
+        yield _Chunk()
+
+
+class _PollutedReasoningResolver:
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        class _Chunk:
+            text = "最终答案"
+            reasoning = "content</arg_key><arg_value># 正文内容</arg_value></tool_call>"
+            raw_text = (
+                "<think>content</arg_key><arg_value># 正文内容</arg_value></tool_call></think>最终答案"
+            )
             tool_calls = []
             usage = None
 
@@ -1143,7 +1194,19 @@ async def test_runner_auto_compresses_and_retries_on_context_overflow(
 
 
 @pytest.mark.asyncio
-async def test_runner_emits_reasoning_event_and_keeps_final_answer_clean() -> None:
+async def test_runner_emits_reasoning_event_and_keeps_final_answer_clean(monkeypatch) -> None:
+    async def _fake_consolidate_session_memories(session_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "nini.memory.long_term_memory.consolidate_session_memories",
+        _fake_consolidate_session_memories,
+    )
+    monkeypatch.setattr(
+        "nini.agent.runner.asyncio.create_task",
+        lambda coro: coro.close(),
+    )
+
     session = Session()
     runner = AgentRunner(
         resolver=_ReasoningOnlyResolver(),
@@ -1163,6 +1226,42 @@ async def test_runner_emits_reasoning_event_and_keeps_final_answer_clean() -> No
         for payload in reasoning_payloads
     )
     assert session.messages[-1]["role"] == "assistant"
+    assert session.messages[-1]["content"] == "最终答案"
+
+
+@pytest.mark.asyncio
+async def test_runner_skips_polluted_reasoning_from_persistence(monkeypatch) -> None:
+    async def _fake_consolidate_session_memories(session_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "nini.memory.long_term_memory.consolidate_session_memories",
+        _fake_consolidate_session_memories,
+    )
+    monkeypatch.setattr(
+        "nini.agent.runner.asyncio.create_task",
+        lambda coro: coro.close(),
+    )
+
+    session = Session()
+    runner = AgentRunner(
+        resolver=_PollutedReasoningResolver(),
+        skill_registry=_EchoSkillRegistry(),
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    events = []
+    async for event in runner.run(session, "继续分析"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    reasoning_payloads = [e.data for e in events if e.type == EventType.REASONING]
+    assert reasoning_payloads == []
+    assert not any(
+        msg.get("event_type") == "reasoning" and "arg_value" in str(msg.get("content", ""))
+        for msg in session.messages
+    )
     assert session.messages[-1]["content"] == "最终答案"
 
 
@@ -1188,6 +1287,43 @@ async def test_runner_preserves_raw_assistant_content_for_tool_calls() -> None:
     assert isinstance(content, str)
     assert "<think>" in content
     assert "</think>" in content
+
+
+@pytest.mark.asyncio
+async def test_runner_retries_when_model_outputs_transitional_text_without_tool_call() -> None:
+    session = Session()
+    resolver = _TransitionalTextThenToolResolver()
+    runner = AgentRunner(
+        resolver=resolver,
+        skill_registry=_EchoSkillRegistry(),
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    events = []
+    async for event in runner.run(session, "继续分析"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    tool_results = [
+        e for e in events if e.type == EventType.TOOL_RESULT and e.tool_name == "echo_tool"
+    ]
+    recovery_events = [
+        e
+        for e in events
+        if e.type == EventType.REASONING
+        and isinstance(e.data, dict)
+        and e.data.get("source") == "tool_followup_recovery"
+    ]
+    assert resolver.calls == 3
+    assert recovery_events, "应记录一次过渡文本自动续跑事件"
+    assert tool_results, "自动续跑后应成功执行工具"
+    assert session.messages[-1]["content"] == "已完成分析"
+    assert all(
+        msg.get("content") != "让我先查看数据概况。"
+        for msg in session.messages
+        if msg.get("role") == "assistant"
+    )
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import mimetypes
 import re
@@ -49,6 +50,7 @@ from nini.models.schemas import (
     UploadResponse,
 )
 from nini.memory.conversation import ConversationMemory, canonicalize_message_entries
+from nini.models import ChartSessionRecord
 from nini.tools.markdown_skill_admin import (
     MarkdownSkillDocument,
     guess_skill_name_from_filename,
@@ -186,6 +188,39 @@ def _build_skill_file_entries(skill_dir: Path) -> list[dict[str, Any]]:
             }
         )
     return entries
+
+
+def _resolve_chart_plotly_json_path(session_id: str, chart_id: str) -> Path | None:
+    """解析图表会话对应的 Plotly JSON 文件路径。"""
+    manager = WorkspaceManager(session_id)
+    record_path = manager.build_managed_resource_path(
+        "chart",
+        f"{chart_id}.json",
+        default_name=f"{chart_id}.json",
+    )
+    if not record_path.exists():
+        return None
+
+    try:
+        record = ChartSessionRecord.model_validate(
+            json.loads(record_path.read_text(encoding="utf-8"))
+        )
+    except Exception:
+        logger.warning("读取图表会话记录失败: session=%s chart=%s", session_id, chart_id)
+        return None
+
+    for artifact_id in record.artifact_ids:
+        summary = manager.get_resource_summary(artifact_id)
+        if not isinstance(summary, dict):
+            continue
+        name = str(summary.get("name", "")).strip()
+        path_raw = str(summary.get("path", "")).strip()
+        if not name.lower().endswith(".plotly.json") or not path_raw:
+            continue
+        path = Path(path_raw)
+        if path.exists() and path.is_file():
+            return path
+    return None
 
 
 def _fix_excel_serial_dates(df: pd.DataFrame) -> pd.DataFrame:
@@ -1833,6 +1868,21 @@ async def download_artifact(
     response.headers["Deprecation"] = "true"
     response.headers["Sunset"] = "2025-06-01"
     return response
+
+
+@router.get("/charts/{session_id}/{chart_id}.plotly.json")
+async def download_chart_plotly_json(session_id: str, chart_id: str):
+    """根据 chart_id 返回对应的 Plotly JSON 原始内容。"""
+    plotly_path = _resolve_chart_plotly_json_path(session_id, chart_id)
+    if plotly_path is None:
+        raise HTTPException(status_code=404, detail="图表文件不存在")
+    return Response(
+        content=plotly_path.read_bytes(),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'inline; filename="{quote(plotly_path.name)}"',
+        },
+    )
 
 
 @router.get("/workspace/{session_id}/uploads/{filename}")
