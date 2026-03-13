@@ -61,11 +61,10 @@ async def list_memories(
             entries = entries[:limit]
         else:
             # 返回最近的记忆
-            entries = sorted(
-                list(store._entries.values()),
-                key=lambda x: x.created_at,
-                reverse=True,
-            )[:limit]
+            all_entries = list(store._entries.values())
+            if memory_type:
+                all_entries = [e for e in all_entries if e.memory_type == memory_type]
+            entries = sorted(all_entries, key=lambda x: x.created_at, reverse=True)[:limit]
 
         return {
             "memories": [e.to_dict() for e in entries],
