@@ -342,6 +342,7 @@ class Finding:
     detail: str = ""  # 详细描述
     confidence: float = 1.0  # 置信度 (0-1)
     timestamp: float = field(default_factory=lambda: __import__("time").time())
+    ltm_id: str = ""  # 已沉淀到长期记忆的条目 ID，非空表示已写入
 
 
 @dataclass
@@ -361,6 +362,7 @@ class StatisticResult:
     confidence_interval_upper: float | None = None  # 置信区间上限
     confidence_level: float = 0.95  # 置信水平
     significant: bool = False  # 是否显著
+    ltm_id: str = ""  # 已沉淀到长期记忆的条目 ID，非空表示已写入
 
 
 @dataclass
@@ -376,6 +378,7 @@ class Decision:
     rationale: str = ""  # 决策理由
     confidence: float = 1.0  # 决策置信度
     timestamp: float = field(default_factory=lambda: __import__("time").time())
+    ltm_id: str = ""  # 已沉淀到长期记忆的条目 ID，非空表示已写入
 
 
 @dataclass
@@ -520,6 +523,7 @@ class AnalysisMemory:
                     "detail": f.detail,
                     "confidence": f.confidence,
                     "timestamp": f.timestamp,
+                    "ltm_id": f.ltm_id,
                 }
                 for f in self.findings
             ],
@@ -532,6 +536,7 @@ class AnalysisMemory:
                     "effect_size": s.effect_size,
                     "effect_type": s.effect_type,
                     "significant": s.significant,
+                    "ltm_id": s.ltm_id,
                 }
                 for s in self.statistics
             ],
@@ -543,6 +548,7 @@ class AnalysisMemory:
                     "rationale": d.rationale,
                     "confidence": d.confidence,
                     "timestamp": d.timestamp,
+                    "ltm_id": d.ltm_id,
                 }
                 for d in self.decisions
             ],
@@ -573,6 +579,7 @@ class AnalysisMemory:
                     detail=str(item.get("detail", "")),
                     confidence=float(item.get("confidence", 1.0)),
                     timestamp=float(item.get("timestamp", 0.0)),
+                    ltm_id=str(item.get("ltm_id", "")),
                 )
                 for item in data.get("findings", [])
                 if isinstance(item, dict)
@@ -596,6 +603,7 @@ class AnalysisMemory:
                     ),
                     effect_type=str(item.get("effect_type", "")),
                     significant=bool(item.get("significant", False)),
+                    ltm_id=str(item.get("ltm_id", "")),
                 )
                 for item in data.get("statistics", [])
                 if isinstance(item, dict)
@@ -612,6 +620,7 @@ class AnalysisMemory:
                     rationale=str(item.get("rationale", "")),
                     confidence=float(item.get("confidence", 1.0)),
                     timestamp=float(item.get("timestamp", 0.0)),
+                    ltm_id=str(item.get("ltm_id", "")),
                 )
                 for item in data.get("decisions", [])
                 if isinstance(item, dict)
