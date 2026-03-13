@@ -210,6 +210,8 @@ export interface AppState {
   // ResearchProfile
   researchProfile: ResearchProfile | null;
   researchProfileLoading: boolean;
+  researchProfileNarrative: api.ProfileNarrative | null;
+  researchProfileNarrativeLoading: boolean;
 
   // 成本透明化
   tokenUsage: TokenUsage | null;
@@ -299,6 +301,7 @@ export interface AppState {
   // ResearchProfile 操作
   fetchResearchProfile: () => Promise<void>;
   updateResearchProfile: (updates: Partial<ResearchProfile>) => Promise<boolean>;
+  fetchResearchProfileNarrative: () => Promise<void>;
 
   // 成本透明化操作
   fetchTokenUsage: (sessionId: string) => Promise<void>;
@@ -397,6 +400,8 @@ export const useStore = create<AppState>((set, get) => ({
   },
   researchProfile: null,
   researchProfileLoading: false,
+  researchProfileNarrative: null,
+  researchProfileNarrativeLoading: false,
   tokenUsage: null,
   costHistory: [],
   aggregateCost: null,
@@ -1247,6 +1252,12 @@ export const useStore = create<AppState>((set, get) => ({
       return true;
     }
     return false;
+  },
+
+  async fetchResearchProfileNarrative() {
+    set({ researchProfileNarrativeLoading: true });
+    const narrative = await api.fetchResearchProfileNarrative();
+    set({ researchProfileNarrative: narrative, researchProfileNarrativeLoading: false });
   },
 
   // ============================================================================

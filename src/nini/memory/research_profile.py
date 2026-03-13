@@ -38,9 +38,18 @@ class ResearchProfileManager(UserProfileManager):
             return None
 
     def save_sync(self, profile: ResearchProfile) -> None:
-        """同步保存研究画像。"""
+        """同步保存研究画像，并触发 Markdown 叙述层更新。"""
         path = self._get_profile_path(profile.user_id)
         self._write_profile_data(path, profile.to_dict())
+        # 同步更新叙述层（AUTO 段重新生成，AGENT/USER 段保留）
+        try:
+            from nini.memory.profile_narrative import get_profile_narrative_manager
+
+            get_profile_narrative_manager().regenerate(profile.user_id, profile)
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).warning("画像叙述层更新失败", exc_info=True)
 
     def get_or_create_sync(self, profile_id: str) -> ResearchProfile:
         """同步获取或创建研究画像。"""

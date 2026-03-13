@@ -1022,6 +1022,36 @@ export async function updateResearchProfile(
   }
 }
 
+export interface ProfileNarrativeSections {
+  auto: string;
+  agent: string;
+  user: string;
+}
+
+export interface ProfileNarrative {
+  profile_id: string;
+  content: string;
+  sections: ProfileNarrativeSections;
+}
+
+export async function fetchResearchProfileNarrative(
+  profileId: string = "default",
+): Promise<ProfileNarrative | null> {
+  try {
+    const resp = await fetch(
+      `/api/research-profile/narrative?profile_id=${encodeURIComponent(profileId)}`,
+    );
+    const payload = await resp.json();
+    if (payload.success) {
+      return payload.data as ProfileNarrative;
+    }
+    return null;
+  } catch (e) {
+    console.error("获取画像叙述层失败:", e);
+    return null;
+  }
+}
+
 // ---- 成本透明化相关 API ----
 
 export async function fetchTokenUsage(

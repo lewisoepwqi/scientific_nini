@@ -14,6 +14,7 @@ import {
   Loader2,
   RefreshCw,
   CheckCircle2,
+  BookOpen,
 } from "lucide-react";
 import { useStore, type ResearchProfile } from "../store";
 
@@ -53,20 +54,31 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
   const loading = useStore((s) => s.researchProfileLoading);
   const fetchProfile = useStore((s) => s.fetchResearchProfile);
   const updateProfile = useStore((s) => s.updateResearchProfile);
+  const narrative = useStore((s) => s.researchProfileNarrative);
+  const narrativeLoading = useStore((s) => s.researchProfileNarrativeLoading);
+  const fetchNarrative = useStore((s) => s.fetchResearchProfileNarrative);
 
   // 本地编辑副本，保存前不影响全局状态
   const [draft, setDraft] = useState<ResearchProfile | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [activeTab, setActiveTab] = useState<"basic" | "statistics" | "output">("basic");
+  const [activeTab, setActiveTab] = useState<"basic" | "statistics" | "output" | "journal">(
+    "basic",
+  );
 
-  // 面板打开时加载，并初始化本地副本
+  // 面板打开时加载画像，切换到研究日志 Tab 时加载叙述层
   useEffect(() => {
     if (isOpen) {
       fetchProfile();
     }
   }, [isOpen, fetchProfile]);
+
+  useEffect(() => {
+    if (isOpen && activeTab === "journal") {
+      fetchNarrative();
+    }
+  }, [isOpen, activeTab, fetchNarrative]);
 
   // 当 store 数据更新时，同步到本地副本
   useEffect(() => {
@@ -147,6 +159,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
             { id: "basic" as const, label: "基础信息", icon: User },
             { id: "statistics" as const, label: "统计偏好", icon: BarChart3 },
             { id: "output" as const, label: "输出设置", icon: Palette },
+            { id: "journal" as const, label: "研究日志", icon: BookOpen },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -344,6 +357,89 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                 </>
               )}
 
+              {/* 研究日志 Tab */}
+              {activeTab === "journal" && (
+                <div className="space-y-4">
+                  {narrativeLoading && (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 size={20} className="animate-spin text-slate-400" />
+                      <span className="ml-2 text-sm text-slate-500">加载研究日志...</span>
+                    </div>
+                  )}
+
+                  {!narrativeLoading && !narrative && (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center">
+                      <BookOpen size={32} className="mx-auto mb-2 text-slate-300" />
+                      <p className="text-sm text-slate-500">暂无研究日志</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        保存研究画像后将自动生成，Agent 分析时会追加观察记录
+                      </p>
+                    </div>
+                  )}
+
+                  {!narrativeLoading && narrative && (
+                    <>
+                      {/* 研究偏好摘要（系统生成，只读） */}
+                      {narrative.sections.auto && (
+                        <div>
+                          <div className="mb-1.5 flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-slate-600">
+                              研究偏好摘要
+                            </span>
+                            <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] text-sky-600">
+                              系统维护
+                            </span>
+                          </div>
+                          <pre className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
+                            {narrative.sections.auto}
+                          </pre>
+                        </div>
+                      )}
+
+                      {/* 分析习惯与观察（Agent 写入，只读） */}
+                      {narrative.sections.agent ? (
+                        <div>
+                          <div className="mb-1.5 flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-slate-600">
+                              分析习惯与观察
+                            </span>
+                            <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] text-violet-600">
+                              Agent 记录
+                            </span>
+                          </div>
+                          <pre className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
+                            {narrative.sections.agent}
+                          </pre>
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-slate-200 p-3 text-center text-xs text-slate-400">
+                          Agent 尚未记录分析习惯，分析过程中会自动追加
+                        </div>
+                      )}
+
+                      {/* 备注（对应 research_notes，跳转到基础信息编辑） */}
+                      {narrative.sections.user && (
+                        <div>
+                          <div className="mb-1.5 flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-slate-600">备注</span>
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-600">
+                              可在基础信息中编辑
+                            </span>
+                          </div>
+                          <pre className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
+                            {narrative.sections.user}
+                          </pre>
+                        </div>
+                      )}
+
+                      <p className="text-center text-[10px] text-slate-400">
+                        研究日志由系统自动维护，如需修改偏好请在其他标签页编辑后保存
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* 输出设置 Tab */}
               {activeTab === "output" && (
                 <>
@@ -474,11 +570,20 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
         {/* Footer */}
         <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50/50 px-6 py-4">
           <button
-            onClick={fetchProfile}
-            disabled={loading}
+            onClick={() => {
+              if (activeTab === "journal") {
+                fetchNarrative();
+              } else {
+                fetchProfile();
+              }
+            }}
+            disabled={loading || narrativeLoading}
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
           >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            <RefreshCw
+              size={14}
+              className={loading || narrativeLoading ? "animate-spin" : ""}
+            />
             刷新
           </button>
 

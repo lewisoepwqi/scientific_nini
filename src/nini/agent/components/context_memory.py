@@ -111,11 +111,29 @@ def build_research_profile_context(
     default_profile_id: str,
     get_profile_manager: Callable[[], Any],
 ) -> str:
-    """构建研究画像上下文。"""
+    """构建研究画像上下文。
+
+    优先从 Markdown 叙述层（{profile_id}_profile.md）读取注入文本，
+    兼具 AUTO（结构化摘要）、AGENT（分析习惯）、USER（备注）三段内容，
+    信息密度高于原有的 get_research_profile_prompt() 生成方式。
+    MD 文件不存在时自动回退到 JSON 生成方式，保证向后兼容。
+    """
     profile_id = (
         str(getattr(session, "research_profile_id", default_profile_id) or "").strip()
         or default_profile_id
     )
+
+    # 优先读取 Markdown 叙述层
+    try:
+        from nini.memory.profile_narrative import get_profile_narrative_manager
+
+        narrative_text = get_profile_narrative_manager().get_narrative_for_context(profile_id)
+        if narrative_text.strip():
+            return format_untrusted_context_block("research_profile", narrative_text)
+    except Exception:
+        logger.warning("读取画像叙述层失败，回退到 JSON 生成方式", exc_info=True)
+
+    # 回退：从 JSON 字段实时生成文本
     profile_manager = get_profile_manager()
     research_profile = profile_manager.get_or_create_sync(profile_id)
     if hasattr(research_profile, "domain"):
