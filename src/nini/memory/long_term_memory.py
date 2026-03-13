@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -173,8 +174,22 @@ class LongTermMemoryStore:
         Returns:
             创建的记忆条目
         """
-        # 将 relations 写入 metadata 的标准子字段（不修改顶层 schema）
+        # 第三层：内容哈希 upsert —— 先查后写，防止跨会话写入相同内容
+        dedup_key = hashlib.md5(
+            f"{memory_type}|{source_dataset or ''}|{content}".encode("utf-8")
+        ).hexdigest()
+        for _existing in self._entries.values():
+            if _existing.metadata.get("dedup_key") == dedup_key:
+                # 命中：更新访问统计并直接返回，不创建新条目
+                _existing.access_count += 1
+                _existing.last_accessed_at = datetime.now(timezone.utc).isoformat()
+                self._save_entries()
+                logger.debug("记忆去重命中，跳过写入: dedup_key=%s", dedup_key[:8])
+                return _existing
+
+        # 将 relations 和 dedup_key 写入 metadata 的标准子字段
         merged_metadata: dict[str, Any] = dict(metadata or {})
+        merged_metadata["dedup_key"] = dedup_key
         if relations:
             # 每个 relation 应包含 type/entities/dataset 字段
             merged_metadata["relations"] = [dict(r) for r in relations if isinstance(r, dict)]
@@ -578,20 +593,34 @@ async def consolidate_session_memories(session_id: str) -> int:
         写入的记忆条数
     """
     try:
-        from nini.memory.compression import list_session_analysis_memories
+        from nini.memory.compression import list_session_analysis_memories, save_analysis_memory
 
         memories = list_session_analysis_memories(session_id)
         if not memories:
+            return 0
+
+        # 第二层：检查是否存在未沉淀条目，无则提前退出，避免无效 I/O
+        has_new = any(
+            any(not f.ltm_id for f in m.findings if f.confidence >= 0.7)
+            or any(not s.ltm_id for s in m.statistics)
+            or any(not d.ltm_id for d in m.decisions if d.confidence >= 0.7)
+            for m in memories
+        )
+        if not has_new:
             return 0
 
         store = get_long_term_memory_store()
         count = 0
 
         for memory in memories:
+            modified = False  # 追踪本 memory 是否有写入，决定是否持久化回写
+
             # 沉淀高置信度 Finding
             for finding in memory.findings:
+                if finding.ltm_id:  # 第一层：已沉淀，跳过
+                    continue
                 if finding.confidence >= 0.7:
-                    store.add_memory(
+                    entry = store.add_memory(
                         memory_type="finding",
                         content=finding.detail or finding.summary,
                         summary=finding.summary,
@@ -600,12 +629,17 @@ async def consolidate_session_memories(session_id: str) -> int:
                         importance_score=finding.confidence,
                         tags=[finding.category] if finding.category else [],
                     )
+                    if entry is not None:
+                        finding.ltm_id = entry.id  # 第一层：标记已沉淀
+                    modified = True
                     count += 1
 
             # 沉淀统计结果（显著性结果重要性更高）
             for stat in memory.statistics:
+                if stat.ltm_id:  # 第一层：已沉淀，跳过
+                    continue
                 importance = 0.8 if stat.significant else 0.6
-                store.add_memory(
+                entry = store.add_memory(
                     memory_type="statistic",
                     content=(
                         f"{stat.test_name}: "
@@ -619,12 +653,17 @@ async def consolidate_session_memories(session_id: str) -> int:
                     importance_score=importance,
                     tags=["statistic", stat.test_name],
                 )
+                if entry is not None:
+                    stat.ltm_id = entry.id  # 第一层：标记已沉淀
+                modified = True
                 count += 1
 
             # 沉淀高置信度方法决策
             for decision in memory.decisions:
+                if decision.ltm_id:  # 第一层：已沉淀，跳过
+                    continue
                 if decision.confidence >= 0.7:
-                    store.add_memory(
+                    entry = store.add_memory(
                         memory_type="decision",
                         content=f"{decision.decision_type}: 选择 {decision.chosen}。理由：{decision.rationale}",
                         summary=f"{decision.decision_type} → {decision.chosen}",
@@ -633,7 +672,17 @@ async def consolidate_session_memories(session_id: str) -> int:
                         importance_score=decision.confidence * 0.8,
                         tags=["decision", decision.decision_type],
                     )
+                    if entry is not None:
+                        decision.ltm_id = entry.id  # 第一层：标记已沉淀
+                    modified = True
                     count += 1
+
+            # 第一层：有新写入时才回写持久化；写入失败不影响沉淀计数
+            if modified:
+                try:
+                    save_analysis_memory(memory)
+                except Exception as _save_err:
+                    logger.warning("回写 AnalysisMemory 失败（不影响 LTM 写入）: %s", _save_err)
 
         if count > 0:
             logger.info("会话 %s 记忆沉淀完成，写入 %d 条长期记忆", session_id, count)

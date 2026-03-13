@@ -1022,6 +1022,111 @@ export async function updateResearchProfile(
   }
 }
 
+export interface ProfileNarrativeSections {
+  auto: string;
+  agent: string;
+  user: string;
+}
+
+export interface ProfileNarrative {
+  profile_id: string;
+  content: string;
+  sections: ProfileNarrativeSections;
+}
+
+export async function fetchResearchProfileNarrative(
+  profileId: string = "default",
+): Promise<ProfileNarrative | null> {
+  try {
+    const resp = await fetch(
+      `/api/research-profile/narrative?profile_id=${encodeURIComponent(profileId)}`,
+    );
+    const payload = await resp.json();
+    if (payload.success) {
+      return payload.data as ProfileNarrative;
+    }
+    return null;
+  } catch (e) {
+    console.error("获取画像叙述层失败:", e);
+    return null;
+  }
+}
+
+// ---- 长期记忆 API ----
+
+export interface LongTermMemoryEntry {
+  id: string;
+  memory_type: string; // finding | statistic | decision | insight
+  content: string;
+  summary: string;
+  source_session_id: string;
+  source_dataset: string | null;
+  analysis_type: string | null;
+  confidence: number;
+  importance_score: number;
+  tags: string[];
+  metadata: Record<string, unknown>;
+  created_at: string;
+  last_accessed_at: string;
+  access_count: number;
+}
+
+export interface LongTermMemoryStats {
+  total_memories: number;
+  type_distribution: Record<string, number>;
+  vector_store_available: boolean;
+}
+
+export async function fetchLongTermMemories(
+  params: {
+    query?: string;
+    session_id?: string;
+    dataset_name?: string;
+    memory_type?: string;
+    limit?: number;
+  } = {},
+): Promise<{ memories: LongTermMemoryEntry[]; total: number }> {
+  try {
+    const sp = new URLSearchParams();
+    if (params.query) sp.set("query", params.query);
+    if (params.session_id) sp.set("session_id", params.session_id);
+    if (params.dataset_name) sp.set("dataset_name", params.dataset_name);
+    if (params.memory_type) sp.set("memory_type", params.memory_type);
+    if (params.limit) sp.set("limit", String(params.limit));
+    const qs = sp.toString();
+    const resp = await fetch(`/api/memory/long-term${qs ? `?${qs}` : ""}`);
+    const data = await resp.json();
+    return {
+      memories: Array.isArray(data.memories) ? (data.memories as LongTermMemoryEntry[]) : [],
+      total: typeof data.total === "number" ? data.total : 0,
+    };
+  } catch {
+    return { memories: [], total: 0 };
+  }
+}
+
+export async function deleteLongTermMemory(memoryId: string): Promise<boolean> {
+  try {
+    const resp = await fetch(`/api/memory/long-term/${encodeURIComponent(memoryId)}`, {
+      method: "DELETE",
+    });
+    const data = await resp.json();
+    return data.success === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchLongTermMemoryStats(): Promise<LongTermMemoryStats | null> {
+  try {
+    const resp = await fetch("/api/memory/long-term/stats");
+    if (!resp.ok) return null;
+    return (await resp.json()) as LongTermMemoryStats;
+  } catch {
+    return null;
+  }
+}
+
 // ---- 成本透明化相关 API ----
 
 export async function fetchTokenUsage(

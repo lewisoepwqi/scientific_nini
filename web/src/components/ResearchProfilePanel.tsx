@@ -3,6 +3,9 @@
  *
  * 让用户可以查看和修改研究偏好，完成四层记忆闭环。
  * 通过 Zustand store 管理状态，保证全局一致性。
+ *
+ * 设计风格：学术工作台 / 科研笔记本
+ * 色调：暖象牙色底面 + 深焦炭色标题栏 + 琥珀金点缀
  */
 
 import { useEffect, useState } from "react";
@@ -14,6 +17,9 @@ import {
   Loader2,
   RefreshCw,
   CheckCircle2,
+  BookOpen,
+  FlaskConical,
+  X,
 } from "lucide-react";
 import { useStore, type ResearchProfile } from "../store";
 
@@ -26,49 +32,116 @@ const JOURNAL_STYLES = [
   { value: "nature", label: "Nature", description: "自然科学顶刊风格" },
   { value: "science", label: "Science", description: "综合性科学顶刊风格" },
   { value: "cell", label: "Cell", description: "生命科学顶刊风格" },
-  { value: "nejm", label: "NEJM", description: "新英格兰医学杂志风格" },
+  { value: "nejm", label: "NEJM", description: "新英格兰医学杂志" },
   { value: "lancet", label: "Lancet", description: "柳叶刀风格" },
   { value: "apa", label: "APA", description: "美国心理学会风格" },
-  { value: "ieee", label: "IEEE", description: "电气电子工程师学会风格" },
+  { value: "ieee", label: "IEEE", description: "电气电子工程师学会" },
 ];
 
 const REPORT_DETAIL_LEVELS = [
-  { value: "brief", label: "简洁", description: "仅包含核心结果" },
-  { value: "standard", label: "标准", description: "平衡详细程度" },
-  { value: "detailed", label: "详细", description: "包含完整分析细节" },
+  { value: "brief", label: "简洁", description: "核心结果" },
+  { value: "standard", label: "标准", description: "平衡详尽" },
+  { value: "detailed", label: "详细", description: "完整细节" },
 ];
 
 const DOMAINS = [
-  { value: "general", label: "通用", icon: "🔬" },
+  { value: "general", label: "通用", icon: "⚗️" },
   { value: "biology", label: "生物学", icon: "🧬" },
   { value: "medicine", label: "医学", icon: "🏥" },
   { value: "psychology", label: "心理学", icon: "🧠" },
-  { value: "economics", label: "经济学", icon: "📊" },
+  { value: "economics", label: "经济学", icon: "📈" },
   { value: "sociology", label: "社会学", icon: "👥" },
   { value: "engineering", label: "工程学", icon: "⚙️" },
 ];
+
+/* ---- 段落颜色标记 ---- */
+const SECTION_COLORS = {
+  auto: { bg: "bg-teal-50", border: "border-l-teal-400", badge: "bg-teal-100 text-teal-700" },
+  agent: {
+    bg: "bg-violet-50",
+    border: "border-l-violet-400",
+    badge: "bg-violet-100 text-violet-700",
+  },
+  user: {
+    bg: "bg-amber-50",
+    border: "border-l-amber-400",
+    badge: "bg-amber-100 text-amber-700",
+  },
+};
+
+/* ---- 小标签组件 ---- */
+function SectionBadge({
+  label,
+  color,
+}: {
+  label: string;
+  color: string;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide ${color}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+/* ---- 开关控件 ---- */
+function ToggleSwitch({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+        checked ? "bg-amber-500" : "bg-stone-200"
+      }`}
+    >
+      <span
+        className={`pointer-events-none inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${
+          checked ? "translate-x-4" : "translate-x-0.5"
+        }`}
+      />
+    </button>
+  );
+}
 
 export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
   const profile = useStore((s) => s.researchProfile);
   const loading = useStore((s) => s.researchProfileLoading);
   const fetchProfile = useStore((s) => s.fetchResearchProfile);
   const updateProfile = useStore((s) => s.updateResearchProfile);
+  const narrative = useStore((s) => s.researchProfileNarrative);
+  const narrativeLoading = useStore((s) => s.researchProfileNarrativeLoading);
+  const fetchNarrative = useStore((s) => s.fetchResearchProfileNarrative);
 
-  // 本地编辑副本，保存前不影响全局状态
   const [draft, setDraft] = useState<ResearchProfile | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [activeTab, setActiveTab] = useState<"basic" | "statistics" | "output">("basic");
+  const [activeTab, setActiveTab] = useState<"basic" | "statistics" | "output" | "journal">(
+    "basic",
+  );
 
-  // 面板打开时加载，并初始化本地副本
   useEffect(() => {
     if (isOpen) {
       fetchProfile();
     }
   }, [isOpen, fetchProfile]);
 
-  // 当 store 数据更新时，同步到本地副本
+  useEffect(() => {
+    if (isOpen && activeTab === "journal") {
+      fetchNarrative();
+    }
+  }, [isOpen, activeTab, fetchNarrative]);
+
   useEffect(() => {
     if (profile) {
       setDraft({ ...profile });
@@ -104,7 +177,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
     setSaving(false);
     if (ok) {
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2000);
+      setTimeout(() => setSaveSuccess(false), 2500);
     } else {
       setError("保存失败，请重试");
     }
@@ -112,163 +185,187 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
 
   if (!isOpen) return null;
 
-  const updateField = <K extends keyof ResearchProfile>(
-    field: K,
-    value: ResearchProfile[K]
-  ) => {
+  const updateField = <K extends keyof ResearchProfile>(field: K, value: ResearchProfile[K]) => {
     setDraft((prev) => (prev ? { ...prev, [field]: value } : null));
   };
 
+  const TABS = [
+    { id: "basic" as const, label: "基础信息", icon: User },
+    { id: "statistics" as const, label: "统计偏好", icon: BarChart3 },
+    { id: "output" as const, label: "输出设置", icon: Palette },
+    { id: "journal" as const, label: "研究日志", icon: BookOpen },
+  ];
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-slate-900 to-slate-800 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white">
-              <User size={20} />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-white">研究画像</h2>
-              <p className="text-xs text-slate-400">配置您的研究偏好和输出风格</p>
-            </div>
-          </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div
+        className="flex max-h-[92vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl shadow-2xl"
+        style={{ background: "#FEFCF5", border: "1px solid #E5DDD0" }}
+      >
+        {/* ---- 标题栏 ---- */}
+        <div
+          className="relative flex flex-shrink-0 items-center gap-4 px-6 py-4"
+          style={{ background: "linear-gradient(135deg, #1C1714 0%, #2D2420 100%)" }}
+        >
+          {/* 右上角关闭 */}
           <button
             onClick={onClose}
-            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+            className="absolute right-4 top-4 rounded-lg p-1.5 text-stone-400 transition-colors hover:bg-white/10 hover:text-white"
           >
-            ✕
+            <X size={16} />
           </button>
+
+          <div
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl"
+            style={{ background: "rgba(217, 119, 6, 0.20)" }}
+          >
+            <FlaskConical size={20} className="text-amber-400" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-white tracking-tight">研究画像</h2>
+            <p className="text-xs" style={{ color: "#A8A09A" }}>
+              科研偏好 · 输出规范 · 分析日志
+            </p>
+          </div>
+
+          {/* 成功提示 */}
+          {saveSuccess && (
+            <div className="ml-auto mr-8 flex items-center gap-1.5 text-xs text-emerald-400">
+              <CheckCircle2 size={13} />
+              已保存
+            </div>
+          )}
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-slate-200 bg-slate-50/50">
-          {[
-            { id: "basic" as const, label: "基础信息", icon: User },
-            { id: "statistics" as const, label: "统计偏好", icon: BarChart3 },
-            { id: "output" as const, label: "输出设置", icon: Palette },
-          ].map((tab) => (
+        {/* ---- Tab 导航 ---- */}
+        <div
+          className="flex flex-shrink-0 border-b"
+          style={{ borderColor: "#E5DDD0", background: "#FAF7EF" }}
+        >
+          {TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex flex-1 items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
+              className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-all ${
                 activeTab === tab.id
-                  ? "border-b-2 border-sky-500 text-sky-600"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                  ? "border-b-2 border-amber-500 text-amber-700"
+                  : "text-stone-500 hover:text-stone-800"
               }`}
+              style={{
+                background: activeTab === tab.id ? "#FFFBF0" : "transparent",
+              }}
             >
-              <tab.icon size={16} />
+              <tab.icon size={14} />
               {tab.label}
             </button>
           ))}
         </div>
 
-        {/* Content */}
-        <div className="max-h-[60vh] overflow-y-auto p-6">
+        {/* ---- 内容区 ---- */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           {loading && (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 size={24} className="animate-spin text-slate-400" />
-              <span className="ml-2 text-slate-600">加载中...</span>
+            <div className="flex items-center justify-center py-16">
+              <Loader2 size={22} className="animate-spin text-amber-400" />
+              <span className="ml-2 text-sm text-stone-500">加载中…</span>
             </div>
           )}
 
           {error && (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
               {error}
             </div>
           )}
 
           {draft && !loading && (
-            <div className="space-y-6">
-              {/* 基础信息 Tab */}
+            <div className="space-y-5">
+              {/* ---- 基础信息 ---- */}
               {activeTab === "basic" && (
                 <>
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">
-                      研究领域
-                    </label>
+                    <p className="mb-2.5 text-xs font-semibold uppercase tracking-widest text-stone-400">
+                      主研究领域
+                    </p>
                     <div className="grid grid-cols-4 gap-2">
                       {DOMAINS.map((d) => (
                         <button
                           key={d.value}
                           onClick={() => updateField("domain", d.value)}
-                          className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs transition-all ${
+                          className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-center text-xs font-medium transition-all ${
                             draft.domain === d.value
-                              ? "border-sky-500 bg-sky-50 text-sky-700"
-                              : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                              ? "border-amber-400 bg-amber-50 text-amber-800 shadow-sm"
+                              : "border-stone-200 bg-white text-stone-600 hover:border-stone-300 hover:bg-stone-50"
                           }`}
                         >
-                          <span className="text-lg">{d.icon}</span>
-                          <span>{d.label}</span>
+                          <span className="text-base leading-none">{d.icon}</span>
+                          <span className="leading-tight">{d.label}</span>
                         </button>
                       ))}
                     </div>
                   </div>
 
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">
-                      研究兴趣描述
+                    <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-stone-400">
+                      研究兴趣
                     </label>
                     <textarea
                       value={draft.research_interest}
                       onChange={(e) => updateField("research_interest", e.target.value)}
-                      placeholder="例如：植物根系发育的分子机制研究..."
-                      className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+                      placeholder="例：植物根系发育的分子机制…"
+                      className="w-full rounded-xl border border-stone-200 bg-white px-3.5 py-2.5 text-sm text-stone-700 placeholder-stone-300 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
                       rows={3}
                     />
                   </div>
 
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                    <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-stone-400">
                       典型样本量
                     </label>
                     <input
                       type="text"
                       value={draft.typical_sample_size}
                       onChange={(e) => updateField("typical_sample_size", e.target.value)}
-                      placeholder="例如：每组 30-50 个样本"
-                      className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+                      placeholder="例：每组 30–50 个样本"
+                      className="w-full rounded-xl border border-stone-200 bg-white px-3.5 py-2.5 text-sm text-stone-700 placeholder-stone-300 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
                     />
                   </div>
 
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                    <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-stone-400">
                       研究备注
                     </label>
                     <textarea
                       value={draft.research_notes}
                       onChange={(e) => updateField("research_notes", e.target.value)}
-                      placeholder="其他需要记录的研究偏好..."
-                      className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+                      placeholder="其他偏好或约束条件…"
+                      className="w-full rounded-xl border border-stone-200 bg-white px-3.5 py-2.5 text-sm text-stone-700 placeholder-stone-300 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
                       rows={2}
                     />
                   </div>
                 </>
               )}
 
-              {/* 统计偏好 Tab */}
+              {/* ---- 统计偏好 ---- */}
               {activeTab === "statistics" && (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">
-                        显著性水平 (α)
+                      <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-stone-400">
+                        显著性水平 α
                       </label>
                       <select
                         value={draft.significance_level}
                         onChange={(e) =>
                           updateField("significance_level", parseFloat(e.target.value))
                         }
-                        className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-sky-500 focus:outline-none"
+                        className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm text-stone-700 focus:border-amber-400 focus:outline-none"
                       >
-                        <option value={0.01}>0.01 (更严格)</option>
-                        <option value={0.05}>0.05 (标准)</option>
-                        <option value={0.10}>0.10 (较宽松)</option>
+                        <option value={0.01}>0.01（更严格）</option>
+                        <option value={0.05}>0.05（标准）</option>
+                        <option value={0.1}>0.10（较宽松）</option>
                       </select>
                     </div>
-
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                      <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-stone-400">
                         置信区间
                       </label>
                       <select
@@ -276,9 +373,9 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                         onChange={(e) =>
                           updateField("confidence_interval", parseFloat(e.target.value))
                         }
-                        className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-sky-500 focus:outline-none"
+                        className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm text-stone-700 focus:border-amber-400 focus:outline-none"
                       >
-                        <option value={0.90}>90%</option>
+                        <option value={0.9}>90%</option>
                         <option value={0.95}>95%</option>
                         <option value={0.99}>99%</option>
                       </select>
@@ -286,32 +383,34 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                   </div>
 
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">
-                      多重比较校正方法
+                    <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-stone-400">
+                      多重比较校正
                     </label>
                     <select
                       value={draft.preferred_correction}
                       onChange={(e) => updateField("preferred_correction", e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-sky-500 focus:outline-none"
+                      className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm text-stone-700 focus:border-amber-400 focus:outline-none"
                     >
-                      <option value="bonferroni">Bonferroni (保守)</option>
-                      <option value="fdr">FDR (较宽松)</option>
-                      <option value="none">不进行校正</option>
+                      <option value="bonferroni">Bonferroni（保守）</option>
+                      <option value="fdr">FDR（较宽松）</option>
+                      <option value="none">不校正</option>
                     </select>
                   </div>
 
-                  <div className="space-y-3">
-                    <label className="block text-sm font-medium text-slate-700">分析选项</label>
+                  <div className="space-y-2">
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-stone-400">
+                      分析选项
+                    </p>
                     {[
                       {
                         key: "auto_check_assumptions" as const,
                         label: "自动前提检验",
-                        desc: "自动检查正态性、方差齐性等统计前提",
+                        desc: "正态性、方差齐性等统计前提",
                       },
                       {
                         key: "include_effect_size" as const,
                         label: "包含效应量",
-                        desc: "报告中包含 Cohen's d、η² 等效应量指标",
+                        desc: "Cohen's d、η² 等效应量指标",
                       },
                       {
                         key: "include_ci" as const,
@@ -321,44 +420,42 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                       {
                         key: "include_power_analysis" as const,
                         label: "包含功效分析",
-                        desc: "分析统计功效和样本量需求",
+                        desc: "统计功效和样本量需求",
                       },
                     ].map((item) => (
-                      <label
+                      <div
                         key={item.key}
-                        className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3 transition-colors hover:bg-slate-50"
+                        className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white p-3"
                       >
-                        <input
-                          type="checkbox"
+                        <ToggleSwitch
                           checked={draft[item.key]}
-                          onChange={(e) => updateField(item.key, e.target.checked)}
-                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                          onChange={(v) => updateField(item.key, v)}
                         />
-                        <div>
-                          <div className="text-sm font-medium text-slate-700">{item.label}</div>
-                          <div className="text-xs text-slate-500">{item.desc}</div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-stone-700">{item.label}</p>
+                          <p className="text-xs text-stone-400">{item.desc}</p>
                         </div>
-                      </label>
+                      </div>
                     ))}
                   </div>
                 </>
               )}
 
-              {/* 输出设置 Tab */}
+              {/* ---- 输出设置 ---- */}
               {activeTab === "output" && (
                 <>
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-stone-400">
                       期刊风格
-                    </label>
-                    <div className="space-y-2">
+                    </p>
+                    <div className="space-y-1.5">
                       {JOURNAL_STYLES.map((style) => (
                         <label
                           key={style.value}
                           className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-all ${
                             draft.journal_style === style.value
-                              ? "border-sky-500 bg-sky-50"
-                              : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                              ? "border-amber-400 bg-amber-50"
+                              : "border-stone-200 bg-white hover:border-stone-300 hover:bg-stone-50"
                           }`}
                         >
                           <input
@@ -367,13 +464,13 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                             value={style.value}
                             checked={draft.journal_style === style.value}
                             onChange={(e) => updateField("journal_style", e.target.value)}
-                            className="h-4 w-4 border-slate-300 text-sky-600 focus:ring-sky-500"
+                            className="h-3.5 w-3.5 border-stone-300 text-amber-500 focus:ring-amber-400"
                           />
-                          <div className="flex-1">
-                            <div className="text-sm font-medium text-slate-700">
+                          <div className="flex flex-1 items-center justify-between">
+                            <span className="text-sm font-semibold text-stone-700">
                               {style.label}
-                            </div>
-                            <div className="text-xs text-slate-500">{style.description}</div>
+                            </span>
+                            <span className="text-xs text-stone-400">{style.description}</span>
                           </div>
                         </label>
                       ))}
@@ -381,71 +478,59 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                   </div>
 
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-stone-400">
                       报告详细程度
-                    </label>
+                    </p>
                     <div className="grid grid-cols-3 gap-2">
                       {REPORT_DETAIL_LEVELS.map((level) => (
                         <button
                           key={level.value}
                           onClick={() => updateField("report_detail_level", level.value)}
-                          className={`rounded-xl border p-3 text-center text-sm transition-all ${
+                          className={`rounded-xl border px-3 py-3 text-center transition-all ${
                             draft.report_detail_level === level.value
-                              ? "border-sky-500 bg-sky-50 text-sky-700"
-                              : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                              ? "border-amber-400 bg-amber-50 text-amber-800"
+                              : "border-stone-200 bg-white text-stone-600 hover:border-stone-300"
                           }`}
                         >
-                          <div className="font-medium">{level.label}</div>
-                          <div className="mt-1 text-[10px] text-slate-500">{level.description}</div>
+                          <p className="text-sm font-semibold">{level.label}</p>
+                          <p className="mt-0.5 text-[10px] text-stone-400">{level.description}</p>
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">
-                        图表宽度
-                      </label>
-                      <input
-                        type="number"
-                        value={draft.figure_width}
-                        onChange={(e) =>
-                          updateField("figure_width", parseInt(e.target.value))
-                        }
-                        className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-sky-500 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">
-                        图表高度
-                      </label>
-                      <input
-                        type="number"
-                        value={draft.figure_height}
-                        onChange={(e) =>
-                          updateField("figure_height", parseInt(e.target.value))
-                        }
-                        className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-sky-500 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">
-                        DPI
-                      </label>
-                      <input
-                        type="number"
-                        value={draft.figure_dpi}
-                        onChange={(e) => updateField("figure_dpi", parseInt(e.target.value))}
-                        className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-sky-500 focus:outline-none"
-                      />
-                    </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      {
+                        key: "figure_width" as const,
+                        label: "图表宽度 (in)",
+                      },
+                      {
+                        key: "figure_height" as const,
+                        label: "图表高度 (in)",
+                      },
+                      { key: "figure_dpi" as const, label: "DPI" },
+                    ].map((f) => (
+                      <div key={f.key}>
+                        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-stone-400">
+                          {f.label}
+                        </label>
+                        <input
+                          type="number"
+                          value={draft[f.key]}
+                          onChange={(e) =>
+                            updateField(f.key, parseInt(e.target.value) as ResearchProfile[typeof f.key])
+                          }
+                          className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm font-mono text-stone-700 focus:border-amber-400 focus:outline-none"
+                        />
+                      </div>
+                    ))}
                   </div>
 
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-stone-400">
                       输出语言
-                    </label>
+                    </p>
                     <div className="flex gap-2">
                       {[
                         { value: "zh", label: "中文" },
@@ -454,10 +539,10 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                         <button
                           key={lang.value}
                           onClick={() => updateField("output_language", lang.value)}
-                          className={`rounded-lg border px-4 py-2 text-sm transition-all ${
+                          className={`rounded-xl border px-5 py-2 text-sm font-medium transition-all ${
                             draft.output_language === lang.value
-                              ? "border-sky-500 bg-sky-50 text-sky-700"
-                              : "border-slate-200 hover:border-slate-300"
+                              ? "border-amber-400 bg-amber-50 text-amber-800"
+                              : "border-stone-200 bg-white text-stone-600 hover:border-stone-300"
                           }`}
                         >
                           {lang.label}
@@ -467,46 +552,173 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                   </div>
                 </>
               )}
+
+              {/* ---- 研究日志 ---- */}
+              {activeTab === "journal" && (
+                <div className="space-y-4">
+                  {narrativeLoading && (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 size={20} className="animate-spin text-amber-400" />
+                      <span className="ml-2 text-sm text-stone-500">加载研究日志…</span>
+                    </div>
+                  )}
+
+                  {!narrativeLoading && !narrative && (
+                    <div
+                      className="rounded-2xl border-2 border-dashed p-10 text-center"
+                      style={{ borderColor: "#D5C8B8", background: "#FEFCF5" }}
+                    >
+                      <BookOpen size={32} className="mx-auto mb-3 text-stone-300" />
+                      <p className="text-sm font-medium text-stone-500">研究日志尚未生成</p>
+                      <p className="mt-1 text-xs text-stone-400">
+                        保存研究画像后自动生成，Agent 分析时会追加观察
+                      </p>
+                    </div>
+                  )}
+
+                  {!narrativeLoading && narrative && (
+                    <div className="space-y-4">
+                      {/* 研究偏好摘要 */}
+                      {narrative.sections.auto && (
+                        <div
+                          className={`rounded-xl border-l-4 p-4 ${SECTION_COLORS.auto.bg} ${SECTION_COLORS.auto.border}`}
+                          style={{ borderTopRightRadius: "0.75rem", borderBottomRightRadius: "0.75rem", borderTopLeftRadius: "0", borderBottomLeftRadius: "0" }}
+                        >
+                          <div className="mb-2 flex items-center gap-2">
+                            <span className="text-xs font-semibold text-stone-600">
+                              研究偏好摘要
+                            </span>
+                            <SectionBadge
+                              label="系统维护"
+                              color={SECTION_COLORS.auto.badge}
+                            />
+                          </div>
+                          <p className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-stone-600">
+                            {narrative.sections.auto}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Agent 观察记录 */}
+                      {narrative.sections.agent ? (
+                        <div
+                          className={`rounded-xl border-l-4 p-4 ${SECTION_COLORS.agent.bg} ${SECTION_COLORS.agent.border}`}
+                        >
+                          <div className="mb-2 flex items-center gap-2">
+                            <span className="text-xs font-semibold text-stone-600">
+                              分析习惯与观察
+                            </span>
+                            <SectionBadge
+                              label="Agent 记录"
+                              color={SECTION_COLORS.agent.badge}
+                            />
+                          </div>
+                          <p className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-stone-600">
+                            {narrative.sections.agent}
+                          </p>
+                        </div>
+                      ) : (
+                        <div
+                          className={`rounded-xl border-l-4 border-dashed p-4 ${SECTION_COLORS.agent.bg} ${SECTION_COLORS.agent.border}`}
+                          style={{ borderLeftStyle: "dashed" }}
+                        >
+                          <div className="mb-1 flex items-center gap-2">
+                            <span className="text-xs font-semibold text-stone-500">
+                              分析习惯与观察
+                            </span>
+                            <SectionBadge
+                              label="Agent 记录"
+                              color={SECTION_COLORS.agent.badge}
+                            />
+                          </div>
+                          <p className="text-xs italic text-stone-400">
+                            尚未记录——分析过程中将自动追加
+                          </p>
+                        </div>
+                      )}
+
+                      {/* 用户备注 */}
+                      {narrative.sections.user && (
+                        <div
+                          className={`rounded-xl border-l-4 p-4 ${SECTION_COLORS.user.bg} ${SECTION_COLORS.user.border}`}
+                        >
+                          <div className="mb-2 flex items-center gap-2">
+                            <span className="text-xs font-semibold text-stone-600">备注</span>
+                            <SectionBadge
+                              label="可在基础信息中编辑"
+                              color={SECTION_COLORS.user.badge}
+                            />
+                          </div>
+                          <p className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-stone-600">
+                            {narrative.sections.user}
+                          </p>
+                        </div>
+                      )}
+
+                      <p className="text-center text-[10px] text-stone-400">
+                        研究日志由系统自动维护 · 如需修改偏好请在其他标签页编辑后保存
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50/50 px-6 py-4">
+        {/* ---- 底部操作栏 ---- */}
+        <div
+          className="flex flex-shrink-0 items-center justify-between border-t px-6 py-3"
+          style={{ borderColor: "#E5DDD0", background: "#FAF7EF" }}
+        >
           <button
-            onClick={fetchProfile}
-            disabled={loading}
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+            onClick={() => {
+              if (activeTab === "journal") {
+                fetchNarrative();
+              } else {
+                fetchProfile();
+              }
+            }}
+            disabled={loading || narrativeLoading}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 disabled:opacity-40"
           >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            <RefreshCw
+              size={12}
+              className={loading || narrativeLoading ? "animate-spin" : ""}
+            />
             刷新
           </button>
 
-          <div className="flex items-center gap-3">
-            {saveSuccess && (
-              <div className="flex items-center gap-1 text-sm text-green-600">
-                <CheckCircle2 size={14} />
-                已保存
-              </div>
-            )}
+          <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="rounded-lg px-4 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100"
+              className="rounded-lg px-4 py-1.5 text-sm text-stone-500 transition-colors hover:bg-stone-100"
             >
-              取消
+              关闭
             </button>
-            <button
-              onClick={saveHandler}
-              disabled={saving || !draft}
-              className="flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
-            >
-              {saving ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <Save size={14} />
-              )}
-              保存设置
-            </button>
+            {activeTab !== "journal" && (
+              <button
+                onClick={saveHandler}
+                disabled={saving || !draft}
+                className="flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-semibold text-white transition-colors disabled:opacity-50"
+                style={{
+                  background: saving ? "#D97706" : "#B45309",
+                }}
+                onMouseEnter={(e) => {
+                  if (!saving) (e.target as HTMLElement).style.background = "#92400E";
+                }}
+                onMouseLeave={(e) => {
+                  if (!saving) (e.target as HTMLElement).style.background = "#B45309";
+                }}
+              >
+                {saving ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Save size={13} />
+                )}
+                保存设置
+              </button>
+            )}
           </div>
         </div>
       </div>

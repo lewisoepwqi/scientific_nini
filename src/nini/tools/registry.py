@@ -51,6 +51,7 @@ from nini.tools.templates import (
 )
 from nini.tools.visualization import CreateChartSkill
 from nini.tools.analysis_memory_tool import AnalysisMemorySkill
+from nini.tools.profile_notes import UpdateProfileNotesSkill
 from nini.tools.workspace_files import ListWorkspaceFilesSkill
 from nini.tools.workspace_session import WorkspaceSessionSkill
 
@@ -264,6 +265,7 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(ListWorkspaceFilesSkill())
     registry.register(WorkspaceSessionSkill())
     registry.register(AnalysisMemorySkill())
+    registry.register(UpdateProfileNotesSkill())
     registry.reload_markdown_skills()
     registry.write_skills_snapshot()
     return registry

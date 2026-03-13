@@ -48,7 +48,7 @@ class ProfileService:
     async def update_profile(
         self, updates: dict[str, Any], user_id: str = "default"
     ) -> dict[str, Any]:
-        """更新用户画像。
+        """更新用户画像，并同步更新 Markdown 叙述层。
 
         Args:
             updates: 要更新的字段
@@ -60,6 +60,13 @@ class ProfileService:
         try:
             profile = await self._manager.update(user_id, **updates)
             if profile:
+                # 触发叙述层 AUTO 段重新生成
+                try:
+                    from nini.memory.profile_narrative import get_profile_narrative_manager
+
+                    get_profile_narrative_manager().regenerate(profile.user_id, profile)
+                except Exception:
+                    logger.warning("画像叙述层更新失败", exc_info=True)
                 return profile.to_dict()
         except Exception as e:
             logger.error("更新用户画像失败: %s", e)

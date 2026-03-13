@@ -39,6 +39,32 @@ async def update_research_profile(request: ResearchProfileUpdateRequest):
     return APIResponse(success=True, data=profile)
 
 
+@router.get("/research-profile/narrative", response_model=APIResponse)
+async def get_research_profile_narrative(profile_id: str = "default"):
+    """获取研究画像 Markdown 叙述层内容。
+
+    返回完整 MD 文件内容及各段落解析结果，供前端"研究日志"Tab 展示。
+    """
+    from nini.memory.profile_narrative import get_profile_narrative_manager
+
+    manager = get_profile_narrative_manager()
+    content = manager.read_narrative(profile_id)
+    sections = manager.read_sections(profile_id)
+
+    return APIResponse(
+        success=True,
+        data={
+            "profile_id": profile_id,
+            "content": content,
+            "sections": {
+                "auto": sections.get("研究偏好摘要", ""),
+                "agent": sections.get("分析习惯与观察", ""),
+                "user": sections.get("备注", ""),
+            },
+        },
+    )
+
+
 @router.get("/research-profile/prompt", response_model=APIResponse)
 async def get_research_profile_prompt():
     """获取研究画像的系统提示词。"""
