@@ -629,7 +629,8 @@ async def consolidate_session_memories(session_id: str) -> int:
                         importance_score=finding.confidence,
                         tags=[finding.category] if finding.category else [],
                     )
-                    finding.ltm_id = entry.id  # 第一层：标记已沉淀
+                    if entry is not None:
+                        finding.ltm_id = entry.id  # 第一层：标记已沉淀
                     modified = True
                     count += 1
 
@@ -652,7 +653,8 @@ async def consolidate_session_memories(session_id: str) -> int:
                     importance_score=importance,
                     tags=["statistic", stat.test_name],
                 )
-                stat.ltm_id = entry.id  # 第一层：标记已沉淀
+                if entry is not None:
+                    stat.ltm_id = entry.id  # 第一层：标记已沉淀
                 modified = True
                 count += 1
 
@@ -670,13 +672,17 @@ async def consolidate_session_memories(session_id: str) -> int:
                         importance_score=decision.confidence * 0.8,
                         tags=["decision", decision.decision_type],
                     )
-                    decision.ltm_id = entry.id  # 第一层：标记已沉淀
+                    if entry is not None:
+                        decision.ltm_id = entry.id  # 第一层：标记已沉淀
                     modified = True
                     count += 1
 
-            # 第一层：有新写入时才回写持久化，避免空 I/O
+            # 第一层：有新写入时才回写持久化；写入失败不影响沉淀计数
             if modified:
-                save_analysis_memory(memory)
+                try:
+                    save_analysis_memory(memory)
+                except Exception as _save_err:
+                    logger.warning("回写 AnalysisMemory 失败（不影响 LTM 写入）: %s", _save_err)
 
         if count > 0:
             logger.info("会话 %s 记忆沉淀完成，写入 %d 条长期记忆", session_id, count)

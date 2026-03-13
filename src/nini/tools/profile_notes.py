@@ -48,7 +48,7 @@ class UpdateProfileNotesSkill(Skill):
 
     @property
     def category(self) -> str:
-        return "memory"
+        return "utility"
 
     @property
     def expose_to_llm(self) -> bool:
