@@ -14,9 +14,11 @@ import pytest
 from nini.agent.session import Session
 from nini.config import settings
 from nini.tools.base import Skill, SkillResult
+from nini.tools.clean_data import CleanDataSkill
 from nini.tools.report import GenerateReportSkill
 from nini.tools.registry import SkillRegistry
 from nini.tools.registry import create_default_registry
+from nini.tools.visualization import CreateChartSkill
 from nini.workspace import WorkspaceManager
 
 
@@ -27,7 +29,8 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_clean_data_generates_cleaned_dataset() -> None:
-    registry = create_default_registry()
+    """直接实例化 CleanDataSkill 进行单元测试，无需通过注册表。"""
+    skill = CleanDataSkill()
     session = Session()
     session.datasets["exp.csv"] = pd.DataFrame(
         {
@@ -37,15 +40,14 @@ def test_clean_data_generates_cleaned_dataset() -> None:
     )
 
     result = asyncio.run(
-        registry.execute(
-            "clean_data",
+        skill.execute(
             session=session,
             dataset_name="exp.csv",
             missing_strategy="mean",
             inplace=False,
             output_dataset_name="exp_clean.csv",
         )
-    )
+    ).to_dict()
 
     assert result["success"] is True, result
     assert result["data"]["output_dataset"] == "exp_clean.csv"
@@ -226,13 +228,13 @@ def test_generate_report_default_filename_is_unique_and_not_overwritten() -> Non
 
 
 def test_export_chart_exports_html_artifact() -> None:
+    """直接实例化 CreateChartSkill 创建图表，再通过注册表导出。"""
     registry = create_default_registry()
     session = Session()
     session.datasets["exp.csv"] = pd.DataFrame({"group": ["a", "b"], "value": [1.2, 2.4]})
 
     chart_res = asyncio.run(
-        registry.execute(
-            "create_chart",
+        CreateChartSkill().execute(
             session=session,
             dataset_name="exp.csv",
             chart_type="bar",
@@ -241,7 +243,7 @@ def test_export_chart_exports_html_artifact() -> None:
             journal_style="nature",
             title="Bar Chart",
         )
-    )
+    ).to_dict()
     assert chart_res["success"] is True, chart_res
 
     export_res = asyncio.run(

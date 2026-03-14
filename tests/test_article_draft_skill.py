@@ -95,4 +95,4 @@ def test_article_draft_capability_suggested_workflow():
     assert "data_summary" in cap.suggested_workflow
     assert "edit_file" in cap.suggested_workflow
     assert "export_document" in cap.suggested_workflow
-    assert "list_workspace_files" in cap.suggested_workflow
+    assert "workspace_session" in cap.suggested_workflow  # list_workspace_files 已合并到 workspace_session

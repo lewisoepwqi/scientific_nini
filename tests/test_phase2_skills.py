@@ -9,26 +9,33 @@ import pytest
 
 from nini.agent.session import Session
 from nini.tools.registry import create_default_registry
+from nini.tools.visualization import CreateChartSkill
 
 
 def test_default_registry_contains_phase2_skills() -> None:
+    """确认注册表中包含会话工具及保留的原子工具。"""
     registry = create_default_registry()
     skills = set(registry.list_skills())
+    # 会话工具（已合并原子工具）
     assert {
         "load_dataset",
-        "preview_data",
         "data_summary",
         "t_test",
         "anova",
-        "correlation",
-        "regression",
-        "create_chart",
+        "chart_session",
+        "dataset_catalog",
     }.issubset(skills)
+    # 原子工具已由会话工具直接实例化，不再注册到注册表
+    assert "create_chart" not in skills
+    assert "correlation" not in skills
+    assert "regression" not in skills
+    assert "preview_data" not in skills
 
 
 @pytest.mark.asyncio
 async def test_create_chart_skill_returns_plotly_json() -> None:
-    registry = create_default_registry()
+    """直接实例化 CreateChartSkill 进行单元测试，无需通过注册表。"""
+    skill = CreateChartSkill()
     session = Session()
     session.datasets["experiment.csv"] = pd.DataFrame(
         {
@@ -38,16 +45,17 @@ async def test_create_chart_skill_returns_plotly_json() -> None:
         }
     )
 
-    result = await registry.execute(
-        "create_chart",
-        session=session,
-        dataset_name="experiment.csv",
-        chart_type="box",
-        y_column="value",
-        group_column="group",
-        journal_style="nature",
-        title="Treatment vs Control",
-    )
+    result = (
+        await skill.execute(
+            session=session,
+            dataset_name="experiment.csv",
+            chart_type="box",
+            y_column="value",
+            group_column="group",
+            journal_style="nature",
+            title="Treatment vs Control",
+        )
+    ).to_dict()
 
     assert result["success"] is True
     assert result["has_chart"] is True
@@ -63,7 +71,8 @@ async def test_create_chart_skill_returns_plotly_json() -> None:
 
 @pytest.mark.asyncio
 async def test_create_line_chart_with_mixed_datetime_types() -> None:
-    registry = create_default_registry()
+    """直接实例化 CreateChartSkill 测试混合日期类型处理。"""
+    skill = CreateChartSkill()
     session = Session()
     session.datasets["timeline.csv"] = pd.DataFrame(
         {
@@ -76,15 +85,16 @@ async def test_create_line_chart_with_mixed_datetime_types() -> None:
         }
     )
 
-    result = await registry.execute(
-        "create_chart",
-        session=session,
-        dataset_name="timeline.csv",
-        chart_type="line",
-        x_column="测量时刻",
-        y_column="收缩压",
-        title="收缩压趋势",
-    )
+    result = (
+        await skill.execute(
+            session=session,
+            dataset_name="timeline.csv",
+            chart_type="line",
+            x_column="测量时刻",
+            y_column="收缩压",
+            title="收缩压趋势",
+        )
+    ).to_dict()
 
     assert result["success"] is True, result
     assert result["has_chart"] is True

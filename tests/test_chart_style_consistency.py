@@ -51,7 +51,7 @@ def test_normalize_render_engine_fallback() -> None:
 
 def test_create_chart_with_matplotlib_engine_exports_publication_formats() -> None:
     """create_chart 使用 matplotlib 时应导出 pdf/svg/png。"""
-    registry = create_default_registry()
+    skill = CreateChartSkill()
     session = Session()
     session.datasets["exp.csv"] = pd.DataFrame(
         {
@@ -61,8 +61,7 @@ def test_create_chart_with_matplotlib_engine_exports_publication_formats() -> No
     )
 
     result = asyncio.run(
-        registry.execute(
-            "create_chart",
+        skill.execute(
             session=session,
             dataset_name="exp.csv",
             chart_type="box",
@@ -73,6 +72,7 @@ def test_create_chart_with_matplotlib_engine_exports_publication_formats() -> No
             title="Treatment vs Control",
         )
     )
+    result = result.to_dict()
 
     assert result["success"] is True, result
     assert result["has_chart"] is True

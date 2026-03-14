@@ -177,7 +177,12 @@ class RegressionAnalysisCapability:
         self.display_name = "回归分析"
         self.description = "建立变量间的回归模型，进行预测和解释"
         self.icon = "📉"
-        self._registry = registry
+        # registry 参数保留以兼容旧调用方，但内部直接实例化所需技能
+        from nini.tools.statistics import RegressionSkill
+        from nini.tools.visualization import CreateChartSkill
+
+        self._regression_skill = RegressionSkill()
+        self._chart_skill = CreateChartSkill()
         self._vif_results: dict[str, float] = {}
 
     async def execute(
@@ -437,14 +442,6 @@ class RegressionAnalysisCapability:
             outlier_indices=outlier_indices,
         )
 
-    def _get_registry(self) -> Any:
-        """获取工具注册中心。"""
-        if self._registry is not None:
-            return self._registry
-        from nini.tools.registry import create_default_tool_registry
-
-        return create_default_tool_registry()
-
     async def _perform_regression(
         self,
         session: Session,
@@ -452,26 +449,18 @@ class RegressionAnalysisCapability:
         dependent_var: str,
         independent_vars: list[str],
     ) -> dict[str, Any] | None:
-        """通过底层工具执行回归分析。"""
-        registry = self._get_registry()
+        """直接调用 RegressionSkill 执行回归分析。"""
         try:
-            tool_result = await registry.execute(
-                "regression",
-                session,
+            tool_result = await self._regression_skill.execute(
+                session=session,
                 dataset_name=dataset_name,
                 dependent_var=dependent_var,
                 independent_vars=list(independent_vars),
             )
-            if isinstance(tool_result, dict):
-                data_payload = tool_result.get("data")
-                if tool_result.get("success") and isinstance(data_payload, dict):
-                    regression_data = data_payload.get("regression")
-                    if isinstance(regression_data, dict):
-                        return cast(dict[str, Any], regression_data)
-                    return cast(dict[str, Any], data_payload)
-            elif hasattr(tool_result, "success") and getattr(tool_result, "success", False):
-                data_payload = getattr(tool_result, "data", None)
-                if isinstance(data_payload, dict):
+            result_dict = tool_result.to_dict() if hasattr(tool_result, "to_dict") else tool_result
+            if isinstance(result_dict, dict):
+                data_payload = result_dict.get("data")
+                if result_dict.get("success") and isinstance(data_payload, dict):
                     regression_data = data_payload.get("regression")
                     if isinstance(regression_data, dict):
                         return cast(dict[str, Any], regression_data)
@@ -488,14 +477,12 @@ class RegressionAnalysisCapability:
         independent_vars: list[str],
     ) -> list[dict[str, Any]]:
         """创建回归分析可视化。"""
-        registry = self._get_registry()
         artifacts: list[dict[str, Any]] = []
 
         try:
             # 实际值 vs 预测值散点图
-            result = await registry.execute(
-                "create_chart",
-                session,
+            result = await self._chart_skill.execute(
+                session=session,
                 dataset_name=dataset_name,
                 chart_type="scatter",
                 x_column=f"__fitted_{dependent_var}",
@@ -503,16 +490,11 @@ class RegressionAnalysisCapability:
                 title="实际值 vs 预测值",
                 description="回归模型拟合效果诊断",
             )
-            if isinstance(result, dict):
-                result_artifacts = result.get("artifacts")
-                if result.get("success") and isinstance(result_artifacts, list):
+            result_dict = result.to_dict() if hasattr(result, "to_dict") else result
+            if isinstance(result_dict, dict):
+                result_artifacts = result_dict.get("artifacts")
+                if result_dict.get("success") and isinstance(result_artifacts, list):
                     artifacts.extend(result_artifacts)
-            elif hasattr(result, "success") and result.success and hasattr(result, "artifacts"):
-                typed_artifacts = getattr(result, "artifacts")
-                if isinstance(typed_artifacts, list):
-                    artifacts.extend(
-                        [a.to_dict() if hasattr(a, "to_dict") else a for a in typed_artifacts]
-                    )
         except Exception:
             pass
 

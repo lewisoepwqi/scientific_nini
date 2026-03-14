@@ -9,7 +9,7 @@ import pytest
 
 from nini.agent.session import Session
 from nini.config import settings
-from nini.tools.registry import create_default_registry
+from nini.tools.workspace_files import ListWorkspaceFilesSkill
 from nini.workspace import WorkspaceManager
 
 
@@ -20,7 +20,7 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_list_workspace_files_returns_download_urls() -> None:
-    registry = create_default_registry()
+    skill = ListWorkspaceFilesSkill()
     session = Session()
     manager = WorkspaceManager(session.id)
 
@@ -36,12 +36,11 @@ def test_list_workspace_files_returns_download_urls() -> None:
     )
 
     result = asyncio.run(
-        registry.execute(
-            "list_workspace_files",
+        skill.execute(
             session=session,
             kinds=["result", "document"],
         )
-    )
+    ).to_dict()
 
     assert result["success"] is True, result
     files = result["data"]["files"]
@@ -56,21 +55,20 @@ def test_list_workspace_files_returns_download_urls() -> None:
 
 
 def test_list_workspace_files_supports_query_and_limit() -> None:
-    registry = create_default_registry()
+    skill = ListWorkspaceFilesSkill()
     session = Session()
     manager = WorkspaceManager(session.id)
     manager.save_text_file("notes/alpha.md", "A")
     manager.save_text_file("notes/beta.md", "B")
 
     result = asyncio.run(
-        registry.execute(
-            "list_workspace_files",
+        skill.execute(
             session=session,
             query="a",
             kinds=["document"],
             limit=1,
         )
-    )
+    ).to_dict()
 
     assert result["success"] is True, result
     assert result["data"]["matched_count"] >= 1
