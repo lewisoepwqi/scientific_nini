@@ -30,9 +30,14 @@ describe('ChatPanel', () => {
     vi.setSystemTime(new Date('2026-03-04T12:00:37Z'))
     Element.prototype.scrollIntoView = vi.fn()
     mockState = {
+      sessionId: 'session-1',
       messages: [],
       isStreaming: true,
+      switchSession: vi.fn(),
+      pendingAskUserQuestionsBySession: {},
       pendingAskUserQuestion: null,
+      askUserQuestionNotificationPreference: 'default',
+      setAskUserQuestionNotificationPreference: vi.fn(),
       currentIntentAnalysis: null,
       _streamingMetrics: {
         startedAt: new Date('2026-03-04T12:00:00Z').getTime(),
@@ -101,5 +106,27 @@ describe('ChatPanel', () => {
       vi.advanceTimersByTime(220)
     })
     expect(screen.getByTestId('streaming-token-usage')).toHaveTextContent('↓ 14.2K tokens')
+  })
+
+  it('后台会话存在待回答问题时应显示切换提醒条', () => {
+    mockState = {
+      ...mockState,
+      pendingAskUserQuestionsBySession: {
+        'session-2': {
+          sessionId: 'session-2',
+          sessionTitle: '后台会话',
+          toolCallId: 'tool-ask-1',
+          questions: [],
+          questionCount: 1,
+          createdAt: Date.now(),
+          attentionRequestedAt: Date.now(),
+        },
+      },
+    }
+
+    render(<ChatPanel />)
+
+    expect(screen.getByText('会话“后台会话”正在等待你的回答')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '切换并处理' })).toBeInTheDocument()
   })
 })

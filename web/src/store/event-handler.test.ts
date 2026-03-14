@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { handleEvent, type AppStateSubset } from "./event-handler";
 import type { WSEvent } from "./types";
@@ -32,7 +32,9 @@ function createState(
     harnessRunContext: null,
     completionCheck: null,
     blockedState: null,
+    pendingAskUserQuestionsBySession: {},
     pendingAskUserQuestion: null,
+    askUserQuestionNotificationPreference: "default",
     isStreaming: false,
     runningSessions: new Set<string>(),
     tokenUsage: null,
@@ -45,6 +47,7 @@ function createState(
     fetchDatasets: async () => {},
     fetchWorkspaceFiles: async () => {},
     fetchSkills: async () => {},
+    switchSession: async () => {},
     ...overrides,
   };
 }
@@ -74,6 +77,130 @@ function createHarness(initial: Partial<AppStateSubset> = {}) {
 }
 
 describe("handleEvent 文本去重", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("后台会话的 ask_user_question 应保存到按会话映射，不污染当前会话面板", async () => {
+    const harness = createHarness({
+      sessionId: "session-current",
+      sessions: [
+        { id: "session-current", title: "当前会话", message_count: 3, source: "memory" },
+        { id: "session-bg", title: "后台会话", message_count: 5, source: "memory" },
+      ],
+    });
+
+    await harness.dispatch({
+      type: "ask_user_question",
+      session_id: "session-bg",
+      tool_call_id: "tool-ask-bg",
+      data: {
+        questions: [
+          {
+            question: "请选择导出格式",
+            header: "导出",
+            options: [
+              { label: "HTML", description: "交互式页面" },
+              { label: "PNG", description: "静态图片" },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(harness.getState().pendingAskUserQuestion).toBeNull();
+    expect(harness.getState().pendingAskUserQuestionsBySession["session-bg"]).toMatchObject({
+      sessionId: "session-bg",
+      sessionTitle: "后台会话",
+      toolCallId: "tool-ask-bg",
+      questionCount: 1,
+    });
+  });
+
+  it("后台会话的 ask_user_question 在通知已启用时应触发系统通知", async () => {
+    const notificationMock = vi.fn();
+    const notificationInstance = { close: vi.fn(), onclick: null as (() => void) | null };
+    class NotificationCtor {
+      static permission = "granted";
+      static calls: Array<{ title: string; options: { body?: string; tag?: string } }> = [];
+
+      onclick: (() => void) | null = null;
+
+      constructor(
+        public title: string,
+        public options: { body?: string; tag?: string },
+      ) {
+        NotificationCtor.calls.push({ title, options });
+        return notificationInstance as unknown as NotificationCtor;
+      }
+    }
+    vi.stubGlobal("Notification", NotificationCtor);
+    window.focus = vi.fn();
+
+    const harness = createHarness({
+      sessionId: "session-current",
+      sessions: [
+        { id: "session-current", title: "当前会话", message_count: 3, source: "memory" },
+        { id: "session-bg", title: "后台会话", message_count: 5, source: "memory" },
+      ],
+      askUserQuestionNotificationPreference: "enabled",
+      switchSession: notificationMock,
+    });
+
+    await harness.dispatch({
+      type: "ask_user_question",
+      session_id: "session-bg",
+      tool_call_id: "tool-ask-bg",
+      data: {
+        questions: [
+          {
+            question: "请选择导出格式",
+            options: [
+              { label: "HTML", description: "交互式页面" },
+              { label: "PNG", description: "静态图片" },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(NotificationCtor.calls).toEqual([
+      {
+        title: "后台会话",
+        options: {
+          body: "需要你回答 1 个问题以继续执行",
+          tag: "ask-user-question:tool-ask-bg",
+        },
+      },
+    ]);
+    notificationInstance.onclick?.();
+    expect(notificationMock).toHaveBeenCalledWith("session-bg");
+  });
+
+  it("后台会话结束后应清理对应待回答状态", async () => {
+    const harness = createHarness({
+      sessionId: "session-current",
+      pendingAskUserQuestionsBySession: {
+        "session-bg": {
+          sessionId: "session-bg",
+          sessionTitle: "后台会话",
+          toolCallId: "tool-ask-bg",
+          questionCount: 1,
+          questions: [],
+          createdAt: 1,
+          attentionRequestedAt: 1,
+        },
+      },
+    });
+
+    await harness.dispatch({
+      type: "done",
+      session_id: "session-bg",
+    });
+
+    expect(harness.getState().pendingAskUserQuestionsBySession["session-bg"]).toBeUndefined();
+  });
+
   it("应保存 run_context 事件到 harness 状态", async () => {
     const harness = createHarness({ sessionId: "session-current" });
 

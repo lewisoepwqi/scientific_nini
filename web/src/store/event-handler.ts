@@ -319,7 +319,25 @@ export interface AppStateSubset {
   harnessRunContext: HarnessRunContextState | null;
   completionCheck: CompletionCheckState | null;
   blockedState: HarnessBlockedState | null;
-  pendingAskUserQuestion: { toolCallId: string; questions: AskUserQuestionItem[]; createdAt: number } | null;
+  pendingAskUserQuestionsBySession: Record<string, {
+    sessionId: string;
+    sessionTitle: string;
+    toolCallId: string;
+    questions: AskUserQuestionItem[];
+    questionCount: number;
+    createdAt: number;
+    attentionRequestedAt: number;
+  }>;
+  pendingAskUserQuestion: {
+    sessionId: string;
+    sessionTitle: string;
+    toolCallId: string;
+    questions: AskUserQuestionItem[];
+    questionCount: number;
+    createdAt: number;
+    attentionRequestedAt: number;
+  } | null;
+  askUserQuestionNotificationPreference: "default" | "enabled" | "denied";
   isStreaming: boolean;
   /** 所有正在运行 Agent 的 session_id 集合（多会话并发） */
   runningSessions: Set<string>;
@@ -343,6 +361,7 @@ export interface AppStateSubset {
   fetchDatasets: () => Promise<void>;
   fetchWorkspaceFiles: () => Promise<void>;
   fetchSkills: () => Promise<void>;
+  switchSession?: (sessionId: string) => Promise<void>;
 }
 
 function resetStreamingMetrics(): StreamingMetrics {
@@ -361,6 +380,74 @@ function isActiveSessionEvent(evt: WSEvent, get: GetStateFn): boolean {
     evt.session_id.length > 0 &&
     currentSessionId === evt.session_id
   );
+}
+
+function resolveSessionTitle(state: AppStateSubset, sessionId: string): string {
+  const matched = state.sessions.find((item) => item.id === sessionId);
+  const title = matched?.title?.trim();
+  return title || "新会话";
+}
+
+function resolveCurrentPendingAskUserQuestion(
+  state: AppStateSubset,
+  sessionId: string | null,
+) {
+  if (!sessionId) return null;
+  return state.pendingAskUserQuestionsBySession[sessionId] ?? null;
+}
+
+function buildPendingAskUserQuestionPatch(
+  state: AppStateSubset,
+  sessionId: string,
+  pending: AppStateSubset["pendingAskUserQuestion"],
+) {
+  const nextPendingBySession = { ...state.pendingAskUserQuestionsBySession };
+  if (pending) {
+    nextPendingBySession[sessionId] = pending;
+  } else {
+    delete nextPendingBySession[sessionId];
+  }
+  return {
+    pendingAskUserQuestionsBySession: nextPendingBySession,
+    pendingAskUserQuestion: resolveCurrentPendingAskUserQuestion(
+      { ...state, pendingAskUserQuestionsBySession: nextPendingBySession },
+      state.sessionId,
+    ),
+  };
+}
+
+function maybeNotifyAskUserQuestion(
+  state: AppStateSubset,
+  pending: NonNullable<AppStateSubset["pendingAskUserQuestion"]>,
+): void {
+  if (state.askUserQuestionNotificationPreference !== "enabled") return;
+  if (state.sessionId === pending.sessionId && typeof document !== "undefined" && !document.hidden) {
+    return;
+  }
+  const notificationApi =
+    typeof window !== "undefined" && "Notification" in window
+      ? window.Notification
+      : typeof Notification !== "undefined"
+        ? Notification
+        : null;
+  if (!notificationApi || notificationApi.permission !== "granted") return;
+
+  const body =
+    pending.questionCount > 1
+      ? `需要你回答 ${pending.questionCount} 个问题以继续执行`
+      : "需要你回答 1 个问题以继续执行";
+  const notification = new notificationApi(pending.sessionTitle, {
+    body,
+    tag: `ask-user-question:${pending.toolCallId}`,
+  });
+
+  notification.onclick = () => {
+    if (typeof window !== "undefined") {
+      window.focus();
+    }
+    void state.switchSession?.(pending.sessionId);
+    notification.close();
+  };
 }
 
 export function handleEvent(
@@ -811,16 +898,18 @@ export function handleEvent(
       });
 
     case "ask_user_question": {
-      // 非当前会话的提问静默等待，用户切回该会话后再处理
-      if (evt.session_id && evt.session_id !== get().sessionId) break;
       const data = isRecord(evt.data) ? evt.data : null;
+      const sessionId =
+        typeof evt.session_id === "string" && evt.session_id.trim()
+          ? evt.session_id.trim()
+          : get().sessionId || "";
       const toolCallId =
         typeof evt.tool_call_id === "string" && evt.tool_call_id.trim()
           ? evt.tool_call_id.trim()
           : "";
       const rawQuestions =
         data && Array.isArray(data.questions) ? data.questions : [];
-      if (!toolCallId || rawQuestions.length === 0) break;
+      if (!sessionId || !toolCallId || rawQuestions.length === 0) break;
 
       const questions: AskUserQuestionItem[] = rawQuestions
         .filter((item): item is Record<string, unknown> => isRecord(item))
@@ -852,13 +941,17 @@ export function handleEvent(
         .filter((item) => item.question && item.options.length >= 2);
 
       if (questions.length === 0) break;
-      set({
-        pendingAskUserQuestion: {
-          toolCallId,
-          questions,
-          createdAt: Date.now(),
-        },
-      });
+      const pending = {
+        sessionId,
+        sessionTitle: resolveSessionTitle(get(), sessionId),
+        toolCallId,
+        questions,
+        questionCount: questions.length,
+        createdAt: Date.now(),
+        attentionRequestedAt: Date.now(),
+      };
+      set((s) => buildPendingAskUserQuestionPatch(s, sessionId, pending));
+      maybeNotifyAskUserQuestion(get(), pending);
       break;
     }
 
@@ -967,6 +1060,15 @@ export function handleEvent(
     }
 
     case "tool_result": {
+      const pendingQuestionSessionId =
+        typeof evt.session_id === "string" && evt.session_id.trim()
+          ? evt.session_id.trim()
+          : get().sessionId || "";
+      const shouldClearPendingQuestion =
+        evt.tool_name === "ask_user_question" && pendingQuestionSessionId.length > 0;
+      if (shouldClearPendingQuestion) {
+        set((s) => buildPendingAskUserQuestionPatch(s, pendingQuestionSessionId, null));
+      }
       // 非当前会话的工具结果事件静默丢弃
       if (evt.session_id && evt.session_id !== get().sessionId) break;
       const data = isRecord(evt.data) ? evt.data : {};
@@ -983,8 +1085,6 @@ export function handleEvent(
         (status === "error" ? "工具执行失败" : "工具执行完成");
       const toolCallId = evt.tool_call_id;
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
-      const shouldClearPendingQuestion = evt.tool_name === "ask_user_question";
-
       set((s) => {
         const msgs = upsertToolResultMessage(s.messages, {
           content: resultMessage,
@@ -1001,7 +1101,9 @@ export function handleEvent(
         });
         return {
           messages: msgs,
-          ...(shouldClearPendingQuestion ? { pendingAskUserQuestion: null } : {}),
+          ...(shouldClearPendingQuestion
+            ? buildPendingAskUserQuestionPatch(s, pendingQuestionSessionId, null)
+            : {}),
         };
       });
       break;
@@ -1056,7 +1158,7 @@ export function handleEvent(
       });
 
     case "done": {
-      const doneEvtSid = evt.session_id ?? null;
+      const doneEvtSid = evt.session_id ?? get().sessionId ?? null;
       const doneCurSid = get().sessionId;
       const doneIsActive = !doneEvtSid || doneEvtSid === doneCurSid;
       set((s) => {
@@ -1067,7 +1169,10 @@ export function handleEvent(
 
         if (!doneIsActive) {
           // 后台会话完成：只更新运行状态，不改消息
-          return { runningSessions: nextRunning };
+          return {
+            runningSessions: nextRunning,
+            ...(doneEvtSid ? buildPendingAskUserQuestionPatch(s, doneEvtSid, null) : {}),
+          };
         }
 
         // 当前会话完成：完整处理
@@ -1109,7 +1214,7 @@ export function handleEvent(
           messages: finalizeReasoningMessages(s.messages, turnId, true),
           isStreaming: false,
           runningSessions: nextRunning,
-          pendingAskUserQuestion: null,
+          ...(doneEvtSid ? buildPendingAskUserQuestionPatch(s, doneEvtSid, null) : {}),
           _streamingText: "",
           _currentTurnId: null,
           _activePlanMsgId: null,
@@ -1126,7 +1231,7 @@ export function handleEvent(
     }
 
     case "stopped": {
-      const stoppedEvtSid = evt.session_id ?? null;
+      const stoppedEvtSid = evt.session_id ?? get().sessionId ?? null;
       const stoppedCurSid = get().sessionId;
       const stoppedIsActive = !stoppedEvtSid || stoppedEvtSid === stoppedCurSid;
       set((s) => {
@@ -1135,7 +1240,12 @@ export function handleEvent(
           : new Set<string>();
 
         if (!stoppedIsActive) {
-          return { runningSessions: nextRunning };
+          return {
+            runningSessions: nextRunning,
+            ...(stoppedEvtSid
+              ? buildPendingAskUserQuestionPatch(s, stoppedEvtSid, null)
+              : {}),
+          };
         }
 
         let progress = s.analysisPlanProgress;
@@ -1174,7 +1284,9 @@ export function handleEvent(
           messages: finalizeReasoningMessages(s.messages, turnId, true),
           isStreaming: false,
           runningSessions: nextRunning,
-          pendingAskUserQuestion: null,
+          ...(stoppedEvtSid
+            ? buildPendingAskUserQuestionPatch(s, stoppedEvtSid, null)
+            : {}),
           _streamingText: "",
           _currentTurnId: null,
           _activePlanMsgId: null,
@@ -1190,7 +1302,7 @@ export function handleEvent(
     }
 
     case "error": {
-      const errorEvtSid = evt.session_id ?? null;
+      const errorEvtSid = evt.session_id ?? get().sessionId ?? null;
       const errorCurSid = get().sessionId;
       const errorIsActive = !errorEvtSid || errorEvtSid === errorCurSid;
       // 后台会话报错：只更新 runningSessions，不污染当前会话消息
@@ -1199,6 +1311,9 @@ export function handleEvent(
           runningSessions: errorEvtSid
             ? new Set([...s.runningSessions].filter((id) => id !== errorEvtSid))
             : new Set<string>(),
+          ...(errorEvtSid
+            ? buildPendingAskUserQuestionPatch(s, errorEvtSid, null)
+            : {}),
         }));
         break;
       }
@@ -1226,7 +1341,9 @@ export function handleEvent(
         runningSessions: errorEvtSid
           ? new Set([...s.runningSessions].filter((id) => id !== errorEvtSid))
           : new Set<string>(),
-        pendingAskUserQuestion: null,
+        ...(errorEvtSid
+          ? buildPendingAskUserQuestionPatch(s, errorEvtSid, null)
+          : {}),
         _streamingText: "",
         _currentTurnId: null,
         _activePlanMsgId: null,

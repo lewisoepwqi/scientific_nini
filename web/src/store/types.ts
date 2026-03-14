@@ -260,10 +260,19 @@ export interface AskUserQuestionItem {
 }
 
 export interface PendingAskUserQuestion {
+  sessionId: string;
+  sessionTitle: string;
   toolCallId: string;
   questions: AskUserQuestionItem[];
+  questionCount: number;
   createdAt: number;
+  attentionRequestedAt: number;
 }
+
+export type AskUserQuestionNotificationPreference =
+  | "default"
+  | "enabled"
+  | "denied";
 
 export interface IntentOption {
   label: string;

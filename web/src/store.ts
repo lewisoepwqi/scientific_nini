@@ -34,6 +34,7 @@ export type {
   AskUserQuestionOption,
   AskUserQuestionItem,
   PendingAskUserQuestion,
+  AskUserQuestionNotificationPreference,
   IntentOption,
   IntentSkillCall,
   IntentSkillSummary,
@@ -77,6 +78,7 @@ import type {
   CompletionCheckState,
   HarnessBlockedState,
   PendingAskUserQuestion,
+  AskUserQuestionNotificationPreference,
   IntentAnalysisView,
   ResearchProfile,
   TokenUsage,
@@ -200,7 +202,9 @@ export interface AppState {
   isStreaming: boolean;
   /** 所有正在运行 Agent 的 session_id 集合（多会话并发） */
   runningSessions: Set<string>;
+  pendingAskUserQuestionsBySession: Record<string, PendingAskUserQuestion>;
   pendingAskUserQuestion: PendingAskUserQuestion | null;
+  askUserQuestionNotificationPreference: AskUserQuestionNotificationPreference;
   currentIntentAnalysis: IntentAnalysisView | null;
   composerDraft: string;
 
@@ -322,6 +326,9 @@ export interface AppState {
   setCostPanelOpen: (open: boolean) => void;
 
   // 用户展示偏好操作
+  setAskUserQuestionNotificationPreference: (
+    mode: AskUserQuestionNotificationPreference,
+  ) => void;
   setDisplayPreference: (mode: DisplayPreference) => void;
 }
 
@@ -362,6 +369,28 @@ const SESSION_RESET_STATE = {
   currentIntentAnalysis: null as IntentAnalysisView | null,
   composerDraft: "",
 };
+
+function resolveCurrentPendingAskUserQuestion(
+  sessionId: string | null,
+  pendingBySession: Record<string, PendingAskUserQuestion>,
+): PendingAskUserQuestion | null {
+  if (!sessionId) return null;
+  return pendingBySession[sessionId] ?? null;
+}
+
+function getInitialAskUserQuestionNotificationPreference(): AskUserQuestionNotificationPreference {
+  if (typeof window !== "undefined") {
+    try {
+      const saved = localStorage.getItem("nini_ask_user_question_notifications");
+      if (saved === "default" || saved === "enabled" || saved === "denied") {
+        return saved;
+      }
+    } catch {
+      // localStorage 不可用则使用默认值
+    }
+  }
+  return "default";
+}
 
 let sessionSwitchRequestSeq = 0;
 
@@ -468,7 +497,9 @@ export const useStore = create<AppState>((set, get) => ({
   wsStatus: "disconnected",
   isStreaming: false,
   runningSessions: new Set<string>(),
+  pendingAskUserQuestionsBySession: {},
   pendingAskUserQuestion: null,
+  askUserQuestionNotificationPreference: getInitialAskUserQuestionNotificationPreference(),
   currentIntentAnalysis: null,
   composerDraft: "",
   _streamingText: "",
@@ -578,6 +609,7 @@ export const useStore = create<AppState>((set, get) => ({
         wsStatus: nextStatus,
         isStreaming: false,
         runningSessions: new Set<string>(),
+        pendingAskUserQuestionsBySession: {},
         pendingAskUserQuestion: null,
         _streamingText: "",
         _currentTurnId: null,
@@ -644,6 +676,7 @@ export const useStore = create<AppState>((set, get) => ({
       _reconnectAttempts: 0,
       isStreaming: false,
       runningSessions: new Set<string>(),
+      pendingAskUserQuestionsBySession: {},
       pendingAskUserQuestion: null,
       _streamingText: "",
       _currentTurnId: null,
@@ -768,7 +801,19 @@ export const useStore = create<AppState>((set, get) => ({
         answers: normalizedAnswers,
       })
     );
-    set({ pendingAskUserQuestion: null });
+    set((s) => {
+      const nextPendingBySession = { ...s.pendingAskUserQuestionsBySession };
+      if (sessionId) {
+        delete nextPendingBySession[sessionId];
+      }
+      return {
+        pendingAskUserQuestionsBySession: nextPendingBySession,
+        pendingAskUserQuestion: resolveCurrentPendingAskUserQuestion(
+          sessionId,
+          nextPendingBySession,
+        ),
+      };
+    });
   },
 
   stopStreaming() {
@@ -952,6 +997,7 @@ export const useStore = create<AppState>((set, get) => ({
       sessionId: null,
       datasets: [],
       workspaceFiles: [],
+      pendingAskUserQuestionsBySession: {},
     });
   },
 
@@ -1177,6 +1223,10 @@ export const useStore = create<AppState>((set, get) => ({
       ...SESSION_RESET_STATE,
       // 若目标会话有后台任务在运行，切换后 isStreaming 应保持 true
       isStreaming: s.runningSessions.has(targetSessionId),
+      pendingAskUserQuestion: resolveCurrentPendingAskUserQuestion(
+        targetSessionId,
+        s.pendingAskUserQuestionsBySession,
+      ),
       messages: restoredMessages,
       analysisTasks: restoredAnalysisTasks,
       analysisPlanProgress: restoredPlanProgress,
@@ -1472,6 +1522,19 @@ export const useStore = create<AppState>((set, get) => ({
   // ============================================================================
   // 用户展示偏好操作
   // ============================================================================
+
+  setAskUserQuestionNotificationPreference(
+    mode: AskUserQuestionNotificationPreference,
+  ) {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("nini_ask_user_question_notifications", mode);
+      } catch (e) {
+        console.warn("无法保存 ask_user_question 通知偏好到 localStorage:", e);
+      }
+    }
+    set({ askUserQuestionNotificationPreference: mode });
+  },
 
   setDisplayPreference(mode: DisplayPreference) {
     // 持久化到 localStorage（含错误处理）

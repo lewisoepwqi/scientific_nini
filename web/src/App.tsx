@@ -56,6 +56,9 @@ export default function App() {
   const [workspacePanelWidth, setWorkspacePanelWidth] = useState(420);
   const [resizingWorkspace, setResizingWorkspace] = useState(false);
   const sessionId = useStore((s) => s.sessionId);
+  const pendingAskUserQuestionsBySession = useStore(
+    (s) => s.pendingAskUserQuestionsBySession,
+  );
   const sendMessage = useStore((s) => s.sendMessage);
 
   // 应用初始化：恢复会话并建立 WebSocket 连接
@@ -90,6 +93,13 @@ export default function App() {
       window.removeEventListener("focus", reconnectIfVisible);
     };
   }, [connect]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const pendingCount = Object.keys(pendingAskUserQuestionsBySession).length;
+    const baseTitle = "Nini";
+    document.title = pendingCount > 0 ? `(${pendingCount}) ${baseTitle}` : baseTitle;
+  }, [pendingAskUserQuestionsBySession]);
 
   const wsStatusMeta = getWsStatusMeta(wsStatus);
 
