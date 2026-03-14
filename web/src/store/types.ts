@@ -213,6 +213,37 @@ export interface AnalysisTaskItem {
   depends_on?: number[]; // 依赖的步骤 ID 列表
 }
 
+export interface HarnessRunContextState {
+  turnId: string;
+  datasets: Array<{ name: string; rows?: number | null; columns?: number | null }>;
+  artifacts: Array<{ name: string; artifactType?: string | null }>;
+  toolHints: string[];
+  constraints: string[];
+}
+
+export interface CompletionCheckItemState {
+  key: string;
+  label: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface CompletionCheckState {
+  turnId: string;
+  passed: boolean;
+  attempt: number;
+  items: CompletionCheckItemState[];
+  missingActions: string[];
+}
+
+export interface HarnessBlockedState {
+  turnId: string;
+  reasonCode: string;
+  message: string;
+  recoverable: boolean;
+  suggestedAction?: string | null;
+}
+
 // ---- 意图分析类型 ----
 
 export interface AskUserQuestionOption {

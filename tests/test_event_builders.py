@@ -12,6 +12,9 @@ from nini.agent.event_builders import (
     build_plan_step_update_event,
     build_plan_progress_event,
     build_task_attempt_event,
+    build_run_context_event,
+    build_completion_check_event,
+    build_blocked_event,
     build_token_usage_event,
     build_model_fallback_event,
     build_tool_call_event,
@@ -144,6 +147,50 @@ class TestTaskAttemptEventBuilder:
         assert event.data["status"] == "retrying"
         assert event.turn_id == "turn_1"
         assert event.metadata["seq"] == 5
+
+
+class TestHarnessEventBuilders:
+    """Harness 相关事件构造器测试。"""
+
+    def test_build_run_context_event(self):
+        event = build_run_context_event(
+            turn_id="turn_ctx",
+            datasets=[{"name": "demo.csv", "rows": 10, "columns": 3}],
+            artifacts=[{"name": "report.md", "artifact_type": "report"}],
+            tool_hints=["dataset_catalog"],
+            constraints=["结束前检查失败工具"],
+        )
+
+        assert event.type == EventType.RUN_CONTEXT
+        assert event.turn_id == "turn_ctx"
+        assert event.data["datasets"][0]["name"] == "demo.csv"
+        assert event.data["artifacts"][0]["artifact_type"] == "report"
+
+    def test_build_completion_check_event(self):
+        event = build_completion_check_event(
+            turn_id="turn_check",
+            passed=False,
+            attempt=1,
+            items=[{"key": "artifact_generated", "label": "承诺产物已生成", "passed": False}],
+            missing_actions=["承诺产物已生成"],
+        )
+
+        assert event.type == EventType.COMPLETION_CHECK
+        assert event.data["passed"] is False
+        assert event.data["items"][0]["key"] == "artifact_generated"
+        assert event.data["missing_actions"] == ["承诺产物已生成"]
+
+    def test_build_blocked_event(self):
+        event = build_blocked_event(
+            turn_id="turn_blocked",
+            reason_code="tool_loop",
+            message="工具连续失败",
+            suggested_action="调整参数后重试",
+        )
+
+        assert event.type == EventType.BLOCKED
+        assert event.turn_id == "turn_blocked"
+        assert event.data["reason_code"] == "tool_loop"
 
 
 class TestTokenUsageEventBuilder:

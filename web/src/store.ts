@@ -28,6 +28,9 @@ export type {
   AnalysisTaskAttemptStatus,
   AnalysisTaskAttempt,
   AnalysisTaskItem,
+  HarnessRunContextState,
+  CompletionCheckState,
+  HarnessBlockedState,
   AskUserQuestionOption,
   AskUserQuestionItem,
   PendingAskUserQuestion,
@@ -70,6 +73,9 @@ import type {
   WorkspaceFolder,
   AnalysisPlanProgress,
   AnalysisTaskItem,
+  HarnessRunContextState,
+  CompletionCheckState,
+  HarnessBlockedState,
   PendingAskUserQuestion,
   IntentAnalysisView,
   ResearchProfile,
@@ -180,6 +186,9 @@ export interface AppState {
   codeExecutions: CodeExecution[];
   workspaceFolders: WorkspaceFolder[];
   analysisTasks: AnalysisTaskItem[];
+  harnessRunContext: HarnessRunContextState | null;
+  completionCheck: CompletionCheckState | null;
+  blockedState: HarnessBlockedState | null;
   isUploading: boolean;
   uploadProgress: number;
   uploadingFileName: string | null;
@@ -332,6 +341,9 @@ const SESSION_RESET_STATE = {
   analysisPlanProgress: null as AnalysisPlanProgress | null,
   _activePlanTaskIds: [] as string[],
   _planActionTaskMap: {} as Record<string, string>,
+  harnessRunContext: null as HarnessRunContextState | null,
+  completionCheck: null as CompletionCheckState | null,
+  blockedState: null as HarnessBlockedState | null,
   _messageBuffer: {} as MessageBuffer,
   _streamingMetrics: {
     startedAt: null,
@@ -372,6 +384,9 @@ export const useStore = create<AppState>((set, get) => ({
   codeExecutions: [],
   workspaceFolders: [],
   analysisTasks: [],
+  harnessRunContext: null,
+  completionCheck: null,
+  blockedState: null,
   isUploading: false,
   uploadProgress: 0,
   uploadingFileName: null,

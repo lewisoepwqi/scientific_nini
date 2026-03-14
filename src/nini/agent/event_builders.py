@@ -16,6 +16,12 @@ from nini.models.event_schemas import (
     PlanProgressEventData,
     PlanStepUpdateEventData,
     TaskAttemptEventData,
+    RunContextEventData,
+    RunContextDatasetSummary,
+    RunContextArtifactSummary,
+    CompletionCheckEventData,
+    CompletionCheckItemEventData,
+    BlockedEventData,
     TokenUsageEventData,
     ModelFallbackEventData,
     SessionTokenUsageEventData,
@@ -217,6 +223,111 @@ def build_task_attempt_event(
         data=data,
         turn_id=turn_id,
         metadata=metadata,
+    )
+
+
+def build_run_context_event(
+    *,
+    turn_id: str,
+    datasets: list[dict[str, Any]] | None = None,
+    artifacts: list[dict[str, Any]] | None = None,
+    tool_hints: list[str] | None = None,
+    constraints: list[str] | None = None,
+    **extra
+) -> AgentEvent:
+    """构造 RUN_CONTEXT 事件。"""
+    event_data = RunContextEventData(
+        turn_id=turn_id,
+        datasets=[
+            RunContextDatasetSummary(
+                name=str(item.get("name", "")),
+                rows=item.get("rows"),
+                columns=item.get("columns"),
+            )
+            for item in (datasets or [])
+        ],
+        artifacts=[
+            RunContextArtifactSummary(
+                name=str(item.get("name", "")),
+                artifact_type=item.get("artifact_type"),
+            )
+            for item in (artifacts or [])
+        ],
+        tool_hints=[str(item) for item in (tool_hints or []) if str(item).strip()],
+        constraints=[str(item) for item in (constraints or []) if str(item).strip()],
+    )
+
+    data = event_data.model_dump()
+    data.update(extra)
+
+    return AgentEvent(
+        type=EventType.RUN_CONTEXT,
+        data=data,
+        turn_id=turn_id,
+    )
+
+
+def build_completion_check_event(
+    *,
+    turn_id: str,
+    passed: bool,
+    attempt: int,
+    items: list[dict[str, Any]] | None = None,
+    missing_actions: list[str] | None = None,
+    **extra
+) -> AgentEvent:
+    """构造 COMPLETION_CHECK 事件。"""
+    event_data = CompletionCheckEventData(
+        turn_id=turn_id,
+        passed=passed,
+        attempt=attempt,
+        items=[
+            CompletionCheckItemEventData(
+                key=str(item.get("key", "")),
+                label=str(item.get("label", "")),
+                passed=bool(item.get("passed", False)),
+                detail=str(item.get("detail", "")),
+            )
+            for item in (items or [])
+        ],
+        missing_actions=[str(item) for item in (missing_actions or []) if str(item).strip()],
+    )
+
+    data = event_data.model_dump()
+    data.update(extra)
+
+    return AgentEvent(
+        type=EventType.COMPLETION_CHECK,
+        data=data,
+        turn_id=turn_id,
+    )
+
+
+def build_blocked_event(
+    *,
+    turn_id: str,
+    reason_code: str,
+    message: str,
+    recoverable: bool = True,
+    suggested_action: str | None = None,
+    **extra
+) -> AgentEvent:
+    """构造 BLOCKED 事件。"""
+    event_data = BlockedEventData(
+        turn_id=turn_id,
+        reason_code=reason_code,
+        message=message,
+        recoverable=recoverable,
+        suggested_action=suggested_action,
+    )
+
+    data = event_data.model_dump()
+    data.update(extra)
+
+    return AgentEvent(
+        type=EventType.BLOCKED,
+        data=data,
+        turn_id=turn_id,
     )
 
 
@@ -539,7 +650,12 @@ def build_code_execution_event(
     )
 
 
-def build_stopped_event(message: str = "已停止", **extra) -> AgentEvent:
+def build_stopped_event(
+    message: str = "已停止",
+    *,
+    turn_id: str | None = None,
+    **extra
+) -> AgentEvent:
     """构造 STOPPED 事件。"""
     event_data = StoppedEventData(message=message)
 
@@ -549,6 +665,7 @@ def build_stopped_event(message: str = "已停止", **extra) -> AgentEvent:
     return AgentEvent(
         type=EventType.STOPPED,
         data=data,
+        turn_id=turn_id,
     )
 
 

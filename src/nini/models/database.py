@@ -79,11 +79,29 @@ CREATE TABLE IF NOT EXISTS workflow_templates (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS harness_runs (
+    run_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    failure_tags TEXT DEFAULT '[]',
+    duration_ms INTEGER DEFAULT 0,
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    estimated_cost_usd REAL DEFAULT 0,
+    trace_path TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_datasets_session_created
 ON datasets(session_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_artifacts_session_created
 ON artifacts(session_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_harness_runs_session_created
+ON harness_runs(session_id, created_at DESC);
 """
 
 

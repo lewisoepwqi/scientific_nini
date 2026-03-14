@@ -79,6 +79,48 @@ export interface TaskAttemptEventData {
   error?: string;
 }
 
+export interface RunContextDatasetSummary {
+  name: string;
+  rows?: number | null;
+  columns?: number | null;
+}
+
+export interface RunContextArtifactSummary {
+  name: string;
+  artifact_type?: string | null;
+}
+
+export interface RunContextEventData {
+  turn_id: string;
+  datasets: RunContextDatasetSummary[];
+  artifacts: RunContextArtifactSummary[];
+  tool_hints: string[];
+  constraints: string[];
+}
+
+export interface CompletionCheckItemEventData {
+  key: string;
+  label: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface CompletionCheckEventData {
+  turn_id: string;
+  passed: boolean;
+  attempt: number;
+  items: CompletionCheckItemEventData[];
+  missing_actions: string[];
+}
+
+export interface BlockedEventData {
+  turn_id: string;
+  reason_code: string;
+  message: string;
+  recoverable: boolean;
+  suggested_action?: string | null;
+}
+
 // ---- Token 使用相关事件 ----
 
 /** TOKEN_USAGE 事件的数据结构 */
@@ -237,6 +279,9 @@ export type WSEventData =
   | PlanStepUpdateEventData
   | PlanProgressEventData
   | TaskAttemptEventData
+  | RunContextEventData
+  | CompletionCheckEventData
+  | BlockedEventData
   | TokenUsageEventData
   | SessionTokenUsageEventData
   | ToolCallEventData

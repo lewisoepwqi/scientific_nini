@@ -34,6 +34,9 @@ class EventType(str, Enum):
     ASK_USER_QUESTION = "ask_user_question"  # 等待用户问答输入
     TOKEN_USAGE = "token_usage"  # Token 使用量更新
     MODEL_FALLBACK = "model_fallback"  # 模型自动降级通知
+    RUN_CONTEXT = "run_context"  # 当前轮 harness 运行上下文摘要
+    COMPLETION_CHECK = "completion_check"  # 完成前结构化校验结果
+    BLOCKED = "blocked"  # harness 阻塞状态
 
     # WebSocket 专用事件类型
     WORKSPACE_UPDATE = "workspace_update"  # 通知前端刷新工作区
