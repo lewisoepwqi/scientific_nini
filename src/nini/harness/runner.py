@@ -90,6 +90,7 @@ class HarnessRunner:
                 constraints=run_context.constraints,
             )
             while not completed and blocked_state is None:
+                iteration_started = False
                 run_context_emitted = False
                 trace.stage_history.append(
                     {
@@ -117,12 +118,22 @@ class HarnessRunner:
                         completed = True
                         break
 
-                    if not run_context_emitted and event.type not in {
-                        EventType.ITERATION_START,
-                        EventType.ERROR,
-                        EventType.DONE,
-                        EventType.STOPPED,
-                    }:
+                    if event.type == EventType.ITERATION_START:
+                        iteration_started = True
+
+                    if (
+                        not run_context_emitted
+                        and iteration_started
+                        and event.type
+                        not in {
+                            EventType.ITERATION_START,
+                            EventType.ERROR,
+                            EventType.DONE,
+                            EventType.STOPPED,
+                            EventType.TRIAL_ACTIVATED,
+                            EventType.TRIAL_EXPIRED,
+                        }
+                    ):
                         self._record_event(trace, run_context_event)
                         yield run_context_event
                         run_context_emitted = True
@@ -156,7 +167,7 @@ class HarnessRunner:
                 if completed:
                     break
 
-                if not run_context_emitted and blocked_state is None:
+                if not run_context_emitted and blocked_state is None and iteration_started:
                     self._record_event(trace, run_context_event)
                     yield run_context_event
 

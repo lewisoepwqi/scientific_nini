@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections import Counter
 from datetime import datetime
@@ -10,11 +11,14 @@ from typing import Any
 
 from nini.config import settings
 from nini.harness.models import HarnessRunSummary, HarnessTraceRecord
-from nini.models.database import get_db
+from nini.models.database import get_db, init_db
 
 
 class HarnessTraceStore:
     """管理 harness trace 的本地存储。"""
+
+    _schema_ready = False
+    _schema_lock = asyncio.Lock()
 
     def _base_dir(self, session_id: str) -> Path:
         return settings.sessions_dir / session_id / "harness" / "traces"
@@ -57,6 +61,7 @@ class HarnessTraceStore:
         return summary
 
     async def _save_summary(self, summary: HarnessRunSummary) -> None:
+        await self._ensure_schema()
         async with await get_db() as db:
             await db.execute(
                 """
@@ -91,6 +96,16 @@ class HarnessTraceStore:
                 ),
             )
             await db.commit()
+
+    @classmethod
+    async def _ensure_schema(cls) -> None:
+        if cls._schema_ready:
+            return
+        async with cls._schema_lock:
+            if cls._schema_ready:
+                return
+            await init_db()
+            cls._schema_ready = True
 
     async def list_runs(
         self,
@@ -152,7 +167,9 @@ class HarnessTraceStore:
             "turn_id": record.turn_id,
             "status": record.status,
             "failure_tags": record.failure_tags,
-            "completion_checks": [item.model_dump(mode="json") for item in record.completion_checks],
+            "completion_checks": [
+                item.model_dump(mode="json") for item in record.completion_checks
+            ],
             "blocked": record.blocked.model_dump(mode="json") if record.blocked else None,
             "events": [event.model_dump(mode="json") for event in record.events],
         }
