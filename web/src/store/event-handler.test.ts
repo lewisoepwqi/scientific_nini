@@ -31,6 +31,7 @@ function createState(
     blockedState: null,
     pendingAskUserQuestion: null,
     isStreaming: false,
+    runningSessions: new Set<string>(),
     tokenUsage: null,
     contextCompressionTick: 0,
     workspacePanelOpen: false,
