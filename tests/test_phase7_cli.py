@@ -15,6 +15,7 @@ from nini.__main__ import (
     main,
 )
 from nini.config import settings
+from nini.harness.models import HarnessRunSummary
 
 
 def test_cli_init_creates_env_file(tmp_path: Path) -> None:
@@ -148,3 +149,62 @@ def test_detect_weasyprint_status_when_installed(
     ok, msg = _detect_weasyprint_status()
     assert ok is True
     assert "99.9" in msg
+
+
+def test_cli_harness_list_outputs_summaries(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _FakeStore:
+        async def list_runs(self, session_id: str | None = None, limit: int = 20):
+            _ = session_id, limit
+            return [
+                HarnessRunSummary(
+                    run_id="run_demo",
+                    session_id="session_demo",
+                    turn_id="turn_demo",
+                    status="completed",
+                    trace_path="/tmp/run_demo.json",
+                )
+            ]
+
+    monkeypatch.setattr("nini.harness.store.HarnessTraceStore", _FakeStore)
+    ret = main(["harness", "list"])
+    out = capsys.readouterr().out
+
+    assert ret == 0
+    assert '"run_id": "run_demo"' in out
+
+
+def test_cli_harness_replay_outputs_trace(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _FakeStore:
+        def replay_run(self, run_id: str, session_id: str | None = None):
+            _ = session_id
+            return {"run_id": run_id, "status": "blocked", "failure_tags": ["tool_loop"]}
+
+    monkeypatch.setattr("nini.harness.store.HarnessTraceStore", _FakeStore)
+    ret = main(["harness", "replay", "run_demo"])
+    out = capsys.readouterr().out
+
+    assert ret == 0
+    assert '"status": "blocked"' in out
+
+
+def test_cli_harness_eval_outputs_failure_distribution(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _FakeStore:
+        async def aggregate_failures(self, session_id: str | None = None):
+            _ = session_id
+            return {"total_runs": 2, "failure_distribution": {"tool_loop": 1}}
+
+    monkeypatch.setattr("nini.harness.store.HarnessTraceStore", _FakeStore)
+    ret = main(["harness", "eval"])
+    out = capsys.readouterr().out
+
+    assert ret == 0
+    assert '"tool_loop": 1' in out

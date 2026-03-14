@@ -36,6 +36,7 @@ class Session:
     research_profile_id: str = "default"
     workspace_hydrated: bool = False
     load_persisted_messages: bool = False
+    harness_runtime_context: str = ""
     # 图表输出格式偏好："interactive"（Plotly）/ "image"（Matplotlib/PNG）/ None（未设置）
     chart_output_preference: str | None = None
     conversation_memory: ConversationMemory = field(init=False, repr=False)

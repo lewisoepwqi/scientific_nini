@@ -358,6 +358,8 @@ class AgentRunner:
         *,
         append_user_message: bool = True,
         stop_event: asyncio.Event | None = None,
+        turn_id: str | None = None,
+        stage_override: str | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
         """执行一轮 Agent 交互，产出事件流。
 
@@ -369,7 +371,7 @@ class AgentRunner:
            （当 agent_max_iterations > 0 时最多该次数；<=0 不限制）
         5. 如果是纯文本 → 输出并结束
         """
-        turn_id = uuid.uuid4().hex[:12]
+        turn_id = turn_id or uuid.uuid4().hex[:12]
         if append_user_message:
             session.add_message("user", user_message, turn_id=turn_id)
 
@@ -640,6 +642,7 @@ class AgentRunner:
 
             # 获取工具定义
             tools = self._get_tool_definitions(preferred_tools=allowed_tool_whitelist)
+            followup_prompt_for_purpose = pending_followup_prompt
             if pending_followup_prompt:
                 messages = [
                     *messages,
@@ -672,11 +675,16 @@ class AgentRunner:
                 usage = {}
                 current_reasoning_id = None
                 streamed_reasoning_buffer = ""
+                call_purpose = self._resolve_model_purpose(
+                    iteration=iteration,
+                    pending_followup_prompt=followup_prompt_for_purpose,
+                    stage_override=stage_override,
+                )
                 try:
                     async for chunk in self._resolver.chat(
                         messages,
                         tools or None,
-                        purpose="chat",
+                        purpose=call_purpose,
                     ):
                         if should_stop():
                             yield eb.build_done_event(turn_id=turn_id)
@@ -784,7 +792,7 @@ class AgentRunner:
                                 break
 
                             yield eb.build_model_fallback_event(
-                                purpose="chat",
+                                purpose=call_purpose,
                                 attempt=int(effective_model_info.get("attempt", 1) or 1),
                                 from_provider_id=from_provider_id,
                                 from_provider_name=from_provider_name,
@@ -882,7 +890,7 @@ class AgentRunner:
             # 记录 token 消耗
             if usage and settings.enable_cost_tracking:
                 model_info = effective_model_info or self._resolver.get_active_model_info(
-                    purpose="chat"
+                    purpose=call_purpose
                 )
                 tracker = get_tracker(session.id)
                 rec = tracker.record(
@@ -2136,6 +2144,25 @@ class AgentRunner:
     def _build_intent_runtime_context(self, user_message: str) -> str:
         """兼容旧测试入口，委托给 canonical context builder。"""
         return self._context_builder.build_intent_runtime_context(user_message)
+
+    @staticmethod
+    def _resolve_model_purpose(
+        *,
+        iteration: int,
+        pending_followup_prompt: str | None,
+        stage_override: str | None,
+    ) -> str:
+        """根据运行阶段选择模型用途路由。"""
+        normalized_override = str(stage_override or "").strip().lower()
+        if normalized_override == "verification":
+            return "verification"
+        if normalized_override == "planning":
+            return "planning"
+        if iteration == 0:
+            return "planning"
+        if pending_followup_prompt:
+            return "verification"
+        return "chat"
 
     async def _maybe_handle_intent_clarification(
         self,

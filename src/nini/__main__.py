@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import argparse
 import importlib
+import json
 from pathlib import Path
 import sys
 from typing import Sequence
@@ -209,6 +211,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="是否格式化输出（默认格式化）",
     )
     export_parser.set_defaults(func=_cmd_export_memory)
+
+    harness_parser = subparsers.add_parser("harness", help="查看 harness trace 与评测结果")
+    harness_subparsers = harness_parser.add_subparsers(dest="harness_command", required=True)
+
+    harness_list_parser = harness_subparsers.add_parser("list", help="列出 harness 运行摘要")
+    harness_list_parser.add_argument("--session-id", default=None, help="按会话过滤")
+    harness_list_parser.add_argument("--limit", type=int, default=20, help="返回条数上限")
+    harness_list_parser.set_defaults(func=_cmd_harness_list)
+
+    harness_show_parser = harness_subparsers.add_parser("show", help="查看单次 harness trace")
+    harness_show_parser.add_argument("run_id", help="运行 ID")
+    harness_show_parser.add_argument("--session-id", default=None, help="指定会话 ID")
+    harness_show_parser.set_defaults(func=_cmd_harness_show)
+
+    harness_replay_parser = harness_subparsers.add_parser("replay", help="回放单次 harness 运行摘要")
+    harness_replay_parser.add_argument("run_id", help="运行 ID")
+    harness_replay_parser.add_argument("--session-id", default=None, help="指定会话 ID")
+    harness_replay_parser.set_defaults(func=_cmd_harness_replay)
+
+    harness_eval_parser = harness_subparsers.add_parser("eval", help="聚合 harness 失败分类")
+    harness_eval_parser.add_argument("--session-id", default=None, help="按会话过滤")
+    harness_eval_parser.set_defaults(func=_cmd_harness_eval)
 
     def _register_tool_subcommands(
         parent: argparse.ArgumentParser,
@@ -517,6 +541,46 @@ def _cmd_export_memory(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"错误：{e}")
         return 1
+
+
+def _cmd_harness_list(args: argparse.Namespace) -> int:
+    """列出 harness trace 摘要。"""
+    from nini.harness.store import HarnessTraceStore
+
+    store = HarnessTraceStore()
+    summaries = asyncio.run(store.list_runs(session_id=args.session_id, limit=args.limit))
+    print(json.dumps([item.model_dump(mode="json") for item in summaries], ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_harness_show(args: argparse.Namespace) -> int:
+    """查看单次 harness trace。"""
+    from nini.harness.store import HarnessTraceStore
+
+    store = HarnessTraceStore()
+    record = store.load_run(args.run_id, session_id=args.session_id)
+    print(json.dumps(record.model_dump(mode="json"), ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_harness_replay(args: argparse.Namespace) -> int:
+    """输出单次 harness 回放摘要。"""
+    from nini.harness.store import HarnessTraceStore
+
+    store = HarnessTraceStore()
+    replay = store.replay_run(args.run_id, session_id=args.session_id)
+    print(json.dumps(replay, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_harness_eval(args: argparse.Namespace) -> int:
+    """聚合 harness 失败分类。"""
+    from nini.harness.store import HarnessTraceStore
+
+    store = HarnessTraceStore()
+    result = asyncio.run(store.aggregate_failures(session_id=args.session_id))
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
 
 
 def _cmd_mcp(args: argparse.Namespace) -> int:

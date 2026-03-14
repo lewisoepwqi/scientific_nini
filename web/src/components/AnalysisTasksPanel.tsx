@@ -5,12 +5,21 @@ import {
   AlertTriangle,
   CheckCircle2,
   Circle,
+  FileStack,
   History,
   Loader2,
   Sparkles,
   XCircle,
 } from "lucide-react";
-import { useStore, type AnalysisPlanProgress, type PlanStepStatus, type AnalysisTaskItem } from "../store";
+import {
+  useStore,
+  type AnalysisPlanProgress,
+  type PlanStepStatus,
+  type AnalysisTaskItem,
+  type HarnessRunContextState,
+  type CompletionCheckState,
+  type HarnessBlockedState,
+} from "../store";
 
 function statusLabel(status: PlanStepStatus): string {
   switch (status) {
@@ -63,7 +72,103 @@ function truncateText(text: string, max = 96): string {
   return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
-function AnalysisPlanContent({ plan }: { plan: AnalysisPlanProgress }) {
+function HarnessDiagnostics({
+  runContext,
+  completionCheck,
+  blockedState,
+}: {
+  runContext: HarnessRunContextState | null;
+  completionCheck: CompletionCheckState | null;
+  blockedState: HarnessBlockedState | null;
+}) {
+  if (!runContext && !completionCheck && !blockedState) return null;
+
+  return (
+    <div className="px-3 py-3 border-b bg-white space-y-2">
+      {runContext && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-700">
+            <FileStack size={13} />
+            <span>运行上下文</span>
+          </div>
+          {runContext.datasets.length > 0 && (
+            <p className="mt-1 text-[11px] text-slate-600">
+              数据集：{runContext.datasets.map((item) => `${item.name}${item.rows != null ? `（${item.rows}×${item.columns ?? "?"}）` : ""}`).join("、")}
+            </p>
+          )}
+          {runContext.toolHints.length > 0 && (
+            <p className="mt-1 text-[11px] text-slate-600">
+              工具提示：{runContext.toolHints.join("、")}
+            </p>
+          )}
+          {runContext.constraints.length > 0 && (
+            <p className="mt-1 text-[11px] text-slate-600">
+              关键约束：{runContext.constraints.join("；")}
+            </p>
+          )}
+        </div>
+      )}
+
+      {completionCheck && (
+        <div className={`rounded-lg border px-3 py-2 ${completionCheck.passed ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="font-medium text-slate-800">完成校验</span>
+            <span className={completionCheck.passed ? "text-emerald-700" : "text-amber-800"}>
+              第 {completionCheck.attempt} 次
+            </span>
+          </div>
+          <div className="mt-2 space-y-1">
+            {completionCheck.items.map((item) => (
+              <div key={item.key} className="flex items-start gap-2 text-[11px] text-slate-700">
+                {item.passed ? (
+                  <CheckCircle2 size={12} className="mt-0.5 text-emerald-600" />
+                ) : (
+                  <AlertTriangle size={12} className="mt-0.5 text-amber-600" />
+                )}
+                <div className="min-w-0">
+                  <p>{item.label}</p>
+                  {item.detail && <p className="text-slate-500">{truncateText(item.detail, 120)}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+          {!completionCheck.passed && completionCheck.missingActions.length > 0 && (
+            <p className="mt-2 text-[11px] text-amber-800">
+              待补齐：{completionCheck.missingActions.join("、")}
+            </p>
+          )}
+        </div>
+      )}
+
+      {blockedState && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+          <div className="flex items-center gap-2 text-xs font-medium text-red-800">
+            <AlertTriangle size={13} />
+            <span>当前轮已阻塞</span>
+          </div>
+          <p className="mt-1 text-[11px] text-red-800">{blockedState.message}</p>
+          {blockedState.suggestedAction && (
+            <p className="mt-1 text-[11px] text-red-700">
+              建议动作：{blockedState.suggestedAction}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnalysisPlanContent({
+  plan,
+  runContext,
+  completionCheck,
+  blockedState,
+}: {
+  plan: AnalysisPlanProgress;
+  runContext: HarnessRunContextState | null;
+  completionCheck: CompletionCheckState | null;
+  blockedState: HarnessBlockedState | null;
+}) {
   const safeCurrentIndex = Math.max(1, Math.min(plan.current_step_index, plan.total_steps || 1));
   const currentTitle = truncateText(plan.step_title || `步骤 ${safeCurrentIndex}`);
   const nextHint = truncateText(plan.next_hint || "", 120);
@@ -97,6 +202,12 @@ function AnalysisPlanContent({ plan }: { plan: AnalysisPlanProgress }) {
           </p>
         )}
       </div>
+
+      <HarnessDiagnostics
+        runContext={runContext}
+        completionCheck={completionCheck}
+        blockedState={blockedState}
+      />
 
       {/* 步骤列表 */}
       <div className="flex-1 overflow-y-auto px-3 py-3">
@@ -210,15 +321,37 @@ function HistoryTasksContent({ tasks }: { tasks: AnalysisTaskItem[] }) {
 export default function AnalysisTasksPanel() {
   const analysisPlanProgress = useStore((s) => s.analysisPlanProgress);
   const analysisTasks = useStore((s) => s.analysisTasks);
+  const harnessRunContext = useStore((s) => s.harnessRunContext);
+  const completionCheck = useStore((s) => s.completionCheck);
+  const blockedState = useStore((s) => s.blockedState);
 
   // 优先显示当前分析计划进度
   if (analysisPlanProgress && analysisPlanProgress.steps.length > 0) {
-    return <AnalysisPlanContent plan={analysisPlanProgress} />;
+    return (
+      <AnalysisPlanContent
+        plan={analysisPlanProgress}
+        runContext={harnessRunContext}
+        completionCheck={completionCheck}
+        blockedState={blockedState}
+      />
+    );
   }
 
   // 没有当前计划但有历史任务时，显示历史任务列表
   if (analysisTasks.length > 0) {
     return <HistoryTasksContent tasks={analysisTasks} />;
+  }
+
+  if (harnessRunContext || completionCheck || blockedState) {
+    return (
+      <div className="h-full overflow-y-auto">
+        <HarnessDiagnostics
+          runContext={harnessRunContext}
+          completionCheck={completionCheck}
+          blockedState={blockedState}
+        />
+      </div>
+    );
   }
 
   // 没有任何任务时显示空状态

@@ -16,6 +16,9 @@ import type {
   ModelTokenUsage,
   MessageBuffer,
   StreamingMetrics,
+  HarnessRunContextState,
+  CompletionCheckState,
+  HarnessBlockedState,
 } from "./types";
 
 import {
@@ -313,6 +316,9 @@ export interface AppStateSubset {
   } | null;
   analysisPlanProgress: AnalysisPlanProgress | null;
   analysisTasks: AnalysisTaskItem[];
+  harnessRunContext: HarnessRunContextState | null;
+  completionCheck: CompletionCheckState | null;
+  blockedState: HarnessBlockedState | null;
   pendingAskUserQuestion: { toolCallId: string; questions: AskUserQuestionItem[]; createdAt: number } | null;
   isStreaming: boolean;
   /** 所有正在运行 Agent 的 session_id 集合（多会话并发） */
@@ -376,6 +382,9 @@ export function handleEvent(
         _currentTurnId: evt.turn_id || null,
         _lastHandledSeq: undefined,
         modelFallback: null,
+        harnessRunContext: null,
+        completionCheck: null,
+        blockedState: null,
         _streamingMetrics: s._streamingMetrics.startedAt
           ? {
               ...s._streamingMetrics,
@@ -629,6 +638,150 @@ export function handleEvent(
             timestamp: Date.now(),
           },
         ],
+      }));
+      break;
+    }
+
+    case "run_context": {
+      const data = isRecord(evt.data) ? evt.data : null;
+      if (!data) break;
+      const datasets = Array.isArray(data.datasets) ? data.datasets : [];
+      const artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+      set({
+        harnessRunContext: {
+          turnId:
+            typeof data.turn_id === "string" && data.turn_id.trim()
+              ? data.turn_id.trim()
+              : evt.turn_id || "",
+          datasets: datasets
+            .filter((item): item is Record<string, unknown> => isRecord(item))
+            .map((item) => ({
+              name: typeof item.name === "string" ? item.name.trim() : "",
+              rows:
+                typeof item.rows === "number" && Number.isFinite(item.rows)
+                  ? item.rows
+                  : null,
+              columns:
+                typeof item.columns === "number" && Number.isFinite(item.columns)
+                  ? item.columns
+                  : null,
+            }))
+            .filter((item) => item.name),
+          artifacts: artifacts
+            .filter((item): item is Record<string, unknown> => isRecord(item))
+            .map((item) => ({
+              name: typeof item.name === "string" ? item.name.trim() : "",
+              artifactType:
+                typeof item.artifact_type === "string"
+                  ? item.artifact_type.trim()
+                  : null,
+            }))
+            .filter((item) => item.name),
+          toolHints: Array.isArray(data.tool_hints)
+            ? data.tool_hints
+                .filter((item): item is string => typeof item === "string")
+                .map((item) => item.trim())
+                .filter(Boolean)
+            : [],
+          constraints: Array.isArray(data.constraints)
+            ? data.constraints
+                .filter((item): item is string => typeof item === "string")
+                .map((item) => item.trim())
+                .filter(Boolean)
+            : [],
+        },
+        workspacePanelOpen: true,
+        workspacePanelTab: "tasks",
+      });
+      break;
+    }
+
+    case "completion_check": {
+      const data = isRecord(evt.data) ? evt.data : null;
+      if (!data) break;
+      const items = Array.isArray(data.items) ? data.items : [];
+      const state: CompletionCheckState = {
+        turnId:
+          typeof data.turn_id === "string" && data.turn_id.trim()
+            ? data.turn_id.trim()
+            : evt.turn_id || "",
+        passed: data.passed === true,
+        attempt:
+          typeof data.attempt === "number" && Number.isFinite(data.attempt)
+            ? Math.max(1, Math.floor(data.attempt))
+            : 1,
+        items: items
+          .filter((item): item is Record<string, unknown> => isRecord(item))
+          .map((item) => ({
+            key: typeof item.key === "string" ? item.key.trim() : "",
+            label: typeof item.label === "string" ? item.label.trim() : "",
+            passed: item.passed === true,
+            detail: typeof item.detail === "string" ? item.detail.trim() : "",
+          }))
+          .filter((item) => item.key && item.label),
+        missingActions: Array.isArray(data.missing_actions)
+          ? data.missing_actions
+              .filter((item): item is string => typeof item === "string")
+              .map((item) => item.trim())
+              .filter(Boolean)
+          : [],
+      };
+      set((s) => ({
+        completionCheck: state,
+        analysisPlanProgress:
+          s.analysisPlanProgress && !state.passed
+            ? {
+                ...s.analysisPlanProgress,
+                next_hint:
+                  state.missingActions.length > 0
+                    ? `系统正在补齐：${state.missingActions.join("、")}`
+                    : s.analysisPlanProgress.next_hint,
+              }
+            : s.analysisPlanProgress,
+        workspacePanelOpen: true,
+        workspacePanelTab: "tasks",
+      }));
+      break;
+    }
+
+    case "blocked": {
+      const data = isRecord(evt.data) ? evt.data : null;
+      if (!data) break;
+      const blockedState: HarnessBlockedState = {
+        turnId:
+          typeof data.turn_id === "string" && data.turn_id.trim()
+            ? data.turn_id.trim()
+            : evt.turn_id || "",
+        reasonCode:
+          typeof data.reason_code === "string" ? data.reason_code.trim() : "blocked",
+        message: typeof data.message === "string" ? data.message.trim() : "当前轮已阻塞",
+        recoverable: data.recoverable !== false,
+        suggestedAction:
+          typeof data.suggested_action === "string"
+            ? data.suggested_action.trim()
+            : null,
+      };
+      set((s) => ({
+        blockedState,
+        isStreaming: false,
+        analysisPlanProgress: s.analysisPlanProgress
+          ? (() => {
+              const idx = s.analysisPlanProgress.current_step_index - 1;
+              const steps: AnalysisStep[] = s.analysisPlanProgress.steps.map((step, stepIdx) =>
+                stepIdx === idx ? { ...step, status: "blocked" } : step,
+              );
+              return {
+                ...s.analysisPlanProgress,
+                step_status: "blocked",
+                block_reason: blockedState.message,
+                next_hint:
+                  blockedState.suggestedAction || "请根据阻塞原因补充信息后继续。",
+                steps,
+              };
+            })()
+          : s.analysisPlanProgress,
+        workspacePanelOpen: true,
+        workspacePanelTab: "tasks",
       }));
       break;
     }
@@ -995,8 +1148,9 @@ export function handleEvent(
           progress = {
             ...progress,
             step_status: "blocked",
-            next_hint: "你可以重新发送请求继续当前流程。",
-            block_reason: "用户手动停止当前请求",
+            next_hint:
+              s.blockedState?.suggestedAction || "你可以重新发送请求继续当前流程。",
+            block_reason: s.blockedState?.message || "用户手动停止当前请求",
             steps,
           };
         }
@@ -1011,6 +1165,7 @@ export function handleEvent(
           _activePlanTaskIds: [],
           _planActionTaskMap: {},
           _streamingMetrics: resetStreamingMetrics(),
+          blockedState: s.blockedState,
           analysisPlanProgress: progress,
           analysisTasks: tasks,
         };

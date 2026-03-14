@@ -69,6 +69,60 @@ class TaskAttemptEventData(BaseModel):
     error: Optional[str] = Field(None, description="错误信息")
 
 
+class RunContextDatasetSummary(BaseModel):
+    """RUN_CONTEXT 事件中的数据集摘要。"""
+
+    name: str = Field(..., description="数据集名称")
+    rows: Optional[int] = Field(None, description="行数")
+    columns: Optional[int] = Field(None, description="列数")
+
+
+class RunContextArtifactSummary(BaseModel):
+    """RUN_CONTEXT 事件中的产物摘要。"""
+
+    name: str = Field(..., description="产物名称")
+    artifact_type: Optional[str] = Field(None, description="产物类型")
+
+
+class RunContextEventData(BaseModel):
+    """RUN_CONTEXT 事件的数据结构。"""
+
+    turn_id: str = Field(..., description="当前轮标识")
+    datasets: list[RunContextDatasetSummary] = Field(default_factory=list, description="数据集摘要")
+    artifacts: list[RunContextArtifactSummary] = Field(default_factory=list, description="产物摘要")
+    tool_hints: list[str] = Field(default_factory=list, description="推荐工具提示")
+    constraints: list[str] = Field(default_factory=list, description="关键约束")
+
+
+class CompletionCheckItemEventData(BaseModel):
+    """COMPLETION_CHECK 单项结果。"""
+
+    key: str = Field(..., description="检查项标识")
+    label: str = Field(..., description="检查项标题")
+    passed: bool = Field(..., description="是否通过")
+    detail: str = Field("", description="检查说明")
+
+
+class CompletionCheckEventData(BaseModel):
+    """COMPLETION_CHECK 事件的数据结构。"""
+
+    turn_id: str = Field(..., description="当前轮标识")
+    passed: bool = Field(..., description="整体是否通过")
+    attempt: int = Field(..., description="当前校验轮次")
+    items: list[CompletionCheckItemEventData] = Field(default_factory=list, description="检查项列表")
+    missing_actions: list[str] = Field(default_factory=list, description="缺失动作")
+
+
+class BlockedEventData(BaseModel):
+    """BLOCKED 事件的数据结构。"""
+
+    turn_id: str = Field(..., description="当前轮标识")
+    reason_code: str = Field(..., description="阻塞原因代码")
+    message: str = Field(..., description="阻塞说明")
+    recoverable: bool = Field(True, description="是否可恢复")
+    suggested_action: Optional[str] = Field(None, description="建议动作")
+
+
 # ---- Token 使用相关事件 ----
 
 

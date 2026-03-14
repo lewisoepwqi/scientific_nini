@@ -14,9 +14,11 @@ import pandas as pd
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from nini.agent.runner import AgentRunner, EventType
+from nini.agent.runner import AgentRunner
+from nini.agent.events import EventType
 from nini.agent.session import session_manager
 from nini.agent.title_generator import generate_title
+from nini.harness.runner import HarnessRunner
 from nini.models.schemas import WSEvent
 from nini.tools.registry import ToolRegistry
 from nini.workspace import WorkspaceManager
@@ -142,9 +144,11 @@ async def websocket_agent(ws: WebSocket):
         *,
         append_user_message: bool,
     ) -> None:
-        runner = AgentRunner(
-            skill_registry=_tool_registry,
-            ask_user_question_handler=_wait_for_ask_user_question_answers,
+        runner = HarnessRunner(
+            agent_runner=AgentRunner(
+                skill_registry=_tool_registry,
+                ask_user_question_handler=_wait_for_ask_user_question_answers,
+            ),
         )
         stop_event = active_stop_events.get(session.id) or asyncio.Event()
 

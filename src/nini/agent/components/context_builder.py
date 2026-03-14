@@ -140,6 +140,12 @@ class ContextBuilder:
         if intent_runtime_context:
             context_parts.append(intent_runtime_context)
 
+        harness_runtime_context = str(getattr(session, "harness_runtime_context", "") or "").strip()
+        if harness_runtime_context:
+            context_parts.append(
+                format_untrusted_context_block("harness_summary", harness_runtime_context)
+            )
+
         explicit_skill_context = self.build_explicit_skill_context(last_user_msg)
         if explicit_skill_context:
             context_parts.append(explicit_skill_context)
