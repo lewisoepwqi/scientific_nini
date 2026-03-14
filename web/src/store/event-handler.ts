@@ -378,6 +378,7 @@ export function handleEvent(
         _currentTurnId: evt.turn_id || null,
         _lastHandledSeq: undefined,
         modelFallback: null,
+        harnessRunContext: null,
         completionCheck: null,
         blockedState: null,
         _streamingMetrics: s._streamingMetrics.startedAt
@@ -758,13 +759,20 @@ export function handleEvent(
         blockedState,
         isStreaming: false,
         analysisPlanProgress: s.analysisPlanProgress
-          ? {
-              ...s.analysisPlanProgress,
-              step_status: "blocked",
-              block_reason: blockedState.message,
-              next_hint:
-                blockedState.suggestedAction || "请根据阻塞原因补充信息后继续。",
-            }
+          ? (() => {
+              const idx = s.analysisPlanProgress.current_step_index - 1;
+              const steps: AnalysisStep[] = s.analysisPlanProgress.steps.map((step, stepIdx) =>
+                stepIdx === idx ? { ...step, status: "blocked" } : step,
+              );
+              return {
+                ...s.analysisPlanProgress,
+                step_status: "blocked",
+                block_reason: blockedState.message,
+                next_hint:
+                  blockedState.suggestedAction || "请根据阻塞原因补充信息后继续。",
+                steps,
+              };
+            })()
           : s.analysisPlanProgress,
         workspacePanelOpen: true,
         workspacePanelTab: "tasks",

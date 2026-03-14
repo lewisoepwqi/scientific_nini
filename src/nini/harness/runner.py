@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import uuid
 from datetime import datetime, timezone
@@ -67,15 +68,17 @@ class HarnessRunner:
         combined_stop_event = asyncio.Event()
         bridge_task: asyncio.Task[None] | None = None
         if stop_event is not None:
-            bridge_task = asyncio.create_task(self._bridge_stop_event(stop_event, combined_stop_event))
+            bridge_task = asyncio.create_task(
+                self._bridge_stop_event(stop_event, combined_stop_event)
+            )
 
         completion_attempt = 0
         pending_prompt = user_message
         append_flag = append_user_message
         tool_error_counts: dict[str, int] = {}
         tool_failure_messages: dict[str, str] = {}
+        recovered_tool_signatures: set[str] = set()
         blocked_state: BlockedState | None = None
-        recovery_requested = False
         completed = False
 
         try:
@@ -107,32 +110,36 @@ class HarnessRunner:
                 ):
                     self._record_event(trace, event)
 
-                    if (
-                        not run_context_emitted
-                        and event.type
-                        not in {
-                            EventType.ITERATION_START,
-                            EventType.ERROR,
-                            EventType.DONE,
-                            EventType.STOPPED,
-                        }
-                    ):
+                    if event.type == EventType.ERROR:
+                        trace.status = "error"
+                        trace.finished_at = _utc_now_iso()
+                        yield event
+                        completed = True
+                        break
+
+                    if not run_context_emitted and event.type not in {
+                        EventType.ITERATION_START,
+                        EventType.ERROR,
+                        EventType.DONE,
+                        EventType.STOPPED,
+                    }:
                         self._record_event(trace, run_context_event)
                         yield run_context_event
                         run_context_emitted = True
 
                     if event.type == EventType.TOOL_RESULT:
                         recovery_event, blocked_state = self._handle_tool_result(
+                            session=session,
                             event=event,
                             turn_id=turn_id,
                             tool_error_counts=tool_error_counts,
                             tool_failure_messages=tool_failure_messages,
-                            recovery_requested=recovery_requested,
+                            recovered_tool_signatures=recovered_tool_signatures,
                         )
                         if recovery_event is not None:
-                            recovery_requested = True
                             combined_stop_event.set()
                             yield recovery_event
+                            append_flag = False
                             pending_prompt = (
                                 "检测到同类工具路径连续失败。请退一步重新规划，"
                                 "避免重复同一参数路径，优先解释失败原因并尝试替代方法。"
@@ -145,6 +152,9 @@ class HarnessRunner:
 
                     if blocked_state is None:
                         yield event
+
+                if completed:
+                    break
 
                 if not run_context_emitted and blocked_state is None:
                     self._record_event(trace, run_context_event)
@@ -213,7 +223,9 @@ class HarnessRunner:
                 append_flag = False
                 combined_stop_event = asyncio.Event()
                 if stop_event is not None:
-                    bridge_task = asyncio.create_task(self._bridge_stop_event(stop_event, combined_stop_event))
+                    bridge_task = asyncio.create_task(
+                        self._bridge_stop_event(stop_event, combined_stop_event)
+                    )
 
             if blocked_state is not None:
                 trace.blocked = blocked_state
@@ -239,6 +251,10 @@ class HarnessRunner:
             trace.summary = self._build_trace_summary(trace)
             if trace.finished_at is None:
                 trace.finished_at = _utc_now_iso()
+                if stop_event is not None and stop_event.is_set():
+                    trace.status = "stopped"
+                elif trace.status == "completed":
+                    trace.status = "error"
             await self._trace_store.save_run(trace)
 
     @staticmethod
@@ -320,10 +336,13 @@ class HarnessRunner:
             and msg.get("event_type") in {None, "text"}
             and str(msg.get("content") or "").strip()
         ]
-        final_text = str(assistant_messages[-1].get("content", "")).strip() if assistant_messages else ""
+        final_text = (
+            str(assistant_messages[-1].get("content", "")).strip() if assistant_messages else ""
+        )
 
         tool_failures = [
-            msg for msg in messages
+            msg
+            for msg in messages
             if msg.get("event_type") == "tool_result" and msg.get("status") == "error"
         ]
         strict_analysis_mode = session.task_manager.has_tasks() or bool(session.datasets)
@@ -347,7 +366,9 @@ class HarnessRunner:
                 passed=(
                     not strict_analysis_mode
                     or not tool_failures
-                    or any(token in final_text.lower() for token in ("失败", "报错", "error", "未完成"))
+                    or any(
+                        token in final_text.lower() for token in ("失败", "报错", "error", "未完成")
+                    )
                 ),
                 detail="若存在失败工具，需先处理或解释失败影响。",
             ),
@@ -386,28 +407,36 @@ class HarnessRunner:
     @staticmethod
     def _handle_tool_result(
         *,
+        session: Session,
         event: AgentEvent,
         turn_id: str,
         tool_error_counts: dict[str, int],
         tool_failure_messages: dict[str, str],
-        recovery_requested: bool,
+        recovered_tool_signatures: set[str],
     ) -> tuple[AgentEvent | None, BlockedState | None]:
         data = event.data if isinstance(event.data, dict) else {}
         status = str(data.get("status", "") or "")
         tool_name = str(event.tool_name or data.get("name", "") or "").strip()
         if not tool_name:
             return None, None
+        signature = HarnessRunner._resolve_tool_failure_signature(
+            session=session,
+            event=event,
+            tool_name=tool_name,
+            data=data,
+        )
 
         if status == "error":
-            tool_error_counts[tool_name] = tool_error_counts.get(tool_name, 0) + 1
-            tool_failure_messages[tool_name] = str(data.get("message", "") or "工具执行失败")
+            tool_error_counts[signature] = tool_error_counts.get(signature, 0) + 1
+            tool_failure_messages[signature] = str(data.get("message", "") or "工具执行失败")
         else:
-            tool_error_counts[tool_name] = 0
-            tool_failure_messages.pop(tool_name, None)
+            tool_error_counts[signature] = 0
+            tool_failure_messages.pop(signature, None)
+            recovered_tool_signatures.discard(signature)
             return None, None
 
-        count = tool_error_counts[tool_name]
-        if count >= 2 and recovery_requested:
+        count = tool_error_counts[signature]
+        if count >= 2 and signature in recovered_tool_signatures:
             return None, BlockedState(
                 turn_id=turn_id,
                 reason_code="tool_loop",
@@ -416,6 +445,7 @@ class HarnessRunner:
                 suggested_action="检查参数、切换分析方法，或补充更明确的输入。",
             )
         if count >= 2:
+            recovered_tool_signatures.add(signature)
             return (
                 eb.build_reasoning_event(
                     content=(
@@ -431,6 +461,50 @@ class HarnessRunner:
         return None, None
 
     @staticmethod
+    def _resolve_tool_failure_signature(
+        *,
+        session: Session,
+        event: AgentEvent,
+        tool_name: str,
+        data: dict[str, Any],
+    ) -> str:
+        tool_call_id = str(event.tool_call_id or data.get("id", "") or "").strip()
+        if tool_call_id:
+            for message in reversed(session.messages):
+                if message.get("event_type") != "tool_call":
+                    continue
+                tool_calls = message.get("tool_calls")
+                if not isinstance(tool_calls, list):
+                    continue
+                for tool_call in tool_calls:
+                    if (
+                        not isinstance(tool_call, dict)
+                        or str(tool_call.get("id", "")).strip() != tool_call_id
+                    ):
+                        continue
+                    function_info = tool_call.get("function")
+                    if not isinstance(function_info, dict):
+                        continue
+                    raw_arguments = function_info.get("arguments")
+                    if isinstance(raw_arguments, str) and raw_arguments.strip():
+                        normalized = raw_arguments.strip()
+                        try:
+                            parsed = json.loads(raw_arguments)
+                            normalized = json.dumps(
+                                parsed,
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                default=str,
+                            )
+                        except Exception:
+                            normalized = raw_arguments.strip()
+                        return f"{tool_name}::{normalized}"
+                    break
+
+        message_hint = str(data.get("message", "") or "").strip()
+        return f"{tool_name}::{message_hint or 'unknown'}"
+
+    @staticmethod
     def _classify_failures(
         *,
         completion: CompletionCheckResult | None,
@@ -439,15 +513,22 @@ class HarnessRunner:
     ) -> list[str]:
         tags: list[str] = []
         if completion is not None and not completion.passed:
-            if any(item.key == "ignored_tool_failures" and not item.passed for item in completion.items):
+            if any(
+                item.key == "ignored_tool_failures" and not item.passed for item in completion.items
+            ):
                 tags.append("verification_missing")
-            if any(item.key == "artifact_generated" and not item.passed for item in completion.items):
+            if any(
+                item.key == "artifact_generated" and not item.passed for item in completion.items
+            ):
                 tags.append("artifact_missing")
             if any(item.key == "not_transitional" and not item.passed for item in completion.items):
                 tags.append("premature_completion")
         if tool_failure_messages:
             tags.append("tool_loop")
-        if blocked_state is not None and blocked_state.reason_code == "completion_verification_failed":
+        if (
+            blocked_state is not None
+            and blocked_state.reason_code == "completion_verification_failed"
+        ):
             tags.append("verification_missing")
         return sorted(set(tags))
 

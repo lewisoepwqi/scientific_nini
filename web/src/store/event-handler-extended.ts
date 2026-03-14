@@ -75,49 +75,6 @@ function normalizeTaskAttemptStatus(raw: unknown): AnalysisTaskAttemptStatus {
   }
 }
 
-function mergeArtifactLists(
-  existing: ArtifactInfo[] | undefined,
-  incoming: ArtifactInfo[],
-): ArtifactInfo[] {
-  const merged = [...(existing ?? [])];
-  for (const artifact of incoming) {
-    const duplicate = merged.some(
-      (item) =>
-        item.name === artifact.name &&
-        item.download_url === artifact.download_url &&
-        item.type === artifact.type,
-    );
-    if (!duplicate) {
-      merged.push(artifact);
-    }
-  }
-  return merged;
-}
-
-function attachArtifactToLatestAssistantMessage(
-  messages: Message[],
-  artifact: ArtifactInfo,
-  turnId?: string,
-): Message[] | null {
-  const next = messages.map((message) => ({ ...message }));
-  for (let index = next.length - 1; index >= 0; index -= 1) {
-    const message = next[index];
-    if (message.role !== "assistant" || message.isReasoning) {
-      continue;
-    }
-    if (turnId && message.turnId !== turnId) {
-      continue;
-    }
-    next[index] = {
-      ...message,
-      artifacts: mergeArtifactLists(message.artifacts, [artifact]),
-      timestamp: Date.now(),
-    };
-    return next;
-  }
-  return null;
-}
-
 function applyPlanProgressPayload(
   s: AppStateSubset,
   payload: Record<string, unknown>,
@@ -515,16 +472,6 @@ export function handleExtendedEvent(
         const turnId = evt.turn_id || get()._currentTurnId || undefined;
         const messageId = evt.metadata?.message_id as string | undefined;
         set((s) => {
-          if (!messageId) {
-            const attached = attachArtifactToLatestAssistantMessage(
-              s.messages,
-              artifact,
-              turnId,
-            );
-            if (attached) {
-              return { messages: attached };
-            }
-          }
           return {
             messages: upsertAssistantTextMessage(s.messages, {
               content: "产物已生成",

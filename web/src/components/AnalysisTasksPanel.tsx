@@ -93,7 +93,7 @@ function HarnessDiagnostics({
           </div>
           {runContext.datasets.length > 0 && (
             <p className="mt-1 text-[11px] text-slate-600">
-              数据集：{runContext.datasets.map((item) => `${item.name}${item.rows ? `（${item.rows}×${item.columns ?? "?"}）` : ""}`).join("、")}
+              数据集：{runContext.datasets.map((item) => `${item.name}${item.rows != null ? `（${item.rows}×${item.columns ?? "?"}）` : ""}`).join("、")}
             </p>
           )}
           {runContext.toolHints.length > 0 && (

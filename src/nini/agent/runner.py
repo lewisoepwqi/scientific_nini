@@ -642,6 +642,7 @@ class AgentRunner:
 
             # 获取工具定义
             tools = self._get_tool_definitions(preferred_tools=allowed_tool_whitelist)
+            followup_prompt_for_purpose = pending_followup_prompt
             if pending_followup_prompt:
                 messages = [
                     *messages,
@@ -676,7 +677,7 @@ class AgentRunner:
                 streamed_reasoning_buffer = ""
                 call_purpose = self._resolve_model_purpose(
                     iteration=iteration,
-                    pending_followup_prompt=pending_followup_prompt,
+                    pending_followup_prompt=followup_prompt_for_purpose,
                     stage_override=stage_override,
                 )
                 try:

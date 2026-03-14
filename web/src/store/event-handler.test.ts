@@ -137,6 +137,61 @@ describe("handleEvent 文本去重", () => {
     expect(harness.getState().isStreaming).toBe(false);
   });
 
+  it("blocked 事件应同步更新当前计划步骤为 blocked", async () => {
+    const harness = createHarness({
+      analysisPlanProgress: {
+        current_step_index: 1,
+        total_steps: 2,
+        step_title: "加载数据",
+        step_status: "in_progress",
+        next_hint: "随后开始分析",
+        block_reason: null,
+        steps: [
+          { id: 1, title: "加载数据", tool_hint: null, status: "in_progress" },
+          { id: 2, title: "分析差异", tool_hint: null, status: "not_started" },
+        ],
+      },
+    });
+
+    await harness.dispatch({
+      type: "blocked",
+      data: {
+        turn_id: "turn-blocked",
+        reason_code: "tool_loop",
+        message: "工具连续失败",
+        recoverable: true,
+        suggested_action: "调整参数后重试",
+      },
+      turn_id: "turn-blocked",
+    });
+
+    expect(harness.getState().analysisPlanProgress).toMatchObject({
+      step_status: "blocked",
+      block_reason: "工具连续失败",
+      next_hint: "调整参数后重试",
+    });
+    expect(harness.getState().analysisPlanProgress?.steps[0]?.status).toBe("blocked");
+  });
+
+  it("iteration_start 应清空上一轮 harness 运行上下文", async () => {
+    const harness = createHarness({
+      harnessRunContext: {
+        turnId: "turn-old",
+        datasets: [{ name: "old.csv", rows: 10, columns: 3 }],
+        artifacts: [],
+        toolHints: ["dataset_catalog"],
+        constraints: ["旧约束"],
+      },
+    });
+
+    await harness.dispatch({
+      type: "iteration_start",
+      turn_id: "turn-new",
+    });
+
+    expect(harness.getState().harnessRunContext).toBeNull();
+  });
+
   it("对同一 message_id 的 replace 应更新现有消息，而不是创建新气泡", async () => {
     const harness = createHarness({ _currentTurnId: "turn-1" });
 
