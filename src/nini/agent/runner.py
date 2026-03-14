@@ -24,7 +24,7 @@ from nini.agent.model_resolver import (
 )
 from nini.agent.prompt_policy import AGENTS_MD_MAX_CHARS
 from nini.agent.providers import ReasoningStreamParser
-from nini.agent.session import Session
+from nini.agent.session import Session, session_manager
 from nini.config import settings
 from nini.knowledge.loader import KnowledgeLoader
 from nini.intent import default_intent_analyzer, optimized_intent_analyzer
@@ -74,6 +74,24 @@ logger = logging.getLogger(__name__)
 
 # 兼容别名：测试通过下划线前缀名称访问此函数
 _replace_arguments = replace_arguments
+
+# 图表格式偏好关键词检测
+_INTERACTIVE_KEYWORDS = frozenset({"交互", "interactive", "可缩放", "动态", "plotly", "可交互"})
+_IMAGE_KEYWORDS = frozenset({"图片", "png", "静态", "保存", "发表", "截图", "导出", "论文", "pdf", "svg"})
+
+
+def _detect_chart_preference(msg: str) -> str | None:
+    """从用户消息中检测图表输出格式偏好。
+
+    Returns:
+        "interactive" / "image" / None（未检测到偏好）
+    """
+    lower = msg.lower()
+    if any(k in lower for k in _INTERACTIVE_KEYWORDS):
+        return "interactive"
+    if any(k in lower for k in _IMAGE_KEYWORDS):
+        return "image"
+    return None
 
 
 def _get_intent_analyzer():
@@ -314,6 +332,22 @@ class AgentRunner:
         turn_id = uuid.uuid4().hex[:12]
         if append_user_message:
             session.add_message("user", user_message, turn_id=turn_id)
+
+        # ---- 图表格式偏好检测 ----
+        detected_pref = _detect_chart_preference(user_message)
+        if detected_pref and detected_pref != session.chart_output_preference:
+            session.chart_output_preference = detected_pref
+            session_manager.save_session_chart_preference(session.id, detected_pref)
+
+        # ---- 中断恢复：重播任务状态到前端 ----
+        if session.task_manager.has_tasks():
+            plan_dict = session.task_manager.to_analysis_plan_dict()
+            yield eb.build_analysis_plan_event(
+                steps=plan_dict["steps"],
+                raw_text=plan_dict["raw_text"],
+                turn_id=turn_id,
+                seq=0,
+            )
 
         # ---- 试用模式前置检查 ----
         from nini.config_manager import (

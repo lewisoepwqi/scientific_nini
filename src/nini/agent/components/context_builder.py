@@ -219,6 +219,19 @@ class ContextBuilder:
         if research_profile_context:
             context_parts.append(research_profile_context)
 
+        # 注入图表输出格式偏好（指导 LLM 选择 render_engine）
+        pref = getattr(session, "chart_output_preference", None)
+        if pref:
+            pref_label = "交互式（Plotly）" if pref == "interactive" else "静态图片（Matplotlib/PNG）"
+            context_parts.append(
+                f"[图表输出偏好] 用户当前偏好：{pref_label}。生成图表时 render_engine 应选择对应值，无需再次询问。"
+            )
+        else:
+            context_parts.append(
+                "[图表输出偏好] 用户尚未表明偏好。首次生成图表前，必须调用 ask_user_question 询问："
+                "是否需要可交互图表（可缩放/悬停）还是静态图片（PNG/SVG，适合发表/报告）。"
+            )
+
         messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         if context_parts:
             # 预算控制：按优先级裁剪，Skill 辅助资料不挤占对话历史
