@@ -248,6 +248,11 @@ class TestModelRoutingEndpoint:
                     "provider_id": "zhipu",
                     "model": "glm-5",
                     "base_url": None
+                },
+                "planning": {
+                    "provider_id": "zhipu",
+                    "model": "glm-5",
+                    "base_url": None
                 }
             }
         }
@@ -264,6 +269,8 @@ class TestModelRoutingEndpoint:
         # 验证保存的数据
         assert data["data"]["purpose_routes"]["chat"]["provider_id"] == "zhipu"
         assert data["data"]["purpose_routes"]["chat"]["model"] == "glm-5"
+        assert data["data"]["purpose_routes"]["planning"]["provider_id"] == "zhipu"
+        assert data["data"]["purpose_routes"]["planning"]["model"] == "glm-5"
 
     @pytest.mark.asyncio
     async def test_set_model_routing_with_preferred_provider(self, client):

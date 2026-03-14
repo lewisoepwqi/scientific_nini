@@ -128,7 +128,13 @@ PROVIDER_PRIORITY_ORDER: tuple[str, ...] = (
 )
 
 # 支持的模型用途
-MODEL_PURPOSES: tuple[str, ...] = ("chat", "title_generation", "image_analysis")
+MODEL_PURPOSES: tuple[str, ...] = (
+    "chat",
+    "planning",
+    "verification",
+    "title_generation",
+    "image_analysis",
+)
 VALID_MODEL_PURPOSES = set(MODEL_PURPOSES)
 
 _PURPOSE_ROUTING_KEY = "preferred_provider_by_purpose"

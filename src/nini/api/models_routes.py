@@ -20,6 +20,8 @@ router = APIRouter()
 # 模型用途定义
 _MODEL_PURPOSES = [
     {"id": "chat", "label": "主对话"},
+    {"id": "planning", "label": "对话规划"},
+    {"id": "verification", "label": "结果校验"},
     {"id": "title_generation", "label": "标题生成"},
     {"id": "image_analysis", "label": "图片识别"},
 ]

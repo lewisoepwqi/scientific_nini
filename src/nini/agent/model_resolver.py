@@ -93,6 +93,11 @@ DEFAULT_PURPOSE_ROUTES: dict[str, PurposeRoute] = {
     },
 }
 
+PURPOSE_ROUTE_FALLBACKS: dict[str, str] = {
+    "planning": "chat",
+    "verification": "chat",
+}
+
 
 def _load_purpose_routes_from_settings() -> dict[str, PurposeRoute]:
     """从 settings 加载用途路由配置。"""
@@ -273,6 +278,32 @@ class ModelResolver:
         return None
 
     @staticmethod
+    def _route_is_configured(route: PurposeRoute | None) -> bool:
+        """判断用途路由是否包含显式配置。"""
+        if route is None:
+            return False
+        return any(route.get(field) for field in ("provider_id", "model", "base_url"))
+
+    def _get_effective_purpose_route(self, purpose: str) -> PurposeRoute:
+        """获取指定用途的有效路由，必要时继承 chat 路由。"""
+        route = self._purpose_routes.get(
+            purpose,
+            self._purpose_routes.get(
+                "default", {"provider_id": None, "model": None, "base_url": None}
+            ),
+        )
+        if self._route_is_configured(route):
+            return route
+
+        fallback_purpose = PURPOSE_ROUTE_FALLBACKS.get(purpose)
+        if fallback_purpose:
+            fallback_route = self._purpose_routes.get(fallback_purpose)
+            if self._route_is_configured(fallback_route):
+                return fallback_route
+
+        return route
+
+    @staticmethod
     def _load_encrypted_packaged_secret(name: str) -> str | None:
         """从打包阶段生成的模块中读取并解密密钥。"""
         try:
@@ -336,7 +367,7 @@ class ModelResolver:
 
     def _get_priority_order(self, purpose: str = "default") -> list[str]:
         """获取指定用途的提供商优先级顺序。"""
-        route = self._purpose_routes.get(purpose, self._purpose_routes["default"])
+        route = self._get_effective_purpose_route(purpose)
         provider_id = route.get("provider_id")
 
         # 如果配置了特定用途的提供商，优先使用
@@ -505,10 +536,7 @@ class ModelResolver:
         # 1) 有激活供应商时，仅使用该供应商（title_generation 走廉价模型偏好）
         # 2) 无激活供应商但有试用客户端时，仅使用试用客户端
         # 3) 其余场景（主要是测试注入）保留多客户端故障转移能力
-        route = self._purpose_routes.get(
-            purpose,
-            {"provider_id": None, "model": None, "base_url": None},
-        )
+        route = self._get_effective_purpose_route(purpose)
         route_provider = route.get("provider_id")
         route_model = route.get("model")
         route_base_url = route.get("base_url")
@@ -842,10 +870,7 @@ class ModelResolver:
         clients: list[BaseLLMClient] = []
 
         # 检查是否有用途特定的模型覆盖
-        route: PurposeRoute = self._purpose_routes.get(
-            purpose,
-            {"provider_id": None, "model": None, "base_url": None},
-        )
+        route = self._get_effective_purpose_route(purpose)
         purpose_provider = route.get("provider_id")
         purpose_model = route.get("model")
 
@@ -900,12 +925,7 @@ class ModelResolver:
             包含 provider_id, provider_name, model, preferred_provider 的字典
         """
         # 获取按用途排序的客户端列表
-        route: PurposeRoute = self._purpose_routes.get(
-            purpose,
-            self._purpose_routes.get(
-                "default", {"provider_id": None, "model": None, "base_url": None}
-            ),
-        )
+        route = self._get_effective_purpose_route(purpose)
         route_model = route.get("model") if route else None
         route_provider = route.get("provider_id") if route else None
 
@@ -960,10 +980,7 @@ class ModelResolver:
         Returns:
             提供商 ID 或 None
         """
-        route: PurposeRoute = self._purpose_routes.get(
-            purpose,
-            {"provider_id": None, "model": None, "base_url": None},
-        )
+        route = self._get_effective_purpose_route(purpose)
         return route.get("provider_id")
 
     def get_preferred_providers_by_purpose(self) -> dict[str, str | None]:

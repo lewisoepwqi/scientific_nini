@@ -148,3 +148,32 @@ async def test_multiple_user_providers_enable_fallback() -> None:
     assert chunks[0].text == "fallback-ok"
     assert chunks[0].provider_id == "deepseek"
     assert chunks[0].fallback_applied is True
+
+
+@pytest.mark.asyncio
+async def test_planning_purpose_inherits_chat_route_when_unset() -> None:
+    """planning 未单独配置时，应继承 chat 路由而不是回退到内置试用。"""
+    primary = FakeClient(
+        provider_id="zhipu",
+        model="glm-5",
+        chunks=[LLMChunk(text="ok", finish_reason="stop")],
+    )
+    resolver = ModelResolver(clients=[primary])
+    resolver.set_purpose_route("chat", provider_id="zhipu", model="glm-5")
+
+    with patch.object(
+        resolver,
+        "_get_user_configured_provider_ids",
+        AsyncMock(return_value=["zhipu"]),
+    ):
+        chunks = [
+            chunk
+            async for chunk in resolver.chat(
+                [{"role": "user", "content": "hi"}],
+                purpose="planning",
+            )
+        ]
+
+    assert len(chunks) == 1
+    assert chunks[0].provider_id == "zhipu"
+    assert chunks[0].model == "glm-5"

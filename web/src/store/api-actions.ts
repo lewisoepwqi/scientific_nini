@@ -909,15 +909,28 @@ export async function setChatRoute(
 ): Promise<boolean> {
   try {
     const isBuiltin = providerId === "builtin";
+    const conversationRoutes = {
+      chat: {
+        provider_id: providerId || null,
+        model: model,
+        base_url: null,
+      },
+      planning: {
+        provider_id: providerId || null,
+        model: model,
+        base_url: null,
+      },
+      verification: {
+        provider_id: providerId || null,
+        model: model,
+        base_url: null,
+      },
+    };
     const body: Record<string, unknown> = isBuiltin
       ? {
           preferred_provider: null,
           purpose_routes: {
-            chat: {
-              provider_id: "builtin",
-              model: model,
-              base_url: null,
-            },
+            ...conversationRoutes,
             image_analysis: {
               provider_id: "builtin",
               model: model,
@@ -932,13 +945,7 @@ export async function setChatRoute(
         }
       : {
           preferred_provider: providerId || null,
-          purpose_routes: {
-            chat: {
-              provider_id: providerId || null,
-              model: model,
-              base_url: null,
-            },
-          },
+          purpose_routes: conversationRoutes,
         };
     const resp = await fetch("/api/models/routing", {
       method: "POST",
