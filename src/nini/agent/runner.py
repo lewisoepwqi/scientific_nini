@@ -77,7 +77,9 @@ _replace_arguments = replace_arguments
 
 # 图表格式偏好关键词检测
 _INTERACTIVE_KEYWORDS = frozenset({"交互", "interactive", "可缩放", "动态", "plotly", "可交互"})
-_IMAGE_KEYWORDS = frozenset({"图片", "png", "静态", "保存", "发表", "截图", "导出", "论文", "pdf", "svg"})
+_IMAGE_KEYWORDS = frozenset(
+    {"图片", "png", "静态", "保存", "发表", "截图", "导出", "论文", "pdf", "svg"}
+)
 
 
 def _detect_chart_preference(msg: str) -> str | None:
@@ -98,9 +100,7 @@ def _detect_chart_preference(msg: str) -> str | None:
 _CHART_QUESTION_KEYWORDS = frozenset({"图表", "chart", "plotly", "matplotlib", "渲染", "render"})
 
 
-def _detect_chart_preference_from_answers(
-    questions: list[dict], answers: dict
-) -> str | None:
+def _detect_chart_preference_from_answers(questions: list[dict], answers: dict) -> str | None:
     """从 ask_user_question 的答案中检测图表输出格式偏好。
 
     遍历问题列表，找到图表相关问题，再从对应答案（含选项标签）中检测偏好。
@@ -230,6 +230,10 @@ _ALLOWED_TOOLS_RISK_HINTS: dict[str, str] = {
 _ALLOWED_TOOLS_APPROVAL_ALLOW_ONCE = "仅放行这一次"
 _ALLOWED_TOOLS_APPROVAL_ALLOW_SESSION = "本会话同类工具都放行"
 _ALLOWED_TOOLS_APPROVAL_DENY = "拒绝此次调用"
+_SANDBOX_IMPORT_APPROVAL_ALLOW_ONCE = "仅本次允许"
+_SANDBOX_IMPORT_APPROVAL_ALLOW_SESSION = "本会话允许"
+_SANDBOX_IMPORT_APPROVAL_ALWAYS_ALLOW = "始终允许"
+_SANDBOX_IMPORT_APPROVAL_DENY = "拒绝"
 
 
 @dataclass(frozen=True)
@@ -1571,6 +1575,8 @@ class AgentRunner:
                 # 执行工具（max_retries 已在 TOOL_CALL 事件发出前计算）
                 retry_attempt = 0
                 max_attempts = max_retries + 1
+                tool_exec_args = func_args
+                sandbox_review_retry_used = False
                 while True:
                     attempt_no = retry_attempt + 1
                     yield _new_task_attempt_event(
@@ -1584,7 +1590,7 @@ class AgentRunner:
                     )
 
                     # 执行工具
-                    result = await self._execute_tool(session, func_name, func_args)
+                    result = await self._execute_tool(session, func_name, tool_exec_args)
 
                     # 检查是否发生了统计降级 fallback
                     if isinstance(result, dict) and result.get("fallback"):
@@ -1598,6 +1604,171 @@ class AgentRunner:
                             reason=result.get("fallback_reason"),
                         )
                         yield fallback_event
+
+                    sandbox_review = self._extract_sandbox_review_request(result)
+                    if sandbox_review is not None and func_name == "run_code":
+                        packages = sandbox_review["packages"]
+                        approval_payload = self._build_sandbox_import_approval_payload(
+                            packages=packages,
+                            violations=sandbox_review.get("violations", []),
+                        )
+
+                        if sandbox_review_retry_used:
+                            result = {
+                                "success": False,
+                                "message": (
+                                    "同一次 run_code 调用在完成一次沙盒审批后仍再次请求审批，"
+                                    "已停止继续重试。"
+                                ),
+                                "error_code": "SANDBOX_IMPORT_APPROVAL_REPEAT",
+                                "data": {
+                                    "requested_packages": packages,
+                                    "sandbox_violations": sandbox_review.get("violations", []),
+                                },
+                            }
+                        else:
+                            choice = "unavailable"
+                            if self._ask_user_question_handler is not None:
+                                approval_call_id = f"sandbox-ask-{uuid.uuid4().hex[:8]}"
+                                approval_arguments = json.dumps(
+                                    approval_payload,
+                                    ensure_ascii=False,
+                                )
+                                approval_metadata = {
+                                    "source": "sandbox_import_approval",
+                                    "source_tool_call_id": tc_id,
+                                    "packages": packages,
+                                }
+                                session.add_tool_call(
+                                    approval_call_id,
+                                    "ask_user_question",
+                                    approval_arguments,
+                                    turn_id=turn_id,
+                                    message_id=f"tool-call-{approval_call_id}",
+                                )
+                                yield eb.build_tool_call_event(
+                                    tool_call_id=approval_call_id,
+                                    name="ask_user_question",
+                                    arguments={
+                                        "name": "ask_user_question",
+                                        "arguments": approval_arguments,
+                                    },
+                                    turn_id=turn_id,
+                                    metadata=approval_metadata,
+                                )
+                                yield eb.build_ask_user_question_event(
+                                    questions=approval_payload.get("questions", []),
+                                    turn_id=turn_id,
+                                    tool_call_id=approval_call_id,
+                                    tool_name="ask_user_question",
+                                    metadata=approval_metadata,
+                                )
+
+                                try:
+                                    raw_answers = await self._ask_user_question_handler(
+                                        session,
+                                        approval_call_id,
+                                        approval_payload,
+                                    )
+                                    normalized_answers = self._normalize_ask_user_question_answers(
+                                        raw_answers
+                                    )
+                                    approval_result = {
+                                        "success": True,
+                                        "message": "已收到用户的沙盒扩展包审批决定。",
+                                        "data": {
+                                            "questions": approval_payload["questions"],
+                                            "answers": normalized_answers,
+                                            "packages": packages,
+                                            "source_tool_call_id": tc_id,
+                                        },
+                                    }
+                                    choice = self._resolve_sandbox_import_approval_choice(
+                                        normalized_answers
+                                    )
+                                except asyncio.CancelledError:
+                                    raise
+                                except Exception as exc:
+                                    logger.warning(
+                                        "沙盒扩展包审批失败: session=%s tc_id=%s packages=%s err=%s",
+                                        session.id,
+                                        tc_id,
+                                        packages,
+                                        exc,
+                                    )
+                                    approval_result = {
+                                        "success": False,
+                                        "message": f"等待沙盒扩展包审批失败: {exc}",
+                                    }
+                                    choice = "deny"
+
+                                approval_has_error = bool(
+                                    isinstance(approval_result, dict)
+                                    and (
+                                        approval_result.get("error")
+                                        or approval_result.get("success") is False
+                                    )
+                                )
+                                approval_result_str = serialize_tool_result_for_memory(
+                                    approval_result
+                                )
+                                session.add_tool_result(
+                                    approval_call_id,
+                                    approval_result_str,
+                                    tool_name="ask_user_question",
+                                    status="error" if approval_has_error else "success",
+                                    intent="sandbox_import_approval",
+                                    turn_id=turn_id,
+                                    message_id=f"tool-result-{approval_call_id}",
+                                )
+                                yield eb.build_tool_result_event(
+                                    tool_call_id=approval_call_id,
+                                    name="ask_user_question",
+                                    status="error" if approval_has_error else "success",
+                                    message=_tool_result_message(
+                                        approval_result,
+                                        is_error=approval_has_error,
+                                    ),
+                                    data={"result": approval_result},
+                                    turn_id=turn_id,
+                                    metadata=approval_metadata,
+                                )
+
+                            if choice == "allow_session":
+                                session.grant_sandbox_import_approval(packages, scope="session")
+                            elif choice == "always_allow":
+                                session.grant_sandbox_import_approval(packages, scope="always")
+                            elif choice == "allow_once":
+                                pass
+                            else:
+                                result = {
+                                    "success": False,
+                                    "message": (
+                                        "用户拒绝放行沙盒扩展包导入: " + "、".join(packages)
+                                    ),
+                                    "error_code": "SANDBOX_IMPORT_APPROVAL_DENIED",
+                                    "data": {
+                                        "requested_packages": packages,
+                                        "sandbox_violations": sandbox_review.get("violations", []),
+                                    },
+                                }
+
+                            if choice in {"allow_once", "allow_session", "always_allow"}:
+                                sandbox_review_retry_used = True
+                                tool_exec_args = self._merge_sandbox_retry_arguments(
+                                    tool_exec_args,
+                                    packages,
+                                )
+                                yield _new_task_attempt_event(
+                                    step_id=matched_step_id,
+                                    action_id=matched_action_id,
+                                    tool_name=func_name,
+                                    attempt=attempt_no,
+                                    max_attempts=max_attempts,
+                                    status="retrying",
+                                    note="已获得沙盒扩展包授权，准备按原始参数重试 run_code",
+                                )
+                                continue
 
                     has_error = bool(
                         isinstance(result, dict)
@@ -2647,6 +2818,221 @@ class AgentRunner:
             return "deny", events
         return self._resolve_tool_approval_choice(normalized_answers), events
 
+    @staticmethod
+    def _extract_sandbox_review_request(result: Any) -> dict[str, Any] | None:
+        """从工具结果中提取沙盒扩展包审批请求。"""
+        if not isinstance(result, dict) or result.get("success") is not False:
+            return None
+        data = result.get("data")
+        if not isinstance(data, dict) or data.get("_sandbox_review_required") is not True:
+            return None
+        packages = data.get("requested_packages")
+        violations = data.get("sandbox_violations")
+        if not isinstance(packages, list) or not packages:
+            return None
+        normalized_packages = sorted(
+            {
+                str(item or "").strip()
+                for item in packages
+                if isinstance(item, str) and str(item or "").strip()
+            }
+        )
+        if not normalized_packages:
+            return None
+        return {
+            "packages": normalized_packages,
+            "violations": violations if isinstance(violations, list) else [],
+        }
+
+    @staticmethod
+    def _build_sandbox_import_approval_payload(
+        *,
+        packages: list[str],
+        violations: list[dict[str, Any]] | list[Any],
+    ) -> dict[str, Any]:
+        """构造沙盒扩展包审批问题。"""
+        package_text = "、".join(packages)
+        descriptions = []
+        for item in violations:
+            if not isinstance(item, dict):
+                continue
+            message = str(item.get("message") or "").strip()
+            if message:
+                descriptions.append(message)
+        detail = (
+            "；".join(descriptions[:2])
+            if descriptions
+            else "这些扩展包属于低风险科研扩展，但默认仍保持拒绝。"
+        )
+        return {
+            "questions": [
+                {
+                    "header": "沙盒审批",
+                    "question": (
+                        f"`run_code` 需要导入扩展包：{package_text}。"
+                        f"{detail}。请选择是否放行这次导入。"
+                    ),
+                    "options": [
+                        {
+                            "label": _SANDBOX_IMPORT_APPROVAL_ALLOW_ONCE,
+                            "description": "仅重试当前这次 run_code，不写入会话或永久记录。",
+                        },
+                        {
+                            "label": _SANDBOX_IMPORT_APPROVAL_ALLOW_SESSION,
+                            "description": "当前会话后续再次导入这些包时自动放行，新会话重置。",
+                        },
+                        {
+                            "label": _SANDBOX_IMPORT_APPROVAL_ALWAYS_ALLOW,
+                            "description": "写入永久审批记录，新会话也继续自动放行。",
+                        },
+                        {
+                            "label": _SANDBOX_IMPORT_APPROVAL_DENY,
+                            "description": "拒绝这次导入，让 Agent 改走其他路径。",
+                        },
+                    ],
+                    "multiSelect": False,
+                    "allowTextInput": True,
+                }
+            ]
+        }
+
+    @staticmethod
+    def _resolve_sandbox_import_approval_choice(answers: dict[str, str]) -> str:
+        """归一化沙盒扩展包授权回答。"""
+        for raw_value in answers.values():
+            text = str(raw_value or "").strip()
+            if not text:
+                continue
+            if "始终" in text or "永久" in text:
+                return "always_allow"
+            if "会话" in text:
+                return "allow_session"
+            if "本次" in text or "一次" in text:
+                return "allow_once"
+            if "拒绝" in text or "deny" in text.lower():
+                return "deny"
+        return "deny"
+
+    async def _request_sandbox_import_approval(
+        self,
+        session: Session,
+        *,
+        turn_id: str,
+        tool_call_id: str,
+        packages: list[str],
+        approval_payload: dict[str, Any],
+    ) -> tuple[str, list[AgentEvent]]:
+        """通过 ask_user_question 请求用户确认沙盒扩展包导入。"""
+        if self._ask_user_question_handler is None:
+            return "unavailable", []
+
+        approval_call_id = f"sandbox-ask-{uuid.uuid4().hex[:8]}"
+        arguments = json.dumps(approval_payload, ensure_ascii=False)
+        session.add_tool_call(
+            approval_call_id,
+            "ask_user_question",
+            arguments,
+            turn_id=turn_id,
+            message_id=f"tool-call-{approval_call_id}",
+        )
+        metadata = {
+            "source": "sandbox_import_approval",
+            "source_tool_call_id": tool_call_id,
+            "packages": packages,
+        }
+        events: list[AgentEvent] = [
+            eb.build_tool_call_event(
+                tool_call_id=approval_call_id,
+                name="ask_user_question",
+                arguments={"name": "ask_user_question", "arguments": arguments},
+                turn_id=turn_id,
+                metadata=metadata,
+            ),
+            eb.build_ask_user_question_event(
+                questions=approval_payload.get("questions", []),
+                turn_id=turn_id,
+                tool_call_id=approval_call_id,
+                tool_name="ask_user_question",
+                metadata=metadata,
+            ),
+        ]
+
+        try:
+            raw_answers = await self._ask_user_question_handler(
+                session,
+                approval_call_id,
+                approval_payload,
+            )
+            normalized_answers = self._normalize_ask_user_question_answers(raw_answers)
+            result = {
+                "success": True,
+                "message": "已收到用户的沙盒扩展包审批决定。",
+                "data": {
+                    "questions": approval_payload["questions"],
+                    "answers": normalized_answers,
+                    "packages": packages,
+                    "source_tool_call_id": tool_call_id,
+                },
+            }
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "沙盒扩展包审批失败: session=%s tc_id=%s packages=%s err=%s",
+                session.id,
+                tool_call_id,
+                packages,
+                exc,
+            )
+            normalized_answers = {}
+            result = {
+                "success": False,
+                "message": f"等待沙盒扩展包审批失败: {exc}",
+            }
+
+        has_error = bool(
+            isinstance(result, dict) and (result.get("error") or result.get("success") is False)
+        )
+        result_str = serialize_tool_result_for_memory(result)
+        session.add_tool_result(
+            approval_call_id,
+            result_str,
+            tool_name="ask_user_question",
+            status="error" if has_error else "success",
+            intent="sandbox_import_approval",
+            turn_id=turn_id,
+            message_id=f"tool-result-{approval_call_id}",
+        )
+        events.append(
+            eb.build_tool_result_event(
+                tool_call_id=approval_call_id,
+                name="ask_user_question",
+                status="error" if has_error else "success",
+                message=_tool_result_message(result, is_error=has_error),
+                data={"result": result},
+                turn_id=turn_id,
+                metadata=metadata,
+            )
+        )
+        if has_error:
+            return "deny", events
+        return self._resolve_sandbox_import_approval_choice(normalized_answers), events
+
+    @staticmethod
+    def _merge_sandbox_retry_arguments(arguments: str, packages: list[str]) -> str:
+        """将本次批准的扩展包写入工具重试参数。"""
+        payload = parse_tool_arguments(arguments)
+        extra_allowed_imports = payload.get("extra_allowed_imports")
+        merged_packages: set[str] = set(packages)
+        if isinstance(extra_allowed_imports, list):
+            merged_packages.update(
+                str(item or "").strip()
+                for item in extra_allowed_imports
+                if isinstance(item, str) and str(item or "").strip()
+            )
+        payload["extra_allowed_imports"] = sorted(merged_packages)
+        return json.dumps(payload, ensure_ascii=False)
+
     async def _execute_tool(
         self,
         session: Session,
@@ -2857,5 +3243,5 @@ class AgentRunner:
             "type": "code",
             "format": file_ext.lower(),
             "path": str(path),
-            "download_url": ws.build_artifact_download_url(filename),
+            "download_url": ws.build_artifact_file_download_url(filename),
         }

@@ -35,6 +35,17 @@ class MoonshotClient(OpenAICompatibleClient):
         # Moonshot API 不支持 stream_options.include_usage
         return False
 
+    def _normalize_messages_for_provider(
+        self,
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        normalized = super()._normalize_messages_for_provider(messages)
+        for message in normalized:
+            if message.get("role") == "assistant" and message.get("tool_calls"):
+                # kimi-k2.5 在 thinking 模式下会校验该字段是否存在。
+                message.setdefault("reasoning_content", "")
+        return normalized
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -127,6 +138,13 @@ class ZhipuClient(OpenAICompatibleClient):
     def _supports_stream_usage(self) -> bool:
         # 智谱 Coding Plan 端点不支持 stream_options.include_usage
         return False
+
+    def _normalize_messages_for_provider(
+        self,
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        # 智谱对 messages schema 更严格，显式走最小字段集合。
+        return super()._normalize_messages_for_provider(messages)
 
 
 class DeepSeekClient(OpenAICompatibleClient):

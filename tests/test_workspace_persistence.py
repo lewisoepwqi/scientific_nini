@@ -62,7 +62,9 @@ def test_workspace_dataset_persist_and_reload(client: LocalASGIClient) -> None:
     files = files_resp.json()["data"]["files"]
     resources = files_resp.json()["data"]["resources"]
     assert any(item["kind"] == "dataset" and item["name"] == "exp.csv" for item in files)
-    assert any(item["resource_type"] == "dataset" and item["name"] == "exp.csv" for item in resources)
+    assert any(
+        item["resource_type"] == "dataset" and item["name"] == "exp.csv" for item in resources
+    )
 
     # 模拟重启：清空内存会话
     session_manager._sessions.clear()
@@ -220,9 +222,7 @@ def test_new_workspace_files_list_search_and_preview_support_paths(
     assert len(search_files) == 1
     assert search_files[0]["path"] == "notes/preview-target.md"
 
-    preview_resp = client.get(
-        f"/api/workspace/{session_id}/files/notes/preview-target.md/preview"
-    )
+    preview_resp = client.get(f"/api/workspace/{session_id}/files/notes/preview-target.md/preview")
     assert preview_resp.status_code == 200
     preview = preview_resp.json()["data"]
     assert preview["preview_type"] == "text"
@@ -422,7 +422,7 @@ def test_workspace_artifact_download_url_encodes_spaces() -> None:
     )
 
     url = str(record["download_url"])
-    assert "/api/artifacts/" in url
+    assert f"/api/workspace/{session.id}/files/artifacts/" in url
     assert "%20" in url
     assert " " not in url
 

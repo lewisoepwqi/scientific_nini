@@ -266,7 +266,7 @@ class ExportChartSkill(Skill):
             "type": "chart",
             "format": fmt,
             "path": str(path),
-            "download_url": ws.build_artifact_download_url(full_name),
+            "download_url": ws.build_artifact_file_download_url(full_name),
         }
         ws.add_artifact_record(
             name=full_name,

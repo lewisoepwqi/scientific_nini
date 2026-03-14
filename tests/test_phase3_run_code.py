@@ -48,6 +48,24 @@ def test_run_code_blocks_disallowed_import() -> None:
     assert result["success"] is False
     assert "沙箱策略拦截" in result["message"]
     assert "不允许导入模块" in result["message"]
+    assert "高风险模块" in result["message"]
+
+
+def test_run_code_returns_review_request_for_reviewable_import() -> None:
+    registry = create_default_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "run_code",
+            session=session,
+            code="import sympy\nresult = 1",
+        )
+    )
+
+    assert result["success"] is False
+    assert result["data"]["_sandbox_review_required"] is True
+    assert result["data"]["requested_packages"] == ["sympy"]
 
 
 def test_run_code_persist_df_overwrites_dataset() -> None:

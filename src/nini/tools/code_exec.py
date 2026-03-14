@@ -80,5 +80,6 @@ class RunCodeSkill(Skill):
             purpose=kwargs.get("purpose", "exploration"),
             label=kwargs.get("label"),
             intent=kwargs.get("intent"),
+            extra_allowed_imports=kwargs.get("extra_allowed_imports"),
             source_tool="run_code",
         )

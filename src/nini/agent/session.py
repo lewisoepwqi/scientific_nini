@@ -29,6 +29,7 @@ class Session:
     artifacts: dict[str, Any] = field(default_factory=dict)
     documents: dict[str, Any] = field(default_factory=dict)
     tool_approval_grants: dict[str, str] = field(default_factory=dict)
+    sandbox_approved_imports: set[str] = field(default_factory=set)
     compressed_context: str = ""
     compressed_rounds: int = 0
     last_compressed_at: str | None = None
@@ -231,6 +232,35 @@ class Session:
         key = str(approval_key or "").strip()
         return bool(key) and self.tool_approval_grants.get(key) == "session"
 
+    def grant_sandbox_import_approval(
+        self,
+        packages: list[str] | set[str] | tuple[str, ...],
+        *,
+        scope: str = "session",
+    ) -> None:
+        """记录沙盒扩展包授权。"""
+        normalized_packages = session_manager._normalize_sandbox_import_approvals(packages)
+        normalized_scope = str(scope or "").strip().lower()
+        if not normalized_packages:
+            return
+        if normalized_scope == "always":
+            from nini.sandbox.approval_manager import approval_manager
+
+            approval_manager.grant_approved_imports(normalized_packages)
+            normalized_scope = "session"
+        if normalized_scope != "session":
+            return
+        self.sandbox_approved_imports.update(normalized_packages)
+        session_manager.save_session_sandbox_import_approvals(
+            self.id,
+            self.sandbox_approved_imports,
+        )
+
+    def has_sandbox_import_approval(self, package: str) -> bool:
+        """检查当前会话是否已授权指定扩展包。"""
+        normalized = session_manager._normalize_sandbox_import_approvals([package])
+        return any(item in self.sandbox_approved_imports for item in normalized)
+
     def rollback_last_turn(self) -> str | None:
         """回滚最后一轮：保留最后一条用户消息，删除其后的 Agent 输出。"""
         last_user_idx = -1
@@ -363,6 +393,7 @@ class SessionManager:
         last_compressed_at: str | None = None
         research_profile_id = "default"
         tool_approval_grants: dict[str, str] = {}
+        sandbox_approved_imports: set[str] = self._load_persistent_sandbox_import_approvals()
         chart_output_preference: str | None = None
         if load_persisted_messages:
             meta = self._load_session_meta(sid)
@@ -380,6 +411,10 @@ class SessionManager:
             tool_approval_grants = self._normalize_tool_approval_grants(
                 meta.get("tool_approval_grants")
             )
+            session_level_imports = self._normalize_sandbox_import_approvals(
+                meta.get("sandbox_approved_imports")
+            )
+            sandbox_approved_imports |= session_level_imports
             raw_pref = meta.get("chart_output_preference")
             if raw_pref in ("interactive", "image"):
                 chart_output_preference = raw_pref
@@ -388,6 +423,7 @@ class SessionManager:
             id=sid,
             title=title,
             tool_approval_grants=tool_approval_grants,
+            sandbox_approved_imports=sandbox_approved_imports,
             compressed_context=compressed_context,
             compressed_rounds=compressed_rounds,
             last_compressed_at=last_compressed_at,
@@ -614,6 +650,20 @@ class SessionManager:
             {"tool_approval_grants": self._normalize_tool_approval_grants(tool_approval_grants)},
         )
 
+    def save_session_sandbox_import_approvals(
+        self,
+        session_id: str,
+        sandbox_approved_imports: set[str] | list[str] | tuple[str, ...],
+    ) -> None:
+        """持久化会话级沙盒扩展包授权。"""
+        normalized = self._normalize_sandbox_import_approvals(sandbox_approved_imports)
+        persistent = self._load_persistent_sandbox_import_approvals()
+        session_only = sorted(normalized - persistent)
+        self._save_session_meta_fields(
+            session_id,
+            {"sandbox_approved_imports": session_only},
+        )
+
     @staticmethod
     def _normalize_tool_approval_grants(raw: Any) -> dict[str, str]:
         """规范化持久化的工具放行字典。"""
@@ -627,6 +677,24 @@ class SessionManager:
                 continue
             normalized[key] = value
         return normalized
+
+    @staticmethod
+    def _normalize_sandbox_import_approvals(raw: Any) -> set[str]:
+        """规范化持久化的沙盒扩展包授权集合。"""
+        from nini.sandbox.policy import normalize_reviewable_import_roots
+
+        if isinstance(raw, str):
+            return normalize_reviewable_import_roots([raw])
+        if isinstance(raw, (list, tuple, set)):
+            return normalize_reviewable_import_roots(raw)
+        return set()
+
+    @staticmethod
+    def _load_persistent_sandbox_import_approvals() -> set[str]:
+        """读取永久级沙盒扩展包授权集合。"""
+        from nini.sandbox.approval_manager import approval_manager
+
+        return approval_manager.load_approved_imports()
 
     def _load_session_title(self, session_id: str) -> str:
         """从元数据文件读取会话标题。"""
@@ -664,7 +732,13 @@ class SessionManager:
         memory_path = settings.sessions_dir / session_id / "memory.jsonl"
         knowledge_path = settings.sessions_dir / session_id / "knowledge.md"
         workspace_dir = settings.sessions_dir / session_id / "workspace"
-        return memory_path.exists() or knowledge_path.exists() or workspace_dir.exists()
+        meta_path = settings.sessions_dir / session_id / "meta.json"
+        return (
+            memory_path.exists()
+            or knowledge_path.exists()
+            or workspace_dir.exists()
+            or meta_path.exists()
+        )
 
     def _list_persisted_session_ids(self) -> list[str]:
         """列出有实际消息记录的会话ID（避免列出空目录）。"""

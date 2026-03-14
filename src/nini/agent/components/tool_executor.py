@@ -126,6 +126,7 @@ def summarize_tool_result_dict(data: dict[str, Any]) -> dict[str, Any]:
         A compact summary of the result.
     """
     compact: dict[str, Any] = {}
+    is_code_session_result = _is_code_session_result(data)
 
     for key in ("success", "message", "error", "status", "error_code", "recovery_hint"):
         if key in data:
@@ -140,7 +141,7 @@ def summarize_tool_result_dict(data: dict[str, Any]) -> dict[str, Any]:
         data.get("data_excerpt"),
         max_chars=8000,
     )
-    if existing_excerpt:
+    if existing_excerpt and not is_code_session_result:
         compact["data_excerpt"] = existing_excerpt
 
     existing_data_summary = data.get("data_summary")
@@ -164,7 +165,7 @@ def summarize_tool_result_dict(data: dict[str, Any]) -> dict[str, Any]:
             data_obj.get("content"),
             max_chars=8000,
         )
-        if excerpt:
+        if excerpt and not is_code_session_result:
             compact["data_excerpt"] = excerpt
 
     # 特殊处理 code_session 结果：保留尾部输出而非头部截断

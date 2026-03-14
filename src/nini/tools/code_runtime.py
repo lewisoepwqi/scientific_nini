@@ -18,7 +18,7 @@ from nini.config import settings
 from nini.memory.storage import ArtifactStorage
 from nini.models import ResourceType
 from nini.sandbox.executor import sandbox_executor
-from nini.sandbox.policy import SandboxPolicyError
+from nini.sandbox.policy import SandboxPolicyError, SandboxReviewRequired
 from nini.sandbox.r_executor import RSandboxPolicyError
 from nini.sandbox.r_router import r_sandbox_executor
 from nini.tools.base import SkillResult
@@ -45,6 +45,42 @@ def _build_metadata(
         "purpose": str(purpose or "exploration").strip(),
         "label": str(label).strip() if isinstance(label, str) else "",
     }
+
+
+def _merge_allowed_imports(
+    session: Session,
+    extra_allowed_imports: Any,
+) -> list[str]:
+    """合并会话级与本次调用级的沙盒授权包。"""
+    merged: set[str] = set(getattr(session, "sandbox_approved_imports", set()) or set())
+    if isinstance(extra_allowed_imports, (list, tuple, set)):
+        merged.update(str(item or "").strip() for item in extra_allowed_imports if str(item or "").strip())
+    elif isinstance(extra_allowed_imports, str) and extra_allowed_imports.strip():
+        merged.add(extra_allowed_imports.strip())
+    return sorted(merged)
+
+
+def _build_sandbox_review_result(
+    *,
+    exc: SandboxReviewRequired,
+    metadata: dict[str, str],
+) -> SkillResult:
+    """将沙盒审批需求包装为结构化 SkillResult。"""
+    payload = exc.to_payload()
+    packages = payload["packages"]
+    package_text = "、".join(packages) if packages else "未知扩展包"
+    result_data = {
+        "_sandbox_review_required": True,
+        "requested_packages": packages,
+        "sandbox_violations": payload["violations"],
+        "metadata": metadata,
+    }
+    return SkillResult(
+        success=False,
+        message=f"继续执行前需要用户审批导入扩展包：{package_text}",
+        data=result_data,
+        metadata={"intent": metadata["intent"]} if metadata["intent"] else {},
+    )
 
 
 def _persist_runtime_dataset(
@@ -354,6 +390,10 @@ async def execute_python_code(
     dataset_name = kwargs.get("dataset_name")
     persist_df = bool(kwargs.get("persist_df", False))
     save_as = kwargs.get("save_as")
+    extra_allowed_imports = _merge_allowed_imports(
+        session,
+        kwargs.get("extra_allowed_imports"),
+    )
     metadata = _build_metadata(
         purpose=kwargs.get("purpose", "exploration"),
         label=kwargs.get("label"),
@@ -377,7 +417,10 @@ async def execute_python_code(
             datasets=session.datasets,
             dataset_name=dataset_name,
             persist_df=persist_df,
+            extra_allowed_imports=extra_allowed_imports,
         )
+    except SandboxReviewRequired as exc:
+        return _build_sandbox_review_result(exc=exc, metadata=metadata)
     except SandboxPolicyError as exc:
         return SkillResult(success=False, message=f"沙箱策略拦截: {exc}")
 

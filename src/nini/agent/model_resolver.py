@@ -19,7 +19,6 @@ from .providers import (
     BaseLLMClient,
     DashScopeClient,
     DeepSeekClient,
-    KimiCodingClient,
     LLMChunk,
     LLMResponse,
     MiniMaxClient,
@@ -36,6 +35,7 @@ BUILTIN_PROVIDER_NAME = "系统内置"
 BUILTIN_MODE_FAST = "fast"
 BUILTIN_MODE_DEEP = "deep"
 BUILTIN_MODE_TITLE = "title"
+DISABLED_PROVIDER_IDS: frozenset[str] = frozenset({"kimi_coding"})
 
 # ---- 标题生成动态选模规则 ----
 # 每个 provider 配置一组关键词偏好，按顺序从可用模型列表中动态匹配。
@@ -45,7 +45,6 @@ TITLE_MODEL_MATCHERS: dict[str, list[tuple[str, ...]]] = {
     "zhipu": [("flash",), ("air",), ("glm-4",), ("glm-5",)],
     "dashscope": [("turbo",), ("plus",)],
     "moonshot": [("8k",), ("32k",), ("kimi", "chat")],
-    "kimi_coding": [],
     "anthropic": [("haiku",), ("sonnet",)],
     "openai": [("mini",), ("gpt-4.1",), ("gpt-4o",)],
     "minimax": [("abab",), ("m2.1",), ("m2.5",)],
@@ -165,7 +164,6 @@ class ModelResolver:
             OpenAIClient(),
             AnthropicClient(),
             MoonshotClient(),
-            KimiCodingClient(),
             ZhipuClient(),
             DeepSeekClient(),
             DashScopeClient(),
@@ -343,11 +341,19 @@ class ModelResolver:
 
         # 如果配置了特定用途的提供商，优先使用
         priority: list[str] = []
-        if provider_id and provider_id in self._client_map:
+        if (
+            provider_id
+            and provider_id not in DISABLED_PROVIDER_IDS
+            and provider_id in self._client_map
+        ):
             priority.append(provider_id)
 
         # 默认优先级（成本与效果平衡）
-        default_priority = [c.provider_id for c in self._clients]
+        default_priority = [
+            c.provider_id
+            for c in self._clients
+            if c.provider_id and c.provider_id not in DISABLED_PROVIDER_IDS
+        ]
 
         # 添加未包含的提供商
         for p in default_priority:
@@ -780,7 +786,6 @@ class ModelResolver:
             AnthropicClient,
             DashScopeClient,
             DeepSeekClient,
-            KimiCodingClient,
             MiniMaxClient,
             MoonshotClient,
             OllamaClient,
@@ -803,7 +808,6 @@ class ModelResolver:
             "openai": OpenAIClient,
             "anthropic": AnthropicClient,
             "moonshot": MoonshotClient,
-            "kimi_coding": KimiCodingClient,
             "zhipu": ZhipuClient,
             "deepseek": DeepSeekClient,
             "dashscope": DashScopeClient,
@@ -1266,11 +1270,6 @@ class ModelResolver:
                 api_key=_get("moonshot", "api_key"),
                 base_url=_get("moonshot", "base_url"),
                 model=_get("moonshot", "model"),
-            ),
-            KimiCodingClient(
-                api_key=_get("kimi_coding", "api_key"),
-                base_url=_get("kimi_coding", "base_url"),
-                model=_get("kimi_coding", "model"),
             ),
             ZhipuClient(
                 api_key=_get("zhipu", "api_key"),

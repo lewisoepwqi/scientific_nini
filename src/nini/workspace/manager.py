@@ -58,7 +58,15 @@ _TEXT_DOCUMENT_EXTENSIONS = {
     ".pdf",
     ".docx",
 }
-_DOCUMENT_EXCLUDED_ROOTS = {"uploads", "artifacts", "executions", "scripts", "charts", "reports", "transforms"}
+_DOCUMENT_EXCLUDED_ROOTS = {
+    "uploads",
+    "artifacts",
+    "executions",
+    "scripts",
+    "charts",
+    "reports",
+    "transforms",
+}
 
 
 def _now_iso() -> str:
@@ -138,6 +146,7 @@ class WorkspaceManager:
         parent_dir = (self.workspace_dir / rel.parent).resolve()
         if not parent_dir.is_dir():
             return None
+
         # 规范化：去除所有控制字符（ASCII 0-31）
         def _normalize(name: str) -> str:
             return re.sub(r"[\x00-\x1f]", "", name)
@@ -149,12 +158,17 @@ class WorkspaceManager:
         return None
 
     def build_artifact_download_url(self, filename: str) -> str:
-        """构建产物下载 URL（文件名统一做单次编码）。"""
+        """构建旧版产物下载 URL（保留兼容接口）。"""
         try:
             normalized = quote(unquote(filename), safe="")
         except Exception:
             normalized = quote(filename, safe="")
         return f"/api/artifacts/{self.session_id}/{normalized}"
+
+    def build_artifact_file_download_url(self, filename: str) -> str:
+        """构建基于工作区 files 端点的产物下载 URL。"""
+        safe_name = Path(unquote(filename)).name
+        return self.build_workspace_file_download_url(f"artifacts/{safe_name}")
 
     def build_workspace_file_download_url(self, relative_path: str) -> str:
         """构建基于相对路径的工作区文件 URL。"""
@@ -379,7 +393,7 @@ class WorkspaceManager:
                 f"/api/workspace/{self.session_id}/uploads/{quote(new_path.name, safe='')}"
             )
         elif kind == "artifact":
-            item["download_url"] = self.build_artifact_download_url(new_path.name)
+            item["download_url"] = self.build_artifact_file_download_url(new_path.name)
         elif kind == "note":
             item["type"] = self._infer_document_subtype(new_path)
             item["download_url"] = self._build_note_download_url(new_path)
@@ -399,9 +413,7 @@ class WorkspaceManager:
                 resource_type = (
                     ResourceType.FILE
                     if artifact_type in {"code", "text_file"}
-                    else ResourceType.REPORT
-                    if artifact_type == "report"
-                    else ResourceType.CHART
+                    else ResourceType.REPORT if artifact_type == "report" else ResourceType.CHART
                 )
                 metadata = {
                     "artifact_type": item.get("type"),
@@ -585,8 +597,7 @@ class WorkspaceManager:
         return {
             "path": relative_path,
             "deleted_records": [
-                {"kind": kind, "record": record}
-                for kind, record in removed_records
+                {"kind": kind, "record": record} for kind, record in removed_records
             ],
         }
 
@@ -806,7 +817,9 @@ class WorkspaceManager:
 
     def get_managed_resource_dir(self, resource_type: ResourceType | str) -> Path:
         normalized = (
-            resource_type.value if isinstance(resource_type, ResourceType) else str(resource_type).strip()
+            resource_type.value
+            if isinstance(resource_type, ResourceType)
+            else str(resource_type).strip()
         )
         self.ensure_dirs()
         mapping = {
@@ -852,7 +865,9 @@ class WorkspaceManager:
         summary = self._build_resource_summary(
             resource_id=resource_id,
             resource_type=(
-                resource_type if isinstance(resource_type, ResourceType) else ResourceType(str(resource_type))
+                resource_type
+                if isinstance(resource_type, ResourceType)
+                else ResourceType(str(resource_type))
             ),
             name=name,
             source_kind=source_kind,
@@ -1012,7 +1027,7 @@ class WorkspaceManager:
             "type": artifact_type,
             "format": format_hint,
             "path": normalized_path,
-            "download_url": self.build_artifact_download_url(name),
+            "download_url": self.build_artifact_file_download_url(name),
             "created_at": now,
             "visibility": visibility,
         }
@@ -1034,7 +1049,7 @@ class WorkspaceManager:
             item["type"] = artifact_type
             item["format"] = format_hint
             item["path"] = normalized_path
-            item["download_url"] = self.build_artifact_download_url(name)
+            item["download_url"] = self.build_artifact_file_download_url(name)
             item["created_at"] = now
             item["visibility"] = visibility
             record = item
@@ -1046,8 +1061,10 @@ class WorkspaceManager:
 
         artifacts = self._deduplicate_artifacts(artifacts)
         index["artifacts"] = artifacts
-        resource_type = ResourceType.FILE if artifact_type in {"code", "text_file"} else (
-            ResourceType.REPORT if artifact_type == "report" else ResourceType.CHART
+        resource_type = (
+            ResourceType.FILE
+            if artifact_type in {"code", "text_file"}
+            else (ResourceType.REPORT if artifact_type == "report" else ResourceType.CHART)
         )
         self._upsert_resource_summary(
             index,
@@ -1057,7 +1074,7 @@ class WorkspaceManager:
                 name=name,
                 source_kind="artifacts",
                 path=file_path,
-                download_url=self.build_artifact_download_url(name),
+                download_url=self.build_artifact_file_download_url(name),
                 metadata={
                     "artifact_type": artifact_type,
                     "format": format_hint,
@@ -1243,9 +1260,11 @@ class WorkspaceManager:
                     "resource_type": (
                         ResourceType.FILE.value
                         if str(item.get("type", "")).strip().lower() in {"code", "text_file"}
-                        else ResourceType.REPORT.value
-                        if str(item.get("type", "")).strip().lower() == "report"
-                        else ResourceType.CHART.value
+                        else (
+                            ResourceType.REPORT.value
+                            if str(item.get("type", "")).strip().lower() == "report"
+                            else ResourceType.CHART.value
+                        )
                     ),
                     "name": item.get("name"),
                     "kind": "result",
@@ -1285,7 +1304,9 @@ class WorkspaceManager:
                     "size": size,
                     "created_at": item.get("created_at"),
                     "folder": item.get("folder"),
-                    "download_url": str(item.get("download_url") or self._build_note_download_url(path)),
+                    "download_url": str(
+                        item.get("download_url") or self._build_note_download_url(path)
+                    ),
                     "meta": {
                         "subtype": subtype,
                         "capabilities": self._build_capabilities(
@@ -1312,7 +1333,9 @@ class WorkspaceManager:
             if not file_id or not raw_path:
                 continue
             try:
-                rel_path = Path(raw_path).resolve().relative_to(self.workspace_dir.resolve()).as_posix()
+                rel_path = (
+                    Path(raw_path).resolve().relative_to(self.workspace_dir.resolve()).as_posix()
+                )
             except Exception:
                 continue
             path_by_id[file_id] = rel_path
@@ -1473,7 +1496,7 @@ class WorkspaceManager:
                         f"/api/workspace/{self.session_id}/uploads/{quote(fname)}"
                     )
                 elif kind == "artifacts":
-                    item["download_url"] = self.build_artifact_download_url(safe_name)
+                    item["download_url"] = self.build_artifact_file_download_url(safe_name)
                 elif kind == "notes":
                     item["download_url"] = (
                         f"/api/workspace/{self.session_id}/notes/{quote(safe_name)}"
@@ -1487,7 +1510,9 @@ class WorkspaceManager:
                         "artifacts": "artifact",
                         "notes": "note",
                     }[kind]
-                    self._sync_record_after_path_change(index, internal_kind, item, path_key, updated_path)
+                    self._sync_record_after_path_change(
+                        index, internal_kind, item, path_key, updated_path
+                    )
                     # 同步后恢复用户指定的名称（去除ID前缀的干净名称）
                     item["name"] = safe_name
 
