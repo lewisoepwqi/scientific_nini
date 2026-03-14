@@ -116,10 +116,25 @@ describe("store reconnect / retry / stop", () => {
       ws,
       sessionId: "session-1",
       isStreaming: true,
+      pendingAskUserQuestionsBySession: {
+        "session-1": {
+          sessionId: "session-1",
+          sessionTitle: "当前会话",
+          toolCallId: "call-1",
+          questions: [],
+          questionCount: 0,
+          createdAt: Date.now(),
+          attentionRequestedAt: Date.now(),
+        },
+      },
       pendingAskUserQuestion: {
+        sessionId: "session-1",
+        sessionTitle: "当前会话",
         toolCallId: "call-1",
         questions: [],
+        questionCount: 0,
         createdAt: Date.now(),
+        attentionRequestedAt: Date.now(),
       },
       _messageBuffer: {
         "turn-1-0": {

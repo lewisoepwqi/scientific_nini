@@ -15,6 +15,9 @@ interface Props {
 export default function SessionList({ onClose }: Props) {
   const sessionId = useStore((s) => s.sessionId)
   const runningSessions = useStore((s) => s.runningSessions)
+  const pendingAskUserQuestionsBySession = useStore(
+    (s) => s.pendingAskUserQuestionsBySession,
+  )
   const appBootstrapping = useStore((s) => s.appBootstrapping)
   const createNewSession = useStore((s) => s.createNewSession)
   const switchSession = useStore((s) => s.switchSession)
@@ -436,6 +439,7 @@ export default function SessionList({ onClose }: Props) {
             }
 
             const isRunning = runningSessions.has(s.id)
+            const hasPendingQuestion = Boolean(pendingAskUserQuestionsBySession[s.id])
 
             return (
               <div
@@ -464,8 +468,12 @@ export default function SessionList({ onClose }: Props) {
                     </span>
                   </span>
                 </button>
-                <div className="w-20 flex items-center justify-end flex-shrink-0">
-                  {isRunning ? (
+                <div className="w-24 flex items-center justify-end flex-shrink-0">
+                  {hasPendingQuestion ? (
+                    <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700">
+                      待回答
+                    </span>
+                  ) : isRunning ? (
                     <Loader2 size={13} className="animate-spin text-sky-400 flex-shrink-0" />
                   ) : (
                     <>

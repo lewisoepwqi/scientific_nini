@@ -10,6 +10,7 @@ import { useStore } from '../store'
 import MessageBubble from './MessageBubble'
 import ChatInputArea from './ChatInputArea'
 import AskUserQuestionPanel from './AskUserQuestionPanel'
+import PendingQuestionBanner from './PendingQuestionBanner'
 import IntentTimelineItem from './IntentTimelineItem'
 import { Loader2 } from 'lucide-react'
 
@@ -25,7 +26,17 @@ export default function ChatPanel() {
   const createNewSession = useStore((s) => s.createNewSession)
   const messages = useStore((s) => s.messages)
   const isStreaming = useStore((s) => s.isStreaming)
+  const switchSession = useStore((s) => s.switchSession)
+  const pendingAskUserQuestionsBySession = useStore(
+    (s) => s.pendingAskUserQuestionsBySession,
+  )
   const pendingAskUserQuestion = useStore((s) => s.pendingAskUserQuestion)
+  const askUserQuestionNotificationPreference = useStore(
+    (s) => s.askUserQuestionNotificationPreference,
+  )
+  const setAskUserQuestionNotificationPreference = useStore(
+    (s) => s.setAskUserQuestionNotificationPreference,
+  )
   const currentIntentAnalysis = useStore((s) => s.currentIntentAnalysis)
   const streamingMetrics = useStore((s) => s._streamingMetrics)
   const setComposerDraft = useStore((s) => s.setComposerDraft)
@@ -70,6 +81,16 @@ export default function ChatPanel() {
     return null
   }, [messages, lastUserIndex])
   const lastRetryableAssistantErrorId = lastRetryableAssistantError?.id || null
+  const backgroundPendingQuestions = useMemo(() => {
+    return Object.values(pendingAskUserQuestionsBySession)
+      .filter((item) => item.sessionId !== sessionId)
+      .sort((a, b) => b.attentionRequestedAt - a.attentionRequestedAt)
+  }, [pendingAskUserQuestionsBySession, sessionId])
+  const backgroundPendingQuestion = backgroundPendingQuestions[0] || null
+  const canEnableNotifications = useMemo(() => {
+    if (askUserQuestionNotificationPreference !== 'default') return false
+    return typeof window !== 'undefined' && 'Notification' in window
+  }, [askUserQuestionNotificationPreference])
 
   // 自动滚动到底部
   useEffect(() => {
@@ -140,6 +161,18 @@ export default function ChatPanel() {
     retryLastTurn()
   }, [isStreaming, canRetry, retryLastTurn])
 
+  const handleEnableNotifications = useCallback(async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return
+    const permission = await window.Notification.requestPermission()
+    if (permission === 'granted') {
+      setAskUserQuestionNotificationPreference('enabled')
+      return
+    }
+    if (permission === 'denied') {
+      setAskUserQuestionNotificationPreference('denied')
+    }
+  }, [setAskUserQuestionNotificationPreference])
+
   const handleCreateSession = useCallback(async () => {
     if (creatingSession) return
     setCreatingSession(true)
@@ -156,6 +189,19 @@ export default function ChatPanel() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
+      {backgroundPendingQuestion && (
+        <PendingQuestionBanner
+          pending={backgroundPendingQuestion}
+          additionalCount={Math.max(0, backgroundPendingQuestions.length - 1)}
+          canEnableNotifications={canEnableNotifications}
+          onSwitch={() => {
+            void switchSession(backgroundPendingQuestion.sessionId)
+          }}
+          onEnableNotifications={() => {
+            void handleEnableNotifications()
+          }}
+        />
+      )}
       {/* 消息列表 */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         <div className="relative max-w-3xl mx-auto">
