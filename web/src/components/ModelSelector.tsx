@@ -52,6 +52,7 @@ export default function ModelSelector({
 }: ModelSelectorProps) {
   const activeModel = useStore((s) => s.activeModel);
   const runtimeModel = useStore((s) => s.runtimeModel);
+  const modelFallback = useStore((s) => s.modelFallback);
   const isStreaming = useStore((s) => s.isStreaming);
   const fetchActiveModel = useStore((s) => s.fetchActiveModel);
   const fetchModelProviders = useStore((s) => s.fetchModelProviders);
@@ -128,7 +129,7 @@ export default function ModelSelector({
   // 空闲时优先显示用户当前选择的模型；仅在生成中显示实际运行模型
   const activeProvider = modelProviders.find((p) => p.is_active);
   const effectiveRuntimeModel =
-    isStreaming && activeModel?.provider_id !== BUILTIN_PROVIDER_ID
+    runtimeModel?.model && (isStreaming || Boolean(modelFallback))
       ? runtimeModel
       : null;
   const displayText =
@@ -278,7 +279,10 @@ export default function ModelSelector({
     const optionKey = `${providerId ?? "auto"}:${model ?? ""}`;
     setSwitchingKey(optionKey);
     try {
-      await setChatRoute(providerId ?? "", model);
+      const success = await setChatRoute(providerId ?? "", model);
+      if (!success) {
+        return;
+      }
       window.dispatchEvent(new Event("nini:model-config-updated"));
       setMenuOpen(false);
     } finally {
@@ -337,7 +341,7 @@ export default function ModelSelector({
                   {effectiveRuntimeModel?.model &&
                   effectiveRuntimeModel.model !== selectedModel ? (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                      当前运行
+                      实际运行
                     </span>
                   ) : null}
                 </div>

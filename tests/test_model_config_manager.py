@@ -86,6 +86,8 @@ async def test_purpose_provider_routes_default_to_none() -> None:
 
     assert routes == {
         "chat": None,
+        "planning": None,
+        "verification": None,
         "title_generation": None,
         "image_analysis": None,
     }
@@ -111,10 +113,16 @@ async def test_set_purpose_provider_routes_merges_updates() -> None:
 
     assert first["title_generation"] == "zhipu"
     assert first["image_analysis"] == "openai"
+    assert first["planning"] is None
+    assert first["verification"] is None
     assert second["title_generation"] is None
     assert second["image_analysis"] == "openai"
+    assert second["planning"] is None
+    assert second["verification"] is None
     assert loaded["title_generation"] is None
     assert loaded["image_analysis"] == "openai"
+    assert loaded["planning"] is None
+    assert loaded["verification"] is None
 
 
 @pytest.mark.asyncio

@@ -1342,6 +1342,21 @@ def test_get_active_model_info_falls_back_to_client_model() -> None:
     assert info["model"] == "glm-5"
 
 
+def test_get_active_model_info_inherits_chat_route_for_planning() -> None:
+    """planning 未配置时，展示信息应继承 chat 路由。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="zhipu", model="glm-5", available=True),
+        ]
+    )
+    resolver.set_purpose_route("chat", provider_id="zhipu", model="glm-5")
+
+    info = resolver.get_active_model_info(purpose="planning")
+
+    assert info["provider_id"] == "zhipu"
+    assert info["model"] == "glm-5"
+
+
 def test_model_resolver_load_builtin_api_key_from_packaged_blob(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
