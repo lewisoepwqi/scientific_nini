@@ -289,7 +289,7 @@ export interface AppState {
   // 模型配置操作
   fetchActiveModel: () => Promise<void>;
   setPreferredProvider: (providerId: string) => Promise<void>;
-  setChatRoute: (providerId: string, model: string | null) => Promise<void>;
+  setChatRoute: (providerId: string, model: string | null) => Promise<boolean>;
   fetchModelProviders: () => Promise<void>;
 
   // 工作区面板操作
@@ -330,6 +330,11 @@ export interface AppState {
 // ============================================================================
 
 const SESSION_RESET_STATE = {
+  datasets: [] as DatasetItem[],
+  workspaceFiles: [] as WorkspaceFile[],
+  codeExecutions: [] as CodeExecution[],
+  workspaceFolders: [] as WorkspaceFolder[],
+  tokenUsage: null as TokenUsage | null,
   runtimeModel: null as ActiveModelInfo | null,
   modelFallback: null as ModelFallbackInfo | null,
   pendingAskUserQuestion: null as PendingAskUserQuestion | null,
@@ -357,6 +362,72 @@ const SESSION_RESET_STATE = {
   currentIntentAnalysis: null as IntentAnalysisView | null,
   composerDraft: "",
 };
+
+let sessionSwitchRequestSeq = 0;
+
+type SessionUiCacheEntry = {
+  messages: Message[];
+  analysisTasks: AnalysisTaskItem[];
+  analysisPlanProgress: AnalysisPlanProgress | null;
+  harnessRunContext: HarnessRunContextState | null;
+  completionCheck: CompletionCheckState | null;
+  blockedState: HarnessBlockedState | null;
+  currentIntentAnalysis: IntentAnalysisView | null;
+  workspacePanelTab: "files" | "executions" | "tasks";
+  streamingMetrics: StreamingMetrics;
+  tokenUsage: TokenUsage | null;
+};
+
+const sessionUiCache = new Map<string, SessionUiCacheEntry>();
+
+function cloneMessages(messages: Message[]): Message[] {
+  return messages.map((message) => ({ ...message }));
+}
+
+function cloneAnalysisTasks(tasks: AnalysisTaskItem[]): AnalysisTaskItem[] {
+  return tasks.map((task) => ({
+    ...task,
+    attempts: task.attempts.map((attempt) => ({ ...attempt })),
+  }));
+}
+
+function clonePlanProgress(
+  progress: AnalysisPlanProgress | null,
+): AnalysisPlanProgress | null {
+  if (!progress) return null;
+  return {
+    ...progress,
+    steps: progress.steps.map((step) => ({ ...step })),
+  };
+}
+
+function cloneStreamingMetrics(metrics: StreamingMetrics): StreamingMetrics {
+  return { ...metrics };
+}
+
+function cloneTokenUsage(tokenUsage: TokenUsage | null): TokenUsage | null {
+  if (!tokenUsage) return null;
+  const modelBreakdown = tokenUsage.model_breakdown ?? {};
+  return {
+    ...tokenUsage,
+    model_breakdown: Object.fromEntries(
+      Object.entries(modelBreakdown).map(([model, usage]) => [
+        model,
+        { ...usage },
+      ]),
+    ),
+  };
+}
+
+function inferStreamingStartedAt(messages: Message[]): number | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "user") {
+      return message.timestamp;
+    }
+  }
+  return messages[messages.length - 1]?.timestamp ?? null;
+}
 
 // ============================================================================
 // Store 创建
@@ -871,6 +942,10 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   clearMessages() {
+    const sessionId = get().sessionId;
+    if (sessionId) {
+      sessionUiCache.delete(sessionId);
+    }
     set({
       ...SESSION_RESET_STATE,
       messages: [],
@@ -891,12 +966,20 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   async fetchDatasets() {
-    const datasets = await api.fetchDatasets(get().sessionId ?? "");
+    const targetSessionId = get().sessionId ?? "";
+    const datasets = await api.fetchDatasets(targetSessionId);
+    if (get().sessionId !== targetSessionId) {
+      return;
+    }
     set({ datasets });
   },
 
   async fetchWorkspaceFiles() {
-    const files = await api.fetchWorkspaceFiles(get().sessionId ?? "");
+    const targetSessionId = get().sessionId ?? "";
+    const files = await api.fetchWorkspaceFiles(targetSessionId);
+    if (get().sessionId !== targetSessionId) {
+      return;
+    }
     set({ workspaceFiles: files });
   },
 
@@ -1033,7 +1116,11 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   async switchSession(targetSessionId: string) {
+    const requestSeq = ++sessionSwitchRequestSeq;
     const result = await api.switchSession(targetSessionId);
+    if (requestSeq !== sessionSwitchRequestSeq) {
+      return;
+    }
     if (!result.success) {
       if (get().sessionId === targetSessionId) {
         set({
@@ -1051,21 +1138,75 @@ export const useStore = create<AppState>((set, get) => ({
     const restored = api.buildSessionRestoreState(
       rawMessages as RawSessionMessage[],
     );
+    const cachedSessionUi = sessionUiCache.get(targetSessionId);
+    const targetSessionRunning = get().runningSessions.has(targetSessionId);
+    const fallbackStartedAt = inferStreamingStartedAt(restored.messages);
+    const restoredStreamingMetrics: StreamingMetrics =
+      cachedSessionUi?.streamingMetrics && targetSessionRunning
+        ? cloneStreamingMetrics(cachedSessionUi.streamingMetrics)
+        : {
+            startedAt: targetSessionRunning ? fallbackStartedAt : null,
+            turnId:
+              targetSessionRunning &&
+              typeof restored.messages[restored.messages.length - 1]?.turnId === "string"
+                ? restored.messages[restored.messages.length - 1]?.turnId ?? null
+                : null,
+            totalTokens: 0,
+            hasTokenUsage: false,
+          };
+    const restoredMessages =
+      cachedSessionUi && targetSessionRunning
+        ? cloneMessages(cachedSessionUi.messages)
+        : restored.messages;
+    const restoredAnalysisTasks =
+      cachedSessionUi && targetSessionRunning
+        ? cloneAnalysisTasks(cachedSessionUi.analysisTasks)
+        : restored.analysisTasks;
+    const restoredPlanProgress =
+      cachedSessionUi && targetSessionRunning
+        ? clonePlanProgress(cachedSessionUi.analysisPlanProgress)
+        : restored.analysisPlanProgress;
 
-    await preloadRenderersForMessages(restored.messages);
+    await preloadRenderersForMessages(restoredMessages);
+    if (requestSeq !== sessionSwitchRequestSeq) {
+      return;
+    }
 
     set((s) => ({
       sessionId: targetSessionId,
       ...SESSION_RESET_STATE,
       // 若目标会话有后台任务在运行，切换后 isStreaming 应保持 true
       isStreaming: s.runningSessions.has(targetSessionId),
-      messages: restored.messages,
-      analysisTasks: restored.analysisTasks,
-      analysisPlanProgress: restored.analysisPlanProgress,
+      messages: restoredMessages,
+      analysisTasks: restoredAnalysisTasks,
+      analysisPlanProgress: restoredPlanProgress,
+      harnessRunContext:
+        cachedSessionUi && targetSessionRunning
+          ? cachedSessionUi.harnessRunContext
+          : null,
+      completionCheck:
+        cachedSessionUi && targetSessionRunning
+          ? cachedSessionUi.completionCheck
+          : null,
+      blockedState:
+        cachedSessionUi && targetSessionRunning
+          ? cachedSessionUi.blockedState
+          : null,
+      currentIntentAnalysis:
+        cachedSessionUi && targetSessionRunning
+          ? cachedSessionUi.currentIntentAnalysis
+          : null,
       workspacePanelTab:
-        restored.analysisPlanProgress || restored.analysisTasks.length > 0
-          ? "tasks"
-          : "files",
+        cachedSessionUi && targetSessionRunning
+          ? cachedSessionUi.workspacePanelTab
+          : restoredPlanProgress || restoredAnalysisTasks.length > 0
+            ? "tasks"
+            : "files",
+      _streamingMetrics: restoredStreamingMetrics,
+      tokenUsage:
+        cachedSessionUi && targetSessionRunning
+          ? cloneTokenUsage(cachedSessionUi.tokenUsage)
+          : null,
     }));
     localStorage.setItem("nini_last_session_id", targetSessionId);
 
@@ -1074,12 +1215,14 @@ export const useStore = create<AppState>((set, get) => ({
       get().fetchWorkspaceFiles(),
       get().fetchCodeExecutions(),
       get().fetchFolders(),
+      get().fetchTokenUsage(targetSessionId),
     ]);
   },
 
   async deleteSession(targetSessionId: string) {
     const success = await api.deleteSession(targetSessionId);
     if (!success) return false;
+    sessionUiCache.delete(targetSessionId);
 
     const { sessionId } = get();
     await get().fetchSessions();
@@ -1139,6 +1282,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (success) {
       await get().fetchActiveModel();
     }
+    return success;
   },
 
   async fetchModelProviders() {
@@ -1235,12 +1379,20 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   async fetchCodeExecutions() {
-    const executions = await api.fetchCodeExecutions(get().sessionId ?? "");
+    const targetSessionId = get().sessionId ?? "";
+    const executions = await api.fetchCodeExecutions(targetSessionId);
+    if (get().sessionId !== targetSessionId) {
+      return;
+    }
     set({ codeExecutions: executions });
   },
 
   async fetchFolders() {
-    const folders = await api.fetchFolders(get().sessionId ?? "");
+    const targetSessionId = get().sessionId ?? "";
+    const folders = await api.fetchFolders(targetSessionId);
+    if (get().sessionId !== targetSessionId) {
+      return;
+    }
     set({ workspaceFolders: folders });
   },
 
@@ -1293,7 +1445,10 @@ export const useStore = create<AppState>((set, get) => ({
 
   async fetchTokenUsage(sessionId: string) {
     const usage = await api.fetchTokenUsage(sessionId);
-    if (usage) set({ tokenUsage: usage });
+    if (get().sessionId !== sessionId) {
+      return;
+    }
+    set({ tokenUsage: usage });
   },
 
   async fetchCostHistory() {
@@ -1331,6 +1486,35 @@ export const useStore = create<AppState>((set, get) => ({
     set({ displayPreference: mode });
   },
 }));
+
+useStore.subscribe((state) => {
+  const sessionId = state.sessionId;
+  if (!sessionId) {
+    return;
+  }
+  sessionUiCache.set(sessionId, {
+    messages: cloneMessages(state.messages),
+    analysisTasks: cloneAnalysisTasks(state.analysisTasks),
+    analysisPlanProgress: clonePlanProgress(state.analysisPlanProgress),
+    harnessRunContext: state.harnessRunContext
+      ? { ...state.harnessRunContext }
+      : null,
+    completionCheck: state.completionCheck
+      ? {
+          ...state.completionCheck,
+          items: state.completionCheck.items.map((item) => ({ ...item })),
+          missingActions: [...state.completionCheck.missingActions],
+        }
+      : null,
+    blockedState: state.blockedState ? { ...state.blockedState } : null,
+    currentIntentAnalysis: state.currentIntentAnalysis
+      ? ({ ...state.currentIntentAnalysis } as IntentAnalysisView)
+      : null,
+    workspacePanelTab: state.workspacePanelTab,
+    streamingMetrics: cloneStreamingMetrics(state._streamingMetrics),
+    tokenUsage: cloneTokenUsage(state.tokenUsage),
+  });
+});
 
 // ============================================================================
 // 选择性导出（保持向后兼容）

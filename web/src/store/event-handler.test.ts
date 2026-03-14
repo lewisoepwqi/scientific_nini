@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { handleEvent, type AppStateSubset } from "./event-handler";
 import type { WSEvent } from "./types";
@@ -26,6 +26,9 @@ function createState(
     },
     analysisPlanProgress: null,
     analysisTasks: [],
+    activeModel: null,
+    runtimeModel: null,
+    modelFallback: null,
     harnessRunContext: null,
     completionCheck: null,
     blockedState: null,
@@ -72,10 +75,11 @@ function createHarness(initial: Partial<AppStateSubset> = {}) {
 
 describe("handleEvent 文本去重", () => {
   it("应保存 run_context 事件到 harness 状态", async () => {
-    const harness = createHarness();
+    const harness = createHarness({ sessionId: "session-current" });
 
     await harness.dispatch({
       type: "run_context",
+      session_id: "session-current",
       data: {
         turn_id: "turn-ctx",
         datasets: [{ name: "demo.csv", rows: 10, columns: 3 }],
@@ -93,10 +97,11 @@ describe("handleEvent 文本去重", () => {
   });
 
   it("completion_check 未通过时应写入校验状态", async () => {
-    const harness = createHarness();
+    const harness = createHarness({ sessionId: "session-current" });
 
     await harness.dispatch({
       type: "completion_check",
+      session_id: "session-current",
       data: {
         turn_id: "turn-check",
         passed: false,
@@ -117,10 +122,11 @@ describe("handleEvent 文本去重", () => {
   });
 
   it("blocked 事件应标记阻塞状态并停止流式运行", async () => {
-    const harness = createHarness({ isStreaming: true });
+    const harness = createHarness({ isStreaming: true, sessionId: "session-current" });
 
     await harness.dispatch({
       type: "blocked",
+      session_id: "session-current",
       data: {
         turn_id: "turn-blocked",
         reason_code: "tool_loop",
@@ -140,6 +146,7 @@ describe("handleEvent 文本去重", () => {
 
   it("blocked 事件应同步更新当前计划步骤为 blocked", async () => {
     const harness = createHarness({
+      sessionId: "session-current",
       analysisPlanProgress: {
         current_step_index: 1,
         total_steps: 2,
@@ -156,6 +163,7 @@ describe("handleEvent 文本去重", () => {
 
     await harness.dispatch({
       type: "blocked",
+      session_id: "session-current",
       data: {
         turn_id: "turn-blocked",
         reason_code: "tool_loop",
@@ -312,6 +320,7 @@ describe("handleEvent 文本去重", () => {
 
   it("artifact 事件应生成独立的 canonical assistant 消息", async () => {
     const harness = createHarness({
+      sessionId: "session-current",
       messages: [
         {
           id: "msg-1",
@@ -326,6 +335,7 @@ describe("handleEvent 文本去重", () => {
 
     await harness.dispatch({
       type: "artifact",
+      session_id: "session-current",
       data: {
         name: "report.md",
         type: "report",
@@ -350,8 +360,92 @@ describe("handleEvent 文本去重", () => {
     ]);
   });
 
+  it("不同 session 的 artifact 事件不应污染当前会话消息", async () => {
+    const harness = createHarness({
+      sessionId: "session-current",
+      messages: [
+        {
+          id: "msg-1",
+          role: "assistant",
+          content: "当前会话消息",
+          turnId: "turn-current",
+          timestamp: Date.now(),
+        },
+      ],
+      _currentTurnId: "turn-current",
+    });
+
+    await harness.dispatch({
+      type: "artifact",
+      session_id: "session-other",
+      data: {
+        name: "report.md",
+        type: "report",
+        download_url: "/api/artifacts/other/report.md",
+      },
+      turn_id: "turn-other",
+    });
+
+    const state = harness.getState();
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]?.content).toBe("当前会话消息");
+  });
+
+  it("不同 session 的 run_context 不应切换当前工作区任务状态", async () => {
+    const harness = createHarness({
+      sessionId: "session-current",
+      workspacePanelOpen: false,
+      workspacePanelTab: "files",
+    });
+
+    await harness.dispatch({
+      type: "run_context",
+      session_id: "session-other",
+      data: {
+        turn_id: "turn-other",
+        datasets: [{ name: "other.csv", rows: 10, columns: 3 }],
+        artifacts: [],
+        tool_hints: ["dataset_catalog"],
+        constraints: ["旧会话约束"],
+      },
+      turn_id: "turn-other",
+    });
+
+    expect(harness.getState().harnessRunContext).toBeNull();
+    expect(harness.getState().workspacePanelOpen).toBe(false);
+    expect(harness.getState().workspacePanelTab).toBe("files");
+  });
+
+  it("不同 session 的 session 事件不应反向覆盖当前会话", async () => {
+    const fetchSessions = vi.fn(async () => {});
+    const fetchDatasets = vi.fn(async () => {});
+    const fetchWorkspaceFiles = vi.fn(async () => {});
+    const fetchSkills = vi.fn(async () => {});
+    const harness = createHarness({
+      sessionId: "session-current",
+      fetchSessions,
+      fetchDatasets,
+      fetchWorkspaceFiles,
+      fetchSkills,
+    });
+
+    await harness.dispatch({
+      type: "session",
+      data: {
+        session_id: "session-other",
+      },
+    });
+
+    expect(harness.getState().sessionId).toBe("session-current");
+    expect(fetchSessions).toHaveBeenCalledTimes(1);
+    expect(fetchDatasets).toHaveBeenCalledTimes(1);
+    expect(fetchWorkspaceFiles).toHaveBeenCalledTimes(1);
+    expect(fetchSkills).toHaveBeenCalledTimes(1);
+  });
+
   it("token_usage 应累加当前请求 token，并绑定 turn_id", async () => {
     const harness = createHarness({
+      sessionId: "session-current",
       isStreaming: true,
       _streamingMetrics: {
         startedAt: Date.now(),
@@ -367,6 +461,7 @@ describe("handleEvent 文本去重", () => {
     });
     await harness.dispatch({
       type: "token_usage",
+      session_id: "session-current",
       turn_id: "turn-1",
       data: {
         model: "gpt-5",
@@ -379,6 +474,7 @@ describe("handleEvent 文本去重", () => {
     });
     await harness.dispatch({
       type: "token_usage",
+      session_id: "session-current",
       turn_id: "turn-1",
       data: {
         model: "gpt-5",
@@ -425,6 +521,48 @@ describe("handleEvent 文本去重", () => {
     const state = harness.getState();
     expect(state._streamingMetrics.totalTokens).toBe(420);
     expect(state.tokenUsage).toBeNull();
+  });
+
+  it("token_usage 应继承 activeModel 的 provider 信息", async () => {
+    const harness = createHarness({
+      sessionId: "session-current",
+      isStreaming: true,
+      activeModel: {
+        provider_id: "zhipu",
+        provider_name: "智谱 GLM",
+        model: "glm-5",
+        preferred_provider: "zhipu",
+      },
+      _streamingMetrics: {
+        startedAt: Date.now(),
+        turnId: null,
+        totalTokens: 0,
+        hasTokenUsage: false,
+      },
+    });
+
+    await harness.dispatch({
+      type: "iteration_start",
+      turn_id: "turn-1",
+    });
+    await harness.dispatch({
+      type: "token_usage",
+      session_id: "session-current",
+      turn_id: "turn-1",
+      data: {
+        model: "glm-5",
+        input_tokens: 10,
+        output_tokens: 5,
+        total_tokens: 15,
+        session_total_tokens: 15,
+      },
+    });
+
+    expect(harness.getState().runtimeModel).toMatchObject({
+      provider_id: "zhipu",
+      provider_name: "智谱 GLM",
+      model: "glm-5",
+    });
   });
 
   it("done 后应清空当前请求指标", async () => {
@@ -544,10 +682,14 @@ describe("handleEvent 文本去重", () => {
   });
 
   it("analysis_plan 事件应通过扩展处理器更新计划状态", async () => {
-    const harness = createHarness({ _currentTurnId: "turn-plan-1" });
+    const harness = createHarness({
+      sessionId: "session-current",
+      _currentTurnId: "turn-plan-1",
+    });
 
     await harness.dispatch({
       type: "analysis_plan",
+      session_id: "session-current",
       turn_id: "turn-plan-1",
       data: {
         raw_text: "分析计划",
@@ -565,10 +707,14 @@ describe("handleEvent 文本去重", () => {
   });
 
   it("retrieval 事件不应误触发试用到期状态", async () => {
-    const harness = createHarness({ _currentTurnId: "turn-ret-1" });
+    const harness = createHarness({
+      sessionId: "session-current",
+      _currentTurnId: "turn-ret-1",
+    });
 
     await harness.dispatch({
       type: "retrieval",
+      session_id: "session-current",
       turn_id: "turn-ret-1",
       data: {
         query: "test query",

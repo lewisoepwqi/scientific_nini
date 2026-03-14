@@ -75,6 +75,15 @@ function normalizeTaskAttemptStatus(raw: unknown): AnalysisTaskAttemptStatus {
   }
 }
 
+function isActiveSessionEvent(evt: WSEvent, get: GetStateFn): boolean {
+  const currentSessionId = get().sessionId;
+  return (
+    typeof evt.session_id === "string" &&
+    evt.session_id.length > 0 &&
+    currentSessionId === evt.session_id
+  );
+}
+
 function applyPlanProgressPayload(
   s: AppStateSubset,
   payload: Record<string, unknown>,
@@ -154,6 +163,7 @@ export function handleExtendedEvent(
 ): boolean {
   switch (evt.type) {
     case "analysis_plan": {
+      if (!isActiveSessionEvent(evt, get)) return true;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) return true;
       const steps = normalizeAnalysisSteps(data.steps);
@@ -235,6 +245,7 @@ export function handleExtendedEvent(
     }
 
     case "plan_step_update": {
+      if (!isActiveSessionEvent(evt, get)) return true;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data || typeof data.id !== "number" || typeof data.status !== "string") {
         return true;
@@ -305,6 +316,7 @@ export function handleExtendedEvent(
     }
 
     case "plan_progress": {
+      if (!isActiveSessionEvent(evt, get)) return true;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) return true;
       const eventOrder = extractPlanEventOrder(evt, data);
@@ -349,6 +361,7 @@ export function handleExtendedEvent(
     }
 
     case "task_attempt": {
+      if (!isActiveSessionEvent(evt, get)) return true;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) return true;
       set((s) => {
@@ -408,6 +421,7 @@ export function handleExtendedEvent(
     }
 
     case "retrieval": {
+      if (!isActiveSessionEvent(evt, get)) return true;
       const data = isRecord(evt.data) ? evt.data : null;
       const query = data && typeof data.query === "string" ? data.query : "检索结果";
       const rawResults = data && Array.isArray(data.results) ? data.results : [];
@@ -435,6 +449,7 @@ export function handleExtendedEvent(
     }
 
     case "chart": {
+      if (!isActiveSessionEvent(evt, get)) return true;
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
       const messageId = evt.metadata?.message_id as string | undefined;
       set((s) => ({
@@ -451,6 +466,7 @@ export function handleExtendedEvent(
     }
 
     case "data": {
+      if (!isActiveSessionEvent(evt, get)) return true;
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
       const messageId = evt.metadata?.message_id as string | undefined;
       set((s) => ({
@@ -467,6 +483,7 @@ export function handleExtendedEvent(
     }
 
     case "artifact": {
+      if (!isActiveSessionEvent(evt, get)) return true;
       const artifact = evt.data as ArtifactInfo;
       if (artifact && artifact.download_url) {
         const turnId = evt.turn_id || get()._currentTurnId || undefined;
@@ -488,6 +505,7 @@ export function handleExtendedEvent(
     }
 
     case "image": {
+      if (!isActiveSessionEvent(evt, get)) return true;
       const imageData = evt.data as { url?: string; urls?: string[] };
       const urls: string[] = [];
       if (imageData.url) urls.push(imageData.url);
@@ -527,11 +545,13 @@ export function handleExtendedEvent(
     }
 
     case "workspace_update":
+      if (!isActiveSessionEvent(evt, get)) return true;
       get().fetchWorkspaceFiles();
       get().fetchDatasets();
       return true;
 
     case "code_execution": {
+      if (!isActiveSessionEvent(evt, get)) return true;
       const execRecord = evt.data as AppStateSubset["codeExecutions"][number];
       if (execRecord && execRecord.id) {
         set((s) => ({
@@ -542,6 +562,7 @@ export function handleExtendedEvent(
     }
 
     case "context_compressed": {
+      if (!isActiveSessionEvent(evt, get)) return true;
       const data = isRecord(evt.data) ? evt.data : null;
       const archivedCount =
         typeof data?.archived_count === "number" ? data.archived_count : 0;
@@ -559,6 +580,7 @@ export function handleExtendedEvent(
     }
 
     case "token_usage": {
+      if (!isActiveSessionEvent(evt, get)) return true;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) return true;
 
@@ -589,8 +611,8 @@ export function handleExtendedEvent(
         if (!current) {
           return {
             runtimeModel: {
-              provider_id: s.runtimeModel?.provider_id || "",
-              provider_name: s.runtimeModel?.provider_name || "",
+              provider_id: s.runtimeModel?.provider_id || s.activeModel?.provider_id || "",
+              provider_name: s.runtimeModel?.provider_name || s.activeModel?.provider_name || "",
               model,
               preferred_provider: s.activeModel?.preferred_provider ?? null,
             },
@@ -642,8 +664,8 @@ export function handleExtendedEvent(
         }
         return {
           runtimeModel: {
-            provider_id: s.runtimeModel?.provider_id || "",
-            provider_name: s.runtimeModel?.provider_name || "",
+            provider_id: s.runtimeModel?.provider_id || s.activeModel?.provider_id || "",
+            provider_name: s.runtimeModel?.provider_name || s.activeModel?.provider_name || "",
             model,
             preferred_provider: s.activeModel?.preferred_provider ?? null,
           },
