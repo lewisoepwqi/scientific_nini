@@ -35,6 +35,8 @@ class Session:
     research_profile_id: str = "default"
     workspace_hydrated: bool = False
     load_persisted_messages: bool = False
+    # 图表输出格式偏好："interactive"（Plotly）/ "image"（Matplotlib/PNG）/ None（未设置）
+    chart_output_preference: str | None = None
     conversation_memory: ConversationMemory = field(init=False, repr=False)
     knowledge_memory: KnowledgeMemory = field(init=False, repr=False)
     task_manager: TaskManager = field(init=False, repr=False)
@@ -47,6 +49,43 @@ class Session:
         self.task_manager = TaskManager()
         if self.load_persisted_messages and not self.messages:
             self.messages.extend(self.conversation_memory.load_messages(resolve_refs=True))
+        if self.messages:
+            self._reconstruct_task_manager_from_messages()
+
+    def _reconstruct_task_manager_from_messages(self) -> None:
+        """从消息历史重建 task_manager（中断恢复场景）。
+
+        遍历 assistant 消息中的 tool_calls，找到 task_write / task_state 工具调用，
+        按顺序重放 init 和 update 操作，还原中断前的任务状态。
+        """
+        rebuilt = TaskManager()
+        for msg in self.messages:
+            if msg.get("role") != "assistant":
+                continue
+            tool_calls = msg.get("tool_calls")
+            if not tool_calls:
+                continue
+            for tc in tool_calls:
+                func = tc.get("function", {})
+                name = func.get("name", "")
+                if name not in ("task_write", "task_state"):
+                    continue
+                try:
+                    args = json.loads(func.get("arguments", "{}") or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                operation = args.get("operation") or args.get("mode")
+                if operation == "init":
+                    raw_tasks = args.get("tasks", [])
+                    if raw_tasks:
+                        rebuilt = rebuilt.init_tasks(raw_tasks)
+                elif operation == "update":
+                    updates = args.get("updates", [])
+                    if updates and rebuilt.initialized:
+                        result = rebuilt.update_tasks(updates)
+                        rebuilt = result.manager
+        if rebuilt.initialized:
+            self.task_manager = rebuilt
 
     def _append_entry(self, entry: dict[str, Any], *, auto_compress: bool = False) -> None:
         """追加一条规范化消息记录并同步持久化。"""
@@ -324,6 +363,7 @@ class SessionManager:
         last_compressed_at: str | None = None
         research_profile_id = "default"
         tool_approval_grants: dict[str, str] = {}
+        chart_output_preference: str | None = None
         if load_persisted_messages:
             meta = self._load_session_meta(sid)
             loaded_title = str(meta.get("title", "")).strip()
@@ -340,6 +380,9 @@ class SessionManager:
             tool_approval_grants = self._normalize_tool_approval_grants(
                 meta.get("tool_approval_grants")
             )
+            raw_pref = meta.get("chart_output_preference")
+            if raw_pref in ("interactive", "image"):
+                chart_output_preference = raw_pref
 
         session = Session(
             id=sid,
@@ -349,6 +392,7 @@ class SessionManager:
             compressed_rounds=compressed_rounds,
             last_compressed_at=last_compressed_at,
             research_profile_id=research_profile_id,
+            chart_output_preference=chart_output_preference,
             load_persisted_messages=load_persisted_messages,
         )
         self._sessions[session.id] = session
@@ -553,6 +597,11 @@ class SessionManager:
             session_id,
             {"research_profile_id": str(research_profile_id or "").strip() or "default"},
         )
+
+    def save_session_chart_preference(self, session_id: str, preference: str) -> None:
+        """持久化会话图表输出格式偏好。"""
+        if preference in ("interactive", "image"):
+            self._save_session_meta_fields(session_id, {"chart_output_preference": preference})
 
     def save_session_tool_approvals(
         self,
