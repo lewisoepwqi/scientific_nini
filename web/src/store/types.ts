@@ -426,6 +426,8 @@ export interface SessionItem {
   created_at?: string;
   updated_at?: string;
   last_message_at?: string;
+  /** 纯前端运行时字段：该会话是否有 Agent 正在运行 */
+  isRunning?: boolean;
 }
 
 export interface ActiveModelInfo {

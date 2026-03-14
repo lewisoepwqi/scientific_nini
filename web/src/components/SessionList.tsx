@@ -14,6 +14,7 @@ interface Props {
 
 export default function SessionList({ onClose }: Props) {
   const sessionId = useStore((s) => s.sessionId)
+  const runningSessions = useStore((s) => s.runningSessions)
   const appBootstrapping = useStore((s) => s.appBootstrapping)
   const createNewSession = useStore((s) => s.createNewSession)
   const switchSession = useStore((s) => s.switchSession)
@@ -434,6 +435,8 @@ export default function SessionList({ onClose }: Props) {
               )
             }
 
+            const isRunning = runningSessions.has(s.id)
+
             return (
               <div
                 key={s.id}
@@ -462,28 +465,34 @@ export default function SessionList({ onClose }: Props) {
                   </span>
                 </button>
                 <div className="w-20 flex items-center justify-end flex-shrink-0">
-                  <span className="text-[11px] text-slate-400 text-right group-hover:hidden">
-                    {formatRelativeTime(s.created_at || s.updated_at || s.last_message_at)}
-                  </span>
-                  <div className="hidden group-hover:flex items-center justify-end gap-1">
-                    <button
-                      type="button"
-                      onClick={() => handleDoubleClick(s.id, s.title)}
-                      className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all w-7 h-7 flex items-center justify-center"
-                      title="重命名会话"
-                    >
-                      <Pencil size={13} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => queueDelete(s.id, displayTitle)}
-                      className="p-1.5 rounded-lg hover:bg-rose-100 text-slate-400 hover:text-rose-500 transition-all w-7 h-7 flex items-center justify-center"
-                      title="删除会话"
-                      disabled={pendingDelete?.id === s.id}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
+                  {isRunning ? (
+                    <Loader2 size={13} className="animate-spin text-sky-400 flex-shrink-0" />
+                  ) : (
+                    <>
+                      <span className="text-[11px] text-slate-400 text-right group-hover:hidden">
+                        {formatRelativeTime(s.created_at || s.updated_at || s.last_message_at)}
+                      </span>
+                      <div className="hidden group-hover:flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleDoubleClick(s.id, s.title)}
+                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all w-7 h-7 flex items-center justify-center"
+                          title="重命名会话"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => queueDelete(s.id, displayTitle)}
+                          className="p-1.5 rounded-lg hover:bg-rose-100 text-slate-400 hover:text-rose-500 transition-all w-7 h-7 flex items-center justify-center"
+                          title="删除会话"
+                          disabled={pendingDelete?.id === s.id}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )
