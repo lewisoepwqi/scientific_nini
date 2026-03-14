@@ -125,6 +125,7 @@ class CodeSessionSkill(Skill):
         purpose: str = "exploration",
         label: str | None = None,
         intent: str | None = None,
+        extra_allowed_imports: list[str] | None = None,
         source_tool: str | None = None,
     ) -> SkillResult:
         """兼容旧入口：创建临时脚本并立即执行。"""
@@ -149,6 +150,7 @@ class CodeSessionSkill(Skill):
             purpose=purpose,
             label=label,
             intent=intent,
+            extra_allowed_imports=extra_allowed_imports,
             source_tool=source_tool or "code_session",
             retry_of_execution_id=None,
         )
@@ -335,6 +337,7 @@ class CodeSessionSkill(Skill):
         intent: Any,
         source_tool: str,
         retry_of_execution_id: str | None,
+        extra_allowed_imports: list[str] | None = None,
     ) -> SkillResult:
         content = self._read_script_content(record)
 
@@ -355,6 +358,7 @@ class CodeSessionSkill(Skill):
                     purpose=purpose,
                     label=label,
                     intent=intent,
+                    extra_allowed_imports=extra_allowed_imports,
                 )
             language = "python"
         elif record.language == "r":

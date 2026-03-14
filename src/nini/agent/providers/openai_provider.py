@@ -73,6 +73,39 @@ class OpenAICompatibleClient(BaseLLMClient):
     def is_available(self) -> bool:
         return bool(self._api_key and self._model)
 
+    def _normalize_messages_for_provider(
+        self,
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """在发请求前收紧消息字段，避免兼容提供商拒绝非协议字段。"""
+        normalized: list[dict[str, Any]] = []
+        for message in messages:
+            role = str(message.get("role") or "").strip()
+            if role not in {"system", "user", "assistant", "tool"}:
+                continue
+
+            if role == "assistant":
+                item: dict[str, Any] = {
+                    "role": "assistant",
+                    "content": (
+                        "" if message.get("content") is None else str(message.get("content"))
+                    ),
+                }
+                tool_calls = message.get("tool_calls")
+                if tool_calls:
+                    item["tool_calls"] = tool_calls
+                normalized.append(item)
+                continue
+
+            item = {
+                "role": role,
+                "content": "" if message.get("content") is None else str(message.get("content")),
+            }
+            if role == "tool" and message.get("tool_call_id"):
+                item["tool_call_id"] = str(message.get("tool_call_id"))
+            normalized.append(item)
+        return normalized
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -84,9 +117,11 @@ class OpenAICompatibleClient(BaseLLMClient):
         self._ensure_client()
         assert self._client is not None
 
+        normalized_messages = self._normalize_messages_for_provider(messages)
+
         kwargs: dict[str, Any] = {
             "model": self._model,
-            "messages": messages,
+            "messages": normalized_messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,

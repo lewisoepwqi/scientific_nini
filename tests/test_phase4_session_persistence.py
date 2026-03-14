@@ -17,6 +17,7 @@ from nini.agent.session import Session, session_manager
 from nini.app import create_app
 from nini.config import settings
 from nini.memory.conversation import ConversationMemory
+from nini.sandbox.approval_manager import approval_manager
 from nini.workspace import WorkspaceManager
 from tests.client_utils import LocalASGIClient
 
@@ -162,6 +163,26 @@ def test_session_tool_approvals_persist_and_restore() -> None:
     assert restored.id == session_id
     assert restored.has_tool_approval("workspace_session:write")
     assert restored.tool_approval_grants == {"workspace_session:write": "session"}
+
+
+def test_session_sandbox_import_approvals_persist_and_restore() -> None:
+    session = session_manager.create_session()
+    session.grant_sandbox_import_approval(["sympy"], scope="session")
+    session_id = session.id
+
+    session_manager._sessions.clear()
+    restored = session_manager.get_or_create(session_id)
+
+    assert restored.has_sandbox_import_approval("sympy")
+    assert "sympy" in restored.sandbox_approved_imports
+
+
+def test_persistent_sandbox_import_approvals_load_into_new_session() -> None:
+    approval_manager.grant_approved_imports(["sympy"])
+
+    session = session_manager.create_session()
+
+    assert session.has_sandbox_import_approval("sympy")
 
 
 @pytest.mark.asyncio

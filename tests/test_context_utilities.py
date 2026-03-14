@@ -16,6 +16,7 @@ from nini.agent.components.context_utils import (
     replace_arguments,
     sanitize_reference_text,
 )
+from nini.agent.components.tool_executor import summarize_tool_result_dict
 from nini.agent.session import Session
 
 
@@ -179,7 +180,7 @@ def test_prepare_messages_for_llm_normalizes_null_assistant_tool_content() -> No
                 {
                     "id": "call-1",
                     "type": "function",
-                    "function": {"name": "edit_file", "arguments": "{\"file_path\":\"a.md\"}"},
+                    "function": {"name": "edit_file", "arguments": '{"file_path":"a.md"}'},
                 }
             ],
         }
@@ -195,11 +196,166 @@ def test_prepare_messages_for_llm_normalizes_null_assistant_tool_content() -> No
                 {
                     "id": "call-1",
                     "type": "function",
-                    "function": {"name": "edit_file", "arguments": "{\"file_path\":\"a.md\"}"},
+                    "function": {"name": "edit_file", "arguments": '{"file_path":"a.md"}'},
                 }
             ],
         }
     ]
+
+
+def test_prepare_messages_for_llm_strips_non_protocol_metadata() -> None:
+    """消息预处理不应把本地观测元数据带给提供商。"""
+    messages = [
+        {
+            "role": "assistant",
+            "content": "继续分析",
+            "event_type": "tool_call",
+            "turn_id": "t-1",
+            "message_id": "m-1",
+            "operation": "complete",
+            "effective_model": {"provider_id": "zhipu"},
+            "fallback_chain": [{"provider_id": "zhipu", "status": "success"}],
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "run_code", "arguments": '{"code":"print(1)"}'},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-1",
+            "tool_name": "run_code",
+            "status": "success",
+            "execution_id": "exec-1",
+            "content": '{"success": true, "message": "ok"}',
+        },
+    ]
+
+    prepared = prepare_messages_for_llm(messages)
+
+    assert prepared[0] == {
+        "role": "assistant",
+        "content": "继续分析",
+        "tool_calls": [
+            {
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "run_code", "arguments": '{"code":"print(1)"}'},
+            }
+        ],
+    }
+    assert prepared[1] == {
+        "role": "tool",
+        "tool_call_id": "call-1",
+        "content": '{"success": true, "message": "ok"}',
+    }
+
+
+def test_prepare_messages_for_llm_replays_multiturn_tool_history_without_local_metadata() -> None:
+    """多轮 tool_call + reasoning + fallback 元数据回放时应保持 provider 兼容。"""
+    messages = [
+        {"role": "user", "content": "开始分析", "turn_id": "turn-1"},
+        {
+            "role": "assistant",
+            "content": "我先规划任务。",
+            "event_type": "reasoning",
+            "reasoning_id": "reasoning-1",
+            "reasoning_type": "planning",
+            "turn_id": "turn-1",
+            "effective_model": {"provider_id": "zhipu", "model": "glm-5"},
+        },
+        {
+            "role": "assistant",
+            "content": None,
+            "event_type": "tool_call",
+            "turn_id": "turn-1",
+            "message_id": "turn-1-0",
+            "operation": "complete",
+            "effective_model": {"provider_id": "zhipu", "model": "glm-5"},
+            "fallback_chain": [
+                {"provider_id": "zhipu", "status": "failed", "error": "messages 参数非法"},
+                {"provider_id": "dashscope", "status": "success", "error": None},
+            ],
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {
+                        "name": "code_session",
+                        "arguments": '{"content":"print(1)","dataset_name":"all.xlsx"}',
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-1",
+            "tool_name": "code_session",
+            "status": "success",
+            "intent": "analysis",
+            "execution_id": "exec-1",
+            "content": '{"success": true, "message": "代码执行成功"}',
+            "turn_id": "turn-1",
+        },
+        {
+            "role": "assistant",
+            "content": "继续生成报告。",
+            "event_type": "text",
+            "message_id": "turn-1-1",
+            "turn_id": "turn-1",
+            "fallback_chain": [{"provider_id": "dashscope", "status": "success", "error": None}],
+        },
+    ]
+
+    prepared = prepare_messages_for_llm(messages)
+
+    assert prepared == [
+        {"role": "user", "content": "开始分析"},
+        {"role": "assistant", "content": "我先规划任务。"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {
+                        "name": "code_session",
+                        "arguments": '{"content":"print(1)","dataset_name":"all.xlsx"}',
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-1",
+            "content": '{"success": true, "message": "代码执行成功"}',
+        },
+        {"role": "assistant", "content": "继续生成报告。"},
+    ]
+
+
+def test_summarize_tool_result_dict_omits_code_session_data_excerpt() -> None:
+    """code_session 结果不应把整段脚本/输出摘要回放给后续模型。"""
+    result = {
+        "success": True,
+        "message": "脚本会话已创建：script_123",
+        "script_id": "script_123",
+        "data_excerpt": "print('very long script body')\n" * 200,
+        "data": {
+            "content": "print('still should not leak')\n" * 200,
+            "script_id": "script_123",
+        },
+    }
+
+    compact = summarize_tool_result_dict(result)
+
+    assert compact["success"] is True
+    assert compact["message"] == "脚本会话已创建：script_123"
+    assert "data_excerpt" not in compact
+    assert compact["data_summary"]["keys"] == ["content", "script_id"]
 
 
 def test_replace_arguments_handles_positional_and_full_arguments() -> None:

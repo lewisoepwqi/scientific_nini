@@ -9,6 +9,7 @@ import pytest
 
 from nini.agent.model_resolver import LLMChunk, model_resolver
 from nini.agent.session import session_manager
+from nini import app as app_module
 from nini.app import create_app
 from nini.config import settings
 from tests.client_utils import live_websocket_connect
@@ -259,3 +260,137 @@ def test_websocket_file_name_confirmation_is_converted_to_ask_user_question(
         evt["data"] for evt in events if evt["type"] == "text" and isinstance(evt.get("data"), str)
     ]
     assert "已确认文件名，继续生成内容。" in text_events
+
+
+def test_websocket_sandbox_import_approval_flow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_code 触发沙盒审批后，前端回答应恢复原始工具执行。"""
+    model_calls = {"count": 0}
+    run_code_calls = {"count": 0}
+
+    async def fake_chat(messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        model_calls["count"] += 1
+        if model_calls["count"] == 1:
+            yield LLMChunk(
+                tool_calls=[
+                    {
+                        "id": "tool-run-code-1",
+                        "type": "function",
+                        "function": {
+                            "name": "run_code",
+                            "arguments": json.dumps(
+                                {
+                                    "code": "import sympy\nresult = 1",
+                                    "intent": "验证审批流程",
+                                },
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+                finish_reason="tool_calls",
+            )
+            return
+
+        yield LLMChunk(text="审批后已继续执行。")
+
+    async def fake_execute_with_fallback(skill_name: str, session, enable_fallback=True, **kwargs):
+        assert enable_fallback is True
+        assert skill_name == "run_code"
+        run_code_calls["count"] += 1
+        extra_allowed_imports = kwargs.get("extra_allowed_imports") or []
+        if "sympy" not in extra_allowed_imports and not session.has_sandbox_import_approval("sympy"):
+            return {
+                "success": False,
+                "message": "继续执行前需要用户审批导入扩展包：sympy",
+                "data": {
+                    "_sandbox_review_required": True,
+                    "requested_packages": ["sympy"],
+                    "sandbox_violations": [
+                        {
+                            "message": "导入扩展包 'sympy' 需要用户审批",
+                            "module": "sympy",
+                            "root": "sympy",
+                            "risk_level": "reviewable",
+                        }
+                    ],
+                },
+            }
+        return {"success": True, "message": "run_code 审批后执行成功", "data": {"result": 1}}
+
+    class _FakeRegistry:
+        def list_skills(self):
+            return ["run_code"]
+
+        def get_tool_definitions(self):
+            return [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "run_code",
+                        "description": "运行代码",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ]
+
+        def list_markdown_skills(self):
+            return []
+
+        async def execute_with_fallback(self, skill_name, session, enable_fallback=True, **kwargs):
+            return await fake_execute_with_fallback(
+                skill_name,
+                session,
+                enable_fallback=enable_fallback,
+                **kwargs,
+            )
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    session_manager._sessions.clear()
+    monkeypatch.setattr(model_resolver, "chat", fake_chat)
+    monkeypatch.setattr(app_module, "create_default_tool_registry", lambda: _FakeRegistry())
+    app = create_app()
+
+    with live_websocket_connect(app, "/ws", receive_timeout=2.0) as ws:
+        ws.send_text(json.dumps({"type": "chat", "content": "请运行需要 sympy 的代码"}))
+
+        events = []
+        for _ in range(36):
+            evt = ws.receive_json()
+            events.append(evt)
+            if evt["type"] == "ask_user_question":
+                question = evt["data"]["questions"][0]["question"]
+                ws.send_text(
+                    json.dumps(
+                        {
+                            "type": "ask_user_question_answer",
+                            "tool_call_id": evt.get("tool_call_id"),
+                            "answers": {question: "本会话允许"},
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+            if evt["type"] in {"done", "error"}:
+                break
+
+    event_types = [event["type"] for event in events]
+    assert "ask_user_question" in event_types
+    assert "tool_result" in event_types
+    assert "done" in event_types
+    assert "error" not in event_types
+    assert run_code_calls["count"] == 2
+
+    ask_result = next(
+        event
+        for event in events
+        if event["type"] == "tool_result" and event.get("tool_name") == "ask_user_question"
+    )
+    assert ask_result["data"]["status"] == "success"
+    final_run_code_result = next(
+        event
+        for event in reversed(events)
+        if event["type"] == "tool_result" and event.get("tool_name") == "run_code"
+    )
+    assert final_run_code_result["data"]["status"] == "success"

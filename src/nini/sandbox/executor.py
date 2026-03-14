@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 import traceback
-from typing import Any
+from typing import Any, Iterable
 
 import pandas as pd
 
@@ -22,7 +22,13 @@ from nini.charts import build_style_spec
 from nini.charts.renderers import apply_matplotlib_rc_style
 from nini.config import settings
 from nini.sandbox.capture import capture_stdio
-from nini.sandbox.policy import validate_code
+from nini.sandbox.policy import (
+    SandboxPolicyError,
+    SandboxReviewRequired,
+    get_allowed_import_roots,
+    validate_code,
+    validate_import,
+)
 from nini.utils.chart_fonts import (
     CJK_FONT_CANDIDATES,
     CJK_FONT_FAMILY,
@@ -146,32 +152,20 @@ def _patch_windows_spawn_no_window() -> None:
     _WINDOWS_SPAWN_PATCHED = True
 
 
-def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
-    """白名单版本的 __import__ 函数。
+def _make_safe_import(allowed_import_roots: set[str]):
+    """按本次执行的允许集合构造受限 __import__。"""
 
-    只允许导入 ALLOWED_IMPORT_ROOTS 中的模块。
-    由于模块已预加载到 globals，此函数主要用于兼容 import 语句。
-    """
-    from nini.sandbox.policy import ALLOWED_IMPORT_ROOTS
+    def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
+        root_module = name.split(".", 1)[0]
+        validate_import(root_module, name, extra_allowed_imports=allowed_import_roots)
+        import builtins
 
-    # 提取根模块名
-    root_module = name.split(".", 1)[0]
+        return builtins.__import__(name, *args, **kwargs)
 
-    # 检查白名单
-    if root_module not in ALLOWED_IMPORT_ROOTS:
-        raise ImportError(
-            f"模块 '{name}' 不在沙箱白名单中。允许的模块: {', '.join(sorted(ALLOWED_IMPORT_ROOTS))}"
-        )
-
-    # 调用真正的 __import__
-    import builtins
-
-    return builtins.__import__(name, *args, **kwargs)
+    return _safe_import
 
 
-SAFE_BUILTINS: dict[str, Any] = {
-    # 受限的 __import__（只允许白名单模块）
-    "__import__": _safe_import,
+_BASE_SAFE_BUILTINS: dict[str, Any] = {
     # 标准内建函数
     "abs": abs,
     "all": all,
@@ -201,6 +195,13 @@ SAFE_BUILTINS: dict[str, Any] = {
     "ValueError": ValueError,
     "TypeError": TypeError,
 }
+
+
+def _make_safe_builtins(allowed_import_roots: set[str]) -> dict[str, Any]:
+    """按本次执行动态构造受限 builtins。"""
+    safe_builtins = dict(_BASE_SAFE_BUILTINS)
+    safe_builtins["__import__"] = _make_safe_import(allowed_import_roots)
+    return safe_builtins
 
 
 def _apply_matplotlib_cjk_font_fallback(fig: Any) -> None:
@@ -360,7 +361,11 @@ def _try_pickleable(value: Any) -> Any:
         return repr(value)
 
 
-def _build_exec_globals(datasets: dict[str, pd.DataFrame]) -> dict[str, Any]:
+def _build_exec_globals(
+    datasets: dict[str, pd.DataFrame],
+    *,
+    safe_builtins: dict[str, Any],
+) -> dict[str, Any]:
     """构建沙箱执行环境的全局命名空间。
 
     预加载常用科学计算模块，避免用户代码 import 失败（SAFE_BUILTINS 中已移除 __import__）。
@@ -402,7 +407,7 @@ def _build_exec_globals(datasets: dict[str, pd.DataFrame]) -> dict[str, Any]:
         px = _px_mod
 
     globals_dict: dict[str, Any] = {
-        "__builtins__": SAFE_BUILTINS,
+        "__builtins__": safe_builtins,
         # 数据框架（预加载）
         "pd": pd,
         "datasets": datasets,
@@ -612,6 +617,7 @@ def _sandbox_worker(
     max_memory_mb: int,
     dataset_name: str | None,
     persist_df: bool,
+    extra_allowed_imports: list[str],
 ) -> None:
     """子进程执行入口。"""
     stdout_text = ""
@@ -623,7 +629,9 @@ def _sandbox_worker(
         _configure_chart_defaults()
 
         local_datasets = _safe_copy_datasets(datasets)
-        exec_globals = _build_exec_globals(local_datasets)
+        allowed_import_roots = get_allowed_import_roots(extra_allowed_imports)
+        safe_builtins = _make_safe_builtins(allowed_import_roots)
+        exec_globals = _build_exec_globals(local_datasets, safe_builtins=safe_builtins)
 
         # 使用单命名空间：避免 exec(code, globals, locals) 双命名空间导致
         # 用户在代码中定义的函数无法被 lambda/闭包引用（NameError）。
@@ -662,6 +670,29 @@ def _sandbox_worker(
             "figures": figures,
         }
         conn.send(payload)
+    except SandboxReviewRequired as exc:
+        payload = exc.to_payload()
+        conn.send(
+            {
+                "success": False,
+                "stdout": stdout_text,
+                "stderr": stderr_text,
+                "error": str(exc),
+                "review_required": True,
+                "packages": payload["packages"],
+                "sandbox_violations": payload["violations"],
+            }
+        )
+    except SandboxPolicyError as exc:
+        conn.send(
+            {
+                "success": False,
+                "stdout": stdout_text,
+                "stderr": stderr_text,
+                "error": str(exc),
+                "policy_error": True,
+            }
+        )
     except Exception as exc:
         tb = traceback.format_exc()
         conn.send(
@@ -692,6 +723,7 @@ class SandboxExecutor:
         datasets: dict[str, pd.DataFrame],
         dataset_name: str | None = None,
         persist_df: bool = False,
+        extra_allowed_imports: Iterable[str] | None = None,
     ) -> dict[str, Any]:
         """异步执行入口。"""
         return self._execute_sync(
@@ -700,6 +732,7 @@ class SandboxExecutor:
             datasets=datasets,
             dataset_name=dataset_name,
             persist_df=persist_df,
+            extra_allowed_imports=extra_allowed_imports,
         )
 
     def _execute_sync(
@@ -710,8 +743,10 @@ class SandboxExecutor:
         datasets: dict[str, pd.DataFrame],
         dataset_name: str | None,
         persist_df: bool,
+        extra_allowed_imports: Iterable[str] | None,
     ) -> dict[str, Any]:
-        validate_code(code)
+        normalized_extra_allowed_imports = sorted(get_allowed_import_roots(extra_allowed_imports))
+        validate_code(code, extra_allowed_imports=normalized_extra_allowed_imports)
 
         working_dir = settings.sessions_dir / session_id / "sandbox_tmp"
         working_dir.mkdir(parents=True, exist_ok=True)
@@ -730,6 +765,7 @@ class SandboxExecutor:
                 self.max_memory_mb,
                 dataset_name,
                 persist_df,
+                normalized_extra_allowed_imports,
             ),
             daemon=True,
         )
@@ -768,6 +804,16 @@ class SandboxExecutor:
                 process.terminate()
                 process.join(timeout=1)
             parent_conn.close()
+            if isinstance(payload, dict):
+                if payload.get("review_required"):
+                    raise SandboxReviewRequired.from_payload(
+                        {
+                            "packages": payload.get("packages", []),
+                            "violations": payload.get("sandbox_violations", []),
+                        }
+                    )
+                if payload.get("policy_error"):
+                    raise SandboxPolicyError(str(payload.get("error") or "沙箱策略拦截"))
             return payload
 
         if process.is_alive():

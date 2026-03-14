@@ -680,7 +680,7 @@ def test_dashscope_client_unavailable_without_key() -> None:
 
 
 def test_model_resolver_includes_domestic_clients() -> None:
-    """ModelResolver 默认客户端列表包含国产模型。"""
+    """ModelResolver 默认客户端列表包含当前启用的国产模型。"""
     resolver = ModelResolver()
     client_types = [type(c).__name__ for c in resolver._clients]  # noqa: SLF001
     assert "MoonshotClient" in client_types
@@ -688,6 +688,101 @@ def test_model_resolver_includes_domestic_clients() -> None:
     assert "DeepSeekClient" in client_types
     assert "DashScopeClient" in client_types
     assert "MiniMaxClient" in client_types
+    assert "KimiCodingClient" not in client_types
+
+
+def test_moonshot_client_normalizes_assistant_tool_calls_for_thinking_mode() -> None:
+    """Moonshot 应为 assistant tool_call 历史补 reasoning_content。"""
+    client = MoonshotClient(api_key="sk-moonshot-test", model="kimi-k2.5")
+
+    normalized = client._normalize_messages_for_provider(  # noqa: SLF001
+        [
+            {
+                "role": "assistant",
+                "content": "",
+                "turn_id": "t-1",
+                "tool_calls": [
+                    {
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {"name": "run_code", "arguments": "{}"},
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert normalized == [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "run_code", "arguments": "{}"},
+                }
+            ],
+            "reasoning_content": "",
+        }
+    ]
+
+
+def test_zhipu_client_normalizes_messages_to_protocol_fields_only() -> None:
+    """Zhipu 请求体应只保留协议字段。"""
+    client = ZhipuClient(api_key="zhipu-test-key", model="glm-5")
+
+    normalized = client._normalize_messages_for_provider(  # noqa: SLF001
+        [
+            {
+                "role": "assistant",
+                "content": "继续",
+                "message_id": "m-1",
+                "operation": "complete",
+                "effective_model": {"provider_id": "zhipu"},
+                "fallback_chain": [{"provider_id": "zhipu", "status": "success"}],
+                "tool_calls": [
+                    {
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {"name": "task_state", "arguments": "{}"},
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert normalized == [
+        {
+            "role": "assistant",
+            "content": "继续",
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "task_state", "arguments": "{}"},
+                }
+            ],
+        }
+    ]
+
+
+def test_model_resolver_default_priority_excludes_kimi_coding() -> None:
+    """默认优先级链不应再包含 kimi_coding。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="openai", available=True),
+            FakeClient(provider_id="moonshot", available=True),
+            FakeClient(provider_id="kimi_coding", available=True),
+            FakeClient(provider_id="zhipu", available=True),
+            FakeClient(provider_id="dashscope", available=True),
+        ]
+    )
+
+    ordered = resolver._get_priority_order()  # noqa: SLF001
+
+    assert ordered == ["openai", "moonshot", "zhipu", "dashscope"]
+    assert "kimi_coding" not in ordered
 
 
 @pytest.mark.asyncio

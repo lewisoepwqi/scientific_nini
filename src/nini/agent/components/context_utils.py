@@ -126,6 +126,50 @@ def compact_tool_content_for_preparation(content: Any, *, max_chars: int) -> str
     return text
 
 
+def _prepare_single_message_for_llm(
+    msg: dict[str, Any],
+    *,
+    adaptive_max_chars: int,
+) -> dict[str, Any] | None:
+    """按 OpenAI 兼容 schema 重新构造单条消息。"""
+    role = msg.get("role")
+    event_type = msg.get("event_type")
+    if role == "assistant" and isinstance(event_type, str) and event_type in NON_DIALOG_EVENT_TYPES:
+        return None
+
+    if role == "user":
+        return {"role": "user", "content": str(msg.get("content") or "")}
+
+    if role == "assistant":
+        cleaned: dict[str, Any] = {
+            "role": "assistant",
+            "content": "" if msg.get("content") is None else str(msg.get("content") or ""),
+        }
+        tool_calls = msg.get("tool_calls")
+        if tool_calls:
+            cleaned["tool_calls"] = tool_calls
+        return cleaned
+
+    if role == "tool":
+        tool_name = str(msg.get("tool_name", "") or "").strip().lower()
+        max_chars = (
+            FETCH_URL_TOOL_CONTEXT_MAX_CHARS if tool_name == "fetch_url" else adaptive_max_chars
+        )
+        cleaned = {
+            "role": "tool",
+            "content": compact_tool_content_for_preparation(
+                msg.get("content"),
+                max_chars=max_chars,
+            ),
+        }
+        tool_call_id = msg.get("tool_call_id")
+        if tool_call_id:
+            cleaned["tool_call_id"] = str(tool_call_id)
+        return cleaned
+
+    return None
+
+
 def prepare_messages_for_llm(
     messages: list[dict[str, Any]],
     context_ratio: float = 0.0,
@@ -141,41 +185,9 @@ def prepare_messages_for_llm(
 
     prepared: list[dict[str, Any]] = []
     for msg in messages:
-        role = msg.get("role")
-        event_type = msg.get("event_type")
-        if (
-            role == "assistant"
-            and isinstance(event_type, str)
-            and event_type in NON_DIALOG_EVENT_TYPES
-        ):
-            continue
-
-        cleaned = dict(msg)
-        cleaned.pop("event_type", None)
-        cleaned.pop("chart_data", None)
-        cleaned.pop("data_preview", None)
-        cleaned.pop("artifacts", None)
-        cleaned.pop("images", None)
-
-        # 某些 OpenAI 兼容提供商不接受 assistant/tool_calls 携带 null content，
-        # 统一规范为空字符串，保持消息结构稳定。
-        if role == "assistant" and cleaned.get("tool_calls") and cleaned.get("content") is None:
-            cleaned["content"] = ""
-
-        if role == "tool":
-            tool_name = str(cleaned.get("tool_name", "") or "").strip().lower()
-            max_chars = (
-                FETCH_URL_TOOL_CONTEXT_MAX_CHARS if tool_name == "fetch_url" else adaptive_max_chars
-            )
-            cleaned.pop("tool_name", None)
-            cleaned.pop("status", None)
-            cleaned.pop("intent", None)
-            cleaned.pop("execution_id", None)
-            cleaned["content"] = compact_tool_content_for_preparation(
-                cleaned.get("content"),
-                max_chars=max_chars,
-            )
-        prepared.append(cleaned)
+        cleaned = _prepare_single_message_for_llm(msg, adaptive_max_chars=adaptive_max_chars)
+        if cleaned is not None:
+            prepared.append(cleaned)
     return prepared
 
 
