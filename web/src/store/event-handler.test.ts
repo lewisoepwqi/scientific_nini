@@ -28,6 +28,7 @@ function createState(
     analysisTasks: [],
     pendingAskUserQuestion: null,
     isStreaming: false,
+    runningSessions: new Set<string>(),
     tokenUsage: null,
     contextCompressionTick: 0,
     workspacePanelOpen: false,

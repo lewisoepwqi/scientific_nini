@@ -315,6 +315,8 @@ export interface AppStateSubset {
   analysisTasks: AnalysisTaskItem[];
   pendingAskUserQuestion: { toolCallId: string; questions: AskUserQuestionItem[]; createdAt: number } | null;
   isStreaming: boolean;
+  /** 所有正在运行 Agent 的 session_id 集合（多会话并发） */
+  runningSessions: Set<string>;
   tokenUsage: {
     session_id: string;
     input_tokens: number;
@@ -366,6 +368,8 @@ export function handleEvent(
     }
 
     case "iteration_start": {
+      // 非当前会话的迭代事件静默丢弃
+      if (evt.session_id && evt.session_id !== get().sessionId) break;
       // 新迭代开始：重置流式文本累积，记录 turnId，同时重置序列号
       set((s) => ({
         _streamingText: "",
@@ -383,6 +387,8 @@ export function handleEvent(
     }
 
     case "text": {
+      // 非当前会话的文本事件静默丢弃
+      if (evt.session_id && evt.session_id !== get().sessionId) break;
       const rawText =
         typeof evt.data === "string"
           ? evt.data
@@ -636,6 +642,8 @@ export function handleEvent(
       });
 
     case "ask_user_question": {
+      // 非当前会话的提问静默等待，用户切回该会话后再处理
+      if (evt.session_id && evt.session_id !== get().sessionId) break;
       const data = isRecord(evt.data) ? evt.data : null;
       const toolCallId =
         typeof evt.tool_call_id === "string" && evt.tool_call_id.trim()
@@ -686,6 +694,8 @@ export function handleEvent(
     }
 
     case "reasoning": {
+      // 非当前会话的 reasoning 事件静默丢弃
+      if (evt.session_id && evt.session_id !== get().sessionId) break;
       // 如果同一 turnId 已有 analysis_plan 消息，则跳过 reasoning（避免重复）
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
       if (turnId) {
@@ -739,6 +749,8 @@ export function handleEvent(
     }
 
     case "tool_call": {
+      // 非当前会话的工具调用事件静默丢弃
+      if (evt.session_id && evt.session_id !== get().sessionId) break;
       const data = isRecord(evt.data) ? evt.data : {};
       const toolName =
         typeof data.name === "string" && data.name.trim()
@@ -786,6 +798,8 @@ export function handleEvent(
     }
 
     case "tool_result": {
+      // 非当前会话的工具结果事件静默丢弃
+      if (evt.session_id && evt.session_id !== get().sessionId) break;
       const data = isRecord(evt.data) ? evt.data : {};
       const legacyResult =
         isRecord(data.data) && "result" in data.data ? data.data.result : undefined;
@@ -872,13 +886,26 @@ export function handleEvent(
         handleExtendedEvent(evt, set, get);
       });
 
-    case "done":
+    case "done": {
+      const doneEvtSid = evt.session_id ?? null;
+      const doneCurSid = get().sessionId;
+      const doneIsActive = !doneEvtSid || doneEvtSid === doneCurSid;
       set((s) => {
+        // 从 runningSessions 中移除已完成的会话
+        const nextRunning = doneEvtSid
+          ? new Set([...s.runningSessions].filter((id) => id !== doneEvtSid))
+          : new Set<string>();
+
+        if (!doneIsActive) {
+          // 后台会话完成：只更新运行状态，不改消息
+          return { runningSessions: nextRunning };
+        }
+
+        // 当前会话完成：完整处理
         let progress = s.analysisPlanProgress;
         let tasks = s.analysisTasks;
         const turnId = evt.turn_id || s._currentTurnId;
         if (progress && progress.step_status === "in_progress") {
-          // 使用 turn_id 优先匹配当前回合的任务
           const taskId = findTaskIdByStepAndTurn(
             s.analysisTasks,
             progress.current_step_index,
@@ -912,6 +939,7 @@ export function handleEvent(
         return {
           messages: finalizeReasoningMessages(s.messages, turnId, true),
           isStreaming: false,
+          runningSessions: nextRunning,
           pendingAskUserQuestion: null,
           _streamingText: "",
           _currentTurnId: null,
@@ -926,14 +954,25 @@ export function handleEvent(
       // 对话结束后刷新会话列表（更新消息计数）
       get().fetchSessions();
       break;
+    }
 
-    case "stopped":
+    case "stopped": {
+      const stoppedEvtSid = evt.session_id ?? null;
+      const stoppedCurSid = get().sessionId;
+      const stoppedIsActive = !stoppedEvtSid || stoppedEvtSid === stoppedCurSid;
       set((s) => {
+        const nextRunning = stoppedEvtSid
+          ? new Set([...s.runningSessions].filter((id) => id !== stoppedEvtSid))
+          : new Set<string>();
+
+        if (!stoppedIsActive) {
+          return { runningSessions: nextRunning };
+        }
+
         let progress = s.analysisPlanProgress;
         let tasks = s.analysisTasks;
         const turnId = evt.turn_id || s._currentTurnId;
         if (progress && progress.step_status === "in_progress") {
-          // 使用 turn_id 优先匹配当前回合的任务
           const taskId = findTaskIdByStepAndTurn(
             s.analysisTasks,
             progress.current_step_index,
@@ -964,6 +1003,7 @@ export function handleEvent(
         return {
           messages: finalizeReasoningMessages(s.messages, turnId, true),
           isStreaming: false,
+          runningSessions: nextRunning,
           pendingAskUserQuestion: null,
           _streamingText: "",
           _currentTurnId: null,
@@ -976,8 +1016,21 @@ export function handleEvent(
         };
       });
       break;
+    }
 
     case "error": {
+      const errorEvtSid = evt.session_id ?? null;
+      const errorCurSid = get().sessionId;
+      const errorIsActive = !errorEvtSid || errorEvtSid === errorCurSid;
+      // 后台会话报错：只更新 runningSessions，不污染当前会话消息
+      if (!errorIsActive) {
+        set((s) => ({
+          runningSessions: errorEvtSid
+            ? new Set([...s.runningSessions].filter((id) => id !== errorEvtSid))
+            : new Set<string>(),
+        }));
+        break;
+      }
       const normalizedError = normalizeWsError(evt.data);
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
       const errMsg: Message = {
@@ -999,6 +1052,9 @@ export function handleEvent(
           errMsg,
         ],
         isStreaming: false,
+        runningSessions: errorEvtSid
+          ? new Set([...s.runningSessions].filter((id) => id !== errorEvtSid))
+          : new Set<string>(),
         pendingAskUserQuestion: null,
         _streamingText: "",
         _currentTurnId: null,

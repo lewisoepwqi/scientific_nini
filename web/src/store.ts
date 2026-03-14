@@ -189,6 +189,8 @@ export interface AppState {
   wsConnected: boolean;
   wsStatus: WsConnectionStatus;
   isStreaming: boolean;
+  /** 所有正在运行 Agent 的 session_id 集合（多会话并发） */
+  runningSessions: Set<string>;
   pendingAskUserQuestion: PendingAskUserQuestion | null;
   currentIntentAnalysis: IntentAnalysisView | null;
   composerDraft: string;
@@ -379,6 +381,7 @@ export const useStore = create<AppState>((set, get) => ({
   wsConnected: false,
   wsStatus: "disconnected",
   isStreaming: false,
+  runningSessions: new Set<string>(),
   pendingAskUserQuestion: null,
   currentIntentAnalysis: null,
   composerDraft: "",
@@ -488,6 +491,7 @@ export const useStore = create<AppState>((set, get) => ({
         wsConnected: false,
         wsStatus: nextStatus,
         isStreaming: false,
+        runningSessions: new Set<string>(),
         pendingAskUserQuestion: null,
         _streamingText: "",
         _currentTurnId: null,
@@ -553,6 +557,7 @@ export const useStore = create<AppState>((set, get) => ({
       wsStatus: "disconnected",
       _reconnectAttempts: 0,
       isStreaming: false,
+      runningSessions: new Set<string>(),
       pendingAskUserQuestion: null,
       _streamingText: "",
       _currentTurnId: null,
@@ -635,8 +640,9 @@ export const useStore = create<AppState>((set, get) => ({
       })
     );
 
-    set({
+    set((s) => ({
       isStreaming: true,
+      runningSessions: new Set([...s.runningSessions, sessionId ?? ""]),
       composerDraft: "",
       pendingAskUserQuestion: null,
       _streamingText: "",
@@ -651,7 +657,7 @@ export const useStore = create<AppState>((set, get) => ({
         totalTokens: 0,
         hasTokenUsage: false,
       },
-    });
+    }));
   },
 
   submitAskUserQuestionAnswers(answers: Record<string, string>) {
@@ -692,8 +698,11 @@ export const useStore = create<AppState>((set, get) => ({
       );
     }
 
-    set({
+    set((s) => ({
       isStreaming: false,
+      runningSessions: sessionId
+        ? new Set([...s.runningSessions].filter((id) => id !== sessionId))
+        : s.runningSessions,
       pendingAskUserQuestion: null,
       _streamingText: "",
       _currentTurnId: null,
@@ -708,7 +717,7 @@ export const useStore = create<AppState>((set, get) => ({
         totalTokens: 0,
         hasTokenUsage: false,
       },
-    });
+    }));
   },
 
   async retryLastTurn() {
@@ -728,9 +737,10 @@ export const useStore = create<AppState>((set, get) => ({
             index <= latestTurn.userIndex || msg.turnId !== latestTurn.turnId,
         )
       : messages.slice(0, latestTurn.userIndex + 1);
-    set({
+    set((s) => ({
       messages: trimmedMessages,
       isStreaming: true,
+      runningSessions: new Set([...s.runningSessions, sessionId ?? ""]),
       currentIntentAnalysis: null,
       pendingAskUserQuestion: null,
       _streamingText: "",
@@ -747,7 +757,7 @@ export const useStore = create<AppState>((set, get) => ({
         totalTokens: 0,
         hasTokenUsage: false,
       },
-    });
+    }));
 
     try {
       await get().analyzeIntent(retryContent);
@@ -1029,9 +1039,11 @@ export const useStore = create<AppState>((set, get) => ({
 
     await preloadRenderersForMessages(restored.messages);
 
-    set({
+    set((s) => ({
       sessionId: targetSessionId,
       ...SESSION_RESET_STATE,
+      // 若目标会话有后台任务在运行，切换后 isStreaming 应保持 true
+      isStreaming: s.runningSessions.has(targetSessionId),
       messages: restored.messages,
       analysisTasks: restored.analysisTasks,
       analysisPlanProgress: restored.analysisPlanProgress,
@@ -1039,7 +1051,7 @@ export const useStore = create<AppState>((set, get) => ({
         restored.analysisPlanProgress || restored.analysisTasks.length > 0
           ? "tasks"
           : "files",
-    });
+    }));
     localStorage.setItem("nini_last_session_id", targetSessionId);
 
     await Promise.all([
