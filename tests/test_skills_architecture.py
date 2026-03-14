@@ -730,7 +730,7 @@ def test_cli_skills_list(
     assert ret == 0
     out = capsys.readouterr().out
     assert "t_test" in out
-    assert "create_chart" in out
+    assert "chart_session" in out
 
 
 def test_cli_skills_list_json(

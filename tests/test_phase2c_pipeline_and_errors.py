@@ -13,6 +13,7 @@ from nini.agent.session import session_manager
 from nini.app import create_app
 from nini.config import settings
 from nini.tools.registry import create_default_registry
+from nini.tools.visualization import CreateChartSkill
 from tests.client_utils import LocalASGIClient, live_websocket_connect
 
 
@@ -66,10 +67,9 @@ def test_phase2c_upload_ttest_chart_pipeline(app_with_temp_data):
         assert t_test_result["data"]["test_type"] == "独立样本 t 检验"
         assert isinstance(t_test_result["data"]["p_value"], float)
 
-        # 4) 生成 Nature 风格箱线图
+        # 4) 生成 Nature 风格箱线图（直接实例化，create_chart 已不在注册表）
         chart_result = asyncio.run(
-            registry.execute(
-                "create_chart",
+            CreateChartSkill().execute(
                 session=session,
                 dataset_name="experiment.csv",
                 chart_type="box",
@@ -78,7 +78,7 @@ def test_phase2c_upload_ttest_chart_pipeline(app_with_temp_data):
                 journal_style="nature",
                 title="Treatment vs Control",
             )
-        )
+        ).to_dict()
         assert chart_result["success"] is True
         assert chart_result["has_chart"] is True
         assert "data" in chart_result["chart_data"]

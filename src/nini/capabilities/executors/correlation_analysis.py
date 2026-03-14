@@ -142,7 +142,12 @@ class CorrelationAnalysisCapability:
         self.display_name = "相关性分析"
         self.description = "探索变量之间的相关关系"
         self.icon = "📈"
-        self._registry = registry
+        # registry 参数保留以兼容旧调用方，但内部直接实例化所需技能
+        from nini.tools.statistics import CorrelationSkill
+        from nini.tools.visualization import CreateChartSkill
+
+        self._correlation_skill = CorrelationSkill()
+        self._chart_skill = CreateChartSkill()
 
     async def execute(
         self,
@@ -322,14 +327,6 @@ class CorrelationAnalysisCapability:
             return f"变量 {cols_text}{suffix} 不符合正态分布，使用 Spearman 秩相关"
         return f"使用 {method.title()} 方法"
 
-    def _get_registry(self) -> Any:
-        """获取工具注册中心。"""
-        if self._registry is not None:
-            return self._registry
-        from nini.tools.registry import create_default_tool_registry
-
-        return create_default_tool_registry()
-
     async def _compute_correlation(
         self,
         session: Session,
@@ -337,23 +334,18 @@ class CorrelationAnalysisCapability:
         columns: list[str],
         method: str,
     ) -> dict[str, Any] | None:
-        """通过底层工具计算相关矩阵。"""
-        registry = self._get_registry()
+        """直接调用 CorrelationSkill 计算相关矩阵。"""
         try:
-            tool_result = await registry.execute(
-                "correlation",
-                session,
+            tool_result = await self._correlation_skill.execute(
+                session=session,
                 dataset_name=dataset_name,
                 columns=columns,
                 method=method,
             )
-            if isinstance(tool_result, dict):
-                data_payload = tool_result.get("data")
-                if tool_result.get("success") and isinstance(data_payload, dict):
-                    return cast(dict[str, Any], data_payload)
-            elif hasattr(tool_result, "success") and getattr(tool_result, "success", False):
-                data_payload = getattr(tool_result, "data", None)
-                if isinstance(data_payload, dict):
+            result_dict = tool_result.to_dict() if hasattr(tool_result, "to_dict") else tool_result
+            if isinstance(result_dict, dict):
+                data_payload = result_dict.get("data")
+                if result_dict.get("success") and isinstance(data_payload, dict):
                     return cast(dict[str, Any], data_payload)
         except Exception:
             pass
@@ -430,7 +422,6 @@ class CorrelationAnalysisCapability:
         如果提供了 corr_matrix，先将其写入 session 的临时数据中，
         让 create_chart 使用与文本一致的数据（经过 dropna 的结果）。
         """
-        registry = self._get_registry()
         # 如果有预计算矩阵，构建一个 DataFrame 写入会话供图表使用
         if corr_matrix:
             corr_df = pd.DataFrame(corr_matrix)
@@ -441,9 +432,8 @@ class CorrelationAnalysisCapability:
         else:
             chart_dataset = dataset_name
         try:
-            result = await registry.execute(
-                "create_chart",
-                session,
+            result = await self._chart_skill.execute(
+                session=session,
                 dataset_name=chart_dataset,
                 chart_type="heatmap",
                 columns=columns,

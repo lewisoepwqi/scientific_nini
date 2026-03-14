@@ -8,8 +8,10 @@ import pytest
 
 from nini.agent.session import Session
 from nini.tools.clean_data import (
+    CleanDataSkill,
     MissingPattern,
     OutlierPattern,
+    RecommendCleaningStrategySkill,
     analyze_column_profile,
     analyze_dataset_features,
     analyze_missing_pattern,
@@ -20,7 +22,6 @@ from nini.tools.clean_data import (
     recommend_outlier_strategy,
     recommend_normalization,
 )
-from nini.tools.registry import create_default_registry
 
 
 class TestMissingPatternAnalysis:
@@ -250,10 +251,10 @@ class TestCleaningStrategyRecommendation:
 
 @pytest.mark.asyncio
 class TestRecommendCleaningStrategySkill:
-    """测试 recommend_cleaning_strategy 技能。"""
+    """测试 recommend_cleaning_strategy 技能（直接实例化，不依赖注册表）。"""
 
     async def test_skill_execution(self):
-        registry = create_default_registry()
+        skill = RecommendCleaningStrategySkill()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame(
             {
@@ -262,31 +263,23 @@ class TestRecommendCleaningStrategySkill:
             }
         )
 
-        result = await registry.execute(
-            "recommend_cleaning_strategy",
-            session=session,
-            dataset_name="test.csv",
-        )
+        result = (await skill.execute(session=session, dataset_name="test.csv")).to_dict()
 
         assert result["success"] is True
         assert "data" in result
         assert "recommendations" in result["data"]
 
     async def test_skill_with_invalid_dataset(self):
-        registry = create_default_registry()
+        skill = RecommendCleaningStrategySkill()
         session = Session()
 
-        result = await registry.execute(
-            "recommend_cleaning_strategy",
-            session=session,
-            dataset_name="nonexistent.csv",
-        )
+        result = (await skill.execute(session=session, dataset_name="nonexistent.csv")).to_dict()
 
         assert result["success"] is False
         assert "不存在" in result["message"]
 
     async def test_skill_with_target_columns(self):
-        registry = create_default_registry()
+        skill = RecommendCleaningStrategySkill()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame(
             {
@@ -296,12 +289,13 @@ class TestRecommendCleaningStrategySkill:
             }
         )
 
-        result = await registry.execute(
-            "recommend_cleaning_strategy",
-            session=session,
-            dataset_name="test.csv",
-            target_columns=["value", "category"],
-        )
+        result = (
+            await skill.execute(
+                session=session,
+                dataset_name="test.csv",
+                target_columns=["value", "category"],
+            )
+        ).to_dict()
 
         assert result["success"] is True
         assert len(result["data"]["recommendations"]) == 2
@@ -309,10 +303,10 @@ class TestRecommendCleaningStrategySkill:
 
 @pytest.mark.asyncio
 class TestCleanDataAutoMode:
-    """测试 clean_data 的 auto 模式。"""
+    """测试 clean_data 的 auto 模式（直接实例化，不依赖注册表）。"""
 
     async def test_auto_missing_strategy(self):
-        registry = create_default_registry()
+        skill = CleanDataSkill()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame(
             {
@@ -320,14 +314,15 @@ class TestCleanDataAutoMode:
             }
         )
 
-        result = await registry.execute(
-            "clean_data",
-            session=session,
-            dataset_name="test.csv",
-            missing_strategy="auto",
-            outlier_method="none",
-            inplace=True,
-        )
+        result = (
+            await skill.execute(
+                session=session,
+                dataset_name="test.csv",
+                missing_strategy="auto",
+                outlier_method="none",
+                inplace=True,
+            )
+        ).to_dict()
 
         assert result["success"] is True
         assert "使用自动推荐策略" in result["message"]
@@ -335,7 +330,7 @@ class TestCleanDataAutoMode:
         assert result["data"]["missing_after"] == 0
 
     async def test_auto_outlier_strategy(self):
-        registry = create_default_registry()
+        skill = CleanDataSkill()
         session = Session()
         # 创建有异常值的数据 - 使用更大的数据集
         np.random.seed(42)
@@ -346,20 +341,21 @@ class TestCleanDataAutoMode:
             }
         )
 
-        result = await registry.execute(
-            "clean_data",
-            session=session,
-            dataset_name="test.csv",
-            missing_strategy="none",
-            outlier_method="auto",
-            inplace=True,
-        )
+        result = (
+            await skill.execute(
+                session=session,
+                dataset_name="test.csv",
+                missing_strategy="none",
+                outlier_method="auto",
+                inplace=True,
+            )
+        ).to_dict()
 
         assert result["success"] is True
         # 异常值应该被处理（缩尾或删除）
 
     async def test_auto_mode_with_high_missing_column(self):
-        registry = create_default_registry()
+        skill = CleanDataSkill()
         session = Session()
         # 创建高缺失率列
         session.datasets["test.csv"] = pd.DataFrame(
@@ -369,21 +365,22 @@ class TestCleanDataAutoMode:
             }
         )
 
-        result = await registry.execute(
-            "clean_data",
-            session=session,
-            dataset_name="test.csv",
-            missing_strategy="auto",
-            outlier_method="none",
-            inplace=True,
-        )
+        result = (
+            await skill.execute(
+                session=session,
+                dataset_name="test.csv",
+                missing_strategy="auto",
+                outlier_method="none",
+                inplace=True,
+            )
+        ).to_dict()
 
         assert result["success"] is True
         # 高缺失率列应该被删除
         assert "mostly_missing" not in session.datasets["test.csv"].columns
 
     async def test_legacy_mode_still_works(self):
-        registry = create_default_registry()
+        skill = CleanDataSkill()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame(
             {
@@ -391,14 +388,15 @@ class TestCleanDataAutoMode:
             }
         )
 
-        result = await registry.execute(
-            "clean_data",
-            session=session,
-            dataset_name="test.csv",
-            missing_strategy="mean",
-            outlier_method="none",
-            inplace=True,
-        )
+        result = (
+            await skill.execute(
+                session=session,
+                dataset_name="test.csv",
+                missing_strategy="mean",
+                outlier_method="none",
+                inplace=True,
+            )
+        ).to_dict()
 
         assert result["success"] is True
         assert "使用自动推荐策略" not in result["message"]

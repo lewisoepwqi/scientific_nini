@@ -8,20 +8,17 @@ from typing import Any
 from nini.agent.session import Session
 from nini.config import settings
 from nini.sandbox.r_router import detect_r_backend
-from nini.tools.clean_data import CleanDataSkill, RecommendCleaningStrategySkill
 from nini.tools.chart_session import ChartSessionSkill
 from nini.tools.code_session import CodeSessionSkill
 from nini.tools.code_exec import RunCodeSkill
 from nini.tools.dataset_catalog import DatasetCatalogSkill
-from nini.tools.data_ops import DataSummarySkill, LoadDatasetSkill, PreviewDataSkill
-from nini.tools.data_quality import DataQualitySkill
+from nini.tools.data_ops import DataSummarySkill, LoadDatasetSkill
 from nini.tools.dataset_transform import DatasetTransformSkill
 from nini.tools.edit_file import EditFile
 from nini.tools.export import ExportChartSkill
 from nini.tools.export_document import ExportDocumentSkill
 from nini.tools.export_report import ExportReportSkill
 from nini.tools.fetch_url import FetchURLSkill
-from nini.tools.interpretation import InterpretStatisticalResultSkill
 from nini.tools.organize_workspace import OrganizeWorkspaceSkill
 from nini.tools.r_code_exec import RunRCodeSkill
 from nini.tools.registry_catalog import ToolCatalogOps
@@ -31,11 +28,8 @@ from nini.tools.report import GenerateReportSkill
 from nini.tools.report_session import ReportSessionSkill
 from nini.tools.statistics import (
     ANOVASkill,
-    CorrelationSkill,
     KruskalWallisSkill,
     MannWhitneySkill,
-    MultipleComparisonCorrectionSkill,
-    RegressionSkill,
     TTestSkill,
 )
 from nini.tools.stat_interpret import StatInterpretSkill
@@ -49,10 +43,8 @@ from nini.tools.templates import (
     CorrelationAnalysisSkill,
     RegressionAnalysisSkill,
 )
-from nini.tools.visualization import CreateChartSkill
 from nini.tools.analysis_memory_tool import AnalysisMemorySkill
 from nini.tools.profile_notes import UpdateProfileNotesSkill
-from nini.tools.workspace_files import ListWorkspaceFilesSkill
 from nini.tools.workspace_session import WorkspaceSessionSkill
 
 logger = logging.getLogger(__name__)
@@ -217,17 +209,14 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(TaskWriteSkill())
     registry.register(TaskStateSkill())
     registry.register(LoadDatasetSkill())
-    registry.register(PreviewDataSkill())
     registry.register(DataSummarySkill())
     registry.register(DatasetCatalogSkill())
     registry.register(DatasetTransformSkill())
+    # 保留原子统计工具：被 fallback.py 和 planner.py 硬编码引用
     registry.register(TTestSkill())
     registry.register(MannWhitneySkill())
     registry.register(ANOVASkill())
     registry.register(KruskalWallisSkill())
-    registry.register(CorrelationSkill())
-    registry.register(RegressionSkill())
-    registry.register(MultipleComparisonCorrectionSkill())
     registry.register(StatTestSkill())
     registry.register(StatModelSkill())
     registry.register(StatInterpretSkill())
@@ -244,13 +233,9 @@ def create_default_tool_registry() -> ToolRegistry:
                 "请运行 pip install webr 或安装本地 R 环境。",
                 backend["message"],
             )
-    registry.register(CreateChartSkill())
     registry.register(ChartSessionSkill())
     registry.register(ExportChartSkill())
     registry.register(ExportDocumentSkill())
-    registry.register(CleanDataSkill())
-    registry.register(RecommendCleaningStrategySkill())
-    registry.register(DataQualitySkill())
     registry.register(GenerateReportSkill())
     registry.register(ReportSessionSkill())
     registry.register(ExportReportSkill())
@@ -260,9 +245,7 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(CompleteANOVASkill())
     registry.register(CorrelationAnalysisSkill())
     registry.register(RegressionAnalysisSkill())
-    registry.register(InterpretStatisticalResultSkill())
     registry.register(EditFile())
-    registry.register(ListWorkspaceFilesSkill())
     registry.register(WorkspaceSessionSkill())
     registry.register(AnalysisMemorySkill())
     registry.register(UpdateProfileNotesSkill())

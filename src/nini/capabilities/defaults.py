@@ -65,17 +65,17 @@ def create_default_capabilities() -> list[Capability]:
             required_tools=[
                 "load_dataset",
                 "data_summary",
-                "evaluate_data_quality",
+                "dataset_catalog",
                 "t_test",
                 "mann_whitney",
                 "anova",
                 "kruskal_wallis",
-                "create_chart",
+                "chart_session",
             ],
             suggested_workflow=[
                 "data_summary",
                 "t_test",  # 或根据数据特征自动选择
-                "create_chart",
+                "chart_session",
             ],
         ),
         Capability(
@@ -88,13 +88,13 @@ def create_default_capabilities() -> list[Capability]:
             required_tools=[
                 "load_dataset",
                 "data_summary",
-                "correlation",
-                "create_chart",
+                "stat_model",
+                "chart_session",
             ],
             suggested_workflow=[
                 "data_summary",
-                "correlation",
-                "create_chart",
+                "stat_model",
+                "chart_session",
             ],
         ),
         Capability(
@@ -107,13 +107,13 @@ def create_default_capabilities() -> list[Capability]:
             required_tools=[
                 "load_dataset",
                 "data_summary",
-                "regression",
-                "create_chart",
+                "stat_model",
+                "chart_session",
             ],
             suggested_workflow=[
                 "data_summary",
-                "regression",
-                "create_chart",
+                "stat_model",
+                "chart_session",
             ],
         ),
         Capability(
@@ -126,15 +126,13 @@ def create_default_capabilities() -> list[Capability]:
             executor_factory=_create_data_exploration_executor,
             required_tools=[
                 "load_dataset",
-                "preview_data",
+                "dataset_catalog",
                 "data_summary",
-                "evaluate_data_quality",
-                "create_chart",
+                "chart_session",
             ],
             suggested_workflow=[
-                "preview_data",
+                "dataset_catalog",
                 "data_summary",
-                "evaluate_data_quality",
             ],
         ),
         Capability(
@@ -147,14 +145,12 @@ def create_default_capabilities() -> list[Capability]:
             required_tools=[
                 "load_dataset",
                 "data_summary",
-                "evaluate_data_quality",
-                "clean_data",
-                "recommend_cleaning_strategy",
+                "dataset_catalog",
+                "dataset_transform",
             ],
             suggested_workflow=[
-                "evaluate_data_quality",
-                "recommend_cleaning_strategy",
-                "clean_data",
+                "dataset_catalog",
+                "dataset_transform",
             ],
         ),
         Capability(
@@ -166,11 +162,11 @@ def create_default_capabilities() -> list[Capability]:
             executor_factory=_create_visualization_executor,
             required_tools=[
                 "load_dataset",
-                "create_chart",
+                "chart_session",
                 "export_chart",
             ],
             suggested_workflow=[
-                "create_chart",
+                "chart_session",
                 "export_chart",
             ],
         ),
@@ -200,9 +196,9 @@ def create_default_capabilities() -> list[Capability]:
             execution_message="请在对话中描述你的研究背景和数据，Agent 将调用 article_draft 技能为你逐章生成论文初稿。",
             required_tools=[
                 "data_summary",
-                "interpret_stat_result",
-                "create_chart",
-                "list_workspace_files",
+                "stat_interpret",
+                "chart_session",
+                "workspace_session",
                 "edit_file",
                 "generate_report",
                 "export_document",
@@ -210,9 +206,9 @@ def create_default_capabilities() -> list[Capability]:
             ],
             suggested_workflow=[
                 "data_summary",
-                "interpret_stat_result",
-                "create_chart",
-                "list_workspace_files",
+                "stat_interpret",
+                "chart_session",
+                "workspace_session",
                 "edit_file",
                 "export_document",
             ],

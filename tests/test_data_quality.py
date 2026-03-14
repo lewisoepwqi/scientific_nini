@@ -269,10 +269,10 @@ class TestEvaluateDataQuality:
 
 @pytest.mark.asyncio
 class TestDataQualitySkill:
-    """测试数据质量评估技能。"""
+    """测试数据质量评估技能（直接实例化，不依赖注册表）。"""
 
     async def test_skill_execution(self):
-        registry = create_default_registry()
+        skill = DataQualitySkill()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame(
             {
@@ -281,11 +281,7 @@ class TestDataQualitySkill:
             }
         )
 
-        result = await registry.execute(
-            "evaluate_data_quality",
-            session=session,
-            dataset_name="test.csv",
-        )
+        result = (await skill.execute(session=session, dataset_name="test.csv")).to_dict()
 
         assert result["success"] is True
         assert "data" in result
@@ -294,26 +290,19 @@ class TestDataQualitySkill:
         assert "summary" in result["data"]
 
     async def test_skill_with_invalid_dataset(self):
-        registry = create_default_registry()
+        skill = DataQualitySkill()
         session = Session()
 
-        result = await registry.execute(
-            "evaluate_data_quality",
-            session=session,
-            dataset_name="nonexistent.csv",
-        )
+        result = (await skill.execute(session=session, dataset_name="nonexistent.csv")).to_dict()
 
         assert result["success"] is False
         assert "不存在" in result["message"]
 
     async def test_skill_with_missing_dataset_name(self):
-        registry = create_default_registry()
+        skill = DataQualitySkill()
         session = Session()
 
-        result = await registry.execute(
-            "evaluate_data_quality",
-            session=session,
-        )
+        result = (await skill.execute(session=session)).to_dict()
 
         assert result["success"] is False
         assert "数据集名称" in result["message"] or "请提供" in result["message"]
