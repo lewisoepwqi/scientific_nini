@@ -196,5 +196,9 @@ class TaskManager:
         }
 
     def pending_count(self) -> int:
-        """待完成任务数。"""
+        """尚未开始的任务数（仅 pending 状态）。"""
+        return sum(1 for t in self.tasks if t.status == "pending")
+
+    def remaining_count(self) -> int:
+        """还未完成的任务数（pending + in_progress）。"""
         return sum(1 for t in self.tasks if t.status in ("pending", "in_progress"))

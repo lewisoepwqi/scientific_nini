@@ -92,7 +92,14 @@ class ChartSessionSkill(Skill):
             "journal_style": kwargs.get("journal_style")
             or (existing.spec.get("journal_style") if existing else "default"),
             "render_engine": kwargs.get("render_engine")
-            or (existing.render_engine if existing else "auto"),
+            or (existing.render_engine if existing else None)
+            or (
+                "matplotlib"
+                if getattr(session, "chart_output_preference", None) == "image"
+                else "plotly"
+                if getattr(session, "chart_output_preference", None) == "interactive"
+                else "auto"
+            ),
             "x_column": kwargs.get("x_column") if "x_column" in kwargs else (existing.spec.get("x_column") if existing else None),
             "y_column": kwargs.get("y_column") if "y_column" in kwargs else (existing.spec.get("y_column") if existing else None),
             "group_column": kwargs.get("group_column")
