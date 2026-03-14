@@ -42,6 +42,16 @@ const initialState = useStore.getInitialState();
 const originalWebSocket = globalThis.WebSocket;
 const originalFetch = globalThis.fetch;
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function createMessage(
   overrides: Partial<Message>,
 ): Message {
@@ -276,6 +286,7 @@ describe("store reconnect / retry / stop", () => {
       }
       return Promise.resolve({
         json: async () => ({ success: true, data: {} }),
+        ok: true,
       } as Response);
     });
 
@@ -328,6 +339,7 @@ describe("store reconnect / retry / stop", () => {
       }
       return Promise.resolve({
         json: async () => ({ success: true, data: {} }),
+        ok: true,
       } as Response);
     });
 
@@ -340,6 +352,219 @@ describe("store reconnect / retry / stop", () => {
     });
     expect(useStore.getState().analysisPlanProgress).not.toBeNull();
     expect(useStore.getState().workspacePanelTab).toBe("tasks");
+  });
+
+  it("fetchWorkspaceFiles 应忽略过期会话请求返回，避免覆盖当前工作区", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const deferred = createDeferred<Response>();
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/api/workspace/session-old/files")) {
+        return deferred.promise;
+      }
+      return Promise.resolve({
+        json: async () => ({ success: true, data: { files: [] } }),
+      } as Response);
+    });
+
+    useStore.setState({
+      ...useStore.getInitialState(),
+      sessionId: "session-old",
+      workspaceFiles: [
+        {
+          id: "file-current",
+          name: "current.md",
+          path: "notes/current.md",
+          kind: "document",
+          size: 1,
+          created_at: new Date().toISOString(),
+          download_url: "/api/workspace/session-current/files/notes/current.md",
+        },
+      ],
+    });
+
+    const pendingFetch = useStore.getState().fetchWorkspaceFiles();
+    useStore.setState({ sessionId: "session-current" });
+
+    deferred.resolve({
+      json: async () => ({
+        success: true,
+        data: {
+          files: [
+            {
+              id: "file-old",
+              name: "old.md",
+              path: "notes/old.md",
+              kind: "document",
+              size: 1,
+              created_at: new Date().toISOString(),
+              download_url: "/api/workspace/session-old/files/notes/old.md",
+            },
+          ],
+        },
+      }),
+    } as Response);
+
+    await pendingFetch;
+
+    expect(useStore.getState().sessionId).toBe("session-current");
+    expect(useStore.getState().workspaceFiles).toHaveLength(1);
+    expect(useStore.getState().workspaceFiles[0]?.id).toBe("file-current");
+  });
+
+  it("switchSession 切回运行中会话时应恢复缓存的 reasoning 与运行指标", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/api/sessions/session-new/messages")) {
+        return Promise.resolve({
+          json: async () => ({ success: true, data: { messages: [] } }),
+        } as Response);
+      }
+      if (url.endsWith("/api/sessions/session-old/messages")) {
+        return Promise.resolve({
+          json: async () => ({ success: true, data: { messages: [] } }),
+        } as Response);
+      }
+      if (url.endsWith("/api/cost/session/session-new")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            session_id: "session-new",
+            input_tokens: 1,
+            output_tokens: 2,
+            total_tokens: 3,
+            estimated_cost_cny: 0,
+            estimated_cost_usd: 0,
+            model_breakdown: {},
+          }),
+        } as Response);
+      }
+      if (url.endsWith("/api/cost/session/session-old")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            session_id: "session-old",
+            input_tokens: 120,
+            output_tokens: 80,
+            total_tokens: 200,
+            estimated_cost_cny: 0.1,
+            estimated_cost_usd: 0.02,
+            model_breakdown: {},
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        json: async () => ({ success: true, data: {} }),
+        ok: true,
+      } as Response);
+    });
+
+    const startedAt = new Date("2026-03-15T00:00:00Z").getTime();
+    useStore.setState({
+      ...useStore.getInitialState(),
+      sessionId: "session-old",
+      runningSessions: new Set(["session-old"]),
+      isStreaming: true,
+      messages: [
+        {
+          id: "reasoning-1",
+          role: "assistant",
+          content: "先检查字段完整性",
+          isReasoning: true,
+          reasoningLive: true,
+          turnId: "turn-old",
+          timestamp: startedAt,
+        },
+      ],
+      _streamingMetrics: {
+        startedAt,
+        turnId: "turn-old",
+        totalTokens: 42,
+        hasTokenUsage: true,
+      },
+      tokenUsage: {
+        session_id: "session-old",
+        input_tokens: 25,
+        output_tokens: 17,
+        total_tokens: 42,
+        estimated_cost_cny: 0.05,
+        estimated_cost_usd: 0.01,
+        model_breakdown: {},
+      },
+    });
+
+    await useStore.getState().switchSession("session-new");
+    await useStore.getState().switchSession("session-old");
+
+    expect(useStore.getState().sessionId).toBe("session-old");
+    expect(useStore.getState().isStreaming).toBe(true);
+    expect(useStore.getState().messages[0]).toMatchObject({
+      id: "reasoning-1",
+      isReasoning: true,
+      reasoningLive: true,
+      content: "先检查字段完整性",
+    });
+    expect(useStore.getState()._streamingMetrics).toMatchObject({
+      startedAt,
+      turnId: "turn-old",
+      totalTokens: 42,
+      hasTokenUsage: true,
+    });
+    expect(useStore.getState().tokenUsage?.session_id).toBe("session-old");
+  });
+
+  it("switchSession 应刷新为目标会话的 tokenUsage", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/api/sessions/session-target/messages")) {
+        return Promise.resolve({
+          json: async () => ({ success: true, data: { messages: [] } }),
+        } as Response);
+      }
+      if (url.endsWith("/api/cost/session/session-target")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            session_id: "session-target",
+            input_tokens: 300,
+            output_tokens: 200,
+            total_tokens: 500,
+            estimated_cost_cny: 0.3,
+            estimated_cost_usd: 0.04,
+            model_breakdown: {},
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        json: async () => ({ success: true, data: {} }),
+        ok: true,
+      } as Response);
+    });
+
+    useStore.setState({
+      ...useStore.getInitialState(),
+      sessionId: "session-old",
+      tokenUsage: {
+        session_id: "session-old",
+        input_tokens: 1,
+        output_tokens: 1,
+        total_tokens: 2,
+        estimated_cost_cny: 0,
+        estimated_cost_usd: 0,
+        model_breakdown: {},
+      },
+    });
+
+    await useStore.getState().switchSession("session-target");
+
+    expect(useStore.getState().sessionId).toBe("session-target");
+    expect(useStore.getState().tokenUsage).toMatchObject({
+      session_id: "session-target",
+      total_tokens: 500,
+    });
   });
 });
 

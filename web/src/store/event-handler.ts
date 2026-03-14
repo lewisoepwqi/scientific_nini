@@ -354,6 +354,15 @@ function resetStreamingMetrics(): StreamingMetrics {
   };
 }
 
+function isActiveSessionEvent(evt: WSEvent, get: GetStateFn): boolean {
+  const currentSessionId = get().sessionId;
+  return (
+    typeof evt.session_id === "string" &&
+    evt.session_id.length > 0 &&
+    currentSessionId === evt.session_id
+  );
+}
+
 export function handleEvent(
   evt: WSEvent,
   set: SetStateFn,
@@ -363,7 +372,10 @@ export function handleEvent(
     case "session": {
       const data = evt.data;
       if (isRecord(data) && typeof data.session_id === "string") {
-        set({ sessionId: data.session_id });
+        const currentSessionId = get().sessionId;
+        if (!currentSessionId || currentSessionId === data.session_id) {
+          set({ sessionId: data.session_id });
+        }
         // 新会话创建后刷新会话列表
         get().fetchSessions();
         get().fetchDatasets();
@@ -567,6 +579,7 @@ export function handleEvent(
     }
 
     case "model_fallback": {
+      if (!isActiveSessionEvent(evt, get)) break;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) break;
 
@@ -643,6 +656,7 @@ export function handleEvent(
     }
 
     case "run_context": {
+      if (!isActiveSessionEvent(evt, get)) break;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) break;
       const datasets = Array.isArray(data.datasets) ? data.datasets : [];
@@ -697,6 +711,7 @@ export function handleEvent(
     }
 
     case "completion_check": {
+      if (!isActiveSessionEvent(evt, get)) break;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) break;
       const items = Array.isArray(data.items) ? data.items : [];
@@ -745,6 +760,7 @@ export function handleEvent(
     }
 
     case "blocked": {
+      if (!isActiveSessionEvent(evt, get)) break;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) break;
       const blockedState: HarnessBlockedState = {
