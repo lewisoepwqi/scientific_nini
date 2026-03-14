@@ -162,7 +162,7 @@ class TaskWriteSkill(Skill):
         updated_ids = [t.get("id") for t in raw_tasks if "id" in t]
         all_ids = updated_ids + result.auto_completed_ids
         all_done = result.manager.all_completed()
-        pending = result.manager.pending_count()
+        remaining = result.manager.remaining_count()
 
         if result.auto_completed_ids:
             logger.info(
@@ -185,15 +185,15 @@ class TaskWriteSkill(Skill):
                 "所有任务已完成。请输出最终分析总结，不要再调用任何工具。"
                 "注意：总结应基于复盘后的最终结论，确保结果准确无误。"
             )
-        elif pending == 1:
+        elif remaining == 1:
             # 只剩最后一个任务（通常是"复盘与检查"）
             message = (
-                f"还有 {pending} 个任务待完成。"
+                f"还有 {remaining} 个任务待完成。"
                 "请开始最后的复盘检查：回顾前面所有步骤的结果，"
                 "检查方法选择、统计结果、图表和结论是否正确，发现问题立即修正。"
             )
         else:
-            message = f"任务状态已更新，还有 {pending} 个任务待完成。"
+            message = f"任务状态已更新，还有 {remaining} 个任务待完成。"
 
         return SkillResult(
             success=True,
@@ -203,7 +203,7 @@ class TaskWriteSkill(Skill):
                 "updated_ids": all_ids,
                 "auto_completed_ids": result.auto_completed_ids,
                 "all_completed": all_done,
-                "pending_count": pending,
+                "pending_count": remaining,
                 "tasks": [t.to_dict() for t in result.manager.tasks],
             },
             metadata={"is_task_write": True},

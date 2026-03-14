@@ -94,6 +94,42 @@ def _detect_chart_preference(msg: str) -> str | None:
     return None
 
 
+# 判断问题是否与图表格式相关的关键词
+_CHART_QUESTION_KEYWORDS = frozenset({"图表", "chart", "plotly", "matplotlib", "渲染", "render"})
+
+
+def _detect_chart_preference_from_answers(
+    questions: list[dict], answers: dict
+) -> str | None:
+    """从 ask_user_question 的答案中检测图表输出格式偏好。
+
+    遍历问题列表，找到图表相关问题，再从对应答案（含选项标签）中检测偏好。
+
+    Returns:
+        "interactive" / "image" / None
+    """
+    for q in questions:
+        q_id = str(q.get("id", "")).lower()
+        q_label = str(q.get("label", "")).lower()
+        # 判断是否是图表偏好问题
+        if not any(k in q_id or k in q_label for k in _CHART_QUESTION_KEYWORDS):
+            continue
+        answer_val = answers.get(q.get("id", ""))
+        if answer_val is None:
+            continue
+        # 从选项中找到答案对应的标签，拼接后进行关键词匹配
+        options = q.get("options", [])
+        combined = str(answer_val)
+        for opt in options:
+            if opt.get("value") == answer_val:
+                combined = f"{answer_val} {opt.get('label', '')}"
+                break
+        pref = _detect_chart_preference(combined)
+        if pref:
+            return pref
+    return None
+
+
 def _get_intent_analyzer():
     """获取配置的意图分析器。
 
@@ -1382,6 +1418,15 @@ class AgentRunner:
                             normalized_answers = self._normalize_ask_user_question_answers(
                                 raw_answers
                             )
+                            # 从答案中检测图表格式偏好并持久化
+                            detected_pref = _detect_chart_preference_from_answers(
+                                questions, normalized_answers
+                            )
+                            if detected_pref and detected_pref != session.chart_output_preference:
+                                session.chart_output_preference = detected_pref
+                                session_manager.save_session_chart_preference(
+                                    session.id, detected_pref
+                                )
                             result = {
                                 "success": True,
                                 "message": "已收到用户回答。",
