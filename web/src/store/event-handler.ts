@@ -542,15 +542,6 @@ export function handleEvent(
           const buffer = { ...s._messageBuffer };
           const turnId = evt.turn_id || s._currentTurnId || undefined;
           const timestamp = Date.now();
-          const existingEntry = buffer[messageId];
-          const existingMessage = s.messages.find(
-            (msg) =>
-              msg.role === "assistant" &&
-              !msg.isReasoning &&
-              msg.messageId === messageId,
-          );
-          const existingContent = existingMessage?.content ?? existingEntry?.content ?? "";
-
           if (!text && operation === "complete") {
             delete buffer[messageId];
             return { _messageBuffer: buffer };
@@ -560,15 +551,10 @@ export function handleEvent(
           let finalContent = text;
           if (operation === "complete") {
             effectiveOperation = "replace";
-            if (existingContent) {
-              if (text.startsWith(existingContent)) {
-                finalContent = text;
-              } else if (existingContent.startsWith(text)) {
-                finalContent = existingContent;
-              } else {
-                finalContent = `${existingContent}${text}`;
-              }
-            }
+            // complete 事件以服务端返回的完整内容为权威来源，直接替换。
+            // 原有的"本地缓冲 + 服务端内容拼接"逻辑会在 HarnessRunner 以同一
+            // turn_id 多次调用 AgentRunner 时，把两轮回答内容错误地拼到同一气泡中。
+            finalContent = text;
           }
 
           const nextMessages = upsertAssistantTextMessage(s.messages, {

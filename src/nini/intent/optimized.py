@@ -32,6 +32,15 @@ _CASUAL_RE = re.compile(
 # 工具指令关键词
 _COMMAND_RE = re.compile(r"保存|导出|下载|清除|重置|刷新|删除|移除|整理")
 
+# 超出支持范围的意图识别正则——命中时跳过意图澄清，由 LLM 直接解释能力边界
+# 覆盖：网络检索、文献搜索、新闻查询、实时数据等 Nini 不支持的功能
+_OUT_OF_SCOPE_RE = re.compile(
+    r"检索|搜索|搜一下|查一下|查找|查询最新|最新进展|最新消息|最新动态|"
+    r"最新研究|发展近况|联网|上网|爬虫|爬取|爬网|browse|google|pubmed|"
+    r"scholar|知网|web\s*search|internet|新闻|资讯|热点|头条",
+    re.IGNORECASE,
+)
+
 # 科研意图同义词表 — 将自然语言表达映射到 capability 名称
 _SYNONYM_MAP: dict[str, list[str]] = {
     "difference_analysis": [
@@ -167,14 +176,10 @@ class OptimizedIntentAnalyzer:
                     self._inverted_index[synonym_lower] = set()
                 self._inverted_index[synonym_lower].add(cap_name)
 
-                # 同时索引单个字符（中文）
-                if len(synonym) == 1 or all(\
-                    "\u4e00" <= c <= "\u9fff" for c in synonym
-                ):
-                    for char in synonym:
-                        if char not in self._inverted_index:
-                            self._inverted_index[char] = set()
-                        self._inverted_index[char].add(cap_name)
+                # 注意：不对中文词拆单字建索引——单字匹配范围过宽，
+                # 会导致"检索"中的"索"字误命中 data_exploration 等能力，
+                # 产生不相关的澄清问题（如对"帮我检索文献"问"你想做数据探索还是回归分析"）。
+                # 只索引完整词组，依赖 _synonym_match 的子串匹配覆盖变体。
 
     def analyze(
         self,
@@ -257,11 +262,14 @@ class OptimizedIntentAnalyzer:
         复杂度：O(n) n为消息长度
         """
         message_lower = message.lower()
+        # 去空格版本：处理"t 检验"与"t检验"之类的中英混合词汇（用户可能在字母和汉字间加空格）
+        message_nospace = message_lower.replace(" ", "")
         scores: dict[str, float] = {}
 
-        # 直接匹配
+        # 直接匹配（含去空格归一化匹配）
         for synonym, caps in self._inverted_index.items():
-            if synonym in message_lower:
+            synonym_nospace = synonym.replace(" ", "")
+            if synonym in message_lower or synonym_nospace in message_nospace:
                 for cap in caps:
                     # 根据同义词长度给予不同权重
                     weight = min(6.0, 2.0 + len(synonym) * 0.5)
@@ -386,11 +394,16 @@ class OptimizedIntentAnalyzer:
             return QueryType.DOMAIN_TASK  # 空消息保守兜底
         if not analysis.capability_candidates:
             # 无候选命中：区分闲聊和指令
-            if _CASUAL_RE.match(msg) or len(msg) <= 10:
+            # 长度阈值仅覆盖极短的"好"/"嗯"/"继续"等，避免把 10 字内的科研短语误判为闲聊
+            if _CASUAL_RE.match(msg) or len(msg) <= 5:
                 return QueryType.CASUAL_CHAT
             if _COMMAND_RE.search(msg):
                 return QueryType.COMMAND
-            return QueryType.CASUAL_CHAT  # 无候选默认闲聊
+            # 无候选但消息较长：保守触发 RAG（可能是未知领域问题或 slash 技能调用）
+            return QueryType.KNOWLEDGE_QA
+        # 超出范围：即使有候选命中也归为闲聊，不触发 RAG/LTM
+        if _OUT_OF_SCOPE_RE.search(msg):
+            return QueryType.CASUAL_CHAT
         # 有候选：按分数区分任务和知识问答
         top_score = analysis.capability_candidates[0].score
         if top_score >= 5.0:
@@ -402,6 +415,11 @@ class OptimizedIntentAnalyzer:
 
         改进版：考虑相对差距和绝对分数。
         """
+        # 超出支持范围的请求（联网检索、新闻查询等）不触发澄清，
+        # 由 LLM 直接说明能力边界，避免问出"数据探索还是回归分析"这类无关问题。
+        if _OUT_OF_SCOPE_RE.search(analysis.query):
+            return
+
         candidates = analysis.capability_candidates
 
         if len(candidates) < 2:
