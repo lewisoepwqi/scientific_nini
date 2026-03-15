@@ -59,7 +59,7 @@
 
 - [x] 9.1 运行 `pytest tests/test_in_memory_conversation.py tests/test_tool_registry_subset.py tests/test_agent_registry.py tests/test_sub_session.py tests/test_spawner.py -q`，确认全部通过
 - [x] 9.2 运行 `black --check src tests` 和 `mypy src/nini`，确认无格式或类型错误（仅格式化本次新增/修改文件，mypy 7个核心文件无错误）
-- [ ] 9.3 启动开发服务器，上传数据集，发送"帮我清洗这份数据并做统计分析"，验证收到 `agent_start(data_cleaner)` 和 `agent_start(statistician)` 两个 WebSocket 事件
-- [ ] 9.4 验证两个子 Agent 执行完毕后，父会话 `session.artifacts` 包含子 Agent 的产物
-- [ ] 9.5 通过 mock 让一个子 Agent 失败，验证另一个子 Agent 继续执行，主 Agent 不中断
-- [ ] 9.6 运行 `cd web && npm run build`，确认前端构建无错误
+- [x] 9.3 启动开发服务器，上传数据集，发送"帮我清洗这份数据并做统计分析"，验证收到 `agent_start(data_cleaner)` 和 `agent_start(statistician)` 两个 WebSocket 事件
+- [x] 9.4 验证两个子 Agent 执行完毕后，父会话 `session.artifacts` 包含子 Agent 的产物
+- [x] 9.5 通过 mock 让一个子 Agent 失败，验证另一个子 Agent 继续执行，主 Agent 不中断
+- [x] 9.6 运行 `cd web && npm run build`，确认前端构建无错误
