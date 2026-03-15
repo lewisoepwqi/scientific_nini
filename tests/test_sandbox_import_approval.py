@@ -25,6 +25,7 @@ from nini.tools.registry import create_default_registry
 @pytest.fixture(autouse=True)
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     session_manager._sessions.clear()
 
     async def _mock_get_active_provider_id():

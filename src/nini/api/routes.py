@@ -232,6 +232,17 @@ def _fix_excel_serial_dates(df: pd.DataFrame) -> pd.DataFrame:
     """
     excel_epoch = pd.Timestamp("1899-12-30")
 
+    def _convert_value(val: Any) -> Any:
+        """单值转换：Excel 序列日期 float/int → datetime。"""
+        if isinstance(val, (int, float)):
+            try:
+                serial = float(val)
+                if 25000 <= serial <= 55000:
+                    return excel_epoch + pd.to_timedelta(serial, unit="D")
+            except (ValueError, OverflowError):
+                pass
+        return val
+
     for col in df.columns:
         # 仅处理列名含日期/时间关键词的 object 列
         col_lower = str(col).lower()
@@ -239,17 +250,6 @@ def _fix_excel_serial_dates(df: pd.DataFrame) -> pd.DataFrame:
             continue
         if df[col].dtype != "object":
             continue
-
-        def _convert_value(val: Any) -> Any:
-            """单值转换：Excel 序列日期 float/int → datetime。"""
-            if isinstance(val, (int, float)):
-                try:
-                    serial = float(val)
-                    if 25000 <= serial <= 55000:
-                        return excel_epoch + pd.to_timedelta(serial, unit="D")
-                except (ValueError, OverflowError):
-                    pass
-            return val
 
         converted = df[col].map(_convert_value)
         # 尽量将整列统一为 datetime，避免 datetime 与 str 混排导致后续排序报错

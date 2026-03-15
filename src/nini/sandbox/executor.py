@@ -324,10 +324,7 @@ def _configure_chart_defaults() -> None:
 
 
 def _safe_copy_datasets(datasets: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
-    copied: dict[str, pd.DataFrame] = {}
-    for name, df in datasets.items():
-        copied[name] = df.copy(deep=True)
-    return copied
+    return {name: df.copy(deep=True) for name, df in datasets.items()}
 
 
 def _set_resource_limits(timeout_seconds: int, max_memory_mb: int) -> None:
@@ -447,6 +444,45 @@ def _build_exec_globals(
     return globals_dict
 
 
+def _extract_mpl_figure_title(fig: Any) -> str:
+    """提取 Matplotlib Figure 标题。"""
+    suptitle = getattr(fig, "_suptitle", None)
+    if suptitle is not None:
+        get_text = getattr(suptitle, "get_text", None)
+        if callable(get_text):
+            text = str(get_text() or "").strip()
+            if text:
+                return text
+    axes = fig.get_axes() if hasattr(fig, "get_axes") else []
+    if axes:
+        return str(axes[0].get_title() or "")
+    return ""
+
+
+def _serialize_matplotlib_figure(fig: Any, var_name: str, style: Any) -> dict[str, Any]:
+    """将 Matplotlib Figure 序列化为 SVG/PDF/PNG 三格式数据字典。"""
+    _apply_matplotlib_cjk_font_fallback(fig)
+    entry: dict[str, Any] = {
+        "var_name": var_name,
+        "library": "matplotlib",
+        "title": _extract_mpl_figure_title(fig),
+    }
+
+    svg_buf = io.BytesIO()
+    fig.savefig(svg_buf, format="svg", bbox_inches="tight")
+    entry["svg_data"] = base64.b64encode(svg_buf.getvalue()).decode("ascii")
+
+    pdf_buf = io.BytesIO()
+    fig.savefig(pdf_buf, format="pdf", bbox_inches="tight")
+    entry["pdf_data"] = base64.b64encode(pdf_buf.getvalue()).decode("ascii")
+
+    png_buf = io.BytesIO()
+    fig.savefig(png_buf, format="png", bbox_inches="tight", dpi=style.dpi)
+    entry["png_data"] = base64.b64encode(png_buf.getvalue()).decode("ascii")
+
+    return entry
+
+
 def _collect_figures(
     exec_globals: dict[str, Any], exec_locals: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -458,19 +494,6 @@ def _collect_figures(
     - 跳过空白图表和序列化失败的对象
     """
     figures: list[dict[str, Any]] = []
-
-    def _extract_figure_title(fig: Any) -> str:
-        suptitle = getattr(fig, "_suptitle", None)
-        if suptitle is not None:
-            get_text = getattr(suptitle, "get_text", None)
-            if callable(get_text):
-                text = str(get_text() or "").strip()
-                if text:
-                    return text
-        axes = fig.get_axes() if hasattr(fig, "get_axes") else []
-        if axes:
-            return str(axes[0].get_title() or "")
-        return ""
     style = build_style_spec()
     seen_ids: set[int] = set()
 
@@ -550,29 +573,7 @@ def _collect_figures(
             if not obj.get_axes():
                 continue
             try:
-                _apply_matplotlib_cjk_font_fallback(obj)
-                entry: dict[str, Any] = {
-                    "var_name": var_name,
-                    "library": "matplotlib",
-                    "title": "",
-                }
-                entry["title"] = _extract_figure_title(obj)
-
-                # SVG
-                svg_buf = io.BytesIO()
-                obj.savefig(svg_buf, format="svg", bbox_inches="tight")
-                entry["svg_data"] = base64.b64encode(svg_buf.getvalue()).decode("ascii")
-
-                # PDF
-                pdf_buf = io.BytesIO()
-                obj.savefig(pdf_buf, format="pdf", bbox_inches="tight")
-                entry["pdf_data"] = base64.b64encode(pdf_buf.getvalue()).decode("ascii")
-
-                # PNG
-                png_buf = io.BytesIO()
-                obj.savefig(png_buf, format="png", bbox_inches="tight", dpi=style.dpi)
-                entry["png_data"] = base64.b64encode(png_buf.getvalue()).decode("ascii")
-
+                entry = _serialize_matplotlib_figure(obj, var_name, style)
                 figures.append(entry)
             except Exception as exc:
                 logger.debug("Matplotlib 图表序列化失败（变量 %s）: %s", var_name, exc)
@@ -581,26 +582,7 @@ def _collect_figures(
     # 检测 gcf（当前活跃图表），如果尚未被收集
     if mpl_gcf_fig is not None and id(mpl_gcf_fig) not in seen_ids:
         try:
-            _apply_matplotlib_cjk_font_fallback(mpl_gcf_fig)
-            entry = {
-                "var_name": "__gcf__",
-                "library": "matplotlib",
-                "title": "",
-            }
-            entry["title"] = _extract_figure_title(mpl_gcf_fig)
-
-            svg_buf = io.BytesIO()
-            mpl_gcf_fig.savefig(svg_buf, format="svg", bbox_inches="tight")
-            entry["svg_data"] = base64.b64encode(svg_buf.getvalue()).decode("ascii")
-
-            pdf_buf = io.BytesIO()
-            mpl_gcf_fig.savefig(pdf_buf, format="pdf", bbox_inches="tight")
-            entry["pdf_data"] = base64.b64encode(pdf_buf.getvalue()).decode("ascii")
-
-            png_buf = io.BytesIO()
-            mpl_gcf_fig.savefig(png_buf, format="png", bbox_inches="tight", dpi=style.dpi)
-            entry["png_data"] = base64.b64encode(png_buf.getvalue()).decode("ascii")
-
+            entry = _serialize_matplotlib_figure(mpl_gcf_fig, "__gcf__", style)
             figures.append(entry)
         except Exception as exc:
             logger.debug("Matplotlib 当前活动图表序列化失败: %s", exc)

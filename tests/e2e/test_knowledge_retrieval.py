@@ -19,6 +19,7 @@ class TestKnowledgeRetrievalWorkflow:
         from tests.client_utils import LocalASGIClient
 
         monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+        settings.ensure_dirs()
         app = create_app()
         return LocalASGIClient(app)
 

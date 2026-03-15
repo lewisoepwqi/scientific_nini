@@ -15,6 +15,7 @@ from nini.tools.fetch_url import FetchURLSkill
 @pytest.fixture(autouse=True)
 def isolate_data_and_skills(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "skills")
     monkeypatch.setattr(settings, "skills_extra_dirs", "")
     monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)

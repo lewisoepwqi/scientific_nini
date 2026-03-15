@@ -32,6 +32,7 @@ from tests.client_utils import LocalASGIClient
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """隔离测试数据目录，避免污染真实数据。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
 
 
 @pytest.mark.asyncio
@@ -375,6 +376,7 @@ def _configure_ollama_settings(
 ) -> None:
     """配置测试环境中的 Ollama 设置。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     monkeypatch.setattr(settings, "ollama_base_url", "http://localhost:11434")
     monkeypatch.setattr(settings, "ollama_model", "qwen2.5:7b")
     monkeypatch.setattr(
@@ -503,6 +505,7 @@ def test_list_models_ollama_status_after_delete_db_config(
 def test_list_models_returns_dual_mode_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """`/api/models` 应返回双模式供应商的模式与锁定状态。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     asyncio.run(init_db())
 
     app = create_app()
@@ -540,6 +543,7 @@ def test_list_models_dashscope_coding_plan_uses_mode_aware_available_models(
 ) -> None:
     """阿里 Coding Plan 的可选模型不应混入普通模式静态列表。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     asyncio.run(init_db())
 
     app = create_app()
@@ -577,6 +581,7 @@ def test_list_models_dashscope_env_coding_plan_uses_mode_default_model(
 ) -> None:
     """`/api/models` 在 env Coding Plan 场景下应展示模式默认模型。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     monkeypatch.setattr(settings, "dashscope_api_key", "sk-dashscope-env-12345678")
     monkeypatch.setattr(settings, "dashscope_base_url", "https://coding.dashscope.aliyuncs.com/v1")
     monkeypatch.setattr(settings, "dashscope_model", "qwen-plus")
@@ -604,6 +609,7 @@ def test_dual_mode_provider_can_reconfigure_after_delete(
 ) -> None:
     """删除后应允许双模式供应商重新按另一种模式配置。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     asyncio.run(init_db())
 
     app = create_app()
@@ -662,6 +668,7 @@ def test_test_connection_with_inline_config_does_not_persist(
 ) -> None:
     """临时测试连接成功后，不应把供应商标记为已配置。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     asyncio.run(init_db())
 
     async def _fake_test_connection(self, provider_id: str, **kwargs):  # type: ignore[no-untyped-def]

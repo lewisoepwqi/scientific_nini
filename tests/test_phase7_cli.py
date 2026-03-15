@@ -63,6 +63,7 @@ def test_cli_doctor_returns_success_with_default_config(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     ret = main(["doctor"])
     assert ret == 0
 

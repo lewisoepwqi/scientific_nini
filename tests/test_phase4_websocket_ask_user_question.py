@@ -18,6 +18,7 @@ from tests.client_utils import live_websocket_connect
 @pytest.fixture
 def app_with_temp_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     session_manager._sessions.clear()
     return create_app()
 
@@ -348,6 +349,7 @@ def test_websocket_sandbox_import_approval_flow(
             )
 
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     session_manager._sessions.clear()
     monkeypatch.setattr(model_resolver, "chat", fake_chat)
     monkeypatch.setattr(app_module, "create_default_tool_registry", lambda: _FakeRegistry())
