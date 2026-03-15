@@ -55,7 +55,7 @@ def build_analysis_plan_event(
     *,
     turn_id: str | None = None,
     seq: int | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 ANALYSIS_PLAN 事件。
 
@@ -110,7 +110,7 @@ def build_plan_step_update_event(
     *,
     turn_id: str | None = None,
     seq: int | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 PLAN_STEP_UPDATE 事件。"""
     event_data = PlanStepUpdateEventData(
@@ -145,7 +145,7 @@ def build_plan_progress_event(
     *,
     turn_id: str | None = None,
     seq: int | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 PLAN_PROGRESS 事件。"""
     step_objects = [
@@ -197,7 +197,7 @@ def build_task_attempt_event(
     *,
     turn_id: str | None = None,
     seq: int | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 TASK_ATTEMPT 事件。"""
     event_data = TaskAttemptEventData(
@@ -233,7 +233,7 @@ def build_run_context_event(
     artifacts: list[dict[str, Any]] | None = None,
     tool_hints: list[str] | None = None,
     constraints: list[str] | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 RUN_CONTEXT 事件。"""
     event_data = RunContextEventData(
@@ -274,7 +274,7 @@ def build_completion_check_event(
     attempt: int,
     items: list[dict[str, Any]] | None = None,
     missing_actions: list[str] | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 COMPLETION_CHECK 事件。"""
     event_data = CompletionCheckEventData(
@@ -310,7 +310,7 @@ def build_blocked_event(
     message: str,
     recoverable: bool = True,
     suggested_action: str | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 BLOCKED 事件。"""
     event_data = BlockedEventData(
@@ -338,7 +338,7 @@ def build_token_usage_event(
     cost_usd: float | None = None,
     *,
     turn_id: str | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 TOKEN_USAGE 事件。"""
     event_data = TokenUsageEventData(
@@ -371,7 +371,7 @@ def build_model_fallback_event(
     reason: str | None = None,
     fallback_chain: list[dict[str, Any]] | None = None,
     turn_id: str | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 MODEL_FALLBACK 事件。"""
     event_data = ModelFallbackEventData(
@@ -405,7 +405,7 @@ def build_session_token_usage_event(
     estimated_cost_usd: float,
     estimated_cost_cny: float,
     model_breakdown: dict[str, Any],
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造会话级别的 TOKEN_USAGE 事件。"""
     # 转换 model_breakdown
@@ -448,7 +448,7 @@ def build_tool_call_event(
     *,
     turn_id: str | None = None,
     metadata: dict[str, Any] | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 TOOL_CALL 事件。"""
     # 处理 arguments 可能是字符串的情况
@@ -487,7 +487,7 @@ def build_tool_result_event(
     *,
     turn_id: str | None = None,
     metadata: dict[str, Any] | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 TOOL_RESULT 事件。"""
     event_data = ToolResultEventData(
@@ -512,11 +512,7 @@ def build_tool_result_event(
 
 
 def build_text_event(
-    content: str,
-    *,
-    turn_id: str | None = None,
-    metadata: dict[str, Any] | None = None,
-    **extra
+    content: str, *, turn_id: str | None = None, metadata: dict[str, Any] | None = None, **extra
 ) -> AgentEvent:
     """构造 TEXT 事件。"""
     event_data = TextEventData(content=content)
@@ -533,11 +529,7 @@ def build_text_event(
 
 
 def build_error_event(
-    message: str,
-    code: str | None = None,
-    *,
-    turn_id: str | None = None,
-    **extra
+    message: str, code: str | None = None, *, turn_id: str | None = None, **extra
 ) -> AgentEvent:
     """构造 ERROR 事件。"""
     event_data = ErrorEventData(message=message, code=code)
@@ -553,10 +545,7 @@ def build_error_event(
 
 
 def build_done_event(
-    reason: str = "completed",
-    *,
-    turn_id: str | None = None,
-    **extra
+    reason: str = "completed", *, turn_id: str | None = None, **extra
 ) -> AgentEvent:
     """构造 DONE 事件。"""
     event_data = DoneEventData(reason=reason)  # type: ignore
@@ -601,10 +590,7 @@ def build_session_title_event(session_id: str, title: str, **extra) -> AgentEven
 
 
 def build_workspace_update_event(
-    action: str,
-    file_id: str | None = None,
-    folder_id: str | None = None,
-    **extra
+    action: str, file_id: str | None = None, folder_id: str | None = None, **extra
 ) -> AgentEvent:
     """构造 WORKSPACE_UPDATE 事件。"""
     event_data = WorkspaceUpdateEventData(
@@ -623,13 +609,7 @@ def build_workspace_update_event(
 
 
 def build_code_execution_event(
-    execution_id: str,
-    code: str,
-    output: str,
-    status: str,
-    language: str,
-    created_at: str,
-    **extra
+    execution_id: str, code: str, output: str, status: str, language: str, created_at: str, **extra
 ) -> AgentEvent:
     """构造 CODE_EXECUTION 事件。"""
     event_data = CodeExecutionEventData(
@@ -651,10 +631,7 @@ def build_code_execution_event(
 
 
 def build_stopped_event(
-    message: str = "已停止",
-    *,
-    turn_id: str | None = None,
-    **extra
+    message: str = "已停止", *, turn_id: str | None = None, **extra
 ) -> AgentEvent:
     """构造 STOPPED 事件。"""
     event_data = StoppedEventData(message=message)
@@ -682,7 +659,9 @@ def build_iteration_start_event(iteration: int, **extra) -> AgentEvent:
     )
 
 
-def build_retrieval_event(query: str = "", results: list[dict[str, Any]] | None = None, **extra) -> AgentEvent:
+def build_retrieval_event(
+    query: str = "", results: list[dict[str, Any]] | None = None, **extra
+) -> AgentEvent:
     """构造 RETRIEVAL 事件。"""
     event_data = RetrievalEventData(
         query=query,
@@ -704,7 +683,7 @@ def build_reasoning_event(
     reasoning_live: bool = False,
     *,
     turn_id: str | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 REASONING 事件（流式/简单格式）。"""
     event_data = ReasoningEventData(
@@ -739,7 +718,7 @@ def build_reasoning_data_event(
     references: list[dict[str, Any]] | None = None,
     timestamp: str | None = None,
     tags: list[str] | None = None,
-    **context: Any
+    **context: Any,
 ) -> AgentEvent:
     """构造 REASONING 事件（完整决策数据格式）。
 
@@ -778,7 +757,7 @@ def build_ask_user_question_event(
     tool_call_id: str | None = None,
     tool_name: str | None = None,
     metadata: dict[str, Any] | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 ASK_USER_QUESTION 事件。"""
     event_data = AskUserQuestionEventData(questions=questions)
@@ -802,7 +781,7 @@ def build_artifact_event(
     name: str,
     url: str | None = None,
     mime_type: str | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 ARTIFACT 事件。"""
     event_data = ArtifactEventData(
@@ -823,11 +802,7 @@ def build_artifact_event(
 
 
 def build_chart_event(
-    chart_id: str,
-    name: str,
-    url: str,
-    chart_type: str | None = None,
-    **extra
+    chart_id: str, name: str, url: str, chart_type: str | None = None, **extra
 ) -> AgentEvent:
     """构造 CHART 事件。"""
     event_data = ChartEventData(
@@ -852,7 +827,7 @@ def build_data_event(
     url: str,
     row_count: int | None = None,
     column_count: int | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 DATA 事件。"""
     event_data = DataEventData(
@@ -873,11 +848,7 @@ def build_data_event(
 
 
 def build_image_event(
-    image_id: str,
-    name: str,
-    url: str,
-    mime_type: str | None = None,
-    **extra
+    image_id: str, name: str, url: str, mime_type: str | None = None, **extra
 ) -> AgentEvent:
     """构造 IMAGE 事件。"""
     event_data = ImageEventData(
@@ -906,7 +877,7 @@ def build_context_compressed_event(
     remaining_count: int | None = None,
     previous_tokens: int | None = None,
     trigger: str | None = None,
-    **extra
+    **extra,
 ) -> AgentEvent:
     """构造 CONTEXT_COMPRESSED 事件。"""
     event_data = ContextCompressedEventData(
@@ -926,4 +897,66 @@ def build_context_compressed_event(
     return AgentEvent(
         type=EventType.CONTEXT_COMPRESSED,
         data=data,
+    )
+
+
+def build_agent_start_event(
+    agent_id: str,
+    agent_name: str,
+    task: str,
+    *,
+    turn_id: str | None = None,
+) -> AgentEvent:
+    """构造 AGENT_START 事件。"""
+    return AgentEvent(
+        type=EventType.AGENT_START,
+        data={
+            "event_type": "agent_start",
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "task": task,
+        },
+        turn_id=turn_id,
+    )
+
+
+def build_agent_complete_event(
+    agent_id: str,
+    agent_name: str,
+    summary: str,
+    execution_time_ms: int,
+    *,
+    turn_id: str | None = None,
+) -> AgentEvent:
+    """构造 AGENT_COMPLETE 事件。"""
+    return AgentEvent(
+        type=EventType.AGENT_COMPLETE,
+        data={
+            "event_type": "agent_complete",
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "summary": summary,
+            "execution_time_ms": execution_time_ms,
+        },
+        turn_id=turn_id,
+    )
+
+
+def build_agent_error_event(
+    agent_id: str,
+    agent_name: str,
+    error: str,
+    *,
+    turn_id: str | None = None,
+) -> AgentEvent:
+    """构造 AGENT_ERROR 事件。"""
+    return AgentEvent(
+        type=EventType.AGENT_ERROR,
+        data={
+            "event_type": "agent_error",
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "error": error,
+        },
+        turn_id=turn_id,
     )

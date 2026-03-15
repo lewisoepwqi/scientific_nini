@@ -175,6 +175,33 @@ class ToolRegistry:
             **kwargs,
         )
 
+    def create_subset(self, allowed_tool_names: list[str]) -> "ToolRegistry":
+        """构造仅包含指定工具的受限注册表实例。
+
+        不存在的工具名记录 WARNING 并跳过，不抛出异常。
+        原注册表不受影响。
+
+        Args:
+            allowed_tool_names: 允许包含的工具名列表
+
+        Returns:
+            新的 ToolRegistry 实例，仅含指定工具
+        """
+        subset = ToolRegistry()
+        # 清空新实例的默认注册工具（空白基础，只放入指定工具）
+        subset._skills.clear()
+        subset._llm_exposed_function_tools = set()
+
+        for name in allowed_tool_names:
+            skill = self._skills.get(name)
+            if skill is None:
+                logger.warning("create_subset: 工具 '%s' 不存在，已跳过", name)
+                continue
+            subset._skills[name] = skill
+            subset._llm_exposed_function_tools.add(name)
+
+        return subset
+
     async def diagnose_data_problem(
         self,
         session: Session,

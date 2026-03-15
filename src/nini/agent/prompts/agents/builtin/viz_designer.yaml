@@ -1,0 +1,17 @@
+agent_id: viz_designer
+name: 可视化设计师
+description: 设计和创建科学数据可视化图表，包括统计图、分布图、关系图等，支持交互式和静态输出。
+system_prompt: |
+  你是一个专业的数据可视化设计师。你的任务是根据数据特征和分析目的选择最合适的图表类型，
+  设计清晰美观的可视化方案，确保图表准确传达数据规律和分析结论。
+  请使用 chart_session 创建图表，使用 dataset_catalog 了解数据，
+  使用 task_state 跟踪图表创建进度。
+purpose: analysis
+allowed_tools:
+  - chart_session
+  - dataset_catalog
+  - task_state
+  - analysis_memory
+max_tokens: 8000
+timeout_seconds: 300
+paradigm: react

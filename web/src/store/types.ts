@@ -647,3 +647,19 @@ export interface RawSessionMessage {
   key_decisions?: string[];
   confidence_score?: number;
 }
+
+// ---- 多 Agent 执行状态 ----
+
+export interface AgentInfo {
+  agentId: string;
+  agentName: string;
+  status: 'running' | 'completed' | 'error';
+  task: string;
+  startTime: number;
+  summary?: string;
+}
+
+export interface AgentSlice {
+  activeAgents: Record<string, AgentInfo>;
+  completedAgents: AgentInfo[];
+}

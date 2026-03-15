@@ -43,6 +43,8 @@ function createState(
     workspacePanelTab: "files",
     previewFileId: null,
     codeExecutions: [],
+    activeAgents: {},
+    completedAgents: [],
     fetchSessions: async () => {},
     fetchDatasets: async () => {},
     fetchWorkspaceFiles: async () => {},

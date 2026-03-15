@@ -61,6 +61,7 @@ export type {
   DisplayPreference,
   UserDisplayPreference,
   MessageBuffer,
+  AgentInfo,
 } from "./store/types";
 
 import type {
@@ -97,7 +98,11 @@ import type {
   RawSessionMessage,
   DisplayPreference,
   MessageBuffer,
+  AgentInfo,
 } from "./store/types";
+
+// ---- Agent 切片导入 ----
+import { initialAgentSlice } from "./store/agent-slice";
 
 // ---- 工具函数导入 ----
 import {
@@ -238,6 +243,10 @@ export interface AppState {
   // 用户展示偏好
   displayPreference: DisplayPreference;
   appBootstrapping: boolean;
+
+  // 多 Agent 执行状态
+  activeAgents: Record<string, AgentInfo>;
+  completedAgents: AgentInfo[];
 
   // ---- 操作 ----
 
@@ -547,6 +556,9 @@ export const useStore = create<AppState>((set, get) => ({
     return "simplified";
   })(),
   appBootstrapping: true,
+
+  // 多 Agent 执行状态初始值
+  ...initialAgentSlice,
 
   // ============================================================================
   // WebSocket 操作
