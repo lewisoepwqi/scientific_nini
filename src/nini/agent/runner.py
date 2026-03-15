@@ -72,6 +72,9 @@ from nini.agent.components import (
 
 logger = logging.getLogger(__name__)
 
+# 仅主 Agent 可调用的 Orchestrator 工具集（子 Agent 不暴露，防止递归派发）
+ORCHESTRATOR_TOOL_NAMES: frozenset[str] = frozenset({"dispatch_agents"})
+
 # 兼容别名：测试通过下划线前缀名称访问此函数
 _replace_arguments = replace_arguments
 
@@ -638,8 +641,10 @@ class AgentRunner:
                 yield compress_event
                 messages, _ = await self._build_messages_and_retrieval(session)
 
-            # 获取工具定义
-            tools = self._get_tool_definitions(preferred_tools=allowed_tool_whitelist)
+            # 获取工具定义（传入 session 以区分主 Agent / 子 Agent，控制 Orchestrator 工具暴露）
+            tools = self._get_tool_definitions(
+                preferred_tools=allowed_tool_whitelist, session=session
+            )
             followup_prompt_for_purpose = pending_followup_prompt
             if pending_followup_prompt:
                 messages = [
@@ -1136,6 +1141,19 @@ class AgentRunner:
                 assistant_tool_msg["message_id"] = current_message_id
             session.messages.append(assistant_tool_msg)
             session.conversation_memory.append(assistant_tool_msg)
+
+            # ── Orchestrator 钩子：拦截 dispatch_agents 工具调用 ────────────────
+            # 在通用工具执行循环前检测，若存在 dispatch_agents 则走 Orchestrator 路径。
+            _dispatch_tc = next(
+                (tc for tc in tool_calls if tc.get("function", {}).get("name") == "dispatch_agents"),
+                None,
+            )
+            if _dispatch_tc is not None:
+                async for _evt in self._handle_dispatch_agents(_dispatch_tc, session, turn_id):
+                    yield _evt
+                iteration += 1
+                continue
+            # ── Orchestrator 钩子结束 ─────────────────────────────────────────
 
             for tc in tool_calls:
                 if should_stop():
@@ -2393,13 +2411,37 @@ class AgentRunner:
     def _get_tool_definitions(
         self,
         preferred_tools: set[str] | None = None,
+        session: Any = None,
     ) -> list[dict[str, Any]]:
-        """获取所有已注册技能的工具定义。"""
+        """获取所有已注册技能的工具定义。
+
+        主 Agent（非 SubSession）额外暴露 ORCHESTRATOR_TOOL_NAMES 中的工具；
+        子 Agent（SubSession）不暴露这些工具，防止递归派发。
+        """
+        from nini.agent.sub_session import SubSession
+
+        is_sub_session = isinstance(session, SubSession)
+
         tools: list[dict[str, Any]] = []
         if self._skill_registry is not None:
             raw = self._skill_registry.get_tool_definitions()
             if isinstance(raw, list):
                 tools = [item for item in raw if isinstance(item, dict)]
+
+        # Orchestrator 工具：从注册表中直接获取 tool_definition（不走 expose_to_llm 过滤）
+        if not is_sub_session and self._skill_registry is not None and hasattr(
+            self._skill_registry, "get"
+        ):
+            for orch_name in ORCHESTRATOR_TOOL_NAMES:
+                # 检查是否已经在 tools 列表中
+                already_in = any(
+                    isinstance(t.get("function"), dict) and t["function"].get("name") == orch_name
+                    for t in tools
+                )
+                if not already_in:
+                    skill = self._skill_registry.get(orch_name)
+                    if skill is not None and hasattr(skill, "get_tool_definition"):
+                        tools.append(skill.get_tool_definition())
 
         # 内建用户问答工具：允许模型暂停并向用户发起澄清问题。
         has_ask_user_question = any(
@@ -3057,6 +3099,123 @@ class AgentRunner:
             )
         payload["extra_allowed_imports"] = sorted(merged_packages)
         return json.dumps(payload, ensure_ascii=False)
+
+    async def _handle_dispatch_agents(
+        self,
+        dispatch_tc: dict[str, Any],
+        session: Any,
+        turn_id: str,
+    ) -> AsyncGenerator[AgentEvent, None]:
+        """处理 dispatch_agents 工具调用，执行多 Agent 派发流程。
+
+        解析工具参数 → 调用 DispatchAgentsTool.execute() → 将融合结果以
+        tool_result 消息注入 session → yield 相关事件。
+
+        Args:
+            dispatch_tc: dispatch_agents 工具调用对象（含 id, function.name/arguments）
+            session: 当前会话
+            turn_id: 当前轮次 ID
+        """
+        tc_id = dispatch_tc.get("id", f"dispatch-{turn_id}")
+        func_args_raw = dispatch_tc.get("function", {}).get("arguments", "{}")
+
+        # 解析工具参数
+        try:
+            func_args = json.loads(func_args_raw) if isinstance(func_args_raw, str) else {}
+        except json.JSONDecodeError:
+            func_args = {}
+
+        tasks_list: list[str] = func_args.get("tasks", [])
+        context_str: str = func_args.get("context", "")
+
+        # 获取 dispatch_agents 工具实例
+        if self._skill_registry is None:
+            error_msg = "dispatch_agents: ToolRegistry 未初始化"
+            logger.error(error_msg)
+            session.add_tool_result(
+                tc_id,
+                error_msg,
+                tool_name="dispatch_agents",
+                status="error",
+                turn_id=turn_id,
+            )
+            yield eb.build_tool_result_event(
+                tool_call_id=tc_id,
+                name="dispatch_agents",
+                status="error",
+                message=error_msg,
+                data={"result": {"error": error_msg}},
+                turn_id=turn_id,
+            )
+            return
+
+        skill = self._skill_registry.get("dispatch_agents")
+        if skill is None:
+            error_msg = "dispatch_agents: 工具未注册"
+            logger.error(error_msg)
+            session.add_tool_result(
+                tc_id,
+                error_msg,
+                tool_name="dispatch_agents",
+                status="error",
+                turn_id=turn_id,
+            )
+            yield eb.build_tool_result_event(
+                tool_call_id=tc_id,
+                name="dispatch_agents",
+                status="error",
+                message=error_msg,
+                data={"result": {"error": error_msg}},
+                turn_id=turn_id,
+            )
+            return
+
+        # 执行 dispatch_agents（内部完成路由 → 并行执行 → 融合，同时推送 agent_start/complete/error 事件）
+        try:
+            skill_result = await skill.execute(
+                session,
+                tasks=tasks_list,
+                context=context_str,
+            )
+        except Exception as exc:
+            error_msg = f"dispatch_agents 执行异常: {exc}"
+            logger.exception(error_msg)
+            session.add_tool_result(
+                tc_id,
+                error_msg,
+                tool_name="dispatch_agents",
+                status="error",
+                turn_id=turn_id,
+            )
+            yield eb.build_tool_result_event(
+                tool_call_id=tc_id,
+                name="dispatch_agents",
+                status="error",
+                message=error_msg,
+                data={"result": {"error": error_msg}},
+                turn_id=turn_id,
+            )
+            return
+
+        # 将融合结果注入 session（作为 tool_result 消息）
+        result_content = skill_result.message or ""
+        result_dict = skill_result.to_dict()
+        session.add_tool_result(
+            tc_id,
+            result_content,
+            tool_name="dispatch_agents",
+            status="success" if skill_result.success else "error",
+            turn_id=turn_id,
+        )
+
+        yield eb.build_tool_result_event(
+            tool_call_id=tc_id,
+            name="dispatch_agents",
+            status="success" if skill_result.success else "error",
+            message=result_content or "多 Agent 任务执行完成",
+            data={"result": result_dict},
+            turn_id=turn_id,
+        )
 
     async def _execute_tool(
         self,

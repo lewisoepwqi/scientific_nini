@@ -38,6 +38,7 @@ const ArticleDraftPanel = lazy(() => import("./components/ArticleDraftPanel"));
 const CostPanel = lazy(() => import("./components/CostPanel"));
 const KnowledgePanel = lazy(() => import("./components/KnowledgePanel"));
 const AgentExecutionPanel = lazy(() => import("./components/AgentExecutionPanel"));
+const WorkflowTopology = lazy(() => import("./components/WorkflowTopology"));
 
 export default function App() {
   const connect = useStore((s) => s.connect);
@@ -352,9 +353,12 @@ export default function App() {
           </div>
         </div>
 
-        {/* 多 Agent 执行状态面板 */}
+        {/* 多 Agent 执行状态面板（WorkflowTopology 在 ≥2 个 Agent 时自动渲染） */}
         {(Object.keys(activeAgents).length > 0 || completedAgents.length > 0) && (
-          <div className="px-4 pt-3">
+          <div className="px-4 pt-3 space-y-2">
+            <Suspense fallback={null}>
+              <WorkflowTopology />
+            </Suspense>
             <Suspense fallback={null}>
               <AgentExecutionPanel />
             </Suspense>
