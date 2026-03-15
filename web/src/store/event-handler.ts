@@ -45,6 +45,7 @@ import { normalizeToolResult } from "./tool-result";
 
 import { areAllPlanStepsDone } from "./plan-state-machine";
 import { handleAgentEvent } from "./agent-event-handler";
+import { handleHypothesisEvent } from "./hypothesis-event-handler";
 
 // ---- 错误处理类型 ----
 
@@ -361,6 +362,11 @@ export interface AppStateSubset {
   // 多 Agent 执行状态
   activeAgents: Record<string, AgentInfo>;
   completedAgents: AgentInfo[];
+  // 假设驱动范式状态
+  hypotheses: import("./types").HypothesisInfo[];
+  currentPhase: string;
+  iterationCount: number;
+  activeAgentId: string | null;
   // 操作函数
   fetchSessions: () => Promise<void>;
   fetchDatasets: () => Promise<void>;
@@ -1402,6 +1408,15 @@ export function handleEvent(
     case "agent_complete":
     case "agent_error": {
       handleAgentEvent(evt, set, get);
+      break;
+    }
+
+    case "paradigm_switched":
+    case "hypothesis_generated":
+    case "evidence_collected":
+    case "hypothesis_validated":
+    case "hypothesis_refuted": {
+      handleHypothesisEvent(evt, set, get);
       break;
     }
   }

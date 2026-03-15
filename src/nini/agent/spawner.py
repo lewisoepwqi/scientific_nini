@@ -86,9 +86,15 @@ class SubAgentSpawner:
         )
 
         start_time = time.monotonic()
+        # 根据 paradigm 字段路由到对应执行路径
+        paradigm = getattr(agent_def, "paradigm", "react")
+        if paradigm == "hypothesis_driven":
+            _execute_coro = self._spawn_hypothesis_driven(agent_def, task, session)
+        else:
+            _execute_coro = self._execute_agent(agent_def, task, session)
         try:
             result = await asyncio.wait_for(
-                self._execute_agent(agent_def, task, session),
+                _execute_coro,
                 timeout=float(timeout_seconds),
             )
         except asyncio.TimeoutError:
@@ -294,6 +300,148 @@ class SubAgentSpawner:
             summary=summary,
             detailed_output=detailed_output,
             artifacts=dict(sub_session.artifacts),
+            documents=dict(sub_session.documents),
+        )
+
+    async def _spawn_hypothesis_driven(
+        self,
+        agent_def: Any,
+        task: str,
+        parent_session: Any,
+    ) -> SubAgentResult:
+        """执行 Hypothesis-Driven 推理循环。
+
+        创建 SubSession，初始化 HypothesisContext，外层 Python 循环调用
+        AgentRunner 单轮 ReAct，直到 HypothesisContext.should_conclude() 为 True。
+
+        Args:
+            agent_def: AgentDefinition（paradigm == "hypothesis_driven"）
+            task: 任务描述
+            parent_session: 父会话
+
+        Returns:
+            SubAgentResult，detailed_output 包含完整假设链
+        """
+        from nini.agent.runner import AgentRunner
+        from nini.agent.sub_session import SubSession
+        from nini.agent.hypothesis_context import HypothesisContext, Hypothesis
+        from nini.agent import event_builders as eb
+
+        # 推送范式切换事件
+        callback = getattr(parent_session, "event_callback", None)
+        await self._push_event(
+            parent_session,
+            "paradigm_switched",
+            eb.build_paradigm_switched_event(agent_def.agent_id, "hypothesis_driven").data,
+        )
+
+        # 创建子会话
+        sub_session = SubSession(
+            parent_session_id=parent_session.id,
+            datasets=parent_session.datasets,
+            artifacts={},
+            documents={},
+            event_callback=parent_session.event_callback,
+        )
+
+        # 初始化假设上下文，存入子会话 artifacts
+        hypothesis_context = HypothesisContext()
+        sub_session.artifacts["_hypothesis_context"] = hypothesis_context
+
+        # 构造受限工具子集
+        subset_registry = self._tool_registry.create_subset(agent_def.allowed_tools)
+        runner = AgentRunner(skill_registry=subset_registry)
+
+        all_output_parts: list[str] = []
+
+        while not hypothesis_context.should_conclude():
+            # 构建带假设链提示的任务消息
+            if hypothesis_context.hypotheses:
+                hyp_summary = "\n".join(
+                    f"- [{h.status}] {h.content} (置信度: {h.confidence:.2f})"
+                    for h in hypothesis_context.hypotheses
+                )
+                round_task = (
+                    f"{task}\n\n当前假设列表：\n{hyp_summary}\n\n"
+                    "请根据现有假设收集证据或提出新假设，给出本轮分析结论。"
+                )
+            else:
+                round_task = f"{task}\n\n请提出 2-3 个初始假设并说明检验方法。"
+
+            # 执行单轮 ReAct
+            output_parts: list[str] = []
+            async for event in runner.run(sub_session, round_task):
+                from nini.agent.events import EventType
+
+                if event.type == EventType.TEXT and event.data:
+                    text = event.data if isinstance(event.data, str) else str(event.data)
+                    output_parts.append(text)
+
+            round_output = "".join(output_parts)
+            all_output_parts.append(round_output)
+
+            # 首轮生成假设事件（如尚未生成）
+            if not hypothesis_context.hypotheses:
+                hypothesis_context.hypotheses.append(
+                    Hypothesis(id="h1", content=round_output[:200] if round_output else task)
+                )
+                await self._push_event(
+                    parent_session,
+                    "hypothesis_generated",
+                    eb.build_hypothesis_generated_event(
+                        agent_def.agent_id,
+                        [
+                            {"id": h.id, "content": h.content, "confidence": h.confidence}
+                            for h in hypothesis_context.hypotheses
+                        ],
+                    ).data,
+                )
+            else:
+                # 后续轮次：推送证据收集事件（简化：将本轮输出视为支持证据）
+                if round_output and hypothesis_context.hypotheses:
+                    h = hypothesis_context.hypotheses[0]
+                    hypothesis_context.update_confidence(h.id, "for")
+                    h.evidence_for.append(round_output[:200])
+                    await self._push_event(
+                        parent_session,
+                        "evidence_collected",
+                        eb.build_evidence_collected_event(
+                            agent_def.agent_id, h.id, "for", round_output[:200]
+                        ).data,
+                    )
+
+            hypothesis_context.iteration_count += 1
+
+        # 推送最终假设状态事件
+        for h in hypothesis_context.hypotheses:
+            if h.confidence >= 0.65:
+                h.status = "validated"
+                await self._push_event(
+                    parent_session,
+                    "hypothesis_validated",
+                    eb.build_hypothesis_validated_event(
+                        agent_def.agent_id, h.id, h.confidence
+                    ).data,
+                )
+            elif h.confidence <= 0.30:
+                h.status = "refuted"
+                await self._push_event(
+                    parent_session,
+                    "hypothesis_refuted",
+                    eb.build_hypothesis_refuted_event(
+                        agent_def.agent_id, h.id, "置信度过低"
+                    ).data,
+                )
+
+        detailed_output = "\n".join(all_output_parts)
+        summary = detailed_output[:500] if detailed_output else f"Agent {agent_def.agent_id} 完成假设推理"
+
+        return SubAgentResult(
+            agent_id=agent_def.agent_id,
+            success=True,
+            summary=summary,
+            detailed_output=detailed_output,
+            artifacts={k: v for k, v in sub_session.artifacts.items() if not k.startswith("_")},
             documents=dict(sub_session.documents),
         )
 

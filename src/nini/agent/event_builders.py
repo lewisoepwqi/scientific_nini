@@ -960,3 +960,118 @@ def build_agent_error_event(
         },
         turn_id=turn_id,
     )
+
+
+# ---- Hypothesis-Driven 范式事件构造器（Phase 3）----
+
+
+def build_hypothesis_generated_event(
+    agent_id: str,
+    hypotheses: list[dict[str, Any]],
+) -> "AgentEvent":
+    """构造 HYPOTHESIS_GENERATED 事件。
+
+    Args:
+        agent_id: 执行假设推理的 Agent ID
+        hypotheses: 假设列表，每项含 id/content/confidence 字段
+    """
+    return AgentEvent(
+        type=EventType.HYPOTHESIS_GENERATED,
+        data={
+            "event_type": "hypothesis_generated",
+            "agent_id": agent_id,
+            "hypotheses": hypotheses,
+        },
+    )
+
+
+def build_evidence_collected_event(
+    agent_id: str,
+    hypothesis_id: str,
+    evidence_type: str,
+    evidence_content: str,
+) -> "AgentEvent":
+    """构造 EVIDENCE_COLLECTED 事件。
+
+    Args:
+        agent_id: 执行假设推理的 Agent ID
+        hypothesis_id: 目标假设 ID
+        evidence_type: "for" 或 "against"
+        evidence_content: 证据内容
+    """
+    return AgentEvent(
+        type=EventType.EVIDENCE_COLLECTED,
+        data={
+            "event_type": "evidence_collected",
+            "agent_id": agent_id,
+            "hypothesis_id": hypothesis_id,
+            "evidence_type": evidence_type,
+            "content": evidence_content,
+        },
+    )
+
+
+def build_hypothesis_validated_event(
+    agent_id: str,
+    hypothesis_id: str,
+    confidence: float,
+) -> "AgentEvent":
+    """构造 HYPOTHESIS_VALIDATED 事件。
+
+    Args:
+        agent_id: 执行假设推理的 Agent ID
+        hypothesis_id: 被验证的假设 ID
+        confidence: 当前置信度
+    """
+    return AgentEvent(
+        type=EventType.HYPOTHESIS_VALIDATED,
+        data={
+            "event_type": "hypothesis_validated",
+            "agent_id": agent_id,
+            "hypothesis_id": hypothesis_id,
+            "confidence": confidence,
+        },
+    )
+
+
+def build_hypothesis_refuted_event(
+    agent_id: str,
+    hypothesis_id: str,
+    reason: str,
+) -> "AgentEvent":
+    """构造 HYPOTHESIS_REFUTED 事件。
+
+    Args:
+        agent_id: 执行假设推理的 Agent ID
+        hypothesis_id: 被证伪的假设 ID
+        reason: 证伪原因
+    """
+    return AgentEvent(
+        type=EventType.HYPOTHESIS_REFUTED,
+        data={
+            "event_type": "hypothesis_refuted",
+            "agent_id": agent_id,
+            "hypothesis_id": hypothesis_id,
+            "reason": reason,
+        },
+    )
+
+
+def build_paradigm_switched_event(
+    agent_id: str,
+    paradigm: str,
+) -> "AgentEvent":
+    """构造 PARADIGM_SWITCHED 事件。
+
+    Args:
+        agent_id: 执行范式切换的 Agent ID
+        paradigm: 切换目标范式（如 "hypothesis_driven"）
+    """
+    return AgentEvent(
+        type=EventType.PARADIGM_SWITCHED,
+        data={
+            "event_type": "paradigm_switched",
+            "agent_id": agent_id,
+            "paradigm": paradigm,
+        },
+    )

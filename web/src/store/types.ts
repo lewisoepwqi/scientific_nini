@@ -663,3 +663,27 @@ export interface AgentSlice {
   activeAgents: Record<string, AgentInfo>;
   completedAgents: AgentInfo[];
 }
+
+// ---- Hypothesis-Driven 范式状态 ----
+
+export interface HypothesisInfo {
+  id: string;
+  content: string;
+  confidence: number;
+  status: 'pending' | 'validated' | 'refuted' | 'revised';
+  evidenceFor: string[];
+  evidenceAgainst: string[];
+}
+
+export interface HypothesisSlice {
+  hypotheses: HypothesisInfo[];
+  currentPhase: string;
+  iterationCount: number;
+  activeAgentId: string | null;
+  setHypothesesGenerated: (agentId: string, hypotheses: HypothesisInfo[]) => void;
+  addEvidence: (hypothesisId: string, evidenceType: 'for' | 'against', content: string) => void;
+  setHypothesisValidated: (hypothesisId: string, confidence: number) => void;
+  setHypothesisRefuted: (hypothesisId: string) => void;
+  setParadigmSwitched: (agentId: string) => void;
+  clearHypotheses: () => void;
+}
