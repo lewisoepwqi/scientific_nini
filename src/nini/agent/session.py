@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import uuid
 from dataclasses import dataclass, field
@@ -438,7 +439,11 @@ class SessionManager:
     def get_session(self, session_id: str) -> Session | None:
         return self._sessions.get(session_id)
 
+    _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
     def get_or_create(self, session_id: str | None = None) -> Session:
+        if session_id and not self._SESSION_ID_RE.match(session_id):
+            raise ValueError(f"无效的 session_id 格式: {session_id!r}")
         if session_id and session_id in self._sessions:
             return self._sessions[session_id]
 

@@ -315,12 +315,18 @@ async def upload_file(
     dataset_id = uuid.uuid4().hex[:12]
     save_path = manager.uploads_dir / f"{dataset_id}_{dataset_name}"
 
-    content = await file.read()
-    if len(content) > settings.max_upload_size:
-        raise HTTPException(
-            status_code=413,
-            detail=f"文件过大（{len(content)} 字节），最大 {settings.max_upload_size} 字节",
-        )
+    # 分块读取，避免一次性加载大文件占满内存
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await file.read(64 * 1024):
+        total += len(chunk)
+        if total > settings.max_upload_size:
+            raise HTTPException(
+                status_code=413,
+                detail=f"文件过大（超过 {settings.max_upload_size} 字节），最大 {settings.max_upload_size} 字节",
+            )
+        chunks.append(chunk)
+    content = b"".join(chunks)
 
     save_path.write_bytes(content)
 

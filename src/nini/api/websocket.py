@@ -67,6 +67,16 @@ async def websocket_agent(ws: WebSocket):
         {"type": "done"}
         {"type": "error", "data": "..."}
     """
+    # 可选 API Key 认证（通过 query param token 验证）
+    from nini.config import settings as _settings
+    import secrets as _secrets
+
+    if _settings.api_key:
+        token = ws.query_params.get("token", "")
+        if not _secrets.compare_digest(token, _settings.api_key):
+            await ws.close(code=4401, reason="未授权：需要有效的 API Key")
+            return
+
     await ws.accept()
     logger.info("WebSocket 连接已建立")
 
@@ -267,13 +277,13 @@ async def websocket_agent(ws: WebSocket):
                         execution_id = ""
                         if isinstance(payload, dict):
                             execution_id = str(payload.get("execution_id", "")).strip()
-                        exec_record = (
-                            wm.get_code_execution(execution_id) if execution_id else None
-                        )
+                        exec_record = wm.get_code_execution(execution_id) if execution_id else None
                         if exec_record is None:
                             exec_record = wm.save_code_execution(
                                 code=paired_code,
-                                output=str(result_data.get("message", result_data.get("output", ""))),
+                                output=str(
+                                    result_data.get("message", result_data.get("output", ""))
+                                ),
                                 status=str(result_data.get("status", "success")),
                                 language=(
                                     "r"
@@ -316,7 +326,7 @@ async def websocket_agent(ws: WebSocket):
         except Exception as e:
             logger.error("WebSocket 聊天任务异常: %s", e, exc_info=True)
             with suppress(Exception):
-                await _send_event(ws, "error", data=f"服务器错误: {e}", session_id=session.id)
+                await _send_event(ws, "error", data="服务器内部错误，请重试", session_id=session.id)
         finally:
             _cancel_pending_questions(session.id)
             # 从字典中移除该会话的任务和停止事件
@@ -455,7 +465,9 @@ async def websocket_agent(ws: WebSocket):
                     append_user_message = True
 
                 if not retry_content:
-                    await _send_event(ws, "error", data="没有可重试的用户消息", session_id=session_id)
+                    await _send_event(
+                        ws, "error", data="没有可重试的用户消息", session_id=session_id
+                    )
                     continue
 
                 # 返回 session_id 方便客户端追踪
@@ -496,9 +508,7 @@ async def websocket_agent(ws: WebSocket):
                     continue
 
                 # 返回 session_id 方便客户端追踪
-                await _send_event(
-                    ws, EventType.SESSION.value, data={"session_id": chat_session.id}
-                )
+                await _send_event(ws, EventType.SESSION.value, data={"session_id": chat_session.id})
 
                 # 运行 Agent（后台任务，按 session_id 注册）
                 stop_event = asyncio.Event()
@@ -515,7 +525,7 @@ async def websocket_agent(ws: WebSocket):
     except Exception as e:
         logger.error("WebSocket 异常: %s", e, exc_info=True)
         try:
-            await _send_event(ws, "error", data=f"服务器错误: {e}")
+            await _send_event(ws, "error", data="服务器内部错误，请重试")
         except Exception:
             pass
     finally:
