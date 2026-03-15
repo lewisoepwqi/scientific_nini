@@ -13,10 +13,11 @@ import numpy as np
 import pandas as pd
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 
 from nini.agent.runner import AgentRunner
 from nini.agent.events import EventType
-from nini.agent.session import session_manager
+from nini.agent.session import Session, session_manager
 from nini.agent.title_generator import generate_title
 from nini.harness.runner import HarnessRunner
 from nini.models.schemas import WSEvent
@@ -126,7 +127,7 @@ async def websocket_agent(ws: WebSocket):
             logger.debug("记忆沉淀触发失败，忽略", exc_info=True)
 
     async def _wait_for_ask_user_question_answers(
-        session: Any,
+        session: Session,
         tool_call_id: str,
         payload: dict[str, Any],
     ) -> dict[str, str]:
@@ -149,7 +150,7 @@ async def websocket_agent(ws: WebSocket):
             pending_question_session_map.pop(tool_call_id, None)
 
     async def _run_chat(
-        session: Any,
+        session: Session,
         content: str,
         *,
         append_user_message: bool,
@@ -572,7 +573,7 @@ async def _keepalive(ws: WebSocket) -> None:
     try:
         while True:
             await asyncio.sleep(15)
-            if ws.client_state.name == "DISCONNECTED":
+            if ws.client_state == WebSocketState.DISCONNECTED:
                 break
             try:
                 await _send_event(ws, EventType.PONG.value)
@@ -690,7 +691,7 @@ async def _send_event(
 ) -> None:
     """发送 WebSocket 事件。使用自定义编码器兜底处理 numpy 类型。"""
     # 检查连接是否仍然打开
-    if ws.client_state.name == "DISCONNECTED":
+    if ws.client_state == WebSocketState.DISCONNECTED:
         logger.debug("WebSocket 已断开，跳过发送事件: %s", event_type)
         return
 

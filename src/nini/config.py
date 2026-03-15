@@ -157,6 +157,7 @@ class Settings(BaseSettings):
     cors_origins: str = ""  # 生产模式 CORS 允许的来源（逗号分隔），空则拒绝跨域
 
     # ---- 试用模式 ----
+    # ⚠️ 安全风险：此密钥嵌入配置或二进制后可被逆向提取，仅用于受控试用场景
     trial_api_key: Optional[str] = None  # 内嵌试用密钥（留空则试用模式不可用）
     trial_days: int = 14  # 试用有效天数
 

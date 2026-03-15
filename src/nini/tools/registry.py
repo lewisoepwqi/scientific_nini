@@ -254,5 +254,20 @@ def create_default_tool_registry() -> ToolRegistry:
     return registry
 
 
-SkillRegistry = ToolRegistry
-create_default_registry = create_default_tool_registry
+import warnings as _warnings
+
+
+def __getattr__(name: str):
+    """弃用别名的延迟访问，触发 DeprecationWarning。"""
+    _aliases = {
+        "SkillRegistry": ToolRegistry,
+        "create_default_registry": create_default_tool_registry,
+    }
+    if name in _aliases:
+        _warnings.warn(
+            f"{name} 已弃用，请使用 {'ToolRegistry' if name == 'SkillRegistry' else 'create_default_tool_registry'}",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _aliases[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
