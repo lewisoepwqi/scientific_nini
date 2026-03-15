@@ -306,6 +306,32 @@ class ConversationMemory:
             self._path.unlink()
 
 
+class InMemoryConversationMemory:
+    """基于内存的会话记忆，不写磁盘，用于子 Agent 隔离上下文。"""
+
+    def __init__(self) -> None:
+        self._entries: list[dict[str, Any]] = []
+
+    def append(self, entry: dict[str, Any]) -> None:
+        """追加一条记录到内存。"""
+        entry_copy = dict(entry)
+        entry_copy.setdefault("_ts", datetime.now(timezone.utc).isoformat())
+        self._entries.append(entry_copy)
+
+    def load_all(self, *, resolve_refs: bool = False) -> list[dict[str, Any]]:
+        """返回所有记录（参数 resolve_refs 忽略，内存中无引用）。"""
+        return list(self._entries)
+
+    def load_messages(self, *, resolve_refs: bool = False) -> list[dict[str, Any]]:
+        """返回所有含 role 字段的消息。"""
+        messages = [e for e in self._entries if "role" in e]
+        return canonicalize_message_entries(messages)
+
+    def clear(self) -> None:
+        """清空内存记录。"""
+        self._entries.clear()
+
+
 def _build_entry_preview(entry: dict, max_chars: int = 200) -> str:
     """生成可读的条目摘要。"""
     role = entry.get("role", "")

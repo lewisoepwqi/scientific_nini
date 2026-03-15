@@ -1,0 +1,16 @@
+agent_id: literature_reading
+name: 文献精读助手
+description: 深度阅读和分析科学文献，提取关键信息、方法论和研究结论，生成结构化摘要。
+system_prompt: |
+  你是一个专业的科学文献精读助手。你的任务是深度阅读文献，
+  提取关键信息（研究问题、方法、结果、结论），生成结构化摘要，
+  识别研究局限性和未来方向。
+  请使用 workspace_session 工具保存文献摘要，使用 analysis_memory 记录关键洞察。
+purpose: default
+allowed_tools:
+  - workspace_session
+  - analysis_memory
+  - task_state
+max_tokens: 8000
+timeout_seconds: 300
+paradigm: react

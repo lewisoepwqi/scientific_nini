@@ -40,13 +40,20 @@ class EventType(str, Enum):
 
     # WebSocket 专用事件类型
     WORKSPACE_UPDATE = "workspace_update"  # 通知前端刷新工作区
-    CODE_EXECUTION = "code_execution"      # 代码执行结果推送
-    STOPPED = "stopped"                    # 停止请求响应
-    SESSION = "session"                    # 返回 session_id
-    PONG = "pong"                          # WebSocket 保活响应
-    SESSION_TITLE = "session_title"        # 自动生成会话标题
-    TRIAL_EXPIRED = "trial_expired"        # 试用期已到期，阻断消息处理
-    TRIAL_ACTIVATED = "trial_activated"    # 首次消息触发试用激活
+    CODE_EXECUTION = "code_execution"  # 代码执行结果推送
+    STOPPED = "stopped"  # 停止请求响应
+    SESSION = "session"  # 返回 session_id
+    PONG = "pong"  # WebSocket 保活响应
+    SESSION_TITLE = "session_title"  # 自动生成会话标题
+    TRIAL_EXPIRED = "trial_expired"  # 试用期已到期，阻断消息处理
+    TRIAL_ACTIVATED = "trial_activated"  # 首次消息触发试用激活
+
+    # 多 Agent 协作事件类型
+    AGENT_START = "agent_start"  # 子 Agent 开始执行
+    AGENT_PROGRESS = "agent_progress"  # 子 Agent 执行进度（Phase 2 payload 规划）
+    AGENT_COMPLETE = "agent_complete"  # 子 Agent 成功完成
+    AGENT_ERROR = "agent_error"  # 子 Agent 执行失败（含超时）
+    WORKFLOW_STATUS = "workflow_status"  # 工作流整体状态（Phase 2 payload 规划）
 
 
 @dataclass

@@ -37,6 +37,7 @@ const ResearchProfilePanel = lazy(
 const ArticleDraftPanel = lazy(() => import("./components/ArticleDraftPanel"));
 const CostPanel = lazy(() => import("./components/CostPanel"));
 const KnowledgePanel = lazy(() => import("./components/KnowledgePanel"));
+const AgentExecutionPanel = lazy(() => import("./components/AgentExecutionPanel"));
 
 export default function App() {
   const connect = useStore((s) => s.connect);
@@ -63,6 +64,8 @@ export default function App() {
     (s) => s.pendingAskUserQuestionsBySession,
   );
   const sendMessage = useStore((s) => s.sendMessage);
+  const activeAgents = useStore((s) => s.activeAgents);
+  const completedAgents = useStore((s) => s.completedAgents);
 
   // 应用初始化：恢复会话并建立 WebSocket 连接
   useEffect(() => {
@@ -348,6 +351,15 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* 多 Agent 执行状态面板 */}
+        {(Object.keys(activeAgents).length > 0 || completedAgents.length > 0) && (
+          <div className="px-4 pt-3">
+            <Suspense fallback={null}>
+              <AgentExecutionPanel />
+            </Suspense>
+          </div>
+        )}
 
         {/* 对话面板 */}
         <ChatPanel />

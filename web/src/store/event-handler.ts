@@ -19,6 +19,7 @@ import type {
   HarnessRunContextState,
   CompletionCheckState,
   HarnessBlockedState,
+  AgentInfo,
 } from "./types";
 
 import {
@@ -43,6 +44,7 @@ import {
 import { normalizeToolResult } from "./tool-result";
 
 import { areAllPlanStepsDone } from "./plan-state-machine";
+import { handleAgentEvent } from "./agent-event-handler";
 
 // ---- 错误处理类型 ----
 
@@ -356,6 +358,9 @@ export interface AppStateSubset {
   workspacePanelTab: "files" | "executions" | "tasks";
   previewFileId: string | null;
   codeExecutions: CodeExecution[];
+  // 多 Agent 执行状态
+  activeAgents: Record<string, AgentInfo>;
+  completedAgents: AgentInfo[];
   // 操作函数
   fetchSessions: () => Promise<void>;
   fetchDatasets: () => Promise<void>;
@@ -1389,6 +1394,14 @@ export function handleEvent(
           };
         })(),
       }));
+      break;
+    }
+
+    case "agent_start":
+    case "agent_progress":
+    case "agent_complete":
+    case "agent_error": {
+      handleAgentEvent(evt, set, get);
       break;
     }
   }
