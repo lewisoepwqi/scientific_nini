@@ -16,6 +16,7 @@ from nini.workspace import WorkspaceManager
 @pytest.fixture(autouse=True)
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     session_manager._sessions.clear()
     yield
     session_manager._sessions.clear()

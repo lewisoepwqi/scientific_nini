@@ -18,6 +18,7 @@ from tests.client_utils import live_websocket_connect
 @pytest.fixture
 def app_with_temp_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     session_manager._sessions.clear()
     return create_app()
 

@@ -311,6 +311,7 @@ async def test_harness_trace_store_persists_and_replays(
     from nini.config import settings
 
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     await init_db()
 
     store = HarnessTraceStore()

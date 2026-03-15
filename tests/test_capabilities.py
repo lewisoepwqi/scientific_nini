@@ -229,6 +229,7 @@ class TestDefaultCapabilities:
 @pytest.fixture(autouse=True)
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     session_manager._sessions.clear()
     yield
     session_manager._sessions.clear()
@@ -238,6 +239,7 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """创建能力 API 测试客户端。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     session_manager._sessions.clear()
     app = create_app()
     client = LocalASGIClient(app)
@@ -344,6 +346,7 @@ def test_execute_capability_api_passes_through_extra_params(
     )
 
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     monkeypatch.setattr(routes_module, "_capability_registry", registry)
     monkeypatch.setattr(api_package.routes, "_capability_registry", registry)
     session_manager._sessions.clear()

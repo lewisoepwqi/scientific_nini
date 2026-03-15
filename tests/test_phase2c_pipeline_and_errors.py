@@ -21,6 +21,7 @@ from tests.client_utils import LocalASGIClient, live_websocket_connect
 def app_with_temp_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """使用临时目录隔离测试数据。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     session_manager._sessions.clear()
     return create_app()
 

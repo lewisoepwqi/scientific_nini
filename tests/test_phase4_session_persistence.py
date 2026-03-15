@@ -25,6 +25,7 @@ from tests.client_utils import LocalASGIClient
 @pytest.fixture(autouse=True)
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     session_manager._sessions.clear()
 
     async def _mock_get_active_provider_id():
@@ -46,6 +47,7 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """创建带临时数据目录的 HTTP 测试客户端。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     session_manager._sessions.clear()
     app = create_app()
     client = LocalASGIClient(app)

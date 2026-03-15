@@ -3,8 +3,6 @@
 import os
 import sys
 from pathlib import Path
-from typing import Optional
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # ---------- 冻结环境（PyInstaller）路径解析 ----------
@@ -158,7 +156,7 @@ class Settings(BaseSettings):
 
     # ---- 试用模式 ----
     # ⚠️ 安全风险：此密钥嵌入配置或二进制后可被逆向提取，仅用于受控试用场景
-    trial_api_key: Optional[str] = None  # 内嵌试用密钥（留空则试用模式不可用）
+    trial_api_key: str | None = None  # 内嵌试用密钥（留空则试用模式不可用）
     trial_days: int = 14  # 试用有效天数
 
     # ---- 系统内置用量限额 ----
@@ -166,41 +164,41 @@ class Settings(BaseSettings):
     builtin_deep_limit: int = 50  # 深度模式最大调用次数
 
     # ---- LLM ----
-    openai_api_key: Optional[str] = None
-    openai_base_url: Optional[str] = None
+    openai_api_key: str | None = None
+    openai_base_url: str | None = None
     openai_model: str = "gpt-4o"
 
-    anthropic_api_key: Optional[str] = None
+    anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-4-20250514"
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:7b"
 
     # Moonshot AI (Kimi)
-    moonshot_api_key: Optional[str] = None
+    moonshot_api_key: str | None = None
     moonshot_model: str = "moonshot-v1-8k"
 
     # Kimi Coding（kimi.com Coding Plan）
-    kimi_coding_api_key: Optional[str] = None
+    kimi_coding_api_key: str | None = None
     kimi_coding_base_url: str = "https://api.kimi.com/coding/v1"
     kimi_coding_model: str = "kimi-for-coding"
 
     # 智谱 AI (GLM) — 默认使用 Coding Plan 端点
-    zhipu_api_key: Optional[str] = None
+    zhipu_api_key: str | None = None
     zhipu_base_url: str = "https://open.bigmodel.cn/api/coding/paas/v4"
     zhipu_model: str = "glm-4"
 
     # DeepSeek
-    deepseek_api_key: Optional[str] = None
+    deepseek_api_key: str | None = None
     deepseek_model: str = "deepseek-chat"
 
     # 阿里百炼（通义千问）
-    dashscope_api_key: Optional[str] = None
+    dashscope_api_key: str | None = None
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_model: str = "qwen-plus"
 
     # 系统内置模型（阿里百炼）
-    builtin_dashscope_api_key: Optional[str] = None
+    builtin_dashscope_api_key: str | None = None
     builtin_dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     builtin_chat_fast_model: str = "qwen3.5-27b"
     builtin_chat_deep_model: str = "qwen3.5-plus"
@@ -209,7 +207,7 @@ class Settings(BaseSettings):
     builtin_title_model: str = "qwen2.5-14b-instruct"
 
     # MiniMax
-    minimax_api_key: Optional[str] = None
+    minimax_api_key: str | None = None
     minimax_base_url: str = "https://api.minimaxi.com/v1"
     minimax_model: str = "MiniMax-M2.5"
 
@@ -307,21 +305,15 @@ class Settings(BaseSettings):
     # ---- 派生属性 ----
     @property
     def upload_dir(self) -> Path:
-        d = self.data_dir / "uploads"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+        return self.data_dir / "uploads"
 
     @property
     def sessions_dir(self) -> Path:
-        d = self.data_dir / "sessions"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+        return self.data_dir / "sessions"
 
     @property
     def db_path(self) -> Path:
-        d = self.data_dir / "db"
-        d.mkdir(parents=True, exist_ok=True)
-        return d / "nini.db"
+        return self.data_dir / "db" / "nini.db"
 
     @property
     def db_url(self) -> str:
@@ -329,15 +321,11 @@ class Settings(BaseSettings):
 
     @property
     def knowledge_dir(self) -> Path:
-        d = self.data_dir / "knowledge"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+        return self.data_dir / "knowledge"
 
     @property
     def prompt_components_dir(self) -> Path:
-        d = self.data_dir / "prompt_components"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+        return self.data_dir / "prompt_components"
 
     @property
     def skills_dir(self) -> Path:
@@ -382,16 +370,12 @@ class Settings(BaseSettings):
 
     @property
     def skills_snapshot_path(self) -> Path:
-        p = self.data_dir / "SKILLS_SNAPSHOT.md"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        return p
+        return self.data_dir / "SKILLS_SNAPSHOT.md"
 
     @property
     def skills_state_path(self) -> Path:
         """技能管理状态文件（如启用/禁用覆盖）。"""
-        p = self.data_dir / "skills_state.json"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        return p
+        return self.data_dir / "skills_state.json"
 
     @property
     def allowed_extensions_list(self) -> list[str]:
@@ -400,10 +384,22 @@ class Settings(BaseSettings):
     @property
     def profiles_dir(self) -> Path:
         """用户画像存储目录。"""
-        d = self.data_dir / "profiles"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+        return self.data_dir / "profiles"
+
+    def ensure_dirs(self) -> None:
+        """集中创建所有必要目录。在模块加载时及 data_dir 变更后调用。"""
+        for d in (
+            self.data_dir,
+            self.upload_dir,
+            self.sessions_dir,
+            self.db_path.parent,  # data/db/
+            self.knowledge_dir,
+            self.prompt_components_dir,
+            self.profiles_dir,
+        ):
+            d.mkdir(parents=True, exist_ok=True)
 
 
 # 全局单例
 settings = Settings()
+settings.ensure_dirs()

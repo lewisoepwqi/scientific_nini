@@ -46,6 +46,7 @@ class _DummySkill(Skill):
 def registry_owner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """构造最小 owner，用于直接测试拆分组件。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     monkeypatch.setattr(settings, "skills_extra_dirs", str(tmp_path / "skills-extra"))
     monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "skills")
 
@@ -178,6 +179,7 @@ def test_catalog_ops_write_snapshot_outputs_markdown_and_function_sections(
 ) -> None:
     """写快照时应包含 Function 与 Markdown 两类目录。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     registry_owner._function_ops.register(_DummySkill("alpha"))
     registry_owner._markdown_skills = [
         {

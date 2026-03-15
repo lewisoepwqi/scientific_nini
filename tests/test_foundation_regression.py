@@ -26,6 +26,7 @@ from nini.workspace import WorkspaceManager
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """隔离测试数据目录。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     yield
 
 

@@ -18,6 +18,7 @@ class TestFewShotExamples:
         from nini.agent.prompt_policy import PDCA_DETAIL_BLOCK
 
         monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+        settings.ensure_dirs()
         # 错误示例已从 system prompt 中移出，在 PDCA_DETAIL_BLOCK 中
         assert "错误示例 6" in PDCA_DETAIL_BLOCK
         assert "错误示例 7" in PDCA_DETAIL_BLOCK
@@ -35,6 +36,7 @@ class TestFewShotExamples:
     ) -> None:
         """验证新基础工具层在系统提示词中被提及。"""
         monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+        settings.ensure_dirs()
         prompt = get_system_prompt()
         # 验证基础工具名在提示词中
         assert "dataset_catalog" in prompt

@@ -181,6 +181,7 @@ def test_prompt_components_support_runtime_refresh(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     first = get_system_prompt()
     assert "标准分析流程（必须遵循）" in first
 
@@ -196,6 +197,7 @@ def test_prompt_component_truncation_marker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     monkeypatch.setattr(settings, "prompt_component_max_chars", 40)
     long_text = "A" * 200
     (settings.prompt_components_dir / "identity.md").write_text(long_text, encoding="utf-8")

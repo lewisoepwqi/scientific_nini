@@ -17,6 +17,7 @@ from nini.tools.registry import SkillRegistry, create_default_registry
 @pytest.fixture(autouse=True)
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     yield
 
 

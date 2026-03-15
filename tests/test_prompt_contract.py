@@ -130,6 +130,7 @@ def test_prompt_builder_budget_protection_keeps_core_directives(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
     monkeypatch.setattr(settings, "prompt_component_max_chars", 20000)
     monkeypatch.setattr(settings, "prompt_total_max_chars", 2600)
     (settings.prompt_components_dir / "user.md").write_text(

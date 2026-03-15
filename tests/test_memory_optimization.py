@@ -172,6 +172,7 @@ class TestAutoCompression:
         """测试当文件超过阈值时自动触发压缩。"""
         # 设置较小的阈值用于测试
         monkeypatch.setattr(settings, "data_dir", tmp_path)
+        settings.ensure_dirs()
         monkeypatch.setattr(settings, "memory_auto_compress", True)
         monkeypatch.setattr(settings, "memory_compress_threshold_kb", 1)  # 1 KB
         monkeypatch.setattr(settings, "memory_keep_recent_messages", 5)
@@ -193,6 +194,7 @@ class TestAutoCompression:
     def test_auto_compress_disabled(self, tmp_path, monkeypatch):
         """测试禁用自动压缩时不触发。"""
         monkeypatch.setattr(settings, "data_dir", tmp_path)
+        settings.ensure_dirs()
         monkeypatch.setattr(settings, "memory_auto_compress", False)
 
         session = Session()
