@@ -299,47 +299,6 @@ class TestMarkdownBundle:
             assert "images/correlation_chart.png" in md_content_in_zip
 
 
-class TestDeprecatedEndpoints:
-    """测试旧端点的废弃警告。"""
-
-    def test_artifacts_endpoint_deprecation(self, client: TestClient, session_id: str):
-        """测试 /api/artifacts 端点返回 deprecation 头。"""
-        create_test_file(session_id, "artifacts/legacy.txt", "legacy content")
-
-        response = client.get(f"/api/artifacts/{session_id}/legacy.txt")
-
-        assert response.status_code == 200
-        assert response.headers.get("Deprecation") == "true"
-        assert "2025-06-01" in response.headers.get("Sunset", "")
-
-    def test_workspace_uploads_endpoint_deprecation(self, client: TestClient, session_id: str):
-        """测试 /api/workspace/{sid}/uploads 端点返回 deprecation 头。"""
-        create_test_file(session_id, "uploads/upload.txt", "upload content")
-
-        response = client.get(f"/api/workspace/{session_id}/uploads/upload.txt")
-
-        assert response.status_code == 200
-        assert response.headers.get("Deprecation") == "true"
-
-    def test_workspace_notes_endpoint_deprecation(self, client: TestClient, session_id: str):
-        """测试 /api/workspace/{sid}/notes 端点返回 deprecation 头。"""
-        create_test_file(session_id, "notes/note.txt", "note content")
-
-        response = client.get(f"/api/workspace/{session_id}/notes/note.txt")
-
-        assert response.status_code == 200
-        assert response.headers.get("Deprecation") == "true"
-
-    def test_artifacts_bundle_endpoint_deprecation(self, client: TestClient, session_id: str):
-        """测试 /api/workspace/{sid}/artifacts/{name}/bundle 端点返回 deprecation 头。"""
-        create_test_markdown(session_id, "bundle.md", with_image=False)
-
-        response = client.get(f"/api/workspace/{session_id}/artifacts/bundle.md/bundle")
-
-        assert response.status_code == 200
-        assert response.headers.get("Deprecation") == "true"
-
-
 class TestEditFileCompatibility:
     """测试 edit_file 工具创建的文件兼容性。"""
 

@@ -27,26 +27,28 @@ function normalizePathSegment(name: string): string {
 }
 
 function normalizeArtifactUrl(url: string): string {
-  if (!url.startsWith('/api/artifacts/')) {
-    return url
+  const trimmed = url.trim()
+
+  // 处理旧格式 /api/artifacts/{sid}/{filename} → /api/workspace/{sid}/files/{filename}
+  if (trimmed.startsWith('/api/artifacts/')) {
+    const [withoutHash, hash = ''] = trimmed.split('#', 2)
+    const [withoutQuery, query = ''] = withoutHash.split('?', 2)
+    const match = withoutQuery.match(/^\/api\/artifacts\/([^/]+)\/(.+)$/)
+    if (!match) {
+      return trimmed
+    }
+    const [, sessionId, filename] = match
+    const normalizedPath = `/api/workspace/${sessionId}/files/${normalizePathSegment(filename)}`
+    const queryPart = query ? `?${query}` : ''
+    const hashPart = hash ? `#${hash}` : ''
+    return `${normalizedPath}${queryPart}${hashPart}`
   }
 
-  const trimmed = url.trim()
-  const [withoutHash, hash = ''] = trimmed.split('#', 2)
-  const [withoutQuery, query = ''] = withoutHash.split('?', 2)
-  const match = withoutQuery.match(/^\/api\/artifacts\/([^/]+)\/(.+)$/)
-  if (!match) {
-    return trimmed
-  }
-  const [, sessionId, filename] = match
-  const normalizedPath = `/api/artifacts/${sessionId}/${normalizePathSegment(filename)}`
-  const queryPart = query ? `?${query}` : ''
-  const hashPart = hash ? `#${hash}` : ''
-  return `${normalizedPath}${queryPart}${hashPart}`
+  return trimmed
 }
 
 function normalizeMarkdownArtifactLinks(content: string): string {
-  // 修复 markdown 中未编码的 /api/artifacts/ 链接（中文/空格会导致解析失败，整行按文本显示）。
+  // 修复 markdown 中未编码的 /api/artifacts/ 链接 → 迁移到新 /api/workspace/ 格式
   return content.replace(/(!?\[[^\]]*\])\((\/api\/artifacts\/[^)\n]+)\)/g, (_, label, rawUrl) => {
     const normalizedUrl = normalizeArtifactUrl(rawUrl)
     return `${label}(${normalizedUrl})`
@@ -55,7 +57,7 @@ function normalizeMarkdownArtifactLinks(content: string): string {
 
 /**
  * 转换图片路径为正确的 URL。
- * - 相对路径如 ./产物/xxx.png → /api/artifacts/{sessionId}/xxx.png
+ * - 相对路径如 ./产物/xxx.png → /api/workspace/{sessionId}/files/xxx.png
  * - 绝对 URL (http/https) 保持不变
  * - /api/workspace/{sid}/files/... 保持不变（后端已支持直接访问）
  * - 以 / 开头的其他路径保持不变
@@ -71,7 +73,7 @@ function resolveImageUrl(src: string, sessionId: string | null): string {
     return src
   }
 
-  // 处理 /api/artifacts/... 路径（规范化编码）
+  // 处理旧 /api/artifacts/... 路径 → 迁移到新格式
   if (src.startsWith('/api/artifacts/')) {
     return normalizeArtifactUrl(src)
   }
@@ -95,7 +97,7 @@ function resolveImageUrl(src: string, sessionId: string | null): string {
     const path = src.slice(2) // 移除 ./
     // 提取文件名（移除目录前缀）
     const filename = path.split('/').pop() || path
-    return `/api/artifacts/${sessionId}/${normalizePathSegment(filename)}`
+    return `/api/workspace/${sessionId}/files/${normalizePathSegment(filename)}`
   }
 
   // 其他情况，直接返回原路径

@@ -661,7 +661,9 @@ def test_download_markdown_bundle_with_images(client: LocalASGIClient) -> None:
         format_hint="md",
     )
 
-    resp = client.get(f"/api/workspace/{session_id}/artifacts/{quote(md_name)}/bundle")
+    resp = client.get(
+        f"/api/workspace/{session_id}/files/artifacts/{quote(md_name)}?bundle=1"
+    )
     assert resp.status_code == 200
     assert resp.headers.get("content-type", "").startswith("application/zip")
 
