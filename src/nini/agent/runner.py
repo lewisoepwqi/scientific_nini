@@ -430,8 +430,6 @@ class AgentRunner:
         next_step_idx: int = 0
         plan_event_seq: int = 0
         iteration = 0
-        # Initialize reasoning chain tracker for this turn
-        reasoning_tracker = ReasoningChainTracker()
         # 消息序列号，用于生成 message_id (格式: {turn_id}-{sequence})
         message_seq: int = 0
         # 当前消息ID，用于关联同一消息的多个流式片段
@@ -1068,7 +1066,7 @@ class AgentRunner:
 
                     asyncio.create_task(consolidate_session_memories(session.id))
                 except Exception:
-                    pass
+                    logger.debug("长期记忆沉淀失败", exc_info=True)
 
                 return
 
@@ -2072,7 +2070,7 @@ class AgentRunner:
                 except Exception:
                     # 发送事件失败（如客户端断开），但消息已保存
                     # 继续处理下一个 tool_call
-                    pass
+                    logger.debug("工具结果事件发送失败", exc_info=True)
 
             # generate_report 已返回完整报告时，直接将同一内容作为最终回复。
             # 这样可确保页面展示与保存文件完全一致，避免模型二次改写造成偏差。

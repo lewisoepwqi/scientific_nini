@@ -251,7 +251,7 @@ async def websocket_agent(ws: WebSocket):
                             ),
                         }
                     except Exception:
-                        pass
+                        logger.debug("代码执行参数解析失败", exc_info=True)
                 # 工具执行结果：如果是代码执行类工具，配对源代码后持久化并推送事件
                 if (
                     event.type == EventType.TOOL_RESULT
@@ -707,8 +707,10 @@ async def _send_event(
         event_dict = event.model_dump(exclude_none=True)
         await ws.send_text(json.dumps(event_dict, cls=_NumpySafeEncoder, ensure_ascii=False))
     except RuntimeError as e:
-        # 连接可能在发送过程中关闭
+        # 连接可能在发送过程中关闭，通知对应会话的 Agent 停止
         if "close message has been sent" in str(e):
             logger.debug("WebSocket 连接已关闭，无法发送事件: %s", event_type)
+            if session_id and session_id in active_stop_events:
+                active_stop_events[session_id].set()
         else:
             raise
