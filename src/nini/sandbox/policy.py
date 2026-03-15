@@ -307,11 +307,38 @@ def validate_code(code: str, *, extra_allowed_imports: Iterable[str] | None = No
                     )
                 )
 
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            if node.func.id in BANNED_CALLS:
+        # 禁止访问危险的双下划线属性（防止沙箱逃逸）
+        if isinstance(node, ast.Attribute):
+            if node.attr.startswith("__") and node.attr.endswith("__"):
+                _ALLOWED_DUNDERS = {"__name__", "__doc__", "__len__", "__class__"}
+                if node.attr not in _ALLOWED_DUNDERS:
+                    violations.append(
+                        PolicyViolation(
+                            message=f"不允许访问双下划线属性: {node.attr}",
+                            lineno=getattr(node, "lineno", None),
+                        )
+                    )
+
+        if isinstance(node, ast.Call):
+            # 禁止直接调用危险函数
+            if isinstance(node.func, ast.Name) and node.func.id in BANNED_CALLS:
                 violations.append(
                     PolicyViolation(
                         message=f"不允许调用函数: {node.func.id}",
+                        lineno=getattr(node, "lineno", None),
+                    )
+                )
+            # 禁止通过属性调用危险函数（如 os.system()）
+            # 排除常见安全的属性方法（如 re.compile、df.eval）
+            _ATTR_CALL_SKIP = {"compile", "eval"}
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr in BANNED_CALLS
+                and node.func.attr not in _ATTR_CALL_SKIP
+            ):
+                violations.append(
+                    PolicyViolation(
+                        message=f"不允许调用函数: {node.func.attr}",
                         lineno=getattr(node, "lineno", None),
                     )
                 )
