@@ -152,13 +152,17 @@ class Settings(BaseSettings):
     debug: bool = False
     data_dir: Path = _get_user_data_dir()
 
+    # ---- 安全 ----
+    api_key: str | None = None  # 设置后所有 API/WS 请求需携带此密钥
+    cors_origins: str = ""  # 生产模式 CORS 允许的来源（逗号分隔），空则拒绝跨域
+
     # ---- 试用模式 ----
     trial_api_key: Optional[str] = None  # 内嵌试用密钥（留空则试用模式不可用）
-    trial_days: int = 14                  # 试用有效天数
+    trial_days: int = 14  # 试用有效天数
 
     # ---- 系统内置用量限额 ----
     builtin_fast_limit: int = 100  # 快速模式最大调用次数
-    builtin_deep_limit: int = 50   # 深度模式最大调用次数
+    builtin_deep_limit: int = 50  # 深度模式最大调用次数
 
     # ---- LLM ----
     openai_api_key: Optional[str] = None

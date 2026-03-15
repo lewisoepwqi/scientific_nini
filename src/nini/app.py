@@ -74,26 +74,64 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS（开发模式允许所有来源）
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # CORS：调试模式允许所有来源，生产模式按配置限制
+    if settings.debug:
+        cors_origins: list[str] = ["*"]
+        cors_credentials = False  # allow_origins=["*"] 时不能启用 credentials
+    else:
+        cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+        cors_credentials = bool(cors_origins)
+    if cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_credentials=cors_credentials,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
-    # Request ID 中间件：为每个请求生成唯一标识
+    # 安全响应头 + Request ID 中间件
     @app.middleware("http")
-    async def request_id_middleware(
+    async def security_headers_middleware(
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        # 优先使用客户端传入的 X-Request-ID，否则生成新的
         request_id = request.headers.get("X-Request-ID") or secrets.token_hex(8)
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         return response
+
+    # 可选 API Key 认证中间件
+    if settings.api_key:
+        from starlette.responses import JSONResponse
+
+        _AUTH_EXEMPT_PREFIXES = ("/docs", "/redoc", "/openapi.json", "/health")
+
+        @app.middleware("http")
+        async def api_key_middleware(
+            request: Request,
+            call_next: Callable[[Request], Awaitable[Response]],
+        ) -> Response:
+            path = request.url.path
+            # 静态文件、文档、健康检查豁免
+            if any(path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES):
+                return await call_next(request)
+            # 检查 Authorization Bearer 或 X-API-Key 头
+            auth = request.headers.get("Authorization", "")
+            api_key_header = request.headers.get("X-API-Key", "")
+            token = ""
+            if auth.startswith("Bearer "):
+                token = auth[7:]
+            elif api_key_header:
+                token = api_key_header
+            if not secrets.compare_digest(token, settings.api_key):
+                return JSONResponse(
+                    status_code=401, content={"detail": "未授权：需要有效的 API Key"}
+                )
+            return await call_next(request)
 
     # 注册路由（注意：API/WebSocket 路由必须先注册，确保优先级高于静态文件）
     from nini.api.routes import router as http_router
