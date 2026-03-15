@@ -3,13 +3,10 @@
  */
 import Plot from 'react-plotly.js'
 import type * as Plotly from 'plotly.js'
+import { isRecord } from '../store/utils'
 
 interface Props {
   chartData: unknown
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }
 
 const SCIENTIFIC_COLORWAY = ['#1B3A57', '#2C7FB8', '#4DAF7C', '#D98E04', '#C03D3E', '#8A63D2', '#5F7D95', '#A5A58D']
