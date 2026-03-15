@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 import uuid
@@ -10,6 +11,8 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import pandas as pd
 
@@ -340,7 +343,7 @@ class Session:
                 # 触发自动压缩
                 self._auto_compress_memory()
         except Exception:
-            pass  # 静默失败，不影响正常流程
+            logger.warning("自动压缩失败", exc_info=True)
 
     def _auto_compress_memory(self) -> None:
         """自动压缩 memory，保留最近的消息，归档旧消息。"""
@@ -493,7 +496,7 @@ class SessionManager:
     def list_sessions(self) -> list[dict[str, Any]]:
         sessions: dict[str, dict[str, Any]] = {}
 
-        for sid, session in self._sessions.items():
+        for sid, session in list(self._sessions.items()):
             updated_at = self._get_session_updated_at_in_memory(session)
             created_at = self._get_session_created_at_in_memory(session)
             sessions[sid] = {
