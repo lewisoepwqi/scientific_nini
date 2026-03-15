@@ -447,12 +447,14 @@ class AgentRunner:
         tool_followup_retry_used = False
         pending_followup_prompt: str | None = None
 
-        async for intent_event in self._maybe_handle_intent_clarification(
-            session,
-            user_message,
-            turn_id=turn_id,
-        ):
-            yield intent_event
+        # 仅在初始轮（非 recovery pass）触发意图澄清，避免 HarnessRunner 重试时重复发问
+        if stage_override is None:
+            async for intent_event in self._maybe_handle_intent_clarification(
+                session,
+                user_message,
+                turn_id=turn_id,
+            ):
+                yield intent_event
 
         def _build_tool_args_signature(name: str, raw_arguments: str) -> str:
             parsed = parse_tool_arguments(raw_arguments)
@@ -733,8 +735,9 @@ class AgentRunner:
                                 if not chunk_raw_text:
                                     raw_full_text += chunk.text
                                 # 生成消息ID（首次发送时）
+                                # 使用 UUID 后缀避免 HarnessRunner 多次调用时同一 turn_id 下 ID 碰撞
                                 if current_message_id is None:
-                                    current_message_id = f"{turn_id}-{message_seq}"
+                                    current_message_id = f"{turn_id}-{uuid.uuid4().hex[:8]}"
                                     message_seq += 1
                                 yield eb.build_text_event(
                                     content=display_text,
