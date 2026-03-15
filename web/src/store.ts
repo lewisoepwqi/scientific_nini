@@ -393,6 +393,10 @@ function getInitialAskUserQuestionNotificationPreference(): AskUserQuestionNotif
 }
 
 let sessionSwitchRequestSeq = 0;
+let reconnectTimerId: ReturnType<typeof setTimeout> | null = null;
+
+// 模块级事件处理器（避免 initApp 重复调用时泄漏监听器）
+let _modelConfigHandler: (() => void) | null = null;
 
 type SessionUiCacheEntry = {
   messages: Message[];
@@ -407,6 +411,7 @@ type SessionUiCacheEntry = {
   tokenUsage: TokenUsage | null;
 };
 
+const MAX_SESSION_CACHE = 10;
 const sessionUiCache = new Map<string, SessionUiCacheEntry>();
 
 function cloneMessages(messages: Message[]): Message[] {
@@ -557,12 +562,9 @@ export const useStore = create<AppState>((set, get) => ({
 
     if (typeof document !== "undefined" && document.hidden) return;
 
-    const reconnectTimer = (
-      window as Window & { __niniReconnectTimer?: number }
-    ).__niniReconnectTimer;
-    if (reconnectTimer) {
-      window.clearTimeout(reconnectTimer);
-      delete (window as Window & { __niniReconnectTimer?: number }).__niniReconnectTimer;
+    if (reconnectTimerId !== null) {
+      window.clearTimeout(reconnectTimerId);
+      reconnectTimerId = null;
     }
 
     const attempts = get()._reconnectAttempts;
@@ -603,13 +605,13 @@ export const useStore = create<AppState>((set, get) => ({
       const hidden = typeof document !== "undefined" ? document.hidden : false;
       const nextStatus = resolveWsClosedStatus(attempts, maxAttempts, hidden);
 
+      // 断连时保留 runningSessions 和 pendingAskUserQuestionsBySession，
+      // 重连后通过后端查询刷新真实状态（避免丢失后台会话运行状态）
       set({
         ws: null,
         wsConnected: false,
         wsStatus: nextStatus,
         isStreaming: false,
-        runningSessions: new Set<string>(),
-        pendingAskUserQuestionsBySession: {},
         pendingAskUserQuestion: null,
         _streamingText: "",
         _currentTurnId: null,
@@ -627,11 +629,10 @@ export const useStore = create<AppState>((set, get) => ({
       if (attempts < maxAttempts && !hidden) {
         const delay = Math.min(1000 * Math.pow(2, attempts), 30000);
         set({ _reconnectAttempts: attempts + 1, wsStatus: "reconnecting" });
-        (window as Window & { __niniReconnectTimer?: number }).__niniReconnectTimer =
-          window.setTimeout(() => {
-            delete (window as Window & { __niniReconnectTimer?: number }).__niniReconnectTimer;
-            get().connect();
-          }, delay);
+        reconnectTimerId = setTimeout(() => {
+          reconnectTimerId = null;
+          get().connect();
+        }, delay);
       }
     };
 
@@ -655,12 +656,9 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   disconnect() {
-    const reconnectTimer = (
-      window as Window & { __niniReconnectTimer?: number }
-    ).__niniReconnectTimer;
-    if (reconnectTimer) {
-      window.clearTimeout(reconnectTimer);
-      delete (window as Window & { __niniReconnectTimer?: number }).__niniReconnectTimer;
+    if (reconnectTimerId !== null) {
+      window.clearTimeout(reconnectTimerId);
+      reconnectTimerId = null;
     }
     const ws = get().ws;
     if (ws) {
@@ -702,12 +700,14 @@ export const useStore = create<AppState>((set, get) => ({
     const fetchSkillsPromise = get().fetchSkills().catch(() => undefined);
     const fetchSessionsPromise = get().fetchSessions();
 
-    const handleModelConfigUpdated = () => {
+    if (_modelConfigHandler) {
+      window.removeEventListener("nini:model-config-updated", _modelConfigHandler);
+    }
+    _modelConfigHandler = () => {
       void get().fetchActiveModel();
       void get().fetchModelProviders();
     };
-    window.removeEventListener("nini:model-config-updated", handleModelConfigUpdated);
-    window.addEventListener("nini:model-config-updated", handleModelConfigUpdated);
+    window.addEventListener("nini:model-config-updated", _modelConfigHandler);
 
     try {
       await fetchSessionsPromise;
@@ -751,13 +751,19 @@ export const useStore = create<AppState>((set, get) => ({
       console.error("分析意图失败:", e);
     }
 
-    ws.send(
-      JSON.stringify({
-        type: "chat",
-        content,
-        session_id: sessionId,
-      })
-    );
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "chat",
+          content,
+          session_id: sessionId,
+        })
+      );
+    } catch (e) {
+      console.error("WebSocket 发送失败:", e);
+      set({ wsStatus: "failed" });
+      return;
+    }
 
     set((s) => ({
       isStreaming: true,
@@ -1550,33 +1556,42 @@ export const useStore = create<AppState>((set, get) => ({
   },
 }));
 
+// 仅在 sessionId 切换时，将**旧 session** 的状态写入缓存（LRU 淘汰）
+let _prevCachedSessionId: string | null = null;
 useStore.subscribe((state) => {
-  const sessionId = state.sessionId;
-  if (!sessionId) {
-    return;
+  const currentSessionId = state.sessionId;
+  if (_prevCachedSessionId && _prevCachedSessionId !== currentSessionId) {
+    // 写入旧 session 的快照
+    const oldId = _prevCachedSessionId;
+    // 淘汰最旧的缓存条目
+    if (sessionUiCache.size >= MAX_SESSION_CACHE && !sessionUiCache.has(oldId)) {
+      const oldest = sessionUiCache.keys().next().value;
+      if (oldest !== undefined) sessionUiCache.delete(oldest);
+    }
+    sessionUiCache.set(oldId, {
+      messages: cloneMessages(state.messages),
+      analysisTasks: cloneAnalysisTasks(state.analysisTasks),
+      analysisPlanProgress: clonePlanProgress(state.analysisPlanProgress),
+      harnessRunContext: state.harnessRunContext
+        ? { ...state.harnessRunContext }
+        : null,
+      completionCheck: state.completionCheck
+        ? {
+            ...state.completionCheck,
+            items: state.completionCheck.items.map((item) => ({ ...item })),
+            missingActions: [...state.completionCheck.missingActions],
+          }
+        : null,
+      blockedState: state.blockedState ? { ...state.blockedState } : null,
+      currentIntentAnalysis: state.currentIntentAnalysis
+        ? ({ ...state.currentIntentAnalysis } as IntentAnalysisView)
+        : null,
+      workspacePanelTab: state.workspacePanelTab,
+      streamingMetrics: cloneStreamingMetrics(state._streamingMetrics),
+      tokenUsage: cloneTokenUsage(state.tokenUsage),
+    });
   }
-  sessionUiCache.set(sessionId, {
-    messages: cloneMessages(state.messages),
-    analysisTasks: cloneAnalysisTasks(state.analysisTasks),
-    analysisPlanProgress: clonePlanProgress(state.analysisPlanProgress),
-    harnessRunContext: state.harnessRunContext
-      ? { ...state.harnessRunContext }
-      : null,
-    completionCheck: state.completionCheck
-      ? {
-          ...state.completionCheck,
-          items: state.completionCheck.items.map((item) => ({ ...item })),
-          missingActions: [...state.completionCheck.missingActions],
-        }
-      : null,
-    blockedState: state.blockedState ? { ...state.blockedState } : null,
-    currentIntentAnalysis: state.currentIntentAnalysis
-      ? ({ ...state.currentIntentAnalysis } as IntentAnalysisView)
-      : null,
-    workspacePanelTab: state.workspacePanelTab,
-    streamingMetrics: cloneStreamingMetrics(state._streamingMetrics),
-    tokenUsage: cloneTokenUsage(state.tokenUsage),
-  });
+  _prevCachedSessionId = currentSessionId;
 });
 
 // ============================================================================
