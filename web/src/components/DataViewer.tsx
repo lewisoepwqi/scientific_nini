@@ -1,10 +1,11 @@
 /**
  * 数据表预览组件。
  */
+import type { DataPreviewPayload } from '../store/types'
 import { isRecord } from '../store/utils'
 
 interface Props {
-  preview: unknown
+  preview: DataPreviewPayload | unknown
 }
 
 function getColumns(preview: Record<string, unknown>, data: Record<string, unknown>[]): string[] {

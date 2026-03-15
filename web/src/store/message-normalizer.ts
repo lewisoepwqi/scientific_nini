@@ -1,5 +1,7 @@
 import type {
   ArtifactInfo,
+  ChartDataPayload,
+  DataPreviewPayload,
   Message,
   MessageOperation,
   RetrievalItem,
@@ -13,8 +15,8 @@ interface AssistantTextPayload {
   messageId?: string;
   turnId?: string;
   operation?: MessageOperation;
-  chartData?: unknown;
-  dataPreview?: unknown;
+  chartData?: ChartDataPayload;
+  dataPreview?: DataPreviewPayload;
   artifacts?: ArtifactInfo[];
   images?: string[];
   retrievals?: RetrievalItem[];

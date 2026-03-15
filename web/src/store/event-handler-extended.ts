@@ -7,6 +7,8 @@
 import type {
   WSEvent,
   Message,
+  ChartDataPayload,
+  DataPreviewPayload,
   AnalysisStep,
   AnalysisTaskItem,
   ArtifactInfo,
@@ -365,7 +367,7 @@ export function handleExtendedEvent(
       set((s) => ({
         messages: upsertAssistantTextMessage(s.messages, {
           content: "图表已生成",
-          chartData: evt.data,
+          chartData: evt.data as ChartDataPayload,
           messageId,
           turnId,
           operation: "replace",
@@ -382,7 +384,7 @@ export function handleExtendedEvent(
       set((s) => ({
         messages: upsertAssistantTextMessage(s.messages, {
           content: "数据预览如下",
-          dataPreview: evt.data,
+          dataPreview: evt.data as DataPreviewPayload,
           messageId,
           turnId,
           operation: "replace",
