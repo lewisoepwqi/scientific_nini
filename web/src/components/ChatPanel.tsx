@@ -6,6 +6,7 @@
  * 注意：分析进度和任务只显示在工作区的"任务"Tab中，不在对话区域展示
  */
 import { useEffect, useRef, useMemo, useCallback, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '../store'
 import MessageBubble from './MessageBubble'
 import ChatInputArea from './ChatInputArea'
@@ -21,24 +22,36 @@ const compactTokenFormatter = new Intl.NumberFormat('en-US', {
 })
 
 export default function ChatPanel() {
-  const sessionId = useStore((s) => s.sessionId)
-  const appBootstrapping = useStore((s) => s.appBootstrapping)
+  // 数据 selector 合并，使用 useShallow 减少重渲染
+  const {
+    sessionId,
+    appBootstrapping,
+    messages,
+    isStreaming,
+    pendingAskUserQuestionsBySession,
+    pendingAskUserQuestion,
+    askUserQuestionNotificationPreference,
+    currentIntentAnalysis,
+    streamingMetrics,
+  } = useStore(
+    useShallow((s) => ({
+      sessionId: s.sessionId,
+      appBootstrapping: s.appBootstrapping,
+      messages: s.messages,
+      isStreaming: s.isStreaming,
+      pendingAskUserQuestionsBySession: s.pendingAskUserQuestionsBySession,
+      pendingAskUserQuestion: s.pendingAskUserQuestion,
+      askUserQuestionNotificationPreference: s.askUserQuestionNotificationPreference,
+      currentIntentAnalysis: s.currentIntentAnalysis,
+      streamingMetrics: s._streamingMetrics,
+    })),
+  )
+  // 函数 selector 独立（Zustand 对函数引用稳定，不触发重渲染）
   const createNewSession = useStore((s) => s.createNewSession)
-  const messages = useStore((s) => s.messages)
-  const isStreaming = useStore((s) => s.isStreaming)
   const switchSession = useStore((s) => s.switchSession)
-  const pendingAskUserQuestionsBySession = useStore(
-    (s) => s.pendingAskUserQuestionsBySession,
-  )
-  const pendingAskUserQuestion = useStore((s) => s.pendingAskUserQuestion)
-  const askUserQuestionNotificationPreference = useStore(
-    (s) => s.askUserQuestionNotificationPreference,
-  )
   const setAskUserQuestionNotificationPreference = useStore(
     (s) => s.setAskUserQuestionNotificationPreference,
   )
-  const currentIntentAnalysis = useStore((s) => s.currentIntentAnalysis)
-  const streamingMetrics = useStore((s) => s._streamingMetrics)
   const setComposerDraft = useStore((s) => s.setComposerDraft)
   const submitAskUserQuestionAnswers = useStore((s) => s.submitAskUserQuestionAnswers)
   const retryLastTurn = useStore((s) => s.retryLastTurn)
