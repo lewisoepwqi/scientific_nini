@@ -347,9 +347,9 @@ def _set_resource_limits(timeout_seconds: int, max_memory_mb: int) -> None:
             effective_limit_mb = max(int(max_memory_mb), int(usage_mb) + 4096)
             mem_limit = effective_limit_mb * 1024 * 1024
             resource.setrlimit(resource.RLIMIT_AS, (mem_limit, mem_limit))
-    except Exception:
+    except Exception as exc:
         # 某些环境不允许设置 rlimit，降级为仅使用超时终止
-        pass
+        logger.warning("设置 rlimit 失败，将仅依赖超时终止: %s", exc)
 
 
 def _try_pickleable(value: Any) -> Any:
