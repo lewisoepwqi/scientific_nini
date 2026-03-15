@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 from nini.agent.session import Session
-from nini.tools.registry import create_default_registry, SkillRegistry
+from nini.tools.registry import create_default_tool_registry, ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ class TestSkillFallbackStrategy:
     @pytest.mark.asyncio
     async def test_t_test_falls_back_to_mann_whitney_on_non_normal(self):
         """测试 t 检验在非正态数据时降级到 Mann-Whitney U 检验。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         # 创建明显偏态的数据
@@ -51,7 +51,7 @@ class TestSkillFallbackStrategy:
     @pytest.mark.asyncio
     async def test_anova_falls_back_to_kruskal_wallis_on_variance_heterogeneity(self):
         """测试 ANOVA 在方差不齐时降级到 Kruskal-Wallis 检验。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         # 创建方差异常的数据
@@ -76,7 +76,7 @@ class TestSkillFallbackStrategy:
     @pytest.mark.asyncio
     async def test_fallback_includes_reason_in_message(self):
         """测试降级时在消息中说明原因。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         test_data = pd.DataFrame(
@@ -101,7 +101,7 @@ class TestSkillFallbackStrategy:
     @pytest.mark.asyncio
     async def test_no_fallback_when_assumptions_met(self):
         """测试满足前提时不降级。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         # 创建正态分布数据
@@ -127,7 +127,7 @@ class TestSkillFallbackStrategy:
     @pytest.mark.asyncio
     async def test_fallback_records_original_attempt(self):
         """测试降级时记录原始尝试。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         test_data = pd.DataFrame(
@@ -158,7 +158,7 @@ class TestDataDiagnostics:
     @pytest.mark.asyncio
     async def test_diagnose_missing_values(self):
         """测试缺失值诊断。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         test_data = pd.DataFrame(
@@ -181,7 +181,7 @@ class TestDataDiagnostics:
     @pytest.mark.asyncio
     async def test_diagnose_outliers(self):
         """测试异常值诊断。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         test_data = pd.DataFrame(
@@ -203,7 +203,7 @@ class TestDataDiagnostics:
     @pytest.mark.asyncio
     async def test_diagnose_small_sample_size(self):
         """测试小样本诊断。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         test_data = pd.DataFrame(
@@ -226,7 +226,7 @@ class TestDataDiagnostics:
     @pytest.mark.asyncio
     async def test_diagnose_type_conversion_suggestion(self):
         """测试数据类型转换建议。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         # 数值列存储为字符串
@@ -254,7 +254,7 @@ class TestFallbackIntegration:
     @pytest.mark.asyncio
     async def test_fallback_chain_multiple_attempts(self):
         """测试多级降级链。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         # 创建同时违反正态性和方差齐性的数据
@@ -279,7 +279,7 @@ class TestFallbackIntegration:
     @pytest.mark.asyncio
     async def test_fallback_respects_user_preference(self):
         """测试降级时尊重用户偏好。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         # 设置用户偏好：不自动降级
@@ -310,7 +310,7 @@ class TestNonParametricSkills:
     @pytest.mark.asyncio
     async def test_mann_whitney_skill_exists(self):
         """测试 Mann-Whitney 技能存在且可执行。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         test_data = pd.DataFrame(
@@ -334,7 +334,7 @@ class TestNonParametricSkills:
     @pytest.mark.asyncio
     async def test_kruskal_wallis_skill_exists(self):
         """测试 Kruskal-Wallis 技能存在且可执行。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         test_data = pd.DataFrame(

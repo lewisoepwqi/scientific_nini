@@ -7,7 +7,7 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Protocol
 
 from nini.agent import event_builders as eb
 from nini.agent.events import AgentEvent, EventType
@@ -20,6 +20,7 @@ from nini.harness.models import (
     HarnessArtifactSummary,
     HarnessDatasetSummary,
     HarnessRunContext,
+    HarnessRunSummary,
     HarnessTraceEvent,
     HarnessTraceRecord,
 )
@@ -32,16 +33,33 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class AgentRunnerLike(Protocol):
+    def run(
+        self,
+        session: Session,
+        user_message: str,
+        *,
+        append_user_message: bool = True,
+        stop_event: asyncio.Event | None = None,
+        turn_id: str | None = None,
+        stage_override: str | None = None,
+    ) -> AsyncGenerator[AgentEvent, None]: ...
+
+
+class HarnessTraceStoreLike(Protocol):
+    async def save_run(self, record: HarnessTraceRecord) -> HarnessRunSummary | None: ...
+
+
 class HarnessRunner:
     """对 AgentRunner 增加完成校验、坏循环恢复与 trace。"""
 
     def __init__(
         self,
-        agent_runner: AgentRunner | None = None,
-        trace_store: HarnessTraceStore | None = None,
+        agent_runner: AgentRunnerLike | None = None,
+        trace_store: HarnessTraceStoreLike | None = None,
     ) -> None:
-        self._agent_runner = agent_runner or AgentRunner()
-        self._trace_store = trace_store or HarnessTraceStore()
+        self._agent_runner: AgentRunnerLike = agent_runner or AgentRunner()
+        self._trace_store: HarnessTraceStoreLike = trace_store or HarnessTraceStore()
 
     async def run(
         self,
@@ -295,8 +313,10 @@ class HarnessRunner:
         datasets = []
         for name, df in session.datasets.items():
             shape = getattr(df, "shape", (None, None))
+            rows = int(shape[0]) if shape[0] is not None else None
+            columns = int(shape[1]) if shape[1] is not None else None
             datasets.append(
-                HarnessDatasetSummary(name=name, rows=int(shape[0]), columns=int(shape[1]))
+                HarnessDatasetSummary(name=name, rows=rows, columns=columns)
             )
 
         artifacts = [

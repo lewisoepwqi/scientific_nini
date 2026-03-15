@@ -127,7 +127,8 @@ def create_app() -> FastAPI:
                 token = auth[7:]
             elif api_key_header:
                 token = api_key_header
-            if not secrets.compare_digest(token, settings.api_key):
+            api_key = settings.api_key or ""
+            if not secrets.compare_digest(token, api_key):
                 return JSONResponse(
                     status_code=401, content={"detail": "未授权：需要有效的 API Key"}
                 )

@@ -6,6 +6,7 @@
 
 import json
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 # 添加项目根目录到 sys.path
@@ -14,6 +15,16 @@ sys.path.insert(0, str(project_root / "src"))
 
 from nini.config import settings
 from nini.memory.conversation import ConversationMemory
+
+
+@contextmanager
+def _override_data_dir(data_dir: Path):
+    original_data_dir = settings.data_dir
+    settings.data_dir = data_dir
+    try:
+        yield
+    finally:
+        settings.data_dir = original_data_dir
 
 
 def test_large_payload_reference():
@@ -25,62 +36,61 @@ def test_large_payload_reference():
     # 使用临时目录
     session_id = "verify_test"
     test_dir = project_root / "data" / "sessions"
-    settings.sessions_dir = test_dir
+    with _override_data_dir(test_dir.parent):
+        memory = ConversationMemory(session_id)
 
-    memory = ConversationMemory(session_id)
+        # 创建一个大型数据（超过 10KB）
+        large_data = {
+            "type": "chart",
+            "data": [{"x": list(range(1000)), "y": list(range(1000))} for _ in range(10)],
+            "layout": {"title": "Big Chart" * 100},
+        }
 
-    # 创建一个大型数据（超过 10KB）
-    large_data = {
-        "type": "chart",
-        "data": [{"x": list(range(1000)), "y": list(range(1000))} for _ in range(10)],
-        "layout": {"title": "Big Chart" * 100},
-    }
+        entry = {
+            "role": "assistant",
+            "content": "测试大数据引用化",
+            "chart_data": large_data,
+        }
 
-    entry = {
-        "role": "assistant",
-        "content": "测试大数据引用化",
-        "chart_data": large_data,
-    }
+        print(f"原始数据大小: {len(json.dumps(large_data))} 字节")
 
-    print(f"原始数据大小: {len(json.dumps(large_data))} 字节")
+        # 保存
+        memory.append(entry)
+        print("✓ 数据已保存")
 
-    # 保存
-    memory.append(entry)
-    print("✓ 数据已保存")
+        # 读取（不解析引用）
+        loaded = memory.load_all(resolve_refs=False)
+        assert len(loaded) == 1
 
-    # 读取（不解析引用）
-    loaded = memory.load_all(resolve_refs=False)
-    assert len(loaded) == 1
+        # 检查是否被引用化
+        chart_field = loaded[0]["chart_data"]
+        if isinstance(chart_field, dict) and "_ref" in chart_field:
+            print(f"✓ 大型数据已引用化: {chart_field['_ref']}")
+            print(f"  - 原始大小: {chart_field['_size_bytes']} 字节")
 
-    # 检查是否被引用化
-    chart_field = loaded[0]["chart_data"]
-    if isinstance(chart_field, dict) and "_ref" in chart_field:
-        print(f"✓ 大型数据已引用化: {chart_field['_ref']}")
-        print(f"  - 原始大小: {chart_field['_size_bytes']} 字节")
+            # 验证引用文件存在
+            ref_path = chart_field["_ref"]
+            payload_file = test_dir / session_id / ref_path
+            assert payload_file.exists(), f"引用文件不存在: {payload_file}"
+            print(f"✓ 引用文件存在: {payload_file.relative_to(project_root)}")
 
-        # 验证引用文件存在
-        ref_path = chart_field["_ref"]
-        payload_file = test_dir / session_id / ref_path
-        assert payload_file.exists(), f"引用文件不存在: {payload_file}"
-        print(f"✓ 引用文件存在: {payload_file.relative_to(project_root)}")
+            # 验证引用文件内容
+            payload_data = json.loads(payload_file.read_text())
+            assert payload_data == large_data
+            print("✓ 引用文件内容正确")
+        else:
+            print("✗ 大型数据未被引用化（数据可能不够大）")
+            return False
 
-        # 验证引用文件内容
-        payload_data = json.loads(payload_file.read_text())
-        assert payload_data == large_data
-        print("✓ 引用文件内容正确")
-    else:
-        print("✗ 大型数据未被引用化（数据可能不够大）")
-        return False
+        # 测试引用解析
+        loaded_resolved = memory.load_all(resolve_refs=True)
+        assert loaded_resolved[0]["chart_data"] == large_data
+        print("✓ 引用解析成功")
 
-    # 测试引用解析
-    loaded_resolved = memory.load_all(resolve_refs=True)
-    assert loaded_resolved[0]["chart_data"] == large_data
-    print("✓ 引用解析成功")
-
-    # 清理
-    memory.clear()
-    print("✓ 测试完成\n")
-    return True
+        # 清理
+        memory.clear()
+        print("✓ 测试完成\n")
+        return True
 
 
 def test_small_payload_not_referenced():
@@ -91,41 +101,40 @@ def test_small_payload_not_referenced():
 
     session_id = "verify_test_small"
     test_dir = project_root / "data" / "sessions"
-    settings.sessions_dir = test_dir
+    with _override_data_dir(test_dir.parent):
+        memory = ConversationMemory(session_id)
 
-    memory = ConversationMemory(session_id)
+        # 创建小型数据
+        small_data = {"x": [1, 2, 3], "y": [4, 5, 6]}
 
-    # 创建小型数据
-    small_data = {"x": [1, 2, 3], "y": [4, 5, 6]}
+        entry = {
+            "role": "assistant",
+            "content": "测试小数据",
+            "chart_data": small_data,
+        }
 
-    entry = {
-        "role": "assistant",
-        "content": "测试小数据",
-        "chart_data": small_data,
-    }
+        print(f"数据大小: {len(json.dumps(small_data))} 字节")
 
-    print(f"数据大小: {len(json.dumps(small_data))} 字节")
+        # 保存
+        memory.append(entry)
+        print("✓ 数据已保存")
 
-    # 保存
-    memory.append(entry)
-    print("✓ 数据已保存")
+        # 读取
+        loaded = memory.load_all()
+        assert len(loaded) == 1
 
-    # 读取
-    loaded = memory.load_all()
-    assert len(loaded) == 1
+        # 检查是否未被引用化
+        chart_field = loaded[0]["chart_data"]
+        if isinstance(chart_field, dict) and "_ref" not in str(chart_field):
+            print("✓ 小型数据未被引用化（直接保存在 JSONL 中）")
+        else:
+            print("✗ 小型数据被错误地引用化了")
+            return False
 
-    # 检查是否未被引用化
-    chart_field = loaded[0]["chart_data"]
-    if isinstance(chart_field, dict) and "_ref" not in str(chart_field):
-        print("✓ 小型数据未被引用化（直接保存在 JSONL 中）")
-    else:
-        print("✗ 小型数据被错误地引用化了")
-        return False
-
-    # 清理
-    memory.clear()
-    print("✓ 测试完成\n")
-    return True
+        # 清理
+        memory.clear()
+        print("✓ 测试完成\n")
+        return True
 
 
 def test_config_parameters():

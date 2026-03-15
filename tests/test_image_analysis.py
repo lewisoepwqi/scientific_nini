@@ -346,9 +346,9 @@ class TestImageAnalysisIntegration:
     @pytest.mark.asyncio
     async def test_skill_registered_in_registry(self):
         """测试技能已注册。"""
-        from nini.tools.registry import SkillRegistry
+        from nini.tools.registry import ToolRegistry
 
-        registry = SkillRegistry()
+        registry = ToolRegistry()
 
         # 检查技能是否可用
         skill_names = registry.list_skills()

@@ -16,8 +16,8 @@ from nini.config import settings
 from nini.tools.base import Skill, SkillResult
 from nini.tools.clean_data import CleanDataSkill
 from nini.tools.report import GenerateReportSkill
-from nini.tools.registry import SkillRegistry
-from nini.tools.registry import create_default_registry
+from nini.tools.registry import ToolRegistry
+from nini.tools.registry import create_default_tool_registry
 from nini.tools.visualization import CreateChartSkill
 from nini.workspace import WorkspaceManager
 
@@ -58,7 +58,7 @@ def test_clean_data_generates_cleaned_dataset() -> None:
 
 
 def test_generate_report_writes_document_and_knowledge() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["exp.csv"] = pd.DataFrame({"x": [1, 2, 3]})
     session.add_message("user", "请分析数据")
@@ -230,7 +230,7 @@ def test_generate_report_default_filename_is_unique_and_not_overwritten() -> Non
 
 def test_export_chart_exports_html_artifact() -> None:
     """直接实例化 CreateChartSkill 创建图表，再通过注册表导出。"""
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["exp.csv"] = pd.DataFrame({"group": ["a", "b"], "value": [1.2, 2.4]})
 
@@ -263,7 +263,7 @@ def test_export_chart_exports_html_artifact() -> None:
 
 
 def test_export_chart_can_fallback_to_chart_resource() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["exp.csv"] = pd.DataFrame({"group": ["a", "b"], "value": [1.2, 2.4]})
 
@@ -320,7 +320,7 @@ def test_skill_execute_runs_in_current_thread() -> None:
                 message="ok",
             )
 
-    registry = SkillRegistry()
+    registry = ToolRegistry()
     registry.register(ThreadProbeSkill())
     session = Session()
 
@@ -333,7 +333,7 @@ def test_skill_execute_runs_in_current_thread() -> None:
 
 def test_registry_execute_signature_avoids_name_collision() -> None:
     """`execute` 的技能名参数不应占用 `name`，避免与工具入参冲突。"""
-    sig = inspect.signature(SkillRegistry.execute)
+    sig = inspect.signature(ToolRegistry.execute)
     params = sig.parameters
     assert "skill_name" in params
     assert "name" not in params
@@ -348,7 +348,7 @@ def test_registry_execute_signature_avoids_name_collision() -> None:
 
 
 def test_organize_workspace_creates_folder_and_moves_file() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     wm = WorkspaceManager(session.id)
     note = wm.save_text_note("实验记录", "lab-notes.md")

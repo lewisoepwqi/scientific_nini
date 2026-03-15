@@ -99,6 +99,15 @@ PURPOSE_ROUTE_FALLBACKS: dict[str, str] = {
 }
 
 
+def _blank_purpose_route() -> PurposeRoute:
+    """返回空用途路由占位。"""
+    return {
+        "provider_id": None,
+        "model": None,
+        "base_url": None,
+    }
+
+
 def _load_purpose_routes_from_settings() -> dict[str, PurposeRoute]:
     """从 settings 加载用途路由配置。"""
     routes: dict[str, PurposeRoute] = {}
@@ -116,7 +125,7 @@ def _load_purpose_routes_from_settings() -> dict[str, PurposeRoute]:
 
 def _empty_purpose_routes() -> dict[str, PurposeRoute]:
     """返回一份新的用途路由默认值，避免重载时复用旧内存态。"""
-    routes = {
+    routes: dict[str, PurposeRoute] = {
         key: {
             "provider_id": value.get("provider_id"),
             "model": value.get("model"),
@@ -286,19 +295,15 @@ class ModelResolver:
 
     def _get_effective_purpose_route(self, purpose: str) -> PurposeRoute:
         """获取指定用途的有效路由，必要时继承 chat 路由。"""
-        route = self._purpose_routes.get(
-            purpose,
-            self._purpose_routes.get(
-                "default", {"provider_id": None, "model": None, "base_url": None}
-            ),
-        )
+        default_route = self._purpose_routes.get("default") or _blank_purpose_route()
+        route = self._purpose_routes.get(purpose) or default_route
         if self._route_is_configured(route):
             return route
 
         fallback_purpose = PURPOSE_ROUTE_FALLBACKS.get(purpose)
         if fallback_purpose:
             fallback_route = self._purpose_routes.get(fallback_purpose)
-            if self._route_is_configured(fallback_route):
+            if fallback_route is not None and self._route_is_configured(fallback_route):
                 return fallback_route
 
         return route

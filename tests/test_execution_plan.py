@@ -13,6 +13,25 @@ import pytest
 from pydantic import ValidationError
 
 
+class _FakeResolver:
+    """用于 PlannerAgent 单测的假解析器，避免真实模型调用。"""
+
+    def __init__(
+        self,
+        response: dict[str, object] | None = None,
+    ) -> None:
+        self._response = response or {
+            "intent": "比较两组或多组数据的差异",
+            "must_haves": [],
+        }
+
+    async def chat(self, messages, purpose="default"):  # type: ignore[no-untyped-def]
+        from nini.agent.providers.base import LLMChunk
+
+        _ = messages, purpose
+        yield LLMChunk(text=json.dumps(self._response, ensure_ascii=False))
+
+
 class TestExecutionPlan:
     """测试 ExecutionPlan 数据模型。"""
 
@@ -212,7 +231,11 @@ class TestPlannerAgent:
         from nini.agent.session import Session
 
         session = Session()
-        planner = PlannerAgent()
+        planner = PlannerAgent(
+            resolver=_FakeResolver(
+                {"intent": "比较对照组与处理组的血压差异", "must_haves": []}
+            )
+        )
 
         user_message = "帮我分析对照组和处理组的血压数据有没有显著差异"
 
@@ -229,7 +252,9 @@ class TestPlannerAgent:
         from nini.agent.session import Session
 
         session = Session()
-        planner = PlannerAgent()
+        planner = PlannerAgent(
+            resolver=_FakeResolver({"intent": "分析数据差异", "must_haves": []})
+        )
 
         # 没有数据集的会话
         user_message = "分析数据差异"

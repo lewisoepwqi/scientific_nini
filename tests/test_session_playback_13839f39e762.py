@@ -33,7 +33,7 @@ import pytest
 
 from nini.agent.session import Session
 from nini.config import settings
-from nini.tools.registry import create_default_registry
+from nini.tools.registry import create_default_tool_registry
 from nini.workspace import WorkspaceManager
 
 
@@ -186,7 +186,7 @@ class TestSessionPlayback13839f39e762:
         - dataset_transform 生成的中间数据集可被后续步骤稳定引用
         - 资源索引正确记录了中间数据集
         """
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         # 模拟原始数据
@@ -261,7 +261,7 @@ class TestSessionPlayback13839f39e762:
         - chart_session 创建的图表资源由系统管理路径
         - 导出操作使用受管目录，不会路径错误
         """
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         # 准备数据
@@ -315,7 +315,7 @@ class TestSessionPlayback13839f39e762:
         """
         import asyncio
 
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
         session.datasets["data"] = pd.DataFrame({"x": [1, 2, 3]})
 

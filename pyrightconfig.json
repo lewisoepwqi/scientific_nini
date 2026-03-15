@@ -3,13 +3,16 @@
   "venv": ".venv",
   "pythonVersion": "3.12",
   "include": [
-    "src/nini"
+    "src",
+    "tests",
+    "scripts"
   ],
   "exclude": [
     "**/__pycache__",
     ".venv",
     "node_modules",
     "web/node_modules",
-    "data"
+    "data",
+    "research"
   ]
 }
