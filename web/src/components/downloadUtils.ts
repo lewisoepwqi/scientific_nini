@@ -46,19 +46,25 @@ function isMarkdownFile(name: string | undefined): boolean {
 export function resolveDownloadUrl(downloadUrl: string | undefined, name?: string): string | undefined {
   if (!downloadUrl) return downloadUrl
 
-  // 兼容旧 artifact 下载地址。
+  // 兼容旧 artifact 下载地址 → 迁移到新 /api/workspace/{sid}/files/ 格式
   const artifactMatch = downloadUrl.match(/^\/api\/artifacts\/([^/]+)\/(.+)$/)
   if (artifactMatch) {
     const sessionId = artifactMatch[1]
     const filename = artifactMatch[2]
-    return `/api/workspace/${sessionId}/artifacts/${filename}/bundle`
+    if (isMarkdownFile(name)) {
+      return `/api/workspace/${sessionId}/files/${filename}?bundle=1`
+    }
+    return `/api/workspace/${sessionId}/files/${filename}?download=1`
   }
 
   const workspaceArtifactMatch = downloadUrl.match(/^\/api\/workspace\/([^/]+)\/artifacts\/(.+)$/)
   if (workspaceArtifactMatch) {
     const sessionId = workspaceArtifactMatch[1]
     const filename = workspaceArtifactMatch[2]
-    return `/api/workspace/${sessionId}/artifacts/${filename}/bundle`
+    if (isMarkdownFile(name)) {
+      return `/api/workspace/${sessionId}/files/artifacts/${filename}?bundle=1`
+    }
+    return `/api/workspace/${sessionId}/files/artifacts/${filename}?download=1`
   }
 
   const workspaceFilesMatch = downloadUrl.match(/^\/api\/workspace\/([^/]+)\/files\/(.+)$/)
@@ -71,6 +77,7 @@ export function resolveDownloadUrl(downloadUrl: string | undefined, name?: strin
     return `/api/workspace/${sessionId}/files/${path}?download=1`
   }
 
+  // 兼容旧 notes 下载地址 → 迁移到新格式
   const noteMatch = downloadUrl.match(/^\/api\/workspace\/([^/]+)\/notes\/(.+)$/)
   if (noteMatch) {
     const sessionId = noteMatch[1]
@@ -78,7 +85,7 @@ export function resolveDownloadUrl(downloadUrl: string | undefined, name?: strin
     if (isMarkdownFile(name)) {
       return `/api/workspace/${sessionId}/files/notes/${filename}?bundle=1`
     }
-    return appendQueryParam(downloadUrl, 'download', '1')
+    return `/api/workspace/${sessionId}/files/notes/${filename}?download=1`
   }
 
   if (isMarkdownFile(name)) return downloadUrl

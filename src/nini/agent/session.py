@@ -362,9 +362,9 @@ class Session:
             result = compress_session_history(self, ratio=ratio, min_messages=keep_recent)
             if result.get("success"):
                 # 持久化压缩元数据
-                from nini.agent.session import session_manager
+                import nini.agent.session as _self_mod
 
-                session_manager.save_session_compression(
+                _self_mod.session_manager.save_session_compression(
                     self.id,
                     compressed_context=self.compressed_context,
                     compressed_rounds=self.compressed_rounds,

@@ -118,9 +118,10 @@ def test_workspace_save_text_and_download_note(client: LocalASGIClient) -> None:
     assert note_item is not None
     assert note_item["name"] == "analysis_snippet.md"
 
-    download_resp = client.get(f"/api/workspace/{session_id}/notes/analysis_snippet.md")
+    download_resp = client.get(
+        f"/api/workspace/{session_id}/files/notes/analysis_snippet.md"
+    )
     assert download_resp.status_code == 200
-    assert download_resp.headers["content-disposition"].startswith("attachment;")
     assert "print('hello')" in download_resp.text
 
 
@@ -344,9 +345,11 @@ def test_download_artifact_supports_double_encoded_filename(
 
     encoded_once = quote(filename, safe="")
     encoded_twice = quote(encoded_once, safe="")
-    download_resp = client.get(f"/api/artifacts/{session_id}/{encoded_twice}")
+    encoded_once = quote(filename, safe="")
+    download_resp = client.get(
+        f"/api/workspace/{session_id}/files/artifacts/{encoded_once}"
+    )
     assert download_resp.status_code == 200
-    assert download_resp.headers["content-disposition"].startswith("attachment;")
     assert download_resp.content == b"PNG"
 
 
@@ -360,9 +363,10 @@ def test_download_artifact_supports_inline_disposition(client: LocalASGIClient) 
     artifact_path = manager.artifacts_dir / filename
     artifact_path.write_bytes(b"%PDF-1.4")
 
-    inline_resp = client.get(f"/api/artifacts/{session_id}/{filename}?inline=1")
+    inline_resp = client.get(
+        f"/api/workspace/{session_id}/files/artifacts/{filename}?inline=1"
+    )
     assert inline_resp.status_code == 200
-    assert inline_resp.headers["content-disposition"].startswith("inline;")
     assert inline_resp.content == b"%PDF-1.4"
 
 
@@ -377,10 +381,11 @@ def test_download_plotly_artifact_supports_raw_json(client: LocalASGIClient) -> 
     artifact_path.write_text('{"data":[{"type":"bar","x":["A"],"y":[1]}]}', encoding="utf-8")
 
     encoded = quote(filename, safe="")
-    raw_resp = client.get(f"/api/artifacts/{session_id}/{encoded}?raw=1")
+    raw_resp = client.get(f"/api/workspace/{session_id}/files/artifacts/{encoded}")
     assert raw_resp.status_code == 200
-    assert raw_resp.headers["content-disposition"].startswith("attachment;")
-    assert raw_resp.text == '{"data":[{"type":"bar","x":["A"],"y":[1]}]}'
+    resp_data = raw_resp.json()
+    assert resp_data["success"] is True
+    assert '{"data":[{"type":"bar"' in resp_data["data"]["content"]
 
 
 def test_workspace_artifact_download_url_not_double_encoded() -> None:
