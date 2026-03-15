@@ -44,14 +44,17 @@ export default function App() {
   const wsStatus = useStore((s) => s.wsStatus);
   const workspacePanelOpen = useStore((s) => s.workspacePanelOpen);
   const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showTools, setShowTools] = useState(false);
-  const [showCapabilities, setShowCapabilities] = useState(false);
-  const [showSkillManager, setShowSkillManager] = useState(false);
-  const [showResearchProfile, setShowResearchProfile] = useState(false);
-  const [showReportTemplate, setShowReportTemplate] = useState(false);
-  const [showCostPanel, setShowCostPanel] = useState(false);
-  const [showKnowledgePanel, setShowKnowledgePanel] = useState(false);
+  type PanelType =
+    | "settings"
+    | "tools"
+    | "capabilities"
+    | "skills"
+    | "profile"
+    | "report"
+    | "cost"
+    | "knowledge";
+  const [activePanel, setActivePanel] = useState<PanelType | null>(null);
+  const closePanel = useCallback(() => setActivePanel(null), []);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workspacePanelWidth, setWorkspacePanelWidth] = useState(420);
   const [resizingWorkspace, setResizingWorkspace] = useState(false);
@@ -71,7 +74,7 @@ export default function App() {
 
   // 监听试用到期 / ModelSelector 点击事件，自动弹出 AI 设置面板
   useEffect(() => {
-    const handler = () => setShowSettings(true);
+    const handler = () => setActivePanel("settings");
     window.addEventListener("nini:trial-expired", handler);
     window.addEventListener("nini:open-settings", handler);
     return () => {
@@ -231,56 +234,56 @@ export default function App() {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowCapabilities(true)}
+              onClick={() => setActivePanel("capabilities")}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-purple-600 transition-colors"
               title="分析能力"
             >
               <Sparkles size={16} />
             </button>
             <button
-              onClick={() => setShowReportTemplate(true)}
+              onClick={() => setActivePanel("report")}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-emerald-600 transition-colors"
               title="生成文章初稿"
             >
               <FileText size={16} />
             </button>
             <button
-              onClick={() => setShowCostPanel(true)}
+              onClick={() => setActivePanel("cost")}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-amber-600 transition-colors"
               title="成本统计"
             >
               <Coins size={16} />
             </button>
             <button
-              onClick={() => setShowResearchProfile(true)}
+              onClick={() => setActivePanel("profile")}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-sky-600 transition-colors"
               title="研究画像"
             >
               <User size={16} />
             </button>
             <button
-              onClick={() => setShowTools(true)}
+              onClick={() => setActivePanel("tools")}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
               title="工具清单"
             >
               <Wrench size={16} />
             </button>
             <button
-              onClick={() => setShowKnowledgePanel(true)}
+              onClick={() => setActivePanel("knowledge")}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-indigo-600 transition-colors"
               title="知识库"
             >
               <Library size={16} />
             </button>
             <button
-              onClick={() => setShowSkillManager(true)}
+              onClick={() => setActivePanel("skills")}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
               title="技能管理"
             >
               <BookOpen size={16} />
             </button>
             <button
-              onClick={() => setShowSettings(true)}
+              onClick={() => setActivePanel("settings")}
               className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
               title="模型配置"
             >
@@ -393,49 +396,41 @@ export default function App() {
       )}
 
       {/* 模型配置弹窗 */}
-      {(showSettings ||
-        showTools ||
-        showCapabilities ||
-        showSkillManager ||
-        showResearchProfile ||
-        showReportTemplate ||
-        showCostPanel ||
-        showKnowledgePanel) && (
+      {activePanel !== null && (
         <Suspense fallback={dialogFallback}>
           <ModelConfigPanel
-            open={showSettings}
-            onClose={() => setShowSettings(false)}
+            open={activePanel === "settings"}
+            onClose={closePanel}
           />
-
           <SkillCatalogPanel
-            open={showTools}
-            onClose={() => setShowTools(false)}
+            open={activePanel === "tools"}
+            onClose={closePanel}
           />
           <CapabilityPanel
-            open={showCapabilities}
-            onClose={() => setShowCapabilities(false)}
+            open={activePanel === "capabilities"}
+            onClose={closePanel}
           />
           <MarkdownSkillManagerPanel
-            open={showSkillManager}
-            onClose={() => setShowSkillManager(false)}
+            open={activePanel === "skills"}
+            onClose={closePanel}
           />
           <ResearchProfilePanel
-            isOpen={showResearchProfile}
-            onClose={() => setShowResearchProfile(false)}
+            isOpen={activePanel === "profile"}
+            onClose={closePanel}
           />
           <ArticleDraftPanel
-            isOpen={showReportTemplate}
-            onClose={() => setShowReportTemplate(false)}
+            isOpen={activePanel === "report"}
+            onClose={closePanel}
             sessionId={sessionId}
             onStartDraftDialog={handleStartDraftDialog}
           />
           <CostPanel
-            isOpen={showCostPanel}
-            onClose={() => setShowCostPanel(false)}
+            isOpen={activePanel === "cost"}
+            onClose={closePanel}
           />
           <KnowledgePanel
-            isOpen={showKnowledgePanel}
-            onClose={() => setShowKnowledgePanel(false)}
+            isOpen={activePanel === "knowledge"}
+            onClose={closePanel}
           />
         </Suspense>
       )}

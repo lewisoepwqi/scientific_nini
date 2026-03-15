@@ -83,6 +83,7 @@ export default function PlotlyFromUrl({ url, alt }: Props) {
     }
 
     const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10_000)
     setLoading(true)
     setError(null)
 
@@ -104,12 +105,16 @@ export default function PlotlyFromUrl({ url, alt }: Props) {
         setError('图表加载失败')
       })
       .finally(() => {
+        clearTimeout(timeoutId)
         if (!controller.signal.aborted) {
           setLoading(false)
         }
       })
 
-    return () => controller.abort()
+    return () => {
+      clearTimeout(timeoutId)
+      controller.abort()
+    }
   }, [isValidUrl, url])
 
   if (loading) {

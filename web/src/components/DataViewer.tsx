@@ -1,12 +1,10 @@
 /**
  * 数据表预览组件。
  */
+import { isRecord } from '../store/utils'
+
 interface Props {
   preview: unknown
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }
 
 function getColumns(preview: Record<string, unknown>, data: Record<string, unknown>[]): string[] {

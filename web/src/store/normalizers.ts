@@ -12,10 +12,7 @@ import type {
   AnalysisStep,
   AnalysisTaskAttemptStatus,
 } from "./types";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
+import { isRecord } from "./utils";
 
 export function normalizeIntentOption(raw: unknown): IntentOption | null {
   if (!isRecord(raw)) return null;
