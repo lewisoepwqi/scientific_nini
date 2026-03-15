@@ -13,4 +13,4 @@ allowed_tools:
   - task_state
 max_tokens: 8000
 timeout_seconds: 300
-paradigm: react
+paradigm: hypothesis_driven

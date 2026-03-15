@@ -15,4 +15,4 @@ allowed_tools:
   - workspace_session
 max_tokens: 8000
 timeout_seconds: 300
-paradigm: react
+paradigm: hypothesis_driven

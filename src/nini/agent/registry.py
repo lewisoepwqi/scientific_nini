@@ -68,6 +68,15 @@ class AgentRegistry:
                         agent_def.agent_id,
                         tool_name,
                     )
+        # 校验 paradigm 字段合法性
+        _valid_paradigms = {"react", "hypothesis_driven"}
+        if agent_def.paradigm not in _valid_paradigms:
+            logger.warning(
+                "Agent '%s' 的 paradigm '%s' 不合法，有效值为 %s",
+                agent_def.agent_id,
+                agent_def.paradigm,
+                _valid_paradigms,
+            )
         self._agents[agent_def.agent_id] = agent_def
         logger.debug("注册 Agent: %s (%s)", agent_def.agent_id, agent_def.name)
 

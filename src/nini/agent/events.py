@@ -55,6 +55,14 @@ class EventType(str, Enum):
     AGENT_ERROR = "agent_error"  # 子 Agent 执行失败（含超时）
     WORKFLOW_STATUS = "workflow_status"  # 工作流整体状态（Phase 2 payload 规划）
 
+    # Hypothesis-Driven 范式事件类型（Phase 3）
+    HYPOTHESIS_GENERATED = "hypothesis_generated"  # LLM 生成初始假设
+    EVIDENCE_COLLECTED = "evidence_collected"  # 工具调用收集到证据
+    HYPOTHESIS_VALIDATED = "hypothesis_validated"  # 假设被证实
+    HYPOTHESIS_REFUTED = "hypothesis_refuted"  # 假设被证伪
+    HYPOTHESIS_REVISED = "hypothesis_revised"  # 假设被修正为新版本
+    PARADIGM_SWITCHED = "paradigm_switched"  # 执行路径切换为 Hypothesis-Driven
+
 
 @dataclass
 class AgentEvent:

@@ -103,6 +103,7 @@ import type {
 
 // ---- Agent 切片导入 ----
 import { initialAgentSlice } from "./store/agent-slice";
+import { initialHypothesisSlice } from "./store/hypothesis-slice";
 
 // ---- 工具函数导入 ----
 import {
@@ -247,6 +248,12 @@ export interface AppState {
   // 多 Agent 执行状态
   activeAgents: Record<string, AgentInfo>;
   completedAgents: AgentInfo[];
+
+  // Hypothesis-Driven 范式状态
+  hypotheses: import("./store/types").HypothesisInfo[];
+  currentPhase: string;
+  iterationCount: number;
+  activeAgentId: string | null;
 
   // ---- 操作 ----
 
@@ -559,6 +566,9 @@ export const useStore = create<AppState>((set, get) => ({
 
   // 多 Agent 执行状态初始值
   ...initialAgentSlice,
+
+  // Hypothesis-Driven 范式状态初始值
+  ...initialHypothesisSlice,
 
   // ============================================================================
   // WebSocket 操作

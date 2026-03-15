@@ -39,6 +39,7 @@ const CostPanel = lazy(() => import("./components/CostPanel"));
 const KnowledgePanel = lazy(() => import("./components/KnowledgePanel"));
 const AgentExecutionPanel = lazy(() => import("./components/AgentExecutionPanel"));
 const WorkflowTopology = lazy(() => import("./components/WorkflowTopology"));
+const HypothesisTracker = lazy(() => import("./components/HypothesisTracker"));
 
 export default function App() {
   const connect = useStore((s) => s.connect);
@@ -67,6 +68,7 @@ export default function App() {
   const sendMessage = useStore((s) => s.sendMessage);
   const activeAgents = useStore((s) => s.activeAgents);
   const completedAgents = useStore((s) => s.completedAgents);
+  const hypotheses = useStore((s) => s.hypotheses);
 
   // 应用初始化：恢复会话并建立 WebSocket 连接
   useEffect(() => {
@@ -361,6 +363,15 @@ export default function App() {
             </Suspense>
             <Suspense fallback={null}>
               <AgentExecutionPanel />
+            </Suspense>
+          </div>
+        )}
+
+        {/* 假设推理追踪面板（hypothesis_driven 范式激活时显示） */}
+        {hypotheses.length > 0 && (
+          <div className="px-4 pt-2">
+            <Suspense fallback={null}>
+              <HypothesisTracker />
             </Suspense>
           </div>
         )}
