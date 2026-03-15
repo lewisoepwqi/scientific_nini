@@ -108,11 +108,16 @@ export default function ReasoningPanel({
 
   // 提取决策关键词并高亮
   const highlightDecisionKeywords = (text: string) => {
+    // 先转义 HTML 特殊字符，防止 XSS
+    const escapeHtml = (s: string) =>
+      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
     const keywords = [
       "选择", "决定", "因此", "因为", "所以", "建议", "推荐",
       "由于", "基于", "考虑", "对比", "评估", "判断",
     ];
-    let result = text;
+    let result = escapeHtml(text);
     keywords.forEach((keyword) => {
       result = result.replace(
         new RegExp(keyword, "g"),

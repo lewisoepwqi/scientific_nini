@@ -129,7 +129,7 @@ class FetchURLSkill(Skill):
 
         scheme = parsed.scheme.lower()
         if scheme not in _ALLOWED_SCHEMES:
-            return f"不支持的协议: {parsed.scheme}，仅支持 http/https/file"
+            return f"不支持的协议: {parsed.scheme}，仅支持 http/https"
 
         if scheme == "file":
             return FetchURLSkill._validate_local_file_url(parsed)

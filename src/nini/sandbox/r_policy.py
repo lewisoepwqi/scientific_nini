@@ -88,6 +88,9 @@ BANNED_R_CALLS: set[str] = {
     "eval",
     "parse",
     "source",
+    "do.call",
+    "get",
+    "match.fun",
     "Sys.getenv",
     "Sys.setenv",
     ".Internal",
@@ -144,11 +147,33 @@ def _check_allowed_packages(line: str, lineno: int) -> RPolicyViolation | None:
     return None
 
 
+def _merge_continuation_lines(code: str) -> list[tuple[int, str]]:
+    """合并 R 续行符（行末反斜杠），返回 (起始行号, 合并后文本) 列表。"""
+    result: list[tuple[int, str]] = []
+    buf = ""
+    start_lineno = 1
+    for lineno, line in enumerate(code.splitlines(), start=1):
+        if not buf:
+            start_lineno = lineno
+        if line.rstrip().endswith("\\"):
+            buf += line.rstrip()[:-1] + " "
+        else:
+            buf += line
+            result.append((start_lineno, buf))
+            buf = ""
+    if buf:
+        result.append((start_lineno, buf))
+    return result
+
+
 def validate_r_code(code: str) -> None:
     """校验 R 代码是否满足沙箱策略。"""
     violations: list[RPolicyViolation] = []
 
-    for lineno, raw_line in enumerate(code.splitlines(), start=1):
+    # 预处理：合并续行符，防止跨行绕过检测
+    merged_lines = _merge_continuation_lines(code)
+
+    for lineno, raw_line in merged_lines:
         line = _strip_inline_comment(raw_line)
         if not line.strip():
             continue

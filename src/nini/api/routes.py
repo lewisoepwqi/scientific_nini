@@ -584,31 +584,35 @@ def _resolve_file_path(session_id: str, file_path: str) -> Path | None:
     """
     session_dir = settings.sessions_dir / session_id
     workspace_dir = session_dir / "workspace"
+    resolved_workspace = workspace_dir.resolve()
+    resolved_session = session_dir.resolve()
     filename = Path(file_path).name
 
     # 1. 直接路径（支持子目录）
-    direct_path = workspace_dir / file_path
+    direct_path = (workspace_dir / file_path).resolve()
+    if not direct_path.is_relative_to(resolved_workspace):
+        return None
     if direct_path.exists() and direct_path.is_file():
         return direct_path
 
     # 2. artifacts 子目录
-    artifact_path = workspace_dir / "artifacts" / filename
-    if artifact_path.exists() and artifact_path.is_file():
+    artifact_path = (workspace_dir / "artifacts" / filename).resolve()
+    if artifact_path.is_relative_to(resolved_workspace) and artifact_path.exists() and artifact_path.is_file():
         return artifact_path
 
     # 3. notes 子目录
-    notes_path = workspace_dir / "notes" / filename
-    if notes_path.exists() and notes_path.is_file():
+    notes_path = (workspace_dir / "notes" / filename).resolve()
+    if notes_path.is_relative_to(resolved_workspace) and notes_path.exists() and notes_path.is_file():
         return notes_path
 
     # 4. uploads 子目录
-    uploads_path = workspace_dir / "uploads" / filename
-    if uploads_path.exists() and uploads_path.is_file():
+    uploads_path = (workspace_dir / "uploads" / filename).resolve()
+    if uploads_path.is_relative_to(resolved_workspace) and uploads_path.exists() and uploads_path.is_file():
         return uploads_path
 
     # 5. 旧版产物目录（兼容）
-    legacy_path = session_dir / "artifacts" / filename
-    if legacy_path.exists() and legacy_path.is_file():
+    legacy_path = (session_dir / "artifacts" / filename).resolve()
+    if legacy_path.is_relative_to(resolved_session) and legacy_path.exists() and legacy_path.is_file():
         return legacy_path
 
     # 6. 模糊匹配（兼容文件名含控制字符如 \n 的历史数据）
