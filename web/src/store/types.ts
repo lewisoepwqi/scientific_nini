@@ -421,6 +421,25 @@ export interface PricingConfig {
 
 // ---- 消息和会话类型 ----
 
+/** Plotly 图表负载：可能包含 figure 子对象或直接的 data/layout */
+export interface ChartDataPayload {
+  figure?: Record<string, unknown>;
+  config?: Record<string, unknown>;
+  schema_version?: string;
+  data?: unknown[];
+  layout?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** 数据表预览负载 */
+export interface DataPreviewPayload {
+  columns?: Array<{ name: string; [key: string]: unknown }>;
+  data?: Record<string, unknown>[];
+  preview_rows?: number;
+  total_rows?: number;
+  [key: string]: unknown;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant" | "tool";
@@ -433,8 +452,8 @@ export interface Message {
   toolResult?: string;
   toolStatus?: "success" | "error";
   toolIntent?: string;
-  chartData?: unknown;
-  dataPreview?: unknown;
+  chartData?: ChartDataPayload;
+  dataPreview?: DataPreviewPayload;
   artifacts?: ArtifactInfo[];
   images?: string[];
   retrievals?: RetrievalItem[];

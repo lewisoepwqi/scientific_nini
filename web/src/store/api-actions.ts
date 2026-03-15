@@ -27,6 +27,8 @@ import type {
   IntentAnalysisView,
   RawSessionMessage,
   Message,
+  ChartDataPayload,
+  DataPreviewPayload,
   AnalysisTaskItem,
   AnalysisPlanProgress,
   AnalysisStep,
@@ -1302,7 +1304,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
           messageId,
           turnId,
           operation,
-          chartData: raw.chart_data,
+          chartData: raw.chart_data as ChartDataPayload | undefined,
         });
         messages.splice(0, messages.length, ...nextMessages);
         continue;
@@ -1317,7 +1319,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
           messageId,
           turnId,
           operation,
-          dataPreview: raw.data_preview,
+          dataPreview: raw.data_preview as DataPreviewPayload | undefined,
         });
         messages.splice(0, messages.length, ...nextMessages);
         continue;
