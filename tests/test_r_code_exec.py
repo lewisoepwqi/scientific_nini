@@ -11,7 +11,7 @@ from nini.agent.session import Session
 from nini.sandbox.r_executor import detect_r_installation
 from nini.sandbox.r_router import detect_r_backend
 from nini.tools.r_code_exec import RunRCodeSkill
-from nini.tools.registry import create_default_registry
+from nini.tools.registry import create_default_tool_registry
 
 
 def test_registry_registers_run_r_code_conditionally() -> None:
@@ -19,7 +19,7 @@ def test_registry_registers_run_r_code_conditionally() -> None:
 
     注意：注册逻辑使用 detect_r_backend()，它会检查本地 R 和 webr。
     """
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     has_skill = "run_r_code" in registry.list_skills()
     # 使用与注册逻辑相同的检测函数
     r_backend = detect_r_backend()

@@ -206,6 +206,7 @@ async def websocket_agent(ws: WebSocket):
                     tool_name=event.tool_name,
                     turn_id=event.turn_id,
                     metadata=event.metadata,
+                    active_stop_events=active_stop_events,
                 )
                 # 分析思路事件：通知前端刷新工作区（已保存为产物）
                 if (
@@ -218,6 +219,7 @@ async def websocket_agent(ws: WebSocket):
                         EventType.WORKSPACE_UPDATE.value,
                         data={"action": "add"},
                         session_id=session.id,
+                        active_stop_events=active_stop_events,
                     )
                 # 产物或图片生成后通知前端刷新工作区面板
                 if event.type in (EventType.ARTIFACT, EventType.IMAGE):
@@ -226,6 +228,7 @@ async def websocket_agent(ws: WebSocket):
                         EventType.WORKSPACE_UPDATE.value,
                         data={"action": "add"},
                         session_id=session.id,
+                        active_stop_events=active_stop_events,
                     )
                 # 工具调用：缓存代码执行工具的源代码
                 if (
@@ -301,6 +304,7 @@ async def websocket_agent(ws: WebSocket):
                             EventType.CODE_EXECUTION.value,
                             data=exec_record,
                             session_id=session.id,
+                            active_stop_events=active_stop_events,
                         )
                     except Exception as exc:
                         logger.debug("保存代码执行记录失败: %s", exc)
@@ -327,7 +331,13 @@ async def websocket_agent(ws: WebSocket):
         except Exception as e:
             logger.error("WebSocket 聊天任务异常: %s", e, exc_info=True)
             with suppress(Exception):
-                await _send_event(ws, "error", data="服务器内部错误，请重试", session_id=session.id)
+                await _send_event(
+                    ws,
+                    "error",
+                    data="服务器内部错误，请重试",
+                    session_id=session.id,
+                    active_stop_events=active_stop_events,
+                )
         finally:
             _cancel_pending_questions(session.id)
             # 从字典中移除该会话的任务和停止事件
@@ -341,13 +351,22 @@ async def websocket_agent(ws: WebSocket):
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
-                await _send_event(ws, "error", data="消息格式错误，请发送 JSON")
+                await _send_event(
+                    ws,
+                    "error",
+                    data="消息格式错误，请发送 JSON",
+                    active_stop_events=active_stop_events,
+                )
                 continue
 
             msg_type = msg.get("type", "chat")
 
             if msg_type == "ping":
-                await _send_event(ws, EventType.PONG.value)
+                await _send_event(
+                    ws,
+                    EventType.PONG.value,
+                    active_stop_events=active_stop_events,
+                )
                 continue
 
             if msg_type == "stop":
@@ -370,6 +389,7 @@ async def websocket_agent(ws: WebSocket):
                             EventType.STOPPED.value,
                             data="已停止当前请求",
                             session_id=stop_session_id,
+                            active_stop_events=active_stop_events,
                         )
                     else:
                         await _send_event(
@@ -377,6 +397,7 @@ async def websocket_agent(ws: WebSocket):
                             EventType.STOPPED.value,
                             data="当前没有进行中的请求",
                             session_id=stop_session_id,
+                            active_stop_events=active_stop_events,
                         )
                 else:
                     # 向后兼容：无 session_id 时停止所有运行中任务
@@ -392,9 +413,19 @@ async def websocket_agent(ws: WebSocket):
                                 stopped_session = session_manager.get_or_create(sid)
                                 _trigger_memory_consolidation(stopped_session)
                         _cancel_pending_questions()
-                        await _send_event(ws, EventType.STOPPED.value, data="已停止所有进行中请求")
+                        await _send_event(
+                            ws,
+                            EventType.STOPPED.value,
+                            data="已停止所有进行中请求",
+                            active_stop_events=active_stop_events,
+                        )
                     else:
-                        await _send_event(ws, EventType.STOPPED.value, data="当前没有进行中的请求")
+                        await _send_event(
+                            ws,
+                            EventType.STOPPED.value,
+                            data="当前没有进行中的请求",
+                            active_stop_events=active_stop_events,
+                        )
                 continue
 
             if msg_type == "ask_user_question_answer":
@@ -403,12 +434,18 @@ async def websocket_agent(ws: WebSocket):
 
                 if not isinstance(tool_call_id, str) or not tool_call_id.strip():
                     await _send_event(
-                        ws, "error", data="ask_user_question_answer 缺少 tool_call_id"
+                        ws,
+                        "error",
+                        data="ask_user_question_answer 缺少 tool_call_id",
+                        active_stop_events=active_stop_events,
                     )
                     continue
                 if not isinstance(answers_raw, dict):
                     await _send_event(
-                        ws, "error", data="ask_user_question_answer 缺少 answers 对象"
+                        ws,
+                        "error",
+                        data="ask_user_question_answer 缺少 answers 对象",
+                        active_stop_events=active_stop_events,
                     )
                     continue
 
@@ -434,7 +471,12 @@ async def websocket_agent(ws: WebSocket):
 
                 future = pending_question_futures.get(tool_call_id)
                 if future is None or future.done():
-                    await _send_event(ws, "error", data="当前没有待回答的 ask_user_question 请求")
+                    await _send_event(
+                        ws,
+                        "error",
+                        data="当前没有待回答的 ask_user_question 请求",
+                        active_stop_events=active_stop_events,
+                    )
                     continue
 
                 future.set_result(answers)
@@ -443,7 +485,12 @@ async def websocket_agent(ws: WebSocket):
             if msg_type == "retry":
                 session_id = msg.get("session_id")
                 if not isinstance(session_id, str) or not session_id.strip():
-                    await _send_event(ws, "error", data="重试需要有效的 session_id")
+                    await _send_event(
+                        ws,
+                        "error",
+                        data="重试需要有效的 session_id",
+                        active_stop_events=active_stop_events,
+                    )
                     continue
 
                 # 检查该会话是否已有运行中任务
@@ -454,6 +501,7 @@ async def websocket_agent(ws: WebSocket):
                         "error",
                         data="当前有进行中的请求，请先停止后再重试",
                         session_id=session_id,
+                        active_stop_events=active_stop_events,
                     )
                     continue
 
@@ -467,13 +515,20 @@ async def websocket_agent(ws: WebSocket):
 
                 if not retry_content:
                     await _send_event(
-                        ws, "error", data="没有可重试的用户消息", session_id=session_id
+                        ws,
+                        "error",
+                        data="没有可重试的用户消息",
+                        session_id=session_id,
+                        active_stop_events=active_stop_events,
                     )
                     continue
 
                 # 返回 session_id 方便客户端追踪
                 await _send_event(
-                    ws, EventType.SESSION.value, data={"session_id": retry_session.id}
+                    ws,
+                    EventType.SESSION.value,
+                    data={"session_id": retry_session.id},
+                    active_stop_events=active_stop_events,
                 )
 
                 # 运行 Agent（后台任务，按 session_id 注册）
@@ -491,7 +546,12 @@ async def websocket_agent(ws: WebSocket):
             if msg_type == "chat":
                 content = msg.get("content", "").strip()
                 if not content:
-                    await _send_event(ws, "error", data="消息内容不能为空")
+                    await _send_event(
+                        ws,
+                        "error",
+                        data="消息内容不能为空",
+                        active_stop_events=active_stop_events,
+                    )
                     continue
 
                 session_id = msg.get("session_id")
@@ -505,11 +565,17 @@ async def websocket_agent(ws: WebSocket):
                         "error",
                         data="当前有进行中的请求，请等待完成或先停止",
                         session_id=chat_session.id,
+                        active_stop_events=active_stop_events,
                     )
                     continue
 
                 # 返回 session_id 方便客户端追踪
-                await _send_event(ws, EventType.SESSION.value, data={"session_id": chat_session.id})
+                await _send_event(
+                    ws,
+                    EventType.SESSION.value,
+                    data={"session_id": chat_session.id},
+                    active_stop_events=active_stop_events,
+                )
 
                 # 运行 Agent（后台任务，按 session_id 注册）
                 stop_event = asyncio.Event()
@@ -519,14 +585,24 @@ async def websocket_agent(ws: WebSocket):
                 )
                 continue
 
-            await _send_event(ws, "error", data=f"不支持的消息类型: {msg_type}")
+            await _send_event(
+                ws,
+                "error",
+                data=f"不支持的消息类型: {msg_type}",
+                active_stop_events=active_stop_events,
+            )
 
     except WebSocketDisconnect:
         logger.info("WebSocket 连接已断开")
     except Exception as e:
         logger.error("WebSocket 异常: %s", e, exc_info=True)
         try:
-            await _send_event(ws, "error", data="服务器内部错误，请重试")
+            await _send_event(
+                ws,
+                "error",
+                data="服务器内部错误，请重试",
+                active_stop_events=active_stop_events,
+            )
         except Exception:
             pass
     finally:
@@ -688,6 +764,7 @@ async def _send_event(
     tool_name: str | None = None,
     turn_id: str | None = None,
     metadata: dict[str, Any] | None = None,
+    active_stop_events: dict[str, asyncio.Event] | None = None,
 ) -> None:
     """发送 WebSocket 事件。使用自定义编码器兜底处理 numpy 类型。"""
     # 检查连接是否仍然打开
@@ -711,7 +788,7 @@ async def _send_event(
         # 连接可能在发送过程中关闭，通知对应会话的 Agent 停止
         if "close message has been sent" in str(e):
             logger.debug("WebSocket 连接已关闭，无法发送事件: %s", event_type)
-            if session_id and session_id in active_stop_events:
+            if active_stop_events is not None and session_id and session_id in active_stop_events:
                 active_stop_events[session_id].set()
         else:
             raise

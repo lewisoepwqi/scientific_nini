@@ -180,11 +180,10 @@ class PlannerAgent:
             # 显式传 purpose="planning" 以便后续可针对规划任务配置专用路由
             async for chunk in self._resolver.chat(
                 messages,
-                stream=False,
                 purpose="planning",
             ):
-                if hasattr(chunk, "content") and chunk.content:
-                    full_text += chunk.content
+                if chunk.text:
+                    full_text += chunk.text
             data = json.loads(full_text.strip())
             intent = str(data.get("intent", "数据分析")).strip() or "数据分析"
             raw_must_haves = data.get("must_haves", [])

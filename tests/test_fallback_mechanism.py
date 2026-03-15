@@ -11,7 +11,7 @@ import pytest
 
 from nini.agent.session import Session
 from nini.config import settings
-from nini.tools.registry import SkillRegistry, create_default_registry
+from nini.tools.registry import ToolRegistry, create_default_tool_registry
 
 
 @pytest.fixture(autouse=True)
@@ -24,7 +24,7 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 @pytest.mark.asyncio
 async def test_t_test_fallback_to_mann_whitney_on_non_normal() -> None:
     """当数据不符合正态性假设时，t检验应降级到Mann-Whitney U检验。"""
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     # 创建明显偏态的数据（指数分布）
@@ -57,7 +57,7 @@ async def test_t_test_fallback_to_mann_whitney_on_non_normal() -> None:
 @pytest.mark.asyncio
 async def test_anova_fallback_to_kruskal_wallis_on_non_normal() -> None:
     """当数据不符合正态性假设时，ANOVA应降级到Kruskal-Wallis检验。"""
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     # 创建三组偏态数据
@@ -89,7 +89,7 @@ async def test_anova_fallback_to_kruskal_wallis_on_non_normal() -> None:
 @pytest.mark.asyncio
 async def test_fallback_disabled_when_requested() -> None:
     """当禁用降级时，即使数据不满足假设也应执行原始检验。"""
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     # 创建偏态数据
@@ -117,7 +117,7 @@ async def test_fallback_disabled_when_requested() -> None:
 @pytest.mark.asyncio
 async def test_normal_data_no_fallback_needed() -> None:
     """正态数据不需要降级。"""
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     # 创建正态数据
@@ -146,7 +146,7 @@ async def test_normal_data_no_fallback_needed() -> None:
 @pytest.mark.asyncio
 async def test_data_diagnosis_missing_values() -> None:
     """测试数据诊断功能检测缺失值。"""
-    registry = SkillRegistry()
+    registry = ToolRegistry()
     session = Session()
 
     # 创建有缺失值的数据
@@ -174,7 +174,7 @@ async def test_data_diagnosis_missing_values() -> None:
 @pytest.mark.asyncio
 async def test_data_diagnosis_outliers() -> None:
     """测试数据诊断功能检测异常值。"""
-    registry = SkillRegistry()
+    registry = ToolRegistry()
     session = Session()
 
     # 创建有异常值的数据
@@ -197,7 +197,7 @@ async def test_data_diagnosis_outliers() -> None:
 @pytest.mark.asyncio
 async def test_data_diagnosis_small_sample_size() -> None:
     """测试数据诊断功能检测小样本量。"""
-    registry = SkillRegistry()
+    registry = ToolRegistry()
     session = Session()
 
     # 创建小样本数据
@@ -218,7 +218,7 @@ async def test_data_diagnosis_small_sample_size() -> None:
 @pytest.mark.asyncio
 async def test_data_diagnosis_with_suggestions() -> None:
     """测试数据诊断功能提供建议。"""
-    registry = SkillRegistry()
+    registry = ToolRegistry()
     session = Session()
 
     # 创建有多种问题的数据
@@ -248,7 +248,7 @@ async def test_data_diagnosis_with_suggestions() -> None:
 @pytest.mark.asyncio
 async def test_fallback_preserves_original_result_info() -> None:
     """降级结果应保留原始技能信息。"""
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     # 创建偏态数据

@@ -14,7 +14,7 @@ from nini.models import ResourceType
 from nini.tools.base import SkillResult
 from nini.tools.fetch_url import FetchURLSkill
 import nini.tools.report_session as report_session_module
-from nini.tools.registry import LLM_EXPOSED_BASE_TOOL_NAMES, create_default_registry
+from nini.tools.registry import LLM_EXPOSED_BASE_TOOL_NAMES, create_default_tool_registry
 from nini.workspace import WorkspaceManager
 
 
@@ -26,7 +26,7 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_task_state_init_update_and_query() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     init_result = asyncio.run(
@@ -64,7 +64,7 @@ def test_task_state_init_update_and_query() -> None:
 
 
 def test_registry_only_exposes_base_tools_to_llm() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     definitions = registry.get_tool_definitions()
     names = {tool["function"]["name"] for tool in definitions}
 
@@ -74,7 +74,7 @@ def test_registry_only_exposes_base_tools_to_llm() -> None:
 
 
 def test_dataset_catalog_lists_and_profiles_datasets() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["demo"] = pd.DataFrame({"group": ["a", "b"], "value": [1.0, 2.0]})
 
@@ -117,7 +117,7 @@ def test_dataset_catalog_lists_and_profiles_datasets() -> None:
 
 
 def test_dataset_transform_runs_and_supports_step_patch() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["jan"] = pd.DataFrame({"group": ["a", "b"], "value": [1, 2]})
     session.datasets["feb"] = pd.DataFrame({"group": ["a", "b"], "value": [3, 4]})
@@ -173,7 +173,7 @@ def test_dataset_transform_runs_and_supports_step_patch() -> None:
 
 
 def test_dataset_transform_preview_rows_match_payload() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["raw"] = pd.DataFrame({"x": list(range(50)), "y": list(range(50))})
 
@@ -197,7 +197,7 @@ def test_dataset_transform_preview_rows_match_payload() -> None:
 
 
 def test_stat_facade_tools_delegate_existing_statistics() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["stats_demo"] = pd.DataFrame(
         {
@@ -246,7 +246,7 @@ def test_stat_facade_tools_delegate_existing_statistics() -> None:
 
 
 def test_stat_model_auto_uses_single_dataset_when_dataset_name_missing() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["stats_demo"] = pd.DataFrame(
         {
@@ -269,7 +269,7 @@ def test_stat_model_auto_uses_single_dataset_when_dataset_name_missing() -> None
 
 
 def test_stat_model_accepts_stringified_columns_array() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["stats_demo"] = pd.DataFrame(
         {
@@ -293,7 +293,7 @@ def test_stat_model_accepts_stringified_columns_array() -> None:
 
 
 def test_stat_model_requires_dataset_name_when_multiple_datasets_exist() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["a"] = pd.DataFrame({"x": [1, 2, 3], "y": [1, 2, 3]})
     session.datasets["b"] = pd.DataFrame({"x": [1, 2, 3], "y": [2, 3, 4]})
@@ -312,7 +312,7 @@ def test_stat_model_requires_dataset_name_when_multiple_datasets_exist() -> None
 
 
 def test_stat_test_auto_uses_single_dataset_when_dataset_name_missing() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["stats_demo"] = pd.DataFrame(
         {
@@ -336,7 +336,7 @@ def test_stat_test_auto_uses_single_dataset_when_dataset_name_missing() -> None:
 
 
 def test_stat_test_requires_dataset_name_when_multiple_datasets_exist() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["a"] = pd.DataFrame({"group": ["g1", "g1", "g2", "g2"], "value": [1, 2, 3, 4]})
     session.datasets["b"] = pd.DataFrame({"group": ["g1", "g1", "g2", "g2"], "value": [2, 3, 4, 5]})
@@ -356,7 +356,7 @@ def test_stat_test_requires_dataset_name_when_multiple_datasets_exist() -> None:
 
 
 def test_stat_test_returns_friendly_error_for_missing_required_param() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["stats_demo"] = pd.DataFrame(
         {
@@ -380,7 +380,7 @@ def test_stat_test_returns_friendly_error_for_missing_required_param() -> None:
 
 def test_stat_model_schema_explicitly_requires_correlation_dataset_and_columns() -> None:
     """stat_model 使用扁平 schema（非 oneOf），method 为唯一 required 字段。"""
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     skill = registry.get("stat_model")
     assert skill is not None
 
@@ -397,7 +397,7 @@ def test_stat_model_schema_explicitly_requires_correlation_dataset_and_columns()
 
 
 def test_stat_test_schema_explicitly_requires_dataset_and_columns_for_independent_t() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     skill = registry.get("stat_test")
     assert skill is not None
 
@@ -413,7 +413,7 @@ def test_stat_test_schema_explicitly_requires_dataset_and_columns_for_independen
 
 
 def test_workspace_session_schema_requires_file_path_for_read() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     skill = registry.get("workspace_session")
     assert skill is not None
 
@@ -426,7 +426,7 @@ def test_workspace_session_schema_requires_file_path_for_read() -> None:
 
 
 def test_dataset_transform_schema_op_is_strict_enum() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     skill = registry.get("dataset_transform")
     assert skill is not None
 
@@ -437,7 +437,7 @@ def test_dataset_transform_schema_op_is_strict_enum() -> None:
 
 
 def test_chart_session_persists_spec_and_tracks_exports() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["trend_demo"] = pd.DataFrame(
         {"month": ["1月", "2月", "3月"], "value": [10, 12, 9]}
@@ -503,7 +503,7 @@ def test_chart_session_persists_spec_and_tracks_exports() -> None:
 def test_report_session_persists_sections_and_exports(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     manager = WorkspaceManager(session.id)
 
@@ -698,7 +698,7 @@ def test_report_session_persists_sections_and_exports(
 def test_workspace_session_unifies_file_ops_and_fetch_save(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     write_result = asyncio.run(
@@ -754,7 +754,7 @@ def test_workspace_session_unifies_file_ops_and_fetch_save(
 
 
 def test_workspace_session_missing_operation_is_auto_normalized_to_list() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     result = asyncio.run(
@@ -772,7 +772,7 @@ def test_workspace_session_missing_operation_is_auto_normalized_to_list() -> Non
 
 
 def test_workspace_session_missing_operation_unsafe_inference_is_rejected() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     result = asyncio.run(
@@ -791,7 +791,7 @@ def test_workspace_session_missing_operation_unsafe_inference_is_rejected() -> N
 
 
 def test_code_session_persists_scripts_and_execution_history() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["raw.csv"] = pd.DataFrame({"x": [1, 2, 3]})
 
@@ -852,7 +852,7 @@ def test_code_session_persists_scripts_and_execution_history() -> None:
 
 
 def test_code_session_supports_patch_rerun_and_promote_output() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["raw.csv"] = pd.DataFrame({"x": [1, 2, 3]})
 
@@ -932,7 +932,7 @@ def test_code_session_supports_patch_rerun_and_promote_output() -> None:
 
 
 def test_code_session_records_failure_location_and_retry_link() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     create_result = asyncio.run(
@@ -998,7 +998,7 @@ def test_code_session_records_failure_location_and_retry_link() -> None:
 
 
 def test_code_session_run_script_falls_back_to_ad_hoc_when_content_provided() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["raw.csv"] = pd.DataFrame({"x": [1, 2, 3]})
 
@@ -1020,7 +1020,7 @@ def test_code_session_run_script_falls_back_to_ad_hoc_when_content_provided() ->
 
 
 def test_code_session_run_script_auto_uses_single_dataset_when_dataset_name_missing() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["only.csv"] = pd.DataFrame({"x": [2, 4, 6]})
 
@@ -1049,7 +1049,7 @@ def test_code_session_run_script_auto_uses_single_dataset_when_dataset_name_miss
 
 
 def test_code_session_rejects_file_io_when_dataset_name_provided() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["all.xlsx"] = pd.DataFrame({"x": [1, 2, 3]})
 

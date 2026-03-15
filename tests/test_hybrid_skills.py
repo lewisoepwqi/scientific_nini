@@ -12,7 +12,7 @@ from nini.agent.session import session_manager
 from nini.app import create_app
 from nini.config import settings
 from nini.api.websocket import set_skill_registry
-from nini.tools.registry import create_default_registry
+from nini.tools.registry import create_default_tool_registry
 from tests.client_utils import LocalASGIClient
 
 
@@ -58,7 +58,7 @@ def test_registry_scans_markdown_skills_and_writes_snapshot(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
     monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     catalog = registry.list_skill_catalog()
     markdown_items = [item for item in catalog if item.get("type") == "markdown"]
 
@@ -82,7 +82,7 @@ def test_markdown_skill_name_conflict_is_disabled(
     )
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     markdown = [item for item in registry.list_markdown_skills() if item["name"] == "t_test"]
     assert markdown, "应存在同名 Markdown 技能"
     assert markdown[0]["enabled"] is False
@@ -102,7 +102,7 @@ def test_api_skills_and_tools_split_catalog(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    set_skill_registry(create_default_registry())
+    set_skill_registry(create_default_tool_registry())
     with LocalASGIClient(app) as client:
         resp = client.get("/api/skills")
         assert resp.status_code == 200
@@ -157,7 +157,7 @@ def test_api_markdown_skill_progressive_disclosure(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    set_skill_registry(create_default_registry())
+    set_skill_registry(create_default_tool_registry())
     with LocalASGIClient(app) as client:
         instruction_resp = client.get("/api/skills/markdown/report_polish/instruction")
         assert instruction_resp.status_code == 200
@@ -179,7 +179,7 @@ def test_api_markdown_skill_upload(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    set_skill_registry(create_default_registry())
+    set_skill_registry(create_default_tool_registry())
     upload_text = (
         "---\n"
         "name: custom_upload_skill\n"
@@ -215,7 +215,7 @@ def test_api_markdown_skill_upload_new_route_alias(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    set_skill_registry(create_default_registry())
+    set_skill_registry(create_default_tool_registry())
     upload_text = (
         "---\n"
         "name: custom_upload_skill_v2\n"
@@ -255,7 +255,7 @@ def test_api_markdown_skill_manage_flow(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    set_skill_registry(create_default_registry())
+    set_skill_registry(create_default_tool_registry())
     with LocalASGIClient(app) as client:
         disable_resp = client.patch(
             "/api/skills/markdown/report_polish/enabled",
@@ -319,7 +319,7 @@ def test_registry_markdown_skill_duplicate_prefers_higher_priority_root(
     monkeypatch.setattr(settings, "skills_extra_dirs", str(secondary_dir))
     monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     markdown = registry.get_markdown_skill("dup_skill")
     assert markdown is not None
     assert markdown["description"] == "高优先级目录"
@@ -338,7 +338,7 @@ def test_api_markdown_skill_files_management(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    set_skill_registry(create_default_registry())
+    set_skill_registry(create_default_tool_registry())
     with LocalASGIClient(app) as client:
         list_resp = client.get("/api/skills/markdown/skill_with_files/files")
         assert list_resp.status_code == 200
@@ -410,7 +410,7 @@ def test_api_markdown_skill_dir_legacy_alias_still_available(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    set_skill_registry(create_default_registry())
+    set_skill_registry(create_default_tool_registry())
     with LocalASGIClient(app) as client:
         resp = client.post(
             "/api/skills/markdown/legacy_dir_skill/dirs",

@@ -7,7 +7,7 @@ import json
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping, cast
 
 from nini.config import settings
 from nini.harness.models import HarnessRunSummary, HarnessTraceRecord
@@ -129,23 +129,26 @@ class HarnessTraceStore:
             cursor = await db.execute(query, params)
             rows = await cursor.fetchall()
 
-        return [
-            HarnessRunSummary(
-                run_id=str(row["run_id"]),
-                session_id=str(row["session_id"]),
-                turn_id=str(row["turn_id"]),
-                status=str(row["status"]),
-                failure_tags=json.loads(str(row["failure_tags"] or "[]")),
-                duration_ms=int(row["duration_ms"] or 0),
-                input_tokens=int(row["input_tokens"] or 0),
-                output_tokens=int(row["output_tokens"] or 0),
-                estimated_cost_usd=float(row["estimated_cost_usd"] or 0.0),
-                trace_path=str(row["trace_path"]),
-                created_at=str(row["created_at"]),
-                updated_at=str(row["updated_at"]),
+        summaries: list[HarnessRunSummary] = []
+        for row in rows:
+            row_data = cast(Mapping[str, Any], row)
+            summaries.append(
+                HarnessRunSummary(
+                    run_id=str(row_data["run_id"]),
+                    session_id=str(row_data["session_id"]),
+                    turn_id=str(row_data["turn_id"]),
+                    status=str(row_data["status"]),
+                    failure_tags=json.loads(str(row_data["failure_tags"] or "[]")),
+                    duration_ms=int(row_data["duration_ms"] or 0),
+                    input_tokens=int(row_data["input_tokens"] or 0),
+                    output_tokens=int(row_data["output_tokens"] or 0),
+                    estimated_cost_usd=float(row_data["estimated_cost_usd"] or 0.0),
+                    trace_path=str(row_data["trace_path"]),
+                    created_at=str(row_data["created_at"]),
+                    updated_at=str(row_data["updated_at"]),
+                )
             )
-            for row in rows
-        ]
+        return summaries
 
     def load_run(self, run_id: str, session_id: str | None = None) -> HarnessTraceRecord:
         """读取单次运行明细。"""

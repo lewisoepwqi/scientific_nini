@@ -204,7 +204,9 @@ def json_schema_type_to_typescript(prop: dict) -> str:
         types = [type_mapping.get(t, "any") for t in prop_type]
         return " | ".join(types)
 
-    return type_mapping.get(prop_type, "any")
+    if isinstance(prop_type, str):
+        return type_mapping.get(prop_type, "any")
+    return "any"
 
 
 def main() -> int:

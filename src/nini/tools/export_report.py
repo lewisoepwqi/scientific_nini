@@ -247,16 +247,18 @@ def _guess_chrome_candidates() -> list[Path]:
         candidates.append(Path(browser_path))
 
     try:
-        import choreographer.cli._cli_utils as cli  # type: ignore[import-not-found,import-untyped]
+        import choreographer.cli._cli_utils as cli  # pyright: ignore[reportMissingImports,reportPrivateImportUsage]
 
-        browser_root = Path(cli.default_download_path)
-        candidates.extend(
-            [
-                browser_root / "chrome-win64" / "chrome.exe",
-                browser_root / "chrome-win32" / "chrome.exe",
-                browser_root / "chrome-linux64" / "chrome",
-            ]
-        )
+        default_path = getattr(cli, "default_download_path", None)
+        if default_path:
+            browser_root = Path(default_path)
+            candidates.extend(
+                [
+                    browser_root / "chrome-win64" / "chrome.exe",
+                    browser_root / "chrome-win32" / "chrome.exe",
+                    browser_root / "chrome-linux64" / "chrome",
+                ]
+            )
     except Exception:
         pass
 
@@ -812,6 +814,8 @@ async def export_workspace_document(
     )
     output_path = manager.resolve_workspace_path(output_relative_path, allow_missing=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_bytes is None:
+        return SkillResult(success=False, message="导出失败：未生成有效文件内容。")
     output_path.write_bytes(output_bytes)
     manager.sync_text_document_record(output_relative_path)
 

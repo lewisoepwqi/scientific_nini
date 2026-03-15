@@ -19,7 +19,7 @@ from nini.sandbox.policy import (
     get_allowed_import_roots,
     validate_code,
 )
-from nini.tools.registry import create_default_registry
+from nini.tools.registry import create_default_tool_registry
 
 
 @pytest.fixture(autouse=True)
@@ -105,7 +105,7 @@ async def test_sandbox_executor_raises_review_required_for_reviewable_import() -
 
 
 def test_run_code_returns_structured_review_request() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     result = asyncio.run(

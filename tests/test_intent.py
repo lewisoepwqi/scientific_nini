@@ -16,7 +16,7 @@ from nini.capabilities import Capability, CapabilityRegistry
 from nini.config import settings
 from nini.intent import IntentAnalyzer, OptimizedIntentAnalyzer, QueryType
 from nini.intent.base import QueryType as QueryTypeBase  # noqa: F401（向后兼容导入路径验证）
-from nini.tools.registry import create_default_registry
+from nini.tools.registry import create_default_tool_registry
 from tests.client_utils import LocalASGIClient
 
 
@@ -440,7 +440,7 @@ def intent_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
     app = create_app()
-    set_skill_registry(create_default_registry())
+    set_skill_registry(create_default_tool_registry())
     with LocalASGIClient(app) as client:
         yield client
 
