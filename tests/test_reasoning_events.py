@@ -140,11 +140,11 @@ class TestReasoningEventEmission:
     async def test_agent_emits_reasoning_on_method_selection(self):
         """测试 Agent 在方法选择时发射推理事件。"""
         from nini.agent.session import Session
-        from nini.tools.registry import create_default_registry
+        from nini.tools.registry import create_default_tool_registry
         import pandas as pd
 
         session = Session()
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
 
         # 创建 3 组数据（应该触发 ANOVA 选择）
         test_data = pd.DataFrame(
@@ -171,11 +171,11 @@ class TestReasoningEventEmission:
     async def test_agent_emits_reasoning_on_assumption_failure(self):
         """测试 Agent 在前提检验失败时发射推理事件。"""
         from nini.agent.session import Session
-        from nini.tools.registry import create_default_registry
+        from nini.tools.registry import create_default_tool_registry
         import pandas as pd
 
         session = Session()
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
 
         # 创建非正态数据（应该触发非参数方法建议）
         test_data = pd.DataFrame(

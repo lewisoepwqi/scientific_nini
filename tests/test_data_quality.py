@@ -22,7 +22,7 @@ from nini.tools.data_quality import (
     evaluate_data_quality,
     generate_quality_summary,
 )
-from nini.tools.registry import create_default_registry
+from nini.tools.registry import create_default_tool_registry
 
 
 class TestCompletenessScore:
@@ -355,7 +355,7 @@ class TestDiagnoseWithQualityScore:
     """测试诊断功能集成质量评分。"""
 
     async def test_diagnose_includes_quality_score(self):
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame(
             {
@@ -376,7 +376,7 @@ class TestDiagnoseWithQualityScore:
         assert "dimension_scores" in diagnosis["quality_score"]
 
     async def test_diagnose_without_quality_score(self):
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame({"a": [1, 2, 3]})
 

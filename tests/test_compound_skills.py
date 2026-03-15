@@ -403,9 +403,9 @@ class TestCompoundSkillRegistration:
 
     def test_compound_skills_registered(self):
         """测试复合技能正确注册。"""
-        from nini.tools.registry import SkillRegistry
+        from nini.tools.registry import ToolRegistry
 
-        registry = SkillRegistry()
+        registry = ToolRegistry()
 
         # 检查新技能是否可注册
         skill_names = registry.list_skills()

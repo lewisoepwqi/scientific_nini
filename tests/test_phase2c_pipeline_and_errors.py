@@ -12,7 +12,7 @@ from nini.agent.model_resolver import model_resolver
 from nini.agent.session import session_manager
 from nini.app import create_app
 from nini.config import settings
-from nini.tools.registry import create_default_registry
+from nini.tools.registry import create_default_tool_registry
 from nini.tools.visualization import CreateChartSkill
 from tests.client_utils import LocalASGIClient, live_websocket_connect
 
@@ -28,7 +28,7 @@ def app_with_temp_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def test_phase2c_upload_ttest_chart_pipeline(app_with_temp_data):
     """端到端回归：上传数据 -> t 检验 -> 生成图表。"""
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
 
     with LocalASGIClient(app_with_temp_data) as client:
         # 1) 创建会话

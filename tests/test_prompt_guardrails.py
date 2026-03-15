@@ -13,7 +13,7 @@ from nini.agent.prompts.builder import PromptBuilder
 from nini.agent.prompts.scientific import get_system_prompt
 from nini.agent.runner import AgentRunner
 from nini.agent.session import Session
-from nini.tools.registry import create_default_registry
+from nini.tools.registry import create_default_tool_registry
 
 
 class _DummyKnowledgeLoader:
@@ -157,7 +157,7 @@ async def test_build_messages_injects_explicit_slash_skill_context(
     monkeypatch.setattr(settings, "skills_extra_dirs", "")
     monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.add_message("user", "/root-analysis 帮我分析上传的数据")
 

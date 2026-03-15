@@ -39,9 +39,9 @@ class DOCXExporter(ReportExporter):
             DOCX 文件字节数据
         """
         try:
-            from docx import Document  # type: ignore[import-not-found]
-            from docx.shared import Inches, Pt  # type: ignore[import-not-found]
-            from docx.enum.text import WD_ALIGN_PARAGRAPH  # type: ignore[import-not-found]
+            from docx import Document  # pyright: ignore[reportMissingImports]
+            from docx.shared import Inches, Pt  # pyright: ignore[reportMissingImports]
+            from docx.enum.text import WD_ALIGN_PARAGRAPH  # pyright: ignore[reportMissingImports]
         except ImportError:
             logger.error("python-docx 未安装，无法导出 DOCX")
             raise ImportError("请安装 python-docx: pip install python-docx")
@@ -166,7 +166,7 @@ class DOCXExporter(ReportExporter):
                 run = paragraph.add_run(part[1:-1])
                 run.font.name = 'Courier New'
                 try:
-                    from docx.shared import Pt
+                    from docx.shared import Pt  # pyright: ignore[reportMissingImports]
 
                     run.font.size = Pt(10)
                 except ImportError:
@@ -196,13 +196,18 @@ class PDFExporter(ReportExporter):
             PDF 文件字节数据
         """
         try:
-            from reportlab.lib import colors
-            from reportlab.lib.pagesizes import A4
-            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-            from reportlab.lib.units import inch
-            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
-            from reportlab.pdfbase import pdfmetrics
-            from reportlab.pdfbase.ttfonts import TTFont
+            from reportlab.lib import colors  # pyright: ignore[reportMissingModuleSource]
+            from reportlab.lib.pagesizes import A4  # pyright: ignore[reportMissingModuleSource]
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle  # pyright: ignore[reportMissingModuleSource]
+            from reportlab.lib.units import inch  # pyright: ignore[reportMissingModuleSource]
+            from reportlab.platypus import (  # pyright: ignore[reportMissingModuleSource]
+                SimpleDocTemplate,
+                Paragraph,
+                Spacer,
+                PageBreak,
+            )
+            from reportlab.pdfbase import pdfmetrics  # pyright: ignore[reportMissingModuleSource]
+            from reportlab.pdfbase.ttfonts import TTFont  # pyright: ignore[reportMissingModuleSource]
         except ImportError:
             logger.error("reportlab 未安装，无法导出 PDF")
             raise ImportError("请安装 reportlab: pip install reportlab")

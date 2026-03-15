@@ -9,7 +9,7 @@ import pytest
 
 from nini.agent.session import Session, session_manager
 from nini.config import settings
-from nini.tools.registry import create_default_registry
+from nini.tools.registry import create_default_tool_registry
 from nini.workspace import WorkspaceManager
 
 
@@ -48,7 +48,7 @@ def _prepare_multi_sheet_excel(session: Session, dataset_name: str = "multi.xlsx
 
 @pytest.mark.asyncio
 async def test_load_dataset_single_sheet_mode() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     _prepare_multi_sheet_excel(session)
 
@@ -70,7 +70,7 @@ async def test_load_dataset_single_sheet_mode() -> None:
 
 @pytest.mark.asyncio
 async def test_load_dataset_all_sheets_separate_mode() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     _prepare_multi_sheet_excel(session)
 
@@ -94,7 +94,7 @@ async def test_load_dataset_all_sheets_separate_mode() -> None:
 
 @pytest.mark.asyncio
 async def test_load_dataset_all_sheets_combined_mode() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     _prepare_multi_sheet_excel(session)
 
@@ -120,7 +120,7 @@ async def test_load_dataset_all_sheets_combined_mode() -> None:
 
 @pytest.mark.asyncio
 async def test_load_dataset_single_mode_missing_sheet_name_shows_available_sheets() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     _prepare_multi_sheet_excel(session)
 

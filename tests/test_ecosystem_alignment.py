@@ -21,7 +21,7 @@ from nini.agent.session import Session, session_manager
 from nini.capabilities import Capability, CapabilityRegistry
 from nini.config import settings
 from nini.tools.base import Skill, SkillResult
-from nini.tools.registry import SkillRegistry
+from nini.tools.registry import ToolRegistry
 
 
 @pytest.fixture(autouse=True)
@@ -149,7 +149,7 @@ class TestContextMatching:
     def test_match_by_alias(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         from nini.agent.runner import AgentRunner
 
-        registry = SkillRegistry()
+        registry = ToolRegistry()
         md_skill = {
             "type": "markdown",
             "name": "root-analysis",
@@ -172,7 +172,7 @@ class TestContextMatching:
     def test_match_by_tag(self, tmp_path: Path):
         from nini.agent.runner import AgentRunner
 
-        registry = SkillRegistry()
+        registry = ToolRegistry()
         md_skill = {
             "type": "markdown",
             "name": "eco-analysis",
@@ -191,7 +191,7 @@ class TestContextMatching:
     def test_no_match(self):
         from nini.agent.runner import AgentRunner
 
-        registry = SkillRegistry()
+        registry = ToolRegistry()
         md_skill = {
             "type": "markdown",
             "name": "root-analysis",
@@ -210,7 +210,7 @@ class TestContextMatching:
     def test_disabled_skill_excluded(self):
         from nini.agent.runner import AgentRunner
 
-        registry = SkillRegistry()
+        registry = ToolRegistry()
         md_skill = {
             "type": "markdown",
             "name": "root-analysis",
@@ -229,7 +229,7 @@ class TestContextMatching:
     def test_disable_model_invocation(self):
         from nini.agent.runner import AgentRunner
 
-        registry = SkillRegistry()
+        registry = ToolRegistry()
         md_skill = {
             "type": "markdown",
             "name": "root-analysis",
@@ -275,7 +275,7 @@ class TestAllowedToolsAdvisory:
         monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
         monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
-        registry = SkillRegistry()
+        registry = ToolRegistry()
         from nini.tools.markdown_scanner import scan_markdown_skills
 
         md_skills = scan_markdown_skills([skills_dir])
@@ -310,7 +310,7 @@ class TestAllowedToolsAdvisory:
         monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
         monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
-        registry = SkillRegistry()
+        registry = ToolRegistry()
         from nini.tools.markdown_scanner import scan_markdown_skills
 
         md_skills = scan_markdown_skills([skills_dir])
@@ -338,7 +338,7 @@ class TestAllowedToolsAdvisory:
         monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
         monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
-        registry = SkillRegistry()
+        registry = ToolRegistry()
         from nini.tools.markdown_scanner import scan_markdown_skills
 
         md_skills = scan_markdown_skills([skills_dir])
@@ -445,7 +445,7 @@ class TestMCPServer:
         if not _MCP_AVAILABLE:
             pytest.skip("MCP SDK 未安装")
 
-        registry = SkillRegistry()
+        registry = ToolRegistry()
         registry.register(_DummySkill("test_tool"))
         registry.register(_DummySkill("hidden_tool", expose=False))
         capability_registry = CapabilityRegistry()
@@ -509,7 +509,7 @@ class TestMCPServer:
         if not _MCP_AVAILABLE:
             pytest.skip("MCP SDK 未安装")
 
-        registry = SkillRegistry()
+        registry = ToolRegistry()
         registry.register(_DummySkill("visible_tool", expose=True))
         registry.register(_DummySkill("hidden_tool", expose=False))
         capability_registry = CapabilityRegistry()
@@ -523,7 +523,7 @@ class TestMCPServer:
     async def test_call_tool_unknown(self):
         """测试调用未知工具返回错误。"""
         # 直接验证 registry 层面：不存在的技能
-        registry = SkillRegistry()
+        registry = ToolRegistry()
         result = await registry.execute("nonexistent", session=Session())
         assert result["success"] is False
         assert "未知技能" in result["message"]
@@ -531,7 +531,7 @@ class TestMCPServer:
     @pytest.mark.asyncio
     async def test_call_tool_executes(self):
         """测试 MCP call_tool 执行技能并返回结果。"""
-        registry = SkillRegistry()
+        registry = ToolRegistry()
         registry.register(_DummySkill("echo_tool"))
 
         session = Session()

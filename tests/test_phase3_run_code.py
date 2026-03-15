@@ -7,17 +7,17 @@ import asyncio
 import pandas as pd
 
 from nini.agent.session import Session
-from nini.tools.registry import create_default_registry
+from nini.tools.registry import create_default_tool_registry
 from nini.workspace import WorkspaceManager
 
 
 def test_registry_contains_run_code() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     assert "run_code" in registry.list_skills()
 
 
 def test_run_code_returns_scalar_result_and_stdout() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     result = asyncio.run(
@@ -34,7 +34,7 @@ def test_run_code_returns_scalar_result_and_stdout() -> None:
 
 
 def test_run_code_blocks_disallowed_import() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     result = asyncio.run(
@@ -52,7 +52,7 @@ def test_run_code_blocks_disallowed_import() -> None:
 
 
 def test_run_code_returns_review_request_for_reviewable_import() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     result = asyncio.run(
@@ -69,7 +69,7 @@ def test_run_code_returns_review_request_for_reviewable_import() -> None:
 
 
 def test_run_code_persist_df_overwrites_dataset() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["raw.csv"] = pd.DataFrame({"x": [1, 2], "y": [10, 20]})
 
@@ -89,7 +89,7 @@ def test_run_code_persist_df_overwrites_dataset() -> None:
 
 
 def test_run_code_output_df_can_save_as_dataset() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["raw.csv"] = pd.DataFrame({"x": [1, 2, 3]})
 
@@ -113,7 +113,7 @@ def test_run_code_output_df_can_save_as_dataset() -> None:
 
 
 def test_run_code_large_output_df_does_not_timeout() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     row_count = 20000
     session.datasets["raw.csv"] = pd.DataFrame(
@@ -139,7 +139,7 @@ def test_run_code_large_output_df_does_not_timeout() -> None:
 
 
 def test_run_code_auto_persists_temp_dataset_when_no_save_as() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["raw.csv"] = pd.DataFrame({"x": [1, 2, 3]})
 
@@ -161,7 +161,7 @@ def test_run_code_auto_persists_temp_dataset_when_no_save_as() -> None:
 
 
 def test_run_code_routes_through_code_session_history() -> None:
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
 
     result = asyncio.run(

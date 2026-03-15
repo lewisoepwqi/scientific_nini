@@ -18,7 +18,7 @@ import pytest
 from nini.agent.session import Session
 from nini.config import settings
 from nini.tools.base import SkillResult
-from nini.tools.registry import LLM_EXPOSED_BASE_TOOL_NAMES, create_default_registry
+from nini.tools.registry import LLM_EXPOSED_BASE_TOOL_NAMES, create_default_tool_registry
 from nini.workspace import WorkspaceManager
 
 
@@ -144,7 +144,7 @@ class TestResourceIdPropagation:
 
     def test_dataset_transform_registers_resource(self):
         """数据转换应注册资源并返回 resource_id。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
         session.datasets["source"] = pd.DataFrame({"a": [1, 2, 3]})
 
@@ -173,7 +173,7 @@ class TestResourceIdPropagation:
 
     def test_chart_session_registers_chart_resource(self):
         """图表会话应注册图表资源。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
         session.datasets["data"] = pd.DataFrame({"x": [1, 2, 3], "y": [4, 5, 6]})
 
@@ -200,7 +200,7 @@ class TestResourceIdPropagation:
 
     def test_report_session_registers_report_resource(self):
         """报告会话应注册报告资源。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         result = asyncio.run(
@@ -228,7 +228,7 @@ class TestFailureRecovery:
 
     def test_code_session_failure_records_error_location(self):
         """代码执行失败应记录错误位置。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         # 创建会失败的脚本
@@ -261,7 +261,7 @@ class TestFailureRecovery:
 
     def test_code_session_failure_includes_recovery_hint(self):
         """代码执行失败应包含恢复提示。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         result = asyncio.run(
@@ -292,7 +292,7 @@ class TestFailureRecovery:
 
     def test_code_session_patch_and_retry_flow(self):
         """代码执行失败后应支持 patch 和重试。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
 
         # 创建会失败的脚本
@@ -398,7 +398,7 @@ class TestDatasetTransformStepPatch:
 
     def test_transform_step_patch_preserves_other_steps(self):
         """步骤级 patch 应保持其他步骤不变。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
         session.datasets["input"] = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
 
@@ -452,7 +452,7 @@ class TestResourcePromotion:
 
     def test_script_output_can_be_promoted_to_resource(self):
         """脚本输出可以被提升为正式资源。"""
-        registry = create_default_registry()
+        registry = create_default_tool_registry()
         session = Session()
         session.datasets["input"] = pd.DataFrame({"x": [1, 2, 3]})
 

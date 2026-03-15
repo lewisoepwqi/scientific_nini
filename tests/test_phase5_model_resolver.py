@@ -1363,7 +1363,7 @@ def test_model_resolver_load_builtin_api_key_from_packaged_blob(
     """运行时应从已打包模块解密内置 Key，而非依赖 scripts 目录。"""
     encrypted = encrypt_key("sk-builtin-123")
     module = types.ModuleType("nini._builtin_key")
-    module.ENCRYPTED_BUILTIN_KEY = encrypted
+    setattr(module, "ENCRYPTED_BUILTIN_KEY", encrypted)
     monkeypatch.setitem(sys.modules, "nini._builtin_key", module)
     monkeypatch.setattr("nini.agent.model_resolver.settings.builtin_dashscope_api_key", "")
     monkeypatch.setattr("nini.agent.model_resolver.settings.dashscope_api_key", "")
@@ -1377,7 +1377,7 @@ def test_model_resolver_load_trial_api_key_from_packaged_blob(
     """运行时应支持从打包模块读取试用密钥。"""
     encrypted = encrypt_key("sk-trial-123")
     module = types.ModuleType("nini._builtin_key")
-    module.ENCRYPTED_TRIAL_KEY = encrypted
+    setattr(module, "ENCRYPTED_TRIAL_KEY", encrypted)
     monkeypatch.setitem(sys.modules, "nini._builtin_key", module)
     monkeypatch.setattr("nini.agent.model_resolver.settings.trial_api_key", "")
 

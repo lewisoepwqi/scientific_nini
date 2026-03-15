@@ -298,10 +298,11 @@ def _summarize_dataset_profile(data_obj: dict[str, Any]) -> dict[str, Any]:
 
     # 完整列名（最多 50 列）
     col_names: list[str] | None = None
+    columns_value = data_obj.get("columns")
     if isinstance(data_obj.get("column_names"), list):
         col_names = [str(c) for c in data_obj["column_names"]]
-    elif isinstance(data_obj.get("columns"), list):
-        col_names = [str(c) for c in data_obj["columns"]]
+    elif isinstance(columns_value, list):
+        col_names = [str(c) for c in columns_value]
     elif isinstance(basic, dict) and isinstance(basic.get("column_names"), list):
         col_names = [str(c) for c in basic["column_names"]]
 

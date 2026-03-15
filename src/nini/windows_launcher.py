@@ -13,7 +13,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Callable
+from typing import Any, Callable, cast
 import webbrowser
 from urllib.parse import urlparse
 
@@ -202,6 +202,66 @@ if sys.platform == "win32":
     user32.DispatchMessageW.restype = LRESULT
     shell32.Shell_NotifyIconW.argtypes = [wintypes.DWORD, ctypes.POINTER(NOTIFYICONDATAW)]
     shell32.Shell_NotifyIconW.restype = wintypes.BOOL
+else:
+    user32 = cast(Any, None)
+    shell32 = cast(Any, None)
+    kernel32 = cast(Any, None)
+
+    WM_DESTROY = 0
+    WM_CLOSE = 0
+    WM_QUIT = 0
+    WM_COMMAND = 0
+    WM_USER = 0
+    WM_APP = 0
+    WM_LBUTTONUP = 0
+    WM_LBUTTONDBLCLK = 0
+    WM_RBUTTONUP = 0
+    TPM_LEFTALIGN = 0
+    TPM_RETURNCMD = 0
+    MF_STRING = 0
+    MF_SEPARATOR = 0
+    NIM_ADD = 0
+    NIM_DELETE = 0
+    NIF_MESSAGE = 0
+    NIF_ICON = 0
+    NIF_TIP = 0
+    CS_HREDRAW = 0
+    CS_VREDRAW = 0
+    PM_REMOVE = 0
+    ID_TRAY_SHOW = 0
+    ID_TRAY_OPEN_BROWSER = 0
+    ID_TRAY_EXIT = 0
+    IDI_APPLICATION = 0
+    IDC_ARROW = 0
+    IMAGE_ICON = 0
+    LR_LOADFROMFILE = 0
+    LR_DEFAULTSIZE = 0
+    WM_TRAYICON = 0
+
+    HCURSOR = object
+    HBRUSH = object
+    HMENU = object
+    UINT_PTR = object
+    LRESULT = object
+    ATOM = object
+    HMODULE = object
+    LPCRECT = object
+    WNDPROC = Callable[..., int]
+
+    class WNDCLASSW(ctypes.Structure):
+        pass
+
+    class POINT(ctypes.Structure):
+        pass
+
+    class MSG(ctypes.Structure):
+        pass
+
+    class NOTIFYICONDATAW(ctypes.Structure):
+        pass
+
+    def _make_int_resource(resource_id: int):
+        return None
 
 
 def _is_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
@@ -302,9 +362,9 @@ def _spawn_background_process(
     command: list[str],
     *,
     env: dict[str, str] | None = None,
-) -> subprocess.Popen[bytes]:
+) -> subprocess.Popen[Any]:
     """以无控制台方式启动后台子进程，并保留句柄供退出时清理。"""
-    kwargs: dict[str, object] = {
+    kwargs: dict[str, Any] = {
         "args": command,
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
@@ -439,19 +499,26 @@ class _TrayApp:
     def _create_window(self) -> None:
         hinstance = kernel32.GetModuleHandleW(None)
 
-        @WNDPROC
-        def _window_proc(hwnd, msg, wparam, lparam):
-            if msg == WM_TRAYICON:
-                return self._handle_tray_event(hwnd, lparam)
-            if msg == WM_COMMAND:
-                return self._handle_command(hwnd, wparam)
-            if msg == WM_CLOSE:
-                user32.DestroyWindow(hwnd)
+        if sys.platform == "win32":
+
+            @WNDPROC
+            def _window_proc(hwnd, msg, wparam, lparam):
+                if msg == WM_TRAYICON:
+                    return self._handle_tray_event(hwnd, lparam)
+                if msg == WM_COMMAND:
+                    return self._handle_command(hwnd, wparam)
+                if msg == WM_CLOSE:
+                    user32.DestroyWindow(hwnd)
+                    return 0
+                if msg == WM_DESTROY:
+                    user32.PostQuitMessage(0)
+                    return 0
+                return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
+
+        else:
+
+            def _window_proc(hwnd, msg, wparam, lparam):
                 return 0
-            if msg == WM_DESTROY:
-                user32.PostQuitMessage(0)
-                return 0
-            return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
         self._wnd_proc = _window_proc
         wnd_class = WNDCLASSW()
@@ -628,7 +695,7 @@ class _EmbeddedWindowApp:
                 return 1
 
             try:
-                import webview
+                import webview  # pyright: ignore[reportMissingImports]
             except ImportError:
                 _show_error(
                     "当前安装包缺少 pywebview 依赖。\n"

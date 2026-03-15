@@ -23,7 +23,7 @@ from nini.tools.markdown_scanner import (
     render_skills_snapshot,
     scan_markdown_skills,
 )
-from nini.tools.registry import SkillRegistry, create_default_registry
+from nini.tools.registry import ToolRegistry, create_default_tool_registry
 
 
 @pytest.fixture(autouse=True)
@@ -105,7 +105,7 @@ async def test_execute_markdown_skill_returns_clear_error(
     # 使用 skills_extra_dirs 添加测试目录
     monkeypatch.setattr(settings, "skills_extra_dirs", str(skills_dir))
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     result = await registry.execute("my_guide", session=session)
 
@@ -117,7 +117,7 @@ async def test_execute_markdown_skill_returns_clear_error(
 @pytest.mark.asyncio
 async def test_execute_unknown_skill_returns_unknown_error() -> None:
     """执行不存在的技能名应返回 '未知技能'。"""
-    registry = SkillRegistry()
+    registry = ToolRegistry()
     session = Session()
     result = await registry.execute("nonexistent_skill", session=session)
 
@@ -132,7 +132,7 @@ async def test_execute_unknown_skill_returns_unknown_error() -> None:
 
 def test_register_duplicate_raises_value_error() -> None:
     """重复注册同名技能应抛出 ValueError。"""
-    registry = SkillRegistry()
+    registry = ToolRegistry()
     registry.register(_DummySkill("alpha"))
 
     with pytest.raises(ValueError, match="技能名称冲突"):
@@ -141,7 +141,7 @@ def test_register_duplicate_raises_value_error() -> None:
 
 def test_register_duplicate_with_allow_override() -> None:
     """传入 allow_override=True 时允许覆盖。"""
-    registry = SkillRegistry()
+    registry = ToolRegistry()
     skill_a = _DummySkill("alpha")
     skill_b = _DummySkill("alpha")
 
@@ -153,7 +153,7 @@ def test_register_duplicate_with_allow_override() -> None:
 
 def test_register_different_names_no_conflict() -> None:
     """注册不同名称的技能不应冲突。"""
-    registry = SkillRegistry()
+    registry = ToolRegistry()
     registry.register(_DummySkill("alpha"))
     registry.register(_DummySkill("beta"))
 
@@ -416,11 +416,11 @@ def test_snapshot_includes_category() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 6. 集成：create_default_registry 全流程
+# 6. 集成：create_default_tool_registry 全流程
 # ---------------------------------------------------------------------------
 
 
-def test_create_default_registry_no_duplicate_names(
+def test_create_default_tool_registry_no_duplicate_names(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -428,7 +428,7 @@ def test_create_default_registry_no_duplicate_names(
     monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty_skills")
     (tmp_path / "empty_skills").mkdir()
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     names = registry.list_skills()
     assert len(names) == len(set(names)), "存在重复注册的技能名称"
 
@@ -447,7 +447,7 @@ def test_catalog_includes_category_for_both_types(
     )
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     catalog = registry.list_skill_catalog()
 
     for item in catalog:
@@ -466,7 +466,7 @@ def test_function_skill_catalog_exposes_default_enhanced_metadata(
     monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
     (tmp_path / "empty").mkdir()
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     t_test_item = next(item for item in registry.list_function_skills() if item["name"] == "t_test")
 
     assert t_test_item["brief_description"]
@@ -504,7 +504,7 @@ def test_registry_progressive_disclosure_methods(
     (skill_dir / "scripts" / "run.py").write_text("print('ok')\n", encoding="utf-8")
     monkeypatch.setattr(settings, "skills_extra_dirs", str(skills_dir))
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
 
     index_payload = registry.get_skill_index("analysis_guide")
     assert index_payload is not None
@@ -542,7 +542,7 @@ def test_semantic_catalog_contains_matching_fields(
     )
     monkeypatch.setattr(settings, "skills_extra_dirs", str(skills_dir))
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     semantic_catalog = registry.get_semantic_catalog(skill_type="markdown")
 
     entry = next(item for item in semantic_catalog if item["name"] == "test-semantic-skill")
@@ -585,7 +585,7 @@ def test_all_function_skills_use_valid_categories(
     monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
     (tmp_path / "empty").mkdir()
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     for item in registry.list_function_skills():
         assert (
             item["category"] in VALID_CATEGORIES
@@ -600,7 +600,7 @@ def test_no_skills_use_deprecated_categories(
     monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
     (tmp_path / "empty").mkdir()
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     deprecated = {"code", "composite"}
     for item in registry.list_function_skills():
         assert (
@@ -623,7 +623,7 @@ def test_tool_adapter_to_openai_tools(
     monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "empty")
     (tmp_path / "empty").mkdir()
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     adapter = ToolAdapter(registry)
     tools = adapter.to_openai_tools()
 
@@ -651,7 +651,7 @@ def test_tool_adapter_to_mcp_tools(
     )
     monkeypatch.setattr(settings, "skills_extra_dirs", str(skills_dir))
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     adapter = ToolAdapter(registry)
     tools = adapter.to_mcp_tools()
 
@@ -676,7 +676,7 @@ def test_tool_adapter_to_claude_code_markdown(
     monkeypatch.setattr(settings, "skills_extra_dirs", str(tmp_path / "empty"))
     (tmp_path / "empty").mkdir()
 
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     adapter = ToolAdapter(registry)
     md = adapter.to_claude_code_markdown()
 

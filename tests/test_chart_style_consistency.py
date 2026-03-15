@@ -16,7 +16,7 @@ from nini.charts.style_contract import build_style_spec, normalize_render_engine
 from nini.charts.renderers import apply_plotly_style
 from nini.config import settings
 from nini.tools.markdown_scanner import scan_markdown_skills
-from nini.tools.registry import create_default_registry
+from nini.tools.registry import create_default_tool_registry
 from nini.tools.visualization import CreateChartSkill
 
 
@@ -122,7 +122,7 @@ def test_cross_engine_style_parameters_consistent() -> None:
 
 def test_run_code_matplotlib_exports_publication_formats() -> None:
     """run_code 生成 matplotlib 图时应导出 pdf/svg/png。"""
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     session = Session()
     session.datasets["exp.csv"] = pd.DataFrame({"x": [1, 2, 3], "y": [2, 3, 4]})
 
@@ -156,7 +156,7 @@ def test_publication_skill_scanned_into_markdown_skills() -> None:
 
 def test_publication_skill_written_into_snapshot() -> None:
     """发表级图表技能应进入技能快照。"""
-    registry = create_default_registry()
+    registry = create_default_tool_registry()
     registry.write_skills_snapshot()
     snapshot_text = settings.skills_snapshot_path.read_text(encoding="utf-8")
     assert "publication_figure" in snapshot_text
