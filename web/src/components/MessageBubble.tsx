@@ -2,7 +2,7 @@
  * 消息气泡组件 —— 渲染用户和 AI 消息，支持工具消息折叠和产物下载。
  */
 import React, { Suspense, lazy, useEffect, useState } from "react";
-import { type Message, type RetrievalItem } from "../store";
+import { type Message, type RetrievalItem, useStore } from "../store";
 import {
   Bot,
   User,
@@ -127,6 +127,7 @@ function MessageBubble({
   onRetry,
   retryDisabled = false,
 }: Props) {
+  const completedAgents = useStore((s) => s.completedAgents);
   const isUser = message.role === "user";
   const isTool = message.role === "tool";
   const isReasoning = !!message.isReasoning;
@@ -333,6 +334,12 @@ function MessageBubble({
           badge: "bg-amber-100 text-amber-700",
         };
 
+    // dispatch_agents 工具：展示参与执行的子 Agent 来源标签
+    const isDispatchAgents = message.toolName === "dispatch_agents";
+    const sourceAgents = isDispatchAgents && completedAgents.length > 0
+      ? completedAgents
+      : [];
+
     return (
       <div className="flex gap-3 mb-3">
         <div
@@ -341,6 +348,20 @@ function MessageBubble({
           <Wrench size={14} />
         </div>
         <div className="flex-1 min-w-0">
+          {/* 子 Agent 来源标签（仅 dispatch_agents 工具结果展示） */}
+          {sourceAgents.length > 0 && (
+            <div className="mb-1 flex flex-wrap gap-1">
+              {sourceAgents.map((agent) => (
+                <span
+                  key={agent.agentId}
+                  className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 ring-1 ring-inset ring-indigo-200"
+                  title={agent.task}
+                >
+                  [{agent.agentName}]
+                </span>
+              ))}
+            </div>
+          )}
           <div
             className={`rounded-lg border ${themeColors.border} ${themeColors.bg} overflow-hidden`}
           >

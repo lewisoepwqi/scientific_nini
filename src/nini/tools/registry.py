@@ -44,6 +44,7 @@ from nini.tools.templates import (
     RegressionAnalysisSkill,
 )
 from nini.tools.analysis_memory_tool import AnalysisMemorySkill
+from nini.tools.dispatch_agents import DispatchAgentsTool
 from nini.tools.profile_notes import UpdateProfileNotesSkill
 from nini.tools.workspace_session import WorkspaceSessionSkill
 
@@ -276,6 +277,22 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(WorkspaceSessionSkill())
     registry.register(AnalysisMemorySkill())
     registry.register(UpdateProfileNotesSkill())
+
+    # 注册 dispatch_agents 工具（不加入 LLM_EXPOSED_BASE_TOOL_NAMES，仅主 Agent 可用）
+    from nini.agent.registry import AgentRegistry
+    from nini.agent.spawner import SubAgentSpawner
+    from nini.agent.fusion import ResultFusionEngine
+    from nini.agent.model_resolver import model_resolver as _model_resolver
+
+    _agent_registry = AgentRegistry(tool_registry=registry)
+    _spawner = SubAgentSpawner(registry=_agent_registry, tool_registry=registry)
+    _fusion_engine = ResultFusionEngine(model_resolver=_model_resolver)
+    registry.register(DispatchAgentsTool(
+        agent_registry=_agent_registry,
+        spawner=_spawner,
+        fusion_engine=_fusion_engine,
+    ))
+
     registry.reload_markdown_skills()
     registry.write_skills_snapshot()
     return registry
