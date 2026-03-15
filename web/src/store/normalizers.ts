@@ -139,7 +139,7 @@ export function normalizeTaskAttemptStatus(raw: unknown): AnalysisTaskAttemptSta
 
 const REASONING_MARKER_PATTERN = /<\/?think>|<\/?thinking>|◁think▷|◁\/think▷/gi;
 const REASONING_TOOL_WRAP_PATTERN =
-  /<\/?(tool_call|arg_key|arg_value)>|<\/arg_key><arg_value>/gi;
+  /<\/?(tool_call|arg_key|arg_value)>|<\/arg_key><arg_value>/i;
 const REASONING_TOOL_LEAK_PATTERN =
   /(content|file_path|operation|tasks|chart_id)<\/arg_key><arg_value>/i;
 

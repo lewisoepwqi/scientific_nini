@@ -9,8 +9,6 @@ import type {
   Message,
   AnalysisStep,
   AnalysisTaskItem,
-  AnalysisPlanProgress,
-  AnalysisTaskAttemptStatus,
   ArtifactInfo,
   RetrievalItem,
   StreamingMetrics,
@@ -22,20 +20,19 @@ import {
   nextId,
   nextAnalysisTaskId,
   makePlanProgressFromSteps,
+  applyPlanProgressPayload,
   applyPlanStepUpdateToProgress,
   updateAnalysisTaskById,
   updateAnalysisTaskWithAttempt,
   findTaskIdByStepAndTurn,
-  clampStepIndex,
 } from "./utils";
 import {
   normalizeAnalysisSteps,
+  normalizeTaskAttemptStatus,
   normalizePlanStepStatus,
   mergePlanStepStatus,
-  createDefaultPlanSteps,
 } from "./normalizers";
 import { upsertAssistantTextMessage } from "./message-normalizer";
-import { deriveNextHint } from "./plan-state-machine";
 
 function extractPlanEventOrder(
   evt: WSEvent,
@@ -58,23 +55,6 @@ function extractPlanEventOrder(
   return Date.now();
 }
 
-function normalizeTaskAttemptStatus(raw: unknown): AnalysisTaskAttemptStatus {
-  if (typeof raw !== "string") return "in_progress";
-  const normalized = raw.trim().toLowerCase();
-  switch (normalized) {
-    case "retrying":
-      return "retrying";
-    case "success":
-    case "done":
-      return "success";
-    case "failed":
-    case "error":
-      return "failed";
-    default:
-      return "in_progress";
-  }
-}
-
 function isActiveSessionEvent(evt: WSEvent, get: GetStateFn): boolean {
   const currentSessionId = get().sessionId;
   return (
@@ -82,76 +62,6 @@ function isActiveSessionEvent(evt: WSEvent, get: GetStateFn): boolean {
     evt.session_id.length > 0 &&
     currentSessionId === evt.session_id
   );
-}
-
-function applyPlanProgressPayload(
-  s: AppStateSubset,
-  payload: Record<string, unknown>,
-): AnalysisPlanProgress | null {
-  const totalRaw = payload.total_steps;
-  const total =
-    typeof totalRaw === "number" && Number.isFinite(totalRaw) && totalRaw > 0
-      ? Math.floor(totalRaw)
-      : s.analysisPlanProgress?.total_steps || 0;
-  if (total <= 0) return s.analysisPlanProgress;
-
-  const currentRaw = payload.current_step_index;
-  const currentStepIndex =
-    typeof currentRaw === "number" && Number.isFinite(currentRaw)
-      ? clampStepIndex(Math.floor(currentRaw), total)
-      : s.analysisPlanProgress?.current_step_index
-        ? clampStepIndex(s.analysisPlanProgress.current_step_index, total)
-        : 1;
-
-  const incomingStatus = normalizePlanStepStatus(payload.step_status);
-  const stepTitleRaw = payload.step_title;
-  const incomingStepTitle =
-    typeof stepTitleRaw === "string" && stepTitleRaw.trim()
-      ? stepTitleRaw.trim()
-      : s.analysisPlanProgress?.step_title || `步骤 ${currentStepIndex}`;
-  const incomingNextHint =
-    typeof payload.next_hint === "string" && payload.next_hint.trim()
-      ? payload.next_hint.trim()
-      : null;
-  const blockReason =
-    typeof payload.block_reason === "string" && payload.block_reason.trim()
-      ? payload.block_reason.trim()
-      : null;
-
-  const baseSteps =
-    s.analysisPlanProgress && s.analysisPlanProgress.steps.length > 0
-      ? [...s.analysisPlanProgress.steps]
-      : createDefaultPlanSteps(total);
-  const steps = Array.from({ length: total }, (_, idx) => {
-    const existingStep = baseSteps[idx];
-    const fallbackStep: AnalysisStep = {
-      id: idx + 1,
-      title: `步骤 ${idx + 1}`,
-      tool_hint: null,
-      status: "not_started",
-    };
-    return existingStep ? { ...existingStep, id: idx + 1 } : fallbackStep;
-  });
-
-  const targetIdx = currentStepIndex - 1;
-  const targetStep = steps[targetIdx];
-  const mergedStatus = mergePlanStepStatus(targetStep.status, incomingStatus);
-  steps[targetIdx] = {
-    ...targetStep,
-    title: incomingStepTitle,
-    status: mergedStatus,
-  };
-
-  return {
-    steps,
-    current_step_index: currentStepIndex,
-    total_steps: total,
-    step_title: incomingStepTitle,
-    step_status: mergedStatus,
-    next_hint:
-      incomingNextHint ?? deriveNextHint(steps, currentStepIndex, mergedStatus),
-    block_reason: blockReason,
-  };
 }
 
 import { emitSessionsChanged } from "./session-lifecycle";
@@ -322,7 +232,7 @@ export function handleExtendedEvent(
       const eventOrder = extractPlanEventOrder(evt, data);
       set((s) => {
         if (eventOrder < s._analysisPlanOrder) return {};
-        const nextProgress = applyPlanProgressPayload(s, data);
+        const nextProgress = applyPlanProgressPayload(s.analysisPlanProgress, data);
         if (!nextProgress) return {};
         const stepId = nextProgress.current_step_index;
         const currentTurnId = s._currentTurnId;
