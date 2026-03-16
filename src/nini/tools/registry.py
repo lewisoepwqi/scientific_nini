@@ -282,15 +282,21 @@ def create_default_tool_registry() -> ToolRegistry:
     from nini.agent.registry import AgentRegistry
     from nini.agent.spawner import SubAgentSpawner
     from nini.agent.fusion import ResultFusionEngine
+    from nini.agent.router import TaskRouter
     from nini.agent.model_resolver import model_resolver as _model_resolver
 
     _agent_registry = AgentRegistry(tool_registry=registry)
     _spawner = SubAgentSpawner(registry=_agent_registry, tool_registry=registry)
     _fusion_engine = ResultFusionEngine(model_resolver=_model_resolver)
+    _task_router = TaskRouter(
+        model_resolver=_model_resolver,
+        enable_llm_fallback=False,
+    )
     registry.register(DispatchAgentsTool(
         agent_registry=_agent_registry,
         spawner=_spawner,
         fusion_engine=_fusion_engine,
+        task_router=_task_router,
     ))
 
     registry.reload_markdown_skills()

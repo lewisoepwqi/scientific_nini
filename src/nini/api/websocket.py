@@ -181,6 +181,28 @@ async def websocket_agent(ws: WebSocket):
         _code_exec_tools = ("run_code", "run_r_code", "execute_code", "code_exec")
         _pending_code: dict[str, str] = {}
         _pending_tool_args: dict[str, dict] = {}
+        previous_event_callback = getattr(session, "event_callback", None)
+
+        async def _forward_session_event(event: Any) -> None:
+            """转发工具运行时通过 session.event_callback 推送的事件。"""
+            if previous_event_callback is not None:
+                result = previous_event_callback(event)
+                if asyncio.iscoroutine(result):
+                    await result
+
+            await _send_event(
+                ws,
+                event.type.value,
+                data=event.data,
+                session_id=session.id,
+                tool_call_id=getattr(event, "tool_call_id", None),
+                tool_name=getattr(event, "tool_name", None),
+                turn_id=getattr(event, "turn_id", None),
+                metadata=getattr(event, "metadata", None),
+                active_stop_events=active_stop_events,
+            )
+
+        session.event_callback = _forward_session_event
 
         try:
             async for event in runner.run(
@@ -339,6 +361,7 @@ async def websocket_agent(ws: WebSocket):
                     active_stop_events=active_stop_events,
                 )
         finally:
+            session.event_callback = previous_event_callback
             _cancel_pending_questions(session.id)
             # 从字典中移除该会话的任务和停止事件
             active_chat_tasks.pop(session.id, None)

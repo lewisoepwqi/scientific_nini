@@ -1,4 +1,9 @@
-## ADDED Requirements
+# peer-review Specification
+
+## Purpose
+定义同行评审辅助能力在意图层的识别规则、同义词覆盖范围，以及审稿意见整理和回复信撰写场景的路由要求，确保审稿相关请求能稳定命中对应能力。
+
+## Requirements
 
 ### Requirement: peer_review Capability 在意图层可被识别
 

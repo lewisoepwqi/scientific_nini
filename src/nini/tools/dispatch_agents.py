@@ -26,6 +26,7 @@ class DispatchAgentsTool(Skill):
         agent_registry: Any = None,
         spawner: Any = None,
         fusion_engine: Any = None,
+        task_router: Any = None,
     ) -> None:
         """初始化工具，通过构造函数注入依赖。
 
@@ -33,10 +34,12 @@ class DispatchAgentsTool(Skill):
             agent_registry: AgentRegistry 实例
             spawner: SubAgentSpawner 实例
             fusion_engine: ResultFusionEngine 实例
+            task_router: TaskRouter 实例
         """
         self._agent_registry = agent_registry
         self._spawner = spawner
         self._fusion_engine = fusion_engine
+        self._task_router = task_router
 
     @property
     def name(self) -> str:
@@ -109,12 +112,14 @@ class DispatchAgentsTool(Skill):
         if not tasks:
             return SkillResult(success=True, message="")
 
-        # 为每个任务构造 (agent_id, task) 元组
-        # 使用 AgentRegistry 中存在的第一个 agent 作为默认（若无路由信息）
-        # 实际路由由 Orchestrator 钩子 _handle_dispatch_agents 在调用前已完成
-        # 这里直接通过 spawner.spawn_batch 使用传入的路由结果
-        # （Orchestrator 钩子会将路由后的 agent_id-task 对传入，此处为直接调用路径）
-        task_pairs = _build_task_pairs(tasks, self._agent_registry, context)
+        # 为每个任务构造 (agent_id, task) 元组。
+        # 直接调用 execute() 时，这里也会进行真实路由，而不是退化到固定 agent。
+        task_pairs = await _build_task_pairs(
+            tasks,
+            task_router=self._task_router,
+            agent_registry=self._agent_registry,
+            context=context,
+        )
 
         if not task_pairs:
             return SkillResult(
@@ -139,8 +144,10 @@ class DispatchAgentsTool(Skill):
         )
 
 
-def _build_task_pairs(
+async def _build_task_pairs(
     tasks: list[str],
+    *,
+    task_router: Any,
     agent_registry: Any,
     context: str = "",
 ) -> list[tuple[str, str]]:
@@ -155,13 +162,52 @@ def _build_task_pairs(
     if not available_agents:
         return []
 
-    # 简单启发：对每个任务选取第一个可用 Agent（Orchestrator 钩子中会做真正路由）
-    # 此处为 execute() 直接调用路径（不经过 Orchestrator 钩子）的默认行为
+    available_agent_ids = {agent.agent_id for agent in available_agents}
+    default_agent_id = available_agents[0].agent_id
     pairs: list[tuple[str, str]] = []
     for task in tasks:
-        # 使用第一个可用 Agent 作为默认
-        agent_id = available_agents[0].agent_id
+        routed_pairs = await _route_task_pairs(
+            task,
+            task_router=task_router,
+            available_agent_ids=available_agent_ids,
+            context=context,
+        )
+        if routed_pairs:
+            pairs.extend(routed_pairs)
+            continue
         task_text = f"{task}\n背景：{context}" if context else task
-        pairs.append((agent_id, task_text))
+        pairs.append((default_agent_id, task_text))
 
     return pairs
+
+
+async def _route_task_pairs(
+    task: str,
+    *,
+    task_router: Any,
+    available_agent_ids: set[str],
+    context: str,
+) -> list[tuple[str, str]]:
+    """通过 TaskRouter 生成合法的 (agent_id, task) 对。"""
+    if task_router is None:
+        return []
+
+    decision = await task_router.route(
+        task,
+        context={"background": context} if context else None,
+    )
+    if not getattr(decision, "agent_ids", None):
+        return []
+
+    routed_pairs: list[tuple[str, str]] = []
+    for index, agent_id in enumerate(decision.agent_ids):
+        if agent_id not in available_agent_ids:
+            continue
+        routed_task = task
+        if index < len(decision.tasks):
+            candidate = decision.tasks[index]
+            if candidate:
+                routed_task = candidate
+        task_text = f"{routed_task}\n背景：{context}" if context else routed_task
+        routed_pairs.append((agent_id, task_text))
+    return routed_pairs
