@@ -12,6 +12,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from nini.intent import detect_multi_intent
+from nini.intent.multi_intent import _PARALLEL_MARKERS
+
 logger = logging.getLogger(__name__)
 
 # 内置关键词路由规则：(关键词集合, 目标 agent_id)
@@ -22,6 +25,12 @@ _BUILTIN_RULES: list[tuple[frozenset[str], str]] = [
     (frozenset({"统计", "检验", "p值", "显著性", "回归", "方差", "anova"}), "statistician"),
     (frozenset({"图表", "可视化", "画图", "箱线图", "散点图", "柱状图"}), "viz_designer"),
     (frozenset({"写作", "润色", "摘要", "引言", "讨论", "结论"}), "writing_assistant"),
+    (
+        frozenset({"引用格式", "参考文献", "文献管理", "bibliography", "citation"}),
+        "citation_manager",
+    ),
+    (frozenset({"研究规划", "研究设计", "实验设计", "研究方案", "研究思路"}), "research_planner"),
+    (frozenset({"审稿", "同行评审", "评审意见", "回复审稿", "修改意见"}), "review_assistant"),
 ]
 
 # LLM 兜底路由的置信度阈值
@@ -38,6 +47,9 @@ _LLM_ROUTING_PROMPT = """\
 - statistician：统计检验、回归分析、方差分析、显著性检验
 - viz_designer：数据可视化、图表制作
 - writing_assistant：科研写作、论文润色、摘要撰写
+- citation_manager：引用格式化、参考文献管理、文献引用规范
+- research_planner：研究规划、实验设计、研究方案制定
+- review_assistant：审稿辅助、同行评审、回复评审意见
 
 用户意图：{intent}
 
@@ -54,7 +66,8 @@ _LLM_BATCH_ROUTING_PROMPT = """\
 你是任务路由器。请批量分析以下任务并输出路由决策。
 
 可用 Agent（同上）：
-literature_search, literature_reading, data_cleaner, statistician, viz_designer, writing_assistant
+literature_search, literature_reading, data_cleaner, statistician, viz_designer, writing_assistant,
+citation_manager, research_planner, review_assistant
 
 任务列表：
 {tasks_json}
@@ -203,6 +216,21 @@ class TaskRouter:
             RoutingDecision
         """
         context = context or {}
+
+        # 多意图检测：在规则路由之前拆分复合查询
+        sub_intents = detect_multi_intent(intent)
+        if sub_intents is not None:
+            is_parallel = bool(_PARALLEL_MARKERS.search(intent))
+            batch = await self.route_batch(sub_intents)
+            merged = RoutingDecision(
+                agent_ids=[aid for d in batch for aid in d.agent_ids],
+                tasks=[t for d in batch for t in d.tasks],
+                confidence=min((d.confidence for d in batch), default=0.0),
+                strategy="multi_intent",
+                parallel=is_parallel,
+            )
+            return merged
+
         rule_result = self._rule_route(intent)
 
         if rule_result.confidence >= _LLM_FALLBACK_THRESHOLD or not self._enable_llm_fallback:
