@@ -42,6 +42,10 @@ import {
   upsertToolResultMessage,
 } from "./message-normalizer";
 import { normalizeToolResult } from "./tool-result";
+import {
+  getSessionUiCacheEntry,
+  updateSessionUiCacheEntry,
+} from "./session-ui-cache";
 
 import { areAllPlanStepsDone } from "./plan-state-machine";
 import { handleAgentEvent } from "./agent-event-handler";
@@ -393,6 +397,15 @@ function isActiveSessionEvent(evt: WSEvent, get: GetStateFn): boolean {
   );
 }
 
+function getBackgroundSessionId(evt: WSEvent, get: GetStateFn): string | null {
+  const sessionId =
+    typeof evt.session_id === "string" && evt.session_id.trim()
+      ? evt.session_id.trim()
+      : null;
+  if (!sessionId) return null;
+  return sessionId === get().sessionId ? null : sessionId;
+}
+
 function resolveSessionTitle(state: AppStateSubset, sessionId: string): string {
   const matched = state.sessions.find((item) => item.id === sessionId);
   const title = matched?.title?.trim();
@@ -484,8 +497,29 @@ export function handleEvent(
     }
 
     case "iteration_start": {
-      // 非当前会话的迭代事件静默丢弃
-      if (evt.session_id && evt.session_id !== get().sessionId) break;
+      const backgroundSessionId = getBackgroundSessionId(evt, get);
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+          ...entry,
+          currentTurnId: evt.turn_id || null,
+          streamingText: "",
+          lastHandledSeq: undefined,
+          harnessRunContext: null,
+          completionCheck: null,
+          blockedState: null,
+          streamingMetrics: entry.streamingMetrics.startedAt
+            ? {
+                ...entry.streamingMetrics,
+                turnId: evt.turn_id || null,
+              }
+            : {
+                ...entry.streamingMetrics,
+                startedAt: Date.now(),
+                turnId: evt.turn_id || null,
+              },
+        }));
+        break;
+      }
       // 新迭代开始：重置流式文本累积，记录 turnId，同时重置序列号
       set((s) => ({
         _streamingText: "",
@@ -506,8 +540,7 @@ export function handleEvent(
     }
 
     case "text": {
-      // 非当前会话的文本事件静默丢弃
-      if (evt.session_id && evt.session_id !== get().sessionId) break;
+      const backgroundSessionId = getBackgroundSessionId(evt, get);
       const rawText =
         typeof evt.data === "string"
           ? evt.data
@@ -538,6 +571,41 @@ export function handleEvent(
 
       // 如果存在 message_id，使用新逻辑（消息去重）
       if (messageId) {
+        if (backgroundSessionId) {
+          updateSessionUiCacheEntry(backgroundSessionId, (entry) => {
+            const turnId = evt.turn_id || entry.currentTurnId || undefined;
+            const timestamp = Date.now();
+            let effectiveOperation = operation;
+            let finalContent = text;
+            if (!text && operation === "complete") {
+              return entry;
+            }
+            if (operation === "complete") {
+              effectiveOperation = "replace";
+            }
+            const nextMessages = upsertAssistantTextMessage(entry.messages, {
+              content: finalContent,
+              timestamp,
+              messageId,
+              turnId,
+              operation: effectiveOperation,
+            });
+            const currentContent =
+              nextMessages.find(
+                (msg) =>
+                  msg.role === "assistant" &&
+                  !msg.isReasoning &&
+                  msg.messageId === messageId,
+              )?.content ?? finalContent;
+            return {
+              ...entry,
+              messages: nextMessages,
+              streamingText: operation === "complete" ? "" : currentContent,
+              currentTurnId: turnId ?? entry.currentTurnId,
+            };
+          });
+          break;
+        }
         set((s) => {
           const buffer = { ...s._messageBuffer };
           const turnId = evt.turn_id || s._currentTurnId || undefined;
@@ -593,6 +661,74 @@ export function handleEvent(
 
       // ===== 旧逻辑（向后兼容）=====
       if (!text) break;
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => {
+          const seq = evt.metadata?.seq as number | undefined;
+          if (
+            seq !== undefined &&
+            entry.lastHandledSeq !== undefined &&
+            seq <= entry.lastHandledSeq
+          ) {
+            return entry;
+          }
+          const newStreamText = entry.streamingText + text;
+          const turnId = evt.turn_id || entry.currentTurnId || undefined;
+          const msgs = [...entry.messages];
+          const last = msgs[msgs.length - 1];
+          let targetIndex = -1;
+          if (
+            last &&
+            last.role === "assistant" &&
+            !last.toolName &&
+            !last.retrievals &&
+            !last.isReasoning &&
+            last.turnId === turnId
+          ) {
+            targetIndex = msgs.length - 1;
+          } else {
+            for (let i = msgs.length - 1; i >= 0; i -= 1) {
+              const message = msgs[i];
+              if (
+                message.role === "assistant" &&
+                !message.toolName &&
+                !message.retrievals &&
+                !message.isReasoning &&
+                message.turnId === turnId
+              ) {
+                targetIndex = i;
+                break;
+              }
+            }
+          }
+          if (targetIndex >= 0) {
+            msgs[targetIndex] = { ...msgs[targetIndex], content: newStreamText };
+          } else {
+            const isDuplicate = msgs.some(
+              (message) =>
+                message.role === "assistant" &&
+                !message.isReasoning &&
+                message.content === newStreamText,
+            );
+            if (!isDuplicate) {
+              msgs.push({
+                id: nextId(),
+                role: "assistant",
+                content: newStreamText,
+                turnId,
+                timestamp: Date.now(),
+              });
+            }
+          }
+          return {
+            ...entry,
+            messages: msgs,
+            streamingText: newStreamText,
+            currentTurnId: turnId ?? entry.currentTurnId,
+            lastHandledSeq: seq,
+          };
+        });
+        break;
+      }
 
       // 防重复处理：检查事件序列号
       const seq = evt.metadata?.seq as number | undefined;
@@ -740,54 +876,63 @@ export function handleEvent(
     }
 
     case "run_context": {
-      if (!isActiveSessionEvent(evt, get)) break;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) break;
       const datasets = Array.isArray(data.datasets) ? data.datasets : [];
       const artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+      const nextRunContext = {
+        turnId:
+          typeof data.turn_id === "string" && data.turn_id.trim()
+            ? data.turn_id.trim()
+            : evt.turn_id || "",
+        datasets: datasets
+          .filter((item): item is Record<string, unknown> => isRecord(item))
+          .map((item) => ({
+            name: typeof item.name === "string" ? item.name.trim() : "",
+            rows:
+              typeof item.rows === "number" && Number.isFinite(item.rows)
+                ? item.rows
+                : null,
+            columns:
+              typeof item.columns === "number" && Number.isFinite(item.columns)
+                ? item.columns
+                : null,
+          }))
+          .filter((item) => item.name),
+        artifacts: artifacts
+          .filter((item): item is Record<string, unknown> => isRecord(item))
+          .map((item) => ({
+            name: typeof item.name === "string" ? item.name.trim() : "",
+            artifactType:
+              typeof item.artifact_type === "string"
+                ? item.artifact_type.trim()
+                : null,
+          }))
+          .filter((item) => item.name),
+        toolHints: Array.isArray(data.tool_hints)
+          ? data.tool_hints
+              .filter((item): item is string => typeof item === "string")
+              .map((item) => item.trim())
+              .filter(Boolean)
+          : [],
+        constraints: Array.isArray(data.constraints)
+          ? data.constraints
+              .filter((item): item is string => typeof item === "string")
+              .map((item) => item.trim())
+              .filter(Boolean)
+          : [],
+      };
+      const backgroundSessionId = getBackgroundSessionId(evt, get);
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+          ...entry,
+          harnessRunContext: nextRunContext,
+          workspacePanelTab: "tasks",
+        }));
+        break;
+      }
       set({
-        harnessRunContext: {
-          turnId:
-            typeof data.turn_id === "string" && data.turn_id.trim()
-              ? data.turn_id.trim()
-              : evt.turn_id || "",
-          datasets: datasets
-            .filter((item): item is Record<string, unknown> => isRecord(item))
-            .map((item) => ({
-              name: typeof item.name === "string" ? item.name.trim() : "",
-              rows:
-                typeof item.rows === "number" && Number.isFinite(item.rows)
-                  ? item.rows
-                  : null,
-              columns:
-                typeof item.columns === "number" && Number.isFinite(item.columns)
-                  ? item.columns
-                  : null,
-            }))
-            .filter((item) => item.name),
-          artifacts: artifacts
-            .filter((item): item is Record<string, unknown> => isRecord(item))
-            .map((item) => ({
-              name: typeof item.name === "string" ? item.name.trim() : "",
-              artifactType:
-                typeof item.artifact_type === "string"
-                  ? item.artifact_type.trim()
-                  : null,
-            }))
-            .filter((item) => item.name),
-          toolHints: Array.isArray(data.tool_hints)
-            ? data.tool_hints
-                .filter((item): item is string => typeof item === "string")
-                .map((item) => item.trim())
-                .filter(Boolean)
-            : [],
-          constraints: Array.isArray(data.constraints)
-            ? data.constraints
-                .filter((item): item is string => typeof item === "string")
-                .map((item) => item.trim())
-                .filter(Boolean)
-            : [],
-        },
+        harnessRunContext: nextRunContext,
         workspacePanelOpen: true,
         workspacePanelTab: "tasks",
       });
@@ -795,7 +940,6 @@ export function handleEvent(
     }
 
     case "completion_check": {
-      if (!isActiveSessionEvent(evt, get)) break;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) break;
       const items = Array.isArray(data.items) ? data.items : [];
@@ -825,6 +969,25 @@ export function handleEvent(
               .filter(Boolean)
           : [],
       };
+      const backgroundSessionId = getBackgroundSessionId(evt, get);
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+          ...entry,
+          completionCheck: state,
+          analysisPlanProgress:
+            entry.analysisPlanProgress && !state.passed
+              ? {
+                  ...entry.analysisPlanProgress,
+                  next_hint:
+                    state.missingActions.length > 0
+                      ? `系统正在补齐：${state.missingActions.join("、")}`
+                      : entry.analysisPlanProgress.next_hint,
+                }
+              : entry.analysisPlanProgress,
+          workspacePanelTab: "tasks",
+        }));
+        break;
+      }
       set((s) => ({
         completionCheck: state,
         analysisPlanProgress:
@@ -844,7 +1007,6 @@ export function handleEvent(
     }
 
     case "blocked": {
-      if (!isActiveSessionEvent(evt, get)) break;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) break;
       const blockedState: HarnessBlockedState = {
@@ -861,6 +1023,31 @@ export function handleEvent(
             ? data.suggested_action.trim()
             : null,
       };
+      const backgroundSessionId = getBackgroundSessionId(evt, get);
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+          ...entry,
+          blockedState,
+          analysisPlanProgress: entry.analysisPlanProgress
+            ? (() => {
+                const idx = entry.analysisPlanProgress.current_step_index - 1;
+                const steps: AnalysisStep[] = entry.analysisPlanProgress.steps.map((step, stepIdx) =>
+                  stepIdx === idx ? { ...step, status: "blocked" } : step,
+                );
+                return {
+                  ...entry.analysisPlanProgress,
+                  step_status: "blocked",
+                  block_reason: blockedState.message,
+                  next_hint:
+                    blockedState.suggestedAction || "请根据阻塞原因补充信息后继续。",
+                  steps,
+                };
+              })()
+            : entry.analysisPlanProgress,
+          workspacePanelTab: "tasks",
+        }));
+        break;
+      }
       set((s) => ({
         blockedState,
         isStreaming: false,
@@ -953,12 +1140,23 @@ export function handleEvent(
     }
 
     case "reasoning": {
-      // 非当前会话的 reasoning 事件静默丢弃
-      if (evt.session_id && evt.session_id !== get().sessionId) break;
+      const backgroundSessionId = getBackgroundSessionId(evt, get);
+      const backgroundEntry = backgroundSessionId
+        ? getSessionUiCacheEntry(backgroundSessionId)
+        : null;
       // 如果同一 turnId 已有 analysis_plan 消息，则跳过 reasoning（避免重复）
-      const turnId = evt.turn_id || get()._currentTurnId || undefined;
+      const turnId =
+        evt.turn_id ||
+        (backgroundSessionId
+          ? backgroundEntry?.currentTurnId ?? undefined
+          : get()._currentTurnId) ||
+        undefined;
       if (turnId) {
-        const hasPlan = get().messages.some(
+        const hasPlan = (
+          backgroundSessionId
+            ? backgroundEntry?.messages ?? []
+            : get().messages
+        ).some(
           (m) => m.turnId === turnId && m.analysisPlan,
         );
         if (hasPlan) break;
@@ -993,6 +1191,19 @@ export function handleEvent(
           : operation === "complete" || operationFromData === "complete"
             ? false
             : true; // 默认流式中
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+          ...entry,
+          messages: upsertReasoningMessage(entry.messages, {
+            content,
+            reasoningId,
+            reasoningLive: isLive,
+            turnId: evt.turn_id || entry.currentTurnId || undefined,
+            timestamp: Date.now(),
+          }),
+        }));
+        break;
+      }
 
       set((s) => {
         const nextMessages = upsertReasoningMessage(s.messages, {
@@ -1008,8 +1219,7 @@ export function handleEvent(
     }
 
     case "tool_call": {
-      // 非当前会话的工具调用事件静默丢弃
-      if (evt.session_id && evt.session_id !== get().sessionId) break;
+      const backgroundSessionId = getBackgroundSessionId(evt, get);
       const data = isRecord(evt.data) ? evt.data : {};
       const toolName =
         typeof data.name === "string" && data.name.trim()
@@ -1039,6 +1249,24 @@ export function handleEvent(
           : toolName === "run_code" && typeof toolArgs.intent === "string"
             ? toolArgs.intent
             : undefined;
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+          ...entry,
+          messages: upsertToolCallMessage(entry.messages, {
+            content:
+              toolName === "run_code" && intent
+                ? `🔧 ${toolName}: ${intent}`
+                : `调用工具: **${toolName}**`,
+            toolName,
+            toolCallId: evt.tool_call_id || undefined,
+            toolInput: toolArgs,
+            toolIntent: intent,
+            turnId: evt.turn_id || entry.currentTurnId || undefined,
+            timestamp: Date.now(),
+          }),
+        }));
+        break;
+      }
       set((s) => ({
         messages: upsertToolCallMessage(s.messages, {
           content:
@@ -1066,8 +1294,7 @@ export function handleEvent(
       if (shouldClearPendingQuestion) {
         set((s) => buildPendingAskUserQuestionPatch(s, pendingQuestionSessionId, null));
       }
-      // 非当前会话的工具结果事件静默丢弃
-      if (evt.session_id && evt.session_id !== get().sessionId) break;
+      const backgroundSessionId = getBackgroundSessionId(evt, get);
       const data = isRecord(evt.data) ? evt.data : {};
       const legacyResult =
         isRecord(data.data) && "result" in data.data ? data.data.result : undefined;
@@ -1081,6 +1308,25 @@ export function handleEvent(
         normalized.message ||
         (status === "error" ? "工具执行失败" : "工具执行完成");
       const toolCallId = evt.tool_call_id;
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+          ...entry,
+          messages: upsertToolResultMessage(entry.messages, {
+            content: resultMessage,
+            toolName: evt.tool_name || undefined,
+            toolCallId: toolCallId || undefined,
+            toolResult: resultMessage,
+            toolStatus: status,
+            toolIntent:
+              typeof evt.metadata?.intent === "string"
+                ? evt.metadata.intent
+                : undefined,
+            turnId: evt.turn_id || entry.currentTurnId || undefined,
+            timestamp: Date.now(),
+          }),
+        }));
+        break;
+      }
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
       set((s) => {
         const msgs = upsertToolResultMessage(s.messages, {
@@ -1165,6 +1411,57 @@ export function handleEvent(
           : new Set<string>();
 
         if (!doneIsActive) {
+          if (doneEvtSid) {
+            updateSessionUiCacheEntry(doneEvtSid, (entry) => {
+              let progress = entry.analysisPlanProgress;
+              let tasks = entry.analysisTasks;
+              const turnId = evt.turn_id || entry.currentTurnId;
+              if (progress && progress.step_status === "in_progress") {
+                const taskId = findTaskIdByStepAndTurn(
+                  entry.analysisTasks,
+                  progress.current_step_index,
+                  turnId,
+                );
+                const currentTask = taskId
+                  ? tasks.find((task) => task.id === taskId)
+                  : undefined;
+                const mergedStatus = currentTask
+                  ? mergePlanStepStatus(currentTask.status, "done")
+                  : "done";
+                tasks = updateAnalysisTaskById(tasks, taskId, {
+                  status: mergedStatus,
+                  current_activity: null,
+                  last_error: null,
+                });
+                progress = applyPlanStepUpdateToProgress(
+                  progress,
+                  progress.current_step_index,
+                  "done",
+                );
+              }
+              if (progress && areAllPlanStepsDone(progress.steps)) {
+                progress = {
+                  ...progress,
+                  step_status: "done",
+                  next_hint: "全部步骤已完成。",
+                  block_reason: null,
+                };
+              }
+              return {
+                ...entry,
+                messages: finalizeReasoningMessages(entry.messages, turnId, true),
+                currentTurnId: null,
+                streamingText: "",
+                activePlanMsgId: null,
+                activePlanTaskIds: [],
+                planActionTaskMap: {},
+                analysisPlanOrder: entry.analysisPlanOrder,
+                streamingMetrics: resetStreamingMetrics(),
+                analysisPlanProgress: progress,
+                analysisTasks: tasks,
+              };
+            });
+          }
           // 后台会话完成：只更新运行状态，不改消息
           return {
             runningSessions: nextRunning,
@@ -1237,6 +1534,55 @@ export function handleEvent(
           : new Set<string>();
 
         if (!stoppedIsActive) {
+          if (stoppedEvtSid) {
+            updateSessionUiCacheEntry(stoppedEvtSid, (entry) => {
+              let progress = entry.analysisPlanProgress;
+              let tasks = entry.analysisTasks;
+              const turnId = evt.turn_id || entry.currentTurnId;
+              if (progress && progress.step_status === "in_progress") {
+                const taskId = findTaskIdByStepAndTurn(
+                  entry.analysisTasks,
+                  progress.current_step_index,
+                  turnId,
+                );
+                const currentTask = taskId
+                  ? tasks.find((task) => task.id === taskId)
+                  : undefined;
+                const mergedStatus = currentTask
+                  ? mergePlanStepStatus(currentTask.status, "blocked")
+                  : "blocked";
+                tasks = updateAnalysisTaskById(tasks, taskId, {
+                  status: mergedStatus,
+                  current_activity: "步骤已阻塞",
+                });
+                const idx = progress.current_step_index - 1;
+                const steps: AnalysisStep[] = progress.steps.map((step, stepIdx) =>
+                  stepIdx === idx ? { ...step, status: "blocked" } : step,
+                );
+                progress = {
+                  ...progress,
+                  step_status: "blocked",
+                  next_hint:
+                    entry.blockedState?.suggestedAction || "你可以重新发送请求继续当前流程。",
+                  block_reason: entry.blockedState?.message || "用户手动停止当前请求",
+                  steps,
+                };
+              }
+              return {
+                ...entry,
+                messages: finalizeReasoningMessages(entry.messages, turnId, true),
+                currentTurnId: null,
+                streamingText: "",
+                activePlanMsgId: null,
+                activePlanTaskIds: [],
+                planActionTaskMap: {},
+                streamingMetrics: resetStreamingMetrics(),
+                blockedState: entry.blockedState,
+                analysisPlanProgress: progress,
+                analysisTasks: tasks,
+              };
+            });
+          }
           return {
             runningSessions: nextRunning,
             ...(stoppedEvtSid
@@ -1304,6 +1650,75 @@ export function handleEvent(
       const errorIsActive = !errorEvtSid || errorEvtSid === errorCurSid;
       // 后台会话报错：只更新 runningSessions，不污染当前会话消息
       if (!errorIsActive) {
+        if (errorEvtSid) {
+          const normalizedError = normalizeWsError(evt.data);
+          updateSessionUiCacheEntry(errorEvtSid, (entry) => {
+            const turnId = evt.turn_id || entry.currentTurnId || undefined;
+            return {
+              ...entry,
+              messages: [
+                ...finalizeReasoningMessages(entry.messages, turnId, true),
+                {
+                  id: nextId(),
+                  role: "assistant",
+                  content: `错误: ${normalizedError.message}`,
+                  isError: true,
+                  errorKind: normalizedError.kind,
+                  errorCode: normalizedError.code,
+                  errorHint: normalizedError.hint,
+                  errorDetail: normalizedError.detail,
+                  retryable: normalizedError.retryable,
+                  turnId,
+                  timestamp: Date.now(),
+                },
+              ],
+              currentTurnId: null,
+              streamingText: "",
+              activePlanMsgId: null,
+              activePlanTaskIds: [],
+              planActionTaskMap: {},
+              streamingMetrics: resetStreamingMetrics(),
+              analysisTasks: (() => {
+                const progress = entry.analysisPlanProgress;
+                if (!progress || progress.step_status !== "in_progress") {
+                  return entry.analysisTasks;
+                }
+                const taskId = findTaskIdByStepAndTurn(
+                  entry.analysisTasks,
+                  progress.current_step_index,
+                  entry.currentTurnId,
+                );
+                const currentTask = taskId
+                  ? entry.analysisTasks.find((task) => task.id === taskId)
+                  : undefined;
+                const mergedStatus = currentTask
+                  ? mergePlanStepStatus(currentTask.status, "failed")
+                  : "failed";
+                return updateAnalysisTaskById(entry.analysisTasks, taskId, {
+                  status: mergedStatus,
+                  current_activity: "步骤执行失败",
+                  last_error: normalizedError.detail || normalizedError.message,
+                });
+              })(),
+              analysisPlanProgress: (() => {
+                const progress = entry.analysisPlanProgress;
+                if (!progress || progress.step_status !== "in_progress") {
+                  return progress;
+                }
+                const failedIndex = progress.current_step_index - 1;
+                return {
+                  ...progress,
+                  step_status: "failed",
+                  block_reason: normalizedError.detail || normalizedError.message,
+                  next_hint: "请检查错误信息后重试。",
+                  steps: progress.steps.map((step, idx) =>
+                    idx === failedIndex ? { ...step, status: "failed" } : step,
+                  ),
+                };
+              })(),
+            };
+          });
+        }
         set((s) => ({
           runningSessions: errorEvtSid
             ? new Set([...s.runningSessions].filter((id) => id !== errorEvtSid))

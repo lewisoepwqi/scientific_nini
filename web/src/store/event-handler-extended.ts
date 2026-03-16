@@ -35,6 +35,7 @@ import {
   mergePlanStepStatus,
 } from "./normalizers";
 import { upsertAssistantTextMessage } from "./message-normalizer";
+import { updateSessionUiCacheEntry } from "./session-ui-cache";
 
 function extractPlanEventOrder(
   evt: WSEvent,
@@ -75,13 +76,91 @@ export function handleExtendedEvent(
 ): boolean {
   switch (evt.type) {
     case "analysis_plan": {
-      if (!isActiveSessionEvent(evt, get)) return true;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) return true;
       const steps = normalizeAnalysisSteps(data.steps);
       const rawText = typeof data.raw_text === "string" ? data.raw_text : "";
       if (steps.length === 0) return true;
       const eventOrder = extractPlanEventOrder(evt, data);
+      const backgroundSessionId =
+        typeof evt.session_id === "string" && evt.session_id !== get().sessionId
+          ? evt.session_id
+          : null;
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => {
+          const now = Date.now();
+          const turnId = evt.turn_id || entry.currentTurnId || undefined;
+          const msgId = nextId();
+          const msg: Message = {
+            id: msgId,
+            role: "assistant",
+            content: rawText,
+            isReasoning: true,
+            analysisPlan: { steps, raw_text: rawText },
+            turnId,
+            timestamp: now,
+          };
+          if (eventOrder < entry.analysisPlanOrder) return entry;
+          const currentTurnId = turnId || entry.currentTurnId || null;
+          const existingTasks = entry.analysisTasks;
+          const deduplicatedTasks = currentTurnId
+            ? existingTasks.filter((t) => t.turn_id !== currentTurnId)
+            : existingTasks;
+          const newTasks: AnalysisTaskItem[] = steps.map((step) => ({
+            id: nextAnalysisTaskId(),
+            plan_step_id: step.id,
+            action_id: step.action_id ?? null,
+            title: step.title,
+            tool_hint: step.tool_hint,
+            status: step.status,
+            raw_status: step.raw_status,
+            current_activity: null,
+            last_error: null,
+            attempts: [],
+            created_at: now,
+            updated_at: now,
+            turn_id: currentTurnId,
+            depends_on: step.depends_on,
+          }));
+          const filteredActionMap = currentTurnId
+            ? Object.fromEntries(
+                Object.entries(entry.planActionTaskMap).filter(([_, taskId]) => {
+                  const task = existingTasks.find((t) => t.id === taskId);
+                  return task?.turn_id !== currentTurnId;
+                }),
+              )
+            : { ...entry.planActionTaskMap };
+          const actionMap = {
+            ...filteredActionMap,
+            ...Object.fromEntries(
+              newTasks
+                .filter((task) => typeof task.action_id === "string" && task.action_id)
+                .map((task) => [task.action_id as string, task.id]),
+            ),
+          };
+          const filteredActiveIds = currentTurnId
+            ? entry.activePlanTaskIds.filter((id) => {
+                if (!id) return false;
+                const task = existingTasks.find((t) => t.id === id);
+                return task?.turn_id !== currentTurnId;
+              })
+            : [...entry.activePlanTaskIds];
+          return {
+            ...entry,
+            messages: [...entry.messages, msg],
+            analysisPlanProgress: makePlanProgressFromSteps(steps, rawText),
+            analysisTasks: [...deduplicatedTasks, ...newTasks],
+            activePlanMsgId: msgId,
+            activePlanTaskIds: [...filteredActiveIds, ...newTasks.map((task) => task.id)],
+            planActionTaskMap: actionMap,
+            analysisPlanOrder: eventOrder,
+            currentTurnId,
+            workspacePanelTab: "tasks",
+          };
+        });
+        return true;
+      }
+      if (!isActiveSessionEvent(evt, get)) return true;
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
       const msgId = nextId();
       const msg: Message = {
@@ -157,7 +236,6 @@ export function handleExtendedEvent(
     }
 
     case "plan_step_update": {
-      if (!isActiveSessionEvent(evt, get)) return true;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data || typeof data.id !== "number" || typeof data.status !== "string") {
         return true;
@@ -165,6 +243,81 @@ export function handleExtendedEvent(
       const stepId = data.id as number;
       const stepStatus = data.status;
       const eventOrder = extractPlanEventOrder(evt, data);
+      const backgroundSessionId =
+        typeof evt.session_id === "string" && evt.session_id !== get().sessionId
+          ? evt.session_id
+          : null;
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => {
+          if (eventOrder < entry.analysisPlanOrder) return entry;
+          const msgs = [...entry.messages];
+          let updatedSteps: AnalysisStep[] = [];
+          let rawText = "";
+          const normalizedStatus = normalizePlanStepStatus(stepStatus);
+          if (entry.activePlanMsgId) {
+            const idx = msgs.findIndex((m) => m.id === entry.activePlanMsgId);
+            if (idx >= 0 && msgs[idx].analysisPlan) {
+              const plan = msgs[idx].analysisPlan!;
+              rawText = plan.raw_text;
+              updatedSteps = plan.steps.map((step) =>
+                step.id === stepId
+                  ? {
+                      ...step,
+                      status: mergePlanStepStatus(step.status, normalizedStatus),
+                      raw_status: stepStatus,
+                    }
+                  : step,
+              );
+              msgs[idx] = { ...msgs[idx], analysisPlan: { ...plan, steps: updatedSteps } };
+            }
+          }
+          const taskId = findTaskIdByStepAndTurn(
+            entry.analysisTasks,
+            stepId,
+            entry.currentTurnId,
+          );
+          const currentTask = taskId
+            ? entry.analysisTasks.find((task) => task.id === taskId)
+            : undefined;
+          const mergedTaskStatus = currentTask
+            ? mergePlanStepStatus(currentTask.status, normalizedStatus)
+            : normalizedStatus;
+          const nextTasks = updateAnalysisTaskById(entry.analysisTasks, taskId, {
+            status: mergedTaskStatus,
+            raw_status: stepStatus,
+            current_activity:
+              normalizedStatus === "done"
+                ? null
+                : normalizedStatus === "failed"
+                  ? "步骤执行失败"
+                  : normalizedStatus === "blocked"
+                    ? "步骤已阻塞"
+                    : "步骤执行中",
+            last_error:
+              normalizedStatus === "failed" && typeof data.error === "string"
+                ? data.error
+                : normalizedStatus === "done"
+                  ? null
+                  : undefined,
+          });
+          const currentProgress =
+            entry.analysisPlanProgress ??
+            (updatedSteps.length > 0 ? makePlanProgressFromSteps(updatedSteps, rawText) : null);
+          return {
+            ...entry,
+            messages: updatedSteps.length > 0 ? msgs : entry.messages,
+            analysisPlanProgress: applyPlanStepUpdateToProgress(
+              currentProgress,
+              stepId,
+              stepStatus,
+            ),
+            analysisTasks: nextTasks,
+            analysisPlanOrder: eventOrder,
+          };
+        });
+        return true;
+      }
+      if (!isActiveSessionEvent(evt, get)) return true;
       const planMsgId = get()._activePlanMsgId;
 
       set((s) => {
@@ -228,10 +381,59 @@ export function handleExtendedEvent(
     }
 
     case "plan_progress": {
-      if (!isActiveSessionEvent(evt, get)) return true;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) return true;
       const eventOrder = extractPlanEventOrder(evt, data);
+      const backgroundSessionId =
+        typeof evt.session_id === "string" && evt.session_id !== get().sessionId
+          ? evt.session_id
+          : null;
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => {
+          if (eventOrder < entry.analysisPlanOrder) return entry;
+          const nextProgress = applyPlanProgressPayload(entry.analysisPlanProgress, data);
+          if (!nextProgress) return entry;
+          const stepId = nextProgress.current_step_index;
+          const taskId = findTaskIdByStepAndTurn(
+            entry.analysisTasks,
+            stepId,
+            entry.currentTurnId,
+          );
+          const currentTask = taskId
+            ? entry.analysisTasks.find((task) => task.id === taskId)
+            : undefined;
+          const mergedTaskStatus = currentTask
+            ? mergePlanStepStatus(currentTask.status, nextProgress.step_status)
+            : nextProgress.step_status;
+          return {
+            ...entry,
+            analysisPlanProgress: nextProgress,
+            analysisTasks: updateAnalysisTaskById(entry.analysisTasks, taskId, {
+              title: nextProgress.step_title,
+              status: mergedTaskStatus,
+              current_activity:
+                nextProgress.step_status === "done"
+                  ? null
+                  : nextProgress.step_status === "failed"
+                    ? "步骤执行失败"
+                    : nextProgress.step_status === "blocked"
+                      ? "步骤已阻塞"
+                      : nextProgress.step_status === "in_progress"
+                        ? "步骤执行中"
+                        : "等待执行",
+              last_error:
+                nextProgress.step_status === "failed"
+                  ? nextProgress.block_reason || undefined
+                  : nextProgress.step_status === "done"
+                    ? null
+                    : undefined,
+            }),
+            analysisPlanOrder: eventOrder,
+          };
+        });
+        return true;
+      }
+      if (!isActiveSessionEvent(evt, get)) return true;
       set((s) => {
         if (eventOrder < s._analysisPlanOrder) return {};
         const nextProgress = applyPlanProgressPayload(s.analysisPlanProgress, data);
@@ -273,9 +475,68 @@ export function handleExtendedEvent(
     }
 
     case "task_attempt": {
-      if (!isActiveSessionEvent(evt, get)) return true;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) return true;
+      const backgroundSessionId =
+        typeof evt.session_id === "string" && evt.session_id !== get().sessionId
+          ? evt.session_id
+          : null;
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => {
+          const actionId =
+            typeof data.action_id === "string" && data.action_id.trim()
+              ? data.action_id.trim()
+              : null;
+          const stepId =
+            typeof data.step_id === "number" && Number.isFinite(data.step_id)
+              ? Math.floor(data.step_id)
+              : null;
+          const toolName =
+            typeof data.tool_name === "string" && data.tool_name.trim()
+              ? data.tool_name.trim()
+              : evt.tool_name || "tool";
+          const attempt =
+            typeof data.attempt === "number" && Number.isFinite(data.attempt) && data.attempt > 0
+              ? Math.floor(data.attempt)
+              : 1;
+          const maxAttempts =
+            typeof data.max_attempts === "number" &&
+            Number.isFinite(data.max_attempts) &&
+            data.max_attempts > 0
+              ? Math.floor(data.max_attempts)
+              : Math.max(attempt, 1);
+          const attemptStatus = normalizeTaskAttemptStatus(data.status);
+          const note =
+            typeof data.note === "string" && data.note.trim() ? data.note.trim() : null;
+          const error =
+            typeof data.error === "string" && data.error.trim() ? data.error.trim() : null;
+          let taskId: string | null = null;
+          if (actionId && entry.planActionTaskMap[actionId]) {
+            taskId = entry.planActionTaskMap[actionId];
+          } else if (stepId) {
+            taskId = findTaskIdByStepAndTurn(entry.analysisTasks, stepId, entry.currentTurnId);
+          }
+          if (!taskId) return entry;
+          return {
+            ...entry,
+            analysisTasks: updateAnalysisTaskWithAttempt(entry.analysisTasks, taskId, {
+              action_id: actionId,
+              tool_name: toolName,
+              attempt,
+              max_attempts: maxAttempts,
+              status: attemptStatus,
+              note,
+              error,
+            }),
+            planActionTaskMap:
+              actionId && actionId !== ""
+                ? { ...entry.planActionTaskMap, [actionId]: taskId }
+                : entry.planActionTaskMap,
+          };
+        });
+        return true;
+      }
+      if (!isActiveSessionEvent(evt, get)) return true;
       set((s) => {
         const actionId =
           typeof data.action_id === "string" && data.action_id.trim()
@@ -333,7 +594,6 @@ export function handleExtendedEvent(
     }
 
     case "retrieval": {
-      if (!isActiveSessionEvent(evt, get)) return true;
       const data = isRecord(evt.data) ? evt.data : null;
       const query = data && typeof data.query === "string" ? data.query : "检索结果";
       const rawResults = data && Array.isArray(data.results) ? data.results : [];
@@ -356,14 +616,44 @@ export function handleExtendedEvent(
         turnId,
         timestamp: Date.now(),
       };
+      const backgroundSessionId =
+        typeof evt.session_id === "string" && evt.session_id !== get().sessionId
+          ? evt.session_id
+          : null;
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+          ...entry,
+          messages: [...entry.messages, msg],
+        }));
+        return true;
+      }
+      if (!isActiveSessionEvent(evt, get)) return true;
       set((s) => ({ messages: [...s.messages, msg] }));
       return true;
     }
 
     case "chart": {
-      if (!isActiveSessionEvent(evt, get)) return true;
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
       const messageId = evt.metadata?.message_id as string | undefined;
+      const backgroundSessionId =
+        typeof evt.session_id === "string" && evt.session_id !== get().sessionId
+          ? evt.session_id
+          : null;
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+          ...entry,
+          messages: upsertAssistantTextMessage(entry.messages, {
+            content: "图表已生成",
+            chartData: evt.data as ChartDataPayload,
+            messageId,
+            turnId: evt.turn_id || entry.currentTurnId || undefined,
+            operation: "replace",
+            timestamp: Date.now(),
+          }),
+        }));
+        return true;
+      }
+      if (!isActiveSessionEvent(evt, get)) return true;
       set((s) => ({
         messages: upsertAssistantTextMessage(s.messages, {
           content: "图表已生成",
@@ -378,9 +668,27 @@ export function handleExtendedEvent(
     }
 
     case "data": {
-      if (!isActiveSessionEvent(evt, get)) return true;
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
       const messageId = evt.metadata?.message_id as string | undefined;
+      const backgroundSessionId =
+        typeof evt.session_id === "string" && evt.session_id !== get().sessionId
+          ? evt.session_id
+          : null;
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+          ...entry,
+          messages: upsertAssistantTextMessage(entry.messages, {
+            content: "数据预览如下",
+            dataPreview: evt.data as DataPreviewPayload,
+            messageId,
+            turnId: evt.turn_id || entry.currentTurnId || undefined,
+            operation: "replace",
+            timestamp: Date.now(),
+          }),
+        }));
+        return true;
+      }
+      if (!isActiveSessionEvent(evt, get)) return true;
       set((s) => ({
         messages: upsertAssistantTextMessage(s.messages, {
           content: "数据预览如下",
@@ -395,11 +703,29 @@ export function handleExtendedEvent(
     }
 
     case "artifact": {
-      if (!isActiveSessionEvent(evt, get)) return true;
       const artifact = evt.data as ArtifactInfo;
       if (artifact && artifact.download_url) {
         const turnId = evt.turn_id || get()._currentTurnId || undefined;
         const messageId = evt.metadata?.message_id as string | undefined;
+        const backgroundSessionId =
+          typeof evt.session_id === "string" && evt.session_id !== get().sessionId
+            ? evt.session_id
+            : null;
+        if (backgroundSessionId) {
+          updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+            ...entry,
+            messages: upsertAssistantTextMessage(entry.messages, {
+              content: "产物已生成",
+              artifacts: [artifact],
+              messageId,
+              turnId: evt.turn_id || entry.currentTurnId || undefined,
+              operation: "replace",
+              timestamp: Date.now(),
+            }),
+          }));
+          return true;
+        }
+        if (!isActiveSessionEvent(evt, get)) return true;
         set((s) => {
           return {
             messages: upsertAssistantTextMessage(s.messages, {
@@ -417,7 +743,6 @@ export function handleExtendedEvent(
     }
 
     case "image": {
-      if (!isActiveSessionEvent(evt, get)) return true;
       const imageData = evt.data as { url?: string; urls?: string[] };
       const urls: string[] = [];
       if (imageData.url) urls.push(imageData.url);
@@ -425,6 +750,25 @@ export function handleExtendedEvent(
       if (urls.length > 0) {
         const turnId = evt.turn_id || get()._currentTurnId || undefined;
         const messageId = evt.metadata?.message_id as string | undefined;
+        const backgroundSessionId =
+          typeof evt.session_id === "string" && evt.session_id !== get().sessionId
+            ? evt.session_id
+            : null;
+        if (backgroundSessionId) {
+          updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+            ...entry,
+            messages: upsertAssistantTextMessage(entry.messages, {
+              content: "图片已生成",
+              images: urls,
+              messageId,
+              turnId: evt.turn_id || entry.currentTurnId || undefined,
+              operation: "replace",
+              timestamp: Date.now(),
+            }),
+          }));
+          return true;
+        }
+        if (!isActiveSessionEvent(evt, get)) return true;
         set((s) => ({
           messages: upsertAssistantTextMessage(s.messages, {
             content: "图片已生成",
@@ -474,7 +818,6 @@ export function handleExtendedEvent(
     }
 
     case "context_compressed": {
-      if (!isActiveSessionEvent(evt, get)) return true;
       const data = isRecord(evt.data) ? evt.data : null;
       const archivedCount =
         typeof data?.archived_count === "number" ? data.archived_count : 0;
@@ -484,6 +827,18 @@ export function handleExtendedEvent(
         content: `上下文已自动压缩，归档了 ${archivedCount} 条消息，以保持响应速度。`,
         timestamp: Date.now(),
       };
+      const backgroundSessionId =
+        typeof evt.session_id === "string" && evt.session_id !== get().sessionId
+          ? evt.session_id
+          : null;
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+          ...entry,
+          messages: [...entry.messages, sysMsg],
+        }));
+        return true;
+      }
+      if (!isActiveSessionEvent(evt, get)) return true;
       set((s) => ({
         messages: [...s.messages, sysMsg],
         contextCompressionTick: s.contextCompressionTick + 1,
@@ -492,7 +847,6 @@ export function handleExtendedEvent(
     }
 
     case "token_usage": {
-      if (!isActiveSessionEvent(evt, get)) return true;
       const data = isRecord(evt.data) ? evt.data : null;
       if (!data) return true;
 
@@ -507,6 +861,90 @@ export function handleExtendedEvent(
       const sessionTotalCost =
         typeof data.session_total_cost === "number" ? data.session_total_cost : 0;
       const usageTurnId = evt.turn_id || null;
+      const backgroundSessionId =
+        typeof evt.session_id === "string" && evt.session_id !== get().sessionId
+          ? evt.session_id
+          : null;
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => {
+          const currentMetrics = entry.streamingMetrics;
+          if (usageTurnId && currentMetrics.turnId && currentMetrics.turnId !== usageTurnId) {
+            return entry;
+          }
+          const nextStreamingMetrics: StreamingMetrics = {
+            ...currentMetrics,
+            turnId: currentMetrics.turnId || usageTurnId,
+            totalTokens: currentMetrics.totalTokens + totalTokens,
+            hasTokenUsage: true,
+          };
+          const current = entry.tokenUsage;
+          if (!current) {
+            return {
+              ...entry,
+              streamingMetrics: nextStreamingMetrics,
+              tokenUsage: {
+                session_id: backgroundSessionId,
+                input_tokens: inputTokens,
+                output_tokens: outputTokens,
+                total_tokens: sessionTotalTokens,
+                estimated_cost_usd: sessionTotalCost,
+                estimated_cost_cny: sessionTotalCost * 7.2,
+                model_breakdown: {
+                  [model]: {
+                    model_id: model,
+                    input_tokens: inputTokens,
+                    output_tokens: outputTokens,
+                    total_tokens: totalTokens,
+                    cost_usd: costUsd || 0,
+                    cost_cny: (costUsd || 0) * 7.2,
+                    call_count: 1,
+                  },
+                },
+                updated_at: new Date().toISOString(),
+              },
+            };
+          }
+          const modelBreakdown = { ...current.model_breakdown };
+          const existing = modelBreakdown[model];
+          if (existing) {
+            modelBreakdown[model] = {
+              ...existing,
+              input_tokens: existing.input_tokens + inputTokens,
+              output_tokens: existing.output_tokens + outputTokens,
+              total_tokens: existing.total_tokens + totalTokens,
+              cost_usd: existing.cost_usd + (costUsd || 0),
+              cost_cny: existing.cost_cny + (costUsd || 0) * 7.2,
+              call_count: existing.call_count + 1,
+            };
+          } else {
+            modelBreakdown[model] = {
+              model_id: model,
+              input_tokens: inputTokens,
+              output_tokens: outputTokens,
+              total_tokens: totalTokens,
+              cost_usd: costUsd || 0,
+              cost_cny: (costUsd || 0) * 7.2,
+              call_count: 1,
+            };
+          }
+          return {
+            ...entry,
+            streamingMetrics: nextStreamingMetrics,
+            tokenUsage: {
+              ...current,
+              input_tokens: current.input_tokens + inputTokens,
+              output_tokens: current.output_tokens + outputTokens,
+              total_tokens: sessionTotalTokens,
+              estimated_cost_usd: sessionTotalCost,
+              estimated_cost_cny: sessionTotalCost * 7.2,
+              model_breakdown: modelBreakdown,
+              updated_at: new Date().toISOString(),
+            },
+          };
+        });
+        return true;
+      }
+      if (!isActiveSessionEvent(evt, get)) return true;
 
       set((s) => {
         const currentMetrics = s._streamingMetrics;
