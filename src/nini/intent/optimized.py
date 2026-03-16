@@ -8,9 +8,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
 
@@ -18,9 +20,12 @@ import yaml
 
 from nini.config import _get_bundle_root
 from nini.intent.base import IntentAnalysis, IntentCandidate, QueryType
+from nini.intent.profile_booster import apply_boost
 from nini.intent.subtypes import get_difference_subtype
+from nini.models.user_profile import UserProfile
 
 logger = logging.getLogger(__name__)
+_lowconf_logger = logging.getLogger("nini.intent.lowconf")
 
 # 显式 skill 调用正则（从 service.py 引入）
 SLASH_SKILL_WITH_ARGS_RE = re.compile(
@@ -181,16 +186,43 @@ _SYNONYM_MAP: dict[str, list[str]] = {
         "论文写作",
     ],
     "citation_management": [
-        "引用格式", "参考文献", "文献引用", "引用管理", "bibliography",
-        "APA格式", "MLA格式", "GB/T格式", "citation", "文献格式化", "引用规范",
+        "引用格式",
+        "参考文献",
+        "文献引用",
+        "引用管理",
+        "bibliography",
+        "APA格式",
+        "MLA格式",
+        "GB/T格式",
+        "citation",
+        "文献格式化",
+        "引用规范",
     ],
     "peer_review": [
-        "审稿意见", "同行评审", "评审意见", "回复审稿", "修改意见",
-        "reviewer", "peer review", "审稿人", "回复审稿人", "reviewer comments", "意见回复",
+        "审稿意见",
+        "同行评审",
+        "评审意见",
+        "回复审稿",
+        "修改意见",
+        "reviewer",
+        "peer review",
+        "审稿人",
+        "回复审稿人",
+        "reviewer comments",
+        "意见回复",
     ],
     "research_planning": [
-        "研究规划", "研究设计", "实验设计", "研究方案", "研究思路",
-        "样本量", "样本量计算", "随机化", "研究框架", "research design", "实验方案",
+        "研究规划",
+        "研究设计",
+        "实验设计",
+        "研究方案",
+        "研究思路",
+        "样本量",
+        "样本量计算",
+        "随机化",
+        "研究框架",
+        "research design",
+        "实验方案",
     ],
 }
 
@@ -341,6 +373,7 @@ class OptimizedIntentAnalyzer:
         capabilities: list[dict[str, Any]] | None = None,
         skill_limit: int = 3,
         has_datasets: bool = False,
+        user_profile: UserProfile | None = None,
     ) -> IntentAnalysis:
         """分析用户意图。
 
@@ -371,7 +404,12 @@ class OptimizedIntentAnalyzer:
         candidates = self._merge_and_rank(trie_matches, synonym_matches, keyword_matches)
 
         analysis.capability_candidates = candidates[:5]
-        analysis.tool_hints = self._build_tool_hints(candidates)
+        if user_profile is not None:
+            boosted_candidates = apply_boost(candidates, user_profile)
+            analysis.capability_candidates = boosted_candidates[:5]
+            analysis.tool_hints = self._build_tool_hints(boosted_candidates)
+        else:
+            analysis.tool_hints = self._build_tool_hints(candidates)
 
         # 子类型注入：Top-1 为 difference_analysis 时，追加具体检验工具到 tool_hints 首位
         if (
@@ -391,6 +429,22 @@ class OptimizedIntentAnalyzer:
         analysis.query_type = self._classify_query_type(user_message, analysis)
         analysis.rag_needed = analysis.query_type in {QueryType.DOMAIN_TASK, QueryType.KNOWLEDGE_QA}
         analysis.ltm_needed = analysis.rag_needed
+
+        if not analysis.capability_candidates or analysis.capability_candidates[0].score < 3.0:
+            _lowconf_logger.info(
+                json.dumps(
+                    {
+                        "query": user_message[:200],
+                        "top_score": (
+                            analysis.capability_candidates[0].score
+                            if analysis.capability_candidates
+                            else 0.0
+                        ),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                    ensure_ascii=False,
+                )
+            )
 
         return analysis
 
