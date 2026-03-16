@@ -6,6 +6,12 @@ import asyncio
 import json
 import re
 import uuid
+
+# 承诺产物检测正则：要求"完成语义词 + 产物词"在 15 字符内共现，避免能力描述类文本误触发
+_PROMISED_ARTIFACT_RE = re.compile(
+    r"(已生成|已导出|已完成|以下是|请查看|如下)[\s\S]{0,15}(图表|报告|产物|附件)"
+    r"|(图表|报告|产物|附件)[\s\S]{0,8}(已生成|已导出|已完成|已保存)",
+)
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Protocol
 
@@ -27,13 +33,6 @@ from nini.harness.models import (
 from nini.harness.store import HarnessTraceStore
 
 _TRANSITIONAL_TEXT_RE = re.compile(r"^(接下来|下一步|我将|我会继续|我会先|下面将|随后将)")
-
-# 承诺产物正则：要求"完成语义词 + 产物词"共现（15 字符内），
-# 或"产物词 + 完成语义词"（8 字符内），避免能力介绍类文本误判。
-_PROMISED_ARTIFACT_RE = re.compile(
-    r"(已生成|已导出|已完成|以下是|请查看|如下)[\s\S]{0,15}(图表|报告|产物|附件)"
-    r"|(图表|报告|产物|附件)[\s\S]{0,8}(已生成|已导出|已完成|已保存)",
-)
 
 
 def _utc_now_iso() -> str:

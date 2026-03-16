@@ -32,9 +32,9 @@
 
 ## 4. 集成验证与收尾
 
-- [ ] 4.1 启动开发服务器（`nini start --reload`），发送"你是谁"确认不触发双回答
-- [ ] 4.2 发送"帮我整理审稿意见"，确认 harness trace 中路由到 `review_assistant`
-- [ ] 4.3 发送"格式化参考文献"，确认路由到 `citation_manager`
-- [ ] 4.4 修改 `config/intent_synonyms.yaml` 加入新词，重启后确认意图分析器识别新词
+- [x] 4.1 启动开发服务器（`nini start --reload`），发送"你是谁"确认不触发双回答
+- [x] 4.2 发送"帮我整理审稿意见"，确认 harness trace 中路由到 `review_assistant`
+- [x] 4.3 发送"格式化参考文献"，确认路由到 `citation_manager`
+- [x] 4.4 修改 `config/intent_synonyms.yaml` 加入新词，重启后确认意图分析器识别新词
 - [x] 4.5 运行 `black --check src tests` 和 `mypy src/nini` 验证格式与类型检查通过
-- [ ] 4.6 按 git workflow 规范创建分支 `fix/intent-routing-harness`，提交并创建 PR
+- [x] 4.6 按 git workflow 规范创建分支 `fix/intent-routing-harness`，提交并创建 PR

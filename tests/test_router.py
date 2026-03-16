@@ -157,31 +157,31 @@ async def test_route_batch_no_llm_when_disabled():
     assert mock.call_count == 0
 
 
-# ─── 新增路由规则测试 ────────────────────────────────────────────────────────
+# ─── 新增路由规则 ──────────────────────────────────────────────────────────────
 
 
 def test_rule_route_citation_manager():
-    """'参考文献格式化' 应路由到 citation_manager，strategy='rule'，confidence >= 0.7。"""
+    """参考文献格式化关键词应命中 citation_manager，strategy 为 rule，confidence >= 0.7。"""
     router = TaskRouter(enable_llm_fallback=False)
-    result = router._rule_route("参考文献格式化")
+    result = router._rule_route("请帮我格式化参考文献")
     assert "citation_manager" in result.agent_ids
     assert result.strategy == "rule"
     assert result.confidence >= 0.7
 
 
 def test_rule_route_research_planner():
-    """'实验设计方案' 应路由到 research_planner。"""
+    """实验设计相关关键词应命中 research_planner。"""
     router = TaskRouter(enable_llm_fallback=False)
-    result = router._rule_route("实验设计方案")
+    result = router._rule_route("帮我制定实验设计方案")
     assert "research_planner" in result.agent_ids
     assert result.strategy == "rule"
     assert result.confidence >= 0.7
 
 
 def test_rule_route_review_assistant():
-    """'回复审稿意见' 应路由到 review_assistant。"""
+    """回复审稿意见相关关键词应命中 review_assistant。"""
     router = TaskRouter(enable_llm_fallback=False)
-    result = router._rule_route("回复审稿意见")
+    result = router._rule_route("帮我回复审稿意见")
     assert "review_assistant" in result.agent_ids
     assert result.strategy == "rule"
     assert result.confidence >= 0.7

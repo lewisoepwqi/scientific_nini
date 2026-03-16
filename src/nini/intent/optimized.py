@@ -12,12 +12,13 @@ import logging
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 import yaml
 
+from nini.config import _get_bundle_root
 from nini.intent.base import IntentAnalysis, IntentCandidate, QueryType
+from nini.intent.subtypes import get_difference_subtype
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +180,28 @@ _SYNONYM_MAP: dict[str, list[str]] = {
     ],
 }
 
+
+def _load_synonym_map() -> dict[str, list[str]]:
+    """加载外部同义词配置，失败时回退内置 `_SYNONYM_MAP`。
+
+    配置文件路径：`<项目根>/config/intent_synonyms.yaml`
+    顶层结构须为 dict，value 须为列表；非列表条目跳过。
+    """
+    config_path = _get_bundle_root() / "config" / "intent_synonyms.yaml"
+    if not config_path.exists():
+        logger.debug("未找到外部同义词配置，使用内置 _SYNONYM_MAP")
+        return dict(_SYNONYM_MAP)
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict):
+            raise ValueError("顶层结构须为 dict")
+        return {k: list(v) for k, v in data.items() if isinstance(v, list)}
+    except Exception as exc:
+        logger.warning("加载同义词配置失败，回退内置: path=%s err=%s", config_path, exc)
+        return dict(_SYNONYM_MAP)
+
+
 # 通用中文停用词（这些词在匹配时权重降低）
 _GENERIC_TERMS: set[str] = {
     "数据",
@@ -203,33 +226,6 @@ _GENERIC_TERMS: set[str] = {
     "能",
     "可以",
 }
-
-# 项目根目录（pyproject.toml 所在位置）
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-
-
-def _load_synonym_map() -> dict[str, list[str]]:
-    """加载外部同义词配置，失败时回退内置 _SYNONYM_MAP。"""
-    config_path = _PROJECT_ROOT / "config" / "intent_synonyms.yaml"
-    if not config_path.exists():
-        logger.debug("未找到外部同义词配置 %s，使用内置 _SYNONYM_MAP", config_path)
-        return dict(_SYNONYM_MAP)
-    try:
-        with open(config_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        if not isinstance(data, dict):
-            raise ValueError(f"顶层结构须为 dict，实际: {type(data).__name__}")
-        # 仅保留 value 为 list 的条目，跳过格式异常的条目
-        result: dict[str, list[str]] = {}
-        for k, v in data.items():
-            if isinstance(v, list):
-                result[k] = list(v)
-            else:
-                logger.warning("同义词配置中 '%s' 的值非列表（%s），已跳过", k, type(v).__name__)
-        return result
-    except Exception as exc:
-        logger.warning("加载同义词配置失败，回退内置: path=%s err=%s", config_path, exc)
-        return dict(_SYNONYM_MAP)
 
 
 @dataclass
@@ -259,8 +255,9 @@ class OptimizedIntentAnalyzer:
         self._inverted_index: dict[str, set[str]] = {}
         self._capability_keywords: dict[str, set[str]] = {}
         self._capabilities: list[dict[str, Any]] = []
-        self._synonym_map = _load_synonym_map()
         self._initialized = False
+        # 优先从 config/intent_synonyms.yaml 加载，失败时回退内置
+        self._synonym_map: dict[str, list[str]] = _load_synonym_map()
 
     def initialize(self, capabilities: list[dict[str, Any]] | None = None) -> None:
         """初始化索引结构。
@@ -329,6 +326,7 @@ class OptimizedIntentAnalyzer:
         *,
         capabilities: list[dict[str, Any]] | None = None,
         skill_limit: int = 3,
+        has_datasets: bool = False,
     ) -> IntentAnalysis:
         """分析用户意图。
 
@@ -360,7 +358,17 @@ class OptimizedIntentAnalyzer:
 
         analysis.capability_candidates = candidates[:5]
         analysis.tool_hints = self._build_tool_hints(candidates)
-        self._apply_clarification_policy(analysis)
+
+        # 子类型注入：Top-1 为 difference_analysis 时，追加具体检验工具到 tool_hints 首位
+        if (
+            analysis.capability_candidates
+            and analysis.capability_candidates[0].name == "difference_analysis"
+        ):
+            subtype = get_difference_subtype(user_message)
+            if subtype is not None:
+                analysis.tool_hints.insert(0, subtype)
+
+        self._apply_clarification_policy(analysis, has_datasets=has_datasets)
         analysis.clarification_options = self._build_clarification_options(
             analysis, capabilities or self._capabilities
         )
@@ -552,10 +560,22 @@ class OptimizedIntentAnalyzer:
             return QueryType.DOMAIN_TASK
         return QueryType.KNOWLEDGE_QA
 
-    def _apply_clarification_policy(self, analysis: IntentAnalysis) -> None:
+    # 数据分析类白名单：has_datasets=True 时仅对这些候选收紧阈值
+    _DATA_ANALYSIS_WHITELIST: set[str] = {
+        "difference_analysis",
+        "correlation_analysis",
+        "regression_analysis",
+        "data_exploration",
+        "data_cleaning",
+    }
+
+    def _apply_clarification_policy(
+        self, analysis: IntentAnalysis, *, has_datasets: bool = False
+    ) -> None:
         """应用澄清策略。
 
         改进版：考虑相对差距和绝对分数。
+        当 has_datasets=True 且 Top-1 属于数据分析类白名单时，收紧阈值减少追问。
         """
         # 超出支持范围的请求（联网检索、新闻查询等）不触发澄清，
         # 由 LLM 直接说明能力边界，避免问出"数据探索还是回归分析"这类无关问题。
@@ -575,11 +595,16 @@ class OptimizedIntentAnalyzer:
         # 策略 2：绝对置信度阈值
         min_confidence = 5.0
 
+        # 有数据集 + 数据分析类候选时收紧阈值
+        tighten = has_datasets and top1.name in self._DATA_ANALYSIS_WHITELIST
+        gap_threshold = 0.15 if tighten else 0.25
+        score_spread_threshold = 2.0 if tighten else 3.0
+
         # 策略 3：分数分布（如果有多于2个候选）
         if len(candidates) >= 3:
             top3 = candidates[2]
             # 如果第三名也很接近，需要澄清
-            if top1.score - top3.score < 3.0 and top1.score >= min_confidence:
+            if top1.score - top3.score < score_spread_threshold and top1.score >= min_confidence:
                 analysis.clarification_needed = True
                 analysis.clarification_question = (
                     f"你想进行 {top1.payload.get('display_name', top1.name)} "
@@ -588,7 +613,7 @@ class OptimizedIntentAnalyzer:
                 return
 
         # 两个候选分数接近且都较高
-        if relative_gap < 0.25 and top1.score >= min_confidence:
+        if relative_gap < gap_threshold and top1.score >= min_confidence:
             analysis.clarification_needed = True
             analysis.clarification_question = (
                 f"你想进行 {top1.payload.get('display_name', top1.name)} "
