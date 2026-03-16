@@ -6,6 +6,11 @@ import MessageBubble from "./MessageBubble";
 vi.mock("./MarkdownContent", () => ({
   default: ({ content }: { content: string }) => <div>{content}</div>,
 }));
+vi.mock("./LazyMarkdownContent", () => ({
+  default: ({ content }: { content: string }) => (
+    <div className="whitespace-pre-wrap break-words">{content}</div>
+  ),
+}));
 vi.mock("./PlotlyFromUrl", () => ({
   default: ({ url }: { url: string }) => <div data-testid="plotly-from-url">{url}</div>,
 }));
@@ -119,7 +124,7 @@ describe("MessageBubble reasoning", () => {
     expect(screen.getByText(fullResult)).toBeInTheDocument();
   });
 
-  it("chart 事件仅包含 plotly.json URL 时应走 URL 渲染分支", () => {
+  it("chart 事件仅包含 plotly.json URL 时应走 URL 渲染分支", async () => {
     render(
       <MessageBubble
         message={{
@@ -137,7 +142,10 @@ describe("MessageBubble reasoning", () => {
       />,
     );
 
-    expect(screen.getByTestId("plotly-from-url")).toBeInTheDocument();
+    // lazy() 组件需要异步 resolve，等待 Suspense fallback 消失
+    expect(
+      await screen.findByTestId("plotly-from-url"),
+    ).toBeInTheDocument();
     expect(screen.getByText("/api/artifacts/sess-1/demo.plotly.json")).toBeInTheDocument();
   });
 });
