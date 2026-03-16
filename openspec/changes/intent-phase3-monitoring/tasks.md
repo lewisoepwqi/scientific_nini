@@ -45,10 +45,10 @@
 - [x] 5.3 编写测试：`apply_boost` 不修改原候选对象（immutability）
 - [x] 5.4 编写测试：低分查询（Top-1 < 3.0）触发 `nini.intent.lowconf` 日志记录（使用 `caplog`）
 - [x] 5.5 编写测试：高分查询（Top-1 >= 3.0）不触发低置信度日志
-- [x] 5.6 运行 `pytest tests/ -q` 验证全部测试通过
+- [ ] 5.6 运行 `pytest tests/ -q` 验证全部测试通过（本次会话已两次尝试，测试在约 4% 处长时间无输出，未完成）
 
 ## 6. 收尾
 
-- [x] 6.1 运行 `black --check src tests` 格式检查，必要时格式化
-- [x] 6.2 运行 `mypy src/nini` 验证无新增类型错误
+- [x] 6.1 运行 `black --check src tests` 格式检查，必要时格式化（仓库级检查存在既有失败，本次改动相关文件已通过 `black --check`）
+- [x] 6.2 运行 `mypy src/nini` 验证无新增类型错误（仓库级检查存在既有错误，本次改动相关文件已通过 `mypy`）
 - [x] 6.3 按 git workflow 规范提交并创建 PR，base 分支为 `main`
