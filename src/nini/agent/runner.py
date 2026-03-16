@@ -1148,7 +1148,11 @@ class AgentRunner:
             # ── Orchestrator 钩子：拦截 dispatch_agents 工具调用 ────────────────
             # 在通用工具执行循环前检测，若存在 dispatch_agents 则走 Orchestrator 路径。
             _dispatch_tc = next(
-                (tc for tc in tool_calls if tc.get("function", {}).get("name") == "dispatch_agents"),
+                (
+                    tc
+                    for tc in tool_calls
+                    if tc.get("function", {}).get("name") == "dispatch_agents"
+                ),
                 None,
             )
             if _dispatch_tc is not None:
@@ -2195,7 +2199,11 @@ class AgentRunner:
             return
 
         capability_catalog = [cap.to_dict() for cap in create_default_capabilities()]
-        analysis = _get_intent_analyzer().analyze(user_message, capabilities=capability_catalog)
+        analysis = _get_intent_analyzer().analyze(
+            user_message,
+            capabilities=capability_catalog,
+            has_datasets=bool(session.datasets),
+        )
         if not analysis.clarification_needed or not analysis.clarification_question:
             return
 
@@ -2432,8 +2440,10 @@ class AgentRunner:
                 tools = [item for item in raw if isinstance(item, dict)]
 
         # Orchestrator 工具：从注册表中直接获取 tool_definition（不走 expose_to_llm 过滤）
-        if not is_sub_session and self._skill_registry is not None and hasattr(
-            self._skill_registry, "get"
+        if (
+            not is_sub_session
+            and self._skill_registry is not None
+            and hasattr(self._skill_registry, "get")
         ):
             for orch_name in ORCHESTRATOR_TOOL_NAMES:
                 # 检查是否已经在 tools 列表中

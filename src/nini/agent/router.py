@@ -12,6 +12,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from nini.intent import detect_multi_intent
+from nini.intent.multi_intent import _PARALLEL_MARKERS
+
 logger = logging.getLogger(__name__)
 
 # 内置关键词路由规则：(关键词集合, 目标 agent_id)
@@ -203,6 +206,21 @@ class TaskRouter:
             RoutingDecision
         """
         context = context or {}
+
+        # 多意图检测：在规则路由之前拆分复合查询
+        sub_intents = detect_multi_intent(intent)
+        if sub_intents is not None:
+            is_parallel = bool(_PARALLEL_MARKERS.search(intent))
+            batch = await self.route_batch(sub_intents)
+            merged = RoutingDecision(
+                agent_ids=[aid for d in batch for aid in d.agent_ids],
+                tasks=[t for d in batch for t in d.tasks],
+                confidence=min((d.confidence for d in batch), default=0.0),
+                strategy="multi_intent",
+                parallel=is_parallel,
+            )
+            return merged
+
         rule_result = self._rule_route(intent)
 
         if rule_result.confidence >= _LLM_FALLBACK_THRESHOLD or not self._enable_llm_fallback:

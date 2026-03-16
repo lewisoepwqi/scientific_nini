@@ -15,6 +15,7 @@ from functools import lru_cache
 from typing import Any
 
 from nini.intent.base import IntentAnalysis, IntentCandidate, QueryType
+from nini.intent.subtypes import get_difference_subtype
 
 logger = logging.getLogger(__name__)
 
@@ -44,57 +45,168 @@ _OUT_OF_SCOPE_RE = re.compile(
 # 科研意图同义词表 — 将自然语言表达映射到 capability 名称
 _SYNONYM_MAP: dict[str, list[str]] = {
     "difference_analysis": [
-        "差异", "显著性", "t检验", "t_test", "anova", "方差分析",
-        "对比", "比较差异", "两组差异", "多组差异", "组间差异",
-        "显著差别", "差别", "对比分析", "均值比较",
-        "mann_whitney", "kruskal", "非参数检验", "wilcoxon",
+        "差异",
+        "显著性",
+        "t检验",
+        "t_test",
+        "anova",
+        "方差分析",
+        "对比",
+        "比较差异",
+        "两组差异",
+        "多组差异",
+        "组间差异",
+        "显著差别",
+        "差别",
+        "对比分析",
+        "均值比较",
+        "mann_whitney",
+        "kruskal",
+        "非参数检验",
+        "wilcoxon",
     ],
     "correlation_analysis": [
-        "相关", "相关性", "关联", "pearson", "spearman", "kendall",
-        "相关系数", "变量关系", "协变", "共变", "相互关系",
-        "有没有联系", "有没有关系", "是否相关", "相关性分析",
+        "相关",
+        "相关性",
+        "关联",
+        "pearson",
+        "spearman",
+        "kendall",
+        "相关系数",
+        "变量关系",
+        "协变",
+        "共变",
+        "相互关系",
+        "有没有联系",
+        "有没有关系",
+        "是否相关",
+        "相关性分析",
     ],
     "regression_analysis": [
-        "回归", "预测", "建模", "线性模型", "regression", "拟合",
-        "回归方程", "自变量", "因变量", "预测模型", "逻辑回归",
-        "多元回归", "逐步回归", "岭回归", "lasso",
+        "回归",
+        "预测",
+        "建模",
+        "线性模型",
+        "regression",
+        "拟合",
+        "回归方程",
+        "自变量",
+        "因变量",
+        "预测模型",
+        "逻辑回归",
+        "多元回归",
+        "逐步回归",
+        "岭回归",
+        "lasso",
     ],
     "data_exploration": [
-        "探索", "概览", "描述性统计", "分布", "缺失值", "异常值",
-        "数据质量", "数据特征", "看看数据", "了解数据", "数据情况",
-        "描述统计", "基本统计", "数据概览", "探索性分析", "eda",
+        "探索",
+        "概览",
+        "描述性统计",
+        "分布",
+        "缺失值",
+        "异常值",
+        "数据质量",
+        "数据特征",
+        "看看数据",
+        "了解数据",
+        "数据情况",
+        "描述统计",
+        "基本统计",
+        "数据概览",
+        "探索性分析",
+        "eda",
     ],
     "data_cleaning": [
-        "清洗", "预处理", "处理缺失", "填充", "去重", "标准化",
-        "归一化", "异常处理", "数据清理", "数据整理", "缺失值处理",
-        "异常值处理", "数据转换", "特征工程",
+        "清洗",
+        "预处理",
+        "处理缺失",
+        "填充",
+        "去重",
+        "标准化",
+        "归一化",
+        "异常处理",
+        "数据清理",
+        "数据整理",
+        "缺失值处理",
+        "异常值处理",
+        "数据转换",
+        "特征工程",
     ],
     "visualization": [
-        "可视化", "画图", "作图", "图形", "箱线图", "散点图",
-        "柱状图", "热力图", "直方图", "折线图", "饼图", "chart",
-        "plot", "graph", "画图展示", "绘制图表",
+        "可视化",
+        "画图",
+        "作图",
+        "图形",
+        "箱线图",
+        "散点图",
+        "柱状图",
+        "热力图",
+        "直方图",
+        "折线图",
+        "饼图",
+        "chart",
+        "plot",
+        "graph",
+        "画图展示",
+        "绘制图表",
     ],
     "report_generation": [
-        "报告", "报表", "汇总", "总结", "导出报告", "生成报告",
-        "分析报告", "report", "summary", "word", "pdf",
+        "报告",
+        "报表",
+        "汇总",
+        "总结",
+        "导出报告",
+        "生成报告",
+        "分析报告",
+        "report",
+        "summary",
+        "word",
+        "pdf",
     ],
     "article_draft": [
-        "论文", "文章", "初稿", "manuscript", "publication",
-        "科研论文", "学术论文", "撰写论文", "论文写作",
+        "论文",
+        "文章",
+        "初稿",
+        "manuscript",
+        "publication",
+        "科研论文",
+        "学术论文",
+        "撰写论文",
+        "论文写作",
     ],
 }
 
 # 通用中文停用词（这些词在匹配时权重降低）
 _GENERIC_TERMS: set[str] = {
-    "数据", "分析", "结果", "研究", "生成", "比较", "报告",
-    "图表", "工具", "方法", "进行", "使用", "帮我", "请",
-    "一下", "一个", "需要", "想要", "希望", "能", "可以",
+    "数据",
+    "分析",
+    "结果",
+    "研究",
+    "生成",
+    "比较",
+    "报告",
+    "图表",
+    "工具",
+    "方法",
+    "进行",
+    "使用",
+    "帮我",
+    "请",
+    "一下",
+    "一个",
+    "需要",
+    "想要",
+    "希望",
+    "能",
+    "可以",
 }
 
 
 @dataclass
 class TrieNode:
     """Trie 树节点。"""
+
     children: dict[str, "TrieNode"] = field(default_factory=dict)
     is_end: bool = False
     capability: str | None = None
@@ -187,6 +299,7 @@ class OptimizedIntentAnalyzer:
         *,
         capabilities: list[dict[str, Any]] | None = None,
         skill_limit: int = 3,
+        has_datasets: bool = False,
     ) -> IntentAnalysis:
         """分析用户意图。
 
@@ -214,13 +327,21 @@ class OptimizedIntentAnalyzer:
         keyword_matches = self._keyword_match(user_message)
 
         # 融合排序
-        candidates = self._merge_and_rank(
-            trie_matches, synonym_matches, keyword_matches
-        )
+        candidates = self._merge_and_rank(trie_matches, synonym_matches, keyword_matches)
 
         analysis.capability_candidates = candidates[:5]
         analysis.tool_hints = self._build_tool_hints(candidates)
-        self._apply_clarification_policy(analysis)
+
+        # 子类型注入：Top-1 为 difference_analysis 时，追加具体检验工具到 tool_hints 首位
+        if (
+            analysis.capability_candidates
+            and analysis.capability_candidates[0].name == "difference_analysis"
+        ):
+            subtype = get_difference_subtype(user_message)
+            if subtype is not None:
+                analysis.tool_hints.insert(0, subtype)
+
+        self._apply_clarification_policy(analysis, has_datasets=has_datasets)
         analysis.clarification_options = self._build_clarification_options(
             analysis, capabilities or self._capabilities
         )
@@ -321,7 +442,9 @@ class OptimizedIntentAnalyzer:
     ) -> list[IntentCandidate]:
         """融合多路匹配结果并排序。"""
         # 合并分数
-        all_caps = set(trie_matches.keys()) | set(synonym_matches.keys()) | set(keyword_matches.keys())
+        all_caps = (
+            set(trie_matches.keys()) | set(synonym_matches.keys()) | set(keyword_matches.keys())
+        )
 
         merged: dict[str, tuple[float, list[str]]] = {}
         for cap in all_caps:
@@ -410,10 +533,22 @@ class OptimizedIntentAnalyzer:
             return QueryType.DOMAIN_TASK
         return QueryType.KNOWLEDGE_QA
 
-    def _apply_clarification_policy(self, analysis: IntentAnalysis) -> None:
+    # 数据分析类白名单：has_datasets=True 时仅对这些候选收紧阈值
+    _DATA_ANALYSIS_WHITELIST: set[str] = {
+        "difference_analysis",
+        "correlation_analysis",
+        "regression_analysis",
+        "data_exploration",
+        "data_cleaning",
+    }
+
+    def _apply_clarification_policy(
+        self, analysis: IntentAnalysis, *, has_datasets: bool = False
+    ) -> None:
         """应用澄清策略。
 
         改进版：考虑相对差距和绝对分数。
+        当 has_datasets=True 且 Top-1 属于数据分析类白名单时，收紧阈值减少追问。
         """
         # 超出支持范围的请求（联网检索、新闻查询等）不触发澄清，
         # 由 LLM 直接说明能力边界，避免问出"数据探索还是回归分析"这类无关问题。
@@ -428,18 +563,21 @@ class OptimizedIntentAnalyzer:
         top1, top2 = candidates[0], candidates[1]
 
         # 策略 1：相对差距
-        relative_gap = (
-            (top1.score - top2.score) / top1.score if top1.score > 0 else 1.0
-        )
+        relative_gap = (top1.score - top2.score) / top1.score if top1.score > 0 else 1.0
 
         # 策略 2：绝对置信度阈值
         min_confidence = 5.0
+
+        # 有数据集 + 数据分析类候选时收紧阈值
+        tighten = has_datasets and top1.name in self._DATA_ANALYSIS_WHITELIST
+        gap_threshold = 0.15 if tighten else 0.25
+        score_spread_threshold = 2.0 if tighten else 3.0
 
         # 策略 3：分数分布（如果有多于2个候选）
         if len(candidates) >= 3:
             top3 = candidates[2]
             # 如果第三名也很接近，需要澄清
-            if top1.score - top3.score < 3.0 and top1.score >= min_confidence:
+            if top1.score - top3.score < score_spread_threshold and top1.score >= min_confidence:
                 analysis.clarification_needed = True
                 analysis.clarification_question = (
                     f"你想进行 {top1.payload.get('display_name', top1.name)} "
@@ -448,7 +586,7 @@ class OptimizedIntentAnalyzer:
                 return
 
         # 两个候选分数接近且都较高
-        if relative_gap < 0.25 and top1.score >= min_confidence:
+        if relative_gap < gap_threshold and top1.score >= min_confidence:
             analysis.clarification_needed = True
             analysis.clarification_question = (
                 f"你想进行 {top1.payload.get('display_name', top1.name)} "
@@ -470,10 +608,12 @@ class OptimizedIntentAnalyzer:
             description = payload.get("description", candidate.reason)
 
             if label and description:
-                options.append({
-                    "label": label,
-                    "description": description,
-                })
+                options.append(
+                    {
+                        "label": label,
+                        "description": description,
+                    }
+                )
 
         # 如果没有候选，使用前几个 capability 兜底
         if not options and capabilities:
@@ -481,10 +621,12 @@ class OptimizedIntentAnalyzer:
                 label = cap.get("display_name") or cap.get("name", "")
                 description = cap.get("description", "")
                 if label and description:
-                    options.append({
-                        "label": label,
-                        "description": description,
-                    })
+                    options.append(
+                        {
+                            "label": label,
+                            "description": description,
+                        }
+                    )
 
         return options
 

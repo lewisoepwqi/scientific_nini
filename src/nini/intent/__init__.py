@@ -1,13 +1,16 @@
 """意图分析模块。"""
 
 from nini.intent.base import IntentAnalysis, IntentCandidate, QueryType
+from nini.intent.multi_intent import detect_multi_intent
 from nini.intent.service import IntentAnalyzer, default_intent_analyzer
 from nini.intent.optimized import OptimizedIntentAnalyzer, optimized_intent_analyzer
+from nini.intent.subtypes import get_difference_subtype
 
 # 导出增强版语义分析（可选依赖）
 try:
     from nini.intent.enhanced import EnhancedIntentAnalyzer, get_enhanced_intent_analyzer
     from nini.intent.semantic import SemanticIntentMatcher, SimpleEmbeddingProvider
+
     _enhanced_available = True
 except ImportError:
     _enhanced_available = False
@@ -24,13 +27,17 @@ __all__ = [
     "default_intent_analyzer",
     "OptimizedIntentAnalyzer",
     "optimized_intent_analyzer",
+    "detect_multi_intent",
+    "get_difference_subtype",
 ]
 
 # 如果增强版可用，添加到导出
 if _enhanced_available:
-    __all__.extend([
-        "EnhancedIntentAnalyzer",
-        "get_enhanced_intent_analyzer",
-        "SemanticIntentMatcher",
-        "SimpleEmbeddingProvider",
-    ])
+    __all__.extend(
+        [
+            "EnhancedIntentAnalyzer",
+            "get_enhanced_intent_analyzer",
+            "SemanticIntentMatcher",
+            "SimpleEmbeddingProvider",
+        ]
+    )
