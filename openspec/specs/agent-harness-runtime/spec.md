@@ -40,6 +40,20 @@
 - **WHEN** 系统执行 completion verification
 - **THEN** 校验 SHALL 至少覆盖原始用户问题是否被回应、关键工具失败是否被忽略、承诺产物是否生成、以及是否仅描述下一步但未执行
 
+#### Scenario: 承诺产物判定要求完成语义词与产物词共现
+
+- **WHEN** 系统判断最终文本是否"承诺了产物"
+- **THEN** 系统 SHALL 仅在文本中同时出现"完成语义词"（已生成、已导出、已完成、以下是、请查看、如下等）和"产物词"（图表、报告、产物、附件等）时，才将其判定为承诺产物
+- **AND** 文本中仅出现产物词（如介绍系统能力时提及"图表"或"报告"）SHALL NOT 被判定为承诺产物
+- **AND** 完成语义词在前时，两类词之间距离 SHALL 不超过 15 个字符（含换行）；产物词在前时距离 SHALL 不超过 8 个字符
+
+#### Scenario: 能力描述类回答不触发产物校验失败
+
+- **WHEN** AI 回答中包含"我可以帮你制作图表与报告"等能力介绍性文本
+- **AND** 本轮未调用任何工具、未生成任何产物
+- **THEN** `artifact_generated` 校验项 SHALL 判定为通过（`passed=True`）
+- **AND** 系统 SHALL 不触发第二轮 AgentRunner 执行
+
 ### Requirement: Analysis loop recovery and blocking
 
 系统 SHALL 识别科研分析场景中的坏循环，并按分级策略执行恢复或阻塞。

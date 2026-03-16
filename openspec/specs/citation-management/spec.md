@@ -1,4 +1,9 @@
-## ADDED Requirements
+# citation-management Specification
+
+## Purpose
+定义引用管理能力在意图层的识别规则、同义词覆盖范围，以及用户引用格式转换与参考文献整理请求的稳定路由要求，确保相关请求能被一致识别并交给正确的能力处理。
+
+## Requirements
 
 ### Requirement: citation_management Capability 在意图层可被识别
 

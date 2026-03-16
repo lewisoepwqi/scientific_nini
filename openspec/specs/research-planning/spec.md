@@ -1,4 +1,9 @@
-## ADDED Requirements
+# research-planning Specification
+
+## Purpose
+定义研究规划能力在意图层的识别规则、同义词覆盖范围，以及研究设计、实验方案和样本量估计类请求的稳定路由要求，确保相关问题能够一致地命中规划能力。
+
+## Requirements
 
 ### Requirement: research_planning Capability 在意图层可被识别
 

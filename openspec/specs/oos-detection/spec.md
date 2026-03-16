@@ -1,4 +1,9 @@
-## ADDED Requirements
+# oos-detection Specification
+
+## Purpose
+定义超出科研助手服务范围请求的识别策略、优先级判断规则，以及对检索和路由行为的约束要求，确保明显非科研场景的请求不会误触发科研能力推荐或知识检索流程。
+
+## Requirements
 
 ### Requirement: QueryType 枚举包含 OUT_OF_SCOPE 值
 
