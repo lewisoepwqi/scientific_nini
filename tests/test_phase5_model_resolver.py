@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+from pathlib import Path
 import sys
 import types
 from typing import Any, AsyncGenerator, cast
@@ -27,7 +28,11 @@ from nini.agent.providers import (
     ReasoningStreamParser,
     ZhipuClient,
 )
-from nini.agent.providers.openai_provider import _merge_tool_arguments
+from nini.agent.providers.openai_provider import (
+    _merge_tool_arguments,
+    dump_chat_payload_debug,
+    summarize_messages_for_debug,
+)
 
 
 class FakeClient(BaseLLMClient):
@@ -728,8 +733,8 @@ def test_moonshot_client_normalizes_assistant_tool_calls_for_thinking_mode() -> 
     ]
 
 
-def test_zhipu_client_normalizes_messages_to_protocol_fields_only() -> None:
-    """Zhipu 请求体应只保留协议字段。"""
+def test_zhipu_client_flattens_tool_history_to_plain_text() -> None:
+    """Zhipu 请求体应将历史 tool_calls 压成普通 assistant 文本。"""
     client = ZhipuClient(api_key="zhipu-test-key", model="glm-5")
 
     normalized = client._normalize_messages_for_provider(  # noqa: SLF001
@@ -755,16 +760,117 @@ def test_zhipu_client_normalizes_messages_to_protocol_fields_only() -> None:
     assert normalized == [
         {
             "role": "assistant",
-            "content": "继续",
-            "tool_calls": [
-                {
-                    "id": "call-1",
-                    "type": "function",
-                    "function": {"name": "task_state", "arguments": "{}"},
-                }
-            ],
+            "content": "继续\n\n[历史工具调用]\n- task_state: {}",
         }
     ]
+
+
+def test_zhipu_client_normalizes_nested_tool_call_fields() -> None:
+    """Zhipu 请求体应清理并压缩 tool_calls 内的嵌套字段。"""
+    client = ZhipuClient(api_key="zhipu-test-key", model="glm-5")
+
+    normalized = client._normalize_messages_for_provider(  # noqa: SLF001
+        [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call-1",
+                        "type": "function",
+                        "index": 0,
+                        "function": {
+                            "name": "task_state",
+                            "arguments": {"operation": "update"},
+                            "extra": "ignored",
+                        },
+                        "debug": {"source": "test"},
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert normalized == [
+        {
+            "role": "assistant",
+            "content": '[历史工具调用]\n- task_state: {"operation": "update"}',
+        }
+    ]
+
+
+def test_zhipu_client_flattens_tool_role_to_assistant_context() -> None:
+    """Zhipu 请求体应将 tool 角色压缩为 assistant 文本上下文。"""
+    client = ZhipuClient(api_key="zhipu-test-key", model="glm-5")
+
+    normalized = client._normalize_messages_for_provider(  # noqa: SLF001
+        [
+            {
+                "role": "tool",
+                "tool_call_id": "call-1",
+                "content": '{"ok": true, "message": "done"}',
+            }
+        ]
+    )
+
+    assert normalized == [
+        {
+            "role": "assistant",
+            "content": '[历史工具结果]\n{"ok": true, "message": "done"}',
+        }
+    ]
+
+
+def test_summarize_messages_for_debug_includes_tool_call_shape() -> None:
+    """调试摘要应暴露 tool_call 的附加字段形状。"""
+    summary = summarize_messages_for_debug(
+        [
+            {
+                "role": "assistant",
+                "content": "继续",
+                "tool_calls": [
+                    {
+                        "id": "call-1",
+                        "type": "function",
+                        "debug": True,
+                        "function": {
+                            "name": "run_code",
+                            "arguments": "{}",
+                            "extra": "ignored",
+                        },
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert summary[0]["tool_call_count"] == 1
+    assert summary[0]["tool_call_extra_keys"] == [["debug"]]
+    assert summary[0]["tool_function_extra_keys"] == [["extra"]]
+
+
+def test_dump_chat_payload_debug_writes_file(tmp_path: Path) -> None:
+    """失败请求 payload 应写入本地调试目录。"""
+    dump_path = dump_chat_payload_debug(
+        provider_id="zhipu",
+        model="glm-5",
+        base_url="https://open.bigmodel.cn/api/coding/paas/v4",
+        messages=[{"role": "user", "content": "你好"}],
+        tools=None,
+        temperature=0.3,
+        max_tokens=256,
+        error=RuntimeError("messages 参数非法"),
+        debug_dir=tmp_path,
+    )
+
+    assert dump_path.exists() is True
+    payload = json.loads(dump_path.read_text(encoding="utf-8"))
+    assert payload["provider_id"] == "zhipu"
+    assert payload["model"] == "glm-5"
+    assert payload["message_count"] == 1
+    assert payload["total_content_len"] == 2
+    assert payload["messages_summary"][0]["role"] == "user"
+    assert payload["error"] == "messages 参数非法"
 
 
 def test_model_resolver_default_priority_excludes_kimi_coding() -> None:
@@ -991,6 +1097,35 @@ async def test_openai_compatible_client_aclose_ignores_mounts_attribute_error(
     await client.aclose()
     assert client._client is None  # noqa: SLF001
     assert client._http_client is None  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_client_dumps_payload_when_create_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create 抛错时应写入 payload dump 并把路径附到异常对象。"""
+
+    class _FakeCompletions:
+        async def create(self, **kwargs: Any) -> Any:
+            raise RuntimeError("messages 参数非法")
+
+    class _FakeChat:
+        def __init__(self) -> None:
+            self.completions = _FakeCompletions()
+
+    client = ZhipuClient(api_key="zhipu-test-key", model="glm-5")
+    client._client = types.SimpleNamespace(chat=_FakeChat())  # noqa: SLF001
+
+    monkeypatch.setattr(
+        "nini.agent.providers.openai_provider.dump_chat_payload_debug",
+        lambda **kwargs: tmp_path / "dump.json",
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        _ = [chunk async for chunk in client.chat([{"role": "user", "content": "hi"}])]
+
+    assert str(getattr(exc_info.value, "debug_dump_path", "")) == str(tmp_path / "dump.json")
 
 
 # ---- API 方法覆盖测试 ----

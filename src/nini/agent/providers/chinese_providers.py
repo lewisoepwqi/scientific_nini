@@ -5,6 +5,7 @@ Moonshot, Kimi Coding, Zhipu, DeepSeek, DashScope, MiniMax adapters.
 
 from __future__ import annotations
 
+import json
 from typing import Any, AsyncGenerator
 
 from nini.config import settings
@@ -143,8 +144,74 @@ class ZhipuClient(OpenAICompatibleClient):
         self,
         messages: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        # 智谱对 messages schema 更严格，显式走最小字段集合。
-        return super()._normalize_messages_for_provider(messages)
+        """智谱 Coding Plan 端点对 tool 历史兼容性较差，统一降级为纯文本上下文。"""
+        normalized: list[dict[str, Any]] = []
+        for message in messages:
+            role = str(message.get("role") or "").strip()
+            content = "" if message.get("content") is None else str(message.get("content"))
+
+            if role == "assistant" and message.get("tool_calls"):
+                tool_summary = self._summarize_tool_calls(message.get("tool_calls"))
+                merged_content = content.strip()
+                if tool_summary:
+                    merged_content = (
+                        f"{merged_content}\n\n{tool_summary}".strip()
+                        if merged_content
+                        else tool_summary
+                    )
+                normalized.append({"role": "assistant", "content": merged_content})
+                continue
+
+            if role == "tool":
+                normalized.append(
+                    {
+                        "role": "assistant",
+                        "content": self._summarize_tool_result(content),
+                    }
+                )
+                continue
+
+            if role in {"system", "user", "assistant"}:
+                normalized.append({"role": role, "content": content})
+
+        return normalized
+
+    @staticmethod
+    def _summarize_tool_calls(tool_calls: Any) -> str:
+        """将历史 tool_calls 压成智谱可接受的简短文本。"""
+        if not isinstance(tool_calls, list):
+            return ""
+
+        lines: list[str] = ["[历史工具调用]"]
+        for tool_call in tool_calls:
+            if not isinstance(tool_call, dict):
+                continue
+            function_raw = tool_call.get("function")
+            if not isinstance(function_raw, dict):
+                continue
+
+            name = str(function_raw.get("name") or "").strip() or "unknown_tool"
+            arguments = function_raw.get("arguments")
+            if arguments is None:
+                arguments_text = ""
+            elif isinstance(arguments, str):
+                arguments_text = arguments
+            else:
+                arguments_text = json.dumps(arguments, ensure_ascii=False, default=str)
+
+            if len(arguments_text) > 600:
+                arguments_text = arguments_text[:600] + "...(截断)"
+            lines.append(f"- {name}: {arguments_text}")
+
+        return "\n".join(lines) if len(lines) > 1 else ""
+
+    @staticmethod
+    def _summarize_tool_result(content: str) -> str:
+        """压缩历史工具结果，避免将完整结构再次送入智谱校验。"""
+        compact = content.strip()
+        if len(compact) > 1200:
+            compact = compact[:1200] + "...(截断)"
+        return "[历史工具结果]\n" + compact if compact else "[历史工具结果]"
 
 
 class DeepSeekClient(OpenAICompatibleClient):

@@ -5,7 +5,11 @@ OpenAI API adapter and compatible providers.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import json
 import logging
+from pathlib import Path
+import re
 from typing import Any, AsyncGenerator
 
 from nini.config import settings
@@ -31,6 +35,149 @@ def _merge_tool_arguments(existing: str, incoming: str) -> str:
         return existing
     # 增量片段：正常追加。
     return existing + incoming
+
+
+def _sanitize_debug_filename(value: str, *, fallback: str) -> str:
+    """将调试文件名收紧到安全字符集合。"""
+    normalized = re.sub(r"[^0-9A-Za-z._-]+", "-", value.strip())
+    normalized = normalized.strip("-._")
+    return normalized or fallback
+
+
+def _normalize_tool_call_for_provider(tool_call: Any) -> dict[str, Any] | None:
+    """仅保留 tool_call 的协议字段，丢弃兼容提供商不接受的附加元数据。"""
+    if not isinstance(tool_call, dict):
+        return None
+
+    function_raw = tool_call.get("function")
+    if not isinstance(function_raw, dict):
+        return None
+
+    name = str(function_raw.get("name") or "").strip()
+    if not name:
+        return None
+
+    arguments = function_raw.get("arguments")
+    if arguments is None:
+        arguments_text = ""
+    elif isinstance(arguments, str):
+        arguments_text = arguments
+    else:
+        arguments_text = json.dumps(arguments, ensure_ascii=False, default=str)
+
+    normalized: dict[str, Any] = {
+        "type": "function",
+        "function": {
+            "name": name,
+            "arguments": arguments_text,
+        },
+    }
+
+    tool_call_id = str(tool_call.get("id") or "").strip()
+    if tool_call_id:
+        normalized["id"] = tool_call_id
+
+    return normalized
+
+
+def summarize_messages_for_debug(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """生成消息结构摘要，避免在日志中直接输出大段正文。"""
+    summary: list[dict[str, Any]] = []
+    for index, message in enumerate(messages, start=1):
+        item: dict[str, Any] = {
+            "index": index,
+            "role": str(message.get("role") or "").strip(),
+            "keys": sorted(str(key) for key in message.keys()),
+            "content_len": len(
+                "" if message.get("content") is None else str(message.get("content"))
+            ),
+        }
+
+        tool_calls_raw = message.get("tool_calls")
+        if isinstance(tool_calls_raw, list) and tool_calls_raw:
+            item["tool_call_count"] = len(tool_calls_raw)
+            item["tool_call_ids"] = [
+                str(tool_call.get("id") or "").strip()
+                for tool_call in tool_calls_raw
+                if isinstance(tool_call, dict)
+            ]
+            item["tool_call_names"] = [
+                str((tool_call.get("function") or {}).get("name") or "").strip()
+                for tool_call in tool_calls_raw
+                if isinstance(tool_call, dict) and isinstance(tool_call.get("function"), dict)
+            ]
+            item["tool_call_extra_keys"] = [
+                sorted(key for key in tool_call.keys() if key not in {"id", "type", "function"})
+                for tool_call in tool_calls_raw
+                if isinstance(tool_call, dict)
+            ]
+            item["tool_function_extra_keys"] = [
+                sorted(
+                    key for key in tool_call["function"].keys() if key not in {"name", "arguments"}
+                )
+                for tool_call in tool_calls_raw
+                if isinstance(tool_call, dict) and isinstance(tool_call.get("function"), dict)
+            ]
+
+        tool_call_id = str(message.get("tool_call_id") or "").strip()
+        if tool_call_id:
+            item["tool_call_id"] = tool_call_id
+
+        summary.append(item)
+    return summary
+
+
+def total_message_content_length(messages: list[dict[str, Any]]) -> int:
+    """统计消息正文总字符数。"""
+    return sum(
+        len("" if message.get("content") is None else str(message.get("content")))
+        for message in messages
+    )
+
+
+def dump_chat_payload_debug(
+    *,
+    provider_id: str,
+    model: str | None,
+    base_url: str | None,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None,
+    temperature: float,
+    max_tokens: int,
+    error: Exception,
+    debug_dir: Path | None = None,
+) -> Path:
+    """将失败请求写入本地调试文件，便于离线复盘。"""
+    timestamp = datetime.now(timezone.utc)
+    target_dir = debug_dir or (settings.data_dir / "debug" / "llm")
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    provider_part = _sanitize_debug_filename(provider_id, fallback="provider")
+    model_part = _sanitize_debug_filename(model or "unknown", fallback="model")
+    file_name = f"{timestamp.strftime('%Y%m%dT%H%M%S.%fZ')}_{provider_part}_{model_part}.json"
+    file_path = target_dir / file_name
+
+    payload = {
+        "timestamp": timestamp.isoformat(),
+        "provider_id": provider_id,
+        "model": model,
+        "base_url": base_url,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "tools_count": len(tools or []),
+        "message_count": len(messages),
+        "total_content_len": total_message_content_length(messages),
+        "messages_summary": summarize_messages_for_debug(messages),
+        "messages": messages,
+        "tools": tools or [],
+        "error_type": type(error).__name__,
+        "error": str(error),
+    }
+    file_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    return file_path
 
 
 class OpenAICompatibleClient(BaseLLMClient):
@@ -93,7 +240,14 @@ class OpenAICompatibleClient(BaseLLMClient):
                 }
                 tool_calls = message.get("tool_calls")
                 if tool_calls:
-                    item["tool_calls"] = tool_calls
+                    normalized_tool_calls = [
+                        normalized_tool_call
+                        for tool_call in tool_calls
+                        if (normalized_tool_call := _normalize_tool_call_for_provider(tool_call))
+                        is not None
+                    ]
+                    if normalized_tool_calls:
+                        item["tool_calls"] = normalized_tool_calls
                 normalized.append(item)
                 continue
 
@@ -118,6 +272,17 @@ class OpenAICompatibleClient(BaseLLMClient):
         assert self._client is not None
 
         normalized_messages = self._normalize_messages_for_provider(messages)
+        message_summary = summarize_messages_for_debug(normalized_messages)
+        logger.debug(
+            "准备调用 LLM provider=%s model=%s base_url=%s tools=%d temperature=%s max_tokens=%d messages=%s",
+            self.provider_id,
+            self._model,
+            self._base_url,
+            len(tools or []),
+            temperature,
+            max_tokens,
+            json.dumps(message_summary, ensure_ascii=False),
+        )
 
         kwargs: dict[str, Any] = {
             "model": self._model,
@@ -132,7 +297,28 @@ class OpenAICompatibleClient(BaseLLMClient):
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
 
-        stream = await self._client.chat.completions.create(**kwargs)
+        try:
+            stream = await self._client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            dump_path = dump_chat_payload_debug(
+                provider_id=self.provider_id,
+                model=self._model,
+                base_url=self._base_url,
+                messages=normalized_messages,
+                tools=tools,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                error=exc,
+            )
+            setattr(exc, "debug_dump_path", str(dump_path))
+            logger.warning(
+                "LLM 请求失败，已写入调试 payload: provider=%s model=%s dump=%s reason=%s",
+                self.provider_id,
+                self._model,
+                dump_path,
+                exc,
+            )
+            raise
         parser = ReasoningStreamParser(enable_tag_split=self._supports_reasoning_tags())
 
         # 聚合 tool_calls 片段

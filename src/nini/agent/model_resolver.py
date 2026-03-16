@@ -700,6 +700,7 @@ class ModelResolver:
             except Exception as e:
                 last_error = e
                 compact_error = self._compact_error_message(e)
+                debug_dump_path = str(getattr(e, "debug_dump_path", "") or "").strip() or None
                 fallback_chain.append(
                     {
                         "provider_id": provider_id,
@@ -710,12 +711,21 @@ class ModelResolver:
                         "error": compact_error,
                     }
                 )
-                logger.warning(
-                    "LLM 客户端调用失败，尝试下一个提供商: provider=%s model=%s reason=%s",
-                    provider_id,
-                    model_name,
-                    compact_error,
-                )
+                if debug_dump_path:
+                    logger.warning(
+                        "LLM 客户端调用失败，尝试下一个提供商: provider=%s model=%s reason=%s dump=%s",
+                        provider_id,
+                        model_name,
+                        compact_error,
+                        debug_dump_path,
+                    )
+                else:
+                    logger.warning(
+                        "LLM 客户端调用失败，尝试下一个提供商: provider=%s model=%s reason=%s",
+                        provider_id,
+                        model_name,
+                        compact_error,
+                    )
 
         if last_error is not None:
             summary = " | ".join(
