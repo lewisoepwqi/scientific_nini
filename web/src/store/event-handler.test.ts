@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { handleEvent, type AppStateSubset } from "./event-handler";
+import {
+  clearAllSessionUiCacheEntries,
+  getSessionUiCacheEntry,
+} from "./session-ui-cache";
 import type { WSEvent } from "./types";
 
 function createState(
@@ -85,6 +89,7 @@ function createHarness(initial: Partial<AppStateSubset> = {}) {
 describe("handleEvent 文本去重", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    clearAllSessionUiCacheEntries();
   });
 
   it("后台会话的 ask_user_question 应保存到按会话映射，不污染当前会话面板", async () => {
@@ -121,6 +126,64 @@ describe("handleEvent 文本去重", () => {
       toolCallId: "tool-ask-bg",
       questionCount: 1,
     });
+  });
+
+  it("后台会话的 text 事件应写入对应会话缓存", async () => {
+    const harness = createHarness({
+      sessionId: "session-current",
+    });
+
+    await harness.dispatch({
+      type: "text",
+      session_id: "session-bg",
+      turn_id: "turn-bg",
+      data: "后台分析中",
+      metadata: {
+        message_id: "msg-bg-1",
+        operation: "append",
+      },
+    });
+
+    const cached = getSessionUiCacheEntry("session-bg");
+    expect(cached?.messages).toHaveLength(1);
+    expect(cached?.messages[0]).toMatchObject({
+      turnId: "turn-bg",
+      content: "后台分析中",
+    });
+    expect(harness.getState().messages).toHaveLength(0);
+  });
+
+  it("后台会话的 token_usage 事件应写入对应会话缓存", async () => {
+    const harness = createHarness({
+      sessionId: "session-current",
+    });
+
+    await harness.dispatch({
+      type: "token_usage",
+      session_id: "session-bg",
+      turn_id: "turn-bg",
+      data: {
+        model: "gpt-test",
+        input_tokens: 100,
+        output_tokens: 50,
+        total_tokens: 150,
+        cost_usd: 0.01,
+        session_total_tokens: 150,
+        session_total_cost: 0.01,
+      },
+    });
+
+    const cached = getSessionUiCacheEntry("session-bg");
+    expect(cached?.streamingMetrics).toMatchObject({
+      turnId: "turn-bg",
+      totalTokens: 150,
+      hasTokenUsage: true,
+    });
+    expect(cached?.tokenUsage).toMatchObject({
+      session_id: "session-bg",
+      total_tokens: 150,
+    });
+    expect(harness.getState().tokenUsage).toBeNull();
   });
 
   it("后台会话的 ask_user_question 在通知已启用时应触发系统通知", async () => {

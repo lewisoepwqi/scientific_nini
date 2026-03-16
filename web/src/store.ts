@@ -158,6 +158,17 @@ import { handleEvent } from "./store/event-handler";
 // ---- API 动作导入 ----
 import * as api from "./store/api-actions";
 import { emitSessionsChanged } from "./store/session-lifecycle";
+import {
+  captureSessionUiCacheEntry,
+  cloneAnalysisTasks,
+  cloneMessages,
+  clonePlanProgress,
+  cloneStreamingMetrics,
+  cloneTokenUsage,
+  deleteSessionUiCacheEntry,
+  getSessionUiCacheEntry,
+  setSessionUiCacheEntry,
+} from "./store/session-ui-cache";
 import { preloadRenderersForMessages } from "./components/message-renderer-preload";
 
 // ============================================================================
@@ -413,61 +424,6 @@ let reconnectTimerId: ReturnType<typeof setTimeout> | null = null;
 
 // 模块级事件处理器（避免 initApp 重复调用时泄漏监听器）
 let _modelConfigHandler: (() => void) | null = null;
-
-type SessionUiCacheEntry = {
-  messages: Message[];
-  analysisTasks: AnalysisTaskItem[];
-  analysisPlanProgress: AnalysisPlanProgress | null;
-  harnessRunContext: HarnessRunContextState | null;
-  completionCheck: CompletionCheckState | null;
-  blockedState: HarnessBlockedState | null;
-  currentIntentAnalysis: IntentAnalysisView | null;
-  workspacePanelTab: "files" | "executions" | "tasks";
-  streamingMetrics: StreamingMetrics;
-  tokenUsage: TokenUsage | null;
-};
-
-const MAX_SESSION_CACHE = 10;
-const sessionUiCache = new Map<string, SessionUiCacheEntry>();
-
-function cloneMessages(messages: Message[]): Message[] {
-  return messages.map((message) => ({ ...message }));
-}
-
-function cloneAnalysisTasks(tasks: AnalysisTaskItem[]): AnalysisTaskItem[] {
-  return tasks.map((task) => ({
-    ...task,
-    attempts: task.attempts.map((attempt) => ({ ...attempt })),
-  }));
-}
-
-function clonePlanProgress(
-  progress: AnalysisPlanProgress | null,
-): AnalysisPlanProgress | null {
-  if (!progress) return null;
-  return {
-    ...progress,
-    steps: progress.steps.map((step) => ({ ...step })),
-  };
-}
-
-function cloneStreamingMetrics(metrics: StreamingMetrics): StreamingMetrics {
-  return { ...metrics };
-}
-
-function cloneTokenUsage(tokenUsage: TokenUsage | null): TokenUsage | null {
-  if (!tokenUsage) return null;
-  const modelBreakdown = tokenUsage.model_breakdown ?? {};
-  return {
-    ...tokenUsage,
-    model_breakdown: Object.fromEntries(
-      Object.entries(modelBreakdown).map(([model, usage]) => [
-        model,
-        { ...usage },
-      ]),
-    ),
-  };
-}
 
 function inferStreamingStartedAt(messages: Message[]): number | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -1018,7 +974,7 @@ export const useStore = create<AppState>((set, get) => ({
   clearMessages() {
     const sessionId = get().sessionId;
     if (sessionId) {
-      sessionUiCache.delete(sessionId);
+      deleteSessionUiCacheEntry(sessionId);
     }
     set({
       ...SESSION_RESET_STATE,
@@ -1213,11 +1169,22 @@ export const useStore = create<AppState>((set, get) => ({
     const restored = api.buildSessionRestoreState(
       rawMessages as RawSessionMessage[],
     );
-    const cachedSessionUi = sessionUiCache.get(targetSessionId);
+    const cachedSessionUi = getSessionUiCacheEntry(targetSessionId);
     const targetSessionRunning = get().runningSessions.has(targetSessionId);
+    const shouldUseCachedUi =
+      !!cachedSessionUi &&
+      (
+        targetSessionRunning ||
+        cachedSessionUi.messages.length > restored.messages.length ||
+        cachedSessionUi.analysisTasks.length > restored.analysisTasks.length ||
+        cachedSessionUi.streamingMetrics.hasTokenUsage ||
+        cachedSessionUi.harnessRunContext !== null ||
+        cachedSessionUi.completionCheck !== null ||
+        cachedSessionUi.blockedState !== null
+      );
     const fallbackStartedAt = inferStreamingStartedAt(restored.messages);
     const restoredStreamingMetrics: StreamingMetrics =
-      cachedSessionUi?.streamingMetrics && targetSessionRunning
+      cachedSessionUi && shouldUseCachedUi
         ? cloneStreamingMetrics(cachedSessionUi.streamingMetrics)
         : {
             startedAt: targetSessionRunning ? fallbackStartedAt : null,
@@ -1230,15 +1197,15 @@ export const useStore = create<AppState>((set, get) => ({
             hasTokenUsage: false,
           };
     const restoredMessages =
-      cachedSessionUi && targetSessionRunning
+      cachedSessionUi && shouldUseCachedUi
         ? cloneMessages(cachedSessionUi.messages)
         : restored.messages;
     const restoredAnalysisTasks =
-      cachedSessionUi && targetSessionRunning
+      cachedSessionUi && shouldUseCachedUi
         ? cloneAnalysisTasks(cachedSessionUi.analysisTasks)
         : restored.analysisTasks;
     const restoredPlanProgress =
-      cachedSessionUi && targetSessionRunning
+      cachedSessionUi && shouldUseCachedUi
         ? clonePlanProgress(cachedSessionUi.analysisPlanProgress)
         : restored.analysisPlanProgress;
 
@@ -1260,30 +1227,58 @@ export const useStore = create<AppState>((set, get) => ({
       analysisTasks: restoredAnalysisTasks,
       analysisPlanProgress: restoredPlanProgress,
       harnessRunContext:
-        cachedSessionUi && targetSessionRunning
+        cachedSessionUi && shouldUseCachedUi
           ? cachedSessionUi.harnessRunContext
           : null,
       completionCheck:
-        cachedSessionUi && targetSessionRunning
+        cachedSessionUi && shouldUseCachedUi
           ? cachedSessionUi.completionCheck
           : null,
       blockedState:
-        cachedSessionUi && targetSessionRunning
+        cachedSessionUi && shouldUseCachedUi
           ? cachedSessionUi.blockedState
           : null,
       currentIntentAnalysis:
-        cachedSessionUi && targetSessionRunning
+        cachedSessionUi && shouldUseCachedUi
           ? cachedSessionUi.currentIntentAnalysis
           : null,
       workspacePanelTab:
-        cachedSessionUi && targetSessionRunning
+        cachedSessionUi && shouldUseCachedUi
           ? cachedSessionUi.workspacePanelTab
           : restoredPlanProgress || restoredAnalysisTasks.length > 0
             ? "tasks"
             : "files",
+      _currentTurnId:
+        cachedSessionUi && shouldUseCachedUi
+          ? cachedSessionUi.currentTurnId
+          : null,
+      _streamingText:
+        cachedSessionUi && shouldUseCachedUi
+          ? cachedSessionUi.streamingText
+          : "",
+      _lastHandledSeq:
+        cachedSessionUi && shouldUseCachedUi
+          ? cachedSessionUi.lastHandledSeq
+          : undefined,
+      _activePlanMsgId:
+        cachedSessionUi && shouldUseCachedUi
+          ? cachedSessionUi.activePlanMsgId
+          : null,
+      _analysisPlanOrder:
+        cachedSessionUi && shouldUseCachedUi
+          ? cachedSessionUi.analysisPlanOrder
+          : 0,
+      _activePlanTaskIds:
+        cachedSessionUi && shouldUseCachedUi
+          ? [...cachedSessionUi.activePlanTaskIds]
+          : [],
+      _planActionTaskMap:
+        cachedSessionUi && shouldUseCachedUi
+          ? { ...cachedSessionUi.planActionTaskMap }
+          : {},
       _streamingMetrics: restoredStreamingMetrics,
       tokenUsage:
-        cachedSessionUi && targetSessionRunning
+        cachedSessionUi && shouldUseCachedUi
           ? cloneTokenUsage(cachedSessionUi.tokenUsage)
           : null,
     }));
@@ -1301,7 +1296,7 @@ export const useStore = create<AppState>((set, get) => ({
   async deleteSession(targetSessionId: string) {
     const success = await api.deleteSession(targetSessionId);
     if (!success) return false;
-    sessionUiCache.delete(targetSessionId);
+    deleteSessionUiCacheEntry(targetSessionId);
 
     const { sessionId } = get();
     await get().fetchSessions();
@@ -1579,42 +1574,17 @@ export const useStore = create<AppState>((set, get) => ({
   },
 }));
 
-// 仅在 sessionId 切换时，将**旧 session** 的状态写入缓存（LRU 淘汰）
-let _prevCachedSessionId: string | null = null;
+// 仅在 sessionId 切换时，将旧会话的快照写入缓存。
+let _previousStoreState = useStore.getState();
 useStore.subscribe((state) => {
-  const currentSessionId = state.sessionId;
-  if (_prevCachedSessionId && _prevCachedSessionId !== currentSessionId) {
-    // 写入旧 session 的快照
-    const oldId = _prevCachedSessionId;
-    // 淘汰最旧的缓存条目
-    if (sessionUiCache.size >= MAX_SESSION_CACHE && !sessionUiCache.has(oldId)) {
-      const oldest = sessionUiCache.keys().next().value;
-      if (oldest !== undefined) sessionUiCache.delete(oldest);
-    }
-    sessionUiCache.set(oldId, {
-      messages: cloneMessages(state.messages),
-      analysisTasks: cloneAnalysisTasks(state.analysisTasks),
-      analysisPlanProgress: clonePlanProgress(state.analysisPlanProgress),
-      harnessRunContext: state.harnessRunContext
-        ? { ...state.harnessRunContext }
-        : null,
-      completionCheck: state.completionCheck
-        ? {
-            ...state.completionCheck,
-            items: state.completionCheck.items.map((item) => ({ ...item })),
-            missingActions: [...state.completionCheck.missingActions],
-          }
-        : null,
-      blockedState: state.blockedState ? { ...state.blockedState } : null,
-      currentIntentAnalysis: state.currentIntentAnalysis
-        ? ({ ...state.currentIntentAnalysis } as IntentAnalysisView)
-        : null,
-      workspacePanelTab: state.workspacePanelTab,
-      streamingMetrics: cloneStreamingMetrics(state._streamingMetrics),
-      tokenUsage: cloneTokenUsage(state.tokenUsage),
-    });
+  const previousSessionId = _previousStoreState.sessionId;
+  if (previousSessionId && previousSessionId !== state.sessionId) {
+    setSessionUiCacheEntry(
+      previousSessionId,
+      captureSessionUiCacheEntry(_previousStoreState),
+    );
   }
-  _prevCachedSessionId = currentSessionId;
+  _previousStoreState = state;
 });
 
 // ============================================================================

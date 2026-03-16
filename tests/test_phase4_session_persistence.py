@@ -521,6 +521,77 @@ def test_get_session_messages_with_tool_calls(client: LocalASGIClient) -> None:
     assert messages[1]["message_id"] == "tool-result-call_123"
 
 
+def test_get_session_messages_only_returns_persisted_history(client: LocalASGIClient) -> None:
+    """运行时状态不应改变 `/messages` 的历史返回契约。"""
+    resp = client.post("/api/sessions")
+    session_id = resp.json()["data"]["session_id"]
+
+    session = session_manager.get_session(session_id)
+    assert session is not None
+
+    turn_id = "turn_history_boundary"
+    session.add_message("user", "请分析这批样本", turn_id=turn_id)
+    session.add_tool_call(
+        "call_history_boundary",
+        "run_code",
+        json.dumps({"code": "print('analysis')"}, ensure_ascii=False),
+        turn_id=turn_id,
+        message_id="tool-call-call_history_boundary",
+    )
+    session.add_tool_result(
+        "call_history_boundary",
+        '{"success": true, "summary": "分析完成"}',
+        tool_name="run_code",
+        status="success",
+        turn_id=turn_id,
+        message_id="tool-result-call_history_boundary",
+    )
+    session.add_message(
+        "assistant",
+        "最终结论：存在显著差异。",
+        turn_id=turn_id,
+        message_id="assistant-final-turn_history_boundary",
+    )
+
+    # 这些字段仅属于运行时状态，不应被 `/messages` 合成进历史记录。
+    session.harness_runtime_context = "运行时上下文：已载入 2 个数据集"
+    session.task_manager = session.task_manager.init_tasks(
+        [
+            {"id": 1, "title": "检查数据质量", "status": "completed"},
+            {"id": 2, "title": "计算显著性", "status": "in_progress"},
+        ]
+    )
+
+    live_resp = client.get(f"/api/sessions/{session_id}/messages")
+    assert live_resp.status_code == 200
+    live_messages = live_resp.json()["data"]["messages"]
+
+    session_manager._sessions.clear()
+
+    reloaded_resp = client.get(f"/api/sessions/{session_id}/messages")
+    assert reloaded_resp.status_code == 200
+    reloaded_messages = reloaded_resp.json()["data"]["messages"]
+
+    assert live_messages == reloaded_messages
+    assert [msg["event_type"] for msg in live_messages] == [
+        "message",
+        "tool_call",
+        "tool_result",
+        "text",
+    ]
+    assert [msg["content"] for msg in live_messages] == [
+        "请分析这批样本",
+        None,
+        '{"success": true, "summary": "分析完成"}',
+        "最终结论：存在显著差异。",
+    ]
+    assert all(
+        msg["event_type"] not in {"analysis_plan", "plan_step_update", "plan_progress", "task_attempt"}
+        for msg in live_messages
+    )
+    assert all("harness_runtime_context" not in msg for msg in live_messages)
+
+
 def test_get_session_messages_empty_session(client: LocalASGIClient) -> None:
     """新创建的空会话（内存中有但无消息）应返回空消息列表。"""
     resp = client.post("/api/sessions")

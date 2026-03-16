@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:critical": "playwright test e2e/session-background-resume.spec.ts",
     "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {

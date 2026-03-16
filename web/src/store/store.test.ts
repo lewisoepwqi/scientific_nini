@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Message } from "./types";
 import { useStore } from "../store";
+import { clearAllSessionUiCacheEntries } from "./session-ui-cache";
 
 class MockWebSocket {
   static CONNECTING = 0;
@@ -74,6 +75,7 @@ describe("store reconnect / retry / stop", () => {
     globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket;
     globalThis.fetch = vi.fn();
     useStore.setState(initialState, true);
+    clearAllSessionUiCacheEntries();
     localStorage.clear();
   });
 
