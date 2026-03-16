@@ -15,6 +15,15 @@ _CASUAL_RE = re.compile(
 )
 # 工具指令关键词
 _COMMAND_RE = re.compile(r"保存|导出|下载|清除|重置|刷新|删除|移除|整理")
+# 超出支持范围的意图识别正则（与 optimized.py 保持一致）
+_OUT_OF_SCOPE_RE = re.compile(
+    r"检索|搜索|搜一下|查一下|查找|查询最新|最新进展|最新消息|最新动态|"
+    r"最新研究|发展近况|联网|上网|爬虫|爬取|爬网|browse|google|pubmed|"
+    r"scholar|知网|web\s*search|internet|新闻|资讯|热点|头条|"
+    r"机票|酒店预订|订餐|外卖|天气预报|股票行情|彩票|播放音乐|"
+    r"讲笑话|导航路线|网购|快递查询|打车",
+    re.IGNORECASE,
+)
 
 _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]+|[\u4e00-\u9fff]{2,}")
 SLASH_SKILL_WITH_ARGS_RE = re.compile(
@@ -137,6 +146,45 @@ _SYNONYM_MAP: dict[str, list[str]] = {
         "report",
         "summary",
     ],
+    "citation_management": [
+        "引用格式",
+        "参考文献",
+        "文献引用",
+        "引用管理",
+        "bibliography",
+        "APA格式",
+        "MLA格式",
+        "GB/T格式",
+        "citation",
+        "文献格式化",
+        "引用规范",
+    ],
+    "peer_review": [
+        "审稿意见",
+        "同行评审",
+        "评审意见",
+        "回复审稿",
+        "修改意见",
+        "reviewer",
+        "peer review",
+        "审稿人",
+        "回复审稿人",
+        "reviewer comments",
+        "意见回复",
+    ],
+    "research_planning": [
+        "研究规划",
+        "研究设计",
+        "实验设计",
+        "研究方案",
+        "研究思路",
+        "样本量",
+        "样本量计算",
+        "随机化",
+        "研究框架",
+        "research design",
+        "实验方案",
+    ],
 }
 
 
@@ -243,6 +291,9 @@ class IntentAnalyzer:
         msg = message.strip()
         if not msg:
             return QueryType.DOMAIN_TASK  # 空消息保守兜底
+        # 超出科研服务范围检测——提前于候选判断
+        if _OUT_OF_SCOPE_RE.search(msg):
+            return QueryType.OUT_OF_SCOPE
         if not analysis.capability_candidates:
             # 无候选命中：区分闲聊和指令
             if _CASUAL_RE.match(msg) or len(msg) <= 10:

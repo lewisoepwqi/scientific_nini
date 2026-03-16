@@ -1,0 +1,173 @@
+# 科研意图同义词配置
+# 与 src/nini/intent/optimized.py 中 _SYNONYM_MAP 内容保持一致，作为可热更新的外置配置。
+# 修改此文件后重启服务即可生效，无需修改代码。
+
+difference_analysis:
+  - 差异
+  - 显著性
+  - t检验
+  - t_test
+  - anova
+  - 方差分析
+  - 对比
+  - 比较差异
+  - 两组差异
+  - 多组差异
+  - 组间差异
+  - 显著差别
+  - 差别
+  - 对比分析
+  - 均值比较
+  - mann_whitney
+  - kruskal
+  - 非参数检验
+  - wilcoxon
+
+correlation_analysis:
+  - 相关
+  - 相关性
+  - 关联
+  - pearson
+  - spearman
+  - kendall
+  - 相关系数
+  - 变量关系
+  - 协变
+  - 共变
+  - 相互关系
+  - 有没有联系
+  - 有没有关系
+  - 是否相关
+  - 相关性分析
+
+regression_analysis:
+  - 回归
+  - 预测
+  - 建模
+  - 线性模型
+  - regression
+  - 拟合
+  - 回归方程
+  - 自变量
+  - 因变量
+  - 预测模型
+  - 逻辑回归
+  - 多元回归
+  - 逐步回归
+  - 岭回归
+  - lasso
+
+data_exploration:
+  - 探索
+  - 概览
+  - 描述性统计
+  - 分布
+  - 缺失值
+  - 异常值
+  - 数据质量
+  - 数据特征
+  - 看看数据
+  - 了解数据
+  - 数据情况
+  - 描述统计
+  - 基本统计
+  - 数据概览
+  - 探索性分析
+  - eda
+
+data_cleaning:
+  - 清洗
+  - 预处理
+  - 处理缺失
+  - 填充
+  - 去重
+  - 标准化
+  - 归一化
+  - 异常处理
+  - 数据清理
+  - 数据整理
+  - 缺失值处理
+  - 异常值处理
+  - 数据转换
+  - 特征工程
+
+visualization:
+  - 可视化
+  - 画图
+  - 作图
+  - 图形
+  - 箱线图
+  - 散点图
+  - 柱状图
+  - 热力图
+  - 直方图
+  - 折线图
+  - 饼图
+  - chart
+  - plot
+  - graph
+  - 画图展示
+  - 绘制图表
+
+report_generation:
+  - 报告
+  - 报表
+  - 汇总
+  - 总结
+  - 导出报告
+  - 生成报告
+  - 分析报告
+  - report
+  - summary
+  - word
+  - pdf
+
+article_draft:
+  - 论文
+  - 文章
+  - 初稿
+  - manuscript
+  - publication
+  - 科研论文
+  - 学术论文
+  - 撰写论文
+  - 论文写作
+
+citation_management:
+  - 引用格式
+  - 参考文献
+  - 文献引用
+  - 引用管理
+  - bibliography
+  - APA格式
+  - MLA格式
+  - GB/T格式
+  - citation
+  - 文献格式化
+  - 引用规范
+
+peer_review:
+  - 审稿意见
+  - 同行评审
+  - 评审意见
+  - 回复审稿
+  - 修改意见
+  - reviewer
+  - peer review
+  - 审稿人
+  - 回复审稿人
+  - reviewer comments
+  - 意见回复
+
+research_planning:
+  - 研究规划
+  - 研究设计
+  - 实验设计
+  - 研究方案
+  - 研究思路
+  - 样本量
+  - 样本量计算
+  - 随机化
+  - 研究框架
+  - research design
+  - 实验方案

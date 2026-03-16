@@ -19,7 +19,6 @@ from nini.intent.base import QueryType as QueryTypeBase  # noqa: F401（向后�
 from nini.tools.registry import create_default_tool_registry
 from tests.client_utils import LocalASGIClient
 
-
 # ============================================================================
 # 测试夹具：提供两种 IntentAnalyzer 实现
 # ============================================================================
@@ -69,9 +68,7 @@ class TestIntentAnalyzerInterfaceContract:
         assert callable(standard_analyzer.parse_explicit_skill_calls)
         assert callable(optimized_analyzer.parse_explicit_skill_calls)
 
-    def test_parse_explicit_skill_calls_same_signature(
-        self, standard_analyzer, optimized_analyzer
-    ):
+    def test_parse_explicit_skill_calls_same_signature(self, standard_analyzer, optimized_analyzer):
         """parse_explicit_skill_calls 方法签名应一致。"""
         import inspect
 
@@ -81,9 +78,9 @@ class TestIntentAnalyzerInterfaceContract:
         # 参数名应相同
         standard_params = list(standard_sig.parameters.keys())
         optimized_params = list(optimized_sig.parameters.keys())
-        assert standard_params == optimized_params, (
-            f"参数不匹配: {standard_params} vs {optimized_params}"
-        )
+        assert (
+            standard_params == optimized_params
+        ), f"参数不匹配: {standard_params} vs {optimized_params}"
 
     def test_analyze_method_core_signature(self, standard_analyzer, optimized_analyzer):
         """analyze 方法核心参数应一致（允许有额外参数）。"""
@@ -99,8 +96,12 @@ class TestIntentAnalyzerInterfaceContract:
         # 两种实现都应有的核心参数
         core_params = {"user_message", "capabilities", "skill_limit"}
 
-        assert core_params.issubset(standard_params), f"标准版缺少核心参数: {core_params - standard_params}"
-        assert core_params.issubset(optimized_params), f"优化版缺少核心参数: {core_params - optimized_params}"
+        assert core_params.issubset(
+            standard_params
+        ), f"标准版缺少核心参数: {core_params - standard_params}"
+        assert core_params.issubset(
+            optimized_params
+        ), f"优化版缺少核心参数: {core_params - optimized_params}"
 
 
 # ============================================================================
@@ -789,7 +790,9 @@ class TestOptimizedIntentAnalyzerSpecific:
         results = []
         for _ in range(5):
             analysis = optimized_analyzer.analyze("t检验", capabilities=capabilities)
-            results.append(analysis.capability_candidates[0].name if analysis.capability_candidates else None)
+            results.append(
+                analysis.capability_candidates[0].name if analysis.capability_candidates else None
+            )
 
         # 所有结果应一致
         assert all(r == results[0] for r in results)
@@ -832,3 +835,96 @@ class TestIntentStrategyConfiguration:
         # 实际调用测试
         result = analyzer.parse_explicit_skill_calls("/test-skill 参数")
         assert result == [{"name": "test-skill", "arguments": "参数"}]
+
+
+# ============================================================================
+# Phase 1 补全测试：新 Capability、新同义词、OUT_OF_SCOPE
+# ============================================================================
+
+# 包含新增三个 Capability 的完整测试集
+_EXTENDED_CAPS = _DEFAULT_CAPS + [
+    {
+        "name": "citation_management",
+        "display_name": "引用管理",
+        "description": "参考文献格式化、引用规范转换（APA/MLA/GB/T）",
+        "is_executable": False,
+    },
+    {
+        "name": "peer_review",
+        "display_name": "同行评审辅助",
+        "description": "整理审稿意见、生成回复信件",
+        "is_executable": False,
+    },
+    {
+        "name": "research_planning",
+        "display_name": "研究规划",
+        "description": "研究设计、实验方案制定、样本量计算",
+        "is_executable": False,
+    },
+]
+
+
+class TestPhase1NewCapabilities:
+    """Phase 1 测试：新增 Capability 定义与同义词路由。"""
+
+    def test_default_capabilities_include_new_three(self):
+        """4.1: create_default_capabilities() 返回列表应包含三个新 Capability。"""
+        from nini.capabilities.defaults import create_default_capabilities
+
+        caps = create_default_capabilities()
+        names = {cap.name for cap in caps}
+        assert "citation_management" in names
+        assert "peer_review" in names
+        assert "research_planning" in names
+
+    def test_synonym_match_citation_management(self, intent_analyzer):
+        """4.2: 含"参考文献"的输入应命中 citation_management。"""
+        analysis = intent_analyzer.analyze(
+            "帮我整理参考文献格式",
+            capabilities=_EXTENDED_CAPS,
+        )
+        candidate_names = [c.name for c in analysis.capability_candidates]
+        assert "citation_management" in candidate_names
+
+    def test_synonym_match_peer_review(self, intent_analyzer):
+        """4.3: 含"审稿意见"的输入应命中 peer_review。"""
+        analysis = intent_analyzer.analyze(
+            "帮我整理审稿意见的回复",
+            capabilities=_EXTENDED_CAPS,
+        )
+        candidate_names = [c.name for c in analysis.capability_candidates]
+        assert "peer_review" in candidate_names
+
+    def test_synonym_match_research_planning(self, intent_analyzer):
+        """4.4: 含"实验设计"的输入应命中 research_planning。"""
+        analysis = intent_analyzer.analyze(
+            "帮我做实验设计和样本量计算",
+            capabilities=_EXTENDED_CAPS,
+        )
+        candidate_names = [c.name for c in analysis.capability_candidates]
+        assert "research_planning" in candidate_names
+
+
+class TestPhase1OutOfScope:
+    """Phase 1 测试：OUT_OF_SCOPE 查询类型。"""
+
+    def test_query_type_enum_has_out_of_scope(self):
+        """4.5: QueryType 枚举应包含 OUT_OF_SCOPE 且值为 'out_of_scope'。"""
+        assert hasattr(QueryType, "OUT_OF_SCOPE")
+        assert QueryType.OUT_OF_SCOPE.value == "out_of_scope"
+
+    def test_book_flight_is_out_of_scope(self, intent_analyzer, sample_capabilities):
+        """4.6: '帮我订一张机票' 应返回 OUT_OF_SCOPE。"""
+        analysis = intent_analyzer.analyze("帮我订一张机票", capabilities=sample_capabilities)
+        assert analysis.query_type == QueryType.OUT_OF_SCOPE
+
+    def test_weather_is_out_of_scope(self, intent_analyzer, sample_capabilities):
+        """4.7: '明天天气预报怎么样' 应返回 OUT_OF_SCOPE。"""
+        analysis = intent_analyzer.analyze("明天天气预报怎么样", capabilities=sample_capabilities)
+        assert analysis.query_type == QueryType.OUT_OF_SCOPE
+
+    def test_out_of_scope_rag_not_needed(self, intent_analyzer, sample_capabilities):
+        """4.8: OUT_OF_SCOPE 时 rag_needed 应为 False。"""
+        analysis = intent_analyzer.analyze("帮我订一张机票", capabilities=sample_capabilities)
+        assert analysis.query_type == QueryType.OUT_OF_SCOPE
+        assert analysis.rag_needed is False

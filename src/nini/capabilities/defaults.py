@@ -213,4 +213,28 @@ def create_default_capabilities() -> list[Capability]:
                 "export_document",
             ],
         ),
+        Capability(
+            name="citation_management",
+            display_name="引用管理",
+            description="参考文献格式化、引用规范转换（APA/MLA/GB/T）",
+            icon="📚",
+            is_executable=False,
+            execution_message="请在对话中描述需要整理的参考文献和目标格式，Agent 将调用 citation_manager 为你处理。",
+        ),
+        Capability(
+            name="peer_review",
+            display_name="同行评审辅助",
+            description="整理审稿意见、生成回复信件",
+            icon="📋",
+            is_executable=False,
+            execution_message="请在对话中粘贴审稿意见，Agent 将调用 review_assistant 帮你整理回复思路和草拟回信。",
+        ),
+        Capability(
+            name="research_planning",
+            display_name="研究规划",
+            description="研究设计、实验方案制定、样本量计算",
+            icon="🗺️",
+            is_executable=False,
+            execution_message="请在对话中描述你的研究目标和约束条件，Agent 将调用 research_planner 帮你制定实验方案。",
+        ),
     ]

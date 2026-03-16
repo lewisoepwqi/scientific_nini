@@ -180,7 +180,9 @@ class TestDefaultCapabilities:
             assert cap.name
             assert cap.display_name
             assert cap.description
-            assert len(cap.required_tools) > 0
+            # 对话驱动型能力（is_executable=False）可以不需要 required_tools
+            if cap.is_executable:
+                assert len(cap.required_tools) > 0
 
     def test_default_execute_flags_are_explicit(self):
         """默认能力目录应明确标注哪些能力可直接执行。"""

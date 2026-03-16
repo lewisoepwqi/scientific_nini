@@ -14,6 +14,7 @@ class QueryType(str, Enum):
     DOMAIN_TASK = "domain_task"  # 科研分析任务（高分候选命中）
     COMMAND = "command"  # 工具指令（保存/导出/删除等）
     KNOWLEDGE_QA = "knowledge_qa"  # 知识问答（低分候选命中）
+    OUT_OF_SCOPE = "out_of_scope"  # 超出科研服务范围（订机票、天气等）
 
 
 @dataclass
