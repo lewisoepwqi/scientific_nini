@@ -14,6 +14,9 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
+import yaml
+
+from nini.config import _get_bundle_root
 from nini.intent.base import IntentAnalysis, IntentCandidate, QueryType
 
 logger = logging.getLogger(__name__)
@@ -44,57 +47,190 @@ _OUT_OF_SCOPE_RE = re.compile(
 # 科研意图同义词表 — 将自然语言表达映射到 capability 名称
 _SYNONYM_MAP: dict[str, list[str]] = {
     "difference_analysis": [
-        "差异", "显著性", "t检验", "t_test", "anova", "方差分析",
-        "对比", "比较差异", "两组差异", "多组差异", "组间差异",
-        "显著差别", "差别", "对比分析", "均值比较",
-        "mann_whitney", "kruskal", "非参数检验", "wilcoxon",
+        "差异",
+        "显著性",
+        "t检验",
+        "t_test",
+        "anova",
+        "方差分析",
+        "对比",
+        "比较差异",
+        "两组差异",
+        "多组差异",
+        "组间差异",
+        "显著差别",
+        "差别",
+        "对比分析",
+        "均值比较",
+        "mann_whitney",
+        "kruskal",
+        "非参数检验",
+        "wilcoxon",
     ],
     "correlation_analysis": [
-        "相关", "相关性", "关联", "pearson", "spearman", "kendall",
-        "相关系数", "变量关系", "协变", "共变", "相互关系",
-        "有没有联系", "有没有关系", "是否相关", "相关性分析",
+        "相关",
+        "相关性",
+        "关联",
+        "pearson",
+        "spearman",
+        "kendall",
+        "相关系数",
+        "变量关系",
+        "协变",
+        "共变",
+        "相互关系",
+        "有没有联系",
+        "有没有关系",
+        "是否相关",
+        "相关性分析",
     ],
     "regression_analysis": [
-        "回归", "预测", "建模", "线性模型", "regression", "拟合",
-        "回归方程", "自变量", "因变量", "预测模型", "逻辑回归",
-        "多元回归", "逐步回归", "岭回归", "lasso",
+        "回归",
+        "预测",
+        "建模",
+        "线性模型",
+        "regression",
+        "拟合",
+        "回归方程",
+        "自变量",
+        "因变量",
+        "预测模型",
+        "逻辑回归",
+        "多元回归",
+        "逐步回归",
+        "岭回归",
+        "lasso",
     ],
     "data_exploration": [
-        "探索", "概览", "描述性统计", "分布", "缺失值", "异常值",
-        "数据质量", "数据特征", "看看数据", "了解数据", "数据情况",
-        "描述统计", "基本统计", "数据概览", "探索性分析", "eda",
+        "探索",
+        "概览",
+        "描述性统计",
+        "分布",
+        "缺失值",
+        "异常值",
+        "数据质量",
+        "数据特征",
+        "看看数据",
+        "了解数据",
+        "数据情况",
+        "描述统计",
+        "基本统计",
+        "数据概览",
+        "探索性分析",
+        "eda",
     ],
     "data_cleaning": [
-        "清洗", "预处理", "处理缺失", "填充", "去重", "标准化",
-        "归一化", "异常处理", "数据清理", "数据整理", "缺失值处理",
-        "异常值处理", "数据转换", "特征工程",
+        "清洗",
+        "预处理",
+        "处理缺失",
+        "填充",
+        "去重",
+        "标准化",
+        "归一化",
+        "异常处理",
+        "数据清理",
+        "数据整理",
+        "缺失值处理",
+        "异常值处理",
+        "数据转换",
+        "特征工程",
     ],
     "visualization": [
-        "可视化", "画图", "作图", "图形", "箱线图", "散点图",
-        "柱状图", "热力图", "直方图", "折线图", "饼图", "chart",
-        "plot", "graph", "画图展示", "绘制图表",
+        "可视化",
+        "画图",
+        "作图",
+        "图形",
+        "箱线图",
+        "散点图",
+        "柱状图",
+        "热力图",
+        "直方图",
+        "折线图",
+        "饼图",
+        "chart",
+        "plot",
+        "graph",
+        "画图展示",
+        "绘制图表",
     ],
     "report_generation": [
-        "报告", "报表", "汇总", "总结", "导出报告", "生成报告",
-        "分析报告", "report", "summary", "word", "pdf",
+        "报告",
+        "报表",
+        "汇总",
+        "总结",
+        "导出报告",
+        "生成报告",
+        "分析报告",
+        "report",
+        "summary",
+        "word",
+        "pdf",
     ],
     "article_draft": [
-        "论文", "文章", "初稿", "manuscript", "publication",
-        "科研论文", "学术论文", "撰写论文", "论文写作",
+        "论文",
+        "文章",
+        "初稿",
+        "manuscript",
+        "publication",
+        "科研论文",
+        "学术论文",
+        "撰写论文",
+        "论文写作",
     ],
 }
 
+
+def _load_synonym_map() -> dict[str, list[str]]:
+    """加载外部同义词配置，失败时回退内置 `_SYNONYM_MAP`。
+
+    配置文件路径：`<项目根>/config/intent_synonyms.yaml`
+    顶层结构须为 dict，value 须为列表；非列表条目跳过。
+    """
+    config_path = _get_bundle_root() / "config" / "intent_synonyms.yaml"
+    if not config_path.exists():
+        logger.debug("未找到外部同义词配置，使用内置 _SYNONYM_MAP")
+        return dict(_SYNONYM_MAP)
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict):
+            raise ValueError("顶层结构须为 dict")
+        return {k: list(v) for k, v in data.items() if isinstance(v, list)}
+    except Exception as exc:
+        logger.warning("加载同义词配置失败，回退内置: path=%s err=%s", config_path, exc)
+        return dict(_SYNONYM_MAP)
+
+
 # 通用中文停用词（这些词在匹配时权重降低）
 _GENERIC_TERMS: set[str] = {
-    "数据", "分析", "结果", "研究", "生成", "比较", "报告",
-    "图表", "工具", "方法", "进行", "使用", "帮我", "请",
-    "一下", "一个", "需要", "想要", "希望", "能", "可以",
+    "数据",
+    "分析",
+    "结果",
+    "研究",
+    "生成",
+    "比较",
+    "报告",
+    "图表",
+    "工具",
+    "方法",
+    "进行",
+    "使用",
+    "帮我",
+    "请",
+    "一下",
+    "一个",
+    "需要",
+    "想要",
+    "希望",
+    "能",
+    "可以",
 }
 
 
 @dataclass
 class TrieNode:
     """Trie 树节点。"""
+
     children: dict[str, "TrieNode"] = field(default_factory=dict)
     is_end: bool = False
     capability: str | None = None
@@ -119,6 +255,8 @@ class OptimizedIntentAnalyzer:
         self._capability_keywords: dict[str, set[str]] = {}
         self._capabilities: list[dict[str, Any]] = []
         self._initialized = False
+        # 优先从 config/intent_synonyms.yaml 加载，失败时回退内置
+        self._synonym_map: dict[str, list[str]] = _load_synonym_map()
 
     def initialize(self, capabilities: list[dict[str, Any]] | None = None) -> None:
         """初始化索引结构。
@@ -169,7 +307,7 @@ class OptimizedIntentAnalyzer:
 
     def _build_inverted_index(self) -> None:
         """构建同义词倒排索引。"""
-        for cap_name, synonyms in _SYNONYM_MAP.items():
+        for cap_name, synonyms in self._synonym_map.items():
             for synonym in synonyms:
                 synonym_lower = synonym.lower()
                 if synonym_lower not in self._inverted_index:
@@ -214,9 +352,7 @@ class OptimizedIntentAnalyzer:
         keyword_matches = self._keyword_match(user_message)
 
         # 融合排序
-        candidates = self._merge_and_rank(
-            trie_matches, synonym_matches, keyword_matches
-        )
+        candidates = self._merge_and_rank(trie_matches, synonym_matches, keyword_matches)
 
         analysis.capability_candidates = candidates[:5]
         analysis.tool_hints = self._build_tool_hints(candidates)
@@ -321,7 +457,9 @@ class OptimizedIntentAnalyzer:
     ) -> list[IntentCandidate]:
         """融合多路匹配结果并排序。"""
         # 合并分数
-        all_caps = set(trie_matches.keys()) | set(synonym_matches.keys()) | set(keyword_matches.keys())
+        all_caps = (
+            set(trie_matches.keys()) | set(synonym_matches.keys()) | set(keyword_matches.keys())
+        )
 
         merged: dict[str, tuple[float, list[str]]] = {}
         for cap in all_caps:
@@ -428,9 +566,7 @@ class OptimizedIntentAnalyzer:
         top1, top2 = candidates[0], candidates[1]
 
         # 策略 1：相对差距
-        relative_gap = (
-            (top1.score - top2.score) / top1.score if top1.score > 0 else 1.0
-        )
+        relative_gap = (top1.score - top2.score) / top1.score if top1.score > 0 else 1.0
 
         # 策略 2：绝对置信度阈值
         min_confidence = 5.0
@@ -470,10 +606,12 @@ class OptimizedIntentAnalyzer:
             description = payload.get("description", candidate.reason)
 
             if label and description:
-                options.append({
-                    "label": label,
-                    "description": description,
-                })
+                options.append(
+                    {
+                        "label": label,
+                        "description": description,
+                    }
+                )
 
         # 如果没有候选，使用前几个 capability 兜底
         if not options and capabilities:
@@ -481,10 +619,12 @@ class OptimizedIntentAnalyzer:
                 label = cap.get("display_name") or cap.get("name", "")
                 description = cap.get("description", "")
                 if label and description:
-                    options.append({
-                        "label": label,
-                        "description": description,
-                    })
+                    options.append(
+                        {
+                            "label": label,
+                            "description": description,
+                        }
+                    )
 
         return options
 

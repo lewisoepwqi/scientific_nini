@@ -6,6 +6,12 @@ import asyncio
 import json
 import re
 import uuid
+
+# 承诺产物检测正则：要求"完成语义词 + 产物词"在 15 字符内共现，避免能力描述类文本误触发
+_PROMISED_ARTIFACT_RE = re.compile(
+    r"(已生成|已导出|已完成|以下是|请查看|如下)[\s\S]{0,15}(图表|报告|产物|附件)"
+    r"|(图表|报告|产物|附件)[\s\S]{0,8}(已生成|已导出|已完成|已保存)",
+)
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Protocol
 
@@ -315,9 +321,7 @@ class HarnessRunner:
             shape = getattr(df, "shape", (None, None))
             rows = int(shape[0]) if shape[0] is not None else None
             columns = int(shape[1]) if shape[1] is not None else None
-            datasets.append(
-                HarnessDatasetSummary(name=name, rows=rows, columns=columns)
-            )
+            datasets.append(HarnessDatasetSummary(name=name, rows=rows, columns=columns))
 
         artifacts = [
             HarnessArtifactSummary(
@@ -382,7 +386,7 @@ class HarnessRunner:
             for msg in messages
             if str(msg.get("event_type", "")) in {"artifact", "image", "chart", "data"}
         )
-        promised_artifact = bool(re.search(r"(图表|报告|产物|已生成|已导出|附件)", final_text))
+        promised_artifact = bool(_PROMISED_ARTIFACT_RE.search(final_text))
 
         items = [
             CompletionCheckItem(
