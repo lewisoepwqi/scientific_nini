@@ -341,6 +341,37 @@ async def test_harness_trace_store_persists_and_replays(
     assert json.loads(trace_path.read_text(encoding="utf-8"))["run_id"] == "run_demo"
 
 
+def test_artifact_check_passes_for_capability_description() -> None:
+    """能力介绍类文本（含产物词但无完成语义词）不应触发承诺产物校验。"""
+    runner = HarnessRunner(agent_runner=None)  # type: ignore[arg-type]
+    session = Session()
+    turn_id = "turn-cap"
+    # 仅提及能力，不含"以下是"/"已生成"等完成语义词
+    session.add_message(
+        "assistant", "我可以制作图表和分析报告，帮您完成数据可视化。", turn_id=turn_id
+    )
+
+    result = runner._run_completion_check(session, turn_id=turn_id, attempt=0)  # noqa: SLF001
+    artifact_item = next(item for item in result.items if item.key == "artifact_generated")
+
+    assert artifact_item.passed is True, "能力描述类文本不应触发承诺产物校验"
+
+
+def test_artifact_check_fails_when_promised_but_not_delivered() -> None:
+    """含完成语义词的回答（'以下是分析报告'）应触发承诺产物校验。"""
+    runner = HarnessRunner(agent_runner=None)  # type: ignore[arg-type]
+    session = Session()
+    turn_id = "turn-promise"
+    # 含"以下是...报告"——命中完成语义词 + 产物词
+    session.add_message("assistant", "以下是分析报告，请查阅。", turn_id=turn_id)
+
+    result = runner._run_completion_check(session, turn_id=turn_id, attempt=0)  # noqa: SLF001
+    artifact_item = next(item for item in result.items if item.key == "artifact_generated")
+
+    # 无产物事件时应 passed=False
+    assert artifact_item.passed is False, "承诺了产物但未生成产物事件时应校验失败"
+
+
 @pytest.mark.asyncio
 async def test_harness_trace_store_marks_crash_as_error() -> None:
     trace_store = _CaptureTraceStore()

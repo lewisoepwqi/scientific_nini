@@ -14,6 +14,9 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
+import yaml
+
+from nini.config import _get_bundle_root
 from nini.intent.base import IntentAnalysis, IntentCandidate, QueryType
 from nini.intent.subtypes import get_difference_subtype
 
@@ -177,6 +180,28 @@ _SYNONYM_MAP: dict[str, list[str]] = {
     ],
 }
 
+
+def _load_synonym_map() -> dict[str, list[str]]:
+    """加载外部同义词配置，失败时回退内置 `_SYNONYM_MAP`。
+
+    配置文件路径：`<项目根>/config/intent_synonyms.yaml`
+    顶层结构须为 dict，value 须为列表；非列表条目跳过。
+    """
+    config_path = _get_bundle_root() / "config" / "intent_synonyms.yaml"
+    if not config_path.exists():
+        logger.debug("未找到外部同义词配置，使用内置 _SYNONYM_MAP")
+        return dict(_SYNONYM_MAP)
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict):
+            raise ValueError("顶层结构须为 dict")
+        return {k: list(v) for k, v in data.items() if isinstance(v, list)}
+    except Exception as exc:
+        logger.warning("加载同义词配置失败，回退内置: path=%s err=%s", config_path, exc)
+        return dict(_SYNONYM_MAP)
+
+
 # 通用中文停用词（这些词在匹配时权重降低）
 _GENERIC_TERMS: set[str] = {
     "数据",
@@ -231,6 +256,8 @@ class OptimizedIntentAnalyzer:
         self._capability_keywords: dict[str, set[str]] = {}
         self._capabilities: list[dict[str, Any]] = []
         self._initialized = False
+        # 优先从 config/intent_synonyms.yaml 加载，失败时回退内置
+        self._synonym_map: dict[str, list[str]] = _load_synonym_map()
 
     def initialize(self, capabilities: list[dict[str, Any]] | None = None) -> None:
         """初始化索引结构。
@@ -281,7 +308,7 @@ class OptimizedIntentAnalyzer:
 
     def _build_inverted_index(self) -> None:
         """构建同义词倒排索引。"""
-        for cap_name, synonyms in _SYNONYM_MAP.items():
+        for cap_name, synonyms in self._synonym_map.items():
             for synonym in synonyms:
                 synonym_lower = synonym.lower()
                 if synonym_lower not in self._inverted_index:
