@@ -28,6 +28,13 @@ from nini.harness.store import HarnessTraceStore
 
 _TRANSITIONAL_TEXT_RE = re.compile(r"^(接下来|下一步|我将|我会继续|我会先|下面将|随后将)")
 
+# 承诺产物正则：要求"完成语义词 + 产物词"共现（15 字符内），
+# 或"产物词 + 完成语义词"（8 字符内），避免能力介绍类文本误判。
+_PROMISED_ARTIFACT_RE = re.compile(
+    r"(已生成|已导出|已完成|以下是|请查看|如下)[\s\S]{0,15}(图表|报告|产物|附件)"
+    r"|(图表|报告|产物|附件)[\s\S]{0,8}(已生成|已导出|已完成|已保存)",
+)
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -315,9 +322,7 @@ class HarnessRunner:
             shape = getattr(df, "shape", (None, None))
             rows = int(shape[0]) if shape[0] is not None else None
             columns = int(shape[1]) if shape[1] is not None else None
-            datasets.append(
-                HarnessDatasetSummary(name=name, rows=rows, columns=columns)
-            )
+            datasets.append(HarnessDatasetSummary(name=name, rows=rows, columns=columns))
 
         artifacts = [
             HarnessArtifactSummary(
@@ -382,7 +387,7 @@ class HarnessRunner:
             for msg in messages
             if str(msg.get("event_type", "")) in {"artifact", "image", "chart", "data"}
         )
-        promised_artifact = bool(re.search(r"(图表|报告|产物|已生成|已导出|附件)", final_text))
+        promised_artifact = bool(_PROMISED_ARTIFACT_RE.search(final_text))
 
         items = [
             CompletionCheckItem(

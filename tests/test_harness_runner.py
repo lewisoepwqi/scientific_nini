@@ -351,3 +351,72 @@ async def test_harness_trace_store_marks_crash_as_error() -> None:
         _ = [event async for event in runner.run(session, "请分析数据差异")]
 
     assert trace_store.records[0].status == "error"
+
+
+# ─── promised_artifact 正则修复测试 ─────────────────────────────────────────
+
+
+class _CapabilityIntroRunner:
+    """模拟 AI 输出指定文本的 Runner。"""
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    async def run(
+        self,
+        session: Session,
+        user_message: str,
+        *,
+        append_user_message: bool = True,
+        stop_event=None,
+        turn_id: str | None = None,
+        stage_override: str | None = None,
+    ):
+        _ = stop_event, stage_override
+        assert turn_id is not None
+        if append_user_message:
+            session.add_message("user", user_message, turn_id=turn_id)
+        yield eb.build_iteration_start_event(iteration=0, turn_id=turn_id)
+        session.add_message("assistant", self._text, turn_id=turn_id)
+        yield eb.build_text_event(self._text, turn_id=turn_id)
+        yield eb.build_done_event(turn_id=turn_id)
+
+
+@pytest.mark.asyncio
+async def test_harness_no_false_positive_on_capability_intro() -> None:
+    """能力介绍文本含"图表"/"报告"但无完成语义词时，artifact_generated 应 passed=True。"""
+    text = "我可以帮你制作图表、生成报告、清洗数据和进行统计分析。"
+    runner = HarnessRunner(agent_runner=_CapabilityIntroRunner(text))
+    session = Session()
+
+    events = [event async for event in runner.run(session, "你能做什么")]
+    check_events = [
+        e for e in events if e.type.value == "completion_check" and isinstance(e.data, dict)
+    ]
+    assert check_events, "应触发至少一次完成校验"
+    for ce in check_events:
+        items = ce.data.get("items", [])
+        for item in items:
+            if item.get("key") == "artifact_generated":
+                assert (
+                    item["passed"] is True
+                ), f"能力介绍文本不应触发 artifact_generated 校验失败: {text!r}"
+
+
+@pytest.mark.asyncio
+async def test_harness_detects_real_artifact_promise() -> None:
+    """含"以下是分析报告"的回答应触发 artifact_generated 校验失败（无产物事件）。"""
+    text = "以下是分析报告，数据差异显著。"
+    runner = HarnessRunner(agent_runner=_CapabilityIntroRunner(text))
+    session = Session()
+
+    events = [event async for event in runner.run(session, "分析数据")]
+    check_events = [
+        e for e in events if e.type.value == "completion_check" and isinstance(e.data, dict)
+    ]
+    assert check_events, "应触发至少一次完成校验"
+    first_check = check_events[0]
+    items = first_check.data.get("items", [])
+    artifact_item = [item for item in items if item.get("key") == "artifact_generated"]
+    assert artifact_item, "应有 artifact_generated 校验项"
+    assert artifact_item[0]["passed"] is False, "承诺产物但无产物事件时应校验失败"

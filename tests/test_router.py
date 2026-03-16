@@ -6,8 +6,8 @@ import pytest
 
 from nini.agent.router import RoutingDecision, TaskRouter
 
-
 # ─── 辅助 ───────────────────────────────────────────────────────────────────
+
 
 class _MockResolver:
     """模拟 model_resolver，可配置返回内容或抛出异常。"""
@@ -32,6 +32,7 @@ class _MockResolver:
 
 # ─── RoutingDecision ────────────────────────────────────────────────────────
 
+
 def test_routing_decision_default_parallel():
     """parallel 默认为 True。"""
     rd = RoutingDecision(agent_ids=["a"], tasks=["t"], confidence=0.9, strategy="rule")
@@ -55,6 +56,7 @@ def test_routing_decision_all_fields():
 
 
 # ─── 规则路由 ────────────────────────────────────────────────────────────────
+
 
 def test_rule_route_high_confidence_data_cleaner():
     """清洗数据关键词应命中 data_cleaner，置信度 >= 0.7。"""
@@ -92,6 +94,7 @@ def test_rule_route_case_insensitive():
 
 # ─── route() 方法 ────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_route_uses_rule_when_confident():
     """规则置信度 >= 0.7 时不调用 LLM。"""
@@ -127,6 +130,7 @@ async def test_route_llm_failure_falls_back_to_rule():
 
 # ─── route_batch() ──────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_route_batch_empty_returns_empty():
     """空列表输入返回空列表。"""
@@ -151,3 +155,33 @@ async def test_route_batch_no_llm_when_disabled():
     router = TaskRouter(model_resolver=mock, enable_llm_fallback=False)
     await router.route_batch(["清洗数据", "统计分析"])
     assert mock.call_count == 0
+
+
+# ─── 新增路由规则测试 ────────────────────────────────────────────────────────
+
+
+def test_rule_route_citation_manager():
+    """'参考文献格式化' 应路由到 citation_manager，strategy='rule'，confidence >= 0.7。"""
+    router = TaskRouter(enable_llm_fallback=False)
+    result = router._rule_route("参考文献格式化")
+    assert "citation_manager" in result.agent_ids
+    assert result.strategy == "rule"
+    assert result.confidence >= 0.7
+
+
+def test_rule_route_research_planner():
+    """'实验设计方案' 应路由到 research_planner。"""
+    router = TaskRouter(enable_llm_fallback=False)
+    result = router._rule_route("实验设计方案")
+    assert "research_planner" in result.agent_ids
+    assert result.strategy == "rule"
+    assert result.confidence >= 0.7
+
+
+def test_rule_route_review_assistant():
+    """'回复审稿意见' 应路由到 review_assistant。"""
+    router = TaskRouter(enable_llm_fallback=False)
+    result = router._rule_route("回复审稿意见")
+    assert "review_assistant" in result.agent_ids
+    assert result.strategy == "rule"
+    assert result.confidence >= 0.7
