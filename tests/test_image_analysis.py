@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 
 from nini.agent.session import Session
-from nini.tools.base import SkillResult
+from nini.tools.base import ToolResult
 
 # 创建一个简单的测试图片（1x1 PNG 的 base64）
 # 这是一个最小的 PNG 图片
@@ -129,8 +129,8 @@ class TestImageAnalysisExecution:
                 output_format="dataframe",
             )
 
-        # 应该返回 SkillResult（失败）
-        assert isinstance(result, SkillResult)
+        # 应该返回 ToolResult（失败）
+        assert isinstance(result, ToolResult)
         assert not result.success
         assert "无法下载图片" in result.message or "HTTP" in result.message
 
@@ -161,7 +161,7 @@ class TestImageAnalysisExecution:
             )
 
             # 应该返回某种结果（即使没有 API key 也应该有降级处理）
-            assert isinstance(result, SkillResult)
+            assert isinstance(result, ToolResult)
 
     @pytest.mark.asyncio
     async def test_analyze_with_base64_data(self, mock_image_data, mock_vision_response):
@@ -184,7 +184,7 @@ class TestImageAnalysisExecution:
                 extract_chart_info=True,
             )
 
-            assert isinstance(result, SkillResult)
+            assert isinstance(result, ToolResult)
             assert result.success
             assert "chart_type" in result.data
 
@@ -204,8 +204,8 @@ class TestImageAnalysisExecution:
             output_dataset_name="extracted_data",
         )
 
-        # 即使没有 API key 也应该返回 SkillResult
-        assert isinstance(result, SkillResult)
+        # 即使没有 API key 也应该返回 ToolResult
+        assert isinstance(result, ToolResult)
 
     @pytest.mark.asyncio
     async def test_analyze_chart_info(self, mock_image_data):
@@ -221,7 +221,7 @@ class TestImageAnalysisExecution:
             extract_chart_info=True,
         )
 
-        assert isinstance(result, SkillResult)
+        assert isinstance(result, ToolResult)
 
 
 class TestImageToDataset:
@@ -370,7 +370,7 @@ class TestImageAnalysisIntegration:
             extract_data=True,
         )
 
-        assert isinstance(result, SkillResult)
+        assert isinstance(result, ToolResult)
 
 
 class TestVisionModelIntegration:
@@ -399,7 +399,7 @@ class TestVisionModelIntegration:
             extract_chart_info=True,
         )
 
-        assert isinstance(result, SkillResult)
+        assert isinstance(result, ToolResult)
 
     @pytest.mark.asyncio
     async def test_fallback_on_model_unavailable(self, mock_image_data):
@@ -416,8 +416,8 @@ class TestVisionModelIntegration:
                 image_data=mock_image_data,
             )
 
-            # 应该返回 SkillResult（虽然可能包含错误信息）
-            assert isinstance(result, SkillResult)
+            # 应该返回 ToolResult（虽然可能包含错误信息）
+            assert isinstance(result, ToolResult)
 
     @pytest.mark.asyncio
     async def test_call_vision_model_uses_image_analysis_purpose(self, mock_image_data):
@@ -459,7 +459,7 @@ class TestDataFormatSupport:
             output_format="csv",
         )
 
-        assert isinstance(result, SkillResult)
+        assert isinstance(result, ToolResult)
 
     @pytest.mark.asyncio
     async def test_supports_json_output(self, mock_image_data):
@@ -476,7 +476,7 @@ class TestDataFormatSupport:
             output_format="json",
         )
 
-        assert isinstance(result, SkillResult)
+        assert isinstance(result, ToolResult)
 
     @pytest.mark.asyncio
     async def test_supports_dataframe_output(self, mock_image_data):
@@ -493,4 +493,4 @@ class TestDataFormatSupport:
             output_format="dataframe",
         )
 
-        assert isinstance(result, SkillResult)
+        assert isinstance(result, ToolResult)

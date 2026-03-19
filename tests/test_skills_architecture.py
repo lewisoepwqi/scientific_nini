@@ -16,7 +16,7 @@ import pytest
 
 from nini.agent.session import Session, session_manager
 from nini.config import settings
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.markdown_scanner import (
     VALID_CATEGORIES,
     MarkdownSkill,
@@ -63,7 +63,7 @@ def _write_skill_md(
     path.write_text(fm_block + "## 步骤\n1. 示例步骤\n", encoding="utf-8")
 
 
-class _DummySkill(Skill):
+class _DummySkill(Tool):
     """用于测试注册逻辑的占位技能。"""
 
     def __init__(self, skill_name: str = "dummy"):
@@ -81,8 +81,8 @@ class _DummySkill(Skill):
     def parameters(self) -> dict:
         return {"type": "object", "properties": {}}
 
-    async def execute(self, session: Session, **kwargs) -> SkillResult:
-        return SkillResult(success=True, message="ok")
+    async def execute(self, session: Session, **kwargs) -> ToolResult:
+        return ToolResult(success=True, message="ok")
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 """dispatch_agents 工具 —— 将任务分发给多个 Specialist Agent 并行执行后融合结果。
 
-继承 tools/base.py:Skill，通过 TaskRouter → SubAgentSpawner → ResultFusionEngine 流水线执行。
+继承 tools/base.py:Tool，通过 TaskRouter → SubAgentSpawner → ResultFusionEngine 流水线执行。
 该工具不暴露给子 Agent（防止递归派发），仅主 Agent 可调用。
 """
 
@@ -9,12 +9,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
 
 
-class DispatchAgentsTool(Skill):
+class DispatchAgentsTool(Tool):
     """多 Agent 并行派发工具。
 
     接受任务描述列表，通过路由器映射到 Specialist Agent，
@@ -87,7 +87,7 @@ class DispatchAgentsTool(Skill):
         tasks: list[str] | None = None,
         context: str = "",
         **kwargs: Any,
-    ) -> SkillResult:
+    ) -> ToolResult:
         """执行多 Agent 并行派发。
 
         Args:
@@ -96,12 +96,14 @@ class DispatchAgentsTool(Skill):
             context: 背景信息（可选）
 
         Returns:
-            SkillResult，message 字段包含融合后的结果文本
+            ToolResult，message 字段包含融合后的结果文本
         """
         # 依赖检查
         if self._spawner is None or self._fusion_engine is None:
-            logger.error("DispatchAgentsTool.execute: 依赖未正确注入（spawner 或 fusion_engine 为 None）")
-            return SkillResult(
+            logger.error(
+                "DispatchAgentsTool.execute: 依赖未正确注入（spawner 或 fusion_engine 为 None）"
+            )
+            return ToolResult(
                 success=False,
                 message="dispatch_agents 未正确初始化",
             )
@@ -110,7 +112,7 @@ class DispatchAgentsTool(Skill):
 
         # 空任务快速返回
         if not tasks:
-            return SkillResult(success=True, message="")
+            return ToolResult(success=True, message="")
 
         # 为每个任务构造 (agent_id, task) 元组。
         # 直接调用 execute() 时，这里也会进行真实路由，而不是退化到固定 agent。
@@ -122,7 +124,7 @@ class DispatchAgentsTool(Skill):
         )
 
         if not task_pairs:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message="dispatch_agents: 无法为任务找到匹配的 Agent",
             )
@@ -133,7 +135,7 @@ class DispatchAgentsTool(Skill):
         # 融合结果
         fusion_result = await self._fusion_engine.fuse(sub_results)
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=fusion_result.content,
             metadata={

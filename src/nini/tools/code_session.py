@@ -12,12 +12,12 @@ import pandas as pd
 
 from nini.agent.session import Session
 from nini.models import ResourceType, ScriptSessionRecord
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.code_runtime import execute_python_code, execute_r_code
 from nini.workspace import WorkspaceManager
 
 
-class CodeSessionSkill(Skill):
+class CodeSessionSkill(Tool):
     """管理持久化脚本资源与执行历史。"""
 
     _LANGUAGES = {"python": "py", "r": "R"}
@@ -95,7 +95,7 @@ class CodeSessionSkill(Skill):
             "required": ["operation"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         operation = str(kwargs.get("operation", "")).strip()
         if operation == "create_script":
             return self._create_script(session, **kwargs)
@@ -111,7 +111,7 @@ class CodeSessionSkill(Skill):
             return self._promote_output(session, **kwargs)
         if operation == "list_scripts":
             return self._list_scripts(session)
-        return SkillResult(success=False, message=f"不支持的 operation: {operation}")
+        return ToolResult(success=False, message=f"不支持的 operation: {operation}")
 
     async def run_ad_hoc_script(
         self,
@@ -127,10 +127,10 @@ class CodeSessionSkill(Skill):
         intent: str | None = None,
         extra_allowed_imports: list[str] | None = None,
         source_tool: str | None = None,
-    ) -> SkillResult:
+    ) -> ToolResult:
         """兼容旧入口：创建临时脚本并立即执行。"""
         if language not in self._LANGUAGES:
-            return SkillResult(success=False, message=f"不支持的脚本语言: {language}")
+            return ToolResult(success=False, message=f"不支持的脚本语言: {language}")
 
         script_id = f"script_{uuid.uuid4().hex[:12]}"
         manager = WorkspaceManager(session.id)
@@ -155,20 +155,20 @@ class CodeSessionSkill(Skill):
             retry_of_execution_id=None,
         )
 
-    def _create_script(self, session: Session, **kwargs: Any) -> SkillResult:
+    def _create_script(self, session: Session, **kwargs: Any) -> ToolResult:
         language = str(kwargs.get("language", "python")).strip().lower() or "python"
         if language not in self._LANGUAGES:
-            return SkillResult(success=False, message=f"不支持的脚本语言: {language}")
+            return ToolResult(success=False, message=f"不支持的脚本语言: {language}")
 
         content = str(kwargs.get("content", "") or "")
         if not content.strip():
-            return SkillResult(success=False, message="脚本内容不能为空")
+            return ToolResult(success=False, message="脚本内容不能为空")
 
         script_id = str(kwargs.get("script_id", "")).strip() or f"script_{uuid.uuid4().hex[:12]}"
         manager = WorkspaceManager(session.id)
         existing = self._load_script_record(manager, script_id)
         if existing is not None:
-            return SkillResult(success=False, message=f"脚本会话已存在: {script_id}")
+            return ToolResult(success=False, message=f"脚本会话已存在: {script_id}")
 
         record = ScriptSessionRecord(
             id=script_id,
@@ -177,43 +177,43 @@ class CodeSessionSkill(Skill):
             content_path=str(self._content_path(manager, script_id, language)),
         )
         self._persist_script_record(manager, record, content)
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"脚本会话已创建：{script_id}",
             data=self._build_script_payload(manager, record, content),
         )
 
-    def _get_script(self, session: Session, **kwargs: Any) -> SkillResult:
+    def _get_script(self, session: Session, **kwargs: Any) -> ToolResult:
         script_id = str(kwargs.get("script_id", "")).strip()
         if not script_id:
-            return SkillResult(success=False, message="get_script 操作必须提供 script_id")
+            return ToolResult(success=False, message="get_script 操作必须提供 script_id")
 
         manager = WorkspaceManager(session.id)
         record = self._load_script_record(manager, script_id)
         if record is None:
-            return SkillResult(success=False, message=f"未找到脚本会话: {script_id}")
+            return ToolResult(success=False, message=f"未找到脚本会话: {script_id}")
 
         content = self._read_script_content(record)
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"已读取脚本会话 '{script_id}'",
             data=self._build_script_payload(manager, record, content),
         )
 
-    def _list_scripts(self, session: Session) -> SkillResult:
+    def _list_scripts(self, session: Session) -> ToolResult:
         manager = WorkspaceManager(session.id)
         scripts = [
             item
             for item in manager.list_resource_summaries()
             if str(item.get("resource_type", "")).strip() == ResourceType.SCRIPT.value
         ]
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"已找到 {len(scripts)} 个脚本会话",
             data={"scripts": scripts},
         )
 
-    async def _run_script(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def _run_script(self, session: Session, **kwargs: Any) -> ToolResult:
         script_id = str(kwargs.get("script_id", "")).strip()
         dataset_name = self._resolve_dataset_name(session, kwargs.get("dataset_name"))
         if not script_id:
@@ -233,16 +233,16 @@ class CodeSessionSkill(Skill):
                     intent=kwargs.get("intent"),
                     source_tool="code_session",
                 )
-            return SkillResult(success=False, message="run_script 操作必须提供 script_id")
+            return ToolResult(success=False, message="run_script 操作必须提供 script_id")
 
         manager = WorkspaceManager(session.id)
         record = self._load_script_record(manager, script_id)
         if record is None:
-            return SkillResult(success=False, message=f"未找到脚本会话: {script_id}")
+            return ToolResult(success=False, message=f"未找到脚本会话: {script_id}")
 
         content = self._read_script_content(record)
         if not content.strip():
-            return SkillResult(success=False, message=f"脚本内容为空: {script_id}")
+            return ToolResult(success=False, message=f"脚本内容为空: {script_id}")
 
         return await self._execute_record(
             session,
@@ -257,15 +257,15 @@ class CodeSessionSkill(Skill):
             retry_of_execution_id=None,
         )
 
-    async def _rerun_script(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def _rerun_script(self, session: Session, **kwargs: Any) -> ToolResult:
         script_id = str(kwargs.get("script_id", "")).strip()
         if not script_id:
-            return SkillResult(success=False, message="rerun 操作必须提供 script_id")
+            return ToolResult(success=False, message="rerun 操作必须提供 script_id")
 
         manager = WorkspaceManager(session.id)
         record = self._load_script_record(manager, script_id)
         if record is None:
-            return SkillResult(success=False, message=f"未找到脚本会话: {script_id}")
+            return ToolResult(success=False, message=f"未找到脚本会话: {script_id}")
 
         return await self._execute_record(
             session,
@@ -296,7 +296,7 @@ class CodeSessionSkill(Skill):
         *,
         content: str,
         dataset_name: str | None,
-    ) -> SkillResult | None:
+    ) -> ToolResult | None:
         """在 dataset_name 已提供时，拦截仍手工读文件的脚本。"""
         if not dataset_name:
             return None
@@ -305,7 +305,7 @@ class CodeSessionSkill(Skill):
             matched = pattern.search(content)
             if matched is None:
                 continue
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=(
                     "脚本已提供 dataset_name，禁止再通过文件路径读取数据；"
@@ -314,7 +314,7 @@ class CodeSessionSkill(Skill):
                 data={
                     "error_code": "CODE_SESSION_DATASET_IO_CONFLICT",
                     "dataset_name": dataset_name,
-                    "error_location": {"line": content[: matched.start()].count('\n') + 1},
+                    "error_location": {"line": content[: matched.start()].count("\n") + 1},
                     "recovery_hint": (
                         "删除 pd.read_csv/pd.read_excel/open 等文件读取语句，"
                         f"直接对数据集 '{dataset_name}' 使用变量 df。"
@@ -338,7 +338,7 @@ class CodeSessionSkill(Skill):
         source_tool: str,
         retry_of_execution_id: str | None,
         extra_allowed_imports: list[str] | None = None,
-    ) -> SkillResult:
+    ) -> ToolResult:
         content = self._read_script_content(record)
 
         if record.language == "python":
@@ -374,7 +374,7 @@ class CodeSessionSkill(Skill):
             )
             language = "r"
         else:
-            return SkillResult(success=False, message=f"不支持的脚本语言: {record.language}")
+            return ToolResult(success=False, message=f"不支持的脚本语言: {record.language}")
 
         manager = WorkspaceManager(session.id)
         output_resource_ids = self._resolve_output_resource_ids(manager, result=result)
@@ -421,35 +421,35 @@ class CodeSessionSkill(Skill):
         if recovery_hint:
             data["recovery_hint"] = recovery_hint
         payload["data"] = data
-        return SkillResult(**payload)
+        return ToolResult(**payload)
 
-    def _patch_script(self, session: Session, **kwargs: Any) -> SkillResult:
+    def _patch_script(self, session: Session, **kwargs: Any) -> ToolResult:
         script_id = str(kwargs.get("script_id", "")).strip()
         if not script_id:
-            return SkillResult(success=False, message="patch_script 操作必须提供 script_id")
+            return ToolResult(success=False, message="patch_script 操作必须提供 script_id")
 
         patch = kwargs.get("patch")
         if not isinstance(patch, dict):
-            return SkillResult(success=False, message="patch_script 操作必须提供 patch 对象")
+            return ToolResult(success=False, message="patch_script 操作必须提供 patch 对象")
 
         manager = WorkspaceManager(session.id)
         record = self._load_script_record(manager, script_id)
         if record is None:
-            return SkillResult(success=False, message=f"未找到脚本会话: {script_id}")
+            return ToolResult(success=False, message=f"未找到脚本会话: {script_id}")
 
         current = self._read_script_content(record)
         try:
             updated = self._apply_patch(current, patch)
         except ValueError as exc:
-            return SkillResult(success=False, message=str(exc))
+            return ToolResult(success=False, message=str(exc))
         self._persist_script_record(manager, record, updated)
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"脚本已更新：{script_id}",
             data=self._build_script_payload(manager, record, updated),
         )
 
-    def _promote_output(self, session: Session, **kwargs: Any) -> SkillResult:
+    def _promote_output(self, session: Session, **kwargs: Any) -> ToolResult:
         manager = WorkspaceManager(session.id)
         dataset_name = str(kwargs.get("dataset_name", "")).strip()
         artifact_resource_id = str(kwargs.get("artifact_resource_id", "")).strip()
@@ -459,7 +459,7 @@ class CodeSessionSkill(Skill):
         if dataset_name:
             df = session.datasets.get(dataset_name)
             if not isinstance(df, pd.DataFrame):
-                return SkillResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
+                return ToolResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
 
             resource_id = (
                 str(kwargs.get("resource_id", "")).strip() or f"dataset_{uuid.uuid4().hex[:12]}"
@@ -483,7 +483,7 @@ class CodeSessionSkill(Skill):
                 column_count=len(df.columns),
             )
             resource = manager.get_resource_summary(resource_id)
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 message=f"已提升数据集输出：{display_name}",
                 data={
@@ -496,8 +496,8 @@ class CodeSessionSkill(Skill):
         if artifact_resource_id:
             resource = manager.get_resource_summary(artifact_resource_id)
             if resource is None:
-                return SkillResult(success=False, message=f"未找到产物资源: {artifact_resource_id}")
-            return SkillResult(
+                return ToolResult(success=False, message=f"未找到产物资源: {artifact_resource_id}")
+            return ToolResult(
                 success=True,
                 message=f"已确认产物资源：{artifact_resource_id}",
                 data={
@@ -514,8 +514,8 @@ class CodeSessionSkill(Skill):
                 artifact_path=artifact_path or None,
             )
             if match is None:
-                return SkillResult(success=False, message="未找到可提升的产物文件")
-            return SkillResult(
+                return ToolResult(success=False, message="未找到可提升的产物文件")
+            return ToolResult(
                 success=True,
                 message=f"已确认产物资源：{match['id']}",
                 data={
@@ -525,7 +525,7 @@ class CodeSessionSkill(Skill):
                 },
             )
 
-        return SkillResult(
+        return ToolResult(
             success=False,
             message="promote_output 操作必须提供 dataset_name、artifact_resource_id、artifact_name 或 artifact_path",
         )
@@ -619,7 +619,7 @@ class CodeSessionSkill(Skill):
         self,
         manager: WorkspaceManager,
         *,
-        result: SkillResult,
+        result: ToolResult,
     ) -> list[str]:
         ids: list[str] = []
 
@@ -711,7 +711,7 @@ class CodeSessionSkill(Skill):
                 return manager.get_resource_summary(resource_id) if resource_id else item
         return None
 
-    def _extract_error_location(self, result: SkillResult) -> dict[str, Any] | None:
+    def _extract_error_location(self, result: ToolResult) -> dict[str, Any] | None:
         if result.success:
             return None
         payload = result.data if isinstance(result.data, dict) else {}
@@ -737,7 +737,7 @@ class CodeSessionSkill(Skill):
                 return {"line": int(matched.group(1))}
         return None
 
-    def _build_recovery_hint(self, result: SkillResult) -> str | None:
+    def _build_recovery_hint(self, result: ToolResult) -> str | None:
         if result.success:
             return None
         message = result.message

@@ -225,7 +225,9 @@ def _build_parser() -> argparse.ArgumentParser:
     harness_show_parser.add_argument("--session-id", default=None, help="指定会话 ID")
     harness_show_parser.set_defaults(func=_cmd_harness_show)
 
-    harness_replay_parser = harness_subparsers.add_parser("replay", help="回放单次 harness 运行摘要")
+    harness_replay_parser = harness_subparsers.add_parser(
+        "replay", help="回放单次 harness 运行摘要"
+    )
     harness_replay_parser.add_argument("run_id", help="运行 ID")
     harness_replay_parser.add_argument("--session-id", default=None, help="指定会话 ID")
     harness_replay_parser.set_defaults(func=_cmd_harness_replay)
@@ -549,7 +551,11 @@ def _cmd_harness_list(args: argparse.Namespace) -> int:
 
     store = HarnessTraceStore()
     summaries = asyncio.run(store.list_runs(session_id=args.session_id, limit=args.limit))
-    print(json.dumps([item.model_dump(mode="json") for item in summaries], ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            [item.model_dump(mode="json") for item in summaries], ensure_ascii=False, indent=2
+        )
+    )
     return 0
 
 
@@ -680,10 +686,10 @@ from __future__ import annotations
 from typing import Any
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 
 
-class {class_name}(Skill):
+class {class_name}(Tool):
     """{description}"""
 
     @property
@@ -708,9 +714,9 @@ class {class_name}(Skill):
             "required": [],
         }}
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         # TODO: 实现工具逻辑
-        return SkillResult(success=True, message="{name} 执行完成")
+        return ToolResult(success=True, message="{name} 执行完成")
 '''
     target.write_text(content, encoding="utf-8")
     print(f"已创建 Function Tool 脚手架：{target}")

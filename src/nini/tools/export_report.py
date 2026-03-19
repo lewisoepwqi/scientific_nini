@@ -19,7 +19,7 @@ from urllib.parse import unquote, urlsplit
 from nini.agent.session import Session
 from nini.config import settings
 from nini.memory.storage import ArtifactStorage
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.utils.chart_fonts import CJK_FONT_FAMILY, apply_plotly_cjk_font_fallback
 from nini.workspace import WorkspaceManager
 
@@ -43,6 +43,7 @@ def _format_pdf_export_failure(exc: Exception) -> str:
             "请安装并加入 GTK3 Runtime，或先改用 DOCX 导出。"
         )
     return f"PDF 生成失败: {exc}"
+
 
 # A4 科研论文风格 CSS
 _PDF_CSS_TEMPLATE = """\
@@ -688,11 +689,11 @@ async def export_workspace_document(
     output_format: str,
     filename: str | None = None,
     prefer_latest_report: bool = False,
-) -> SkillResult:
+) -> ToolResult:
     """将工作区文档导出为 PDF 或 DOCX。"""
     fmt = output_format.strip().lower()
     if fmt not in {"pdf", "docx"}:
-        return SkillResult(success=False, message=f"不支持的导出格式: {output_format}")
+        return ToolResult(success=False, message=f"不支持的导出格式: {output_format}")
 
     source_file, error_message = _resolve_document_source(
         session,
@@ -700,21 +701,21 @@ async def export_workspace_document(
         prefer_latest_report=prefer_latest_report,
     )
     if source_file is None:
-        return SkillResult(success=False, message=error_message or "未找到可导出的文档")
+        return ToolResult(success=False, message=error_message or "未找到可导出的文档")
 
     manager = WorkspaceManager(session.id)
     source_path = str(source_file.get("path", "")).strip()
     if not source_path:
-        return SkillResult(success=False, message="文档路径缺失，无法导出。")
+        return ToolResult(success=False, message="文档路径缺失，无法导出。")
 
     source_abs_path = manager.resolve_workspace_path(source_path, allow_missing=False)
 
     try:
         raw_text, title, html = _document_to_export_payload(source_abs_path)
     except ValueError as exc:
-        return SkillResult(success=False, message=str(exc))
+        return ToolResult(success=False, message=str(exc))
     except FileNotFoundError:
-        return SkillResult(success=False, message=f"文档 `{source_path}` 不存在。")
+        return ToolResult(success=False, message=f"文档 `{source_path}` 不存在。")
 
     if fmt == "pdf":
         html, image_stats = _resolve_images_to_base64_with_stats(html, session.id)
@@ -730,7 +731,7 @@ async def export_workspace_document(
                 _is_chrome_missing_error(str(item.get("error", ""))) for item in failed_items
             )
             if has_chrome_missing:
-                return SkillResult(
+                return ToolResult(
                     success=False,
                     message=(
                         "检测到文档包含 `.plotly.json` 图表，但当前环境缺少 Chrome，"
@@ -741,7 +742,7 @@ async def export_workspace_document(
                         f"失败图表：{failed_names or '未知'}"
                     ),
                 )
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=(
                     "文档中的 `.plotly.json` 图表转换失败，已中止导出以避免 PDF 退化为文本。\n"
@@ -767,8 +768,10 @@ async def export_workspace_document(
                 import weasyprint  # type: ignore[import-not-found,import-untyped]
             except ImportError:
                 if chromium_exc is not None:
-                    return SkillResult(success=False, message=_format_pdf_export_failure(chromium_exc))
-                return SkillResult(
+                    return ToolResult(
+                        success=False, message=_format_pdf_export_failure(chromium_exc)
+                    )
+                return ToolResult(
                     success=False,
                     message=(
                         "PDF 导出需要 weasyprint 库，当前未安装。\n"
@@ -785,14 +788,14 @@ async def export_workspace_document(
             except Exception as exc:
                 logger.error("PDF 生成失败: %s", exc, exc_info=True)
                 if chromium_exc is not None:
-                    return SkillResult(
+                    return ToolResult(
                         success=False,
                         message=(
                             _format_pdf_export_failure(chromium_exc)
                             + "\n已尝试回退 weasyprint，但回退链路也失败。"
                         ),
                     )
-                return SkillResult(success=False, message=_format_pdf_export_failure(exc))
+                return ToolResult(success=False, message=_format_pdf_export_failure(exc))
     else:
         try:
             from nini.tools.report_exporter import export_report as export_markdown_report
@@ -801,10 +804,10 @@ async def export_workspace_document(
                 lambda: export_markdown_report(raw_text, "docx", title),
             )
         except ImportError as exc:
-            return SkillResult(success=False, message=f"DOCX 导出依赖缺失: {exc}")
+            return ToolResult(success=False, message=f"DOCX 导出依赖缺失: {exc}")
         except Exception as exc:
             logger.error("DOCX 生成失败: %s", exc, exc_info=True)
-            return SkillResult(success=False, message=f"DOCX 生成失败: {exc}")
+            return ToolResult(success=False, message=f"DOCX 生成失败: {exc}")
 
     output_relative_path = _build_export_relative_path(
         manager,
@@ -815,7 +818,7 @@ async def export_workspace_document(
     output_path = manager.resolve_workspace_path(output_relative_path, allow_missing=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_bytes is None:
-        return SkillResult(success=False, message="导出失败：未生成有效文件内容。")
+        return ToolResult(success=False, message="导出失败：未生成有效文件内容。")
     output_path.write_bytes(output_bytes)
     manager.sync_text_document_record(output_relative_path)
 
@@ -846,7 +849,7 @@ async def export_workspace_document(
     }
     session.artifacts["latest_export"] = artifact
 
-    return SkillResult(
+    return ToolResult(
         success=True,
         message=f"文档已导出为 {fmt.upper()}: `{output_path.name}`",
         data={
@@ -860,7 +863,7 @@ async def export_workspace_document(
     )
 
 
-class ExportReportSkill(Skill):
+class ExportReportSkill(Tool):
     """将 Markdown 报告导出为 PDF 文件。"""
 
     @property
@@ -904,7 +907,7 @@ class ExportReportSkill(Skill):
     def is_idempotent(self) -> bool:
         return False
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         report_id = kwargs.get("report_id")
         report_name = kwargs.get("report_name")
         filename = kwargs.get("filename")

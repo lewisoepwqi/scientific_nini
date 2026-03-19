@@ -9,13 +9,13 @@ import pytest
 
 from nini.agent.session import Session
 from nini.config import settings
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.registry_catalog import ToolCatalogOps
 from nini.tools.registry_core import FunctionToolRegistryOps
 from nini.tools.registry_markdown import MarkdownSkillRegistryOps
 
 
-class _DummySkill(Skill):
+class _DummySkill(Tool):
     """用于测试注册与执行逻辑的占位工具。"""
 
     def __init__(self, skill_name: str = "dummy", *, expose_to_llm: bool = True):
@@ -38,8 +38,8 @@ class _DummySkill(Skill):
     def parameters(self) -> dict:
         return {"type": "object", "properties": {"value": {"type": "string"}}}
 
-    async def execute(self, session: Session, **kwargs) -> SkillResult:
-        return SkillResult(success=True, message=f"ok:{kwargs.get('value', '')}")
+    async def execute(self, session: Session, **kwargs) -> ToolResult:
+        return ToolResult(success=True, message=f"ok:{kwargs.get('value', '')}")
 
 
 @pytest.fixture

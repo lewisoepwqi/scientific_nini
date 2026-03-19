@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 
 
 def bonferroni_correction(p_values: list[float], alpha: float = 0.05) -> dict[str, Any]:
@@ -134,7 +134,7 @@ def get_correction_recommendation_reason(method: str, context: str = "explorator
     return reasons.get((method, context), f"基于 {context} 场景推荐 {method} 方法")
 
 
-class MultipleComparisonCorrectionSkill(Skill):
+class MultipleComparisonCorrectionSkill(Tool):
     """执行多重比较校正。"""
 
     @property
@@ -188,16 +188,16 @@ class MultipleComparisonCorrectionSkill(Skill):
             "required": ["p_values"],
         }
 
-    async def execute(self, session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session, **kwargs: Any) -> ToolResult:
         p_values = kwargs["p_values"]
         method = kwargs.get("method", "bonferroni")
         alpha = kwargs.get("alpha", 0.05)
         context = kwargs.get("context", "exploratory")
 
         if not p_values:
-            return SkillResult(success=False, message="p_values 不能为空")
+            return ToolResult(success=False, message="p_values 不能为空")
         if not all(0 <= p_value <= 1 for p_value in p_values):
-            return SkillResult(success=False, message="所有 p 值必须在 [0, 1] 范围内")
+            return ToolResult(success=False, message="所有 p 值必须在 [0, 1] 范围内")
 
         try:
             result = multiple_comparison_correction(p_values, method, alpha)
@@ -212,6 +212,6 @@ class MultipleComparisonCorrectionSkill(Skill):
                 f"{n_significant}/{len(p_values)} 个比较显著 "
                 f"(α = {alpha})"
             )
-            return SkillResult(success=True, data=result, message=message)
+            return ToolResult(success=True, data=result, message=message)
         except Exception as exc:
-            return SkillResult(success=False, message=f"多重比较校正失败: {exc}")
+            return ToolResult(success=False, message=f"多重比较校正失败: {exc}")

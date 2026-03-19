@@ -20,7 +20,7 @@ import pytest
 from nini.agent.session import Session, session_manager
 from nini.capabilities import Capability, CapabilityRegistry
 from nini.config import settings
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.registry import ToolRegistry
 
 
@@ -38,7 +38,7 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 # ---------------------------------------------------------------------------
 
 
-class _DummySkill(Skill):
+class _DummySkill(Tool):
     def __init__(self, skill_name: str = "dummy", expose: bool = True):
         self._name = skill_name
         self._expose = expose
@@ -63,8 +63,8 @@ class _DummySkill(Skill):
     def expose_to_llm(self) -> bool:
         return self._expose
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
-        return SkillResult(success=True, message=f"{self._name} 执行完成", data=kwargs)
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
+        return ToolResult(success=True, message=f"{self._name} 执行完成", data=kwargs)
 
 
 def _write_skill_md(

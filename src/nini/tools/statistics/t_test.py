@@ -9,7 +9,7 @@ from scipy import stats
 from scipy.stats import ttest_1samp, ttest_ind, ttest_rel
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.statistics.base import (
     _ensure_finite,
     _get_df,
@@ -18,7 +18,7 @@ from nini.tools.statistics.base import (
 )
 
 
-class TTestSkill(Skill):
+class TTestSkill(Tool):
     """执行 t 检验（独立样本/配对/单样本）。"""
 
     @property
@@ -72,7 +72,7 @@ class TTestSkill(Skill):
             "required": ["dataset_name", "value_column"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         name = kwargs["dataset_name"]
         value_col = kwargs["value_column"]
         group_col = kwargs.get("group_column")
@@ -82,19 +82,19 @@ class TTestSkill(Skill):
 
         df = _get_df(session, name)
         if df is None:
-            return SkillResult(success=False, message=f"数据集 '{name}' 不存在")
+            return ToolResult(success=False, message=f"数据集 '{name}' 不存在")
         if value_col not in df.columns:
-            return SkillResult(success=False, message=f"列 '{value_col}' 不存在")
+            return ToolResult(success=False, message=f"列 '{value_col}' 不存在")
 
         try:
             if group_col:
                 # 独立/配对样本 t 检验
                 if group_col not in df.columns:
-                    return SkillResult(success=False, message=f"分组列 '{group_col}' 不存在")
+                    return ToolResult(success=False, message=f"分组列 '{group_col}' 不存在")
 
                 groups = df[group_col].dropna().unique()
                 if len(groups) != 2:
-                    return SkillResult(
+                    return ToolResult(
                         success=False,
                         message=f"t 检验要求恰好 2 个分组，但 '{group_col}' 有 {len(groups)} 个。如需多组比较请使用 ANOVA。",
                     )
@@ -103,11 +103,11 @@ class TTestSkill(Skill):
                 g2 = df[df[group_col] == groups[1]][value_col].dropna()
 
                 if len(g1) < 2 or len(g2) < 2:
-                    return SkillResult(success=False, message="每组至少需要 2 个观测值")
+                    return ToolResult(success=False, message="每组至少需要 2 个观测值")
 
                 if paired:
                     if len(g1) != len(g2):
-                        return SkillResult(success=False, message="配对检验要求两组样本量相等")
+                        return ToolResult(success=False, message="配对检验要求两组样本量相等")
                     stat_raw, pval_raw = ttest_rel(g1, g2, alternative=alternative)
                 else:
                     stat_raw, pval_raw = ttest_ind(g1, g2, alternative=alternative, equal_var=False)
@@ -167,7 +167,7 @@ class TTestSkill(Skill):
                 # 单样本 t 检验
                 data = df[value_col].dropna()
                 if len(data) < 2:
-                    return SkillResult(success=False, message="至少需要 2 个观测值")
+                    return ToolResult(success=False, message="至少需要 2 个观测值")
 
                 stat_raw, pval_raw = ttest_1samp(data, test_value, alternative=alternative)
                 stat = float(stat_raw)  # type: ignore[arg-type]
@@ -204,12 +204,12 @@ class TTestSkill(Skill):
                 )
 
             else:
-                return SkillResult(
+                return ToolResult(
                     success=False,
                     message="请指定 group_column（两组比较）或 test_value（单样本检验）",
                 )
 
-            return SkillResult(success=True, data=result, message=msg)
+            return ToolResult(success=True, data=result, message=msg)
 
         except ValueError as e:
-            return SkillResult(success=False, message=str(e))
+            return ToolResult(success=False, message=str(e))

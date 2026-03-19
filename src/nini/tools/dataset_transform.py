@@ -11,13 +11,13 @@ import pandas as pd
 
 from nini.agent.session import Session
 from nini.models import ResourceType
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.clean_data import CleanDataSkill, RecommendCleaningStrategySkill
 from nini.utils.dataframe_io import dataframe_to_json_safe
 from nini.workspace import WorkspaceManager
 
 
-class DatasetTransformSkill(Skill):
+class DatasetTransformSkill(Tool):
     """执行结构化数据变换流水线。"""
 
     _supported_ops = {
@@ -112,7 +112,7 @@ class DatasetTransformSkill(Skill):
             "required": ["operation"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         operation = str(kwargs.get("operation", "")).strip()
         if operation == "run":
             return await self._run_transform(session, **kwargs)
@@ -120,15 +120,15 @@ class DatasetTransformSkill(Skill):
             return await self._patch_step(session, **kwargs)
         if operation == "get_plan":
             return self._get_plan(session, **kwargs)
-        return SkillResult(success=False, message=f"不支持的 operation: {operation}")
+        return ToolResult(success=False, message=f"不支持的 operation: {operation}")
 
-    async def _run_transform(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def _run_transform(self, session: Session, **kwargs: Any) -> ToolResult:
         transform_id = (
             str(kwargs.get("transform_id", "")).strip() or f"transform_{uuid.uuid4().hex[:12]}"
         )
         steps = kwargs.get("steps") or []
         if not isinstance(steps, list) or not steps:
-            return SkillResult(success=False, message="run 操作必须提供 steps")
+            return ToolResult(success=False, message="run 操作必须提供 steps")
 
         dataset_name = str(kwargs.get("dataset_name", "")).strip()
         input_datasets = [
@@ -139,7 +139,7 @@ class DatasetTransformSkill(Skill):
 
         df = await self._resolve_initial_dataframe(session, input_datasets)
         if df is None:
-            return SkillResult(
+            return ToolResult(
                 success=False, message="无法解析输入数据集，请提供 dataset_name 或 input_datasets"
             )
 
@@ -153,7 +153,7 @@ class DatasetTransformSkill(Skill):
                 params_raw = step.get("params")
                 params: dict[str, Any] = dict(params_raw) if isinstance(params_raw, dict) else {}
                 if op not in self._supported_ops:
-                    return SkillResult(
+                    return ToolResult(
                         success=False, message=f"步骤 {step_id} 使用了不支持的操作: {op}"
                     )
                 current_df, step_result = await self._apply_step(
@@ -172,7 +172,7 @@ class DatasetTransformSkill(Skill):
                     }
                 )
         except Exception as exc:
-            return SkillResult(success=False, message=f"数据变换失败: {exc}")
+            return ToolResult(success=False, message=f"数据变换失败: {exc}")
 
         output_name = str(kwargs.get("output_dataset_name", "")).strip() or f"{transform_id}_output"
         dataset_record = self._persist_output_dataset(session, output_name, current_df)
@@ -194,7 +194,7 @@ class DatasetTransformSkill(Skill):
             "total_rows": len(current_df),
             "preview_rows": preview_rows,
         }
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"数据变换完成，已生成数据集 '{output_name}'",
             data={
@@ -221,26 +221,26 @@ class DatasetTransformSkill(Skill):
             dataframe_preview=preview,
         )
 
-    async def _patch_step(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def _patch_step(self, session: Session, **kwargs: Any) -> ToolResult:
         transform_id = str(kwargs.get("transform_id", "")).strip()
         if not transform_id:
-            return SkillResult(success=False, message="patch_step 操作必须提供 transform_id")
+            return ToolResult(success=False, message="patch_step 操作必须提供 transform_id")
 
         patch = kwargs.get("step_patch")
         if not isinstance(patch, dict):
-            return SkillResult(success=False, message="patch_step 操作必须提供 step_patch")
+            return ToolResult(success=False, message="patch_step 操作必须提供 step_patch")
 
         plan = self._load_transform_plan(session, transform_id)
         if plan is None:
-            return SkillResult(success=False, message=f"未找到变换计划: {transform_id}")
+            return ToolResult(success=False, message=f"未找到变换计划: {transform_id}")
 
         step_id = str(patch.get("step_id", "")).strip()
         if not step_id:
-            return SkillResult(success=False, message="step_patch.step_id 不能为空")
+            return ToolResult(success=False, message="step_patch.step_id 不能为空")
 
         steps = plan.get("steps", [])
         if not isinstance(steps, list):
-            return SkillResult(success=False, message="变换计划 steps 格式无效")
+            return ToolResult(success=False, message="变换计划 steps 格式无效")
 
         matched = False
         for step in steps:
@@ -255,7 +255,7 @@ class DatasetTransformSkill(Skill):
             break
 
         if not matched:
-            return SkillResult(success=False, message=f"未找到步骤: {step_id}")
+            return ToolResult(success=False, message=f"未找到步骤: {step_id}")
 
         return await self._run_transform(
             session,
@@ -266,16 +266,16 @@ class DatasetTransformSkill(Skill):
             output_dataset_name=plan.get("output_dataset_name"),
         )
 
-    def _get_plan(self, session: Session, **kwargs: Any) -> SkillResult:
+    def _get_plan(self, session: Session, **kwargs: Any) -> ToolResult:
         transform_id = str(kwargs.get("transform_id", "")).strip()
         if not transform_id:
-            return SkillResult(success=False, message="get_plan 操作必须提供 transform_id")
+            return ToolResult(success=False, message="get_plan 操作必须提供 transform_id")
         plan = self._load_transform_plan(session, transform_id)
         if plan is None:
-            return SkillResult(success=False, message=f"未找到变换计划: {transform_id}")
+            return ToolResult(success=False, message=f"未找到变换计划: {transform_id}")
         manager = WorkspaceManager(session.id)
         resource = manager.get_resource_summary(transform_id)
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"已读取变换计划 '{transform_id}'",
             data={

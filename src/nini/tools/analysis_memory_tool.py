@@ -9,10 +9,10 @@ from __future__ import annotations
 from typing import Any
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 
 
-class AnalysisMemorySkill(Skill):
+class AnalysisMemorySkill(Tool):
     """分析记忆查询工具。
 
     支持两种操作：
@@ -55,7 +55,7 @@ class AnalysisMemorySkill(Skill):
             "required": ["operation"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         """执行分析记忆查询。"""
         from nini.memory.compression import list_session_analysis_memories
 
@@ -70,15 +70,15 @@ class AnalysisMemorySkill(Skill):
         elif operation == "find":
             return self._handle_find(memories, keyword=keyword, dataset_filter=dataset_filter)
         else:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"不支持的操作：{operation}，请使用 'list' 或 'find'",
             )
 
-    def _handle_list(self, memories: list[Any]) -> SkillResult:
+    def _handle_list(self, memories: list[Any]) -> ToolResult:
         """列出所有分析记忆的摘要。"""
         if not memories:
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 message="当前会话暂无分析记忆。",
                 data={"memories": []},
@@ -96,7 +96,7 @@ class AnalysisMemorySkill(Skill):
                 }
             )
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"找到 {len(summaries)} 个数据集的分析记忆。",
             data={"memories": summaries},
@@ -108,10 +108,10 @@ class AnalysisMemorySkill(Skill):
         *,
         keyword: str,
         dataset_filter: str,
-    ) -> SkillResult:
+    ) -> ToolResult:
         """按关键词检索分析记忆详细数值。"""
         if not memories:
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 message="当前会话暂无分析记忆。",
                 data={"results": []},
@@ -171,13 +171,13 @@ class AnalysisMemorySkill(Skill):
         if not results:
             hint = f"关键词 '{keyword}'" if keyword else "任意内容"
             ds_hint = f"数据集 '{dataset_filter}'" if dataset_filter else "所有数据集"
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 message=f"在 {ds_hint} 中未找到与 {hint} 匹配的分析记忆。",
                 data={"results": []},
             )
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"找到 {len(results)} 个数据集的匹配结果。",
             data={"results": results},

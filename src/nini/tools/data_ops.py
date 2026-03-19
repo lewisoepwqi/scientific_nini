@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.utils.dataframe_io import (
     dataframe_to_json_safe,
     list_excel_sheet_names,
@@ -57,7 +57,7 @@ def _unique_dataset_name(session: Session, preferred_name: str) -> str:
 # ---- 技能实现 ----
 
 
-class LoadDatasetSkill(Skill):
+class LoadDatasetSkill(Tool):
     """加载已上传的数据集到会话。"""
 
     @property
@@ -120,7 +120,7 @@ class LoadDatasetSkill(Skill):
     def is_idempotent(self) -> bool:
         return True
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         name = kwargs.get("dataset_name", "")
         sheet_mode = str(kwargs.get("sheet_mode", "default")).strip().lower()
         sheet_name_raw = kwargs.get("sheet_name")
@@ -132,18 +132,18 @@ class LoadDatasetSkill(Skill):
             # 如果没有指定名称，返回所有已加载数据集的列表
             datasets = list(session.datasets.keys())
             if not datasets:
-                return SkillResult(
+                return ToolResult(
                     success=False,
                     message="当前会话没有已加载的数据集。请先上传数据文件。",
                 )
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 data={"datasets": datasets},
                 message=f"当前已加载 {len(datasets)} 个数据集: {', '.join(datasets)}",
             )
 
         if sheet_mode not in {"default", "single", "all"}:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message="sheet_mode 仅支持: default/single/all",
             )
@@ -163,7 +163,7 @@ class LoadDatasetSkill(Skill):
                             pass
             if name not in session.datasets:
                 available = list(session.datasets.keys())
-                return SkillResult(
+                return ToolResult(
                     success=False,
                     message=f"数据集 '{name}' 不存在。可用数据集: {', '.join(available) or '无'}",
                 )
@@ -178,7 +178,7 @@ class LoadDatasetSkill(Skill):
                 "memory_mb": round(df.memory_usage(deep=True).sum() / 1024 / 1024, 2),
             }
 
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 data=info,
                 message=f"数据集 '{name}': {info['rows']} 行 × {info['columns']} 列",
@@ -186,18 +186,18 @@ class LoadDatasetSkill(Skill):
 
         record = manager.get_dataset_by_name(name)
         if record is None:
-            return SkillResult(success=False, message=f"数据集 '{name}' 未在工作区中找到")
+            return ToolResult(success=False, message=f"数据集 '{name}' 未在工作区中找到")
 
         ext = str(record.get("file_type", "")).strip().lower()
         if ext not in {"xlsx", "xls"}:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"数据集 '{name}' 不是 Excel 文件，无法使用 sheet_mode={sheet_mode}",
             )
 
         file_path = Path(str(record.get("file_path", "")).strip())
         if not file_path.exists():
-            return SkillResult(success=False, message=f"数据集文件不存在: {file_path}")
+            return ToolResult(success=False, message=f"数据集文件不存在: {file_path}")
 
         if sheet_mode == "single":
             try:
@@ -206,7 +206,7 @@ class LoadDatasetSkill(Skill):
                 available_sheets = []
             if not isinstance(sheet_name_raw, str) or not sheet_name_raw.strip():
                 extra = f"；可用 sheet: {', '.join(available_sheets)}" if available_sheets else ""
-                return SkillResult(
+                return ToolResult(
                     success=False, message=f"sheet_mode=single 时必须提供 sheet_name{extra}"
                 )
             sheet_name = sheet_name_raw.strip()
@@ -214,13 +214,13 @@ class LoadDatasetSkill(Skill):
                 df_sheet = read_excel_sheet_dataframe(file_path, ext, sheet_name=sheet_name)
             except Exception as exc:
                 extra = f"；可用 sheet: {', '.join(available_sheets)}" if available_sheets else ""
-                return SkillResult(success=False, message=f"读取 sheet 失败: {exc}{extra}")
+                return ToolResult(success=False, message=f"读取 sheet 失败: {exc}{extra}")
 
             preferred = output_dataset_name_raw or f"{name}[{sheet_name}]"
             output_name = _unique_dataset_name(session, preferred)
             session.datasets[output_name] = df_sheet
 
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 data={
                     "source_dataset": name,
@@ -237,10 +237,10 @@ class LoadDatasetSkill(Skill):
             sheets_map = read_excel_all_sheets(file_path, ext)
             sheet_names = list_excel_sheet_names(file_path, ext)
         except Exception as exc:
-            return SkillResult(success=False, message=f"读取全部 sheet 失败: {exc}")
+            return ToolResult(success=False, message=f"读取全部 sheet 失败: {exc}")
 
         if not sheets_map:
-            return SkillResult(success=False, message=f"Excel 文件 '{name}' 不包含可读取的 sheet")
+            return ToolResult(success=False, message=f"Excel 文件 '{name}' 不包含可读取的 sheet")
 
         if combine_sheets:
             combined_parts: list[pd.DataFrame] = []
@@ -255,7 +255,7 @@ class LoadDatasetSkill(Skill):
             output_name = _unique_dataset_name(session, preferred)
             session.datasets[output_name] = merged
 
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 data={
                     "source_dataset": name,
@@ -287,7 +287,7 @@ class LoadDatasetSkill(Skill):
                 }
             )
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             data={
                 "source_dataset": name,
@@ -301,7 +301,7 @@ class LoadDatasetSkill(Skill):
         )
 
 
-class PreviewDataSkill(Skill):
+class PreviewDataSkill(Tool):
     """预览数据集的前后部分行（避免大数据集预览过大）。"""
 
     # 预览行数上限（超过此值将采用 head+tail 策略）
@@ -341,13 +341,13 @@ class PreviewDataSkill(Skill):
     def is_idempotent(self) -> bool:
         return True
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         name = kwargs["dataset_name"]
         n_rows = min(kwargs.get("n_rows", 5), self.MAX_PREVIEW_ROWS)
 
         df = session.datasets.get(name)
         if df is None:
-            return SkillResult(success=False, message=f"数据集 '{name}' 不存在")
+            return ToolResult(success=False, message=f"数据集 '{name}' 不存在")
 
         # 智能预览：小数据集全部预览，大数据集 head+tail
         total_rows = len(df)
@@ -384,7 +384,7 @@ class PreviewDataSkill(Skill):
             "preview_strategy": "full" if total_rows <= n_rows else "head_tail",
         }
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             data=result,
             message=f"数据集 '{name}' 预览：{preview_info}",
@@ -393,7 +393,7 @@ class PreviewDataSkill(Skill):
         )
 
 
-class DataSummarySkill(Skill):
+class DataSummarySkill(Tool):
     """计算数据集的描述性统计摘要。"""
 
     @property
@@ -425,11 +425,11 @@ class DataSummarySkill(Skill):
     def is_idempotent(self) -> bool:
         return True
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         name = kwargs["dataset_name"]
         df = session.datasets.get(name)
         if df is None:
-            return SkillResult(success=False, message=f"数据集 '{name}' 不存在")
+            return ToolResult(success=False, message=f"数据集 '{name}' 不存在")
 
         summary: dict[str, Any] = {
             "shape": {"rows": len(df), "columns": len(df.columns)},
@@ -483,7 +483,7 @@ class DataSummarySkill(Skill):
                 column_types[col] = "text"
         summary["column_types"] = column_types
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             data=summary,
             message=(

@@ -20,7 +20,7 @@ from scipy import stats
 
 from nini.agent.session import Session
 from nini.tools.analysis_workflow import AnalysisWorkflowEngine
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.utils.chart_fonts import CJK_FONT_FAMILY
 
 if TYPE_CHECKING:
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class CompleteComparisonSkill(Skill):
+class CompleteComparisonSkill(Tool):
     """完整两组比较分析技能（模板）。"""
 
     @property
@@ -84,7 +84,7 @@ class CompleteComparisonSkill(Skill):
             "required": ["dataset_name", "value_column", "group_column"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         """执行完整分析。"""
         engine = AnalysisWorkflowEngine()
         return await engine.complete_comparison(

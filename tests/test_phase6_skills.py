@@ -13,7 +13,7 @@ import pytest
 
 from nini.agent.session import Session
 from nini.config import settings
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.clean_data import CleanDataSkill
 from nini.tools.report import GenerateReportSkill
 from nini.tools.registry import ToolRegistry
@@ -300,7 +300,7 @@ def test_export_chart_can_fallback_to_chart_resource() -> None:
 def test_skill_execute_runs_in_current_thread() -> None:
     """技能执行默认在当前事件循环线程中运行。"""
 
-    class ThreadProbeSkill(Skill):
+    class ThreadProbeSkill(Tool):
         @property
         def name(self) -> str:
             return "thread_probe"
@@ -313,8 +313,8 @@ def test_skill_execute_runs_in_current_thread() -> None:
         def parameters(self) -> dict[str, object]:
             return {"type": "object", "properties": {}}
 
-        async def execute(self, session: Session, **kwargs) -> SkillResult:
-            return SkillResult(
+        async def execute(self, session: Session, **kwargs) -> ToolResult:
+            return ToolResult(
                 success=True,
                 data={"thread_id": threading.get_ident()},
                 message="ok",

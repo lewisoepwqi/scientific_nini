@@ -9,7 +9,7 @@ from typing import Any, cast
 from nini.agent.lane_queue import lane_queue
 from nini.agent.session import Session
 from nini.config import settings
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.diagnostics import DataDiagnostics
 from nini.tools.fallback import get_fallback_manager
 
@@ -22,7 +22,7 @@ class FunctionToolRegistryOps:
     def __init__(self, owner: Any) -> None:
         self._owner = owner
 
-    def register(self, skill: Skill, *, allow_override: bool = False) -> None:
+    def register(self, skill: Tool, *, allow_override: bool = False) -> None:
         """注册一个工具。"""
         if skill.name in self._owner._skills:
             existing = self._owner._skills[skill.name]
@@ -44,9 +44,9 @@ class FunctionToolRegistryOps:
         """注销一个工具。"""
         self._owner._skills.pop(name, None)
 
-    def get(self, name: str) -> Skill | None:
+    def get(self, name: str) -> Tool | None:
         """获取工具实例。"""
-        return cast(Skill | None, self._owner._skills.get(name))
+        return cast(Tool | None, self._owner._skills.get(name))
 
     def list_skills(self) -> list[str]:
         """列出所有 Function Tool 名称。"""
@@ -92,7 +92,7 @@ class FunctionToolRegistryOps:
             if self._is_exposed_to_llm(skill)
         ]
 
-    def _is_exposed_to_llm(self, skill: Skill) -> bool:
+    def _is_exposed_to_llm(self, skill: Tool) -> bool:
         allowlist = getattr(self._owner, "_llm_exposed_function_tools", None)
         if allowlist is not None:
             return skill.name in allowlist
@@ -313,19 +313,19 @@ class FunctionToolRegistryOps:
     async def _execute_skill_in_thread(
         self,
         *,
-        skill: Skill,
+        skill: Tool,
         session: Session,
         kwargs: dict[str, Any],
-    ) -> SkillResult:
+    ) -> ToolResult:
         """在当前事件循环中执行技能协程。"""
         return await skill.execute(session=session, **kwargs)
 
     @staticmethod
     def _run_skill_coroutine(
-        skill: Skill,
+        skill: Tool,
         session: Session,
         kwargs: dict[str, Any],
-    ) -> SkillResult:
+    ) -> ToolResult:
         """为保留历史兼容而保留的同步入口。"""
         return asyncio.run(skill.execute(session=session, **kwargs))
 

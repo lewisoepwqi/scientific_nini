@@ -6,7 +6,7 @@
 
 | 层级 | 定位 | 技术形态 | 目标用户 |
 |------|------|----------|----------|
-| **Tools** | 原子函数 | Python 类（继承 `Skill` 基类） | AI 模型 |
+| **Tools** | 原子函数 | Python 类（继承 `Tool` 基类） | AI 模型 |
 | **Capabilities** | 能力封装 | 元数据（`Capability` dataclass） | 终端用户 |
 | **Skills** | 工作流项目 | 目录（Markdown + 脚本 + 资源） | 开发者/高级用户 |
 
@@ -67,14 +67,14 @@
 **示例**：
 ```python
 # tools/statistics/t_test.py
-class TTestSkill(Skill):
+class TTestSkill(Tool):
     name = "t_test"
     description = "执行 t 检验比较两组数据"
     parameters = {...}
 
-    async def execute(self, session, **kwargs) -> SkillResult:
+    async def execute(self, session, **kwargs) -> ToolResult:
         # 执行统计检验
-        return SkillResult(success=True, data={...})
+        return ToolResult(success=True, data={...})
 ```
 
 **注册方式**：

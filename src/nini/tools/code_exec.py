@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.code_session import CodeSessionSkill
 
 
-class RunCodeSkill(Skill):
+class RunCodeSkill(Tool):
     """运行用户提供的 Python 代码。"""
 
     @property
@@ -69,7 +69,7 @@ class RunCodeSkill(Skill):
             "required": ["code"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         return await CodeSessionSkill().run_ad_hoc_script(
             session,
             language="python",

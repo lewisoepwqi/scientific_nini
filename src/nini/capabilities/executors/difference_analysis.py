@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
 from scipy import stats
-from nini.tools.base import SkillResult
+from nini.tools.base import ToolResult
 
 if TYPE_CHECKING:
     from nini.agent.session import Session
@@ -208,7 +208,7 @@ class DifferenceAnalysisCapability:
             **kwargs,
         )
 
-        # Note: registry.execute returns a dict, not SkillResult
+        # Note: registry.execute returns a dict, not ToolResult
         if isinstance(stat_result, dict):
             if not stat_result.get("success"):
                 result.message = f"统计检验失败: {stat_result.get('message', '未知错误')}"
@@ -224,7 +224,7 @@ class DifferenceAnalysisCapability:
         chart_result = await self._create_visualization(
             session, dataset_name, value_column, group_column, result.selected_method
         )
-        # 处理 dict 或 SkillResult 类型
+        # 处理 dict 或 ToolResult 类型
         if isinstance(chart_result, dict):
             if chart_result.get("success") and chart_result.get("artifacts"):
                 artifacts = chart_result["artifacts"]
@@ -412,7 +412,7 @@ class DifferenceAnalysisCapability:
         test_value: float | None,
         method: str,
         **kwargs: Any,
-    ) -> SkillResult | dict[str, Any]:
+    ) -> ToolResult | dict[str, Any]:
         """执行统计检验。"""
         registry = self._get_registry()
 
@@ -420,7 +420,7 @@ class DifferenceAnalysisCapability:
             if test_value is not None:
                 # 单样本 t 检验
                 return cast(
-                    SkillResult | dict[str, Any],
+                    ToolResult | dict[str, Any],
                     await registry.execute(
                         "t_test",
                         session,
@@ -433,7 +433,7 @@ class DifferenceAnalysisCapability:
             else:
                 # 独立样本 t 检验
                 return cast(
-                    SkillResult | dict[str, Any],
+                    ToolResult | dict[str, Any],
                     await registry.execute(
                         "t_test",
                         session,
@@ -445,7 +445,7 @@ class DifferenceAnalysisCapability:
                 )
         elif method == "mann_whitney":
             return cast(
-                SkillResult | dict[str, Any],
+                ToolResult | dict[str, Any],
                 await registry.execute(
                     "mann_whitney",
                     session,
@@ -457,7 +457,7 @@ class DifferenceAnalysisCapability:
             )
         elif method == "anova":
             return cast(
-                SkillResult | dict[str, Any],
+                ToolResult | dict[str, Any],
                 await registry.execute(
                     "anova",
                     session,
@@ -469,7 +469,7 @@ class DifferenceAnalysisCapability:
             )
         elif method == "kruskal_wallis":
             return cast(
-                SkillResult | dict[str, Any],
+                ToolResult | dict[str, Any],
                 await registry.execute(
                     "kruskal_wallis",
                     session,
@@ -480,10 +480,10 @@ class DifferenceAnalysisCapability:
                 ),
             )
         else:
-            return SkillResult(success=False, message=f"不支持的方法: {method}")
+            return ToolResult(success=False, message=f"不支持的方法: {method}")
 
     def _extract_statistical_results(
-        self, result: DifferenceAnalysisResult, stat_result: SkillResult | dict[str, Any]
+        self, result: DifferenceAnalysisResult, stat_result: ToolResult | dict[str, Any]
     ) -> None:
         """从统计结果中提取关键信息。"""
         # 处理 dict 类型结果（ToolRegistry.execute 返回 dict）
@@ -519,7 +519,7 @@ class DifferenceAnalysisCapability:
         value_column: str,
         group_column: str | None,
         method: str,
-    ) -> SkillResult | dict[str, Any]:
+    ) -> ToolResult | dict[str, Any]:
         """创建可视化图表。"""
         registry = self._get_registry()
 
@@ -533,7 +533,7 @@ class DifferenceAnalysisCapability:
             chart_type = "histogram"
 
         return cast(
-            SkillResult | dict[str, Any],
+            ToolResult | dict[str, Any],
             await registry.execute(
                 "create_chart",
                 session,

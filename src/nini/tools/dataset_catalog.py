@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.data_ops import DataSummarySkill, LoadDatasetSkill, PreviewDataSkill
 from nini.tools.data_quality import DataQualitySkill
 from nini.workspace import WorkspaceManager
 
 
-class DatasetCatalogSkill(Skill):
+class DatasetCatalogSkill(Tool):
     """统一数据集目录入口。"""
 
     def __init__(self) -> None:
@@ -88,7 +88,7 @@ class DatasetCatalogSkill(Skill):
             "required": ["operation"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         operation = str(kwargs.get("operation", "")).strip()
 
         if operation == "list":
@@ -97,11 +97,13 @@ class DatasetCatalogSkill(Skill):
             return await self._load_dataset(session, **kwargs)
         if operation == "profile":
             return await self._profile_dataset(session, **kwargs)
-        return SkillResult(success=False, message=f"不支持的 operation: {operation}")
+        return ToolResult(success=False, message=f"不支持的 operation: {operation}")
 
-    def _list_datasets(self, session: Session) -> SkillResult:
+    def _list_datasets(self, session: Session) -> ToolResult:
         manager = WorkspaceManager(session.id)
-        workspace_records = {str(item.get("name", "")).strip(): item for item in manager.list_datasets()}
+        workspace_records = {
+            str(item.get("name", "")).strip(): item for item in manager.list_datasets()
+        }
         dataset_names = sorted(set(workspace_records) | set(session.datasets.keys()))
         items: list[dict[str, Any]] = []
 
@@ -109,13 +111,15 @@ class DatasetCatalogSkill(Skill):
             record = workspace_records.get(name)
             resource_id = str(record.get("id", "")).strip() if isinstance(record, dict) else ""
             loaded = name in session.datasets
-            rows = len(session.datasets[name]) if loaded else record.get("row_count") if record else None
+            rows = (
+                len(session.datasets[name])
+                if loaded
+                else record.get("row_count") if record else None
+            )
             columns = (
                 len(session.datasets[name].columns)
                 if loaded
-                else record.get("column_count")
-                if record
-                else None
+                else record.get("column_count") if record else None
             )
             items.append(
                 {
@@ -130,16 +134,16 @@ class DatasetCatalogSkill(Skill):
                 }
             )
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"当前可用 {len(items)} 个数据集",
             data={"datasets": items},
         )
 
-    async def _load_dataset(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def _load_dataset(self, session: Session, **kwargs: Any) -> ToolResult:
         dataset_name = str(kwargs.get("dataset_name", "")).strip()
         if not dataset_name:
-            return SkillResult(success=False, message="load 操作必须提供 dataset_name")
+            return ToolResult(success=False, message="load 操作必须提供 dataset_name")
 
         result = await self._loader.execute(
             session,
@@ -165,12 +169,12 @@ class DatasetCatalogSkill(Skill):
         data["resource_type"] = "dataset"
         data["dataset_name"] = target_name
         payload["data"] = data
-        return SkillResult(**payload)
+        return ToolResult(**payload)
 
-    async def _profile_dataset(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def _profile_dataset(self, session: Session, **kwargs: Any) -> ToolResult:
         dataset_name = str(kwargs.get("dataset_name", "")).strip()
         if not dataset_name:
-            return SkillResult(success=False, message="profile 操作必须提供 dataset_name")
+            return ToolResult(success=False, message="profile 操作必须提供 dataset_name")
 
         view = str(kwargs.get("view", "basic")).strip()
         manager = WorkspaceManager(session.id)
@@ -210,7 +214,7 @@ class DatasetCatalogSkill(Skill):
             if quality.success and isinstance(quality.data, dict):
                 base["quality"] = quality.data
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"已生成数据集 '{dataset_name}' 的 {view} 概况",
             data=base,

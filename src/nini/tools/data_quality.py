@@ -15,7 +15,7 @@ import pandas as pd
 from scipy import stats
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 
 
 class QualityDimension(Enum):
@@ -522,7 +522,7 @@ def evaluate_data_quality(df: pd.DataFrame, dataset_name: str) -> QualityReport:
 # ---- 技能实现 ----
 
 
-class DataQualitySkill(Skill):
+class DataQualitySkill(Tool):
     """数据质量评估技能。
 
     从完整性、一致性、准确性、有效性、唯一性等维度评估数据质量。
@@ -560,18 +560,18 @@ class DataQualitySkill(Skill):
     def is_idempotent(self) -> bool:
         return True
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         dataset_name = kwargs.get("dataset_name")
 
         if not dataset_name:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message="请提供数据集名称",
             )
 
         df = session.datasets.get(dataset_name)
         if df is None:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"数据集 '{dataset_name}' 不存在",
             )
@@ -589,20 +589,20 @@ class DataQualitySkill(Skill):
                 f"{summary['total_suggestions']} 条改进建议。"
             )
 
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 data=report.to_dict(),
                 message=message,
             )
 
         except Exception as e:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"质量评估失败: {e}",
             )
 
 
-class DataQualityReportSkill(Skill):
+class DataQualityReportSkill(Tool):
     """生成详细数据质量报告技能。"""
 
     @property
@@ -644,19 +644,19 @@ class DataQualityReportSkill(Skill):
         # 此技能与 evaluate_data_quality 功能类似，不暴露给 LLM 以减少工具数量
         return False
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         dataset_name = kwargs.get("dataset_name")
         include_recommendations = kwargs.get("include_recommendations", True)
 
         if not dataset_name:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message="请提供数据集名称",
             )
 
         df = session.datasets.get(dataset_name)
         if df is None:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"数据集 '{dataset_name}' 不存在",
             )
@@ -672,14 +672,14 @@ class DataQualityReportSkill(Skill):
                 cleaning_recommendations = _generate_cleaning_recommendations(report)
                 report_data["cleaning_recommendations"] = cleaning_recommendations
 
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 data=report_data,
                 message=f"已生成 '{dataset_name}' 的详细质量报告",
             )
 
         except Exception as e:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"报告生成失败: {e}",
             )

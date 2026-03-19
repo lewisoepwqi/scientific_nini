@@ -19,7 +19,7 @@ from nini.charts.renderers import (
     apply_plotly_style,
 )
 from nini.memory.storage import ArtifactStorage
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.templates.journal_styles import get_template_names
 from nini.workspace import WorkspaceManager
 
@@ -63,7 +63,7 @@ def _prepare_line_dataframe(df: pd.DataFrame, x_col: str) -> pd.DataFrame:
     )
 
 
-class CreateChartSkill(Skill):
+class CreateChartSkill(Tool):
     """生成科研图表。"""
 
     _chart_types = ["scatter", "line", "bar", "box", "violin", "histogram", "heatmap"]
@@ -132,7 +132,7 @@ class CreateChartSkill(Skill):
     def is_idempotent(self) -> bool:
         return False
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         dataset_name = kwargs["dataset_name"]
         chart_type = str(kwargs["chart_type"]).lower().strip()
         title = kwargs.get("title")
@@ -142,9 +142,9 @@ class CreateChartSkill(Skill):
 
         df = session.datasets.get(dataset_name)
         if df is None:
-            return SkillResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
+            return ToolResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
         if chart_type not in self._chart_types:
-            return SkillResult(success=False, message=f"不支持的图表类型: {chart_type}")
+            return ToolResult(success=False, message=f"不支持的图表类型: {chart_type}")
         if journal_style not in self._journal_styles:
             journal_style = "default"
 
@@ -225,7 +225,7 @@ class CreateChartSkill(Skill):
             message = (
                 f"已生成 {chart_type} 图（{style_spec.style_key} 风格，{resolved_engine} 渲染）"
             )
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 message=message,
                 data={
@@ -239,9 +239,9 @@ class CreateChartSkill(Skill):
                 artifacts=artifacts,
             )
         except ValueError as exc:
-            return SkillResult(success=False, message=str(exc))
+            return ToolResult(success=False, message=str(exc))
         except Exception as exc:
-            return SkillResult(success=False, message=f"图表生成失败: {exc}")
+            return ToolResult(success=False, message=f"图表生成失败: {exc}")
 
     def _create_plotly_figure(
         self,

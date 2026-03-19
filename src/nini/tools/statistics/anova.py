@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.statistics.base import (
     _ensure_finite,
     _get_df,
@@ -24,7 +24,7 @@ from nini.tools.statistics.multiple_comparison import (
 logger = logging.getLogger(__name__)
 
 
-class ANOVASkill(Skill):
+class ANOVASkill(Tool):
     """执行单因素方差分析。"""
 
     @property
@@ -55,17 +55,17 @@ class ANOVASkill(Skill):
             "required": ["dataset_name", "value_column", "group_column"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         name = kwargs["dataset_name"]
         value_col = kwargs["value_column"]
         group_col = kwargs["group_column"]
 
         df = _get_df(session, name)
         if df is None:
-            return SkillResult(success=False, message=f"数据集 '{name}' 不存在")
+            return ToolResult(success=False, message=f"数据集 '{name}' 不存在")
         for col in (value_col, group_col):
             if col not in df.columns:
-                return SkillResult(success=False, message=f"列 '{col}' 不存在")
+                return ToolResult(success=False, message=f"列 '{col}' 不存在")
 
         try:
             group_names = df[group_col].dropna().unique()
@@ -78,7 +78,7 @@ class ANOVASkill(Skill):
                     valid_group_names.append(group_name)
 
             if len(groups) < 2:
-                return SkillResult(
+                return ToolResult(
                     success=False,
                     message=(
                         f"ANOVA 至少需要 2 个分组，当前只有 {len(groups)} 个。"
@@ -122,8 +122,7 @@ class ANOVASkill(Skill):
 
             if n_groups == 2:
                 result["recommendation"] = (
-                    "当前仅 2 个分组，通常优先使用 t_test（参数法）或 "
-                    "mann_whitney（非参数法）。"
+                    "当前仅 2 个分组，通常优先使用 t_test（参数法）或 " "mann_whitney（非参数法）。"
                 )
 
             if pval <= 0.05 and n_groups >= 3:
@@ -184,6 +183,6 @@ class ANOVASkill(Skill):
                 significant=is_significant,
             )
 
-            return SkillResult(success=True, data=result, message=message)
+            return ToolResult(success=True, data=result, message=message)
         except ValueError as exc:
-            return SkillResult(success=False, message=str(exc))
+            return ToolResult(success=False, message=str(exc))
