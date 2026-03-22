@@ -213,9 +213,8 @@ async def try_merge_oldest_segments(session: Session, max_segments: int) -> None
 
     if merged_summary:
         # 替换最旧的两段为 depth=1 合并段
-        merged_count = (
-            int(oldest_two[0].get("archived_count", 0))
-            + int(oldest_two[1].get("archived_count", 0))
+        merged_count = int(oldest_two[0].get("archived_count", 0)) + int(
+            oldest_two[1].get("archived_count", 0)
         )
         merged_seg = CompressionSegment(
             summary=merged_summary,
@@ -224,7 +223,9 @@ async def try_merge_oldest_segments(session: Session, max_segments: int) -> None
             depth=1,
         ).to_dict()
         session.compression_segments = [merged_seg] + session.compression_segments[2:]
-        logger.info("LLM 合并最旧两段成功 (depth=1), segments=%d", len(session.compression_segments))
+        logger.info(
+            "LLM 合并最旧两段成功 (depth=1), segments=%d", len(session.compression_segments)
+        )
 
     # 无论是否合并，覆写 compressed_context（不截断）
     session.compressed_context = "\n\n---\n\n".join(
@@ -247,12 +248,40 @@ def _archive_messages(session_id: str, messages: list[dict[str, Any]]) -> Path:
 def _append_to_search_index(
     archive_dir: Path, filename: str, messages: list[dict[str, Any]]
 ) -> None:
-    """将归档消息追加到 search_index.jsonl 增量索引文件。
+    """将归档消息写入 SQLite archived_messages + FTS5 索引。
 
-    每条消息写一行 JSON：{"file": "...", "role": "...", "text": "..."}。
+    优先写入 session.db（SQLite 路径）；SQLite 不可用时 fallback 到 search_index.jsonl。
     失败时静默跳过，不影响归档主流程。
     """
-    # 延迟导入避免循环（search_archive → session → compression）
+    session_dir = (
+        archive_dir.parent
+    )  # sessions_dir / session_id / archive -> sessions_dir / session_id
+
+    # 优先路径：写入 SQLite
+    try:
+        from nini.memory.db import (
+            get_indexed_archive_files,
+            get_session_db,
+            insert_archived_messages_bulk,
+        )
+
+        conn = get_session_db(session_dir, create=True)
+        if conn is not None:
+            try:
+                # 检查是否已被迁移（避免 migration + insert 导致重复）
+                already_indexed = get_indexed_archive_files(conn)
+                if filename in already_indexed:
+                    return  # 已在迁移时写入，无需重复插入
+                insert_archived_messages_bulk(conn, filename, messages)
+                return  # 写入成功，直接返回
+            except Exception as exc:
+                logger.warning("[DB] 写入归档索引到 SQLite 失败，回退到 JSONL: %s", exc)
+            finally:
+                conn.close()
+    except Exception as exc:
+        logger.warning("[DB] 打开 SQLite 失败，回退到 JSONL: %s", exc)
+
+    # Fallback 路径：写入 search_index.jsonl
     try:
         from nini.tools.search_archive import _extract_message_text
     except Exception:

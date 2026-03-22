@@ -743,7 +743,28 @@ class SessionManager:
         return str(meta.get("title", "新会话") or "新会话")
 
     def _load_session_meta(self, session_id: str) -> dict[str, Any]:
-        meta_path = settings.sessions_dir / session_id / "meta.json"
+        """加载会话元数据。优先从 SQLite 读取，回退到 meta.json。"""
+        session_dir = settings.sessions_dir / session_id
+
+        # 优先路径：SQLite
+        try:
+            from nini.memory.db import get_session_db, load_meta_from_db
+
+            conn = get_session_db(session_dir, create=False)
+            if conn is not None:
+                try:
+                    db_meta = load_meta_from_db(conn)
+                    if db_meta:
+                        return db_meta
+                except Exception:
+                    pass
+                finally:
+                    conn.close()
+        except Exception:
+            pass
+
+        # Fallback：meta.json
+        meta_path = session_dir / "meta.json"
         if not meta_path.exists():
             return {}
         try:
@@ -755,7 +776,9 @@ class SessionManager:
         return {}
 
     def _save_session_meta_fields(self, session_id: str, fields: dict[str, Any]) -> None:
-        meta_path = settings.sessions_dir / session_id / "meta.json"
+        """持久化元数据字段。双写 meta.json + SQLite。"""
+        session_dir = settings.sessions_dir / session_id
+        meta_path = session_dir / "meta.json"
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         meta = self._load_session_meta(session_id)
         meta.update(fields)
@@ -763,22 +786,38 @@ class SessionManager:
         meta.setdefault("created_at", now_iso)
         if "updated_at" not in fields:
             meta["updated_at"] = now_iso
+
+        # 主路径：写入 meta.json（保持现有行为，兼容直接读文件的测试）
         meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+        # 次路径：写入 SQLite（失败不影响主路径）
+        try:
+            from nini.memory.db import get_session_db, upsert_meta_fields
+
+            conn = get_session_db(session_dir, create=True)
+            if conn is not None:
+                try:
+                    upsert_meta_fields(conn, meta)
+                except Exception as exc:
+                    logger.debug("[Session] SQLite 元数据双写失败: %s", exc)
+                finally:
+                    conn.close()
+        except Exception:
+            pass
 
     def save_session_token_usage(self, session_id: str, token_usage: dict[str, Any]) -> None:
         """保存会话的 Token 使用统计到 meta.json。"""
         self._save_session_meta_fields(session_id, {"token_usage": token_usage})
 
     def _session_exists_on_disk(self, session_id: str) -> bool:
-        memory_path = settings.sessions_dir / session_id / "memory.jsonl"
-        knowledge_path = settings.sessions_dir / session_id / "knowledge.md"
-        workspace_dir = settings.sessions_dir / session_id / "workspace"
-        meta_path = settings.sessions_dir / session_id / "meta.json"
+        session_dir = settings.sessions_dir / session_id
+        db_filename = getattr(settings, "session_db_filename", "session.db")
         return (
-            memory_path.exists()
-            or knowledge_path.exists()
-            or workspace_dir.exists()
-            or meta_path.exists()
+            (session_dir / "memory.jsonl").exists()
+            or (session_dir / "knowledge.md").exists()
+            or (session_dir / "workspace").exists()
+            or (session_dir / "meta.json").exists()
+            or (session_dir / db_filename).exists()
         )
 
     def _list_persisted_session_ids(self) -> list[str]:
@@ -786,15 +825,17 @@ class SessionManager:
         root = settings.sessions_dir
         if not root.exists():
             return []
+        db_filename = getattr(settings, "session_db_filename", "session.db")
         session_ids = []
         for p in root.iterdir():
             if p.is_dir():
                 memory_path = p / "memory.jsonl"
+                db_path = p / db_filename
                 workspace_dir = p / "workspace"
                 has_workspace_file = workspace_dir.exists() and any(
                     child.is_file() for child in workspace_dir.rglob("*")
                 )
-                if memory_path.exists() or has_workspace_file:
+                if memory_path.exists() or db_path.exists() or has_workspace_file:
                     session_ids.append(p.name)
         return session_ids
 
