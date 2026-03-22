@@ -240,7 +240,39 @@ def _archive_messages(session_id: str, messages: list[dict[str, Any]]) -> Path:
         json.dumps(messages, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
     )
+    _append_to_search_index(archive_dir, archive_path.name, messages)
     return archive_path
+
+
+def _append_to_search_index(
+    archive_dir: Path, filename: str, messages: list[dict[str, Any]]
+) -> None:
+    """将归档消息追加到 search_index.jsonl 增量索引文件。
+
+    每条消息写一行 JSON：{"file": "...", "role": "...", "text": "..."}。
+    失败时静默跳过，不影响归档主流程。
+    """
+    # 延迟导入避免循环（search_archive → session → compression）
+    try:
+        from nini.tools.search_archive import _extract_message_text
+    except Exception:
+        return
+
+    index_path = archive_dir / "search_index.jsonl"
+    try:
+        with index_path.open("a", encoding="utf-8") as f:
+            for msg in messages:
+                text = _extract_message_text(msg)
+                if not text:
+                    continue
+                entry = {
+                    "file": filename,
+                    "role": str(msg.get("role", "unknown")),
+                    "text": text,
+                }
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        logger.warning("更新归档搜索索引失败: %s", archive_dir, exc_info=True)
 
 
 def compress_session_history(

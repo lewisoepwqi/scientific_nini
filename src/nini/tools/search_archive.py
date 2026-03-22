@@ -91,7 +91,12 @@ class SearchMemoryArchiveTool(Skill):
     async def execute(
         self, session: Session, *, keyword: str, max_results: int = 5
     ) -> SkillResult:
-        """检索归档历史中包含关键词的消息。"""
+        """检索归档历史中包含关键词的消息。
+
+        优先使用 search_index.jsonl 增量索引（O(entries) 遍历）；
+        对未被索引覆盖的归档文件仍进行全量扫描，确保结果完整。
+        索引损坏时自动降级为纯全量扫描。
+        """
         if not keyword or not keyword.strip():
             return SkillResult(success=False, message="关键词不能为空")
 
@@ -106,17 +111,48 @@ class SearchMemoryArchiveTool(Skill):
                 message="当前会话尚无压缩归档，无历史可检索",
             )
 
-        # 按修改时间降序（最新归档优先），限制扫描数量
-        files = sorted(
-            archive_dir.glob("compressed_*.json"),
+        keyword_lower = keyword.lower()
+        results: list[dict[str, Any]] = []
+        indexed_files: set[str] = set()
+
+        # ---- 优先路径：读取增量索引 ----
+        index_path = archive_dir / "search_index.jsonl"
+        if index_path.exists():
+            try:
+                with index_path.open("r", encoding="utf-8") as f:
+                    for raw_line in f:
+                        raw_line = raw_line.strip()
+                        if not raw_line:
+                            continue
+                        entry = json.loads(raw_line)
+                        fname = str(entry.get("file", ""))
+                        if fname:
+                            indexed_files.add(fname)
+                        text = str(entry.get("text", ""))
+                        if keyword_lower in text.lower():
+                            snippet = text[:_SNIPPET_LENGTH]
+                            if len(text) > _SNIPPET_LENGTH:
+                                snippet += "…"
+                            results.append(
+                                {
+                                    "archive_file": fname,
+                                    "role": str(entry.get("role", "unknown")),
+                                    "snippet": snippet,
+                                }
+                            )
+            except Exception as exc:
+                logger.warning("读取搜索索引失败，回退到全量扫描: %s", exc)
+                indexed_files = set()
+                results = []
+
+        # ---- 补充扫描：覆盖索引未收录的旧归档文件 ----
+        unindexed = sorted(
+            (f for f in archive_dir.glob("compressed_*.json") if f.name not in indexed_files),
             key=lambda f: f.stat().st_mtime,
             reverse=True,
         )[:_MAX_FILES_TO_SCAN]
 
-        results: list[dict[str, Any]] = []
-        keyword_lower = keyword.lower()
-
-        for archive_file in files:
+        for archive_file in unindexed:
             try:
                 data = json.loads(archive_file.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError) as exc:
@@ -139,8 +175,18 @@ class SearchMemoryArchiveTool(Skill):
                     )
 
         top_results = results[:max_results]
+        total_sources = len(indexed_files) + len(unindexed)
+        used_index = bool(indexed_files)
         return SkillResult(
             success=True,
-            data={"results": top_results, "files_searched": len(files)},
-            message=f"在 {len(files)} 个归档文件中找到 {len(top_results)} 条相关记录",
+            data={
+                "results": top_results,
+                "files_searched": len(unindexed),
+                "indexed_files": len(indexed_files),
+                "used_index": used_index,
+            },
+            message=(
+                f"（{'索引+' if used_index else ''}全量扫描）"
+                f"在 {total_sources} 个归档来源中找到 {len(top_results)} 条相关记录"
+            ),
         )
