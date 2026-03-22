@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.workspace import WorkspaceManager
 
 
-class OrganizeWorkspaceSkill(Skill):
+class OrganizeWorkspaceSkill(Tool):
     """允许 Agent 创建文件夹并移动文件到目标文件夹。"""
 
     @property
@@ -76,18 +76,18 @@ class OrganizeWorkspaceSkill(Skill):
             "required": [],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         manager = WorkspaceManager(session.id)
         create_folders = kwargs.get("create_folders") or []
         moves = kwargs.get("moves") or []
         auto_create = bool(kwargs.get("auto_create_folder", False))
 
         if not isinstance(create_folders, list) or not isinstance(moves, list):
-            return SkillResult(
+            return ToolResult(
                 success=False, message="参数格式错误：create_folders 与 moves 必须为数组"
             )
         if not create_folders and not moves:
-            return SkillResult(success=False, message="请至少提供 create_folders 或 moves 中的一项")
+            return ToolResult(success=False, message="请至少提供 create_folders 或 moves 中的一项")
 
         errors: list[str] = []
         created: list[dict[str, Any]] = []
@@ -187,7 +187,7 @@ class OrganizeWorkspaceSkill(Skill):
         if errors:
             summary += f"，失败 {len(errors)} 个操作"
 
-        return SkillResult(
+        return ToolResult(
             success=len(errors) == 0,
             message=summary,
             data={

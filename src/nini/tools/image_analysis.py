@@ -12,10 +12,10 @@ import pandas as pd
 
 from nini.agent.model_resolver import model_resolver
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 
 
-class ImageAnalysisSkill(Skill):
+class ImageAnalysisSkill(Tool):
     """图片分析技能，支持从图片中提取数据和图表信息。"""
 
     _chart_types = [
@@ -97,19 +97,19 @@ class ImageAnalysisSkill(Skill):
     def is_idempotent(self) -> bool:
         return True
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         """执行图片分析。"""
         # 获取图片来源
         try:
             image_source = await self._get_image_source(session, kwargs)
         except ValueError as exc:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=str(exc),
             )
 
         if image_source is None:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message="请提供图片 URL、本地路径或上传文件",
             )
@@ -146,7 +146,7 @@ class ImageAnalysisSkill(Skill):
             # 格式化输出
             formatted_output = self._format_output(result_data, output_format)
 
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 message=self._build_success_message(result_data, extract_chart_info, extract_data),
                 data=result_data,
@@ -159,7 +159,7 @@ class ImageAnalysisSkill(Skill):
             )
 
         except Exception as exc:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"图片分析失败: {exc}",
             )

@@ -12,7 +12,7 @@ import pandas as pd
 from scipy import stats
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.utils.dataframe_io import dataframe_to_json_safe
 
 
@@ -417,7 +417,7 @@ def _safe_preview(df: pd.DataFrame, n_rows: int = 20) -> dict[str, Any]:
     }
 
 
-class CleanDataSkill(Skill):
+class CleanDataSkill(Tool):
     """对数据集进行缺失值处理、异常值过滤与标准化。"""
 
     _missing_strategies = [
@@ -499,7 +499,7 @@ class CleanDataSkill(Skill):
     def is_idempotent(self) -> bool:
         return False
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         dataset_name = kwargs["dataset_name"]
         missing_strategy = str(kwargs.get("missing_strategy", "auto")).lower().strip()
         outlier_method = str(kwargs.get("outlier_method", "auto")).lower().strip()
@@ -511,13 +511,13 @@ class CleanDataSkill(Skill):
 
         df = session.datasets.get(dataset_name)
         if df is None:
-            return SkillResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
+            return ToolResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
         if missing_strategy not in self._missing_strategies:
-            return SkillResult(
+            return ToolResult(
                 success=False, message=f"不支持的 missing_strategy: {missing_strategy}"
             )
         if outlier_method not in self._outlier_methods:
-            return SkillResult(success=False, message=f"不支持的 outlier_method: {outlier_method}")
+            return ToolResult(success=False, message=f"不支持的 outlier_method: {outlier_method}")
 
         # 自动模式：分析数据并应用推荐策略
         auto_recommendations = None
@@ -582,7 +582,7 @@ class CleanDataSkill(Skill):
         if auto_recommendations:
             result_data["auto_strategy"] = auto_recommendations["recommendations"]
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=msg,
             data=result_data,
@@ -816,7 +816,7 @@ class CleanDataSkill(Skill):
         return f"{dataset_name}_cleaned"
 
 
-class RecommendCleaningStrategySkill(Skill):
+class RecommendCleaningStrategySkill(Tool):
     """分析数据特征并推荐最优清洗策略。"""
 
     @property
@@ -856,21 +856,19 @@ class RecommendCleaningStrategySkill(Skill):
     def is_idempotent(self) -> bool:
         return True
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         dataset_name = kwargs["dataset_name"]
         target_columns = kwargs.get("target_columns") or []
 
         df = session.datasets.get(dataset_name)
         if df is None:
-            return SkillResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
+            return ToolResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
 
         # 如果指定了列，过滤数据
         if target_columns:
             invalid_cols = [c for c in target_columns if c not in df.columns]
             if invalid_cols:
-                return SkillResult(
-                    success=False, message=f"以下列不存在: {', '.join(invalid_cols)}"
-                )
+                return ToolResult(success=False, message=f"以下列不存在: {', '.join(invalid_cols)}")
             df = df[target_columns].copy()
 
         # 生成清洗策略推荐
@@ -894,7 +892,7 @@ class RecommendCleaningStrategySkill(Skill):
         if medium_priority:
             msg_parts.append(f"中优先级列: {', '.join(medium_priority)}")
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             message="；".join(msg_parts),
             data=recommendation,

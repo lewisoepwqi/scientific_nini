@@ -46,15 +46,15 @@ python -m build                # 打包到 dist/
 
 **请求入口**：`app.py` 工厂函数 `create_app()` 创建 FastAPI 实例，注册 HTTP 路由（`api/routes.py`，前缀 `/api`）和 WebSocket 端点（`api/websocket.py`，路径 `/ws`）。前端构建产物通过 StaticFiles 挂载 + SPA fallback 中间件提供服务。
 
-**Agent 核心循环**：`agent/runner.py` 中的 `AgentRunner` 实现 ReAct 循环：接收用户消息 → 构建上下文（system prompt + 会话历史 + 知识库检索） → 调用 LLM → 解析 tool_calls → 执行对应 Skill → 循环直到无 tool_call。所有事件通过 callback 推送（WebSocket 端点消费这些事件流式发送给客户端）。
+**Agent 核心循环**：`agent/runner.py` 中的 `AgentRunner` 实现 ReAct 循环：接收用户消息 → 构建上下文（system prompt + 会话历史 + 知识库检索） → 调用 LLM → 解析 tool_calls → 执行对应 Tool → 循环直到无 tool_call。所有事件通过 callback 推送（WebSocket 端点消费这些事件流式发送给客户端）。
 
 **多模型路由**：`agent/model_resolver.py` 中 `ModelResolver` 管理多 LLM 客户端（OpenAI、Anthropic、Ollama、Moonshot、Kimi Coding、智谱、DeepSeek、阿里百炼），统一为 `BaseLLMClient.chat()` 异步流式接口。按优先级尝试，失败自动降级到下一个可用提供商。
 
 **三层架构 - Tools / Skills / Capabilities**：
 
 1. **Tools**（`tools/` 目录）：原子函数层，模型可直接调用的工具
-   - 继承 `tools/base.py:Skill` 基类（历史原因保留 Skill 命名）
-   - 实现 `execute(session, **kwargs) -> SkillResult` 接口
+   - 继承 `tools/base.py:Tool` 基类
+   - 实现 `execute(session, **kwargs) -> ToolResult` 接口
    - 由 `tools/registry.py:ToolRegistry` 管理并暴露给 LLM
    - 工具分类：
      - 统计：`t_test`、`anova`、`correlation`、`regression`、`mann_whitney`、`kruskal_wallis`、`multiple_comparison`
@@ -102,7 +102,7 @@ React 18 + Vite + TypeScript + Tailwind CSS。状态管理使用 Zustand 单一 
 用户消息 → WebSocket /ws → AgentRunner.run()
   → ModelResolver.chat() (流式 LLM)
   → 解析 tool_calls → ToolRegistry.invoke()
-  → Skill.execute() → SkillResult
+  → Tool.execute() → ToolResult
   → callback 推送事件 → WebSocket 发送 JSON 到前端
   → Zustand store 更新 → React 渲染
 ```
@@ -180,7 +180,7 @@ React 18 + Vite + TypeScript + Tailwind CSS。状态管理使用 Zustand 单一 
 - 使用 `datetime.now(timezone.utc)` 代替 `datetime.utcnow()`。
 - Pydantic v2 使用 `model_validate()` / `model_dump()`。
 - 新能力优先补测试，再接入 WebSocket 事件流。
-- 添加新 Tool：继承 `tools/base.py:Skill`，在 `tools/registry.py:create_default_tool_registry()` 中注册。
+- 添加新 Tool：继承 `tools/base.py:Tool`，在 `tools/registry.py:create_default_tool_registry()` 中注册。
 - 沙箱安全策略三重防护：AST 静态分析（`sandbox/policy.py`）+ 受限 builtins（`sandbox/executor.py`）+ 进程隔离（multiprocessing spawn）。修改白名单在 `sandbox/policy.py` 的 `ALLOWED_IMPORT_ROOTS`。R 代码对应 `sandbox/r_policy.py`。
 - 会话数据存储在 `data/sessions/{session_id}/`，包含 `meta.json`（标题）、`memory.jsonl`（对话历史，可能很大需分段读取）、`workspace/`（上传文件和产物）。
 - Black 行宽 100，目标版本 py312。

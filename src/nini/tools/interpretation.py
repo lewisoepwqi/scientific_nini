@@ -474,10 +474,10 @@ def interpret_result(test_type: str, result: dict[str, Any]) -> str:
 # ---- Skill 接口 ----
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 
 
-class InterpretStatisticalResultSkill(Skill):
+class InterpretStatisticalResultSkill(Tool):
     """智能解读统计检验结果，生成实际意义解释。"""
 
     @property
@@ -524,17 +524,17 @@ class InterpretStatisticalResultSkill(Skill):
             "required": ["test_type", "result"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         test_type = kwargs.get("test_type")
         result = kwargs.get("result")
 
         if not test_type or not result:
-            return SkillResult(success=False, message="请提供 test_type 和 result 参数")
+            return ToolResult(success=False, message="请提供 test_type 和 result 参数")
 
         try:
             interpretation = interpret_result(test_type, result)
-            return SkillResult(
+            return ToolResult(
                 success=True, data={"interpretation": interpretation}, message="统计结果解读完成"
             )
         except Exception as e:
-            return SkillResult(success=False, message=f"解读失败: {e}")
+            return ToolResult(success=False, message=f"解读失败: {e}")

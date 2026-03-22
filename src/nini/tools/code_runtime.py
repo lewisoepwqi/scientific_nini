@@ -21,7 +21,7 @@ from nini.sandbox.executor import sandbox_executor
 from nini.sandbox.policy import SandboxPolicyError, SandboxReviewRequired
 from nini.sandbox.r_executor import RSandboxPolicyError
 from nini.sandbox.r_router import r_sandbox_executor
-from nini.tools.base import SkillResult
+from nini.tools.base import ToolResult
 from nini.utils.chart_fonts import apply_plotly_cjk_font_fallback
 from nini.utils.dataframe_io import dataframe_to_json_safe
 from nini.workspace import WorkspaceManager
@@ -54,7 +54,9 @@ def _merge_allowed_imports(
     """合并会话级与本次调用级的沙盒授权包。"""
     merged: set[str] = set(getattr(session, "sandbox_approved_imports", set()) or set())
     if isinstance(extra_allowed_imports, (list, tuple, set)):
-        merged.update(str(item or "").strip() for item in extra_allowed_imports if str(item or "").strip())
+        merged.update(
+            str(item or "").strip() for item in extra_allowed_imports if str(item or "").strip()
+        )
     elif isinstance(extra_allowed_imports, str) and extra_allowed_imports.strip():
         merged.add(extra_allowed_imports.strip())
     return sorted(merged)
@@ -64,8 +66,8 @@ def _build_sandbox_review_result(
     *,
     exc: SandboxReviewRequired,
     metadata: dict[str, str],
-) -> SkillResult:
-    """将沙盒审批需求包装为结构化 SkillResult。"""
+) -> ToolResult:
+    """将沙盒审批需求包装为结构化 ToolResult。"""
     payload = exc.to_payload()
     packages = payload["packages"]
     package_text = "、".join(packages) if packages else "未知扩展包"
@@ -75,7 +77,7 @@ def _build_sandbox_review_result(
         "sandbox_violations": payload["violations"],
         "metadata": metadata,
     }
-    return SkillResult(
+    return ToolResult(
         success=False,
         message=f"继续执行前需要用户审批导入扩展包：{package_text}",
         data=result_data,
@@ -384,7 +386,7 @@ def _save_r_figures(
 async def execute_python_code(
     session: Session,
     **kwargs: Any,
-) -> SkillResult:
+) -> ToolResult:
     """执行 Python 代码并返回统一结果。"""
     code = str(kwargs.get("code", "")).strip()
     dataset_name = kwargs.get("dataset_name")
@@ -401,14 +403,14 @@ async def execute_python_code(
     )
 
     if not code:
-        return SkillResult(
+        return ToolResult(
             success=False,
             message="代码不能为空",
             data={"metadata": metadata},
             metadata=metadata,
         )
     if dataset_name and dataset_name not in session.datasets:
-        return SkillResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
+        return ToolResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
 
     try:
         payload = await sandbox_executor.execute(
@@ -422,11 +424,11 @@ async def execute_python_code(
     except SandboxReviewRequired as exc:
         return _build_sandbox_review_result(exc=exc, metadata=metadata)
     except SandboxPolicyError as exc:
-        return SkillResult(success=False, message=f"沙箱策略拦截: {exc}")
+        return ToolResult(success=False, message=f"沙箱策略拦截: {exc}")
 
     if not payload.get("success"):
         err = payload.get("error") or "代码执行失败"
-        return SkillResult(
+        return ToolResult(
             success=False,
             message=f"代码执行失败: {err}",
             data={
@@ -500,7 +502,7 @@ async def execute_python_code(
             msg += f"\nstdout:\n{stdout}"
         if stderr:
             msg += f"\nstderr:\n{stderr}"
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=msg,
             data={
@@ -529,7 +531,7 @@ async def execute_python_code(
         msg += f"\nstderr:\n{stderr}"
 
     output_refs = _build_output_resource_refs(output_resources)
-    return SkillResult(
+    return ToolResult(
         success=True,
         message=msg,
         data={
@@ -545,7 +547,7 @@ async def execute_python_code(
 async def execute_r_code(
     session: Session,
     **kwargs: Any,
-) -> SkillResult:
+) -> ToolResult:
     """执行 R 代码并返回统一结果。"""
     code = str(kwargs.get("code", "")).strip()
     dataset_name = kwargs.get("dataset_name")
@@ -558,14 +560,14 @@ async def execute_r_code(
     )
 
     if not code:
-        return SkillResult(
+        return ToolResult(
             success=False,
             message="代码不能为空",
             data={"metadata": metadata},
             metadata=metadata,
         )
     if dataset_name and dataset_name not in session.datasets:
-        return SkillResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
+        return ToolResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
 
     try:
         payload = await r_sandbox_executor.execute(
@@ -576,11 +578,11 @@ async def execute_r_code(
             persist_df=persist_df,
         )
     except RSandboxPolicyError as exc:
-        return SkillResult(success=False, message=f"R 沙箱策略拦截: {exc}")
+        return ToolResult(success=False, message=f"R 沙箱策略拦截: {exc}")
 
     if not payload.get("success"):
         err = payload.get("error") or "R 代码执行失败"
-        return SkillResult(
+        return ToolResult(
             success=False,
             message=f"R 代码执行失败: {err}",
             data={
@@ -655,7 +657,7 @@ async def execute_r_code(
         if stderr:
             msg += f"\nstderr:\n{stderr}"
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=msg,
             data={
@@ -693,7 +695,7 @@ async def execute_r_code(
         data["result_repr"] = result_repr
     data["output_resources"] = _build_output_resource_refs(output_resources)
 
-    return SkillResult(
+    return ToolResult(
         success=True,
         message=msg,
         data=data,

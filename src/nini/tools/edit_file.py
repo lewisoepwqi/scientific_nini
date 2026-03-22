@@ -15,13 +15,13 @@ from typing import Any
 
 from nini.agent.session import Session
 from nini.config import settings
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.workspace import WorkspaceManager
 
 logger = logging.getLogger(__name__)
 
 
-class EditFile(Skill):
+class EditFile(Tool):
     """编辑工作区文件内容。
 
     提供读取、写入、追加和编辑文件的功能。
@@ -109,7 +109,7 @@ class EditFile(Skill):
     def output_types(self) -> list[str]:
         return ["text", "file"]
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         """执行文件编辑操作。
 
         Args:
@@ -117,7 +117,7 @@ class EditFile(Skill):
             **kwargs: 操作参数
 
         Returns:
-            SkillResult: 操作结果
+            ToolResult: 操作结果
         """
         try:
             file_path = kwargs.get("file_path", "")
@@ -127,15 +127,15 @@ class EditFile(Skill):
 
             # 验证参数
             if not file_path:
-                return SkillResult(success=False, message="文件路径不能为空")
+                return ToolResult(success=False, message="文件路径不能为空")
 
             if operation not in ["read", "write", "append", "edit"]:
-                return SkillResult(success=False, message=f"不支持的操作类型: {operation}")
+                return ToolResult(success=False, message=f"不支持的操作类型: {operation}")
 
             # 构建完整路径
             full_path = self._resolve_path(session, file_path)
             if full_path is None:
-                return SkillResult(
+                return ToolResult(
                     success=False,
                     message=f"文件路径无效或超出工作区范围: {file_path}",
                     data={
@@ -157,10 +157,14 @@ class EditFile(Skill):
                 return await self._do_read(full_path, encoding)
             elif operation == "write":
                 content = kwargs.get("content", "")
-                return await self._do_write(session, full_path, content, encoding, create_if_missing)
+                return await self._do_write(
+                    session, full_path, content, encoding, create_if_missing
+                )
             elif operation == "append":
                 content = kwargs.get("content", "")
-                return await self._do_append(session, full_path, content, encoding, create_if_missing)
+                return await self._do_append(
+                    session, full_path, content, encoding, create_if_missing
+                )
             elif operation == "edit":
                 old_string = kwargs.get("old_string")
                 new_string = kwargs.get("new_string", "")
@@ -170,11 +174,11 @@ class EditFile(Skill):
                     session, full_path, old_string, new_string, start_line, end_line, encoding
                 )
 
-            return SkillResult(success=False, message=f"未知操作: {operation}")
+            return ToolResult(success=False, message=f"未知操作: {operation}")
 
         except Exception as e:
             logger.exception("文件编辑操作失败")
-            return SkillResult(success=False, message=f"操作失败: {str(e)}")
+            return ToolResult(success=False, message=f"操作失败: {str(e)}")
 
     def _resolve_path(self, session: Session, file_path: str) -> Path | None:
         """解析并验证文件路径。
@@ -208,16 +212,16 @@ class EditFile(Skill):
             logger.error(f"路径解析失败: {e}")
             return None
 
-    async def _do_read(self, file_path: Path, encoding: str) -> SkillResult:
+    async def _do_read(self, file_path: Path, encoding: str) -> ToolResult:
         """读取文件内容。"""
         if not file_path.exists():
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"文件不存在: {file_path.name}",
             )
 
         if not file_path.is_file():
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"路径不是文件: {file_path.name}",
             )
@@ -235,7 +239,7 @@ class EditFile(Skill):
             if len(lines) > 50:
                 preview += f"\n... (共 {len(lines)} 行)"
 
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 message=f"文件读取成功: {file_path.name} ({len(lines)} 行, {len(content)} 字符)",
                 data={
@@ -247,14 +251,19 @@ class EditFile(Skill):
                 },
             )
         except Exception as e:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"读取文件失败: {str(e)}",
             )
 
     async def _do_write(
-        self, session: Session, file_path: Path, content: str, encoding: str, create_if_missing: bool
-    ) -> SkillResult:
+        self,
+        session: Session,
+        file_path: Path,
+        content: str,
+        encoding: str,
+        create_if_missing: bool,
+    ) -> ToolResult:
         """写入文件内容（覆盖）。"""
         try:
             # 确保父目录存在
@@ -274,7 +283,7 @@ class EditFile(Skill):
             lines = content.split("\n")
             action = "更新" if file_existed else "创建"
 
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 message=f"文件{action}成功: {file_path.name} ({len(lines)} 行)",
                 data={
@@ -285,19 +294,24 @@ class EditFile(Skill):
                 },
             )
         except Exception as e:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"写入文件失败: {str(e)}",
             )
 
     async def _do_append(
-        self, session: Session, file_path: Path, content: str, encoding: str, create_if_missing: bool
-    ) -> SkillResult:
+        self,
+        session: Session,
+        file_path: Path,
+        content: str,
+        encoding: str,
+        create_if_missing: bool,
+    ) -> ToolResult:
         """追加内容到文件。"""
         try:
             if not file_path.exists():
                 if not create_if_missing:
-                    return SkillResult(
+                    return ToolResult(
                         success=False,
                         message=f"文件不存在且不允许创建: {file_path.name}",
                     )
@@ -312,7 +326,7 @@ class EditFile(Skill):
                     logger.warning(f"添加到工作区索引失败: {e}")
 
                 lines = content.split("\n")
-                return SkillResult(
+                return ToolResult(
                     success=True,
                     message=f"文件创建成功: {file_path.name} ({len(lines)} 行)",
                     data={
@@ -334,7 +348,7 @@ class EditFile(Skill):
             lines = new_content.split("\n")
             appended_lines = content.split("\n")
 
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 message=f"内容追加成功: {file_path.name} (+{len(appended_lines)} 行, 共 {len(lines)} 行)",
                 data={
@@ -345,7 +359,7 @@ class EditFile(Skill):
                 },
             )
         except Exception as e:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"追加内容失败: {str(e)}",
             )
@@ -359,7 +373,7 @@ class EditFile(Skill):
         start_line: int | None,
         end_line: int | None,
         encoding: str,
-    ) -> SkillResult:
+    ) -> ToolResult:
         """编辑文件内容（替换）。
 
         支持两种方式：
@@ -367,7 +381,7 @@ class EditFile(Skill):
         2. 行号范围替换: start_line + end_line + new_string
         """
         if not file_path.exists():
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"文件不存在: {file_path.name}",
             )
@@ -394,7 +408,7 @@ class EditFile(Skill):
                 except Exception as e:
                     logger.warning(f"同步工作区索引失败: {e}")
 
-                return SkillResult(
+                return ToolResult(
                     success=True,
                     message=f"文件编辑成功: {file_path.name} (替换第 {start_line}-{end_line or start_line} 行)",
                     data={
@@ -409,7 +423,7 @@ class EditFile(Skill):
             # 方式2: 基于文本匹配替换
             if old_string is not None:
                 if old_string not in content:
-                    return SkillResult(
+                    return ToolResult(
                         success=False,
                         message=f"未找到要替换的文本: {old_string[:50]}...",
                     )
@@ -426,7 +440,7 @@ class EditFile(Skill):
                 old_lines = old_string.split("\n")
                 new_lines_count = len(new_string.split("\n"))
 
-                return SkillResult(
+                return ToolResult(
                     success=True,
                     message=f"文件编辑成功: {file_path.name} (替换 {len(old_lines)} 行为 {new_lines_count} 行)",
                     data={
@@ -438,13 +452,13 @@ class EditFile(Skill):
                     },
                 )
 
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message="edit操作需要指定 old_string 或 start_line/end_line 参数",
             )
 
         except Exception as e:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"编辑文件失败: {str(e)}",
             )

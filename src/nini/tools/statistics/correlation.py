@@ -8,11 +8,11 @@ import pandas as pd
 from scipy.stats import kendalltau, pearsonr, spearmanr
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.statistics.base import _ensure_finite, _get_df, _record_stat_result, _safe_float
 
 
-class CorrelationSkill(Skill):
+class CorrelationSkill(Tool):
     """计算变量间的相关性。"""
 
     @property
@@ -29,7 +29,9 @@ class CorrelationSkill(Skill):
 
     @property
     def description(self) -> str:
-        return "计算多个数值列之间的相关性矩阵和 p 值矩阵。支持 Pearson、Spearman、Kendall 三种方法。"
+        return (
+            "计算多个数值列之间的相关性矩阵和 p 值矩阵。支持 Pearson、Spearman、Kendall 三种方法。"
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -52,24 +54,24 @@ class CorrelationSkill(Skill):
             "required": ["dataset_name", "columns"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         name = kwargs["dataset_name"]
         columns = kwargs["columns"]
         method = kwargs.get("method", "pearson")
 
         df = _get_df(session, name)
         if df is None:
-            return SkillResult(success=False, message=f"数据集 '{name}' 不存在")
+            return ToolResult(success=False, message=f"数据集 '{name}' 不存在")
 
         for col in columns:
             if col not in df.columns:
-                return SkillResult(success=False, message=f"列 '{col}' 不存在")
+                return ToolResult(success=False, message=f"列 '{col}' 不存在")
             if not pd.api.types.is_numeric_dtype(df[col]):
-                return SkillResult(success=False, message=f"列 '{col}' 不是数值类型")
+                return ToolResult(success=False, message=f"列 '{col}' 不是数值类型")
 
         data = df[columns].dropna()
         if len(data) < 3:
-            return SkillResult(success=False, message="至少需要 3 个完整观测值")
+            return ToolResult(success=False, message="至少需要 3 个完整观测值")
 
         corr_matrix = data.corr(method=method)
         pvalue_matrix: dict[str, dict[str, float]] = {}
@@ -106,4 +108,4 @@ class CorrelationSkill(Skill):
             test_name=f"{method.title()} 相关性分析",
             message=message,
         )
-        return SkillResult(success=True, data=result, message=message)
+        return ToolResult(success=True, data=result, message=message)

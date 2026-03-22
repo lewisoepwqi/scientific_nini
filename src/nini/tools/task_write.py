@@ -10,12 +10,12 @@ import logging
 from typing import Any
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
 
 
-class TaskWriteSkill(Skill):
+class TaskWriteSkill(Tool):
     """管理分析任务列表（PDCA 闭环）。
 
     使用规范：
@@ -98,13 +98,13 @@ class TaskWriteSkill(Skill):
     def category(self) -> str:
         return "utility"
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         """执行任务列表管理。"""
         mode = str(kwargs.get("mode", "init")).strip()
         raw_tasks = kwargs.get("tasks", [])
 
         if not isinstance(raw_tasks, list) or not raw_tasks:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message="tasks 参数不能为空列表",
             )
@@ -114,12 +114,12 @@ class TaskWriteSkill(Skill):
         elif mode == "update":
             return self._handle_update(session, raw_tasks)
         else:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"不支持的 mode: {mode}，请使用 init 或 update",
             )
 
-    def _handle_init(self, session: Session, raw_tasks: list[dict[str, Any]]) -> SkillResult:
+    def _handle_init(self, session: Session, raw_tasks: list[dict[str, Any]]) -> ToolResult:
         """初始化任务列表。"""
         new_manager = session.task_manager.init_tasks(raw_tasks)
         session.task_manager = new_manager
@@ -131,7 +131,7 @@ class TaskWriteSkill(Skill):
             task_count,
         )
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=(
                 f"已声明 {task_count} 个分析任务。"
@@ -147,7 +147,7 @@ class TaskWriteSkill(Skill):
             metadata={"is_task_write": True},
         )
 
-    def _handle_update(self, session: Session, raw_tasks: list[dict[str, Any]]) -> SkillResult:
+    def _handle_update(self, session: Session, raw_tasks: list[dict[str, Any]]) -> ToolResult:
         """更新任务状态。
 
         当某个任务被设为 in_progress 时，之前处于 in_progress 的任务会自动标记为 completed。
@@ -195,7 +195,7 @@ class TaskWriteSkill(Skill):
         else:
             message = f"任务状态已更新，还有 {remaining} 个任务待完成。"
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=message,
             data={

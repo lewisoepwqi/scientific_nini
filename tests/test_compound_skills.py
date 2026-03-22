@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from nini.agent.session import Session
-from nini.tools.base import SkillResult
+from nini.tools.base import ToolResult
 
 
 class TestCompleteComparisonSkill:
@@ -42,7 +42,7 @@ class TestCompleteComparisonSkill:
             group_column="group",
         )
 
-        assert isinstance(result, SkillResult)
+        assert isinstance(result, ToolResult)
         assert result.success is True
         assert result.data is not None
 

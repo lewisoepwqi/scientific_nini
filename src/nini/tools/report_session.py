@@ -9,13 +9,13 @@ from typing import Any
 
 from nini.agent.session import Session
 from nini.models import ReportSection, ReportSessionRecord, ResourceType
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.export_report import export_workspace_document
 from nini.tools.report import _sanitize_chinese_filename
 from nini.workspace import WorkspaceManager
 
 
-class ReportSessionSkill(Skill):
+class ReportSessionSkill(Tool):
     """管理报告会话资源。"""
 
     _EMBEDDED_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")
@@ -70,7 +70,7 @@ class ReportSessionSkill(Skill):
             "required": ["operation"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         operation = str(kwargs.get("operation", "")).strip()
         if operation == "create":
             return self._create_report(session, **kwargs)
@@ -82,9 +82,9 @@ class ReportSessionSkill(Skill):
             return self._get_report(session, **kwargs)
         if operation == "export":
             return await self._export_report(session, **kwargs)
-        return SkillResult(success=False, message=f"不支持的 operation: {operation}")
+        return ToolResult(success=False, message=f"不支持的 operation: {operation}")
 
-    def _create_report(self, session: Session, **kwargs: Any) -> SkillResult:
+    def _create_report(self, session: Session, **kwargs: Any) -> ToolResult:
         report_id = str(kwargs.get("report_id", "")).strip() or f"report_{uuid.uuid4().hex[:12]}"
         title = str(kwargs.get("title", "")).strip() or "科研数据分析报告"
         sections = self._normalize_sections(kwargs)
@@ -102,7 +102,7 @@ class ReportSessionSkill(Skill):
         record.markdown_path = markdown_rel_path
         self._persist_report_record(manager, record)
         self._update_latest_report_handles(session, record)
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"报告会话已创建：{report_id}",
             data={
@@ -113,16 +113,16 @@ class ReportSessionSkill(Skill):
             },
         )
 
-    def _patch_section(self, session: Session, **kwargs: Any) -> SkillResult:
+    def _patch_section(self, session: Session, **kwargs: Any) -> ToolResult:
         report_id = str(kwargs.get("report_id", "")).strip()
         if not report_id:
-            return SkillResult(success=False, message="patch_section 操作必须提供 report_id")
+            return ToolResult(success=False, message="patch_section 操作必须提供 report_id")
         record = self._load_report_record(session, report_id)
         if record is None:
-            return SkillResult(success=False, message=f"未找到报告会话: {report_id}")
+            return ToolResult(success=False, message=f"未找到报告会话: {report_id}")
         section_key = str(kwargs.get("section_key", "")).strip()
         if not section_key:
-            return SkillResult(success=False, message="patch_section 操作必须提供 section_key")
+            return ToolResult(success=False, message="patch_section 操作必须提供 section_key")
         mode = str(kwargs.get("mode", "replace")).strip() or "replace"
         content = str(kwargs.get("content", "") or "")
         matched = False
@@ -133,13 +133,13 @@ class ReportSessionSkill(Skill):
             matched = True
             break
         if not matched:
-            return SkillResult(success=False, message=f"未找到章节: {section_key}")
+            return ToolResult(success=False, message=f"未找到章节: {section_key}")
         manager = WorkspaceManager(session.id)
         markdown_rel_path = self._write_report_markdown(manager, record)
         record.markdown_path = markdown_rel_path
         self._persist_report_record(manager, record)
         self._update_latest_report_handles(session, record)
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"报告章节已更新：{section_key}",
             data={
@@ -150,18 +150,18 @@ class ReportSessionSkill(Skill):
             },
         )
 
-    def _attach_artifact(self, session: Session, **kwargs: Any) -> SkillResult:
+    def _attach_artifact(self, session: Session, **kwargs: Any) -> ToolResult:
         report_id = str(kwargs.get("report_id", "")).strip()
         artifact_resource_id = str(kwargs.get("artifact_resource_id", "")).strip()
         section_key = str(kwargs.get("section_key", "")).strip()
         if not report_id or not artifact_resource_id or not section_key:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message="attach_artifact 操作必须提供 report_id、section_key 和 artifact_resource_id",
             )
         record = self._load_report_record(session, report_id)
         if record is None:
-            return SkillResult(success=False, message=f"未找到报告会话: {report_id}")
+            return ToolResult(success=False, message=f"未找到报告会话: {report_id}")
         matched = False
         for section in record.sections:
             if section.key != section_key:
@@ -171,13 +171,13 @@ class ReportSessionSkill(Skill):
             matched = True
             break
         if not matched:
-            return SkillResult(success=False, message=f"未找到章节: {section_key}")
+            return ToolResult(success=False, message=f"未找到章节: {section_key}")
         manager = WorkspaceManager(session.id)
         markdown_rel_path = self._write_report_markdown(manager, record)
         record.markdown_path = markdown_rel_path
         self._persist_report_record(manager, record)
         self._update_latest_report_handles(session, record)
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"已为章节 '{section_key}' 绑定资源",
             data={
@@ -188,15 +188,15 @@ class ReportSessionSkill(Skill):
             },
         )
 
-    def _get_report(self, session: Session, **kwargs: Any) -> SkillResult:
+    def _get_report(self, session: Session, **kwargs: Any) -> ToolResult:
         report_id = str(kwargs.get("report_id", "")).strip()
         if not report_id:
-            return SkillResult(success=False, message="get 操作必须提供 report_id")
+            return ToolResult(success=False, message="get 操作必须提供 report_id")
         record = self._load_report_record(session, report_id)
         if record is None:
-            return SkillResult(success=False, message=f"未找到报告会话: {report_id}")
+            return ToolResult(success=False, message=f"未找到报告会话: {report_id}")
         manager = WorkspaceManager(session.id)
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"已读取报告会话 '{report_id}'",
             data={
@@ -208,13 +208,13 @@ class ReportSessionSkill(Skill):
             },
         )
 
-    async def _export_report(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def _export_report(self, session: Session, **kwargs: Any) -> ToolResult:
         report_id = str(kwargs.get("report_id", "")).strip()
         if not report_id:
-            return SkillResult(success=False, message="export 操作必须提供 report_id")
+            return ToolResult(success=False, message="export 操作必须提供 report_id")
         record = self._load_report_record(session, report_id)
         if record is None or not record.markdown_path:
-            return SkillResult(success=False, message=f"未找到可导出的报告会话: {report_id}")
+            return ToolResult(success=False, message=f"未找到可导出的报告会话: {report_id}")
         output_format = str(kwargs.get("output_format", "pdf")).strip() or "pdf"
         result = await export_workspace_document(
             session,
@@ -234,12 +234,16 @@ class ReportSessionSkill(Skill):
         data["resource_id"] = report_id
         data["resource_type"] = "report"
         payload["data"] = data
-        return SkillResult(**payload)
+        return ToolResult(**payload)
 
     def _normalize_sections(self, kwargs: dict[str, Any]) -> list[ReportSection]:
         raw_sections = kwargs.get("sections")
         if isinstance(raw_sections, list) and raw_sections:
-            return [ReportSection.model_validate(item) for item in raw_sections if isinstance(item, dict)]
+            return [
+                ReportSection.model_validate(item)
+                for item in raw_sections
+                if isinstance(item, dict)
+            ]
 
         sections: list[ReportSection] = []
         methods = str(kwargs.get("methods", "") or "").strip()
@@ -250,7 +254,9 @@ class ReportSessionSkill(Skill):
         if summary_text:
             sections.append(ReportSection(key="summary", title="分析摘要", content=summary_text))
         if conclusions:
-            sections.append(ReportSection(key="conclusions", title="结论与建议", content=conclusions))
+            sections.append(
+                ReportSection(key="conclusions", title="结论与建议", content=conclusions)
+            )
         if not sections:
             sections.append(ReportSection(key="summary", title="分析摘要", content=""))
         return sections
@@ -272,7 +278,9 @@ class ReportSessionSkill(Skill):
         except Exception:
             return None
 
-    def _persist_report_record(self, manager: WorkspaceManager, record: ReportSessionRecord) -> None:
+    def _persist_report_record(
+        self, manager: WorkspaceManager, record: ReportSessionRecord
+    ) -> None:
         path = self._record_path(manager, record.id)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(

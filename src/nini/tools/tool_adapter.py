@@ -1,4 +1,4 @@
-"""工具适配器 —— 将 Nini 技能转换为多种工具定义格式。
+"""工具适配器 —— 将 Nini 工具转换为多种工具定义格式。
 
 支持的目标格式：
 - OpenAI Function Calling（现有格式，向后兼容）
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from nini.tools.base import Skill
+from nini.tools.base import Tool
 from nini.tools.manifest import SkillManifest, export_to_claude_code
 from nini.tools.markdown_scanner import MarkdownSkill
 
@@ -19,17 +19,17 @@ from nini.tools.markdown_scanner import MarkdownSkill
 # ---------------------------------------------------------------------------
 
 
-def to_openai_tool(skill: Skill) -> dict[str, Any]:
-    """将 Skill 转换为 OpenAI Function Calling 格式。
+def to_openai_tool(tool: Tool) -> dict[str, Any]:
+    """将 Tool 转换为 OpenAI Function Calling 格式。
 
-    等价于 ``skill.get_tool_definition()``，但作为独立函数更适合批量转换。
+    等价于 ``tool.get_tool_definition()``，但作为独立函数更适合批量转换。
     """
     return {
         "type": "function",
         "function": {
-            "name": skill.name,
-            "description": skill.description,
-            "parameters": skill.parameters,
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.parameters,
         },
     }
 
@@ -39,17 +39,17 @@ def to_openai_tool(skill: Skill) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def to_mcp_tool(skill: Skill) -> dict[str, Any]:
-    """将 Skill 转换为 MCP (Model Context Protocol) Tool 定义。
+def to_mcp_tool(tool: Tool) -> dict[str, Any]:
+    """将 Tool 转换为 MCP (Model Context Protocol) Tool 定义。
 
     MCP Tool 格式参考: https://modelcontextprotocol.io/docs/concepts/tools
 
     返回的字典可直接用于 MCP Server 的 tools/list 响应。
     """
     return {
-        "name": skill.name,
-        "description": skill.description,
-        "inputSchema": skill.parameters,
+        "name": tool.name,
+        "description": tool.description,
+        "inputSchema": tool.parameters,
     }
 
 
@@ -67,12 +67,12 @@ def to_mcp_tool_from_markdown(md_skill: MarkdownSkill) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def to_claude_code_skill(skill: Skill) -> str:
-    """将 Skill 转换为 Claude Code 兼容的 Markdown Skill 描述。
+def to_claude_code_skill(tool: Tool) -> str:
+    """将 Tool 转换为 Claude Code 兼容的 Markdown Skill 描述。
 
     通过 SkillManifest 中转，生成可读的 Markdown 文档。
     """
-    manifest = skill.to_manifest()
+    manifest = tool.to_manifest()
     return export_to_claude_code(manifest)
 
 

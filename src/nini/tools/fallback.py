@@ -14,7 +14,7 @@ from scipy import stats
 
 if TYPE_CHECKING:
     from nini.agent.session import Session
-    from nini.tools.base import Skill
+    from nini.tools.base import Tool
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +181,7 @@ class FallbackManager:
         session: "Session",
         kwargs: dict[str, Any],
         context: dict[str, Any],
-        skill_resolver: Callable[[str], "Skill | None"],
+        skill_resolver: Callable[[str], "Tool | None"],
         skill_executor: Callable[[str, "Session", dict[str, Any]], Awaitable[dict[str, Any]]],
     ) -> dict[str, Any]:
         """执行降级策略。
@@ -191,7 +191,7 @@ class FallbackManager:
             session: 会话对象
             kwargs: 原始技能参数
             context: 降级上下文（包含 reason 等）
-            skill_resolver: 技能解析函数 (name) -> Skill
+            skill_resolver: 工具解析函数 (name) -> Tool
             skill_executor: 技能执行函数 (name, session, kwargs) -> result
 
         Returns:

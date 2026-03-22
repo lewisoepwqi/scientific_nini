@@ -6,11 +6,11 @@ import json
 from typing import Any
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.statistics import CorrelationSkill, RegressionSkill
 
 
-class StatModelSkill(Skill):
+class StatModelSkill(Tool):
     """统一相关分析与回归分析入口。"""
 
     def __init__(self) -> None:
@@ -63,7 +63,7 @@ class StatModelSkill(Skill):
                 "columns": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "【correlation 必填】参与相关性计算的数值列名，至少 2 列，例如 [\"收缩压/Hgmm\", \"舒张压/Hgmm\", \"心率次/分\"]",
+                    "description": '【correlation 必填】参与相关性计算的数值列名，至少 2 列，例如 ["收缩压/Hgmm", "舒张压/Hgmm", "心率次/分"]',
                 },
                 "correlation_method": {
                     "type": "string",
@@ -77,19 +77,19 @@ class StatModelSkill(Skill):
                 "independent_vars": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "【回归必填】自变量（X）列名列表，例如 [\"年龄\", \"体重\"]",
+                    "description": '【回归必填】自变量（X）列名列表，例如 ["年龄", "体重"]',
                 },
             },
             "required": ["method"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         method = str(kwargs.get("method", "")).strip()
         delegate = self._delegates.get(method)
         if delegate is None:
             supported = list(self._delegates.keys())
             if not method:
-                return SkillResult(
+                return ToolResult(
                     success=False,
                     message=(
                         "缺少必要参数 method，请指定分析类型。"
@@ -99,7 +99,7 @@ class StatModelSkill(Skill):
                         '"dependent_var":"Y列","independent_vars":["X1","X2"]}}'
                     ),
                 )
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"不支持的 method: '{method}'，支持的值：{supported}",
             )
@@ -111,7 +111,7 @@ class StatModelSkill(Skill):
             return validation_error
 
         dataset_name = self._resolve_dataset_name(session, params)
-        if isinstance(dataset_name, SkillResult):
+        if isinstance(dataset_name, ToolResult):
             return dataset_name
         if dataset_name:
             params["dataset_name"] = dataset_name
@@ -125,20 +125,20 @@ class StatModelSkill(Skill):
             result = await delegate.execute(session, **params)
         except KeyError as exc:
             missing = str(exc).strip("'\"")
-            return SkillResult(success=False, message=f"缺少必要参数: {missing}")
+            return ToolResult(success=False, message=f"缺少必要参数: {missing}")
 
         payload = result.to_dict()
         data = payload.get("data", {}) if isinstance(payload.get("data"), dict) else {}
         data["requested_method"] = method
         data["resource_type"] = "stat_result"
         payload["data"] = data
-        return SkillResult(**payload)
+        return ToolResult(**payload)
 
     def _resolve_dataset_name(
         self,
         session: Session,
         params: dict[str, Any],
-    ) -> str | SkillResult | None:
+    ) -> str | ToolResult | None:
         dataset_name = str(params.get("dataset_name", "")).strip()
         if dataset_name:
             return dataset_name
@@ -154,11 +154,11 @@ class StatModelSkill(Skill):
         if len(dataset_names) == 1:
             return dataset_names[0]
         if not dataset_names:
-            return SkillResult(success=False, message="缺少 dataset_name，且当前会话没有可用数据集")
+            return ToolResult(success=False, message="缺少 dataset_name，且当前会话没有可用数据集")
 
         preview = ", ".join(dataset_names[:5])
         suffix = "..." if len(dataset_names) > 5 else ""
-        return SkillResult(
+        return ToolResult(
             success=False,
             message=f"缺少 dataset_name，当前会话存在多个数据集，请明确指定（可选: {preview}{suffix}）",
         )
@@ -180,7 +180,7 @@ class StatModelSkill(Skill):
                 if isinstance(parsed, list):
                     params[key] = parsed
 
-    def _validate_sequence_params(self, params: dict[str, Any]) -> SkillResult | None:
+    def _validate_sequence_params(self, params: dict[str, Any]) -> ToolResult | None:
         """对列表参数做前置校验，避免下游返回误导性错误。"""
         for key in ("columns", "independent_vars"):
             if key not in params:
@@ -188,7 +188,7 @@ class StatModelSkill(Skill):
             value = params[key]
             if not isinstance(value, list):
                 value_type = type(value).__name__
-                return SkillResult(
+                return ToolResult(
                     success=False,
                     message=f"参数 {key} 必须是数组（list），当前是 {value_type}",
                 )

@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 from nini.agent.session import Session
 from nini.config import settings
 from nini.memory.storage import ArtifactStorage
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.utils.chart_fonts import apply_plotly_cjk_font_fallback
 from nini.workspace import WorkspaceManager
 
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 _KALEIDO_FORMATS = {"png", "jpeg", "svg", "pdf"}
 
 
-class ExportChartSkill(Skill):
+class ExportChartSkill(Tool):
     """导出最近生成的图表。"""
 
     _formats = ["png", "jpeg", "svg", "pdf", "html", "json"]
@@ -69,7 +69,7 @@ class ExportChartSkill(Skill):
     def is_idempotent(self) -> bool:
         return False
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         chart_id = str(kwargs.get("chart_id", "")).strip()
         fmt = str(kwargs.get("format", "png")).lower().strip()
         filename = kwargs.get("filename")
@@ -78,7 +78,7 @@ class ExportChartSkill(Skill):
         scale = float(kwargs.get("scale", 2.0))
 
         if fmt not in self._formats:
-            return SkillResult(success=False, message=f"不支持的导出格式: {fmt}")
+            return ToolResult(success=False, message=f"不支持的导出格式: {fmt}")
 
         if chart_id:
             return await self._export_from_chart_session(
@@ -106,13 +106,13 @@ class ExportChartSkill(Skill):
                 )
 
         if not isinstance(latest, dict) or "chart_data" not in latest:
-            return SkillResult(
+            return ToolResult(
                 success=False, message="当前会话没有可导出的图表，请先调用 create_chart"
             )
 
         chart_data = latest.get("chart_data")
         if not isinstance(chart_data, dict):
-            return SkillResult(success=False, message="图表数据无效，无法导出")
+            return ToolResult(success=False, message="图表数据无效，无法导出")
 
         fig = go.Figure(chart_data)
         apply_plotly_cjk_font_fallback(fig)
@@ -212,7 +212,7 @@ class ExportChartSkill(Skill):
         width: int,
         height: int,
         scale: float,
-    ) -> SkillResult:
+    ) -> ToolResult:
         from nini.tools.chart_session import ChartSessionSkill
 
         return await ChartSessionSkill().execute(
@@ -258,7 +258,7 @@ class ExportChartSkill(Skill):
         full_name: str,
         path: Any,
         fallback_message: str | None = None,
-    ) -> SkillResult:
+    ) -> ToolResult:
         """构建统一的导出结果。"""
         ws = WorkspaceManager(session.id)
         artifact = {
@@ -277,7 +277,7 @@ class ExportChartSkill(Skill):
         session.artifacts["latest_export"] = artifact
 
         message = fallback_message or f"图表已导出为 `{full_name}`"
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=message,
             data={"format": fmt, "filename": full_name},

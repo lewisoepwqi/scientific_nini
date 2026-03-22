@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.workflow.extractor import extract_workflow_from_session
 from nini.workflow.store import (
     delete_template,
@@ -19,7 +19,7 @@ from nini.workflow.store import (
 logger = logging.getLogger(__name__)
 
 
-class SaveWorkflowSkill(Skill):
+class SaveWorkflowSkill(Tool):
     """从当前会话提取工具调用序列，保存为可复用的工作流模板。"""
 
     @property
@@ -55,22 +55,22 @@ class SaveWorkflowSkill(Skill):
             "required": ["name"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         name = kwargs.get("name", "")
         description = kwargs.get("description", "")
 
         if not name:
-            return SkillResult(success=False, message="请提供工作流模板名称")
+            return ToolResult(success=False, message="请提供工作流模板名称")
 
         template = extract_workflow_from_session(session, name=name, description=description)
 
         if not template.steps:
-            return SkillResult(success=False, message="当前会话中没有可提取的分析步骤")
+            return ToolResult(success=False, message="当前会话中没有可提取的分析步骤")
 
         await save_template(template)
 
         step_names = [s.tool_name for s in template.steps]
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=(
                 f"工作流模板「{name}」已保存，包含 {len(template.steps)} 个步骤："
@@ -80,7 +80,7 @@ class SaveWorkflowSkill(Skill):
         )
 
 
-class ListWorkflowsSkill(Skill):
+class ListWorkflowsSkill(Tool):
     """列出所有已保存的工作流模板。"""
 
     @property
@@ -99,11 +99,11 @@ class ListWorkflowsSkill(Skill):
     def parameters(self) -> dict[str, Any]:
         return {"type": "object", "properties": {}}
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         templates = await list_templates()
 
         if not templates:
-            return SkillResult(success=True, message="暂无已保存的工作流模板。")
+            return ToolResult(success=True, message="暂无已保存的工作流模板。")
 
         lines = []
         for t in templates:
@@ -111,14 +111,14 @@ class ListWorkflowsSkill(Skill):
             step_names = [s.get("tool_name", "?") for s in steps]
             lines.append(f"- **{t['name']}**（{len(steps)} 步）：{' → '.join(step_names)}")
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"已保存 {len(templates)} 个工作流模板：\n\n" + "\n".join(lines),
             data=templates,
         )
 
 
-class ApplyWorkflowSkill(Skill):
+class ApplyWorkflowSkill(Tool):
     """对当前数据集执行已保存的工作流模板。"""
 
     @property
@@ -149,18 +149,18 @@ class ApplyWorkflowSkill(Skill):
             "required": ["template_id"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         template_id = kwargs.get("template_id", "")
         if not template_id:
-            return SkillResult(success=False, message="请提供工作流模板 ID")
+            return ToolResult(success=False, message="请提供工作流模板 ID")
 
         template = await get_template(template_id)
         if template is None:
-            return SkillResult(success=False, message=f"未找到工作流模板: {template_id}")
+            return ToolResult(success=False, message=f"未找到工作流模板: {template_id}")
 
         # 注意：实际执行在 API 层通过 workflow executor 完成，
         # 这里只返回模板信息让前端/WebSocket 层发起执行
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=(
                 f"工作流模板「{template.name}」已加载，"

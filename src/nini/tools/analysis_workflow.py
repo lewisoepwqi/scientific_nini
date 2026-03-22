@@ -8,7 +8,7 @@ import pandas as pd
 from scipy import stats
 
 from nini.agent.session import Session
-from nini.tools.base import SkillResult
+from nini.tools.base import ToolResult
 
 
 class AnalysisWorkflowEngine:
@@ -36,7 +36,7 @@ class AnalysisWorkflowEngine:
         group_column: str,
         journal_style: str = "nature",
         paired: bool = False,
-    ) -> SkillResult:
+    ) -> ToolResult:
         profile = await self._catalog.execute(
             session,
             operation="profile",
@@ -49,16 +49,16 @@ class AnalysisWorkflowEngine:
 
         df = session.datasets.get(dataset_name)
         if df is None:
-            return SkillResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
+            return ToolResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
         if value_column not in df.columns:
-            return SkillResult(success=False, message=f"列 '{value_column}' 不存在")
+            return ToolResult(success=False, message=f"列 '{value_column}' 不存在")
         if group_column not in df.columns:
-            return SkillResult(success=False, message=f"分组列 '{group_column}' 不存在")
+            return ToolResult(success=False, message=f"分组列 '{group_column}' 不存在")
 
         clean_df = df[[value_column, group_column]].dropna()
         groups = clean_df[group_column].unique()
         if len(groups) != 2:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message=f"此技能适用于恰好 2 个分组，当前有 {len(groups)} 个分组。",
             )
@@ -95,13 +95,17 @@ class AnalysisWorkflowEngine:
             title=f"{value_column} 按 {group_column} 分组比较",
             journal_style=journal_style,
         )
-        report_summary = interpret.data.get("interpretation", "") if isinstance(interpret.data, dict) else ""
-        return SkillResult(
+        report_summary = (
+            interpret.data.get("interpretation", "") if isinstance(interpret.data, dict) else ""
+        )
+        return ToolResult(
             success=True,
             message=report_summary or stat_result.message,
             data={
                 "workflow": "complete_comparison",
-                "data_quality": profile.data.get("quality", {}) if isinstance(profile.data, dict) else {},
+                "data_quality": (
+                    profile.data.get("quality", {}) if isinstance(profile.data, dict) else {}
+                ),
                 "profile": profile.data,
                 "assumptions": assumptions,
                 "test_result": stat_result.data,
@@ -123,7 +127,7 @@ class AnalysisWorkflowEngine:
         value_column: str,
         group_column: str,
         journal_style: str = "nature",
-    ) -> SkillResult:
+    ) -> ToolResult:
         profile = await self._catalog.execute(
             session,
             operation="profile",
@@ -136,11 +140,11 @@ class AnalysisWorkflowEngine:
 
         df = session.datasets.get(dataset_name)
         if df is None:
-            return SkillResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
+            return ToolResult(success=False, message=f"数据集 '{dataset_name}' 不存在")
         clean_df = df[[value_column, group_column]].dropna()
         groups = clean_df[group_column].unique()
         if len(groups) < 2:
-            return SkillResult(success=False, message="至少需要 2 个分组进行 ANOVA 分析")
+            return ToolResult(success=False, message="至少需要 2 个分组进行 ANOVA 分析")
 
         assumptions = self._anova_assumptions(clean_df, value_column, group_column)
         method = "kruskal_wallis" if assumptions["use_non_parametric"] else "one_way_anova"
@@ -170,17 +174,25 @@ class AnalysisWorkflowEngine:
             title=f"{value_column} 按 {group_column} 的多组比较",
             journal_style=journal_style,
         )
-        report_summary = interpret.data.get("interpretation", "") if isinstance(interpret.data, dict) else ""
-        return SkillResult(
+        report_summary = (
+            interpret.data.get("interpretation", "") if isinstance(interpret.data, dict) else ""
+        )
+        return ToolResult(
             success=True,
             message=report_summary or stat_result.message,
             data={
                 "workflow": "complete_anova",
-                "data_quality": profile.data.get("quality", {}) if isinstance(profile.data, dict) else {},
+                "data_quality": (
+                    profile.data.get("quality", {}) if isinstance(profile.data, dict) else {}
+                ),
                 "profile": profile.data,
                 "assumptions": assumptions,
                 "anova": stat_result.data,
-                "post_hoc": stat_result.data.get("post_hoc", []) if isinstance(stat_result.data, dict) else [],
+                "post_hoc": (
+                    stat_result.data.get("post_hoc", [])
+                    if isinstance(stat_result.data, dict)
+                    else []
+                ),
                 "effect_size": self._anova_effect_size(stat_result.data),
                 "report": {"summary": report_summary or interpret.message},
                 "chart_resource_id": self._resource_id(chart.data),
@@ -199,7 +211,7 @@ class AnalysisWorkflowEngine:
         columns: list[str],
         method: str = "pearson",
         journal_style: str = "nature",
-    ) -> SkillResult:
+    ) -> ToolResult:
         profile = await self._catalog.execute(
             session,
             operation="profile",
@@ -234,8 +246,10 @@ class AnalysisWorkflowEngine:
             title=f"{method.title()} 相关矩阵",
             journal_style=journal_style,
         )
-        report_summary = interpret.data.get("interpretation", "") if isinstance(interpret.data, dict) else ""
-        return SkillResult(
+        report_summary = (
+            interpret.data.get("interpretation", "") if isinstance(interpret.data, dict) else ""
+        )
+        return ToolResult(
             success=True,
             message=report_summary or stat_result.message,
             data={
@@ -258,7 +272,7 @@ class AnalysisWorkflowEngine:
         dependent_var: str,
         independent_vars: list[str],
         journal_style: str = "nature",
-    ) -> SkillResult:
+    ) -> ToolResult:
         profile = await self._catalog.execute(
             session,
             operation="profile",
@@ -295,14 +309,18 @@ class AnalysisWorkflowEngine:
             title=f"{dependent_var} 与 {independent_vars[0]} 的回归关系",
             journal_style=journal_style,
         )
-        report_summary = interpret.data.get("interpretation", "") if isinstance(interpret.data, dict) else ""
-        return SkillResult(
+        report_summary = (
+            interpret.data.get("interpretation", "") if isinstance(interpret.data, dict) else ""
+        )
+        return ToolResult(
             success=True,
             message=report_summary or stat_result.message,
             data={
                 "workflow": "regression_analysis",
                 "profile": profile.data,
-                "quality_report": profile.data.get("quality", {}) if isinstance(profile.data, dict) else {},
+                "quality_report": (
+                    profile.data.get("quality", {}) if isinstance(profile.data, dict) else {}
+                ),
                 "regression": stat_result.data,
                 "report": {"summary": report_summary or interpret.message},
                 "chart_resource_id": self._resource_id(chart.data),

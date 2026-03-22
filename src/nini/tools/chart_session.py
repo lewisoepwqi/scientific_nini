@@ -9,13 +9,13 @@ from typing import Any
 
 from nini.agent.session import Session
 from nini.models import ChartSessionRecord, ResourceType
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.export import ExportChartSkill
 from nini.tools.visualization import CreateChartSkill
 from nini.workspace import WorkspaceManager
 
 
-class ChartSessionSkill(Skill):
+class ChartSessionSkill(Tool):
     """管理图表会话资源。"""
 
     def __init__(self) -> None:
@@ -67,7 +67,7 @@ class ChartSessionSkill(Skill):
             "required": ["operation"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         operation = str(kwargs.get("operation", "")).strip()
         if operation == "create":
             return await self._create_or_update(session, create=True, **kwargs)
@@ -77,18 +77,25 @@ class ChartSessionSkill(Skill):
             return self._get_chart(session, **kwargs)
         if operation == "export":
             return await self._export_chart(session, **kwargs)
-        return SkillResult(success=False, message=f"不支持的 operation: {operation}")
+        return ToolResult(success=False, message=f"不支持的 operation: {operation}")
 
-    async def _create_or_update(self, session: Session, *, create: bool, **kwargs: Any) -> SkillResult:
+    async def _create_or_update(
+        self, session: Session, *, create: bool, **kwargs: Any
+    ) -> ToolResult:
         chart_id = str(kwargs.get("chart_id", "")).strip() or f"chart_{uuid.uuid4().hex[:12]}"
         existing = None if create else self._load_chart_record(session, chart_id)
         if not create and existing is None:
-            return SkillResult(success=False, message=f"未找到图表会话: {chart_id}")
+            return ToolResult(success=False, message=f"未找到图表会话: {chart_id}")
 
         spec = {
-            "dataset_name": kwargs.get("dataset_name") or (existing.dataset_name if existing else ""),
+            "dataset_name": kwargs.get("dataset_name")
+            or (existing.dataset_name if existing else ""),
             "chart_type": kwargs.get("chart_type") or (existing.chart_type if existing else ""),
-            "title": kwargs.get("title") if "title" in kwargs else (existing.spec.get("title") if existing else None),
+            "title": (
+                kwargs.get("title")
+                if "title" in kwargs
+                else (existing.spec.get("title") if existing else None)
+            ),
             "journal_style": kwargs.get("journal_style")
             or (existing.spec.get("journal_style") if existing else "default"),
             "render_engine": kwargs.get("render_engine")
@@ -96,23 +103,45 @@ class ChartSessionSkill(Skill):
             or (
                 "matplotlib"
                 if getattr(session, "chart_output_preference", None) == "image"
-                else "plotly"
-                if getattr(session, "chart_output_preference", None) == "interactive"
-                else "auto"
+                else (
+                    "plotly"
+                    if getattr(session, "chart_output_preference", None) == "interactive"
+                    else "auto"
+                )
             ),
-            "x_column": kwargs.get("x_column") if "x_column" in kwargs else (existing.spec.get("x_column") if existing else None),
-            "y_column": kwargs.get("y_column") if "y_column" in kwargs else (existing.spec.get("y_column") if existing else None),
-            "group_column": kwargs.get("group_column")
-            if "group_column" in kwargs
-            else (existing.spec.get("group_column") if existing else None),
-            "color_column": kwargs.get("color_column")
-            if "color_column" in kwargs
-            else (existing.spec.get("color_column") if existing else None),
-            "columns": kwargs.get("columns") if "columns" in kwargs else (existing.spec.get("columns") if existing else None),
-            "bins": kwargs.get("bins") if "bins" in kwargs else (existing.spec.get("bins") if existing else None),
+            "x_column": (
+                kwargs.get("x_column")
+                if "x_column" in kwargs
+                else (existing.spec.get("x_column") if existing else None)
+            ),
+            "y_column": (
+                kwargs.get("y_column")
+                if "y_column" in kwargs
+                else (existing.spec.get("y_column") if existing else None)
+            ),
+            "group_column": (
+                kwargs.get("group_column")
+                if "group_column" in kwargs
+                else (existing.spec.get("group_column") if existing else None)
+            ),
+            "color_column": (
+                kwargs.get("color_column")
+                if "color_column" in kwargs
+                else (existing.spec.get("color_column") if existing else None)
+            ),
+            "columns": (
+                kwargs.get("columns")
+                if "columns" in kwargs
+                else (existing.spec.get("columns") if existing else None)
+            ),
+            "bins": (
+                kwargs.get("bins")
+                if "bins" in kwargs
+                else (existing.spec.get("bins") if existing else None)
+            ),
         }
         if not spec["dataset_name"] or not spec["chart_type"]:
-            return SkillResult(
+            return ToolResult(
                 success=False,
                 message="create/update 图表会话必须提供 dataset_name 和 chart_type",
             )
@@ -135,7 +164,7 @@ class ChartSessionSkill(Skill):
             last_export_ids=existing.last_export_ids if existing else [],
         )
         self._persist_chart_record(manager, record)
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"图表会话已{'创建' if create else '更新'}：{chart_id}",
             data={
@@ -149,15 +178,15 @@ class ChartSessionSkill(Skill):
             artifacts=result.artifacts,
         )
 
-    def _get_chart(self, session: Session, **kwargs: Any) -> SkillResult:
+    def _get_chart(self, session: Session, **kwargs: Any) -> ToolResult:
         chart_id = str(kwargs.get("chart_id", "")).strip()
         if not chart_id:
-            return SkillResult(success=False, message="get 操作必须提供 chart_id")
+            return ToolResult(success=False, message="get 操作必须提供 chart_id")
         record = self._load_chart_record(session, chart_id)
         if record is None:
-            return SkillResult(success=False, message=f"未找到图表会话: {chart_id}")
+            return ToolResult(success=False, message=f"未找到图表会话: {chart_id}")
         manager = WorkspaceManager(session.id)
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"已读取图表会话 '{chart_id}'",
             data={
@@ -169,13 +198,13 @@ class ChartSessionSkill(Skill):
             },
         )
 
-    async def _export_chart(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def _export_chart(self, session: Session, **kwargs: Any) -> ToolResult:
         chart_id = str(kwargs.get("chart_id", "")).strip()
         if not chart_id:
-            return SkillResult(success=False, message="export 操作必须提供 chart_id")
+            return ToolResult(success=False, message="export 操作必须提供 chart_id")
         record = self._load_chart_record(session, chart_id)
         if record is None:
-            return SkillResult(success=False, message=f"未找到图表会话: {chart_id}")
+            return ToolResult(success=False, message=f"未找到图表会话: {chart_id}")
 
         create_params = {k: v for k, v in record.spec.items() if v is not None}
         recreate = await self._create.execute(session, **create_params)
@@ -203,7 +232,7 @@ class ChartSessionSkill(Skill):
         data["resource_id"] = chart_id
         data["resource_type"] = "chart"
         payload["data"] = data
-        return SkillResult(**payload)
+        return ToolResult(**payload)
 
     def _record_path(self, manager: WorkspaceManager, chart_id: str) -> Path:
         return manager.build_managed_resource_path(

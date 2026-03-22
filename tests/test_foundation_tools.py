@@ -11,7 +11,7 @@ import pytest
 from nini.agent.session import Session
 from nini.config import settings
 from nini.models import ResourceType
-from nini.tools.base import SkillResult
+from nini.tools.base import ToolResult
 from nini.tools.fetch_url import FetchURLSkill
 import nini.tools.report_session as report_session_module
 from nini.tools.registry import LLM_EXPOSED_BASE_TOOL_NAMES, create_default_tool_registry
@@ -553,14 +553,14 @@ def test_report_session_persists_sections_and_exports(
         output_format: str,
         filename: str | None = None,
         prefer_latest_report: bool = False,
-    ) -> SkillResult:
+    ) -> ToolResult:
         local_manager = WorkspaceManager(session.id)
         relative_path = f"notes/exports/{filename or 'report-export'}.{output_format}"
         target = local_manager.resolve_workspace_path(relative_path, allow_missing=True)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"fake export")
         local_manager.sync_text_document_record(relative_path)
-        return SkillResult(
+        return ToolResult(
             success=True,
             message="导出成功",
             data={
@@ -723,8 +723,8 @@ def test_workspace_session_unifies_file_ops_and_fetch_save(
     assert read_result["success"] is True, read_result
     assert "# summary" in read_result["data"]["content"]
 
-    async def fake_fetch(self: FetchURLSkill, session: Session, **kwargs: object) -> SkillResult:
-        return SkillResult(
+    async def fake_fetch(self: FetchURLSkill, session: Session, **kwargs: object) -> ToolResult:
+        return ToolResult(
             success=True,
             message="抓取成功",
             data={

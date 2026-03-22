@@ -7,11 +7,11 @@ from typing import Any
 import statsmodels.api as sm
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.statistics.base import _ensure_finite, _get_df, _record_stat_result, _safe_float
 
 
-class RegressionSkill(Skill):
+class RegressionSkill(Tool):
     """执行线性回归分析。"""
 
     @property
@@ -46,23 +46,23 @@ class RegressionSkill(Skill):
             "required": ["dataset_name", "dependent_var", "independent_vars"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         name = kwargs["dataset_name"]
         dependent_var = kwargs["dependent_var"]
         independent_vars = kwargs["independent_vars"]
 
         df = _get_df(session, name)
         if df is None:
-            return SkillResult(success=False, message=f"数据集 '{name}' 不存在")
+            return ToolResult(success=False, message=f"数据集 '{name}' 不存在")
 
         all_vars = [dependent_var] + independent_vars
         for var in all_vars:
             if var not in df.columns:
-                return SkillResult(success=False, message=f"列 '{var}' 不存在")
+                return ToolResult(success=False, message=f"列 '{var}' 不存在")
 
         data = df[all_vars].dropna()
         if len(data) < len(independent_vars) + 2:
-            return SkillResult(success=False, message="数据量不足以进行回归分析")
+            return ToolResult(success=False, message="数据量不足以进行回归分析")
 
         try:
             x_values = sm.add_constant(data[independent_vars])
@@ -103,6 +103,6 @@ class RegressionSkill(Skill):
                 effect_type="r_squared",
                 significant=bool(model.f_pvalue < 0.05) if model.f_pvalue is not None else False,
             )
-            return SkillResult(success=True, data=result, message=message)
+            return ToolResult(success=True, data=result, message=message)
         except Exception as exc:
-            return SkillResult(success=False, message=f"回归分析失败: {exc}")
+            return ToolResult(success=False, message=f"回归分析失败: {exc}")

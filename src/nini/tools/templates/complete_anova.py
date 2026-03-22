@@ -21,7 +21,7 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 from nini.agent.session import Session
 from nini.tools.analysis_workflow import AnalysisWorkflowEngine
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.utils.chart_fonts import CJK_FONT_FAMILY
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class CompleteANOVASkill(Skill):
+class CompleteANOVASkill(Tool):
     """完整 ANOVA 分析技能（模板）。"""
 
     @property
@@ -80,7 +80,7 @@ class CompleteANOVASkill(Skill):
             "required": ["dataset_name", "value_column", "group_column"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         """执行完整分析。"""
         engine = AnalysisWorkflowEngine()
         return await engine.complete_anova(
@@ -143,12 +143,7 @@ class CompleteANOVASkill(Skill):
             meandiffs = getattr(tukey, "meandiffs", None)
             reject = getattr(tukey, "reject", None)
             confint = getattr(tukey, "confint", None)
-            if (
-                pvalues is None
-                or meandiffs is None
-                or reject is None
-                or confint is None
-            ):
+            if pvalues is None or meandiffs is None or reject is None or confint is None:
                 return {"error": "Tukey 检验结果不完整"}
 
             # 提取成对比较结果

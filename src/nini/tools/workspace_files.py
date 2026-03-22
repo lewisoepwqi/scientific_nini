@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.workspace import WorkspaceManager
 
 
-class ListWorkspaceFilesSkill(Skill):
+class ListWorkspaceFilesSkill(Tool):
     """列出当前会话工作区中的文件，供模型获取 path 与 download_url。"""
 
     @property
@@ -75,7 +75,7 @@ class ListWorkspaceFilesSkill(Skill):
     def output_types(self) -> list[str]:
         return ["file", "text"]
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         manager = WorkspaceManager(session.id)
         query = str(kwargs.get("query") or "").strip()
         path_prefix = str(kwargs.get("path_prefix") or "").strip().strip("/")
@@ -132,7 +132,7 @@ class ListWorkspaceFilesSkill(Skill):
         ]
         summary = "\n".join(lines) if lines else "(无匹配文件)"
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"已找到 {len(filtered)} 个工作区文件，返回 {len(limited)} 个。",
             data={

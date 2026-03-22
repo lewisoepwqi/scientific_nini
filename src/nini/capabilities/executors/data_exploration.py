@@ -18,7 +18,7 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from nini.agent.session import Session
-    from nini.tools.base import SkillResult
+    from nini.tools.base import ToolResult
 
 
 @dataclass

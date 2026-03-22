@@ -7,10 +7,10 @@ import pytest
 from nini.agent.fusion import FusionResult, ResultFusionEngine
 from nini.agent.spawner import SubAgentResult
 from nini.tools.dispatch_agents import DispatchAgentsTool
-from nini.tools.base import SkillResult
-
+from nini.tools.base import ToolResult
 
 # ─── 辅助 ───────────────────────────────────────────────────────────────────
+
 
 class _MockRegistry:
     """最小 AgentRegistry stub。"""
@@ -43,16 +43,17 @@ class _MockFusion:
 
 # ─── 正常执行 ─────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_execute_returns_skill_result():
-    """正常执行时返回 SkillResult，message 包含融合结果。"""
+    """正常执行时返回 ToolResult，message 包含融合结果。"""
     tool = DispatchAgentsTool(
         agent_registry=_MockRegistry(),
         spawner=_MockSpawner(),
         fusion_engine=_MockFusion(),
     )
     result = await tool.execute(None, tasks=["清洗数据"])
-    assert isinstance(result, SkillResult)
+    assert isinstance(result, ToolResult)
     assert result.success is True
     assert "清洗完成" in result.message
 
@@ -84,9 +85,10 @@ async def test_execute_with_context():
 
 # ─── 空任务 ──────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_execute_empty_tasks_returns_empty():
-    """tasks 为空时返回 SkillResult(message="")，不抛出异常。"""
+    """tasks 为空时返回 ToolResult(message="")，不抛出异常。"""
     tool = DispatchAgentsTool(
         agent_registry=_MockRegistry(),
         spawner=_MockSpawner(),
@@ -111,6 +113,7 @@ async def test_execute_none_tasks_returns_empty():
 
 
 # ─── 依赖未注入 ───────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_execute_no_spawner_returns_error():
@@ -138,6 +141,7 @@ async def test_execute_no_fusion_returns_error():
 
 
 # ─── 工具元数据 ──────────────────────────────────────────────────────────────
+
 
 def test_tool_name():
     """工具名称为 dispatch_agents。"""

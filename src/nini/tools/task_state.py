@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.task_write import TaskWriteSkill
 
 
-class TaskStateSkill(Skill):
+class TaskStateSkill(Tool):
     """统一任务状态读写接口。"""
 
     def __init__(self) -> None:
@@ -25,9 +25,7 @@ class TaskStateSkill(Skill):
 
     @property
     def description(self) -> str:
-        return (
-            "统一管理任务状态。支持初始化(init)、更新(update)、查询全部任务(get)和查询当前任务(current)。"
-        )
+        return "统一管理任务状态。支持初始化(init)、更新(update)、查询全部任务(get)和查询当前任务(current)。"
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -48,7 +46,13 @@ class TaskStateSkill(Skill):
                             "title": {"type": "string"},
                             "status": {
                                 "type": "string",
-                                "enum": ["pending", "in_progress", "completed", "failed", "skipped"],
+                                "enum": [
+                                    "pending",
+                                    "in_progress",
+                                    "completed",
+                                    "failed",
+                                    "skipped",
+                                ],
                             },
                             "tool_hint": {"type": "string"},
                         },
@@ -60,7 +64,7 @@ class TaskStateSkill(Skill):
             "required": ["operation"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         operation = str(kwargs.get("operation", "")).strip()
 
         if operation in {"init", "update"}:
@@ -69,9 +73,11 @@ class TaskStateSkill(Skill):
 
         if operation == "get":
             if not session.task_manager.initialized:
-                return SkillResult(success=True, message="当前尚未初始化任务列表", data={"tasks": []})
+                return ToolResult(
+                    success=True, message="当前尚未初始化任务列表", data={"tasks": []}
+                )
             tasks = [task.to_dict() for task in session.task_manager.tasks]
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 message=f"当前共有 {len(tasks)} 个任务",
                 data={
@@ -83,11 +89,11 @@ class TaskStateSkill(Skill):
 
         if operation == "current":
             if not session.task_manager.initialized:
-                return SkillResult(success=True, message="当前尚未初始化任务列表", data={})
+                return ToolResult(success=True, message="当前尚未初始化任务列表", data={})
             current = session.task_manager.current_in_progress()
             if current is None:
-                return SkillResult(success=True, message="当前没有执行中的任务", data={})
-            return SkillResult(
+                return ToolResult(success=True, message="当前没有执行中的任务", data={})
+            return ToolResult(
                 success=True,
                 message=f"当前执行中的任务是：{current.title}",
                 data={
@@ -97,4 +103,4 @@ class TaskStateSkill(Skill):
                 },
             )
 
-        return SkillResult(success=False, message=f"不支持的 operation: {operation}")
+        return ToolResult(success=False, message=f"不支持的 operation: {operation}")

@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.interpretation import InterpretStatisticalResultSkill
 
 
-class StatInterpretSkill(Skill):
+class StatInterpretSkill(Tool):
     """统一统计解读入口。"""
 
     def __init__(self) -> None:
@@ -52,10 +52,10 @@ class StatInterpretSkill(Skill):
             "required": ["test_type", "result"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         result = await self._delegate.execute(session, **kwargs)
         payload = result.to_dict()
         data = payload.get("data", {}) if isinstance(payload.get("data"), dict) else {}
         data["resource_type"] = "stat_result"
         payload["data"] = data
-        return SkillResult(**payload)
+        return ToolResult(**payload)

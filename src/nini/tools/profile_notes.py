@@ -7,10 +7,10 @@ from typing import Any
 from nini.agent.session import Session
 from nini.memory.profile_narrative import get_profile_narrative_manager
 from nini.memory.research_profile import DEFAULT_RESEARCH_PROFILE_ID
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 
 
-class UpdateProfileNotesSkill(Skill):
+class UpdateProfileNotesSkill(Tool):
     """向研究画像的'分析习惯与观察'段追加一条 Agent 观察记录。
 
     用于 Agent 在分析过程中自动记录用户的行为模式和稳定偏好，供后续会话参考。
@@ -54,10 +54,10 @@ class UpdateProfileNotesSkill(Skill):
     def expose_to_llm(self) -> bool:
         return True
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         observation = str(kwargs.get("observation", "")).strip()
         if not observation:
-            return SkillResult(success=False, message="observation 不能为空")
+            return ToolResult(success=False, message="observation 不能为空")
 
         # 超长截断
         if len(observation) > 200:
@@ -73,5 +73,5 @@ class UpdateProfileNotesSkill(Skill):
 
         if ok:
             preview = observation[:60] + ("..." if len(observation) > 60 else "")
-            return SkillResult(success=True, message=f"已记录到研究画像：{preview}")
-        return SkillResult(success=False, message="写入画像叙述层失败，请检查文件权限")
+            return ToolResult(success=True, message=f"已记录到研究画像：{preview}")
+        return ToolResult(success=False, message="写入画像叙述层失败，请检查文件权限")

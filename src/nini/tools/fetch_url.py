@@ -15,7 +15,7 @@ from urllib.parse import unquote, urlparse
 
 from nini.agent.session import Session
 from nini.config import settings
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ _ALLOWED_LOCAL_FILE_SUFFIXES = {
 }
 
 
-class FetchURLSkill(Skill):
+class FetchURLSkill(Tool):
     """抓取网页内容并转换为 Markdown 文本。"""
 
     @property
@@ -95,26 +95,26 @@ class FetchURLSkill(Skill):
             "required": ["url"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         url = kwargs.get("url", "").strip()
         if not url:
-            return SkillResult(success=False, message="URL 不能为空")
+            return ToolResult(success=False, message="URL 不能为空")
 
         # 验证 URL 安全性
         error = self._validate_url(url)
         if error:
-            return SkillResult(success=False, message=error)
+            return ToolResult(success=False, message=error)
 
         try:
             content = await self._fetch(url)
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 message=f"已成功抓取 {url}",
                 data={"url": url, "content": content, "length": len(content)},
             )
         except Exception as e:
             logger.warning("网页抓取失败: url=%s error=%s", url, e)
-            return SkillResult(success=False, message=f"抓取失败: {e}")
+            return ToolResult(success=False, message=f"抓取失败: {e}")
 
     @staticmethod
     def _validate_url(url: str) -> str | None:

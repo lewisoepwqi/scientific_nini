@@ -5,14 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.edit_file import EditFile
 from nini.tools.fetch_url import FetchURLSkill
 from nini.tools.organize_workspace import OrganizeWorkspaceSkill
 from nini.tools.workspace_files import ListWorkspaceFilesSkill
 
 
-class WorkspaceSessionSkill(Skill):
+class WorkspaceSessionSkill(Tool):
     """统一工作区读写与抓取入口。"""
 
     _OPERATIONS = ("list", "read", "write", "append", "edit", "organize", "fetch_url")
@@ -81,7 +81,7 @@ class WorkspaceSessionSkill(Skill):
             "additionalProperties": False,
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         operation = str(kwargs.get("operation", "")).strip()
         validation_error = self._validate_operation_args(operation, kwargs)
         if validation_error is not None:
@@ -138,9 +138,7 @@ class WorkspaceSessionSkill(Skill):
             return result
         return self._invalid_operation_result(operation)
 
-    def _validate_operation_args(
-        self, operation: str, kwargs: dict[str, Any]
-    ) -> SkillResult | None:
+    def _validate_operation_args(self, operation: str, kwargs: dict[str, Any]) -> ToolResult | None:
         if not operation:
             return self._missing_operation_result(kwargs)
         if operation not in self._OPERATIONS:
@@ -168,7 +166,7 @@ class WorkspaceSessionSkill(Skill):
         if not missing:
             return None
 
-        return SkillResult(
+        return ToolResult(
             success=False,
             message=f"operation='{operation}' 缺少必要参数: {', '.join(missing)}",
             data={
@@ -185,11 +183,11 @@ class WorkspaceSessionSkill(Skill):
             },
         )
 
-    def _missing_operation_result(self, kwargs: dict[str, Any]) -> SkillResult:
+    def _missing_operation_result(self, kwargs: dict[str, Any]) -> ToolResult:
         provided_fields = sorted(
             key for key, value in kwargs.items() if key != "operation" and value is not None
         )
-        return SkillResult(
+        return ToolResult(
             success=False,
             message="workspace_session 缺少 operation 参数。",
             data={
@@ -207,8 +205,8 @@ class WorkspaceSessionSkill(Skill):
             },
         )
 
-    def _invalid_operation_result(self, operation: str) -> SkillResult:
-        return SkillResult(
+    def _invalid_operation_result(self, operation: str) -> ToolResult:
+        return ToolResult(
             success=False,
             message=f"不支持的 operation: {operation}",
             data={

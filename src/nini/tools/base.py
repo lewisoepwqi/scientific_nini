@@ -1,4 +1,4 @@
-"""Skill 基类和 SkillResult。"""
+"""Tool 基类和 ToolResult。"""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class SkillResult:
-    """技能执行结果。"""
+class ToolResult:
+    """工具执行结果。"""
 
     success: bool = True
     data: Any = None
@@ -51,19 +51,19 @@ class SkillResult:
         return result
 
 
-class Skill(ABC):
-    """技能基类。所有技能必须实现此接口。"""
+class Tool(ABC):
+    """工具基类。所有工具必须实现此接口。"""
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """技能名称（用于工具调用）。"""
+        """工具名称（用于工具调用）。"""
         ...
 
     @property
     @abstractmethod
     def description(self) -> str:
-        """技能描述（用于 LLM 理解功能）。"""
+        """工具描述（用于 LLM 理解功能）。"""
         ...
 
     @property
@@ -79,12 +79,12 @@ class Skill(ABC):
 
     @property
     def category(self) -> str:
-        """技能分类，用于前端分组展示。"""
+        """工具分类，用于前端分组展示。"""
         return "other"
 
     @property
     def brief_description(self) -> str:
-        """技能简述，用于轻量目录与能力推荐。"""
+        """工具简述，用于轻量目录与能力推荐。"""
         first_line = " ".join(str(self.description).split())
         if len(first_line) <= 80:
             return first_line
@@ -92,12 +92,12 @@ class Skill(ABC):
 
     @property
     def research_domain(self) -> str:
-        """技能所属科研领域。"""
+        """工具所属科研领域。"""
         return "general"
 
     @property
     def difficulty_level(self) -> str:
-        """技能使用难度。"""
+        """工具使用难度。"""
         return "intermediate"
 
     @property
@@ -107,7 +107,7 @@ class Skill(ABC):
 
     @property
     def output_types(self) -> list[str]:
-        """技能常见输出类型。"""
+        """工具常见输出类型。"""
         return []
 
     @property
@@ -116,12 +116,12 @@ class Skill(ABC):
         return True
 
     @abstractmethod
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
-        """执行技能。"""
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
+        """执行工具。"""
         ...
 
     def to_manifest(self) -> "SkillManifest":
-        """导出为统一技能清单（用于跨平台技能描述）。"""
+        """导出为统一工具清单（用于跨平台描述）。"""
         from nini.tools.manifest import SkillManifest
 
         return SkillManifest(

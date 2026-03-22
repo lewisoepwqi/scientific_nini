@@ -10,7 +10,7 @@ from typing import Any
 import pandas as pd
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.workspace import WorkspaceManager
 
 
@@ -550,7 +550,7 @@ def _resolve_output_name(
     return candidate
 
 
-class GenerateReportSkill(Skill):
+class GenerateReportSkill(Tool):
     """生成 Markdown 分析报告并保存为产物。"""
 
     @property
@@ -624,7 +624,7 @@ class GenerateReportSkill(Skill):
     def is_idempotent(self) -> bool:
         return False
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         from nini.tools.report_session import ReportSessionSkill
 
         title = str(kwargs.get("title", "科研数据分析报告")).strip() or "科研数据分析报告"
@@ -674,7 +674,9 @@ class GenerateReportSkill(Skill):
         report_id = str(report_payload.get("report_id", "")).strip()
         record_raw = report_payload.get("record")
         record: dict[str, Any] = record_raw if isinstance(record_raw, dict) else {}
-        relative_path = str(record.get("markdown_path", "")).strip() or f"notes/reports/{output_name}"
+        relative_path = (
+            str(record.get("markdown_path", "")).strip() or f"notes/reports/{output_name}"
+        )
         ws = WorkspaceManager(session.id)
         path = ws.save_text_file(relative_path, preview_md)
 
@@ -691,7 +693,7 @@ class GenerateReportSkill(Skill):
             "resource_id": report_id,
         }
 
-        return SkillResult(
+        return ToolResult(
             success=True,
             message=f"报告已生成并保存为 `{output_name}`",
             data={

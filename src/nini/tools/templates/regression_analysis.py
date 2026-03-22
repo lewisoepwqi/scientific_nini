@@ -21,7 +21,7 @@ from scipy.stats import kstest, shapiro
 
 from nini.agent.session import Session
 from nini.tools.analysis_workflow import AnalysisWorkflowEngine
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.utils.chart_fonts import CJK_FONT_FAMILY
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class RegressionAnalysisSkill(Skill):
+class RegressionAnalysisSkill(Tool):
     """回归分析技能（模板）。"""
 
     @property
@@ -81,7 +81,7 @@ class RegressionAnalysisSkill(Skill):
             "required": ["dataset_name", "dependent_var", "independent_vars"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         """执行完整回归分析。"""
         engine = AnalysisWorkflowEngine()
         return await engine.regression_analysis(
@@ -92,9 +92,7 @@ class RegressionAnalysisSkill(Skill):
             journal_style=kwargs.get("journal_style", "nature"),
         )
 
-    def _check_data_quality(
-        self, df: pd.DataFrame, columns: list[str]
-    ) -> dict[str, Any]:
+    def _check_data_quality(self, df: pd.DataFrame, columns: list[str]) -> dict[str, Any]:
         """检查数据质量。"""
         issues = []
         warnings_list = []
@@ -111,12 +109,12 @@ class RegressionAnalysisSkill(Skill):
             # 检查是否为数值型
             if not pd.api.types.is_numeric_dtype(series):
                 try:
-                    pd.to_numeric(series, errors='raise')
+                    pd.to_numeric(series, errors="raise")
                 except (ValueError, TypeError):
                     issues.append(f"列 '{col}' 不是数值类型，无法用于回归分析")
 
             # 检查方差
-            numeric_series = pd.to_numeric(series, errors='coerce').dropna()
+            numeric_series = pd.to_numeric(series, errors="coerce").dropna()
             if len(numeric_series) > 1 and numeric_series.var() == 0:
                 issues.append(f"列 '{col}' 方差为零，无法用于回归")
 
@@ -143,7 +141,7 @@ class RegressionAnalysisSkill(Skill):
             test_name = "Shapiro-Wilk"
         else:
             # KS 检验适用于大样本
-            stat, p_value = kstest(y, 'norm', args=(y.mean(), y.std()))
+            stat, p_value = kstest(y, "norm", args=(y.mean(), y.std()))
             test_name = "Kolmogorov-Smirnov"
 
         assumptions["normality"] = {
@@ -171,9 +169,7 @@ class RegressionAnalysisSkill(Skill):
                         }
                     assumptions["multicollinearity"] = vif_data
             except ImportError:
-                assumptions["multicollinearity"] = {
-                    "note": "statsmodels 未安装，跳过 VIF 检验"
-                }
+                assumptions["multicollinearity"] = {"note": "statsmodels 未安装，跳过 VIF 检验"}
 
         return assumptions
 
@@ -253,7 +249,7 @@ class RegressionAnalysisSkill(Skill):
             residuals = y - y_pred
 
             # 计算 R-squared
-            ss_res = np.sum(residuals ** 2)
+            ss_res = np.sum(residuals**2)
             ss_tot = np.sum((y - y.mean()) ** 2)
             r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
 
@@ -319,7 +315,9 @@ class RegressionAnalysisSkill(Skill):
             residual_normality = {"note": "样本量不足，无法检验"}
 
         # 异常值检测（基于标准化残差）
-        std_residuals = residuals_arr / np.std(residuals_arr) if np.std(residuals_arr) > 0 else residuals_arr
+        std_residuals = (
+            residuals_arr / np.std(residuals_arr) if np.std(residuals_arr) > 0 else residuals_arr
+        )
         outliers = np.where(np.abs(std_residuals) > 2.5)[0].tolist()
 
         return {
@@ -350,7 +348,8 @@ class RegressionAnalysisSkill(Skill):
 
         # 创建子图：实际 vs 预测 + Q-Q 图
         fig = make_subplots(
-            rows=1, cols=2,
+            rows=1,
+            cols=2,
             subplot_titles=("实际值 vs 预测值", "残差 Q-Q 图"),
         )
 
@@ -367,7 +366,8 @@ class RegressionAnalysisSkill(Skill):
                     name="观测值",
                     marker=dict(size=8, opacity=0.6),
                 ),
-                row=1, col=1
+                row=1,
+                col=1,
             )
             # 添加对角线（完美预测线）
             min_val = min(min(fitted), min(actual))
@@ -380,7 +380,8 @@ class RegressionAnalysisSkill(Skill):
                     name="完美预测",
                     line=dict(dash="dash", color="red"),
                 ),
-                row=1, col=1
+                row=1,
+                col=1,
             )
 
         # Q-Q 图
@@ -388,14 +389,9 @@ class RegressionAnalysisSkill(Skill):
         if residuals:
             residuals_arr = np.array(residuals)
             # 理论分位数
-            theoretical = stats.norm.ppf(
-                np.linspace(0.01, 0.99, len(residuals_arr))
-            )
+            theoretical = stats.norm.ppf(np.linspace(0.01, 0.99, len(residuals_arr)))
             # 实际分位数
-            actual_quantiles = np.percentile(
-                residuals_arr,
-                np.linspace(1, 99, len(residuals_arr))
-            )
+            actual_quantiles = np.percentile(residuals_arr, np.linspace(1, 99, len(residuals_arr)))
 
             fig.add_trace(
                 go.Scatter(
@@ -405,7 +401,8 @@ class RegressionAnalysisSkill(Skill):
                     name="Q-Q 点",
                     marker=dict(size=6, opacity=0.6),
                 ),
-                row=1, col=2
+                row=1,
+                col=2,
             )
             # 添加参考线
             fig.add_trace(
@@ -416,7 +413,8 @@ class RegressionAnalysisSkill(Skill):
                     name="参考线",
                     line=dict(dash="dash", color="red"),
                 ),
-                row=1, col=2
+                row=1,
+                col=2,
             )
 
         # 应用期刊风格
@@ -485,7 +483,11 @@ class RegressionAnalysisSkill(Skill):
 
         # 构建模型拟合描述
         if f_stat is not None and f_pvalue is not None:
-            sig_marker = "***" if f_pvalue < 0.001 else "**" if f_pvalue < 0.01 else "*" if f_pvalue < 0.05 else ""
+            sig_marker = (
+                "***"
+                if f_pvalue < 0.001
+                else "**" if f_pvalue < 0.01 else "*" if f_pvalue < 0.05 else ""
+            )
             model_fit = (
                 f"R² = {r_squared:.3f}, 调整 R² = {adj_r_squared:.3f}, "
                 f"F = {f_stat:.2f}, p = {f_pvalue:.4f}{sig_marker}"
@@ -543,7 +545,11 @@ class RegressionAnalysisSkill(Skill):
                 pval = info.get("p_value")
                 tstat = info.get("t_statistic")
                 if pval is not None and tstat is not None:
-                    sig = "***" if pval < 0.001 else "**" if pval < 0.01 else "*" if pval < 0.05 else ""
+                    sig = (
+                        "***"
+                        if pval < 0.001
+                        else "**" if pval < 0.01 else "*" if pval < 0.05 else ""
+                    )
                     stats_lines.append(
                         f"  {var}: β = {coef:.4f}, t = {tstat:.2f}, p = {pval:.4f}{sig}"
                     )

@@ -19,7 +19,7 @@ from scipy.stats import kendalltau, pearsonr, spearmanr
 
 from nini.agent.session import Session
 from nini.tools.analysis_workflow import AnalysisWorkflowEngine
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.utils.chart_fonts import CJK_FONT_FAMILY
 
 if TYPE_CHECKING:
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class CorrelationAnalysisSkill(Skill):
+class CorrelationAnalysisSkill(Tool):
     """相关性分析技能（模板）。"""
 
     @property
@@ -81,7 +81,7 @@ class CorrelationAnalysisSkill(Skill):
             "required": ["dataset_name", "columns"],
         }
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         """执行完整分析。"""
         engine = AnalysisWorkflowEngine()
         return await engine.correlation_analysis(

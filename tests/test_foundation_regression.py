@@ -17,7 +17,7 @@ import pytest
 
 from nini.agent.session import Session
 from nini.config import settings
-from nini.tools.base import SkillResult
+from nini.tools.base import ToolResult
 from nini.tools.registry import LLM_EXPOSED_BASE_TOOL_NAMES, create_default_tool_registry
 from nini.workspace import WorkspaceManager
 
@@ -56,7 +56,7 @@ class TestOrchestrationLayer:
             group_column="group",
         )
 
-        assert isinstance(result, SkillResult)
+        assert isinstance(result, ToolResult)
         assert result.success is True
         # 验证结果中包含资源引用
         assert result.data is not None
@@ -84,7 +84,7 @@ class TestOrchestrationLayer:
             group_column="group",
         )
 
-        assert isinstance(result, SkillResult)
+        assert isinstance(result, ToolResult)
         assert result.success is True
 
     @pytest.mark.asyncio
@@ -109,7 +109,7 @@ class TestOrchestrationLayer:
             columns=["x", "y"],
         )
 
-        assert isinstance(result, SkillResult)
+        assert isinstance(result, ToolResult)
         assert result.success is True
 
     @pytest.mark.asyncio
@@ -135,7 +135,7 @@ class TestOrchestrationLayer:
             independent_vars=["x"],
         )
 
-        assert isinstance(result, SkillResult)
+        assert isinstance(result, ToolResult)
         assert result.success is True
 
 

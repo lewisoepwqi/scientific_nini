@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from nini.agent.session import Session
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 from nini.tools.export_report import export_workspace_document
 
 
-class ExportDocumentSkill(Skill):
+class ExportDocumentSkill(Tool):
     """将工作区中的文档导出为 PDF 或 DOCX。"""
 
     @property
@@ -53,14 +53,14 @@ class ExportDocumentSkill(Skill):
     def is_idempotent(self) -> bool:
         return False
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         source_path = kwargs.get("source_path")
         output_format = kwargs.get("format")
         filename = kwargs.get("filename")
         if not isinstance(source_path, str) or not source_path.strip():
-            return SkillResult(success=False, message="source_path 不能为空。")
+            return ToolResult(success=False, message="source_path 不能为空。")
         if not isinstance(output_format, str) or not output_format.strip():
-            return SkillResult(success=False, message="format 不能为空。")
+            return ToolResult(success=False, message="format 不能为空。")
 
         return await export_workspace_document(
             session,
