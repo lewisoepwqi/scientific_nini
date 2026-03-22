@@ -27,7 +27,9 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     settings.ensure_dirs()
 
 
-def _make_archive_file(session_id: str, messages: list[dict], filename: str = "compressed_20240101_120000.json") -> Path:
+def _make_archive_file(
+    session_id: str, messages: list[dict], filename: str = "compressed_20240101_120000.json"
+) -> Path:
     """在测试 archive 目录下创建归档文件。"""
     archive_dir = settings.sessions_dir / session_id / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
@@ -88,10 +90,7 @@ class TestSearchMemoryArchiveTool:
     async def test_max_results_respected(self):
         """max_results 参数应限制返回结果数。"""
         session = Session()
-        messages = [
-            {"role": "user", "content": f"测试消息 {i} 包含关键词"}
-            for i in range(10)
-        ]
+        messages = [{"role": "user", "content": f"测试消息 {i} 包含关键词"} for i in range(10)]
         _make_archive_file(session.id, messages)
 
         tool = SearchMemoryArchiveTool()
@@ -168,29 +167,36 @@ class TestSearchIndexIntegration:
     """测试增量索引写入与基于索引的检索。"""
 
     def _write_index(self, session_id: str, filename: str, messages: list[dict]) -> Path:
-        """辅助：通过 _append_to_search_index 写入索引。"""
+        """辅助：通过 _append_to_search_index 写入索引，返回 session.db 路径。"""
         archive_dir = settings.sessions_dir / session_id / "archive"
         archive_dir.mkdir(parents=True, exist_ok=True)
         _append_to_search_index(archive_dir, filename, messages)
-        return archive_dir / "search_index.jsonl"
+        # SQLite 路径：session.db 在 session_dir 下
+        return settings.sessions_dir / session_id / settings.session_db_filename
 
     async def test_index_built_on_archive(self):
-        """_append_to_search_index 应正确写入 search_index.jsonl。"""
+        """_append_to_search_index 应正确写入 SQLite archived_messages 表。"""
+        import sqlite3
+
         session = Session()
         messages = [
             {"role": "user", "content": "索引测试内容"},
             {"role": "assistant", "content": "索引回复"},
         ]
         _make_archive_file(session.id, messages, "compressed_idx.json")
-        index_path = self._write_index(session.id, "compressed_idx.json", messages)
+        db_path = self._write_index(session.id, "compressed_idx.json", messages)
 
-        assert index_path.exists()
-        lines = [l for l in index_path.read_text(encoding="utf-8").splitlines() if l.strip()]
-        assert len(lines) == 2
-        first = json.loads(lines[0])
-        assert first["file"] == "compressed_idx.json"
-        assert first["role"] == "user"
-        assert "索引测试内容" in first["text"]
+        assert db_path.exists(), "session.db 应在 _append_to_search_index 后创建"
+        conn = sqlite3.connect(str(db_path))
+        rows = conn.execute(
+            "SELECT archive_file, role, content FROM archived_messages ORDER BY id ASC"
+        ).fetchall()
+        conn.close()
+
+        assert len(rows) == 2
+        assert rows[0][0] == "compressed_idx.json"
+        assert rows[0][1] == "user"
+        assert "索引测试内容" in rows[0][2]
 
     async def test_index_search_finds_match(self):
         """索引存在时应通过索引找到匹配记录。"""

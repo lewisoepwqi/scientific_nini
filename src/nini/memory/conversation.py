@@ -256,7 +256,7 @@ class ConversationMemory:
         return result
 
     def append(self, entry: dict[str, Any]) -> None:
-        """追加一条记录，自动引用化大型数据。"""
+        """追加一条记录，自动引用化大型数据。双写 JSONL + SQLite。"""
         self._ensure_dir()
 
         # 提取大型数据到单独文件
@@ -265,16 +265,54 @@ class ConversationMemory:
         # 添加时间戳
         entry_with_refs.setdefault("_ts", datetime.now(timezone.utc).isoformat())
 
-        # 写入 JSONL
+        # 主路径：写入 JSONL（保持现有行为，兼容直接读文件的测试）
         with open(self._path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry_with_refs, ensure_ascii=False, default=str) + "\n")
 
+        # 次路径：写入 SQLite（仅当 DB 已存在时；不创建新 DB，避免 migration+insert 重复）
+        try:
+            from nini.memory.db import get_session_db, insert_message
+
+            conn = get_session_db(self._dir, create=False)
+            if conn is not None:
+                try:
+                    insert_message(conn, entry_with_refs)
+                except Exception as exc:
+                    logger.debug("[Memory] SQLite 双写失败（不影响 JSONL）: %s", exc)
+                finally:
+                    conn.close()
+        except Exception:
+            pass
+
     def load_all(self, *, resolve_refs: bool = False) -> list[dict[str, Any]]:
-        """加载所有记录。
+        """加载所有记录。优先从 SQLite 读取，回退到 JSONL。
 
         Args:
             resolve_refs: 是否解析引用加载完整数据（默认不解析，保持引用状态）
         """
+        # 优先路径：SQLite（若 DB 存在且 messages 表有数据）
+        # 注：append() 使用 create=False，DB 由 meta 保存或归档操作创建
+        # 仅当 DB 的 messages 表确实有数据时才使用 SQLite，否则 fallback JSONL
+        try:
+            from nini.memory.db import get_session_db, load_messages_from_db
+
+            conn = get_session_db(self._dir, create=False)
+            if conn is not None:
+                try:
+                    db_entries = load_messages_from_db(conn)
+                    if db_entries:
+                        if resolve_refs:
+                            db_entries = [self._resolve_references(e) for e in db_entries]
+                        return db_entries
+                    # DB 存在但 messages 为空（DB 由其他模块创建）→ 读 JSONL
+                except Exception as exc:
+                    logger.debug("[Memory] SQLite 读取失败，回退 JSONL: %s", exc)
+                finally:
+                    conn.close()
+        except Exception:
+            pass
+
+        # Fallback：JSONL
         if not self._path.exists():
             return []
         entries: list[dict[str, Any]] = []
@@ -301,7 +339,24 @@ class ConversationMemory:
         return canonicalize_message_entries(messages)
 
     def clear(self) -> None:
-        """清空会话记忆。"""
+        """清空会话记忆（JSONL + SQLite）。"""
+        # 清空 SQLite messages 表
+        try:
+            from nini.memory.db import get_session_db
+
+            conn = get_session_db(self._dir, create=False)
+            if conn is not None:
+                try:
+                    with conn:
+                        conn.execute("DELETE FROM messages")
+                except Exception as exc:
+                    logger.debug("[Memory] SQLite 清空失败: %s", exc)
+                finally:
+                    conn.close()
+        except Exception:
+            pass
+
+        # 删除 JSONL 文件
         if self._path.exists():
             self._path.unlink()
 

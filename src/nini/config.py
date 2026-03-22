@@ -304,6 +304,9 @@ class Settings(BaseSettings):
     compressed_context_max_chars: int = 2000  # 压缩上下文字符硬截断兜底（轻量路径）
     compressed_context_max_segments: int = 3  # 压缩摘要段数上限，超出后触发丢弃或 LLM 合并
 
+    # ---- SQLite 会话存储 ----
+    session_db_filename: str = "session.db"  # 每个会话目录下的 SQLite 文件名
+
     # ---- 派生属性 ----
     @property
     def upload_dir(self) -> Path:
