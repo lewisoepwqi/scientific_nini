@@ -27,7 +27,7 @@ class _AskToolRegistry:
 
 
 def test_runner_injects_builtin_ask_user_question_tool() -> None:
-    runner = AgentRunner(skill_registry=_EmptyRegistry())
+    runner = AgentRunner(tool_registry=_EmptyRegistry())
     tools = runner._get_tool_definitions()  # noqa: SLF001
     names = [
         item["function"]["name"]
@@ -38,7 +38,7 @@ def test_runner_injects_builtin_ask_user_question_tool() -> None:
 
 
 def test_runner_does_not_duplicate_ask_user_question_tool() -> None:
-    runner = AgentRunner(skill_registry=_AskToolRegistry())
+    runner = AgentRunner(tool_registry=_AskToolRegistry())
     tools = runner._get_tool_definitions()  # noqa: SLF001
     names = [
         item["function"]["name"]

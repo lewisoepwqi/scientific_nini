@@ -23,7 +23,7 @@ from starlette.responses import Response
 from nini.config import settings, _get_bundle_web_dist_dir
 from nini.models.database import init_db
 from nini.tools.registry import create_default_tool_registry
-from nini.api.websocket import set_skill_registry
+from nini.api.websocket import set_tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ async def lifespan(app: FastAPI):
 
     # 初始化工具注册中心
     registry = create_default_tool_registry()
-    set_skill_registry(registry)
+    set_tool_registry(registry)
     logger.info("已注册 %d 个工具", len(registry.list_skills()))
 
     logger.info("Nini 启动完成 ✓")

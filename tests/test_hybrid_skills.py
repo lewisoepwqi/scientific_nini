@@ -11,7 +11,7 @@ import pytest
 from nini.agent.session import session_manager
 from nini.app import create_app
 from nini.config import settings
-from nini.api.websocket import set_skill_registry
+from nini.api.websocket import set_tool_registry
 from nini.tools.registry import create_default_tool_registry
 from tests.client_utils import LocalASGIClient
 
@@ -102,7 +102,7 @@ def test_api_skills_and_tools_split_catalog(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    set_skill_registry(create_default_tool_registry())
+    set_tool_registry(create_default_tool_registry())
     with LocalASGIClient(app) as client:
         resp = client.get("/api/skills")
         assert resp.status_code == 200
@@ -133,7 +133,9 @@ def test_api_skills_and_tools_split_catalog(
         assert any(item["type"] == "markdown" for item in all_items)
         assert all("typical_use_cases" in item for item in all_items)
 
-        semantic_resp = client.get("/api/skills/semantic-catalog", params={"skill_type": "markdown"})
+        semantic_resp = client.get(
+            "/api/skills/semantic-catalog", params={"skill_type": "markdown"}
+        )
         assert semantic_resp.status_code == 200
         semantic_items = semantic_resp.json()["data"]["skills"]
         assert semantic_items
@@ -157,7 +159,7 @@ def test_api_markdown_skill_progressive_disclosure(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    set_skill_registry(create_default_tool_registry())
+    set_tool_registry(create_default_tool_registry())
     with LocalASGIClient(app) as client:
         instruction_resp = client.get("/api/skills/markdown/report_polish/instruction")
         assert instruction_resp.status_code == 200
@@ -179,7 +181,7 @@ def test_api_markdown_skill_upload(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    set_skill_registry(create_default_tool_registry())
+    set_tool_registry(create_default_tool_registry())
     upload_text = (
         "---\n"
         "name: custom_upload_skill\n"
@@ -215,7 +217,7 @@ def test_api_markdown_skill_upload_new_route_alias(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    set_skill_registry(create_default_tool_registry())
+    set_tool_registry(create_default_tool_registry())
     upload_text = (
         "---\n"
         "name: custom_upload_skill_v2\n"
@@ -255,7 +257,7 @@ def test_api_markdown_skill_manage_flow(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    set_skill_registry(create_default_tool_registry())
+    set_tool_registry(create_default_tool_registry())
     with LocalASGIClient(app) as client:
         disable_resp = client.patch(
             "/api/skills/markdown/report_polish/enabled",
@@ -338,7 +340,7 @@ def test_api_markdown_skill_files_management(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    set_skill_registry(create_default_tool_registry())
+    set_tool_registry(create_default_tool_registry())
     with LocalASGIClient(app) as client:
         list_resp = client.get("/api/skills/markdown/skill_with_files/files")
         assert list_resp.status_code == 200
@@ -410,7 +412,7 @@ def test_api_markdown_skill_dir_legacy_alias_still_available(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     app = create_app()
-    set_skill_registry(create_default_tool_registry())
+    set_tool_registry(create_default_tool_registry())
     with LocalASGIClient(app) as client:
         resp = client.post(
             "/api/skills/markdown/legacy_dir_skill/dirs",
