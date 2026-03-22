@@ -9,7 +9,7 @@ import pytest
 
 from nini.agent.session import Session
 from nini.config import settings
-from nini.tools.workspace_files import ListWorkspaceFilesSkill
+from nini.tools.workspace_files import ListWorkspaceFilesTool
 from nini.workspace import WorkspaceManager
 
 
@@ -21,7 +21,7 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_list_workspace_files_returns_download_urls() -> None:
-    skill = ListWorkspaceFilesSkill()
+    skill = ListWorkspaceFilesTool()
     session = Session()
     manager = WorkspaceManager(session.id)
 
@@ -56,7 +56,7 @@ def test_list_workspace_files_returns_download_urls() -> None:
 
 
 def test_list_workspace_files_supports_query_and_limit() -> None:
-    skill = ListWorkspaceFilesSkill()
+    skill = ListWorkspaceFilesTool()
     session = Session()
     manager = WorkspaceManager(session.id)
     manager.save_text_file("notes/alpha.md", "A")

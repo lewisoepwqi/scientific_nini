@@ -9,7 +9,7 @@ import pytest
 
 from nini.agent.session import Session
 from nini.tools.registry import create_default_tool_registry
-from nini.tools.visualization import CreateChartSkill
+from nini.tools.visualization import CreateChartTool
 
 
 def test_default_registry_contains_phase2_skills() -> None:
@@ -34,8 +34,8 @@ def test_default_registry_contains_phase2_skills() -> None:
 
 @pytest.mark.asyncio
 async def test_create_chart_skill_returns_plotly_json() -> None:
-    """直接实例化 CreateChartSkill 进行单元测试，无需通过注册表。"""
-    skill = CreateChartSkill()
+    """直接实例化 CreateChartTool 进行单元测试，无需通过注册表。"""
+    skill = CreateChartTool()
     session = Session()
     session.datasets["experiment.csv"] = pd.DataFrame(
         {
@@ -71,8 +71,8 @@ async def test_create_chart_skill_returns_plotly_json() -> None:
 
 @pytest.mark.asyncio
 async def test_create_line_chart_with_mixed_datetime_types() -> None:
-    """直接实例化 CreateChartSkill 测试混合日期类型处理。"""
-    skill = CreateChartSkill()
+    """直接实例化 CreateChartTool 测试混合日期类型处理。"""
+    skill = CreateChartTool()
     session = Session()
     session.datasets["timeline.csv"] = pd.DataFrame(
         {

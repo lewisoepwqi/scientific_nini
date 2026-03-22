@@ -10,17 +10,17 @@ from typing import Any
 from nini.agent.session import Session
 from nini.models import ChartSessionRecord, ResourceType
 from nini.tools.base import Tool, ToolResult
-from nini.tools.export import ExportChartSkill
-from nini.tools.visualization import CreateChartSkill
+from nini.tools.export import ExportChartTool
+from nini.tools.visualization import CreateChartTool
 from nini.workspace import WorkspaceManager
 
 
-class ChartSessionSkill(Tool):
+class ChartSessionTool(Tool):
     """管理图表会话资源。"""
 
     def __init__(self) -> None:
-        self._create = CreateChartSkill()
-        self._export = ExportChartSkill()
+        self._create = CreateChartTool()
+        self._export = ExportChartTool()
 
     @property
     def name(self) -> str:

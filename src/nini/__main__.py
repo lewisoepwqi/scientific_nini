@@ -671,8 +671,8 @@ def _create_function_skill(name: str, description: str, category: str) -> int:
         print("错误：打包模式下不支持创建 Function Tool 脚手架。")
         return 1
 
-    # 类名：snake_case → PascalCase + "Skill"
-    class_name = "".join(word.capitalize() for word in name.split("_")) + "Skill"
+    # 类名：snake_case → PascalCase + "Tool"
+    class_name = "".join(word.capitalize() for word in name.split("_")) + "Tool"
     target = Path(__file__).resolve().parent / "tools" / f"{name}.py"
 
     if target.exists():

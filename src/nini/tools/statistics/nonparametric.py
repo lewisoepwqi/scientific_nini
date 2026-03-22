@@ -11,7 +11,7 @@ from nini.tools.base import Tool, ToolResult
 from nini.tools.statistics.base import _get_df, _record_stat_result, _safe_float
 
 
-class MannWhitneySkill(Tool):
+class MannWhitneyTool(Tool):
     """执行 Mann-Whitney U 检验。"""
 
     @property
@@ -117,7 +117,7 @@ class MannWhitneySkill(Tool):
             return ToolResult(success=False, message=f"Mann-Whitney U 检验失败: {exc}")
 
 
-class KruskalWallisSkill(Tool):
+class KruskalWallisTool(Tool):
     """执行 Kruskal-Wallis H 检验。"""
 
     @property

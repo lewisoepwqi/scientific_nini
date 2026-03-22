@@ -63,7 +63,7 @@ def _prepare_line_dataframe(df: pd.DataFrame, x_col: str) -> pd.DataFrame:
     )
 
 
-class CreateChartSkill(Tool):
+class CreateChartTool(Tool):
     """生成科研图表。"""
 
     _chart_types = ["scatter", "line", "bar", "box", "violin", "histogram", "heatmap"]

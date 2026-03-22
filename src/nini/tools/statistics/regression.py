@@ -11,7 +11,7 @@ from nini.tools.base import Tool, ToolResult
 from nini.tools.statistics.base import _ensure_finite, _get_df, _record_stat_result, _safe_float
 
 
-class RegressionSkill(Tool):
+class RegressionTool(Tool):
     """执行线性回归分析。"""
 
     @property

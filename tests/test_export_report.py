@@ -1,4 +1,4 @@
-"""ExportReportSkill 单元测试。"""
+"""ExportReportTool 单元测试。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from nini.tools.export_report import (
-    ExportReportSkill,
+    ExportReportTool,
     _md_to_html,
     _normalize_plotly_figure_payload,
     _resolve_images_to_base64,
@@ -24,8 +24,8 @@ from nini.workspace import WorkspaceManager
 
 
 @pytest.fixture()
-def skill() -> ExportReportSkill:
-    return ExportReportSkill()
+def skill() -> ExportReportTool:
+    return ExportReportTool()
 
 
 @pytest.fixture()
@@ -269,13 +269,13 @@ def test_resolve_plotly_json_collects_failure_reason(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# Tests: ExportReportSkill.execute
+# Tests: ExportReportTool.execute
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_export_report_without_weasyprint(
-    skill: ExportReportSkill,
+    skill: ExportReportTool,
     mock_session: MagicMock,
     setup_report: Path,
 ):
@@ -310,7 +310,7 @@ original_import = builtins.__import__
 
 @pytest.mark.asyncio
 async def test_export_report_with_mock_weasyprint(
-    skill: ExportReportSkill,
+    skill: ExportReportTool,
     mock_session: MagicMock,
     setup_report: Path,
 ):
@@ -338,13 +338,15 @@ async def test_export_report_with_mock_weasyprint(
     assert result.artifacts[0]["download_url"].endswith(
         f"/api/workspace/{mock_session.id}/files/notes/exports/test_report.pdf"
     )
-    pdf_path = setup_report / mock_session.id / "workspace" / "notes" / "exports" / "test_report.pdf"
+    pdf_path = (
+        setup_report / mock_session.id / "workspace" / "notes" / "exports" / "test_report.pdf"
+    )
     assert pdf_path.read_bytes() == fake_pdf
 
 
 @pytest.mark.asyncio
 async def test_export_report_no_latest_report(
-    skill: ExportReportSkill,
+    skill: ExportReportTool,
     mock_session: MagicMock,
 ):
     """没有 latest_report 且未指定 report_name 时应报错。"""
@@ -355,7 +357,7 @@ async def test_export_report_no_latest_report(
 
 @pytest.mark.asyncio
 async def test_export_report_uses_latest_report(
-    skill: ExportReportSkill,
+    skill: ExportReportTool,
     mock_session: MagicMock,
     setup_report: Path,
 ):
@@ -382,7 +384,7 @@ async def test_export_report_uses_latest_report(
 
 @pytest.mark.asyncio
 async def test_export_report_supports_report_resource_id(
-    skill: ExportReportSkill,
+    skill: ExportReportTool,
     mock_session: MagicMock,
     setup_report: Path,
 ):
@@ -401,7 +403,12 @@ async def test_export_report_supports_report_resource_id(
         manager_settings.sessions_dir = setup_report
         manager = WorkspaceManager(mock_session.id)
         report_file = (
-            setup_report / mock_session.id / "workspace" / "notes" / "reports" / "resource_report.md"
+            setup_report
+            / mock_session.id
+            / "workspace"
+            / "notes"
+            / "reports"
+            / "resource_report.md"
         )
         report_file.parent.mkdir(parents=True, exist_ok=True)
         report_file.write_text("# 测试报告\n\n资源导出。\n", encoding="utf-8")
@@ -424,12 +431,12 @@ async def test_export_report_supports_report_resource_id(
         )
         manager.upsert_managed_resource(
             resource_id="report_demo",
-                resource_type="report",
-                name="测试报告",
-                path=report_record_path,
-                source_kind="reports",
-                metadata={"markdown_path": "notes/reports/resource_report.md"},
-            )
+            resource_type="report",
+            name="测试报告",
+            path=report_record_path,
+            source_kind="reports",
+            metadata={"markdown_path": "notes/reports/resource_report.md"},
+        )
         result = await skill.execute(session=mock_session, report_id="report_demo")
 
     assert result.success
@@ -439,7 +446,7 @@ async def test_export_report_supports_report_resource_id(
 
 @pytest.mark.asyncio
 async def test_export_report_custom_filename(
-    skill: ExportReportSkill,
+    skill: ExportReportTool,
     mock_session: MagicMock,
     setup_report: Path,
 ):
@@ -471,7 +478,7 @@ async def test_export_report_custom_filename(
 
 @pytest.mark.asyncio
 async def test_export_report_fail_fast_when_plotly_chrome_missing(
-    skill: ExportReportSkill,
+    skill: ExportReportTool,
     mock_session: MagicMock,
     setup_report: Path,
 ):
@@ -511,7 +518,7 @@ async def test_export_report_fail_fast_when_plotly_chrome_missing(
 # ---------------------------------------------------------------------------
 
 
-def test_skill_metadata(skill: ExportReportSkill):
+def test_skill_metadata(skill: ExportReportTool):
     assert skill.name == "export_report"
     assert skill.category == "export"
     assert not skill.is_idempotent

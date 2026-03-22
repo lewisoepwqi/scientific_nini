@@ -6,7 +6,7 @@ import pytest
 
 from nini.agent.session import Session
 from nini.tools.statistics import (
-    MultipleComparisonCorrectionSkill,
+    MultipleComparisonCorrectionTool,
     bonferroni_correction,
     fdr_correction,
     holm_correction,
@@ -183,7 +183,7 @@ class TestMultipleComparisonCorrectionSkill:
     """测试多重比较校正技能。"""
 
     async def test_skill_execution_bonferroni(self):
-        skill = MultipleComparisonCorrectionSkill()
+        skill = MultipleComparisonCorrectionTool()
         result = await skill.execute(
             session=Session(),
             p_values=[0.01, 0.02, 0.05],
@@ -196,7 +196,7 @@ class TestMultipleComparisonCorrectionSkill:
         assert result.data["method"] == "Bonferroni"
 
     async def test_skill_with_recommendation(self):
-        skill = MultipleComparisonCorrectionSkill()
+        skill = MultipleComparisonCorrectionTool()
         result = await skill.execute(
             session=Session(),
             p_values=[0.01, 0.02, 0.05],
@@ -209,7 +209,7 @@ class TestMultipleComparisonCorrectionSkill:
         assert "recommendation_reason" in result.data
 
     async def test_skill_empty_pvalues(self):
-        skill = MultipleComparisonCorrectionSkill()
+        skill = MultipleComparisonCorrectionTool()
         result = await skill.execute(
             session=Session(),
             p_values=[],
@@ -220,7 +220,7 @@ class TestMultipleComparisonCorrectionSkill:
         assert "不能为空" in result.message
 
     async def test_skill_invalid_pvalues(self):
-        skill = MultipleComparisonCorrectionSkill()
+        skill = MultipleComparisonCorrectionTool()
         result = await skill.execute(
             session=Session(),
             p_values=[0.5, 1.5, -0.1],  # 包含无效 p 值
@@ -231,7 +231,7 @@ class TestMultipleComparisonCorrectionSkill:
         assert "必须在 [0, 1] 范围内" in result.message
 
     async def test_skill_counts_significant(self):
-        skill = MultipleComparisonCorrectionSkill()
+        skill = MultipleComparisonCorrectionTool()
         result = await skill.execute(
             session=Session(),
             p_values=[0.001, 0.01, 0.1, 0.2],

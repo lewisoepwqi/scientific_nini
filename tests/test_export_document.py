@@ -1,4 +1,4 @@
-"""ExportDocumentSkill 单元测试。"""
+"""ExportDocumentTool 单元测试。"""
 
 from __future__ import annotations
 
@@ -8,23 +8,26 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from nini.agent.session import Session
-from nini.tools.export_document import ExportDocumentSkill
+from nini.tools.export_document import ExportDocumentTool
 from nini.workspace import WorkspaceManager
 
 
 @pytest.fixture()
-def skill() -> ExportDocumentSkill:
-    return ExportDocumentSkill()
+def skill() -> ExportDocumentTool:
+    return ExportDocumentTool()
 
 
 @pytest.mark.asyncio
-async def test_export_document_exports_workspace_markdown_to_pdf(tmp_path: Path, skill: ExportDocumentSkill):
+async def test_export_document_exports_workspace_markdown_to_pdf(
+    tmp_path: Path, skill: ExportDocumentTool
+):
     session = Session()
     sessions_dir = tmp_path / "sessions"
 
-    with patch("nini.tools.export_report.settings") as export_settings, patch(
-        "nini.workspace.manager.settings"
-    ) as manager_settings:
+    with (
+        patch("nini.tools.export_report.settings") as export_settings,
+        patch("nini.workspace.manager.settings") as manager_settings,
+    ):
         export_settings.sessions_dir = sessions_dir
         manager_settings.sessions_dir = sessions_dir
         manager = WorkspaceManager(session.id)
@@ -55,13 +58,16 @@ async def test_export_document_exports_workspace_markdown_to_pdf(tmp_path: Path,
 
 
 @pytest.mark.asyncio
-async def test_export_document_rejects_non_document_source(tmp_path: Path, skill: ExportDocumentSkill):
+async def test_export_document_rejects_non_document_source(
+    tmp_path: Path, skill: ExportDocumentTool
+):
     session = Session()
     sessions_dir = tmp_path / "sessions"
 
-    with patch("nini.tools.export_report.settings") as export_settings, patch(
-        "nini.workspace.manager.settings"
-    ) as manager_settings:
+    with (
+        patch("nini.tools.export_report.settings") as export_settings,
+        patch("nini.workspace.manager.settings") as manager_settings,
+    ):
         export_settings.sessions_dir = sessions_dir
         manager_settings.sessions_dir = sessions_dir
         manager = WorkspaceManager(session.id)

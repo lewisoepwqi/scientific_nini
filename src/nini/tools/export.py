@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 _KALEIDO_FORMATS = {"png", "jpeg", "svg", "pdf"}
 
 
-class ExportChartSkill(Tool):
+class ExportChartTool(Tool):
     """导出最近生成的图表。"""
 
     _formats = ["png", "jpeg", "svg", "pdf", "html", "json"]
@@ -213,9 +213,9 @@ class ExportChartSkill(Tool):
         height: int,
         scale: float,
     ) -> ToolResult:
-        from nini.tools.chart_session import ChartSessionSkill
+        from nini.tools.chart_session import ChartSessionTool
 
-        return await ChartSessionSkill().execute(
+        return await ChartSessionTool().execute(
             session,
             operation="export",
             chart_id=chart_id,

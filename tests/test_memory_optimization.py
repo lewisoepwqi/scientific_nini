@@ -14,7 +14,7 @@ import pytest
 from nini.agent.session import Session
 from nini.config import settings
 from nini.memory.conversation import ConversationMemory
-from nini.tools.data_ops import PreviewDataSkill
+from nini.tools.data_ops import PreviewDataTool
 
 
 class TestDataframePreviewLimit:
@@ -27,7 +27,7 @@ class TestDataframePreviewLimit:
         df = pd.DataFrame({"A": range(50), "B": range(50)})
         session.datasets["small"] = df
 
-        skill = PreviewDataSkill()
+        skill = PreviewDataTool()
         result = await skill.execute(session, dataset_name="small", n_rows=100)
 
         assert result.success
@@ -42,7 +42,7 @@ class TestDataframePreviewLimit:
         df = pd.DataFrame({"A": range(1000), "B": range(1000)})
         session.datasets["large"] = df
 
-        skill = PreviewDataSkill()
+        skill = PreviewDataTool()
         result = await skill.execute(session, dataset_name="large", n_rows=100)
 
         assert result.success
@@ -63,7 +63,7 @@ class TestDataframePreviewLimit:
         df = pd.DataFrame({"A": range(500), "B": range(500)})
         session.datasets["test"] = df
 
-        skill = PreviewDataSkill()
+        skill = PreviewDataTool()
         # 请求 200 行，但应该被限制为 MAX_PREVIEW_ROWS (100)
         result = await skill.execute(session, dataset_name="test", n_rows=200)
 

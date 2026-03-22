@@ -8,10 +8,10 @@ import pytest
 
 from nini.agent.session import Session
 from nini.tools.clean_data import (
-    CleanDataSkill,
+    CleanDataTool,
     MissingPattern,
     OutlierPattern,
-    RecommendCleaningStrategySkill,
+    RecommendCleaningStrategyTool,
     analyze_column_profile,
     analyze_dataset_features,
     analyze_missing_pattern,
@@ -254,7 +254,7 @@ class TestRecommendCleaningStrategySkill:
     """测试 recommend_cleaning_strategy 技能（直接实例化，不依赖注册表）。"""
 
     async def test_skill_execution(self):
-        skill = RecommendCleaningStrategySkill()
+        skill = RecommendCleaningStrategyTool()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame(
             {
@@ -270,7 +270,7 @@ class TestRecommendCleaningStrategySkill:
         assert "recommendations" in result["data"]
 
     async def test_skill_with_invalid_dataset(self):
-        skill = RecommendCleaningStrategySkill()
+        skill = RecommendCleaningStrategyTool()
         session = Session()
 
         result = (await skill.execute(session=session, dataset_name="nonexistent.csv")).to_dict()
@@ -279,7 +279,7 @@ class TestRecommendCleaningStrategySkill:
         assert "不存在" in result["message"]
 
     async def test_skill_with_target_columns(self):
-        skill = RecommendCleaningStrategySkill()
+        skill = RecommendCleaningStrategyTool()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame(
             {
@@ -306,7 +306,7 @@ class TestCleanDataAutoMode:
     """测试 clean_data 的 auto 模式（直接实例化，不依赖注册表）。"""
 
     async def test_auto_missing_strategy(self):
-        skill = CleanDataSkill()
+        skill = CleanDataTool()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame(
             {
@@ -330,7 +330,7 @@ class TestCleanDataAutoMode:
         assert result["data"]["missing_after"] == 0
 
     async def test_auto_outlier_strategy(self):
-        skill = CleanDataSkill()
+        skill = CleanDataTool()
         session = Session()
         # 创建有异常值的数据 - 使用更大的数据集
         np.random.seed(42)
@@ -355,7 +355,7 @@ class TestCleanDataAutoMode:
         # 异常值应该被处理（缩尾或删除）
 
     async def test_auto_mode_with_high_missing_column(self):
-        skill = CleanDataSkill()
+        skill = CleanDataTool()
         session = Session()
         # 创建高缺失率列
         session.datasets["test.csv"] = pd.DataFrame(
@@ -380,7 +380,7 @@ class TestCleanDataAutoMode:
         assert "mostly_missing" not in session.datasets["test.csv"].columns
 
     async def test_legacy_mode_still_works(self):
-        skill = CleanDataSkill()
+        skill = CleanDataTool()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame(
             {

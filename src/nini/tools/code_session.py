@@ -17,7 +17,7 @@ from nini.tools.code_runtime import execute_python_code, execute_r_code
 from nini.workspace import WorkspaceManager
 
 
-class CodeSessionSkill(Tool):
+class CodeSessionTool(Tool):
     """管理持久化脚本资源与执行历史。"""
 
     _LANGUAGES = {"python": "py", "r": "R"}

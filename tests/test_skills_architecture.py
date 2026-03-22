@@ -396,7 +396,7 @@ def test_snapshot_includes_category() -> None:
             "category": "statistics",
             "enabled": True,
             "description": "t 检验",
-            "location": "nini.tools.statistics.TTestSkill",
+            "location": "nini.tools.statistics.TTestTool",
         },
         {
             "name": "pub_fig",

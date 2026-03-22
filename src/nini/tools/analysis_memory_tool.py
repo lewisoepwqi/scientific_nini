@@ -12,7 +12,7 @@ from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
 
 
-class AnalysisMemorySkill(Tool):
+class AnalysisMemoryTool(Tool):
     """分析记忆查询工具。
 
     支持两种操作：

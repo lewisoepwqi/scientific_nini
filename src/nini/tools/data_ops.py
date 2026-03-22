@@ -57,7 +57,7 @@ def _unique_dataset_name(session: Session, preferred_name: str) -> str:
 # ---- 技能实现 ----
 
 
-class LoadDatasetSkill(Tool):
+class LoadDatasetTool(Tool):
     """加载已上传的数据集到会话。"""
 
     @property
@@ -301,7 +301,7 @@ class LoadDatasetSkill(Tool):
         )
 
 
-class PreviewDataSkill(Tool):
+class PreviewDataTool(Tool):
     """预览数据集的前后部分行（避免大数据集预览过大）。"""
 
     # 预览行数上限（超过此值将采用 head+tail 策略）
@@ -393,7 +393,7 @@ class PreviewDataSkill(Tool):
         )
 
 
-class DataSummarySkill(Tool):
+class DataSummaryTool(Tool):
     """计算数据集的描述性统计摘要。"""
 
     @property

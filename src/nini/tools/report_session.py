@@ -15,7 +15,7 @@ from nini.tools.report import _sanitize_chinese_filename
 from nini.workspace import WorkspaceManager
 
 
-class ReportSessionSkill(Tool):
+class ReportSessionTool(Tool):
     """管理报告会话资源。"""
 
     _EMBEDDED_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")

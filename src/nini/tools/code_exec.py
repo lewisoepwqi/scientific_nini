@@ -6,10 +6,10 @@ from typing import Any
 
 from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
-from nini.tools.code_session import CodeSessionSkill
+from nini.tools.code_session import CodeSessionTool
 
 
-class RunCodeSkill(Tool):
+class RunCodeTool(Tool):
     """运行用户提供的 Python 代码。"""
 
     @property
@@ -70,7 +70,7 @@ class RunCodeSkill(Tool):
         }
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
-        return await CodeSessionSkill().run_ad_hoc_script(
+        return await CodeSessionTool().run_ad_hoc_script(
             session,
             language="python",
             content=str(kwargs.get("code", "") or ""),

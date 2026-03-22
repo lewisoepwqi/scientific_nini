@@ -24,7 +24,7 @@ from nini.tools.statistics.multiple_comparison import (
 logger = logging.getLogger(__name__)
 
 
-class ANOVASkill(Tool):
+class ANOVATool(Tool):
     """执行单因素方差分析。"""
 
     @property

@@ -12,7 +12,7 @@ from nini.agent.session import Session
 from nini.config import settings
 from nini.models import ResourceType
 from nini.tools.base import ToolResult
-from nini.tools.fetch_url import FetchURLSkill
+from nini.tools.fetch_url import FetchURLTool
 import nini.tools.report_session as report_session_module
 from nini.tools.registry import LLM_EXPOSED_BASE_TOOL_NAMES, create_default_tool_registry
 from nini.workspace import WorkspaceManager
@@ -723,7 +723,7 @@ def test_workspace_session_unifies_file_ops_and_fetch_save(
     assert read_result["success"] is True, read_result
     assert "# summary" in read_result["data"]["content"]
 
-    async def fake_fetch(self: FetchURLSkill, session: Session, **kwargs: object) -> ToolResult:
+    async def fake_fetch(self: FetchURLTool, session: Session, **kwargs: object) -> ToolResult:
         return ToolResult(
             success=True,
             message="抓取成功",
@@ -734,7 +734,7 @@ def test_workspace_session_unifies_file_ops_and_fetch_save(
             },
         )
 
-    monkeypatch.setattr(FetchURLSkill, "execute", fake_fetch)
+    monkeypatch.setattr(FetchURLTool, "execute", fake_fetch)
 
     fetch_result = asyncio.run(
         registry.execute(

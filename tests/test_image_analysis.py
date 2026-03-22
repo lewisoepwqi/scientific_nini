@@ -63,30 +63,30 @@ class TestImageAnalysisSkill:
 
     def test_skill_exists(self):
         """测试技能类存在。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
-        assert ImageAnalysisSkill is not None
+        assert ImageAnalysisTool is not None
 
     def test_skill_name(self):
         """测试技能名称。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
         assert skill.name == "image_analysis"
 
     def test_skill_description(self):
         """测试技能描述。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
         assert skill.description != ""
         assert "图片" in skill.description or "图像" in skill.description
 
     def test_skill_parameters(self):
         """测试技能参数。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
         params = skill.parameters
 
         assert "type" in params
@@ -95,9 +95,9 @@ class TestImageAnalysisSkill:
 
     def test_parameter_required_fields(self):
         """测试参数定义。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
         params = skill.parameters
 
         # 图片来源参数应该存在（但不一定必需）
@@ -111,10 +111,10 @@ class TestImageAnalysisExecution:
     @pytest.mark.asyncio
     async def test_analyze_from_url_with_error(self):
         """测试从无效 URL 分析图片时的错误处理。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         # 使用 mock 避免真实网络请求导致测试不稳定。
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -137,10 +137,10 @@ class TestImageAnalysisExecution:
     @pytest.mark.asyncio
     async def test_analyze_from_url(self, mock_image_data):
         """测试从 URL 分析图片（使用 mock）。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         # 使用 mock httpx 来模拟成功的图片下载
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -166,10 +166,10 @@ class TestImageAnalysisExecution:
     @pytest.mark.asyncio
     async def test_analyze_with_base64_data(self, mock_image_data, mock_vision_response):
         """测试使用 base64 数据分析图片。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         # Mock the vision model call
         with (
@@ -191,10 +191,10 @@ class TestImageAnalysisExecution:
     @pytest.mark.asyncio
     async def test_analyze_extract_data(self, mock_image_data):
         """测试从图片提取数据。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         # 使用 base64 数据
         result = await skill.execute(
@@ -210,10 +210,10 @@ class TestImageAnalysisExecution:
     @pytest.mark.asyncio
     async def test_analyze_chart_info(self, mock_image_data):
         """测试提取图表信息。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         result = await skill.execute(
             session,
@@ -230,10 +230,10 @@ class TestImageToDataset:
     @pytest.mark.asyncio
     async def test_save_extracted_data_as_dataset(self, mock_image_data, mock_data_response):
         """测试将提取的数据保存为新数据集。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         # Mock the vision model call
         with (
@@ -257,10 +257,10 @@ class TestImageToDataset:
     @pytest.mark.asyncio
     async def test_extracted_dataframe_structure(self, mock_image_data, mock_data_response):
         """测试提取的 DataFrame 结构正确。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         # Mock the vision model call
         with (
@@ -289,10 +289,10 @@ class TestChartInfoExtraction:
     @pytest.mark.asyncio
     async def test_detect_chart_type(self, mock_image_data, mock_vision_response):
         """测试检测图表类型。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         # Mock the vision model call
         with (
@@ -315,10 +315,10 @@ class TestChartInfoExtraction:
     @pytest.mark.asyncio
     async def test_extract_chart_data(self, mock_image_data, mock_vision_response):
         """测试提取图表数据。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         # Mock the vision model call
         with (
@@ -358,10 +358,10 @@ class TestImageAnalysisIntegration:
     @pytest.mark.asyncio
     async def test_image_analysis_with_file_upload(self, mock_image_data):
         """测试文件上传后的图片分析。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         # 模拟文件已上传的情况（使用 base64 数据代替）
         result = await skill.execute(
@@ -379,7 +379,7 @@ class TestVisionModelIntegration:
     @pytest.mark.asyncio
     async def test_gpt4v_integration(self):
         """测试 GPT-4V 集成（如果可用）。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
         from nini.config import settings
 
         # 检查是否有配置
@@ -390,7 +390,7 @@ class TestVisionModelIntegration:
 
         # 测试 GPT-4V 功能
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         # 使用 base64 数据测试
         result = await skill.execute(
@@ -404,10 +404,10 @@ class TestVisionModelIntegration:
     @pytest.mark.asyncio
     async def test_fallback_on_model_unavailable(self, mock_image_data):
         """测试模型不可用时的降级处理。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         # Mock vision as unavailable
         with patch.object(skill, "_is_vision_available", return_value=False):
@@ -422,9 +422,9 @@ class TestVisionModelIntegration:
     @pytest.mark.asyncio
     async def test_call_vision_model_uses_image_analysis_purpose(self, mock_image_data):
         """视觉模型调用应走 image_analysis 用途路由。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
         called_kwargs: dict[str, Any] = {}
 
         async def _fake_chat_complete(*args, **kwargs):  # type: ignore[no-untyped-def]
@@ -447,10 +447,10 @@ class TestDataFormatSupport:
     @pytest.mark.asyncio
     async def test_supports_csv_output(self, mock_image_data):
         """测试支持 CSV 格式输出。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         result = await skill.execute(
             session,
@@ -464,10 +464,10 @@ class TestDataFormatSupport:
     @pytest.mark.asyncio
     async def test_supports_json_output(self, mock_image_data):
         """测试支持 JSON 格式输出。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         result = await skill.execute(
             session,
@@ -481,10 +481,10 @@ class TestDataFormatSupport:
     @pytest.mark.asyncio
     async def test_supports_dataframe_output(self, mock_image_data):
         """测试支持 DataFrame 输出。"""
-        from nini.tools.image_analysis import ImageAnalysisSkill
+        from nini.tools.image_analysis import ImageAnalysisTool
 
         session = Session()
-        skill = ImageAnalysisSkill()
+        skill = ImageAnalysisTool()
 
         result = await skill.execute(
             session,

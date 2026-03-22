@@ -550,7 +550,7 @@ def _resolve_output_name(
     return candidate
 
 
-class GenerateReportSkill(Tool):
+class GenerateReportTool(Tool):
     """生成 Markdown 分析报告并保存为产物。"""
 
     @property
@@ -625,7 +625,7 @@ class GenerateReportSkill(Tool):
         return False
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
-        from nini.tools.report_session import ReportSessionSkill
+        from nini.tools.report_session import ReportSessionTool
 
         title = str(kwargs.get("title", "科研数据分析报告")).strip() or "科研数据分析报告"
         summary_text = _strip_tool_mentions(str(kwargs.get("summary_text", "") or ""))
@@ -655,7 +655,7 @@ class GenerateReportSkill(Tool):
             filename=filename,
             title=title,
         )
-        report_result = await ReportSessionSkill().execute(
+        report_result = await ReportSessionTool().execute(
             session,
             operation="create",
             title=title,

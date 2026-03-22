@@ -15,7 +15,7 @@ from nini.tools.base import Tool, ToolResult
 logger = logging.getLogger(__name__)
 
 
-class TaskWriteSkill(Tool):
+class TaskWriteTool(Tool):
     """管理分析任务列表（PDCA 闭环）。
 
     使用规范：

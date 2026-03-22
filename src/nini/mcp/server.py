@@ -39,7 +39,8 @@ try:
     NotificationOptions = getattr(lowlevel_mod, "NotificationOptions", None)
     InitializationOptions = getattr(models_mod, "InitializationOptions", None)
     _MCP_AVAILABLE = all(
-        value is not None for value in (mcp, types, Server, NotificationOptions, InitializationOptions)
+        value is not None
+        for value in (mcp, types, Server, NotificationOptions, InitializationOptions)
     )
 except Exception:
     _MCP_AVAILABLE = False
@@ -102,7 +103,7 @@ def create_mcp_server(
     """创建并配置 MCP Server 实例。
 
     Args:
-        registry: 可选的 SkillRegistry 实例。若为 None，使用默认注册中心。
+        registry: 可选的 ToolRegistry 实例。若为 None，使用默认注册中心。
         capability_registry: 可选的 CapabilityRegistry 实例。
 
     Returns:
@@ -132,16 +133,16 @@ def create_mcp_server(
                 types.Tool(
                     name=str(function_def.get("name", "")),
                     description=str(function_def.get("description", "")),
-                    inputSchema=function_def.get("parameters", {"type": "object", "properties": {}}),
+                    inputSchema=function_def.get(
+                        "parameters", {"type": "object", "properties": {}}
+                    ),
                 )
             )
 
         return tools
 
     @server.call_tool()
-    async def call_tool(
-        name: str, arguments: dict[str, Any] | None
-    ) -> list[Any]:
+    async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[Any]:
         """执行指定工具并返回结果。"""
         args = arguments or {}
 
@@ -150,13 +151,11 @@ def create_mcp_server(
             result = await _handle_architecture_tool(name, args, capability_registry, registry)
         else:
             # 处理普通 Function Skill
-            result = await _handle_skill_tool(name, args, registry)
+            result = await _handle_tool_call(name, args, registry)
 
         # 序列化结果
         result_text = json.dumps(result, ensure_ascii=False, default=str)
-        contents: list[Any] = [
-            types.TextContent(type="text", text=result_text)
-        ]
+        contents: list[Any] = [types.TextContent(type="text", text=result_text)]
 
         # 如果结果包含图表 JSON，额外返回
         if isinstance(result, dict) and result.get("has_chart") and result.get("chart_data"):
@@ -205,7 +204,7 @@ def create_mcp_server(
                         content=types.TextContent(
                             type="text",
                             text=f"你是 Nini 科研数据分析助手。{'擅长' + domain + '领域。' if domain != 'general' else ''}"
-                                 "请基于统计严谨性提供分析，自动检查前提假设，报告效应量和置信区间。",
+                            "请基于统计严谨性提供分析，自动检查前提假设，报告效应量和置信区间。",
                         ),
                     ),
                 ],
@@ -341,12 +340,12 @@ async def _handle_architecture_tool(
     return {"success": False, "error": f"未知架构工具: {name}"}
 
 
-async def _handle_skill_tool(
+async def _handle_tool_call(
     name: str,
     args: dict[str, Any],
     registry: Any,
 ) -> dict[str, Any]:
-    """处理普通技能工具调用。"""
+    """处理普通工具调用。"""
     skill = registry.get(name)
     if skill is None:
         return {"success": False, "message": f"未知工具: {name}"}
@@ -375,7 +374,7 @@ async def run_stdio(
     """通过 stdio 传输运行 MCP Server。
 
     Args:
-        registry: 可选的 SkillRegistry 实例。
+        registry: 可选的 ToolRegistry 实例。
         capability_registry: 可选的 CapabilityRegistry 实例。
     """
     _check_mcp_available()

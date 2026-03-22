@@ -28,25 +28,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# 运行时注入的 tool_registry
-# 注意：虽然变量名保持 _skill_registry 以向后兼容，但类型是 ToolRegistry
+# 运行时注入的 tool_registry（由 app.py 调用 set_skill_registry 注入）
 _tool_registry: ToolRegistry | None = None
 
 
 def set_skill_registry(registry: ToolRegistry) -> None:
-    """设置工具注册中心。
-
-    注意：函数名保持 set_skill_registry 以向后兼容，但参数类型是 ToolRegistry。
-    """
+    """设置工具注册中心（函数名待 PR-2 重命名为 set_tool_registry）。"""
     global _tool_registry
     _tool_registry = registry
 
 
 def get_skill_registry() -> ToolRegistry | None:
-    """获取工具注册中心。
-
-    注意：函数名保持 get_skill_registry 以向后兼容，但返回类型是 ToolRegistry。
-    """
+    """获取工具注册中心（函数名待 PR-2 重命名为 get_tool_registry）。"""
     return _tool_registry
 
 

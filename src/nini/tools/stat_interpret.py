@@ -6,14 +6,14 @@ from typing import Any
 
 from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
-from nini.tools.interpretation import InterpretStatisticalResultSkill
+from nini.tools.interpretation import InterpretStatisticalResultTool
 
 
-class StatInterpretSkill(Tool):
+class StatInterpretTool(Tool):
     """统一统计解读入口。"""
 
     def __init__(self) -> None:
-        self._delegate = InterpretStatisticalResultSkill()
+        self._delegate = InterpretStatisticalResultTool()
 
     @property
     def name(self) -> str:

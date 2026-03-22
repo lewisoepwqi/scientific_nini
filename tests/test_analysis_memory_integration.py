@@ -232,9 +232,9 @@ class TestStatSkillWritesKnowledge:
 
     @pytest.mark.asyncio
     async def test_ttest_writes_knowledge(self) -> None:
-        from nini.tools.statistics import TTestSkill
+        from nini.tools.statistics import TTestTool
 
-        skill = TTestSkill()
+        skill = TTestTool()
         result = await skill.execute(
             self.session,
             dataset_name="mydata",
@@ -247,9 +247,9 @@ class TestStatSkillWritesKnowledge:
 
     @pytest.mark.asyncio
     async def test_mann_whitney_writes_knowledge(self) -> None:
-        from nini.tools.statistics import MannWhitneySkill
+        from nini.tools.statistics import MannWhitneyTool
 
-        skill = MannWhitneySkill()
+        skill = MannWhitneyTool()
         result = await skill.execute(
             self.session,
             dataset_name="mydata",
