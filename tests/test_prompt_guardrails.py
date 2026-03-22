@@ -161,7 +161,7 @@ async def test_build_messages_injects_explicit_slash_skill_context(
     session = Session()
     session.add_message("user", "/root-analysis 帮我分析上传的数据")
 
-    runner = AgentRunner(skill_registry=registry)
+    runner = AgentRunner(tool_registry=registry)
     messages = await runner._build_messages(session)
     context_msg = next(
         m

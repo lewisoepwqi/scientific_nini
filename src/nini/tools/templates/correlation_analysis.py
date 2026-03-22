@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class CorrelationAnalysisSkill(Tool):
+class CorrelationAnalysisTool(Tool):
     """相关性分析技能（模板）。"""
 
     @property

@@ -163,7 +163,7 @@ class TestContextMatching:
             },
         }
         registry._markdown_skills = [md_skill]
-        runner = AgentRunner(skill_registry=registry)
+        runner = AgentRunner(tool_registry=registry)
 
         matches = runner._match_skills_by_context("我想做根长分析")
         assert len(matches) == 1
@@ -183,7 +183,7 @@ class TestContextMatching:
             "metadata": {"tags": ["ecology", "biodiversity"]},
         }
         registry._markdown_skills = [md_skill]
-        runner = AgentRunner(skill_registry=registry)
+        runner = AgentRunner(tool_registry=registry)
 
         matches = runner._match_skills_by_context("biodiversity assessment")
         assert len(matches) == 1
@@ -202,7 +202,7 @@ class TestContextMatching:
             "metadata": {"aliases": ["根长分析"], "tags": ["root-length"]},
         }
         registry._markdown_skills = [md_skill]
-        runner = AgentRunner(skill_registry=registry)
+        runner = AgentRunner(tool_registry=registry)
 
         matches = runner._match_skills_by_context("天气预报查询")
         assert len(matches) == 0
@@ -221,7 +221,7 @@ class TestContextMatching:
             "metadata": {"aliases": ["根长分析"]},
         }
         registry._markdown_skills = [md_skill]
-        runner = AgentRunner(skill_registry=registry)
+        runner = AgentRunner(tool_registry=registry)
 
         matches = runner._match_skills_by_context("根长分析")
         assert len(matches) == 0
@@ -243,7 +243,7 @@ class TestContextMatching:
             },
         }
         registry._markdown_skills = [md_skill]
-        runner = AgentRunner(skill_registry=registry)
+        runner = AgentRunner(tool_registry=registry)
 
         matches = runner._match_skills_by_context("根长分析")
         assert len(matches) == 0
@@ -281,7 +281,7 @@ class TestAllowedToolsAdvisory:
         md_skills = scan_markdown_skills([skills_dir])
         registry._markdown_skills = [s.to_dict() for s in md_skills]
 
-        runner = AgentRunner(skill_registry=registry)
+        runner = AgentRunner(tool_registry=registry)
         context = runner._build_explicit_skill_context("/test-skill my_data.csv")
         assert "首选工具" in context
         assert "高风险越界会请求用户确认" in context
@@ -316,7 +316,7 @@ class TestAllowedToolsAdvisory:
         md_skills = scan_markdown_skills([skills_dir])
         registry._markdown_skills = [s.to_dict() for s in md_skills]
 
-        runner = AgentRunner(skill_registry=registry)
+        runner = AgentRunner(tool_registry=registry)
         context = runner._build_explicit_skill_context("/resource-skill")
         assert "运行时资源" in context
         assert "references/protocol.md" in context
@@ -344,7 +344,7 @@ class TestAllowedToolsAdvisory:
         md_skills = scan_markdown_skills([skills_dir])
         registry._markdown_skills = [s.to_dict() for s in md_skills]
 
-        runner = AgentRunner(skill_registry=registry)
+        runner = AgentRunner(tool_registry=registry)
         context = runner._build_explicit_skill_context("/simple-skill")
         assert "首选工具" not in context
 

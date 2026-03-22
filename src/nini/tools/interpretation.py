@@ -477,7 +477,7 @@ from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
 
 
-class InterpretStatisticalResultSkill(Tool):
+class InterpretStatisticalResultTool(Tool):
     """智能解读统计检验结果，生成实际意义解释。"""
 
     @property

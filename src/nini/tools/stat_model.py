@@ -7,17 +7,17 @@ from typing import Any
 
 from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
-from nini.tools.statistics import CorrelationSkill, RegressionSkill
+from nini.tools.statistics import CorrelationTool, RegressionTool
 
 
-class StatModelSkill(Tool):
+class StatModelTool(Tool):
     """统一相关分析与回归分析入口。"""
 
     def __init__(self) -> None:
         self._delegates = {
-            "correlation": CorrelationSkill(),
-            "linear_regression": RegressionSkill(),
-            "multiple_regression": RegressionSkill(),
+            "correlation": CorrelationTool(),
+            "linear_regression": RegressionTool(),
+            "multiple_regression": RegressionTool(),
         }
 
     @property

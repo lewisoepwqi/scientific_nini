@@ -75,10 +75,10 @@ class ContextBuilder:
     def __init__(
         self,
         knowledge_loader: KnowledgeLoader | None = None,
-        skill_registry: Any = None,
+        tool_registry: Any = None,
     ) -> None:
         self._knowledge_loader = knowledge_loader or KnowledgeLoader(settings.knowledge_dir)
-        self._skill_registry = skill_registry
+        self._tool_registry = tool_registry
 
     @property
     def inline_skill_max_count(self) -> int:
@@ -228,7 +228,9 @@ class ContextBuilder:
         # 注入图表输出格式偏好（指导 LLM 选择 render_engine）
         pref = getattr(session, "chart_output_preference", None)
         if pref:
-            pref_label = "交互式（Plotly）" if pref == "interactive" else "静态图片（Matplotlib/PNG）"
+            pref_label = (
+                "交互式（Plotly）" if pref == "interactive" else "静态图片（Matplotlib/PNG）"
+            )
             context_parts.append(
                 f"[图表输出偏好] 用户当前偏好：{pref_label}。生成图表时 render_engine 应选择对应值，无需再次询问。"
             )
@@ -310,7 +312,7 @@ class ContextBuilder:
         """Build context for explicitly selected skills via /skill."""
         return build_explicit_skill_context_block(
             user_message,
-            self._skill_registry,
+            self._tool_registry,
             context_intent_analyzer=_get_context_intent_analyzer,
             runtime_resources_builder=self._build_skill_runtime_resources_note,
         )
@@ -319,7 +321,7 @@ class ContextBuilder:
         """Build lightweight intent analysis context."""
         return build_intent_runtime_context_block(
             user_message,
-            self._skill_registry,
+            self._tool_registry,
             intent_analyzer=_get_intent_analyzer,
             intent_analysis=intent_analysis,
         )
@@ -328,13 +330,13 @@ class ContextBuilder:
         """Match Markdown Skills by checking user message against aliases, tags, and name."""
         return match_skills_by_context(
             user_message,
-            self._skill_registry,
+            self._tool_registry,
             context_intent_analyzer=_get_context_intent_analyzer,
         )
 
     def _build_skill_runtime_resources_note(self, skill_name: str) -> str:
         """Build skill runtime resources note."""
-        return build_skill_runtime_resources_note(self._skill_registry, skill_name)
+        return build_skill_runtime_resources_note(self._tool_registry, skill_name)
 
     @classmethod
     def _discover_agents_md(cls) -> str:

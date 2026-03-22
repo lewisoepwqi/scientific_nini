@@ -220,7 +220,7 @@ async def test_runner_requests_sandbox_import_approval_and_retries() -> None:
 
     runner = AgentRunner(
         resolver=_SandboxApprovalResolver(),
-        skill_registry=registry,
+        tool_registry=registry,
         ask_user_question_handler=_ask_handler,
     )
 
@@ -234,7 +234,9 @@ async def test_runner_requests_sandbox_import_approval_and_retries() -> None:
     assert registry.execute_calls == 2
     assert session.has_sandbox_import_approval("sympy")
     run_code_results = [
-        event for event in events if event.type == EventType.TOOL_RESULT and event.tool_name == "run_code"
+        event
+        for event in events
+        if event.type == EventType.TOOL_RESULT and event.tool_name == "run_code"
     ]
     assert run_code_results[-1].data["status"] == "success"
 
@@ -249,7 +251,7 @@ async def test_runner_stops_when_sandbox_import_is_denied() -> None:
 
     runner = AgentRunner(
         resolver=_SandboxApprovalResolver(),
-        skill_registry=registry,
+        tool_registry=registry,
         ask_user_question_handler=_ask_handler,
     )
 
@@ -261,7 +263,9 @@ async def test_runner_stops_when_sandbox_import_is_denied() -> None:
 
     assert registry.execute_calls == 1
     run_code_results = [
-        event for event in events if event.type == EventType.TOOL_RESULT and event.tool_name == "run_code"
+        event
+        for event in events
+        if event.type == EventType.TOOL_RESULT and event.tool_name == "run_code"
     ]
     assert run_code_results[-1].data["status"] == "error"
     assert "用户拒绝放行" in run_code_results[-1].data["data"]["result"]["message"]
@@ -277,7 +281,7 @@ async def test_runner_blocks_repeated_sandbox_review_after_single_retry() -> Non
 
     runner = AgentRunner(
         resolver=_SandboxApprovalResolver(),
-        skill_registry=registry,
+        tool_registry=registry,
         ask_user_question_handler=_ask_handler,
     )
 
@@ -289,7 +293,12 @@ async def test_runner_blocks_repeated_sandbox_review_after_single_retry() -> Non
 
     assert registry.execute_calls == 2
     run_code_results = [
-        event for event in events if event.type == EventType.TOOL_RESULT and event.tool_name == "run_code"
+        event
+        for event in events
+        if event.type == EventType.TOOL_RESULT and event.tool_name == "run_code"
     ]
     assert run_code_results[-1].data["status"] == "error"
-    assert run_code_results[-1].data["data"]["result"]["error_code"] == "SANDBOX_IMPORT_APPROVAL_REPEAT"
+    assert (
+        run_code_results[-1].data["data"]["result"]["error_code"]
+        == "SANDBOX_IMPORT_APPROVAL_REPEAT"
+    )

@@ -8,8 +8,8 @@ import pytest
 
 from nini.agent.session import Session
 from nini.tools.data_quality import (
-    DataQualityReportSkill,
-    DataQualitySkill,
+    DataQualityReportTool,
+    DataQualityTool,
     DimensionScore,
     QualityDimension,
     QualityReport,
@@ -272,7 +272,7 @@ class TestDataQualitySkill:
     """测试数据质量评估技能（直接实例化，不依赖注册表）。"""
 
     async def test_skill_execution(self):
-        skill = DataQualitySkill()
+        skill = DataQualityTool()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame(
             {
@@ -290,7 +290,7 @@ class TestDataQualitySkill:
         assert "summary" in result["data"]
 
     async def test_skill_with_invalid_dataset(self):
-        skill = DataQualitySkill()
+        skill = DataQualityTool()
         session = Session()
 
         result = (await skill.execute(session=session, dataset_name="nonexistent.csv")).to_dict()
@@ -299,7 +299,7 @@ class TestDataQualitySkill:
         assert "不存在" in result["message"]
 
     async def test_skill_with_missing_dataset_name(self):
-        skill = DataQualitySkill()
+        skill = DataQualityTool()
         session = Session()
 
         result = (await skill.execute(session=session)).to_dict()
@@ -313,9 +313,9 @@ class TestDataQualityReportSkill:
     """测试详细质量报告技能。"""
 
     async def test_detailed_report(self):
-        from nini.tools.data_quality import DataQualityReportSkill
+        from nini.tools.data_quality import DataQualityReportTool
 
-        skill = DataQualityReportSkill()
+        skill = DataQualityReportTool()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame(
             {
@@ -334,9 +334,9 @@ class TestDataQualityReportSkill:
         assert "cleaning_recommendations" in result["data"]
 
     async def test_report_without_recommendations(self):
-        from nini.tools.data_quality import DataQualityReportSkill
+        from nini.tools.data_quality import DataQualityReportTool
 
-        skill = DataQualityReportSkill()
+        skill = DataQualityReportTool()
         session = Session()
         session.datasets["test.csv"] = pd.DataFrame({"a": [1, 2, 3]})
 

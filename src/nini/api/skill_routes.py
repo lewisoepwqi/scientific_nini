@@ -1,7 +1,7 @@
 """技能和工具路由（辅助模块）。
 
 注意：本模块提供 /capabilities 路由的备用实现。主要路由逻辑由 routes.py 驱动，
-通过 _get_skill_registry() 访问共享注册表。
+通过 _get_tool_registry() 访问共享注册表。
 """
 
 from __future__ import annotations

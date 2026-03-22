@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class CompleteANOVASkill(Tool):
+class CompleteANOVATool(Tool):
     """完整 ANOVA 分析技能（模板）。"""
 
     @property

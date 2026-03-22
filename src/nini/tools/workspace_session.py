@@ -7,21 +7,21 @@ from typing import Any
 from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
 from nini.tools.edit_file import EditFile
-from nini.tools.fetch_url import FetchURLSkill
-from nini.tools.organize_workspace import OrganizeWorkspaceSkill
-from nini.tools.workspace_files import ListWorkspaceFilesSkill
+from nini.tools.fetch_url import FetchURLTool
+from nini.tools.organize_workspace import OrganizeWorkspaceTool
+from nini.tools.workspace_files import ListWorkspaceFilesTool
 
 
-class WorkspaceSessionSkill(Tool):
+class WorkspaceSessionTool(Tool):
     """统一工作区读写与抓取入口。"""
 
     _OPERATIONS = ("list", "read", "write", "append", "edit", "organize", "fetch_url")
 
     def __init__(self) -> None:
         self._edit = EditFile()
-        self._fetch = FetchURLSkill()
-        self._organize = OrganizeWorkspaceSkill()
-        self._list = ListWorkspaceFilesSkill()
+        self._fetch = FetchURLTool()
+        self._organize = OrganizeWorkspaceTool()
+        self._list = ListWorkspaceFilesTool()
 
     @property
     def name(self) -> str:

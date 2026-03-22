@@ -278,7 +278,7 @@ class SubAgentSpawner:
         subset_registry = self._tool_registry.create_subset(agent_def.allowed_tools)
 
         # 实例化 AgentRunner，注入受限工具集
-        runner = AgentRunner(skill_registry=subset_registry)
+        runner = AgentRunner(tool_registry=subset_registry)
 
         # 执行 ReAct 循环，收集输出
         output_parts: list[str] = []
@@ -350,7 +350,7 @@ class SubAgentSpawner:
 
         # 构造受限工具子集
         subset_registry = self._tool_registry.create_subset(agent_def.allowed_tools)
-        runner = AgentRunner(skill_registry=subset_registry)
+        runner = AgentRunner(tool_registry=subset_registry)
 
         all_output_parts: list[str] = []
 
@@ -428,13 +428,13 @@ class SubAgentSpawner:
                 await self._push_event(
                     parent_session,
                     "hypothesis_refuted",
-                    eb.build_hypothesis_refuted_event(
-                        agent_def.agent_id, h.id, "置信度过低"
-                    ).data,
+                    eb.build_hypothesis_refuted_event(agent_def.agent_id, h.id, "置信度过低").data,
                 )
 
         detailed_output = "\n".join(all_output_parts)
-        summary = detailed_output[:500] if detailed_output else f"Agent {agent_def.agent_id} 完成假设推理"
+        summary = (
+            detailed_output[:500] if detailed_output else f"Agent {agent_def.agent_id} 完成假设推理"
+        )
 
         return SubAgentResult(
             agent_id=agent_def.agent_id,

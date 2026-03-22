@@ -19,7 +19,7 @@ from nini.workflow.store import (
 logger = logging.getLogger(__name__)
 
 
-class SaveWorkflowSkill(Tool):
+class SaveWorkflowTool(Tool):
     """从当前会话提取工具调用序列，保存为可复用的工作流模板。"""
 
     @property
@@ -80,7 +80,7 @@ class SaveWorkflowSkill(Tool):
         )
 
 
-class ListWorkflowsSkill(Tool):
+class ListWorkflowsTool(Tool):
     """列出所有已保存的工作流模板。"""
 
     @property
@@ -118,7 +118,7 @@ class ListWorkflowsSkill(Tool):
         )
 
 
-class ApplyWorkflowSkill(Tool):
+class ApplyWorkflowTool(Tool):
     """对当前数据集执行已保存的工作流模板。"""
 
     @property

@@ -14,11 +14,11 @@ import pytest
 from nini.agent.session import Session
 from nini.config import settings
 from nini.tools.base import Tool, ToolResult
-from nini.tools.clean_data import CleanDataSkill
-from nini.tools.report import GenerateReportSkill
+from nini.tools.clean_data import CleanDataTool
+from nini.tools.report import GenerateReportTool
 from nini.tools.registry import ToolRegistry
 from nini.tools.registry import create_default_tool_registry
-from nini.tools.visualization import CreateChartSkill
+from nini.tools.visualization import CreateChartTool
 from nini.workspace import WorkspaceManager
 
 
@@ -30,8 +30,8 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_clean_data_generates_cleaned_dataset() -> None:
-    """直接实例化 CleanDataSkill 进行单元测试，无需通过注册表。"""
-    skill = CleanDataSkill()
+    """直接实例化 CleanDataTool 进行单元测试，无需通过注册表。"""
+    skill = CleanDataTool()
     session = Session()
     session.datasets["exp.csv"] = pd.DataFrame(
         {
@@ -119,7 +119,7 @@ def test_generate_report_writes_document_and_knowledge() -> None:
 
 
 def test_generate_report_can_include_single_session_stats_section() -> None:
-    skill = GenerateReportSkill()
+    skill = GenerateReportTool()
     session = Session()
     session.datasets["exp.csv"] = pd.DataFrame({"x": [1, 2, 3]})
     session.add_message("user", "统计信息测试")
@@ -142,7 +142,7 @@ def test_generate_report_can_include_single_session_stats_section() -> None:
 
 
 def test_generate_report_chart_preview_deduplicates_multi_format_artifacts() -> None:
-    skill = GenerateReportSkill()
+    skill = GenerateReportTool()
     session = Session()
     session.datasets["exp.csv"] = pd.DataFrame({"x": [1, 2, 3]})
     wm = WorkspaceManager(session.id)
@@ -188,7 +188,7 @@ def test_generate_report_chart_preview_deduplicates_multi_format_artifacts() -> 
 
 
 def test_generate_report_default_filename_is_unique_and_not_overwritten() -> None:
-    skill = GenerateReportSkill()
+    skill = GenerateReportTool()
     session = Session()
     session.datasets["exp.csv"] = pd.DataFrame({"x": [1, 2, 3]})
 
@@ -229,13 +229,13 @@ def test_generate_report_default_filename_is_unique_and_not_overwritten() -> Non
 
 
 def test_export_chart_exports_html_artifact() -> None:
-    """直接实例化 CreateChartSkill 创建图表，再通过注册表导出。"""
+    """直接实例化 CreateChartTool 创建图表，再通过注册表导出。"""
     registry = create_default_tool_registry()
     session = Session()
     session.datasets["exp.csv"] = pd.DataFrame({"group": ["a", "b"], "value": [1.2, 2.4]})
 
     chart_res = asyncio.run(
-        CreateChartSkill().execute(
+        CreateChartTool().execute(
             session=session,
             dataset_name="exp.csv",
             chart_type="bar",

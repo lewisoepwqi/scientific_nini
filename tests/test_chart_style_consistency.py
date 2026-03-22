@@ -17,7 +17,7 @@ from nini.charts.renderers import apply_plotly_style
 from nini.config import settings
 from nini.tools.markdown_scanner import scan_markdown_skills
 from nini.tools.registry import create_default_tool_registry
-from nini.tools.visualization import CreateChartSkill
+from nini.tools.visualization import CreateChartTool
 
 
 @pytest.fixture(autouse=True)
@@ -51,7 +51,7 @@ def test_normalize_render_engine_fallback() -> None:
 
 def test_create_chart_with_matplotlib_engine_exports_publication_formats() -> None:
     """create_chart 使用 matplotlib 时应导出 pdf/svg/png。"""
-    skill = CreateChartSkill()
+    skill = CreateChartTool()
     session = Session()
     session.datasets["exp.csv"] = pd.DataFrame(
         {
@@ -87,7 +87,7 @@ def test_create_chart_with_matplotlib_engine_exports_publication_formats() -> No
 def test_cross_engine_style_parameters_consistent() -> None:
     """同一契约下关键样式参数应在双引擎一致。"""
     spec = build_style_spec("science")
-    skill = CreateChartSkill()
+    skill = CreateChartTool()
     df = pd.DataFrame({"x": [1, 2, 3], "y": [2, 3, 4]})
     kwargs: dict[str, object] = {"x_column": "x", "y_column": "y"}
 
@@ -249,7 +249,7 @@ def _render_plotly_png(
 def test_cross_engine_visual_similarity_ssim_threshold() -> None:
     """同图跨引擎输出在可用环境下满足 SSIM 阈值。"""
     spec = build_style_spec("nature")
-    skill = CreateChartSkill()
+    skill = CreateChartTool()
     df = pd.DataFrame({"x": [1, 2, 3, 4], "y": [2, 3, 3.5, 5]})
     kwargs: dict[str, object] = {"x_column": "x", "y_column": "y"}
 

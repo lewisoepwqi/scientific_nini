@@ -29,24 +29,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # 运行时注入的 tool_registry
-# 注意：虽然变量名保持 _skill_registry 以向后兼容，但类型是 ToolRegistry
+# 注意：虽然变量名保持 _tool_registry 以向后兼容，但类型是 ToolRegistry
 _tool_registry: ToolRegistry | None = None
 
 
-def set_skill_registry(registry: ToolRegistry) -> None:
-    """设置工具注册中心。
-
-    注意：函数名保持 set_skill_registry 以向后兼容，但参数类型是 ToolRegistry。
-    """
+def set_tool_registry(registry: ToolRegistry) -> None:
+    """设置工具注册中心。"""
     global _tool_registry
     _tool_registry = registry
 
 
-def get_skill_registry() -> ToolRegistry | None:
-    """获取工具注册中心。
-
-    注意：函数名保持 get_skill_registry 以向后兼容，但返回类型是 ToolRegistry。
-    """
+def get_tool_registry() -> ToolRegistry | None:
+    """获取工具注册中心。"""
     return _tool_registry
 
 
@@ -157,7 +151,7 @@ async def websocket_agent(ws: WebSocket):
     ) -> None:
         runner = HarnessRunner(
             agent_runner=AgentRunner(
-                skill_registry=_tool_registry,
+                tool_registry=_tool_registry,
                 ask_user_question_handler=_wait_for_ask_user_question_answers,
             ),
         )

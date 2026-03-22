@@ -10,7 +10,7 @@ from nini.memory.research_profile import DEFAULT_RESEARCH_PROFILE_ID
 from nini.tools.base import Tool, ToolResult
 
 
-class UpdateProfileNotesSkill(Tool):
+class UpdateProfileNotesTool(Tool):
     """向研究画像的'分析习惯与观察'段追加一条 Agent 观察记录。
 
     用于 Agent 在分析过程中自动记录用户的行为模式和稳定偏好，供后续会话参考。

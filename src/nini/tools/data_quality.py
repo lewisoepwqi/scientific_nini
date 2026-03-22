@@ -522,7 +522,7 @@ def evaluate_data_quality(df: pd.DataFrame, dataset_name: str) -> QualityReport:
 # ---- 技能实现 ----
 
 
-class DataQualitySkill(Tool):
+class DataQualityTool(Tool):
     """数据质量评估技能。
 
     从完整性、一致性、准确性、有效性、唯一性等维度评估数据质量。
@@ -602,7 +602,7 @@ class DataQualitySkill(Tool):
             )
 
 
-class DataQualityReportSkill(Tool):
+class DataQualityReportTool(Tool):
     """生成详细数据质量报告技能。"""
 
     @property

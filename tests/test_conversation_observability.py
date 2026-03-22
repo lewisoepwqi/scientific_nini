@@ -269,9 +269,7 @@ class _PollutedReasoningResolver:
         class _Chunk:
             text = "最终答案"
             reasoning = "content</arg_key><arg_value># 正文内容</arg_value></tool_call>"
-            raw_text = (
-                "<think>content</arg_key><arg_value># 正文内容</arg_value></tool_call></think>最终答案"
-            )
+            raw_text = "<think>content</arg_key><arg_value># 正文内容</arg_value></tool_call></think>最终答案"
             tool_calls = []
             usage = None
 
@@ -878,7 +876,7 @@ async def test_generate_report_uses_saved_markdown_as_final_response() -> None:
     resolver = _ReportResolver()
     runner = AgentRunner(
         resolver=resolver,
-        skill_registry=_DummySkillRegistry(),
+        tool_registry=_DummySkillRegistry(),
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 
@@ -906,7 +904,7 @@ async def test_runner_unlimited_iterations_when_max_is_zero(
     resolver = _TwoStepToolResolver()
     runner = AgentRunner(
         resolver=resolver,
-        skill_registry=_EchoSkillRegistry(),
+        tool_registry=_EchoSkillRegistry(),
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 
@@ -934,7 +932,7 @@ async def test_runner_emits_plan_progress_with_required_fields() -> None:
     resolver = _PlanAwareToolResolver()
     runner = AgentRunner(
         resolver=resolver,
-        skill_registry=_EchoSkillRegistry(),
+        tool_registry=_EchoSkillRegistry(),
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 
@@ -1008,7 +1006,7 @@ async def test_runner_attaches_action_tracking_metadata_no_auto_retry() -> None:
     registry = _RetryEchoSkillRegistry()
     runner = AgentRunner(
         resolver=resolver,
-        skill_registry=registry,
+        tool_registry=registry,
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 
@@ -1052,7 +1050,7 @@ async def test_runner_chart_event_includes_plotly_download_url_and_figure_payloa
 
     runner = AgentRunner(
         resolver=_ChartToolResolver(),
-        skill_registry=_ChartSkillRegistry(),
+        tool_registry=_ChartSkillRegistry(),
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 
@@ -1081,7 +1079,7 @@ async def test_runner_circuit_breaker_stops_repeated_same_failures(
     registry = _AlwaysFailEchoRegistry()
     runner = AgentRunner(
         resolver=resolver,
-        skill_registry=registry,
+        tool_registry=registry,
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 
@@ -1127,7 +1125,7 @@ async def test_runner_circuit_breaker_resets_after_code_session_patch(
     registry = _CodeSessionBreakerResetRegistry()
     runner = AgentRunner(
         resolver=resolver,
-        skill_registry=registry,
+        tool_registry=registry,
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 
@@ -1163,7 +1161,7 @@ async def test_runner_auto_compresses_and_retries_on_context_overflow(
     resolver = _ContextOverflowThenSuccessResolver()
     runner = AgentRunner(
         resolver=resolver,
-        skill_registry=_EchoSkillRegistry(),
+        tool_registry=_EchoSkillRegistry(),
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 
@@ -1211,7 +1209,7 @@ async def test_runner_emits_reasoning_event_and_keeps_final_answer_clean(monkeyp
     session = Session()
     runner = AgentRunner(
         resolver=_ReasoningOnlyResolver(),
-        skill_registry=_EchoSkillRegistry(),
+        tool_registry=_EchoSkillRegistry(),
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 
@@ -1247,7 +1245,7 @@ async def test_runner_skips_polluted_reasoning_from_persistence(monkeypatch) -> 
     session = Session()
     runner = AgentRunner(
         resolver=_PollutedReasoningResolver(),
-        skill_registry=_EchoSkillRegistry(),
+        tool_registry=_EchoSkillRegistry(),
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 
@@ -1272,7 +1270,7 @@ async def test_runner_preserves_raw_assistant_content_for_tool_calls() -> None:
     resolver = _ReasoningToolResolver()
     runner = AgentRunner(
         resolver=resolver,
-        skill_registry=_EchoSkillRegistry(),
+        tool_registry=_EchoSkillRegistry(),
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 
@@ -1296,7 +1294,7 @@ async def test_runner_retries_when_model_outputs_transitional_text_without_tool_
     resolver = _TransitionalTextThenToolResolver()
     runner = AgentRunner(
         resolver=resolver,
-        skill_registry=_EchoSkillRegistry(),
+        tool_registry=_EchoSkillRegistry(),
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 
@@ -1334,7 +1332,7 @@ async def test_runner_allows_low_risk_tool_outside_allowed_tools_with_warning() 
     registry = _GuardedSkillRegistry()
     runner = AgentRunner(
         resolver=_BlockedByAllowedToolsResolver(),
-        skill_registry=registry,
+        tool_registry=registry,
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 
@@ -1374,7 +1372,7 @@ async def test_runner_requests_approval_for_high_risk_tool_outside_allowed_tools
 
     runner = AgentRunner(
         resolver=_HighRiskWorkspaceResolver(),
-        skill_registry=registry,
+        tool_registry=registry,
         knowledge_loader=_DummyKnowledgeLoader(),
         ask_user_question_handler=_ask_handler,
     )
@@ -1408,7 +1406,7 @@ async def test_runner_reuses_session_level_tool_approval_for_high_risk_tool() ->
 
     runner = AgentRunner(
         resolver=_HighRiskWorkspaceResolver(),
-        skill_registry=registry,
+        tool_registry=registry,
         knowledge_loader=_DummyKnowledgeLoader(),
         ask_user_question_handler=_ask_handler,
     )
@@ -1435,7 +1433,7 @@ async def test_runner_allows_load_dataset_when_not_in_allowed_tools() -> None:
     registry = _LoadDatasetGuardedSkillRegistry()
     runner = AgentRunner(
         resolver=_LoadDatasetBypassResolver(),
-        skill_registry=registry,
+        tool_registry=registry,
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 

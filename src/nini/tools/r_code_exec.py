@@ -6,10 +6,10 @@ from typing import Any
 
 from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
-from nini.tools.code_session import CodeSessionSkill
+from nini.tools.code_session import CodeSessionTool
 
 
-class RunRCodeSkill(Tool):
+class RunRCodeTool(Tool):
     """运行用户提供的 R 代码。"""
 
     @property
@@ -68,7 +68,7 @@ class RunRCodeSkill(Tool):
         }
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
-        return await CodeSessionSkill().run_ad_hoc_script(
+        return await CodeSessionTool().run_ad_hoc_script(
             session,
             language="r",
             content=str(kwargs.get("code", "") or ""),

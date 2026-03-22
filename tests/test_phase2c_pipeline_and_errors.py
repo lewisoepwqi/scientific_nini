@@ -13,7 +13,7 @@ from nini.agent.session import session_manager
 from nini.app import create_app
 from nini.config import settings
 from nini.tools.registry import create_default_tool_registry
-from nini.tools.visualization import CreateChartSkill
+from nini.tools.visualization import CreateChartTool
 from tests.client_utils import LocalASGIClient, live_websocket_connect
 
 
@@ -70,7 +70,7 @@ def test_phase2c_upload_ttest_chart_pipeline(app_with_temp_data):
 
         # 4) 生成 Nature 风格箱线图（直接实例化，create_chart 已不在注册表）
         chart_result = asyncio.run(
-            CreateChartSkill().execute(
+            CreateChartTool().execute(
                 session=session,
                 dataset_name="experiment.csv",
                 chart_type="box",

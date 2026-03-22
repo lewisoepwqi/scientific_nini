@@ -9,7 +9,7 @@ from nini.tools.base import Tool, ToolResult
 from nini.workspace import WorkspaceManager
 
 
-class ListWorkspaceFilesSkill(Tool):
+class ListWorkspaceFilesTool(Tool):
     """列出当前会话工作区中的文件，供模型获取 path 与 download_url。"""
 
     @property

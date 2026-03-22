@@ -9,7 +9,7 @@ from nini.tools.base import Tool, ToolResult
 from nini.workspace import WorkspaceManager
 
 
-class OrganizeWorkspaceSkill(Tool):
+class OrganizeWorkspaceTool(Tool):
     """允许 Agent 创建文件夹并移动文件到目标文件夹。"""
 
     @property

@@ -12,12 +12,12 @@ import pandas as pd
 from nini.agent.session import Session
 from nini.models import ResourceType
 from nini.tools.base import Tool, ToolResult
-from nini.tools.clean_data import CleanDataSkill, RecommendCleaningStrategySkill
+from nini.tools.clean_data import CleanDataTool, RecommendCleaningStrategyTool
 from nini.utils.dataframe_io import dataframe_to_json_safe
 from nini.workspace import WorkspaceManager
 
 
-class DatasetTransformSkill(Tool):
+class DatasetTransformTool(Tool):
     """执行结构化数据变换流水线。"""
 
     _supported_ops = {
@@ -35,8 +35,8 @@ class DatasetTransformSkill(Tool):
     }
 
     def __init__(self) -> None:
-        self._clean = CleanDataSkill()
-        self._recommend = RecommendCleaningStrategySkill()
+        self._clean = CleanDataTool()
+        self._recommend = RecommendCleaningStrategyTool()
 
     @property
     def name(self) -> str:

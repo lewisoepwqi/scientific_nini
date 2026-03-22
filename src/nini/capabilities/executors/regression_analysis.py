@@ -178,11 +178,11 @@ class RegressionAnalysisCapability:
         self.description = "建立变量间的回归模型，进行预测和解释"
         self.icon = "📉"
         # registry 参数保留以兼容旧调用方，但内部直接实例化所需技能
-        from nini.tools.statistics import RegressionSkill
-        from nini.tools.visualization import CreateChartSkill
+        from nini.tools.statistics import RegressionTool
+        from nini.tools.visualization import CreateChartTool
 
-        self._regression_skill = RegressionSkill()
-        self._chart_skill = CreateChartSkill()
+        self._regression_skill = RegressionTool()
+        self._chart_skill = CreateChartTool()
         self._vif_results: dict[str, float] = {}
 
     async def execute(
@@ -449,7 +449,7 @@ class RegressionAnalysisCapability:
         dependent_var: str,
         independent_vars: list[str],
     ) -> dict[str, Any] | None:
-        """直接调用 RegressionSkill 执行回归分析。"""
+        """直接调用 RegressionTool 执行回归分析。"""
         try:
             tool_result = await self._regression_skill.execute(
                 session=session,

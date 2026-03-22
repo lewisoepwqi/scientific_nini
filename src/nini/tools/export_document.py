@@ -9,7 +9,7 @@ from nini.tools.base import Tool, ToolResult
 from nini.tools.export_report import export_workspace_document
 
 
-class ExportDocumentSkill(Tool):
+class ExportDocumentTool(Tool):
     """将工作区中的文档导出为 PDF 或 DOCX。"""
 
     @property

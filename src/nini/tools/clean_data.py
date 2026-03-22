@@ -417,7 +417,7 @@ def _safe_preview(df: pd.DataFrame, n_rows: int = 20) -> dict[str, Any]:
     }
 
 
-class CleanDataSkill(Tool):
+class CleanDataTool(Tool):
     """对数据集进行缺失值处理、异常值过滤与标准化。"""
 
     _missing_strategies = [
@@ -816,7 +816,7 @@ class CleanDataSkill(Tool):
         return f"{dataset_name}_cleaned"
 
 
-class RecommendCleaningStrategySkill(Tool):
+class RecommendCleaningStrategyTool(Tool):
     """分析数据特征并推荐最优清洗策略。"""
 
     @property

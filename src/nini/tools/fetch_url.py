@@ -59,7 +59,7 @@ _ALLOWED_LOCAL_FILE_SUFFIXES = {
 }
 
 
-class FetchURLSkill(Tool):
+class FetchURLTool(Tool):
     """抓取网页内容并转换为 Markdown 文本。"""
 
     @property
@@ -132,7 +132,7 @@ class FetchURLSkill(Tool):
             return f"不支持的协议: {parsed.scheme}，仅支持 http/https"
 
         if scheme == "file":
-            return FetchURLSkill._validate_local_file_url(parsed)
+            return FetchURLTool._validate_local_file_url(parsed)
 
         host = (parsed.hostname or "").lower()
         if not host:
@@ -180,7 +180,7 @@ class FetchURLSkill(Tool):
         if host not in ("", "localhost"):
             return f"不支持的 file 主机: {host}"
 
-        path = FetchURLSkill._resolve_local_file_path(parsed)
+        path = FetchURLTool._resolve_local_file_path(parsed)
         if not path.exists():
             return f"本地文件不存在: {path}"
         if not path.is_file():
@@ -208,7 +208,7 @@ class FetchURLSkill(Tool):
         """抓取 URL 内容并转换为文本。"""
         parsed = urlparse(url)
         if parsed.scheme.lower() == "file":
-            path = FetchURLSkill._resolve_local_file_path(parsed)
+            path = FetchURLTool._resolve_local_file_path(parsed)
             data = path.read_bytes()
             try:
                 text = data.decode("utf-8")
@@ -232,7 +232,7 @@ class FetchURLSkill(Tool):
             # 处理重定向：验证目标地址安全性
             if response.is_redirect:
                 location = response.headers.get("location", "")
-                redirect_err = FetchURLSkill._validate_url(location)
+                redirect_err = FetchURLTool._validate_url(location)
                 if redirect_err:
                     raise ValueError(f"重定向目标不安全: {redirect_err}")
                 response = await client.get(location)

@@ -337,18 +337,18 @@ class AgentRunner:
     def __init__(
         self,
         resolver: Any | None = None,
-        skill_registry: Any = None,
+        tool_registry: Any = None,
         knowledge_loader: Any | None = None,
         ask_user_question_handler: (
             Callable[[Session, str, dict[str, Any]], Awaitable[dict[str, str]]] | None
         ) = None,
     ):
         self._resolver = resolver or model_resolver
-        self._skill_registry = skill_registry
+        self._tool_registry = tool_registry
         self._knowledge_loader = knowledge_loader or KnowledgeLoader(settings.knowledge_dir)
         self._context_builder = ContextBuilder(
             knowledge_loader=self._knowledge_loader,
-            skill_registry=skill_registry,
+            tool_registry=tool_registry,
         )
         self._ask_user_question_handler = ask_user_question_handler
         # 跟踪 context 使用率（0.0 初始，用于自适应工具结果截断预算）
@@ -2386,12 +2386,12 @@ class AgentRunner:
 
     def _select_active_markdown_skills(self, user_message: str) -> list[dict[str, Any]]:
         """选择本轮激活的 Markdown Skills（显式 slash 优先，缺失时走自动匹配）。"""
-        if not user_message or self._skill_registry is None:
+        if not user_message or self._tool_registry is None:
             return []
-        if not hasattr(self._skill_registry, "list_markdown_skills"):
+        if not hasattr(self._tool_registry, "list_markdown_skills"):
             return []
 
-        markdown_items = self._skill_registry.list_markdown_skills()
+        markdown_items = self._tool_registry.list_markdown_skills()
         if not isinstance(markdown_items, list):
             return []
         return default_intent_analyzer.select_active_skills(
@@ -2434,16 +2434,16 @@ class AgentRunner:
         is_sub_session = isinstance(session, SubSession)
 
         tools: list[dict[str, Any]] = []
-        if self._skill_registry is not None:
-            raw = self._skill_registry.get_tool_definitions()
+        if self._tool_registry is not None:
+            raw = self._tool_registry.get_tool_definitions()
             if isinstance(raw, list):
                 tools = [item for item in raw if isinstance(item, dict)]
 
         # Orchestrator 工具：从注册表中直接获取 tool_definition（不走 expose_to_llm 过滤）
         if (
             not is_sub_session
-            and self._skill_registry is not None
-            and hasattr(self._skill_registry, "get")
+            and self._tool_registry is not None
+            and hasattr(self._tool_registry, "get")
         ):
             for orch_name in ORCHESTRATOR_TOOL_NAMES:
                 # 检查是否已经在 tools 列表中
@@ -2452,7 +2452,7 @@ class AgentRunner:
                     for t in tools
                 )
                 if not already_in:
-                    skill = self._skill_registry.get(orch_name)
+                    skill = self._tool_registry.get(orch_name)
                     if skill is not None and hasattr(skill, "get_tool_definition"):
                         tools.append(skill.get_tool_definition())
 
@@ -3142,7 +3142,7 @@ class AgentRunner:
         context_str: str = func_args.get("context", "")
 
         # 获取 dispatch_agents 工具实例
-        if self._skill_registry is None:
+        if self._tool_registry is None:
             error_msg = "dispatch_agents: ToolRegistry 未初始化"
             logger.error(error_msg)
             session.add_tool_result(
@@ -3162,7 +3162,7 @@ class AgentRunner:
             )
             return
 
-        skill = self._skill_registry.get("dispatch_agents")
+        skill = self._tool_registry.get("dispatch_agents")
         if skill is None:
             error_msg = "dispatch_agents: 工具未注册"
             logger.error(error_msg)
@@ -3237,7 +3237,7 @@ class AgentRunner:
         arguments: str,
     ) -> Any:
         """执行一个工具调用。"""
-        if self._skill_registry is None:
+        if self._tool_registry is None:
             return {"error": f"技能系统未初始化，无法执行 {name}"}
 
         try:
@@ -3246,7 +3246,7 @@ class AgentRunner:
             return {"error": f"工具参数解析失败: {arguments}"}
 
         try:
-            result = await self._skill_registry.execute_with_fallback(name, session=session, **args)
+            result = await self._tool_registry.execute_with_fallback(name, session=session, **args)
             return result
         except asyncio.CancelledError:
             raise
