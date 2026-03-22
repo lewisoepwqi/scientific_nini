@@ -37,6 +37,7 @@ class Session:
     compressed_context: str = ""
     compressed_rounds: int = 0
     last_compressed_at: str | None = None
+    compression_segments: list[dict[str, Any]] = field(default_factory=list)
     research_profile_id: str = "default"
     workspace_hydrated: bool = False
     load_persisted_messages: bool = False
@@ -53,6 +54,9 @@ class Session:
         self.conversation_memory = ConversationMemory(self.id)
         self.knowledge_memory = KnowledgeMemory(self.id)
         self.task_manager = TaskManager()
+        # 防御：meta.json 中 null 值或类型错误时重置为空列表
+        if not isinstance(self.compression_segments, list):
+            self.compression_segments = []
         if self.load_persisted_messages and not self.messages:
             self.messages.extend(self.conversation_memory.load_messages(resolve_refs=True))
         if self.messages:
@@ -295,27 +299,40 @@ class Session:
     def set_compressed_context(self, summary: str) -> None:
         """更新压缩上下文，并记录压缩次数。
 
-        追加后如果超过 compressed_context_max_chars 上限，
-        按 ``---`` 分段丢弃最旧的段，直到总长度不超限。
+        将新摘要封装为 CompressionSegment（depth=0）追加到 compression_segments。
+        当段数超过 compressed_context_max_segments 时，直接丢弃最旧段（两条路径均执行）。
+        压缩上下文由剩余段的 summary join 重建；compressed_context_max_chars 仅作为
+        极端兜底（单段超限时硬截断）。
         """
+        from nini.memory.compression import CompressionSegment
+
         summary = summary.strip()
         if not summary:
             return
-        if self.compressed_context:
-            self.compressed_context = f"{self.compressed_context}\n\n---\n\n{summary}"
-        else:
-            self.compressed_context = summary
 
-        # 截断：超出上限时按 --- 分段丢弃最旧段
+        # 创建新段并追加
+        seg = CompressionSegment(
+            summary=summary,
+            archived_count=0,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            depth=0,
+        ).to_dict()
+        self.compression_segments.append(seg)
+
+        # 段数超限时丢弃最旧段（无论哪条调用路径）
+        max_segs = settings.compressed_context_max_segments
+        if max_segs > 0 and len(self.compression_segments) > max_segs:
+            self.compression_segments.pop(0)
+
+        # 从剩余 segments 重新 join 重建 compressed_context
+        self.compressed_context = "\n\n---\n\n".join(
+            s["summary"] for s in self.compression_segments
+        )
+
+        # 极端兜底：单段仍超出字符上限时硬截断（轻量路径保底）
         max_chars = settings.compressed_context_max_chars
         if max_chars > 0 and len(self.compressed_context) > max_chars:
-            segments = self.compressed_context.split("\n\n---\n\n")
-            while len(segments) > 1 and len("\n\n---\n\n".join(segments)) > max_chars:
-                segments.pop(0)
-            self.compressed_context = "\n\n---\n\n".join(segments)
-            # 极端情况：单段仍超限，硬截断保留尾部
-            if len(self.compressed_context) > max_chars:
-                self.compressed_context = self.compressed_context[-max_chars:]
+            self.compressed_context = self.compressed_context[-max_chars:]
 
         self.compressed_rounds += 1
         self.last_compressed_at = datetime.now(timezone.utc).isoformat()
@@ -366,6 +383,7 @@ class Session:
                     compressed_context=self.compressed_context,
                     compressed_rounds=self.compressed_rounds,
                     last_compressed_at=self.last_compressed_at,
+                    compression_segments=self.compression_segments,
                 )
         except Exception as exc:
             # 压缩失败不应阻止正常流程
@@ -397,6 +415,7 @@ class SessionManager:
         tool_approval_grants: dict[str, str] = {}
         sandbox_approved_imports: set[str] = self._load_persistent_sandbox_import_approvals()
         chart_output_preference: str | None = None
+        compression_segments: list[dict[str, Any]] = []
         if load_persisted_messages:
             meta = self._load_session_meta(sid)
             loaded_title = str(meta.get("title", "")).strip()
@@ -420,6 +439,20 @@ class SessionManager:
             raw_pref = meta.get("chart_output_preference")
             if raw_pref in ("interactive", "image"):
                 chart_output_preference = raw_pref
+            # 加载 compression_segments；向后兼容旧格式
+            raw_segs = meta.get("compression_segments")
+            if isinstance(raw_segs, list) and raw_segs:
+                compression_segments = [s for s in raw_segs if isinstance(s, dict)]
+            elif not raw_segs and compressed_context:
+                # 旧格式：有 compressed_context 但无 compression_segments，in-memory 构造单段
+                compression_segments = [
+                    {
+                        "summary": compressed_context,
+                        "archived_count": 0,
+                        "created_at": "",
+                        "depth": 0,
+                    }
+                ]
 
         session = Session(
             id=sid,
@@ -431,6 +464,7 @@ class SessionManager:
             last_compressed_at=last_compressed_at,
             research_profile_id=research_profile_id,
             chart_output_preference=chart_output_preference,
+            compression_segments=compression_segments,
             load_persisted_messages=load_persisted_messages,
         )
         self._sessions[session.id] = session
@@ -622,16 +656,17 @@ class SessionManager:
         compressed_context: str,
         compressed_rounds: int,
         last_compressed_at: str | None,
+        compression_segments: list[dict] | None = None,
     ) -> None:
         """持久化会话压缩元数据。"""
-        self._save_session_meta_fields(
-            session_id,
-            {
-                "compressed_context": compressed_context,
-                "compressed_rounds": int(compressed_rounds),
-                "last_compressed_at": last_compressed_at,
-            },
-        )
+        fields: dict[str, Any] = {
+            "compressed_context": compressed_context,
+            "compressed_rounds": int(compressed_rounds),
+            "last_compressed_at": last_compressed_at,
+        }
+        if compression_segments is not None:
+            fields["compression_segments"] = compression_segments
+        self._save_session_meta_fields(session_id, fields)
 
     def save_session_research_profile(self, session_id: str, research_profile_id: str) -> None:
         """持久化会话关联的研究画像标识。"""
