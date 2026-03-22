@@ -176,7 +176,10 @@ def compress_session_history(
         }
 
     ratio = min(max(ratio, 0.1), 0.9)
-    archive_count = max(min_messages, int(total * ratio))
+    # min_messages 表示"最少保留数"，归档其余部分，并受 ratio 限制单次归档比例
+    archive_count = total - min_messages
+    archive_count = min(archive_count, int(total * ratio))
+    archive_count = max(1, archive_count)
     if archive_count >= total:
         archive_count = max(total - 1, 1)
 
@@ -230,7 +233,10 @@ async def compress_session_history_with_llm(
         }
 
     ratio = min(max(ratio, 0.1), 0.9)
-    archive_count = max(min_messages, int(total * ratio))
+    # min_messages 表示"最少保留数"，归档其余部分，并受 ratio 限制单次归档比例
+    archive_count = total - min_messages
+    archive_count = min(archive_count, int(total * ratio))
+    archive_count = max(1, archive_count)
     if archive_count >= total:
         archive_count = max(total - 1, 1)
 

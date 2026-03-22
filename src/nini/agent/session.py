@@ -326,24 +326,21 @@ class Session:
         self.research_profile_id = normalized
 
     def _check_auto_compress(self) -> None:
-        """检查是否需要自动压缩 memory.jsonl。"""
+        """检查是否需要自动压缩（基于 Token 数估算）。"""
         if not settings.memory_auto_compress:
             return
 
-        # 检查 memory.jsonl 文件大小
-        memory_path = settings.sessions_dir / self.id / "memory.jsonl"
-        if not memory_path.exists():
+        if not self.messages:
             return
 
         try:
-            size_kb = memory_path.stat().st_size / 1024
-            threshold_kb = settings.memory_compress_threshold_kb
+            from nini.utils.token_counter import count_messages_tokens
 
-            if size_kb > threshold_kb:
-                # 触发自动压缩
+            token_count = count_messages_tokens(self.messages)
+            if token_count > settings.memory_compress_threshold_tokens:
                 self._auto_compress_memory()
         except Exception:
-            logger.warning("自动压缩失败", exc_info=True)
+            logger.warning("自动压缩检查失败", exc_info=True)
 
     def _auto_compress_memory(self) -> None:
         """自动压缩 memory，保留最近的消息，归档旧消息。"""

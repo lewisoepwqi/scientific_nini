@@ -45,6 +45,7 @@ from nini.tools.templates import (
 )
 from nini.tools.analysis_memory_tool import AnalysisMemorySkill
 from nini.tools.dispatch_agents import DispatchAgentsTool
+from nini.tools.search_archive import SearchMemoryArchiveTool
 from nini.tools.profile_notes import UpdateProfileNotesSkill
 from nini.tools.workspace_session import WorkspaceSessionSkill
 
@@ -62,6 +63,7 @@ LLM_EXPOSED_BASE_TOOL_NAMES = {
     "workspace_session",
     "code_session",
     "analysis_memory",
+    "search_memory_archive",
 }
 
 
@@ -276,6 +278,7 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(EditFile())
     registry.register(WorkspaceSessionSkill())
     registry.register(AnalysisMemorySkill())
+    registry.register(SearchMemoryArchiveTool())
     registry.register(UpdateProfileNotesSkill())
 
     # 注册 dispatch_agents 工具（不加入 LLM_EXPOSED_BASE_TOOL_NAMES，仅主 Agent 可用）

@@ -388,6 +388,7 @@ class TestOldToolsNotExposed:
             "workspace_session",
             "code_session",
             "analysis_memory",
+            "search_memory_archive",
         }
 
         assert LLM_EXPOSED_BASE_TOOL_NAMES == expected_base_tools

@@ -1485,5 +1485,7 @@ def test_api_compress_session_endpoint() -> None:
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["success"] is True
-        assert payload["data"]["archived_count"] >= 4
-        assert payload["data"]["remaining_count"] >= 1
+        # 修复后：min_messages=4（默认值）表示保留数，归档其余部分
+        # 6条消息，ratio=0.5，min_messages=4 → 归档 min(2,3)=2，保留 4
+        assert payload["data"]["archived_count"] >= 1
+        assert payload["data"]["remaining_count"] >= 4
