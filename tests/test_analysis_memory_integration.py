@@ -50,6 +50,7 @@ class TestCompressedContextTruncation:
         """超过上限时应丢弃最旧段。"""
         # 设置一个很小的上限
         mock_settings.compressed_context_max_chars = 50  # type: ignore[attr-defined]
+        mock_settings.compressed_context_max_segments = 10  # 不触发段数 pop，仅测字符截断
         mock_settings.sessions_dir = Session.__dataclass_fields__["id"].default_factory  # type: ignore[attr-defined]
         mock_settings.memory_auto_compress = False  # type: ignore[attr-defined]
 

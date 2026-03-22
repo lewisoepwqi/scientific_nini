@@ -110,12 +110,13 @@ async def compress_session(session_id: str, mode: str = "auto"):
 
         result = compress_session_history(session, ratio=0.5 if mode == "lightweight" else 0.3)
 
-    # 保存压缩元数据
+    # 保存压缩元数据（含 compression_segments）
     session_manager.save_session_compression(
         session_id,
         compressed_context=session.compressed_context,
         compressed_rounds=session.compressed_rounds,
         last_compressed_at=session.last_compressed_at,
+        compression_segments=session.compression_segments,
     )
 
     return APIResponse(success=True, data=result)
@@ -149,6 +150,7 @@ async def rollback_session(session_id: str) -> APIResponse:
         compressed_context=session.compressed_context,
         compressed_rounds=session.compressed_rounds,
         last_compressed_at=session.last_compressed_at,
+        compression_segments=session.compression_segments,
     )
 
     return APIResponse(

@@ -21,6 +21,39 @@ from nini.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass
+class CompressionSegment:
+    """单轮压缩产生的摘要段。
+
+    depth=0 表示对原始对话的直接摘要；depth=1 表示对摘要的二次摘要。
+    """
+
+    summary: str
+    archived_count: int
+    created_at: str
+    depth: int = 0  # 0=直接摘要, 1=摘要的摘要
+
+    def to_dict(self) -> dict[str, Any]:
+        """序列化为可 json.dumps 的普通 dict。"""
+        return {
+            "summary": self.summary,
+            "archived_count": self.archived_count,
+            "created_at": self.created_at,
+            "depth": self.depth,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CompressionSegment":
+        """从 dict 反序列化。"""
+        return cls(
+            summary=str(data.get("summary", "")),
+            archived_count=int(data.get("archived_count", 0)),
+            created_at=str(data.get("created_at", "")),
+            depth=int(data.get("depth", 0)),
+        )
+
+
 _LLM_SUMMARY_PROMPT = (
     "你是一位专业的科研助手。请将以下对话历史压缩为一段简洁的中文摘要，"
     "**必须**保留以下信息：\n"
@@ -148,6 +181,57 @@ async def _llm_summarize(messages: list[dict[str, Any]]) -> str | None:
     return None
 
 
+async def try_merge_oldest_segments(session: Session, max_segments: int) -> None:
+    """当 compression_segments 段数超限时，尝试 LLM 合并最旧的两段为 depth=1 摘要。
+
+    LLM 合并成功时：最旧两段被替换为一个 depth=1 新段，总段数净减少 1。
+    LLM 合并失败时：维持 set_compressed_context() 已丢弃最旧段的结果，不额外操作。
+    无论是否合并，均从最终 compression_segments 重新 join 覆写 compressed_context
+    （不应用 compressed_context_max_chars 截断）。
+    """
+    if len(session.compression_segments) <= max_segments:
+        return
+
+    if len(session.compression_segments) < 2:
+        # 段数不足以合并，直接 join 覆写
+        session.compressed_context = "\n\n---\n\n".join(
+            s["summary"] for s in session.compression_segments
+        )
+        return
+
+    oldest_two = session.compression_segments[:2]
+    combined_messages = [
+        {"role": "assistant", "content": oldest_two[0]["summary"]},
+        {"role": "assistant", "content": oldest_two[1]["summary"]},
+    ]
+
+    merged_summary: str | None = None
+    try:
+        merged_summary = await _llm_summarize(combined_messages)
+    except Exception:
+        logger.warning("LLM 合并最旧段时发生异常", exc_info=True)
+
+    if merged_summary:
+        # 替换最旧的两段为 depth=1 合并段
+        merged_count = (
+            int(oldest_two[0].get("archived_count", 0))
+            + int(oldest_two[1].get("archived_count", 0))
+        )
+        merged_seg = CompressionSegment(
+            summary=merged_summary,
+            archived_count=merged_count,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            depth=1,
+        ).to_dict()
+        session.compression_segments = [merged_seg] + session.compression_segments[2:]
+        logger.info("LLM 合并最旧两段成功 (depth=1), segments=%d", len(session.compression_segments))
+
+    # 无论是否合并，覆写 compressed_context（不截断）
+    session.compressed_context = "\n\n---\n\n".join(
+        s["summary"] for s in session.compression_segments
+    )
+
+
 def _archive_messages(session_id: str, messages: list[dict[str, Any]]) -> Path:
     archive_dir = settings.sessions_dir / session_id / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
@@ -176,7 +260,10 @@ def compress_session_history(
         }
 
     ratio = min(max(ratio, 0.1), 0.9)
-    archive_count = max(min_messages, int(total * ratio))
+    # min_messages 表示"最少保留数"，归档其余部分，并受 ratio 限制单次归档比例
+    archive_count = total - min_messages
+    archive_count = min(archive_count, int(total * ratio))
+    archive_count = max(1, archive_count)
     if archive_count >= total:
         archive_count = max(total - 1, 1)
 
@@ -230,7 +317,10 @@ async def compress_session_history_with_llm(
         }
 
     ratio = min(max(ratio, 0.1), 0.9)
-    archive_count = max(min_messages, int(total * ratio))
+    # min_messages 表示"最少保留数"，归档其余部分，并受 ratio 限制单次归档比例
+    archive_count = total - min_messages
+    archive_count = min(archive_count, int(total * ratio))
+    archive_count = max(1, archive_count)
     if archive_count >= total:
         archive_count = max(total - 1, 1)
 
@@ -256,6 +346,9 @@ async def compress_session_history_with_llm(
     session.messages = remaining
     session._rewrite_conversation_memory()
     session.set_compressed_context(summary)
+
+    # LLM 路径：尝试将最旧两段合并为 depth=1 摘要（段数超限时）
+    await try_merge_oldest_segments(session, settings.compressed_context_max_segments)
 
     return {
         "success": True,
