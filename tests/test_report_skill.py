@@ -126,9 +126,9 @@ class TestExecuteSavesPreviewMd:
         session.documents = {}
         session.knowledge_memory = MagicMock()
 
-        from nini.tools.report import GenerateReportSkill
+        from nini.tools.report import GenerateReportTool
 
-        skill = GenerateReportSkill()
+        skill = GenerateReportTool()
 
         charts = [
             {
@@ -143,8 +143,12 @@ class TestExecuteSavesPreviewMd:
             patch("nini.tools.report.WorkspaceManager") as MockWM,
         ):
             mock_ws = MockWM.return_value
-            mock_ws.sanitize_filename.side_effect = lambda name, default_name="analysis_report.md": name
-            mock_ws.resolve_workspace_path.side_effect = lambda rel_path, allow_missing=True: tmp_path / rel_path
+            mock_ws.sanitize_filename.side_effect = (
+                lambda name, default_name="analysis_report.md": name
+            )
+            mock_ws.resolve_workspace_path.side_effect = (
+                lambda rel_path, allow_missing=True: tmp_path / rel_path
+            )
             mock_ws.save_text_file.return_value = tmp_path / "notes" / "reports" / "report.md"
             mock_ws.build_workspace_file_download_url.side_effect = (
                 lambda rel_path: f"/api/workspace/save-test/files/{rel_path}"

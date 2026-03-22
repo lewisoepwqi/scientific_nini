@@ -6,14 +6,14 @@ from typing import Any
 
 from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
-from nini.tools.task_write import TaskWriteSkill
+from nini.tools.task_write import TaskWriteTool
 
 
-class TaskStateSkill(Tool):
+class TaskStateTool(Tool):
     """统一任务状态读写接口。"""
 
     def __init__(self) -> None:
-        self._delegate = TaskWriteSkill()
+        self._delegate = TaskWriteTool()
 
     @property
     def name(self) -> str:

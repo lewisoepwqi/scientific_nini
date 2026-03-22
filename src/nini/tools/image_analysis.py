@@ -15,7 +15,7 @@ from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
 
 
-class ImageAnalysisSkill(Tool):
+class ImageAnalysisTool(Tool):
     """图片分析技能，支持从图片中提取数据和图表信息。"""
 
     _chart_types = [

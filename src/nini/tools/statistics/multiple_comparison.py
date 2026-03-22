@@ -134,7 +134,7 @@ def get_correction_recommendation_reason(method: str, context: str = "explorator
     return reasons.get((method, context), f"基于 {context} 场景推荐 {method} 方法")
 
 
-class MultipleComparisonCorrectionSkill(Tool):
+class MultipleComparisonCorrectionTool(Tool):
     """执行多重比较校正。"""
 
     @property

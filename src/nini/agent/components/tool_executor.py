@@ -16,15 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 async def execute_tool(
-    skill_registry: Any,
+    tool_registry: Any,
     session: Session,
     name: str,
     arguments: str,
 ) -> Any:
-    """Execute a tool call through the skill registry.
+    """通过工具注册中心执行工具调用。
 
     Args:
-        skill_registry: The skill registry to use for execution.
+        tool_registry: 工具注册中心，用于执行工具调用。
         session: The current session context.
         name: The tool/function name to execute.
         arguments: JSON-encoded arguments string.
@@ -32,7 +32,7 @@ async def execute_tool(
     Returns:
         The tool execution result, or an error dict on failure.
     """
-    if skill_registry is None:
+    if tool_registry is None:
         return {"error": f"技能系统未初始化，无法执行 {name}"}
 
     try:
@@ -41,7 +41,7 @@ async def execute_tool(
         return {"error": f"工具参数解析失败: {arguments}"}
 
     try:
-        result = await skill_registry.execute_with_fallback(name, session=session, **args)
+        result = await tool_registry.execute_with_fallback(name, session=session, **args)
         return result
     except asyncio.CancelledError:
         raise

@@ -10,7 +10,7 @@ import pytest
 from nini.agent.session import Session
 from nini.sandbox.r_executor import detect_r_installation
 from nini.sandbox.r_router import detect_r_backend
-from nini.tools.r_code_exec import RunRCodeSkill
+from nini.tools.r_code_exec import RunRCodeTool
 from nini.tools.registry import create_default_tool_registry
 
 
@@ -32,7 +32,7 @@ def test_registry_registers_run_r_code_conditionally() -> None:
 
 
 def test_run_r_code_skill_blocks_policy_violation() -> None:
-    skill = RunRCodeSkill()
+    skill = RunRCodeTool()
     session = Session()
 
     result = asyncio.run(skill.execute(session=session, code="system('ls')"))
@@ -46,7 +46,7 @@ def test_run_r_code_skill_blocks_policy_violation() -> None:
     reason="Rscript 不可用，跳过 run_r_code 集成测试",
 )
 def test_run_r_code_skill_returns_dataframe_and_save_as() -> None:
-    skill = RunRCodeSkill()
+    skill = RunRCodeTool()
     session = Session()
     session.datasets["raw.csv"] = pd.DataFrame({"x": [1, 2, 3]})
 

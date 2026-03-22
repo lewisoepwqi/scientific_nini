@@ -196,7 +196,7 @@ async def test_runner_tool_approval_persists_across_restart() -> None:
 
     runner = AgentRunner(
         resolver=_ApprovalResolver(),
-        skill_registry=_ApprovalRegistry(),
+        tool_registry=_ApprovalRegistry(),
         ask_user_question_handler=_ask_handler,
     )
 
@@ -586,7 +586,8 @@ def test_get_session_messages_only_returns_persisted_history(client: LocalASGICl
         "最终结论：存在显著差异。",
     ]
     assert all(
-        msg["event_type"] not in {"analysis_plan", "plan_step_update", "plan_progress", "task_attempt"}
+        msg["event_type"]
+        not in {"analysis_plan", "plan_step_update", "plan_progress", "task_attempt"}
         for msg in live_messages
     )
     assert all("harness_runtime_context" not in msg for msg in live_messages)
@@ -734,9 +735,7 @@ def test_download_markdown_bundle_with_images(client: LocalASGIClient) -> None:
         format_hint="md",
     )
 
-    resp = client.get(
-        f"/api/workspace/{session_id}/files/artifacts/{quote(md_name)}?bundle=1"
-    )
+    resp = client.get(f"/api/workspace/{session_id}/files/artifacts/{quote(md_name)}?bundle=1")
     assert resp.status_code == 200
     assert resp.headers.get("content-type", "").startswith("application/zip")
 

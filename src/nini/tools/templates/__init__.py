@@ -4,10 +4,10 @@
 同时提供期刊样式模板（Nature, Science, Cell 等）的动态加载功能。
 """
 
-from nini.tools.templates.complete_anova import CompleteANOVASkill
-from nini.tools.templates.complete_comparison import CompleteComparisonSkill
-from nini.tools.templates.correlation_analysis import CorrelationAnalysisSkill
-from nini.tools.templates.regression_analysis import RegressionAnalysisSkill
+from nini.tools.templates.complete_anova import CompleteANOVATool
+from nini.tools.templates.complete_comparison import CompleteComparisonTool
+from nini.tools.templates.correlation_analysis import CorrelationAnalysisTool
+from nini.tools.templates.regression_analysis import RegressionAnalysisTool
 
 # 导入期刊样式模板功能
 from nini.tools.templates.journal_styles import (
@@ -22,10 +22,10 @@ from nini.tools.templates.journal_styles import (
 
 __all__ = [
     # 复合技能类
-    "CompleteComparisonSkill",
-    "CompleteANOVASkill",
-    "CorrelationAnalysisSkill",
-    "RegressionAnalysisSkill",
+    "CompleteComparisonTool",
+    "CompleteANOVATool",
+    "CorrelationAnalysisTool",
+    "RegressionAnalysisTool",
     # 期刊模板函数
     "get_templates",
     "get_template_names",
@@ -52,13 +52,13 @@ def get_template(name: str):
     """
     # 首先检查复合技能模板
     if name == "complete_comparison":
-        return CompleteComparisonSkill()
+        return CompleteComparisonTool()
     if name == "complete_anova":
-        return CompleteANOVASkill()
+        return CompleteANOVATool()
     if name == "correlation_analysis":
-        return CorrelationAnalysisSkill()
+        return CorrelationAnalysisTool()
     if name == "regression_analysis":
-        return RegressionAnalysisSkill()
+        return RegressionAnalysisTool()
 
     # 然后检查期刊样式模板
     from nini.tools.templates.journal_styles import get_template as get_journal_template

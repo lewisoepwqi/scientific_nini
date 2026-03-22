@@ -13,7 +13,7 @@ from nini.agent.runner import AgentRunner
 from nini.agent.session import session_manager
 from nini.agent.spawner import SubAgentResult
 from nini.api import websocket as websocket_module
-from nini.api.websocket import get_skill_registry
+from nini.api.websocket import get_tool_registry
 from nini.app import create_app
 from nini.config import settings
 from tests.client_utils import LocalASGIClient, live_websocket_connect
@@ -56,7 +56,7 @@ def _install_dispatch_stubs(
     failing_agent: str | None = None,
 ) -> None:
     """将 dispatch_agents 的子 Agent 执行与结果融合替换为确定性 stub。"""
-    registry = get_skill_registry()
+    registry = get_tool_registry()
     assert registry is not None
     tool = registry.get("dispatch_agents")
     assert tool is not None
@@ -110,6 +110,7 @@ def _install_harness_dispatch_flow(
     final_text: str = "多 Agent 分析已完成。",
 ) -> None:
     """用确定性的 Harness 流程驱动真实 dispatch_agents 执行。"""
+
     async def fake_run(
         self,
         session,
@@ -143,7 +144,7 @@ def _install_harness_dispatch_flow(
             turn_id=turn_id,
         )
 
-        agent_runner = AgentRunner(skill_registry=get_skill_registry())
+        agent_runner = AgentRunner(tool_registry=get_tool_registry())
         dispatch_tc = {
             "id": tool_call_id,
             "function": {
@@ -183,9 +184,7 @@ def test_websocket_dispatch_agents_emits_expected_agent_start_events(
         events = _collect_until_terminal(ws)
 
     agent_start_ids = [
-        event["data"]["agent_id"]
-        for event in events
-        if event["type"] == "agent_start"
+        event["data"]["agent_id"] for event in events if event["type"] == "agent_start"
     ]
     assert "data_cleaner" in agent_start_ids
     assert "statistician" in agent_start_ids
@@ -246,15 +245,9 @@ def test_websocket_dispatch_agents_partial_failure_does_not_interrupt_main_agent
         events = _collect_until_terminal(ws)
 
     event_types = [event["type"] for event in events]
-    agent_errors = [
-        event["data"]["agent_id"]
-        for event in events
-        if event["type"] == "agent_error"
-    ]
+    agent_errors = [event["data"]["agent_id"] for event in events if event["type"] == "agent_error"]
     agent_completes = [
-        event["data"]["agent_id"]
-        for event in events
-        if event["type"] == "agent_complete"
+        event["data"]["agent_id"] for event in events if event["type"] == "agent_complete"
     ]
     tool_result = next(event for event in events if event["type"] == "tool_result")
 

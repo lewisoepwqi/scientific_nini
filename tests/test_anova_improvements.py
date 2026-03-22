@@ -14,7 +14,7 @@ class TestANOVABoundaries:
     async def test_anova_less_than_2_groups(self) -> None:
         """验证 1 组时友好错误。"""
         pytest.importorskip("scipy")
-        from nini.tools.statistics import ANOVASkill
+        from nini.tools.statistics import ANOVATool
 
         session = Session()
         session.datasets["one_group.csv"] = pd.DataFrame(
@@ -24,7 +24,7 @@ class TestANOVABoundaries:
             }
         )
 
-        result = await ANOVASkill().execute(
+        result = await ANOVATool().execute(
             session,
             dataset_name="one_group.csv",
             value_column="value",
@@ -37,7 +37,7 @@ class TestANOVABoundaries:
     async def test_anova_2_groups_hint_t_test(self) -> None:
         """验证 2 组时提示使用 t_test。"""
         pytest.importorskip("scipy")
-        from nini.tools.statistics import ANOVASkill
+        from nini.tools.statistics import ANOVATool
 
         session = Session()
         session.datasets["two_groups.csv"] = pd.DataFrame(
@@ -47,7 +47,7 @@ class TestANOVABoundaries:
             }
         )
 
-        result = await ANOVASkill().execute(
+        result = await ANOVATool().execute(
             session,
             dataset_name="two_groups.csv",
             value_column="value",
@@ -65,7 +65,7 @@ class TestANOVABoundaries:
     ) -> None:
         """验证 p=0.05 触发事后检验。"""
         pytest.importorskip("scipy")
-        from nini.tools.statistics import ANOVASkill
+        from nini.tools.statistics import ANOVATool
         import nini.tools.statistics as statistics_module
 
         session = Session()
@@ -88,7 +88,7 @@ class TestANOVABoundaries:
             statistics_module, "pairwise_tukeyhsd", lambda *_args, **_kwargs: _DummyTukey()
         )
 
-        result = await ANOVASkill().execute(
+        result = await ANOVATool().execute(
             session,
             dataset_name="three_groups.csv",
             value_column="value",

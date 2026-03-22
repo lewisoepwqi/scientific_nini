@@ -11,7 +11,7 @@ from nini.agent.model_resolver import LLMChunk
 from nini.agent.runner import AgentRunner
 from nini.agent.session import Session
 from nini.app import create_app
-from nini.api.websocket import set_skill_registry
+from nini.api.websocket import set_tool_registry
 from nini.capabilities import Capability, CapabilityRegistry
 from nini.config import settings
 from nini.intent import IntentAnalyzer, OptimizedIntentAnalyzer, QueryType
@@ -441,7 +441,7 @@ def intent_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
     app = create_app()
-    set_skill_registry(create_default_tool_registry())
+    set_tool_registry(create_default_tool_registry())
     with LocalASGIClient(app) as client:
         yield client
 
@@ -504,7 +504,7 @@ async def test_runner_build_messages_includes_intent_runtime_context() -> None:
     """运行时上下文应注入 capability 候选与推荐工具。"""
     session = Session()
     session.add_message("user", "我想做差异分析并画图")
-    runner = AgentRunner(skill_registry=_EmptySkillRegistry())
+    runner = AgentRunner(tool_registry=_EmptySkillRegistry())
 
     messages, _ = await runner._build_messages_and_retrieval(session)
 
@@ -529,7 +529,7 @@ async def test_runner_requests_intent_clarification_before_llm() -> None:
 
     runner = AgentRunner(
         resolver=resolver,
-        skill_registry=_EmptySkillRegistry(),
+        tool_registry=_EmptySkillRegistry(),
         ask_user_question_handler=ask_handler,
     )
 

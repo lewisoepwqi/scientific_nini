@@ -6,19 +6,19 @@ from typing import Any
 
 from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
-from nini.tools.data_ops import DataSummarySkill, LoadDatasetSkill, PreviewDataSkill
-from nini.tools.data_quality import DataQualitySkill
+from nini.tools.data_ops import DataSummaryTool, LoadDatasetTool, PreviewDataTool
+from nini.tools.data_quality import DataQualityTool
 from nini.workspace import WorkspaceManager
 
 
-class DatasetCatalogSkill(Tool):
+class DatasetCatalogTool(Tool):
     """统一数据集目录入口。"""
 
     def __init__(self) -> None:
-        self._loader = LoadDatasetSkill()
-        self._preview = PreviewDataSkill()
-        self._summary = DataSummarySkill()
-        self._quality = DataQualitySkill()
+        self._loader = LoadDatasetTool()
+        self._preview = PreviewDataTool()
+        self._summary = DataSummaryTool()
+        self._quality = DataQualityTool()
 
     @property
     def name(self) -> str:

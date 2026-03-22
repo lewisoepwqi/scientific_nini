@@ -863,7 +863,7 @@ async def export_workspace_document(
     )
 
 
-class ExportReportSkill(Tool):
+class ExportReportTool(Tool):
     """将 Markdown 报告导出为 PDF 文件。"""
 
     @property

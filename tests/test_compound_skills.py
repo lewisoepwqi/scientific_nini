@@ -20,9 +20,9 @@ class TestCompleteComparisonSkill:
     @pytest.mark.asyncio
     async def test_skill_execution_full_flow(self):
         """测试完整分析流程。"""
-        from nini.tools.templates.complete_comparison import CompleteComparisonSkill
+        from nini.tools.templates.complete_comparison import CompleteComparisonTool
 
-        skill = CompleteComparisonSkill()
+        skill = CompleteComparisonTool()
         session = Session()
 
         # 创建测试数据
@@ -49,9 +49,9 @@ class TestCompleteComparisonSkill:
     @pytest.mark.asyncio
     async def test_skill_includes_data_quality_check(self):
         """测试技能包含数据质量检查。"""
-        from nini.tools.templates.complete_comparison import CompleteComparisonSkill
+        from nini.tools.templates.complete_comparison import CompleteComparisonTool
 
-        skill = CompleteComparisonSkill()
+        skill = CompleteComparisonTool()
         session = Session()
 
         # 包含缺失值的数据
@@ -76,9 +76,9 @@ class TestCompleteComparisonSkill:
     @pytest.mark.asyncio
     async def test_skill_performs_assumption_tests(self):
         """测试技能执行前提检验。"""
-        from nini.tools.templates.complete_comparison import CompleteComparisonSkill
+        from nini.tools.templates.complete_comparison import CompleteComparisonTool
 
-        skill = CompleteComparisonSkill()
+        skill = CompleteComparisonTool()
         session = Session()
 
         test_data = pd.DataFrame(
@@ -102,9 +102,9 @@ class TestCompleteComparisonSkill:
     @pytest.mark.asyncio
     async def test_skill_calculates_effect_size(self):
         """测试技能计算效应量。"""
-        from nini.tools.templates.complete_comparison import CompleteComparisonSkill
+        from nini.tools.templates.complete_comparison import CompleteComparisonTool
 
-        skill = CompleteComparisonSkill()
+        skill = CompleteComparisonTool()
         session = Session()
 
         test_data = pd.DataFrame(
@@ -130,9 +130,9 @@ class TestCompleteComparisonSkill:
     @pytest.mark.asyncio
     async def test_skill_generates_visualization(self):
         """测试技能生成可视化。"""
-        from nini.tools.templates.complete_comparison import CompleteComparisonSkill
+        from nini.tools.templates.complete_comparison import CompleteComparisonTool
 
-        skill = CompleteComparisonSkill()
+        skill = CompleteComparisonTool()
         session = Session()
 
         test_data = pd.DataFrame(
@@ -160,9 +160,9 @@ class TestCompleteComparisonSkill:
     @pytest.mark.asyncio
     async def test_skill_generates_apa_report(self):
         """测试技能生成 APA 格式报告。"""
-        from nini.tools.templates.complete_comparison import CompleteComparisonSkill
+        from nini.tools.templates.complete_comparison import CompleteComparisonTool
 
-        skill = CompleteComparisonSkill()
+        skill = CompleteComparisonTool()
         session = Session()
 
         test_data = pd.DataFrame(
@@ -189,9 +189,9 @@ class TestCompleteComparisonSkill:
     @pytest.mark.asyncio
     async def test_skill_handles_non_normal_data(self):
         """测试技能处理非正态数据（自动降级到非参数检验）。"""
-        from nini.tools.templates.complete_comparison import CompleteComparisonSkill
+        from nini.tools.templates.complete_comparison import CompleteComparisonTool
 
-        skill = CompleteComparisonSkill()
+        skill = CompleteComparisonTool()
         session = Session()
 
         # 明显偏态的数据
@@ -224,9 +224,9 @@ class TestCompleteComparisonSkill:
     @pytest.mark.asyncio
     async def test_skill_handles_missing_dataset(self):
         """测试技能处理缺失数据集。"""
-        from nini.tools.templates.complete_comparison import CompleteComparisonSkill
+        from nini.tools.templates.complete_comparison import CompleteComparisonTool
 
-        skill = CompleteComparisonSkill()
+        skill = CompleteComparisonTool()
         session = Session()
 
         result = await skill.execute(
@@ -246,9 +246,9 @@ class TestCompleteANOVASkill:
     @pytest.mark.asyncio
     async def test_skill_execution_three_groups(self):
         """测试三组比较分析。"""
-        from nini.tools.templates.complete_anova import CompleteANOVASkill
+        from nini.tools.templates.complete_anova import CompleteANOVATool
 
-        skill = CompleteANOVASkill()
+        skill = CompleteANOVATool()
         session = Session()
 
         # 三组数据
@@ -275,9 +275,9 @@ class TestCompleteANOVASkill:
     @pytest.mark.asyncio
     async def test_skill_performs_post_hoc(self):
         """测试执行事后检验。"""
-        from nini.tools.templates.complete_anova import CompleteANOVASkill
+        from nini.tools.templates.complete_anova import CompleteANOVATool
 
-        skill = CompleteANOVASkill()
+        skill = CompleteANOVATool()
         session = Session()
 
         test_data = pd.DataFrame(
@@ -307,9 +307,9 @@ class TestCorrelationAnalysisSkill:
     @pytest.mark.asyncio
     async def test_skill_execution_multiple_variables(self):
         """测试多变量相关性分析。"""
-        from nini.tools.templates.correlation_analysis import CorrelationAnalysisSkill
+        from nini.tools.templates.correlation_analysis import CorrelationAnalysisTool
 
-        skill = CorrelationAnalysisSkill()
+        skill = CorrelationAnalysisTool()
         session = Session()
 
         # 多变量数据
@@ -340,9 +340,9 @@ class TestCorrelationAnalysisSkill:
     @pytest.mark.asyncio
     async def test_skill_generates_heatmap(self):
         """测试生成相关矩阵热图。"""
-        from nini.tools.templates.correlation_analysis import CorrelationAnalysisSkill
+        from nini.tools.templates.correlation_analysis import CorrelationAnalysisTool
 
-        skill = CorrelationAnalysisSkill()
+        skill = CorrelationAnalysisTool()
         session = Session()
 
         import numpy as np
@@ -372,9 +372,9 @@ class TestCorrelationAnalysisSkill:
     @pytest.mark.asyncio
     async def test_supports_different_methods(self):
         """测试支持不同相关系数方法。"""
-        from nini.tools.templates.correlation_analysis import CorrelationAnalysisSkill
+        from nini.tools.templates.correlation_analysis import CorrelationAnalysisTool
 
-        skill = CorrelationAnalysisSkill()
+        skill = CorrelationAnalysisTool()
         session = Session()
 
         import numpy as np
@@ -411,13 +411,13 @@ class TestCompoundSkillRegistration:
         skill_names = registry.list_skills()
 
         # 注册后应该包含
-        from nini.tools.templates.complete_comparison import CompleteComparisonSkill
-        from nini.tools.templates.complete_anova import CompleteANOVASkill
-        from nini.tools.templates.correlation_analysis import CorrelationAnalysisSkill
+        from nini.tools.templates.complete_comparison import CompleteComparisonTool
+        from nini.tools.templates.complete_anova import CompleteANOVATool
+        from nini.tools.templates.correlation_analysis import CorrelationAnalysisTool
 
-        registry.register(CompleteComparisonSkill())
-        registry.register(CompleteANOVASkill())
-        registry.register(CorrelationAnalysisSkill())
+        registry.register(CompleteComparisonTool())
+        registry.register(CompleteANOVATool())
+        registry.register(CorrelationAnalysisTool())
 
         updated_names = registry.list_skills()
         assert "complete_comparison" in updated_names
@@ -426,14 +426,14 @@ class TestCompoundSkillRegistration:
 
     def test_compound_skill_tool_definitions(self):
         """测试复合技能工具定义。"""
-        from nini.tools.templates.complete_comparison import CompleteComparisonSkill
-        from nini.tools.templates.complete_anova import CompleteANOVASkill
-        from nini.tools.templates.correlation_analysis import CorrelationAnalysisSkill
+        from nini.tools.templates.complete_comparison import CompleteComparisonTool
+        from nini.tools.templates.complete_anova import CompleteANOVATool
+        from nini.tools.templates.correlation_analysis import CorrelationAnalysisTool
 
         skills = [
-            CompleteComparisonSkill(),
-            CompleteANOVASkill(),
-            CorrelationAnalysisSkill(),
+            CompleteComparisonTool(),
+            CompleteANOVATool(),
+            CorrelationAnalysisTool(),
         ]
 
         for skill in skills:

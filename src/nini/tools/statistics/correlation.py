@@ -12,7 +12,7 @@ from nini.tools.base import Tool, ToolResult
 from nini.tools.statistics.base import _ensure_finite, _get_df, _record_stat_result, _safe_float
 
 
-class CorrelationSkill(Tool):
+class CorrelationTool(Tool):
     """计算变量间的相关性。"""
 
     @property

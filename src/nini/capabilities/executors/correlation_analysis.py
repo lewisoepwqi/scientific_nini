@@ -143,11 +143,11 @@ class CorrelationAnalysisCapability:
         self.description = "探索变量之间的相关关系"
         self.icon = "📈"
         # registry 参数保留以兼容旧调用方，但内部直接实例化所需技能
-        from nini.tools.statistics import CorrelationSkill
-        from nini.tools.visualization import CreateChartSkill
+        from nini.tools.statistics import CorrelationTool
+        from nini.tools.visualization import CreateChartTool
 
-        self._correlation_skill = CorrelationSkill()
-        self._chart_skill = CreateChartSkill()
+        self._correlation_skill = CorrelationTool()
+        self._chart_skill = CreateChartTool()
 
     async def execute(
         self,
@@ -334,7 +334,7 @@ class CorrelationAnalysisCapability:
         columns: list[str],
         method: str,
     ) -> dict[str, Any] | None:
-        """直接调用 CorrelationSkill 计算相关矩阵。"""
+        """直接调用 CorrelationTool 计算相关矩阵。"""
         try:
             tool_result = await self._correlation_skill.execute(
                 session=session,

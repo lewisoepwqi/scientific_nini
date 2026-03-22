@@ -15,17 +15,17 @@ class AnalysisWorkflowEngine:
     """组合基础工具完成复合分析。"""
 
     def __init__(self) -> None:
-        from nini.tools.chart_session import ChartSessionSkill
-        from nini.tools.dataset_catalog import DatasetCatalogSkill
-        from nini.tools.stat_interpret import StatInterpretSkill
-        from nini.tools.stat_model import StatModelSkill
-        from nini.tools.stat_test import StatTestSkill
+        from nini.tools.chart_session import ChartSessionTool
+        from nini.tools.dataset_catalog import DatasetCatalogTool
+        from nini.tools.stat_interpret import StatInterpretTool
+        from nini.tools.stat_model import StatModelTool
+        from nini.tools.stat_test import StatTestTool
 
-        self._catalog = DatasetCatalogSkill()
-        self._chart = ChartSessionSkill()
-        self._stat_test = StatTestSkill()
-        self._stat_model = StatModelSkill()
-        self._interpret = StatInterpretSkill()
+        self._catalog = DatasetCatalogTool()
+        self._chart = ChartSessionTool()
+        self._stat_test = StatTestTool()
+        self._stat_model = StatModelTool()
+        self._interpret = StatInterpretTool()
 
     async def complete_comparison(
         self,

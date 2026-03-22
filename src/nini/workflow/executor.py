@@ -215,7 +215,7 @@ def _build_validation_payload(template: WorkflowTemplate) -> dict[str, Any]:
 async def execute_workflow(
     template: WorkflowTemplate,
     session: Session,
-    skill_registry: Any,
+    tool_registry: Any,
     *,
     parameter_overrides: dict[str, Any] | None = None,
 ) -> AsyncGenerator[AgentEvent, None]:
@@ -307,7 +307,7 @@ async def execute_workflow(
                 )
 
                 try:
-                    raw_result = await skill_registry.execute(
+                    raw_result = await tool_registry.execute(
                         step.executable_name,
                         session=session,
                         **resolved_args,
@@ -366,7 +366,7 @@ async def execute_workflow(
             )
 
             try:
-                raw_result = await skill_registry.execute(
+                raw_result = await tool_registry.execute(
                     step.executable_name, session=session, **args
                 )
                 result = _to_result_dict(raw_result)

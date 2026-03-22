@@ -18,7 +18,7 @@ from nini.tools.statistics.base import (
 )
 
 
-class TTestSkill(Tool):
+class TTestTool(Tool):
     """执行 t 检验（独立样本/配对/单样本）。"""
 
     @property

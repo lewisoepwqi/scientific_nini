@@ -8,46 +8,46 @@ from typing import Any
 from nini.agent.session import Session
 from nini.config import settings
 from nini.sandbox.r_router import detect_r_backend
-from nini.tools.chart_session import ChartSessionSkill
-from nini.tools.code_session import CodeSessionSkill
-from nini.tools.code_exec import RunCodeSkill
-from nini.tools.dataset_catalog import DatasetCatalogSkill
-from nini.tools.data_ops import DataSummarySkill, LoadDatasetSkill
-from nini.tools.dataset_transform import DatasetTransformSkill
+from nini.tools.chart_session import ChartSessionTool
+from nini.tools.code_session import CodeSessionTool
+from nini.tools.code_exec import RunCodeTool
+from nini.tools.dataset_catalog import DatasetCatalogTool
+from nini.tools.data_ops import DataSummaryTool, LoadDatasetTool
+from nini.tools.dataset_transform import DatasetTransformTool
 from nini.tools.edit_file import EditFile
-from nini.tools.export import ExportChartSkill
-from nini.tools.export_document import ExportDocumentSkill
-from nini.tools.export_report import ExportReportSkill
-from nini.tools.fetch_url import FetchURLSkill
-from nini.tools.organize_workspace import OrganizeWorkspaceSkill
-from nini.tools.r_code_exec import RunRCodeSkill
+from nini.tools.export import ExportChartTool
+from nini.tools.export_document import ExportDocumentTool
+from nini.tools.export_report import ExportReportTool
+from nini.tools.fetch_url import FetchURLTool
+from nini.tools.organize_workspace import OrganizeWorkspaceTool
+from nini.tools.r_code_exec import RunRCodeTool
 from nini.tools.registry_catalog import ToolCatalogOps
 from nini.tools.registry_core import FunctionToolRegistryOps
 from nini.tools.registry_markdown import MarkdownSkillRegistryOps
-from nini.tools.report import GenerateReportSkill
-from nini.tools.report_session import ReportSessionSkill
+from nini.tools.report import GenerateReportTool
+from nini.tools.report_session import ReportSessionTool
 from nini.tools.statistics import (
-    ANOVASkill,
-    KruskalWallisSkill,
-    MannWhitneySkill,
-    TTestSkill,
+    ANOVATool,
+    KruskalWallisTool,
+    MannWhitneyTool,
+    TTestTool,
 )
-from nini.tools.stat_interpret import StatInterpretSkill
-from nini.tools.stat_model import StatModelSkill
-from nini.tools.stat_test import StatTestSkill
-from nini.tools.task_write import TaskWriteSkill
-from nini.tools.task_state import TaskStateSkill
+from nini.tools.stat_interpret import StatInterpretTool
+from nini.tools.stat_model import StatModelTool
+from nini.tools.stat_test import StatTestTool
+from nini.tools.task_write import TaskWriteTool
+from nini.tools.task_state import TaskStateTool
 from nini.tools.templates import (
-    CompleteANOVASkill,
-    CompleteComparisonSkill,
-    CorrelationAnalysisSkill,
-    RegressionAnalysisSkill,
+    CompleteANOVATool,
+    CompleteComparisonTool,
+    CorrelationAnalysisTool,
+    RegressionAnalysisTool,
 )
-from nini.tools.analysis_memory_tool import AnalysisMemorySkill
+from nini.tools.analysis_memory_tool import AnalysisMemoryTool
 from nini.tools.dispatch_agents import DispatchAgentsTool
 from nini.tools.search_archive import SearchMemoryArchiveTool
-from nini.tools.profile_notes import UpdateProfileNotesSkill
-from nini.tools.workspace_session import WorkspaceSessionSkill
+from nini.tools.profile_notes import UpdateProfileNotesTool
+from nini.tools.workspace_session import WorkspaceSessionTool
 
 logger = logging.getLogger(__name__)
 
@@ -236,26 +236,26 @@ class ToolRegistry:
 def create_default_tool_registry() -> ToolRegistry:
     """创建并注册默认工具集(Tools)。"""
     registry = ToolRegistry()
-    registry.register(TaskWriteSkill())
-    registry.register(TaskStateSkill())
-    registry.register(LoadDatasetSkill())
-    registry.register(DataSummarySkill())
-    registry.register(DatasetCatalogSkill())
-    registry.register(DatasetTransformSkill())
+    registry.register(TaskWriteTool())
+    registry.register(TaskStateTool())
+    registry.register(LoadDatasetTool())
+    registry.register(DataSummaryTool())
+    registry.register(DatasetCatalogTool())
+    registry.register(DatasetTransformTool())
     # 保留原子统计工具：被 fallback.py 和 planner.py 硬编码引用
-    registry.register(TTestSkill())
-    registry.register(MannWhitneySkill())
-    registry.register(ANOVASkill())
-    registry.register(KruskalWallisSkill())
-    registry.register(StatTestSkill())
-    registry.register(StatModelSkill())
-    registry.register(StatInterpretSkill())
-    registry.register(CodeSessionSkill())
-    registry.register(RunCodeSkill())
+    registry.register(TTestTool())
+    registry.register(MannWhitneyTool())
+    registry.register(ANOVATool())
+    registry.register(KruskalWallisTool())
+    registry.register(StatTestTool())
+    registry.register(StatModelTool())
+    registry.register(StatInterpretTool())
+    registry.register(CodeSessionTool())
+    registry.register(RunCodeTool())
     if settings.r_enabled:
         backend = detect_r_backend()
         if backend["available"]:
-            registry.register(RunRCodeSkill())
+            registry.register(RunRCodeTool())
             logger.info("run_r_code 已注册（%s）", backend["message"])
         else:
             logger.warning(
@@ -263,23 +263,23 @@ def create_default_tool_registry() -> ToolRegistry:
                 "请运行 pip install webr 或安装本地 R 环境。",
                 backend["message"],
             )
-    registry.register(ChartSessionSkill())
-    registry.register(ExportChartSkill())
-    registry.register(ExportDocumentSkill())
-    registry.register(GenerateReportSkill())
-    registry.register(ReportSessionSkill())
-    registry.register(ExportReportSkill())
-    registry.register(OrganizeWorkspaceSkill())
-    registry.register(FetchURLSkill())
-    registry.register(CompleteComparisonSkill())
-    registry.register(CompleteANOVASkill())
-    registry.register(CorrelationAnalysisSkill())
-    registry.register(RegressionAnalysisSkill())
+    registry.register(ChartSessionTool())
+    registry.register(ExportChartTool())
+    registry.register(ExportDocumentTool())
+    registry.register(GenerateReportTool())
+    registry.register(ReportSessionTool())
+    registry.register(ExportReportTool())
+    registry.register(OrganizeWorkspaceTool())
+    registry.register(FetchURLTool())
+    registry.register(CompleteComparisonTool())
+    registry.register(CompleteANOVATool())
+    registry.register(CorrelationAnalysisTool())
+    registry.register(RegressionAnalysisTool())
     registry.register(EditFile())
-    registry.register(WorkspaceSessionSkill())
-    registry.register(AnalysisMemorySkill())
+    registry.register(WorkspaceSessionTool())
+    registry.register(AnalysisMemoryTool())
     registry.register(SearchMemoryArchiveTool())
-    registry.register(UpdateProfileNotesSkill())
+    registry.register(UpdateProfileNotesTool())
 
     # 注册 dispatch_agents 工具（不加入 LLM_EXPOSED_BASE_TOOL_NAMES，仅主 Agent 可用）
     from nini.agent.registry import AgentRegistry
@@ -295,12 +295,14 @@ def create_default_tool_registry() -> ToolRegistry:
         model_resolver=_model_resolver,
         enable_llm_fallback=False,
     )
-    registry.register(DispatchAgentsTool(
-        agent_registry=_agent_registry,
-        spawner=_spawner,
-        fusion_engine=_fusion_engine,
-        task_router=_task_router,
-    ))
+    registry.register(
+        DispatchAgentsTool(
+            agent_registry=_agent_registry,
+            spawner=_spawner,
+            fusion_engine=_fusion_engine,
+            task_router=_task_router,
+        )
+    )
 
     registry.reload_markdown_skills()
     registry.write_skills_snapshot()

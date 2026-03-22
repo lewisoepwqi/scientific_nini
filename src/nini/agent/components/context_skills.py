@@ -16,13 +16,13 @@ from nini.capabilities import create_default_capabilities
 
 def build_explicit_skill_context(
     user_message: str,
-    skill_registry: Any,
+    tool_registry: Any,
     *,
     context_intent_analyzer: Callable[[], Any],
     runtime_resources_builder: Callable[[str], str],
 ) -> str:
     """构建显式技能或自动匹配技能的参考上下文。"""
-    if not user_message or skill_registry is None:
+    if not user_message or tool_registry is None:
         return ""
 
     skill_args_map: dict[str, str] = {}
@@ -34,9 +34,9 @@ def build_explicit_skill_context(
         if name:
             skill_args_map[name] = call["arguments"]
 
-    if not hasattr(skill_registry, "list_markdown_skills"):
+    if not hasattr(tool_registry, "list_markdown_skills"):
         return ""
-    markdown_items = skill_registry.list_markdown_skills()
+    markdown_items = tool_registry.list_markdown_skills()
     if not isinstance(markdown_items, list):
         return ""
     skill_map = {
@@ -51,9 +51,9 @@ def build_explicit_skill_context(
         metadata = item.get("metadata")
         if isinstance(metadata, dict) and metadata.get("user_invocable") is False:
             continue
-        if not hasattr(skill_registry, "get_skill_instruction"):
+        if not hasattr(tool_registry, "get_skill_instruction"):
             continue
-        instruction_payload = skill_registry.get_skill_instruction(name)
+        instruction_payload = tool_registry.get_skill_instruction(name)
         if not isinstance(instruction_payload, dict):
             continue
         instruction = str(instruction_payload.get("instruction", "")).strip()
@@ -88,13 +88,13 @@ def build_explicit_skill_context(
     if not blocks:
         for item in match_skills_by_context(
             user_message,
-            skill_registry,
+            tool_registry,
             context_intent_analyzer=context_intent_analyzer,
         ):
             name = str(item.get("name", "")).strip()
-            if not name or not hasattr(skill_registry, "get_skill_instruction"):
+            if not name or not hasattr(tool_registry, "get_skill_instruction"):
                 continue
-            instruction_payload = skill_registry.get_skill_instruction(name)
+            instruction_payload = tool_registry.get_skill_instruction(name)
             if not isinstance(instruction_payload, dict):
                 continue
             instruction = str(instruction_payload.get("instruction", "")).strip()
@@ -132,7 +132,7 @@ def build_explicit_skill_context(
 
 def build_intent_runtime_context(
     user_message: str,
-    skill_registry: Any,
+    tool_registry: Any,
     *,
     intent_analyzer: Callable[[], Any],
     intent_analysis: Any = None,
@@ -146,8 +146,8 @@ def build_intent_runtime_context(
         return ""
 
     semantic_skills: list[dict[str, Any]] | None = None
-    if skill_registry is not None and hasattr(skill_registry, "get_semantic_catalog"):
-        raw_catalog = skill_registry.get_semantic_catalog(skill_type="markdown")
+    if tool_registry is not None and hasattr(tool_registry, "get_semantic_catalog"):
+        raw_catalog = tool_registry.get_semantic_catalog(skill_type="markdown")
         if isinstance(raw_catalog, list):
             semantic_skills = raw_catalog
 
@@ -213,18 +213,18 @@ def build_intent_runtime_context(
 
 def match_skills_by_context(
     user_message: str,
-    skill_registry: Any,
+    tool_registry: Any,
     *,
     context_intent_analyzer: Callable[[], Any],
 ) -> list[dict[str, Any]]:
     """按上下文匹配 Markdown Skill。"""
-    if not user_message or skill_registry is None:
+    if not user_message or tool_registry is None:
         return []
 
-    if hasattr(skill_registry, "get_semantic_catalog"):
-        markdown_items = skill_registry.get_semantic_catalog(skill_type="markdown")
+    if hasattr(tool_registry, "get_semantic_catalog"):
+        markdown_items = tool_registry.get_semantic_catalog(skill_type="markdown")
     else:
-        markdown_items = skill_registry.list_markdown_skills()
+        markdown_items = tool_registry.list_markdown_skills()
     if not isinstance(markdown_items, list):
         return []
 
@@ -240,11 +240,11 @@ def match_skills_by_context(
     return matched_items
 
 
-def build_skill_runtime_resources_note(skill_registry: Any, skill_name: str) -> str:
+def build_skill_runtime_resources_note(tool_registry: Any, skill_name: str) -> str:
     """构建技能运行时资源提示。"""
-    if skill_registry is None or not hasattr(skill_registry, "get_runtime_resources"):
+    if tool_registry is None or not hasattr(tool_registry, "get_runtime_resources"):
         return ""
-    payload = skill_registry.get_runtime_resources(skill_name)
+    payload = tool_registry.get_runtime_resources(skill_name)
     if not isinstance(payload, dict):
         return ""
     resources = payload.get("resources")

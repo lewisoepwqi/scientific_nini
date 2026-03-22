@@ -36,9 +36,9 @@ class TestOrchestrationLayer:
     @pytest.mark.asyncio
     async def test_complete_comparison_uses_base_tools(self):
         """完整比较分析应使用基础工具组合而非独立实现。"""
-        from nini.tools.templates.complete_comparison import CompleteComparisonSkill
+        from nini.tools.templates.complete_comparison import CompleteComparisonTool
 
-        skill = CompleteComparisonSkill()
+        skill = CompleteComparisonTool()
         session = Session()
 
         test_data = pd.DataFrame(
@@ -64,9 +64,9 @@ class TestOrchestrationLayer:
     @pytest.mark.asyncio
     async def test_complete_anova_uses_base_tools(self):
         """完整 ANOVA 分析应使用基础工具组合。"""
-        from nini.tools.templates.complete_anova import CompleteANOVASkill
+        from nini.tools.templates.complete_anova import CompleteANOVATool
 
-        skill = CompleteANOVASkill()
+        skill = CompleteANOVATool()
         session = Session()
 
         test_data = pd.DataFrame(
@@ -90,9 +90,9 @@ class TestOrchestrationLayer:
     @pytest.mark.asyncio
     async def test_correlation_analysis_uses_base_tools(self):
         """相关分析应使用基础工具组合。"""
-        from nini.tools.templates.correlation_analysis import CorrelationAnalysisSkill
+        from nini.tools.templates.correlation_analysis import CorrelationAnalysisTool
 
-        skill = CorrelationAnalysisSkill()
+        skill = CorrelationAnalysisTool()
         session = Session()
 
         test_data = pd.DataFrame(
@@ -115,9 +115,9 @@ class TestOrchestrationLayer:
     @pytest.mark.asyncio
     async def test_regression_analysis_uses_base_tools(self):
         """回归分析应使用基础工具组合。"""
-        from nini.tools.templates.regression_analysis import RegressionAnalysisSkill
+        from nini.tools.templates.regression_analysis import RegressionAnalysisTool
 
-        skill = RegressionAnalysisSkill()
+        skill = RegressionAnalysisTool()
         session = Session()
 
         test_data = pd.DataFrame(

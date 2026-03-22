@@ -12,7 +12,7 @@ from typing import Any
 
 from nini.agent.session import Session
 from nini.config import settings
-from nini.tools.base import Skill, SkillResult
+from nini.tools.base import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def _extract_message_text(msg: dict[str, Any]) -> str:
     return content.strip()
 
 
-class SearchMemoryArchiveTool(Skill):
+class SearchMemoryArchiveTool(Tool):
     """在当前会话的压缩历史归档中，通过关键词检索已被压缩的对话记录。"""
 
     @property
@@ -88,7 +88,7 @@ class SearchMemoryArchiveTool(Skill):
     def category(self) -> str:
         return "utility"
 
-    async def execute(self, session: Session, **kwargs: Any) -> SkillResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         """检索归档历史中包含关键词的消息。
 
         检索路径优先级：
@@ -101,7 +101,7 @@ class SearchMemoryArchiveTool(Skill):
         keyword: str = kwargs.get("keyword", "")
         max_results: int = int(kwargs.get("max_results", 5))
         if not keyword or not keyword.strip():
-            return SkillResult(success=False, message="关键词不能为空")
+            return ToolResult(success=False, message="关键词不能为空")
 
         keyword = keyword.strip()
         max_results = max(1, min(max_results, 20))
@@ -109,7 +109,7 @@ class SearchMemoryArchiveTool(Skill):
         session_dir = settings.sessions_dir / session.id
         archive_dir = session_dir / "archive"
         if not archive_dir.exists() and not session_dir.exists():
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 data={"results": [], "files_searched": 0},
                 message="当前会话尚无压缩归档，无历史可检索",
@@ -124,7 +124,7 @@ class SearchMemoryArchiveTool(Skill):
 
         # ---- 若无 SQLite，回退到旧路径 ----
         if not archive_dir.exists():
-            return SkillResult(
+            return ToolResult(
                 success=True,
                 data={"results": [], "files_searched": 0},
                 message="当前会话尚无压缩归档，无历史可检索",
@@ -195,7 +195,7 @@ class SearchMemoryArchiveTool(Skill):
         top_results = results[:max_results]
         total_sources = len(indexed_files) + len(unindexed)
         used_index = bool(indexed_files)
-        return SkillResult(
+        return ToolResult(
             success=True,
             data={
                 "results": top_results,
@@ -211,10 +211,10 @@ class SearchMemoryArchiveTool(Skill):
 
     async def _search_sqlite(
         self, session_dir: Any, keyword_lower: str, max_results: int
-    ) -> "SkillResult | None":
+    ) -> "ToolResult | None":
         """通过 SQLite 检索归档消息。
 
-        返回 SkillResult（若 DB 存在且查询成功），否则返回 None（调用方应 fallback）。
+        返回 ToolResult（若 DB 存在且查询成功），否则返回 None（调用方应 fallback）。
         使用 FTS5 MATCH（若可用），否则使用 LIKE 全表扫描。
         """
         import asyncio
@@ -230,7 +230,7 @@ class SearchMemoryArchiveTool(Skill):
         if not db_path.exists():
             return None
 
-        def _query() -> "SkillResult | None":
+        def _query() -> "ToolResult | None":
             conn = get_session_db(session_dir, create=False)
             if conn is None:
                 return None
@@ -328,7 +328,7 @@ class SearchMemoryArchiveTool(Skill):
                             logger.warning("读取归档文件失败: %s, 原因: %s", archive_file.name, exc)
 
                 top_results = results[:max_results]
-                return SkillResult(
+                return ToolResult(
                     success=True,
                     data={
                         "results": top_results,

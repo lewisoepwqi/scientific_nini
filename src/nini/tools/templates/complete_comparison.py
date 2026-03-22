@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class CompleteComparisonSkill(Tool):
+class CompleteComparisonTool(Tool):
     """完整两组比较分析技能（模板）。"""
 
     @property

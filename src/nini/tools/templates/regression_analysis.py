@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class RegressionAnalysisSkill(Tool):
+class RegressionAnalysisTool(Tool):
     """回归分析技能（模板）。"""
 
     @property

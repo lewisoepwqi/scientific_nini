@@ -7,26 +7,26 @@ from typing import Any
 from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
 from nini.tools.statistics import (
-    ANOVASkill,
-    KruskalWallisSkill,
-    MannWhitneySkill,
-    MultipleComparisonCorrectionSkill,
-    TTestSkill,
+    ANOVATool,
+    KruskalWallisTool,
+    MannWhitneyTool,
+    MultipleComparisonCorrectionTool,
+    TTestTool,
 )
 
 
-class StatTestSkill(Tool):
+class StatTestTool(Tool):
     """统一差异检验与多重校正入口。"""
 
     def __init__(self) -> None:
         self._delegates = {
-            "independent_t": TTestSkill(),
-            "paired_t": TTestSkill(),
-            "one_sample_t": TTestSkill(),
-            "mann_whitney": MannWhitneySkill(),
-            "one_way_anova": ANOVASkill(),
-            "kruskal_wallis": KruskalWallisSkill(),
-            "multiple_comparison_correction": MultipleComparisonCorrectionSkill(),
+            "independent_t": TTestTool(),
+            "paired_t": TTestTool(),
+            "one_sample_t": TTestTool(),
+            "mann_whitney": MannWhitneyTool(),
+            "one_way_anova": ANOVATool(),
+            "kruskal_wallis": KruskalWallisTool(),
+            "multiple_comparison_correction": MultipleComparisonCorrectionTool(),
         }
 
     @property

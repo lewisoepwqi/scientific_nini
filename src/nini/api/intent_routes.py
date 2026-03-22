@@ -27,11 +27,11 @@ def _get_capability_registry():
     return _capability_registry
 
 
-def _get_skill_registry():
+def _get_tool_registry():
     """获取全局技能注册表（从 WebSocket 模块）。"""
-    from nini.api.websocket import get_skill_registry
+    from nini.api.websocket import get_tool_registry
 
-    registry = get_skill_registry()
+    registry = get_tool_registry()
     if registry is None:
         raise HTTPException(status_code=503, detail="技能注册中心尚未初始化")
     return registry
@@ -62,8 +62,8 @@ async def analyze_intent(
     # 如果没有提供 semantic_skills，从 skill registry 获取
     if semantic_skills is None:
         try:
-            skill_registry = _get_skill_registry()
-            semantic_skills = skill_registry.get_semantic_catalog()
+            tool_registry = _get_tool_registry()
+            semantic_skills = tool_registry.get_semantic_catalog()
         except Exception:
             semantic_skills = []
 
