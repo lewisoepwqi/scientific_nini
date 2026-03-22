@@ -23,7 +23,7 @@ from nini.tools.organize_workspace import OrganizeWorkspaceTool
 from nini.tools.r_code_exec import RunRCodeTool
 from nini.tools.registry_catalog import ToolCatalogOps
 from nini.tools.registry_core import FunctionToolRegistryOps
-from nini.tools.registry_markdown import MarkdownSkillRegistryOps
+from nini.tools.registry_markdown import MarkdownToolRegistryOps
 from nini.tools.report import GenerateReportTool
 from nini.tools.report_session import ReportSessionTool
 from nini.tools.statistics import (
@@ -84,7 +84,7 @@ class ToolRegistry:
         self._llm_exposed_function_tools = set(LLM_EXPOSED_BASE_TOOL_NAMES)
 
         self._function_ops = FunctionToolRegistryOps(self)
-        self._markdown_ops = MarkdownSkillRegistryOps(self)
+        self._markdown_ops = MarkdownToolRegistryOps(self)
         self._catalog_ops = ToolCatalogOps(self)
 
         self._function_ops.ensure_runtime_dependencies()
@@ -105,17 +105,17 @@ class ToolRegistry:
     def list_function_skills(self) -> list[dict[str, Any]]:
         return self._function_ops.list_function_skills()
 
-    def list_markdown_skills(self) -> list[dict[str, Any]]:
-        return self._markdown_ops.list_markdown_skills()
+    def list_markdown_tools(self) -> list[dict[str, Any]]:
+        return self._markdown_ops.list_markdown_tools()
 
-    def get_markdown_skill(self, name: str) -> dict[str, Any] | None:
-        return self._markdown_ops.get_markdown_skill(name)
+    def get_markdown_tool(self, name: str) -> dict[str, Any] | None:
+        return self._markdown_ops.get_markdown_tool(name)
 
-    def get_skill_index(self, name: str) -> dict[str, Any] | None:
-        return self._catalog_ops.get_skill_index(name)
+    def get_tool_index(self, name: str) -> dict[str, Any] | None:
+        return self._catalog_ops.get_tool_index(name)
 
-    def get_skill_instruction(self, name: str) -> dict[str, Any] | None:
-        return self._markdown_ops.get_skill_instruction(name)
+    def get_tool_instruction(self, name: str) -> dict[str, Any] | None:
+        return self._markdown_ops.get_tool_instruction(name)
 
     def get_runtime_resources(self, name: str) -> dict[str, Any] | None:
         return self._markdown_ops.get_runtime_resources(name)
@@ -123,32 +123,32 @@ class ToolRegistry:
     def get_semantic_catalog(self, skill_type: str | None = None) -> list[dict[str, Any]]:
         return self._catalog_ops.get_semantic_catalog(skill_type=skill_type)
 
-    def list_skill_catalog(self, skill_type: str | None = None) -> list[dict[str, Any]]:
-        return self._catalog_ops.list_skill_catalog(skill_type=skill_type)
+    def list_tool_catalog(self, skill_type: str | None = None) -> list[dict[str, Any]]:
+        return self._catalog_ops.list_tool_catalog(skill_type=skill_type)
 
     def list_tools_catalog(self) -> list[dict[str, Any]]:
         return self._catalog_ops.list_tools_catalog()
 
-    def list_markdown_skill_catalog(self) -> list[dict[str, Any]]:
-        return self._catalog_ops.list_markdown_skill_catalog()
+    def list_markdown_tool_catalog(self) -> list[dict[str, Any]]:
+        return self._catalog_ops.list_markdown_tool_catalog()
 
-    def reload_markdown_skills(self) -> list[dict[str, Any]]:
-        return self._markdown_ops.reload_markdown_skills(set(self._skills.keys()))
+    def reload_markdown_tools(self) -> list[dict[str, Any]]:
+        return self._markdown_ops.reload_markdown_tools(set(self._skills.keys()))
 
-    def set_markdown_skill_enabled(self, name: str, enabled: bool) -> dict[str, Any] | None:
-        return self._markdown_ops.set_markdown_skill_enabled(name, enabled)
+    def set_markdown_tool_enabled(self, name: str, enabled: bool) -> dict[str, Any] | None:
+        return self._markdown_ops.set_markdown_tool_enabled(name, enabled)
 
-    def remove_markdown_skill_override(self, name: str) -> None:
-        self._markdown_ops.remove_markdown_skill_override(name)
+    def remove_markdown_tool_override(self, name: str) -> None:
+        self._markdown_ops.remove_markdown_tool_override(name)
 
-    def write_skills_snapshot(self) -> None:
-        self._catalog_ops.write_skills_snapshot()
+    def write_tools_snapshot(self) -> None:
+        self._catalog_ops.write_tools_snapshot()
 
     def get_tool_definitions(self) -> list[dict[str, Any]]:
         return self._function_ops.get_tool_definitions()
 
     def _is_markdown_skill(self, skill_name: str) -> bool:
-        return self._markdown_ops.is_markdown_skill(skill_name)
+        return self._markdown_ops.is_markdown_tool(skill_name)
 
     async def execute(
         self,
@@ -159,7 +159,7 @@ class ToolRegistry:
         return await self._function_ops.execute(
             skill_name,
             session,
-            markdown_skill_checker=self._markdown_ops.is_markdown_skill,
+            markdown_skill_checker=self._markdown_ops.is_markdown_tool,
             **kwargs,
         )
 
@@ -304,8 +304,8 @@ def create_default_tool_registry() -> ToolRegistry:
         )
     )
 
-    registry.reload_markdown_skills()
-    registry.write_skills_snapshot()
+    registry.reload_markdown_tools()
+    registry.write_tools_snapshot()
     return registry
 
 

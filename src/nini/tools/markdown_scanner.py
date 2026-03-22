@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 if TYPE_CHECKING:
-    from nini.tools.manifest import SkillManifest
+    from nini.tools.manifest import ToolManifest
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ _CATEGORY_ALIASES: dict[str, str] = {
 
 
 @dataclass
-class MarkdownSkill:
+class MarkdownTool:
     name: str
     description: str
     location: str
@@ -77,11 +77,11 @@ class MarkdownSkill:
             "metadata": self.metadata,
         }
 
-    def to_manifest(self) -> "SkillManifest":
+    def to_manifest(self) -> "ToolManifest":
         """导出为统一技能清单，与 Function Skill 保持一致的接口。"""
-        from nini.tools.manifest import SkillManifest
+        from nini.tools.manifest import ToolManifest
 
-        return SkillManifest(
+        return ToolManifest(
             name=self.name,
             description=self.description,
             parameters={},
@@ -233,7 +233,7 @@ def _parse_openai_agent_config(skill_dir: Path) -> dict[str, Any] | None:
     return {"path": str(cfg_path), "config": {}}
 
 
-def get_markdown_skill_instruction(
+def get_markdown_tool_instruction(
     skill_path: Path,
 ) -> dict[str, Any]:
     """读取 Markdown Skill 的正文说明层。"""
@@ -246,7 +246,7 @@ def get_markdown_skill_instruction(
     }
 
 
-def list_markdown_skill_runtime_resources(skill_path: Path) -> list[dict[str, Any]]:
+def list_markdown_tool_runtime_resources(skill_path: Path) -> list[dict[str, Any]]:
     """列出 Skill 目录中除说明文件外的运行时资源。"""
     skill_dir = skill_path.parent
     resources: list[dict[str, Any]] = []
@@ -291,7 +291,7 @@ def _iter_skill_files(roots: list[Path]) -> Iterable[tuple[Path, Path, int]]:
                 yield root, resolved, priority
 
 
-def scan_markdown_skills(skills_dir: Path | Iterable[Path]) -> list[MarkdownSkill]:
+def scan_markdown_tools(skills_dir: Path | Iterable[Path]) -> list[MarkdownTool]:
     """扫描 Markdown 技能并解析元数据。
 
     兼容目录：
@@ -306,7 +306,7 @@ def scan_markdown_skills(skills_dir: Path | Iterable[Path]) -> list[MarkdownSkil
     if not roots:
         return []
 
-    items: list[MarkdownSkill] = []
+    items: list[MarkdownTool] = []
     for root, path, priority in _iter_skill_files(roots):
         try:
             text = path.read_text(encoding="utf-8")
@@ -394,7 +394,7 @@ def scan_markdown_skills(skills_dir: Path | Iterable[Path]) -> list[MarkdownSkil
                 metadata["openai_agent_config"] = openai_cfg
 
             items.append(
-                MarkdownSkill(
+                MarkdownTool(
                     name=name,
                     description=description,
                     location=str(path),
@@ -440,7 +440,7 @@ def _render_snapshot_section(title: str, items: list[dict[str, Any]]) -> list[st
     return lines
 
 
-def render_skills_snapshot(
+def render_tools_snapshot(
     skills_or_tools: list[dict[str, Any]],
     markdown_skills: list[dict[str, Any]] | None = None,
 ) -> str:

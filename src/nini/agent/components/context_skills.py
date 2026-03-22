@@ -34,9 +34,9 @@ def build_explicit_skill_context(
         if name:
             skill_args_map[name] = call["arguments"]
 
-    if not hasattr(tool_registry, "list_markdown_skills"):
+    if not hasattr(tool_registry, "list_markdown_tools"):
         return ""
-    markdown_items = tool_registry.list_markdown_skills()
+    markdown_items = tool_registry.list_markdown_tools()
     if not isinstance(markdown_items, list):
         return ""
     skill_map = {
@@ -51,9 +51,9 @@ def build_explicit_skill_context(
         metadata = item.get("metadata")
         if isinstance(metadata, dict) and metadata.get("user_invocable") is False:
             continue
-        if not hasattr(tool_registry, "get_skill_instruction"):
+        if not hasattr(tool_registry, "get_tool_instruction"):
             continue
-        instruction_payload = tool_registry.get_skill_instruction(name)
+        instruction_payload = tool_registry.get_tool_instruction(name)
         if not isinstance(instruction_payload, dict):
             continue
         instruction = str(instruction_payload.get("instruction", "")).strip()
@@ -92,9 +92,9 @@ def build_explicit_skill_context(
             context_intent_analyzer=context_intent_analyzer,
         ):
             name = str(item.get("name", "")).strip()
-            if not name or not hasattr(tool_registry, "get_skill_instruction"):
+            if not name or not hasattr(tool_registry, "get_tool_instruction"):
                 continue
-            instruction_payload = tool_registry.get_skill_instruction(name)
+            instruction_payload = tool_registry.get_tool_instruction(name)
             if not isinstance(instruction_payload, dict):
                 continue
             instruction = str(instruction_payload.get("instruction", "")).strip()
@@ -224,7 +224,7 @@ def match_skills_by_context(
     if hasattr(tool_registry, "get_semantic_catalog"):
         markdown_items = tool_registry.get_semantic_catalog(skill_type="markdown")
     else:
-        markdown_items = tool_registry.list_markdown_skills()
+        markdown_items = tool_registry.list_markdown_tools()
     if not isinstance(markdown_items, list):
         return []
 

@@ -110,7 +110,7 @@ class _ApprovalRegistry:
             }
         ]
 
-    def list_markdown_skills(self) -> list[dict[str, object]]:
+    def list_markdown_tools(self) -> list[dict[str, object]]:
         return [
             {
                 "type": "markdown",

@@ -276,9 +276,9 @@ class TestAllowedToolsAdvisory:
         monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
         registry = ToolRegistry()
-        from nini.tools.markdown_scanner import scan_markdown_skills
+        from nini.tools.markdown_scanner import scan_markdown_tools
 
-        md_skills = scan_markdown_skills([skills_dir])
+        md_skills = scan_markdown_tools([skills_dir])
         registry._markdown_skills = [s.to_dict() for s in md_skills]
 
         runner = AgentRunner(tool_registry=registry)
@@ -311,9 +311,9 @@ class TestAllowedToolsAdvisory:
         monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
         registry = ToolRegistry()
-        from nini.tools.markdown_scanner import scan_markdown_skills
+        from nini.tools.markdown_scanner import scan_markdown_tools
 
-        md_skills = scan_markdown_skills([skills_dir])
+        md_skills = scan_markdown_tools([skills_dir])
         registry._markdown_skills = [s.to_dict() for s in md_skills]
 
         runner = AgentRunner(tool_registry=registry)
@@ -339,9 +339,9 @@ class TestAllowedToolsAdvisory:
         monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
         registry = ToolRegistry()
-        from nini.tools.markdown_scanner import scan_markdown_skills
+        from nini.tools.markdown_scanner import scan_markdown_tools
 
-        md_skills = scan_markdown_skills([skills_dir])
+        md_skills = scan_markdown_tools([skills_dir])
         registry._markdown_skills = [s.to_dict() for s in md_skills]
 
         runner = AgentRunner(tool_registry=registry)

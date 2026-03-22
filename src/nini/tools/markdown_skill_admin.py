@@ -16,7 +16,7 @@ _SKILL_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 
 
 @dataclass
-class MarkdownSkillDocument:
+class MarkdownToolDocument:
     name: str
     description: str
     category: str
@@ -24,7 +24,7 @@ class MarkdownSkillDocument:
     frontmatter: dict[str, Any] = field(default_factory=dict)
 
 
-def validate_skill_name(name: str) -> str:
+def validate_tool_name(name: str) -> str:
     """校验 skill 名称（兼容 snake_case / kebab-case）。"""
     candidate = name.strip()
     if not _SKILL_NAME_RE.match(candidate):
@@ -32,7 +32,7 @@ def validate_skill_name(name: str) -> str:
     return candidate
 
 
-def guess_skill_name_from_filename(filename: str) -> str:
+def guess_tool_name_from_filename(filename: str) -> str:
     """根据文件名推导合法的 skill 名称。"""
     stem = Path(filename).stem.strip().lower()
     stem = re.sub(r"[^a-z0-9_-]+", "-", stem)
@@ -41,7 +41,7 @@ def guess_skill_name_from_filename(filename: str) -> str:
         raise ValueError("无法从文件名推导技能名称")
     if not stem[0].isalpha():
         stem = f"skill-{stem}"
-    return validate_skill_name(stem)
+    return validate_tool_name(stem)
 
 
 def normalize_category(category: str | None, *, strict: bool = False) -> str:
@@ -96,11 +96,11 @@ def _default_skill_body(name: str, description: str) -> str:
     )
 
 
-def parse_skill_document(
+def parse_tool_document(
     text: str,
     *,
     fallback_name: str | None = None,
-) -> MarkdownSkillDocument:
+) -> MarkdownToolDocument:
     """解析 Markdown Skill 文档。"""
     meta, body = split_frontmatter(text)
 
@@ -109,14 +109,14 @@ def parse_skill_document(
         raw_name = (fallback_name or "").strip()
     if not raw_name:
         raise ValueError("技能名称不能为空")
-    name = validate_skill_name(raw_name)
+    name = validate_tool_name(raw_name)
 
     description = str(meta.get("description", "")).strip()
     if not description:
         description = _infer_description_from_body(body, name)
 
     category = normalize_category(str(meta.get("category", "") or ""), strict=False)
-    return MarkdownSkillDocument(
+    return MarkdownToolDocument(
         name=name,
         description=description,
         category=category,
@@ -125,9 +125,9 @@ def parse_skill_document(
     )
 
 
-def render_skill_document(document: MarkdownSkillDocument) -> str:
+def render_tool_document(document: MarkdownToolDocument) -> str:
     """将结构化 Skill 文档渲染为 Markdown。"""
-    name = validate_skill_name(document.name)
+    name = validate_tool_name(document.name)
     description = " ".join(document.description.strip().split()) or f"{name} 技能"
     category = normalize_category(document.category, strict=True)
     body = document.body.strip() or _default_skill_body(name, description)

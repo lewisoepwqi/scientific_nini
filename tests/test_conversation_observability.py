@@ -460,7 +460,7 @@ class _GuardedSkillRegistry(_EchoSkillRegistry):
     def __init__(self) -> None:
         self.execute_calls = 0
 
-    def list_markdown_skills(self) -> list[dict[str, object]]:
+    def list_markdown_tools(self) -> list[dict[str, object]]:
         return [
             {
                 "type": "markdown",
@@ -538,7 +538,7 @@ class _HighRiskWorkspaceRegistry:
             }
         ]
 
-    def list_markdown_skills(self) -> list[dict[str, object]]:
+    def list_markdown_tools(self) -> list[dict[str, object]]:
         return [
             {
                 "type": "markdown",
@@ -792,7 +792,7 @@ class _LoadDatasetGuardedSkillRegistry:
             }
         ]
 
-    def list_markdown_skills(self) -> list[dict[str, object]]:
+    def list_markdown_tools(self) -> list[dict[str, object]]:
         return [
             {
                 "type": "markdown",

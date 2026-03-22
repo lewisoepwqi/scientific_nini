@@ -5,18 +5,18 @@ from __future__ import annotations
 from typing import Any, cast
 
 from nini.config import settings
-from nini.tools.markdown_scanner import render_skills_snapshot
+from nini.tools.markdown_scanner import render_tools_snapshot
 
 
 class ToolCatalogOps:
-    """聚合 Function Tool 与 Markdown Skill 目录。"""
+    """聚合 Function Tool 与 Markdown Tool 目录。"""
 
     def __init__(self, owner: Any) -> None:
         self._owner = owner
 
-    def get_skill_index(self, name: str) -> dict[str, Any] | None:
+    def get_tool_index(self, name: str) -> dict[str, Any] | None:
         """获取 Markdown Skill 的索引层元数据。"""
-        item = self._owner.get_markdown_skill(name)
+        item = self._owner.get_markdown_tool(name)
         if item is None:
             return None
         return {
@@ -35,7 +35,7 @@ class ToolCatalogOps:
 
     def get_semantic_catalog(self, skill_type: str | None = None) -> list[dict[str, Any]]:
         """返回适用于语义检索的轻量目录。"""
-        catalog = self.list_skill_catalog(skill_type=skill_type)
+        catalog = self.list_tool_catalog(skill_type=skill_type)
         semantic_items: list[dict[str, Any]] = []
         for item in catalog:
             metadata = dict(item.get("metadata") or {})
@@ -71,11 +71,11 @@ class ToolCatalogOps:
             )
         return semantic_items
 
-    def list_skill_catalog(self, skill_type: str | None = None) -> list[dict[str, Any]]:
+    def list_tool_catalog(self, skill_type: str | None = None) -> list[dict[str, Any]]:
         """返回聚合后的技能目录。"""
         all_items = cast(
             list[dict[str, Any]],
-            self._owner.list_function_skills() + self._owner.list_markdown_skills(),
+            self._owner.list_function_skills() + self._owner.list_markdown_tools(),
         )
         if skill_type:
             normalized_type = skill_type.strip().lower()
@@ -87,14 +87,14 @@ class ToolCatalogOps:
         """返回可执行 Function Tool 目录。"""
         return cast(list[dict[str, Any]], self._owner.list_function_skills())
 
-    def list_markdown_skill_catalog(self) -> list[dict[str, Any]]:
+    def list_markdown_tool_catalog(self) -> list[dict[str, Any]]:
         """返回 Markdown Skill 目录。"""
-        return cast(list[dict[str, Any]], self._owner.list_markdown_skills())
+        return cast(list[dict[str, Any]], self._owner.list_markdown_tools())
 
-    def write_skills_snapshot(self) -> None:
+    def write_tools_snapshot(self) -> None:
         """将聚合目录写入快照文件。"""
-        content = render_skills_snapshot(
+        content = render_tools_snapshot(
             self._owner.list_function_skills(),
-            self._owner.list_markdown_skills(),
+            self._owner.list_markdown_tools(),
         )
         settings.skills_snapshot_path.write_text(content, encoding="utf-8")

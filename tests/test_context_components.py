@@ -62,14 +62,14 @@ def test_build_explicit_skill_context_replaces_arguments_and_includes_tools() ->
             return [{"name": "guide", "arguments": "demo.csv score"}]
 
     registry = SimpleNamespace(
-        list_markdown_skills=lambda: [
+        list_markdown_tools=lambda: [
             {
                 "name": "guide",
                 "enabled": True,
                 "metadata": {"allowed_tools": ["read_file", "run_tests"]},
             }
         ],
-        get_skill_instruction=lambda name: {
+        get_tool_instruction=lambda name: {
             "instruction": "读取 $1 并分析 $2\n工具: $ARGUMENTS",
             "location": "/tmp/guide/SKILL.md",
         },

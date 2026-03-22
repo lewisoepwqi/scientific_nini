@@ -270,7 +270,7 @@ class FunctionToolRegistryOps:
             skill_executor=lambda name, sess, kw: self.execute(
                 name,
                 session=sess,
-                markdown_skill_checker=self._owner._markdown_ops.is_markdown_skill,
+                markdown_skill_checker=self._owner._markdown_ops.is_markdown_tool,
                 **kw,
             ),
         )

@@ -2388,10 +2388,10 @@ class AgentRunner:
         """选择本轮激活的 Markdown Skills（显式 slash 优先，缺失时走自动匹配）。"""
         if not user_message or self._tool_registry is None:
             return []
-        if not hasattr(self._tool_registry, "list_markdown_skills"):
+        if not hasattr(self._tool_registry, "list_markdown_tools"):
             return []
 
-        markdown_items = self._tool_registry.list_markdown_skills()
+        markdown_items = self._tool_registry.list_markdown_tools()
         if not isinstance(markdown_items, list):
             return []
         return default_intent_analyzer.select_active_skills(

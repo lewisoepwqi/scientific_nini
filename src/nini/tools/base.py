@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from nini.agent.session import Session
 
 if TYPE_CHECKING:
-    from nini.tools.manifest import SkillManifest
+    from nini.tools.manifest import ToolManifest
 
 
 @dataclass
@@ -120,11 +120,11 @@ class Tool(ABC):
         """执行工具。"""
         ...
 
-    def to_manifest(self) -> "SkillManifest":
+    def to_manifest(self) -> "ToolManifest":
         """导出为统一工具清单（用于跨平台描述）。"""
-        from nini.tools.manifest import SkillManifest
+        from nini.tools.manifest import ToolManifest
 
-        return SkillManifest(
+        return ToolManifest(
             name=self.name,
             description=self.description,
             parameters=self.parameters,

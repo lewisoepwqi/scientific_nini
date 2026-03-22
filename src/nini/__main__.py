@@ -607,7 +607,7 @@ def _cmd_skills_list(args: argparse.Namespace) -> int:
 
     registry = create_default_tool_registry()
     skill_type = None if args.type == "all" else args.type
-    catalog = registry.list_skill_catalog(skill_type=skill_type)
+    catalog = registry.list_tool_catalog(skill_type=skill_type)
 
     if args.category:
         catalog = [s for s in catalog if s.get("category") == args.category]

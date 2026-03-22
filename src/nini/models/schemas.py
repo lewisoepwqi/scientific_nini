@@ -139,7 +139,7 @@ class FileRenameRequest(BaseModel):
     name: str
 
 
-class MarkdownSkillUpdateRequest(BaseModel):
+class MarkdownToolUpdateRequest(BaseModel):
     """Markdown Skill 编辑请求。"""
 
     description: str = Field(min_length=1)
@@ -147,26 +147,26 @@ class MarkdownSkillUpdateRequest(BaseModel):
     content: str = ""
 
 
-class MarkdownSkillEnabledRequest(BaseModel):
+class MarkdownToolEnabledRequest(BaseModel):
     """Markdown Skill 启用状态更新请求。"""
 
     enabled: bool
 
 
-class MarkdownSkillFileWriteRequest(BaseModel):
+class MarkdownToolFileWriteRequest(BaseModel):
     """Markdown Skill 文件写入请求。"""
 
     path: str = Field(min_length=1)
     content: str = ""
 
 
-class MarkdownSkillDirCreateRequest(BaseModel):
+class MarkdownToolDirCreateRequest(BaseModel):
     """Markdown Skill 目录创建请求。"""
 
     path: str = Field(min_length=1)
 
 
-class MarkdownSkillPathDeleteRequest(BaseModel):
+class MarkdownToolPathDeleteRequest(BaseModel):
     """Markdown Skill 文件/目录删除请求。"""
 
     path: str = Field(min_length=1)

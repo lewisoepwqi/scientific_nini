@@ -337,7 +337,7 @@ def test_websocket_sandbox_import_approval_flow(
                 }
             ]
 
-        def list_markdown_skills(self):
+        def list_markdown_tools(self):
             return []
 
         async def execute_with_fallback(self, skill_name, session, enable_fallback=True, **kwargs):
