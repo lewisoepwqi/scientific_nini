@@ -217,8 +217,6 @@ class SearchMemoryArchiveTool(Tool):
         返回 ToolResult（若 DB 存在且查询成功），否则返回 None（调用方应 fallback）。
         使用 FTS5 MATCH（若可用），否则使用 LIKE 全表扫描。
         """
-        import asyncio
-
         from nini.memory.db import (
             get_indexed_archive_files,
             get_session_db,
@@ -347,4 +345,4 @@ class SearchMemoryArchiveTool(Tool):
             finally:
                 conn.close()
 
-        return await asyncio.to_thread(_query)
+        return _query()

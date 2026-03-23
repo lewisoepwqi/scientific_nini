@@ -707,11 +707,11 @@ class SandboxExecutor:
         persist_df: bool = False,
         extra_allowed_imports: Iterable[str] | None = None,
     ) -> dict[str, Any]:
-        """异步执行入口（通过线程池避免阻塞事件循环）。"""
-        import asyncio
+        """异步执行入口。
 
-        return await asyncio.to_thread(
-            self._execute_sync,
+        这里直接调用同步实现，避免在线程池里再启动 `spawn` 子进程时出现阻塞。
+        """
+        return self._execute_sync(
             code=code,
             session_id=session_id,
             datasets=datasets,

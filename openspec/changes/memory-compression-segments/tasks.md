@@ -38,5 +38,5 @@
 
 ## 6. 提交
 
-- [ ] 6.1 等 A 阶段 PR（`fix/fresh-tail-and-token-trigger`）合并到 `main` 后，从 `main` 新建分支 `feat/memory-compression-segments`
-- [ ] 6.2 创建 PR，base 为 `main`，描述包含变更摘要、验证步骤和回滚方法
+- [x] 6.1 等 A 阶段 PR（`fix/fresh-tail-and-token-trigger`）合并到 `main` 后，从 `main` 新建分支 `feat/memory-compression-segments`
+- [x] 6.2 创建 PR，base 为 `main`，描述包含变更摘要、验证步骤和回滚方法
