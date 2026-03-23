@@ -25,14 +25,14 @@ def build_explicit_tool_context(
     if not user_message or tool_registry is None:
         return ""
 
-    skill_args_map: dict[str, str] = {}
+    tool_args_map: dict[str, str] = {}
     for call in context_intent_analyzer().parse_explicit_skill_calls(
         user_message,
         limit=INLINE_TOOL_MAX_COUNT,
     ):
         name = call["name"]
         if name:
-            skill_args_map[name] = call["arguments"]
+            tool_args_map[name] = call["arguments"]
 
     if not hasattr(tool_registry, "list_markdown_tools"):
         return ""
@@ -44,7 +44,7 @@ def build_explicit_tool_context(
     }
 
     blocks: list[str] = []
-    for name, arguments in skill_args_map.items():
+    for name, arguments in tool_args_map.items():
         item = skill_map.get(name)
         if not item or not bool(item.get("enabled", True)):
             continue
@@ -86,7 +86,7 @@ def build_explicit_tool_context(
         )
 
     if not blocks:
-        for item in match_skills_by_context(
+        for item in match_tools_by_context(
             user_message,
             tool_registry,
             context_intent_analyzer=context_intent_analyzer,
@@ -211,7 +211,7 @@ def build_intent_runtime_context(
     )
 
 
-def match_skills_by_context(
+def match_tools_by_context(
     user_message: str,
     tool_registry: Any,
     *,
@@ -240,7 +240,7 @@ def match_skills_by_context(
     return matched_items
 
 
-def build_skill_runtime_resources_note(tool_registry: Any, tool_name: str) -> str:
+def build_tool_runtime_resources_note(tool_registry: Any, tool_name: str) -> str:
     """构建技能运行时资源提示。"""
     if tool_registry is None or not hasattr(tool_registry, "get_runtime_resources"):
         return ""

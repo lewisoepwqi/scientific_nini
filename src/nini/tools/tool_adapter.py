@@ -102,7 +102,7 @@ class ToolAdapter:
         """初始化适配器。
 
         Args:
-            registry: SkillRegistry 实例。
+            registry: ToolRegistry 实例。
         """
         self._registry = registry
 

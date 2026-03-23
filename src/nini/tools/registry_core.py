@@ -22,23 +22,23 @@ class FunctionToolRegistryOps:
     def __init__(self, owner: Any) -> None:
         self._owner = owner
 
-    def register(self, skill: Tool, *, allow_override: bool = False) -> None:
+    def register(self, tool: Tool, *, allow_override: bool = False) -> None:
         """注册一个工具。"""
-        if skill.name in self._owner._tools:
-            existing = self._owner._tools[skill.name]
+        if tool.name in self._owner._tools:
+            existing = self._owner._tools[tool.name]
             existing_loc = f"{existing.__class__.__module__}.{existing.__class__.__name__}"
-            new_loc = f"{skill.__class__.__module__}.{skill.__class__.__name__}"
+            new_loc = f"{tool.__class__.__module__}.{tool.__class__.__name__}"
             if allow_override:
                 logger.warning(
-                    "技能 %s 已存在（%s），将被覆盖为 %s", skill.name, existing_loc, new_loc
+                    "技能 %s 已存在（%s），将被覆盖为 %s", tool.name, existing_loc, new_loc
                 )
             else:
                 raise ValueError(
-                    f"技能名称冲突: '{skill.name}' 已由 {existing_loc} 注册，"
+                    f"技能名称冲突: '{tool.name}' 已由 {existing_loc} 注册，"
                     f"新注册来源 {new_loc}。如需覆盖请传入 allow_override=True"
                 )
-        self._owner._tools[skill.name] = skill
-        logger.info("注册工具: %s", skill.name)
+        self._owner._tools[tool.name] = tool
+        logger.info("注册工具: %s", tool.name)
 
     def unregister(self, name: str) -> None:
         """注销一个工具。"""
@@ -55,25 +55,25 @@ class FunctionToolRegistryOps:
     def list_function_tools(self) -> list[dict[str, Any]]:
         """列出 Function Tool 目录。"""
         items: list[dict[str, Any]] = []
-        for skill in self._owner._tools.values():
-            manifest = skill.to_manifest()
-            exposed_to_llm = self._is_exposed_to_llm(skill)
+        for tool in self._owner._tools.values():
+            manifest = tool.to_manifest()
+            exposed_to_llm = self._is_exposed_to_llm(tool)
             items.append(
                 {
                     "type": "function",
-                    "name": skill.name,
-                    "description": skill.description,
-                    "category": skill.category,
+                    "name": tool.name,
+                    "description": tool.description,
+                    "category": tool.category,
                     "brief_description": manifest.brief_description,
                     "research_domain": manifest.research_domain,
                     "difficulty_level": manifest.difficulty_level,
                     "typical_use_cases": manifest.typical_use_cases,
-                    "location": f"{skill.__class__.__module__}.{skill.__class__.__name__}",
+                    "location": f"{tool.__class__.__module__}.{tool.__class__.__name__}",
                     "enabled": True,
                     "expose_to_llm": exposed_to_llm,
                     "metadata": {
-                        "parameters": skill.parameters,
-                        "is_idempotent": skill.is_idempotent,
+                        "parameters": tool.parameters,
+                        "is_idempotent": tool.is_idempotent,
                         "brief_description": manifest.brief_description,
                         "research_domain": manifest.research_domain,
                         "difficulty_level": manifest.difficulty_level,
@@ -87,16 +87,16 @@ class FunctionToolRegistryOps:
     def get_tool_definitions(self) -> list[dict[str, Any]]:
         """获取暴露给 LLM 的工具定义。"""
         return [
-            skill.get_tool_definition()
-            for skill in self._owner._tools.values()
-            if self._is_exposed_to_llm(skill)
+            tool.get_tool_definition()
+            for tool in self._owner._tools.values()
+            if self._is_exposed_to_llm(tool)
         ]
 
-    def _is_exposed_to_llm(self, skill: Tool) -> bool:
+    def _is_exposed_to_llm(self, tool: Tool) -> bool:
         allowlist = getattr(self._owner, "_llm_exposed_function_tools", None)
         if allowlist is not None:
-            return skill.name in allowlist
-        return skill.expose_to_llm
+            return tool.name in allowlist
+        return tool.expose_to_llm
 
     async def execute(
         self,
@@ -106,8 +106,8 @@ class FunctionToolRegistryOps:
         **kwargs: Any,
     ) -> dict[str, Any]:
         """执行 Function Tool。"""
-        skill = self._owner._tools.get(tool_name)
-        if skill is None:
+        tool = self._owner._tools.get(tool_name)
+        if tool is None:
             if markdown_tool_checker(tool_name):
                 return {
                     "success": False,
@@ -135,7 +135,7 @@ class FunctionToolRegistryOps:
             result = await lane_queue.execute(
                 session.id,
                 self._execute_tool_in_thread(
-                    skill=skill,
+                    tool=tool,
                     session=session,
                     kwargs=normalized_kwargs,
                 ),
@@ -313,21 +313,21 @@ class FunctionToolRegistryOps:
     async def _execute_tool_in_thread(
         self,
         *,
-        skill: Tool,
+        tool: Tool,
         session: Session,
         kwargs: dict[str, Any],
     ) -> ToolResult:
         """在当前事件循环中执行技能协程。"""
-        return await skill.execute(session=session, **kwargs)
+        return await tool.execute(session=session, **kwargs)
 
     @staticmethod
     def _run_tool_coroutine(
-        skill: Tool,
+        tool: Tool,
         session: Session,
         kwargs: dict[str, Any],
     ) -> ToolResult:
         """为保留历史兼容而保留的同步入口。"""
-        return asyncio.run(skill.execute(session=session, **kwargs))
+        return asyncio.run(tool.execute(session=session, **kwargs))
 
     def ensure_runtime_dependencies(self) -> None:
         """初始化运行期依赖占位。"""

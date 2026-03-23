@@ -144,7 +144,7 @@ class TestReplaceArguments:
 
 
 class TestContextMatching:
-    """测试 _match_skills_by_context 方法。"""
+    """测试 _match_tools_by_context 方法。"""
 
     def test_match_by_alias(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         from nini.agent.runner import AgentRunner
@@ -165,7 +165,7 @@ class TestContextMatching:
         registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
-        matches = runner._match_skills_by_context("我想做根长分析")
+        matches = runner._match_tools_by_context("我想做根长分析")
         assert len(matches) == 1
         assert matches[0]["name"] == "root-analysis"
 
@@ -185,7 +185,7 @@ class TestContextMatching:
         registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
-        matches = runner._match_skills_by_context("biodiversity assessment")
+        matches = runner._match_tools_by_context("biodiversity assessment")
         assert len(matches) == 1
 
     def test_no_match(self):
@@ -204,7 +204,7 @@ class TestContextMatching:
         registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
-        matches = runner._match_skills_by_context("天气预报查询")
+        matches = runner._match_tools_by_context("天气预报查询")
         assert len(matches) == 0
 
     def test_disabled_skill_excluded(self):
@@ -223,7 +223,7 @@ class TestContextMatching:
         registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
-        matches = runner._match_skills_by_context("根长分析")
+        matches = runner._match_tools_by_context("根长分析")
         assert len(matches) == 0
 
     def test_disable_model_invocation(self):
@@ -245,7 +245,7 @@ class TestContextMatching:
         registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
-        matches = runner._match_skills_by_context("根长分析")
+        matches = runner._match_tools_by_context("根长分析")
         assert len(matches) == 0
 
 

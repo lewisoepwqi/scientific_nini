@@ -83,7 +83,7 @@ class _ReportResolver:
         yield _Chunk(text="这段不应出现", tool_calls=[])
 
 
-class _DummySkillRegistry:
+class _DummyToolRegistry:
     def get_tool_definitions(self) -> list[dict[str, object]]:
         return [
             {
@@ -876,7 +876,7 @@ async def test_generate_report_uses_saved_markdown_as_final_response() -> None:
     resolver = _ReportResolver()
     runner = AgentRunner(
         resolver=resolver,
-        tool_registry=_DummySkillRegistry(),
+        tool_registry=_DummyToolRegistry(),
         knowledge_loader=_DummyKnowledgeLoader(),
     )
 

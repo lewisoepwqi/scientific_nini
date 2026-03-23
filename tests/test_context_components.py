@@ -17,8 +17,8 @@ from nini.agent.components.context_memory import (
 from nini.agent.components.context_tools import (
     build_explicit_tool_context,
     build_intent_runtime_context,
-    build_skill_runtime_resources_note,
-    match_skills_by_context,
+    build_tool_runtime_resources_note,
+    match_tools_by_context,
 )
 from nini.agent.session import Session
 
@@ -48,7 +48,7 @@ def test_build_skill_runtime_resources_note_lists_preview_files() -> None:
         }
     )
 
-    note = build_skill_runtime_resources_note(registry, "guide")
+    note = build_tool_runtime_resources_note(registry, "guide")
 
     assert "scripts/run.py" in note
     assert "references/guide.md" in note
@@ -105,7 +105,7 @@ def test_match_skills_by_context_returns_payloads() -> None:
         ]
     )
 
-    matched = match_skills_by_context(
+    matched = match_tools_by_context(
         "请参考实验技能",
         registry,
         context_intent_analyzer=lambda: _Analyzer(),
