@@ -49,7 +49,7 @@ async def test_runtime_context_blocks_follow_canonical_order_and_headers(
     )
     monkeypatch.setattr(
         builder,
-        "build_explicit_skill_context",
+        "build_explicit_tool_context",
         lambda _: format_untrusted_context_block(
             "skill_definition",
             "### /root-analysis\n- 来源: /tmp/root-analysis/SKILL.md",

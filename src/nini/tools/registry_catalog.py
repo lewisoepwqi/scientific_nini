@@ -75,7 +75,7 @@ class ToolCatalogOps:
         """返回聚合后的技能目录。"""
         all_items = cast(
             list[dict[str, Any]],
-            self._owner.list_function_skills() + self._owner.list_markdown_tools(),
+            self._owner.list_function_tools() + self._owner.list_markdown_tools(),
         )
         if skill_type:
             normalized_type = skill_type.strip().lower()
@@ -85,7 +85,7 @@ class ToolCatalogOps:
 
     def list_tools_catalog(self) -> list[dict[str, Any]]:
         """返回可执行 Function Tool 目录。"""
-        return cast(list[dict[str, Any]], self._owner.list_function_skills())
+        return cast(list[dict[str, Any]], self._owner.list_function_tools())
 
     def list_markdown_tool_catalog(self) -> list[dict[str, Any]]:
         """返回 Markdown Skill 目录。"""
@@ -94,7 +94,7 @@ class ToolCatalogOps:
     def write_tools_snapshot(self) -> None:
         """将聚合目录写入快照文件。"""
         content = render_tools_snapshot(
-            self._owner.list_function_skills(),
+            self._owner.list_function_tools(),
             self._owner.list_markdown_tools(),
         )
         settings.skills_snapshot_path.write_text(content, encoding="utf-8")

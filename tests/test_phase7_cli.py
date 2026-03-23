@@ -11,7 +11,7 @@ import pytest
 from nini.__main__ import (
     _detect_kaleido_chrome_status,
     _detect_weasyprint_status,
-    _render_markdown_skill_template,
+    _render_markdown_tool_template,
     main,
 )
 from nini.config import settings
@@ -69,7 +69,7 @@ def test_cli_doctor_returns_success_with_default_config(
 
 
 def test_render_markdown_skill_template_removes_todo_placeholders() -> None:
-    content = _render_markdown_skill_template(
+    content = _render_markdown_tool_template(
         name="demo_skill",
         description="测试技能描述",
         category="report",

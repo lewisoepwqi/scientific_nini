@@ -297,9 +297,9 @@ def test_websocket_sandbox_import_approval_flow(
 
         yield LLMChunk(text="审批后已继续执行。")
 
-    async def fake_execute_with_fallback(skill_name: str, session, enable_fallback=True, **kwargs):
+    async def fake_execute_with_fallback(tool_name: str, session, enable_fallback=True, **kwargs):
         assert enable_fallback is True
-        assert skill_name == "run_code"
+        assert tool_name == "run_code"
         run_code_calls["count"] += 1
         extra_allowed_imports = kwargs.get("extra_allowed_imports") or []
         if "sympy" not in extra_allowed_imports and not session.has_sandbox_import_approval("sympy"):
@@ -322,7 +322,7 @@ def test_websocket_sandbox_import_approval_flow(
         return {"success": True, "message": "run_code 审批后执行成功", "data": {"result": 1}}
 
     class _FakeRegistry:
-        def list_skills(self):
+        def list_tools(self):
             return ["run_code"]
 
         def get_tool_definitions(self):
@@ -340,9 +340,9 @@ def test_websocket_sandbox_import_approval_flow(
         def list_markdown_tools(self):
             return []
 
-        async def execute_with_fallback(self, skill_name, session, enable_fallback=True, **kwargs):
+        async def execute_with_fallback(self, tool_name, session, enable_fallback=True, **kwargs):
             return await fake_execute_with_fallback(
-                skill_name,
+                tool_name,
                 session,
                 enable_fallback=enable_fallback,
                 **kwargs,

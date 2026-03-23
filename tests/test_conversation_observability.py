@@ -96,9 +96,9 @@ class _DummySkillRegistry:
             }
         ]
 
-    async def execute(self, skill_name: str, session: Session, **kwargs):
-        if skill_name != "generate_report":
-            return {"error": f"unknown skill: {skill_name}"}
+    async def execute(self, tool_name: str, session: Session, **kwargs):
+        if tool_name != "generate_report":
+            return {"error": f"unknown skill: {tool_name}"}
         markdown = (
             "# 自动报告\n\n" "## 数据集概览\n" "- exp.csv\n\n" "## 分析摘要\n" "保持一致性测试\n"
         )
@@ -126,9 +126,9 @@ class _DummySkillRegistry:
             ],
         }
 
-    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
+    async def execute_with_fallback(self, tool_name: str, session: Session, **kwargs):
         # 默认实现：直接调用 execute，不触发 fallback
-        return await self.execute(skill_name, session=session, **kwargs)
+        return await self.execute(tool_name, session=session, **kwargs)
 
 
 class _TwoStepToolResolver:
@@ -325,14 +325,14 @@ class _EchoSkillRegistry:
             }
         ]
 
-    async def execute(self, skill_name: str, session: Session, **kwargs):
-        if skill_name != "echo_tool":
-            return {"error": f"unknown skill: {skill_name}"}
+    async def execute(self, tool_name: str, session: Session, **kwargs):
+        if tool_name != "echo_tool":
+            return {"error": f"unknown skill: {tool_name}"}
         return {"success": True, "message": "echo ok", "data": {"value": kwargs.get("value")}}
 
-    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
+    async def execute_with_fallback(self, tool_name: str, session: Session, **kwargs):
         # 默认实现：直接调用 execute，不触发 fallback
-        return await self.execute(skill_name, session=session, **kwargs)
+        return await self.execute(tool_name, session=session, **kwargs)
 
 
 class _ChartToolResolver:
@@ -380,9 +380,9 @@ class _ChartSkillRegistry:
             }
         ]
 
-    async def execute(self, skill_name: str, session: Session, **kwargs):
-        if skill_name != "chart_tool":
-            return {"error": f"unknown skill: {skill_name}"}
+    async def execute(self, tool_name: str, session: Session, **kwargs):
+        if tool_name != "chart_tool":
+            return {"error": f"unknown skill: {tool_name}"}
         return {
             "success": True,
             "message": "图表已生成",
@@ -401,18 +401,18 @@ class _ChartSkillRegistry:
             ],
         }
 
-    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
-        return await self.execute(skill_name, session=session, **kwargs)
+    async def execute_with_fallback(self, tool_name: str, session: Session, **kwargs):
+        return await self.execute(tool_name, session=session, **kwargs)
 
 
 class _RetryEchoSkillRegistry(_EchoSkillRegistry):
     def __init__(self) -> None:
         self.calls = 0
 
-    async def execute(self, skill_name: str, session: Session, **kwargs):
+    async def execute(self, tool_name: str, session: Session, **kwargs):
         self.calls += 1
-        if skill_name != "echo_tool":
-            return {"error": f"unknown skill: {skill_name}"}
+        if tool_name != "echo_tool":
+            return {"error": f"unknown skill: {tool_name}"}
         if self.calls == 1:
             return {"success": False, "error": "temporary failure"}
         return {
@@ -476,9 +476,9 @@ class _GuardedSkillRegistry(_EchoSkillRegistry):
             }
         ]
 
-    async def execute(self, skill_name: str, session: Session, **kwargs):
+    async def execute(self, tool_name: str, session: Session, **kwargs):
         self.execute_calls += 1
-        return await super().execute(skill_name, session, **kwargs)
+        return await super().execute(tool_name, session, **kwargs)
 
 
 class _HighRiskWorkspaceResolver:
@@ -554,14 +554,14 @@ class _HighRiskWorkspaceRegistry:
             }
         ]
 
-    async def execute(self, skill_name: str, session: Session, **kwargs):
+    async def execute(self, tool_name: str, session: Session, **kwargs):
         self.execute_calls += 1
-        if skill_name != "workspace_session":
-            return {"error": f"unknown skill: {skill_name}"}
+        if tool_name != "workspace_session":
+            return {"error": f"unknown skill: {tool_name}"}
         return {"success": True, "message": "workspace write ok"}
 
-    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
-        return await self.execute(skill_name, session=session, **kwargs)
+    async def execute_with_fallback(self, tool_name: str, session: Session, **kwargs):
+        return await self.execute(tool_name, session=session, **kwargs)
 
 
 class _RepeatFailingToolResolver:
@@ -602,10 +602,10 @@ class _AlwaysFailEchoRegistry(_EchoSkillRegistry):
     def __init__(self) -> None:
         self.calls = 0
 
-    async def execute(self, skill_name: str, session: Session, **kwargs):
+    async def execute(self, tool_name: str, session: Session, **kwargs):
         self.calls += 1
-        if skill_name != "echo_tool":
-            return {"error": f"unknown skill: {skill_name}"}
+        if tool_name != "echo_tool":
+            return {"error": f"unknown skill: {tool_name}"}
         return {
             "success": False,
             "message": "echo failed",
@@ -721,10 +721,10 @@ class _CodeSessionBreakerResetRegistry:
             }
         ]
 
-    async def execute(self, skill_name: str, session: Session, **kwargs):
+    async def execute(self, tool_name: str, session: Session, **kwargs):
         self.calls += 1
-        if skill_name != "code_session":
-            return {"error": f"unknown skill: {skill_name}"}
+        if tool_name != "code_session":
+            return {"error": f"unknown skill: {tool_name}"}
         operation = str(kwargs.get("operation", "")).strip().lower()
         if operation == "patch_script":
             return {"success": True, "message": "patched"}
@@ -735,8 +735,8 @@ class _CodeSessionBreakerResetRegistry:
             "recovery_hint": "请更新脚本后重试。",
         }
 
-    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
-        return await self.execute(skill_name, session=session, **kwargs)
+    async def execute_with_fallback(self, tool_name: str, session: Session, **kwargs):
+        return await self.execute(tool_name, session=session, **kwargs)
 
 
 class _LoadDatasetBypassResolver:
@@ -808,15 +808,15 @@ class _LoadDatasetGuardedSkillRegistry:
             }
         ]
 
-    async def execute(self, skill_name: str, session: Session, **kwargs):
+    async def execute(self, tool_name: str, session: Session, **kwargs):
         self.execute_calls += 1
-        if skill_name != "load_dataset":
-            return {"error": f"unknown skill: {skill_name}"}
+        if tool_name != "load_dataset":
+            return {"error": f"unknown skill: {tool_name}"}
         return {"success": True, "message": "load ok"}
 
-    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
+    async def execute_with_fallback(self, tool_name: str, session: Session, **kwargs):
         # 默认实现：直接调用 execute，不触发 fallback
-        return await self.execute(skill_name, session=session, **kwargs)
+        return await self.execute(tool_name, session=session, **kwargs)
 
 
 @pytest.fixture(autouse=True)

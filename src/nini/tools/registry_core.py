@@ -24,8 +24,8 @@ class FunctionToolRegistryOps:
 
     def register(self, skill: Tool, *, allow_override: bool = False) -> None:
         """注册一个工具。"""
-        if skill.name in self._owner._skills:
-            existing = self._owner._skills[skill.name]
+        if skill.name in self._owner._tools:
+            existing = self._owner._tools[skill.name]
             existing_loc = f"{existing.__class__.__module__}.{existing.__class__.__name__}"
             new_loc = f"{skill.__class__.__module__}.{skill.__class__.__name__}"
             if allow_override:
@@ -37,25 +37,25 @@ class FunctionToolRegistryOps:
                     f"技能名称冲突: '{skill.name}' 已由 {existing_loc} 注册，"
                     f"新注册来源 {new_loc}。如需覆盖请传入 allow_override=True"
                 )
-        self._owner._skills[skill.name] = skill
+        self._owner._tools[skill.name] = skill
         logger.info("注册工具: %s", skill.name)
 
     def unregister(self, name: str) -> None:
         """注销一个工具。"""
-        self._owner._skills.pop(name, None)
+        self._owner._tools.pop(name, None)
 
     def get(self, name: str) -> Tool | None:
         """获取工具实例。"""
-        return cast(Tool | None, self._owner._skills.get(name))
+        return cast(Tool | None, self._owner._tools.get(name))
 
-    def list_skills(self) -> list[str]:
+    def list_tools(self) -> list[str]:
         """列出所有 Function Tool 名称。"""
-        return list(self._owner._skills.keys())
+        return list(self._owner._tools.keys())
 
-    def list_function_skills(self) -> list[dict[str, Any]]:
+    def list_function_tools(self) -> list[dict[str, Any]]:
         """列出 Function Tool 目录。"""
         items: list[dict[str, Any]] = []
-        for skill in self._owner._skills.values():
+        for skill in self._owner._tools.values():
             manifest = skill.to_manifest()
             exposed_to_llm = self._is_exposed_to_llm(skill)
             items.append(
@@ -88,7 +88,7 @@ class FunctionToolRegistryOps:
         """获取暴露给 LLM 的工具定义。"""
         return [
             skill.get_tool_definition()
-            for skill in self._owner._skills.values()
+            for skill in self._owner._tools.values()
             if self._is_exposed_to_llm(skill)
         ]
 
@@ -100,23 +100,23 @@ class FunctionToolRegistryOps:
 
     async def execute(
         self,
-        skill_name: str,
+        tool_name: str,
         session: Session,
-        markdown_skill_checker: Any,
+        markdown_tool_checker: Any,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """执行 Function Tool。"""
-        skill = self._owner._skills.get(skill_name)
+        skill = self._owner._tools.get(tool_name)
         if skill is None:
-            if markdown_skill_checker(skill_name):
+            if markdown_tool_checker(tool_name):
                 return {
                     "success": False,
                     "message": (
-                        f"'{skill_name}' 是提示词类型技能（Markdown Skill），"
+                        f"'{tool_name}' 是提示词类型技能（Markdown Skill），"
                         "不支持直接调用执行。请参考该技能的文档内容来指导后续操作。"
                     ),
                 }
-            return {"success": False, "message": f"未知技能: {skill_name}"}
+            return {"success": False, "message": f"未知技能: {tool_name}"}
 
         normalized_kwargs = kwargs
         normalization_meta: dict[str, Any] | None = None
@@ -124,7 +124,7 @@ class FunctionToolRegistryOps:
         if settings.tool_argument_normalization_enabled:
             normalized_kwargs, normalization_meta, normalization_error = (
                 self._normalize_tool_kwargs(
-                    skill_name,
+                    tool_name,
                     kwargs,
                 )
             )
@@ -134,7 +134,7 @@ class FunctionToolRegistryOps:
         try:
             result = await lane_queue.execute(
                 session.id,
-                self._execute_skill_in_thread(
+                self._execute_tool_in_thread(
                     skill=skill,
                     session=session,
                     kwargs=normalized_kwargs,
@@ -151,15 +151,15 @@ class FunctionToolRegistryOps:
                 result_dict.setdefault("error_code", error_code.strip())
             return result_dict
         except Exception as exc:
-            logger.error("技能 %s 执行失败: %s", skill_name, exc, exc_info=True)
+            logger.error("技能 %s 执行失败: %s", tool_name, exc, exc_info=True)
             return {"success": False, "message": f"技能执行失败: {exc}"}
 
     @staticmethod
     def _normalize_tool_kwargs(
-        skill_name: str,
+        tool_name: str,
         kwargs: dict[str, Any],
     ) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
-        if skill_name != "workspace_session":
+        if tool_name != "workspace_session":
             return kwargs, None, None
 
         operation = kwargs.get("operation")
@@ -220,57 +220,57 @@ class FunctionToolRegistryOps:
 
     async def execute_with_fallback(
         self,
-        skill_name: str,
+        tool_name: str,
         session: Session,
-        skill_executor: Any,
+        tool_executor: Any,
         enable_fallback: bool = True,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """执行工具，并在需要时触发降级。"""
         original_result = cast(
             dict[str, Any],
-            await skill_executor(skill_name, session=session, **kwargs),
+            await tool_executor(tool_name, session=session, **kwargs),
         )
 
         if original_result.get("success") and enable_fallback:
             should_fallback = cast(
                 dict[str, Any],
                 await self._owner._fallback_manager.should_trigger_fallback(
-                    skill_name, session, kwargs
+                    tool_name, session, kwargs
                 ),
             )
             if should_fallback["trigger"]:
-                return await self._execute_fallback(skill_name, session, kwargs, should_fallback)
+                return await self._execute_fallback(tool_name, session, kwargs, should_fallback)
             return original_result
 
         if original_result.get("success"):
             return original_result
 
-        if enable_fallback and bool(self._owner._fallback_manager.has_fallback(skill_name)):
+        if enable_fallback and bool(self._owner._fallback_manager.has_fallback(tool_name)):
             return await self._execute_fallback(
-                skill_name, session, kwargs, {"reason": "原始技能执行失败"}
+                tool_name, session, kwargs, {"reason": "原始技能执行失败"}
             )
 
         return original_result
 
     async def _execute_fallback(
         self,
-        skill_name: str,
+        tool_name: str,
         session: Session,
         kwargs: dict[str, Any],
         context: dict[str, Any],
     ) -> dict[str, Any]:
         """执行降级工具。"""
         result = await self._owner._fallback_manager.execute_fallback(
-            skill_name=skill_name,
+            tool_name=tool_name,
             session=session,
             kwargs=kwargs.copy(),
             context=context,
-            skill_resolver=self.get,
-            skill_executor=lambda name, sess, kw: self.execute(
+            tool_resolver=self.get,
+            tool_executor=lambda name, sess, kw: self.execute(
                 name,
                 session=sess,
-                markdown_skill_checker=self._owner._markdown_ops.is_markdown_tool,
+                markdown_tool_checker=self._owner._markdown_ops.is_markdown_tool,
                 **kw,
             ),
         )
@@ -310,7 +310,7 @@ class FunctionToolRegistryOps:
 
         return diagnosis
 
-    async def _execute_skill_in_thread(
+    async def _execute_tool_in_thread(
         self,
         *,
         skill: Tool,
@@ -321,7 +321,7 @@ class FunctionToolRegistryOps:
         return await skill.execute(session=session, **kwargs)
 
     @staticmethod
-    def _run_skill_coroutine(
+    def _run_tool_coroutine(
         skill: Tool,
         session: Session,
         kwargs: dict[str, Any],

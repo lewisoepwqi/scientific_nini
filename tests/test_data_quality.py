@@ -268,7 +268,7 @@ class TestEvaluateDataQuality:
 
 
 @pytest.mark.asyncio
-class TestDataQualitySkill:
+class TestDataQualityTool:
     """测试数据质量评估技能（直接实例化，不依赖注册表）。"""
 
     async def test_skill_execution(self):
@@ -309,7 +309,7 @@ class TestDataQualitySkill:
 
 
 @pytest.mark.asyncio
-class TestDataQualityReportSkill:
+class TestDataQualityReportTool:
     """测试详细质量报告技能。"""
 
     async def test_detailed_report(self):

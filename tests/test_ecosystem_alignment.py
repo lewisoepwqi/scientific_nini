@@ -39,8 +39,8 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 class _DummySkill(Tool):
-    def __init__(self, skill_name: str = "dummy", expose: bool = True):
-        self._name = skill_name
+    def __init__(self, tool_name: str = "dummy", expose: bool = True):
+        self._name = tool_name
         self._expose = expose
 
     @property
@@ -162,7 +162,7 @@ class TestContextMatching:
                 "tags": ["root-length", "anova"],
             },
         }
-        registry._markdown_skills = [md_skill]
+        registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
         matches = runner._match_skills_by_context("我想做根长分析")
@@ -182,7 +182,7 @@ class TestContextMatching:
             "enabled": True,
             "metadata": {"tags": ["ecology", "biodiversity"]},
         }
-        registry._markdown_skills = [md_skill]
+        registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
         matches = runner._match_skills_by_context("biodiversity assessment")
@@ -201,7 +201,7 @@ class TestContextMatching:
             "enabled": True,
             "metadata": {"aliases": ["根长分析"], "tags": ["root-length"]},
         }
-        registry._markdown_skills = [md_skill]
+        registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
         matches = runner._match_skills_by_context("天气预报查询")
@@ -220,7 +220,7 @@ class TestContextMatching:
             "enabled": False,
             "metadata": {"aliases": ["根长分析"]},
         }
-        registry._markdown_skills = [md_skill]
+        registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
         matches = runner._match_skills_by_context("根长分析")
@@ -242,7 +242,7 @@ class TestContextMatching:
                 "disable_model_invocation": True,
             },
         }
-        registry._markdown_skills = [md_skill]
+        registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
         matches = runner._match_skills_by_context("根长分析")
@@ -279,7 +279,7 @@ class TestAllowedToolsAdvisory:
         from nini.tools.markdown_scanner import scan_markdown_tools
 
         md_skills = scan_markdown_tools([skills_dir])
-        registry._markdown_skills = [s.to_dict() for s in md_skills]
+        registry._markdown_tools = [s.to_dict() for s in md_skills]
 
         runner = AgentRunner(tool_registry=registry)
         context = runner._build_explicit_skill_context("/test-skill my_data.csv")
@@ -314,7 +314,7 @@ class TestAllowedToolsAdvisory:
         from nini.tools.markdown_scanner import scan_markdown_tools
 
         md_skills = scan_markdown_tools([skills_dir])
-        registry._markdown_skills = [s.to_dict() for s in md_skills]
+        registry._markdown_tools = [s.to_dict() for s in md_skills]
 
         runner = AgentRunner(tool_registry=registry)
         context = runner._build_explicit_skill_context("/resource-skill")
@@ -342,7 +342,7 @@ class TestAllowedToolsAdvisory:
         from nini.tools.markdown_scanner import scan_markdown_tools
 
         md_skills = scan_markdown_tools([skills_dir])
-        registry._markdown_skills = [s.to_dict() for s in md_skills]
+        registry._markdown_tools = [s.to_dict() for s in md_skills]
 
         runner = AgentRunner(tool_registry=registry)
         context = runner._build_explicit_skill_context("/simple-skill")

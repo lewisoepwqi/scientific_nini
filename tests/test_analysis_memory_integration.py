@@ -214,7 +214,7 @@ class TestListSessionAnalysisMemories:
 # ---- 统计 Skill 实际执行后写入 KnowledgeMemory ----
 
 
-class TestStatSkillWritesKnowledge:
+class TestStatToolWritesKnowledge:
     """测试统计 Skill 执行后写入 KnowledgeMemory。"""
 
     def setup_method(self) -> None:

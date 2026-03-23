@@ -112,7 +112,7 @@ class ToolAdapter:
         Args:
             exposed_only: 仅包含 expose_to_llm=True 的技能（默认 True）。
         """
-        skills = self._registry._skills.values()
+        skills = self._registry._tools.values()
         if exposed_only:
             allowlist = getattr(self._registry, "_llm_exposed_function_tools", None)
             if allowlist is not None:
@@ -126,11 +126,11 @@ class ToolAdapter:
         tools: list[dict[str, Any]] = []
 
         # Function Skills
-        for skill in self._registry._skills.values():
+        for skill in self._registry._tools.values():
             tools.append(to_mcp_tool(skill))
 
         # Markdown Skills（仅启用的）
-        for md_dict in self._registry._markdown_skills:
+        for md_dict in self._registry._markdown_tools:
             if md_dict.get("enabled", True):
                 tools.append(
                     {
@@ -146,10 +146,10 @@ class ToolAdapter:
         """导出所有技能为 Claude Code 格式的 Markdown 文档。"""
         manifests: list[ToolManifest] = []
 
-        for skill in self._registry._skills.values():
+        for skill in self._registry._tools.values():
             manifests.append(skill.to_manifest())
 
-        for md_dict in self._registry._markdown_skills:
+        for md_dict in self._registry._markdown_tools:
             if md_dict.get("enabled", True):
                 manifests.append(
                     ToolManifest(

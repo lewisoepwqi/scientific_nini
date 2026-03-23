@@ -66,8 +66,8 @@ def _write_skill_md(
 class _DummySkill(Tool):
     """用于测试注册逻辑的占位技能。"""
 
-    def __init__(self, skill_name: str = "dummy"):
-        self._name = skill_name
+    def __init__(self, tool_name: str = "dummy"):
+        self._name = tool_name
 
     @property
     def name(self) -> str:
@@ -157,7 +157,7 @@ def test_register_different_names_no_conflict() -> None:
     registry.register(_DummySkill("alpha"))
     registry.register(_DummySkill("beta"))
 
-    assert set(registry.list_skills()) == {"alpha", "beta"}
+    assert set(registry.list_tools()) == {"alpha", "beta"}
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +429,7 @@ def test_create_default_tool_registry_no_duplicate_names(
     (tmp_path / "empty_skills").mkdir()
 
     registry = create_default_tool_registry()
-    names = registry.list_skills()
+    names = registry.list_tools()
     assert len(names) == len(set(names)), "存在重复注册的技能名称"
 
 
@@ -467,7 +467,7 @@ def test_function_skill_catalog_exposes_default_enhanced_metadata(
     (tmp_path / "empty").mkdir()
 
     registry = create_default_tool_registry()
-    t_test_item = next(item for item in registry.list_function_skills() if item["name"] == "t_test")
+    t_test_item = next(item for item in registry.list_function_tools() if item["name"] == "t_test")
 
     assert t_test_item["brief_description"]
     assert t_test_item["research_domain"] == "general"
@@ -586,7 +586,7 @@ def test_all_function_skills_use_valid_categories(
     (tmp_path / "empty").mkdir()
 
     registry = create_default_tool_registry()
-    for item in registry.list_function_skills():
+    for item in registry.list_function_tools():
         assert (
             item["category"] in VALID_CATEGORIES
         ), f"技能 {item['name']} 使用了非标准分类 '{item['category']}'"
@@ -602,7 +602,7 @@ def test_no_skills_use_deprecated_categories(
 
     registry = create_default_tool_registry()
     deprecated = {"code", "composite"}
-    for item in registry.list_function_skills():
+    for item in registry.list_function_tools():
         assert (
             item["category"] not in deprecated
         ), f"技能 {item['name']} 使用了已废弃分类 '{item['category']}'"
@@ -795,12 +795,12 @@ def test_cli_skills_create_function(
     skills_module_dir = tmp_path / "skills_module"
     skills_module_dir.mkdir()
     monkeypatch.setattr(
-        "nini.__main__._create_function_skill",
+        "nini.__main__._create_function_tool",
         lambda name, desc, cat: _create_function_skill_in(skills_module_dir, name, desc, cat),
     )
 
     args = argparse.Namespace(
-        skill_name="test_skill",
+        tool_name="test_skill",
         skill_type="function",
         category="statistics",
         description="测试技能",
@@ -829,12 +829,12 @@ def test_cli_skills_create_markdown(
 
     skills_root = tmp_path / "skills_root"
     monkeypatch.setattr(
-        "nini.__main__._create_markdown_skill",
+        "nini.__main__._create_markdown_tool",
         lambda name, desc, cat: _create_markdown_skill_in(skills_root, name, desc, cat),
     )
 
     args = argparse.Namespace(
-        skill_name="test_guide",
+        tool_name="test_guide",
         skill_type="markdown",
         category="report",
         description="测试指南",
@@ -863,7 +863,7 @@ def test_cli_skills_create_invalid_name(capsys: pytest.CaptureFixture[str]) -> N
     from nini.__main__ import _cmd_skills_create
 
     args = argparse.Namespace(
-        skill_name="Invalid-Name",
+        tool_name="Invalid-Name",
         skill_type="function",
         category="other",
         description="",

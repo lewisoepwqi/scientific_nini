@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
     # 初始化工具注册中心
     registry = create_default_tool_registry()
     set_tool_registry(registry)
-    logger.info("已注册 %d 个工具", len(registry.list_skills()))
+    logger.info("已注册 %d 个工具", len(registry.list_tools()))
 
     logger.info("Nini 启动完成 ✓")
 

@@ -14,8 +14,8 @@ from nini.agent.components.context_memory import (
     build_analysis_memory_context,
     build_research_profile_context,
 )
-from nini.agent.components.context_skills import (
-    build_explicit_skill_context,
+from nini.agent.components.context_tools import (
+    build_explicit_tool_context,
     build_intent_runtime_context,
     build_skill_runtime_resources_note,
     match_skills_by_context,
@@ -75,7 +75,7 @@ def test_build_explicit_skill_context_replaces_arguments_and_includes_tools() ->
         },
     )
 
-    context = build_explicit_skill_context(
+    context = build_explicit_tool_context(
         "/guide demo.csv score",
         registry,
         context_intent_analyzer=lambda: _Analyzer(),
@@ -136,7 +136,7 @@ def test_build_intent_runtime_context_formats_candidates(monkeypatch: pytest.Mon
             return _Analysis()
 
     monkeypatch.setattr(
-        "nini.agent.components.context_skills.create_default_capabilities",
+        "nini.agent.components.context_tools.create_default_capabilities",
         lambda: [SimpleNamespace(to_dict=lambda: {"name": "difference_analysis"})],
     )
     registry = SimpleNamespace(get_semantic_catalog=lambda skill_type=None: [])

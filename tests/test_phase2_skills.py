@@ -15,7 +15,7 @@ from nini.tools.visualization import CreateChartTool
 def test_default_registry_contains_phase2_skills() -> None:
     """确认注册表中包含会话工具及保留的原子工具。"""
     registry = create_default_tool_registry()
-    skills = set(registry.list_skills())
+    skills = set(registry.list_tools())
     # 会话工具（已合并原子工具）
     assert {
         "load_dataset",

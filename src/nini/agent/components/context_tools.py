@@ -5,16 +5,16 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from nini.agent.prompt_policy import (
-    AUTO_SKILL_MAX_COUNT,
-    INLINE_SKILL_CONTEXT_MAX_CHARS,
-    INLINE_SKILL_MAX_COUNT,
+    AUTO_TOOL_MAX_COUNT,
+    INLINE_TOOL_CONTEXT_MAX_CHARS,
+    INLINE_TOOL_MAX_COUNT,
     format_untrusted_context_block,
 )
 from nini.agent.components.context_utils import replace_arguments, sanitize_reference_text
 from nini.capabilities import create_default_capabilities
 
 
-def build_explicit_skill_context(
+def build_explicit_tool_context(
     user_message: str,
     tool_registry: Any,
     *,
@@ -28,7 +28,7 @@ def build_explicit_skill_context(
     skill_args_map: dict[str, str] = {}
     for call in context_intent_analyzer().parse_explicit_skill_calls(
         user_message,
-        limit=INLINE_SKILL_MAX_COUNT,
+        limit=INLINE_TOOL_MAX_COUNT,
     ):
         name = call["name"]
         if name:
@@ -62,7 +62,7 @@ def build_explicit_skill_context(
         if arguments:
             instruction = replace_arguments(instruction, arguments)
 
-        excerpt = sanitize_reference_text(instruction, max_len=INLINE_SKILL_CONTEXT_MAX_CHARS)
+        excerpt = sanitize_reference_text(instruction, max_len=INLINE_TOOL_CONTEXT_MAX_CHARS)
         if not excerpt:
             continue
         location = str(instruction_payload.get("location", "")).strip()
@@ -100,7 +100,7 @@ def build_explicit_skill_context(
             instruction = str(instruction_payload.get("instruction", "")).strip()
             if not instruction:
                 continue
-            excerpt = sanitize_reference_text(instruction, max_len=INLINE_SKILL_CONTEXT_MAX_CHARS)
+            excerpt = sanitize_reference_text(instruction, max_len=INLINE_TOOL_CONTEXT_MAX_CHARS)
             if not excerpt:
                 continue
 
@@ -231,7 +231,7 @@ def match_skills_by_context(
     candidates = context_intent_analyzer().rank_semantic_skills(
         user_message,
         markdown_items,
-        limit=AUTO_SKILL_MAX_COUNT,
+        limit=AUTO_TOOL_MAX_COUNT,
     )
     matched_items: list[dict[str, Any]] = []
     for candidate in candidates:
@@ -240,11 +240,11 @@ def match_skills_by_context(
     return matched_items
 
 
-def build_skill_runtime_resources_note(tool_registry: Any, skill_name: str) -> str:
+def build_skill_runtime_resources_note(tool_registry: Any, tool_name: str) -> str:
     """构建技能运行时资源提示。"""
     if tool_registry is None or not hasattr(tool_registry, "get_runtime_resources"):
         return ""
-    payload = tool_registry.get_runtime_resources(skill_name)
+    payload = tool_registry.get_runtime_resources(tool_name)
     if not isinstance(payload, dict):
         return ""
     resources = payload.get("resources")

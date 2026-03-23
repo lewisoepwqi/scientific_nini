@@ -329,7 +329,7 @@ class SemanticIntentMatcher:
             top_k: 返回前 k 个
 
         Returns:
-            (skill_name, similarity_score) 列表
+            (tool_name, similarity_score) 列表
         """
         if not self.provider.is_available:
             return []

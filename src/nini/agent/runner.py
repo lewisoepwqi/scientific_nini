@@ -1628,10 +1628,10 @@ class AgentRunner:
                         fallback_event = create_reasoning_event(
                             step="statistical_fallback",
                             thought=f"由于{result.get('fallback_reason', '前提条件不满足')}，自动降级为非参数检验",
-                            rationale=f"原始方法 '{result.get('original_skill')}' 被降级为 '{result.get('fallback_skill')}'",
+                            rationale=f"原始方法 '{result.get('original_tool')}' 被降级为 '{result.get('fallback_tool')}'",
                             confidence=0.9,
-                            original_skill=result.get("original_skill"),
-                            fallback_skill=result.get("fallback_skill"),
+                            original_tool=result.get("original_tool"),
+                            fallback_tool=result.get("fallback_tool"),
                             reason=result.get("fallback_reason"),
                         )
                         yield fallback_event
@@ -2162,7 +2162,7 @@ class AgentRunner:
 
     def _build_explicit_skill_context(self, user_message: str) -> str:
         """兼容旧测试入口，委托给 canonical context builder。"""
-        return self._context_builder.build_explicit_skill_context(user_message)
+        return self._context_builder.build_explicit_tool_context(user_message)
 
     def _build_intent_runtime_context(self, user_message: str) -> str:
         """兼容旧测试入口，委托给 canonical context builder。"""
@@ -2380,9 +2380,9 @@ class AgentRunner:
             ]
         }
 
-    def _build_skill_runtime_resources_note(self, skill_name: str) -> str:
+    def _build_skill_runtime_resources_note(self, tool_name: str) -> str:
         """兼容旧测试入口，委托给 canonical context builder。"""
-        return self._context_builder._build_skill_runtime_resources_note(skill_name)
+        return self._context_builder._build_skill_runtime_resources_note(tool_name)
 
     def _select_active_markdown_skills(self, user_message: str) -> list[dict[str, Any]]:
         """选择本轮激活的 Markdown Skills（显式 slash 优先，缺失时走自动匹配）。"""

@@ -182,10 +182,10 @@ class _SandboxApprovalRegistry:
     def list_markdown_tools(self) -> list[dict[str, object]]:
         return []
 
-    async def execute(self, skill_name: str, session: Session, **kwargs):
+    async def execute(self, tool_name: str, session: Session, **kwargs):
         self.execute_calls += 1
-        if skill_name != "run_code":
-            return {"error": f"unknown skill: {skill_name}"}
+        if tool_name != "run_code":
+            return {"error": f"unknown skill: {tool_name}"}
         approved = kwargs.get("extra_allowed_imports") or []
         if self.always_require_review or "sympy" not in approved:
             return {
@@ -206,8 +206,8 @@ class _SandboxApprovalRegistry:
             }
         return {"success": True, "message": "run_code 审批后执行成功", "data": {"result": 1}}
 
-    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
-        return await self.execute(skill_name, session=session, **kwargs)
+    async def execute_with_fallback(self, tool_name: str, session: Session, **kwargs):
+        return await self.execute(tool_name, session=session, **kwargs)
 
 
 @pytest.mark.asyncio

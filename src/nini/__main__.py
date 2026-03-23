@@ -80,7 +80,7 @@ def _default_env_content() -> str:
     )
 
 
-def _render_markdown_skill_template(name: str, description: str, category: str) -> str:
+def _render_markdown_tool_template(name: str, description: str, category: str) -> str:
     """渲染 Markdown Skill 脚手架内容。"""
     return f"""---
 name: {name}
@@ -265,7 +265,7 @@ def _build_parser() -> argparse.ArgumentParser:
         list_cmd.set_defaults(func=_cmd_skills_list)
 
         create_cmd = sub.add_parser("create", help="创建能力脚手架")
-        create_cmd.add_argument("skill_name", help="名称（snake_case）")
+        create_cmd.add_argument("tool_name", help="名称（snake_case）")
         create_cmd.add_argument(
             "--type",
             dest="skill_type",
@@ -645,7 +645,7 @@ def _cmd_skills_create(args: argparse.Namespace) -> int:
     """创建能力脚手架文件。"""
     import re
 
-    name = args.skill_name
+    name = args.tool_name
     if not re.match(r"^[a-z][a-z0-9_]*$", name):
         print(f"错误：名称 '{name}' 不合法，必须为小写字母开头的 snake_case 格式。")
         return 1
@@ -659,11 +659,11 @@ def _cmd_skills_create(args: argparse.Namespace) -> int:
     description = args.description or f"{name} 工具"
 
     if args.skill_type == "markdown":
-        return _create_markdown_skill(name, description, args.category)
-    return _create_function_skill(name, description, args.category)
+        return _create_markdown_tool(name, description, args.category)
+    return _create_function_tool(name, description, args.category)
 
 
-def _create_function_skill(name: str, description: str, category: str) -> int:
+def _create_function_tool(name: str, description: str, category: str) -> int:
     """创建 Function Tool 脚手架。"""
     from nini.config import IS_FROZEN
 
@@ -727,7 +727,7 @@ class {class_name}(Tool):
     return 0
 
 
-def _create_markdown_skill(name: str, description: str, category: str) -> int:
+def _create_markdown_tool(name: str, description: str, category: str) -> int:
     """创建 Markdown Skill 脚手架。"""
     from nini.config import settings
 
@@ -740,7 +740,7 @@ def _create_markdown_skill(name: str, description: str, category: str) -> int:
         return 1
 
     target_dir.mkdir(parents=True, exist_ok=True)
-    content = _render_markdown_skill_template(name, description, category)
+    content = _render_markdown_tool_template(name, description, category)
     target.write_text(content, encoding="utf-8")
     print(f"已创建 Markdown Skill 脚手架：{target}")
     print(f"下一步：编辑 {target} 完善技能内容")

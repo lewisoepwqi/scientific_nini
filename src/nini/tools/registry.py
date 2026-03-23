@@ -76,8 +76,8 @@ class ToolRegistry:
     """
 
     def __init__(self) -> None:
-        self._skills: dict[str, Any] = {}
-        self._markdown_skills: list[dict[str, Any]] = []
+        self._tools: dict[str, Any] = {}
+        self._markdown_tools: list[dict[str, Any]] = []
         self._markdown_enabled_overrides: dict[str, bool] = {}
         self._fallback_manager: Any = None
         self._diagnostics: Any = None
@@ -99,11 +99,11 @@ class ToolRegistry:
     def get(self, name: str) -> Any | None:
         return self._function_ops.get(name)
 
-    def list_skills(self) -> list[str]:
-        return self._function_ops.list_skills()
+    def list_tools(self) -> list[str]:
+        return self._function_ops.list_tools()
 
-    def list_function_skills(self) -> list[dict[str, Any]]:
-        return self._function_ops.list_function_skills()
+    def list_function_tools(self) -> list[dict[str, Any]]:
+        return self._function_ops.list_function_tools()
 
     def list_markdown_tools(self) -> list[dict[str, Any]]:
         return self._markdown_ops.list_markdown_tools()
@@ -133,7 +133,7 @@ class ToolRegistry:
         return self._catalog_ops.list_markdown_tool_catalog()
 
     def reload_markdown_tools(self) -> list[dict[str, Any]]:
-        return self._markdown_ops.reload_markdown_tools(set(self._skills.keys()))
+        return self._markdown_ops.reload_markdown_tools(set(self._tools.keys()))
 
     def set_markdown_tool_enabled(self, name: str, enabled: bool) -> dict[str, Any] | None:
         return self._markdown_ops.set_markdown_tool_enabled(name, enabled)
@@ -147,33 +147,33 @@ class ToolRegistry:
     def get_tool_definitions(self) -> list[dict[str, Any]]:
         return self._function_ops.get_tool_definitions()
 
-    def _is_markdown_skill(self, skill_name: str) -> bool:
-        return self._markdown_ops.is_markdown_tool(skill_name)
+    def _is_markdown_tool(self, tool_name: str) -> bool:
+        return self._markdown_ops.is_markdown_tool(tool_name)
 
     async def execute(
         self,
-        skill_name: str,
+        tool_name: str,
         session: Session,
         **kwargs: Any,
     ) -> dict[str, Any]:
         return await self._function_ops.execute(
-            skill_name,
+            tool_name,
             session,
-            markdown_skill_checker=self._markdown_ops.is_markdown_tool,
+            markdown_tool_checker=self._markdown_ops.is_markdown_tool,
             **kwargs,
         )
 
     async def execute_with_fallback(
         self,
-        skill_name: str,
+        tool_name: str,
         session: Session,
         enable_fallback: bool = True,
         **kwargs: Any,
     ) -> dict[str, Any]:
         return await self._function_ops.execute_with_fallback(
-            skill_name,
+            tool_name,
             session,
-            skill_executor=self.execute,
+            tool_executor=self.execute,
             enable_fallback=enable_fallback,
             **kwargs,
         )
@@ -192,15 +192,15 @@ class ToolRegistry:
         """
         subset = ToolRegistry()
         # 清空新实例的默认注册工具（空白基础，只放入指定工具）
-        subset._skills.clear()
+        subset._tools.clear()
         subset._llm_exposed_function_tools = set()
 
         for name in allowed_tool_names:
-            skill = self._skills.get(name)
+            skill = self._tools.get(name)
             if skill is None:
                 logger.warning("create_subset: 工具 '%s' 不存在，已跳过", name)
                 continue
-            subset._skills[name] = skill
+            subset._tools[name] = skill
             subset._llm_exposed_function_tools.add(name)
 
         return subset
@@ -219,18 +219,18 @@ class ToolRegistry:
             include_quality_score=include_quality_score,
         )
 
-    async def _execute_skill_in_thread(
+    async def _execute_tool_in_thread(
         self, *, skill: Any, session: Session, kwargs: dict[str, Any]
     ):
-        return await self._function_ops._execute_skill_in_thread(
+        return await self._function_ops._execute_tool_in_thread(
             skill=skill,
             session=session,
             kwargs=kwargs,
         )
 
     @staticmethod
-    def _run_skill_coroutine(skill: Any, session: Session, kwargs: dict[str, Any]):
-        return FunctionToolRegistryOps._run_skill_coroutine(skill, session, kwargs)
+    def _run_tool_coroutine(skill: Any, session: Session, kwargs: dict[str, Any]):
+        return FunctionToolRegistryOps._run_tool_coroutine(skill, session, kwargs)
 
 
 def create_default_tool_registry() -> ToolRegistry:

@@ -67,11 +67,11 @@ class MarkdownToolRegistryOps:
 
     def list_markdown_tools(self) -> list[dict[str, Any]]:
         """列出 Markdown Skill。"""
-        return list(self._owner._markdown_skills)
+        return list(self._owner._markdown_tools)
 
     def get_markdown_tool(self, name: str) -> dict[str, Any] | None:
         """按名称获取 Markdown Skill。"""
-        for item in self._owner._markdown_skills:
+        for item in self._owner._markdown_tools:
             if item.get("name") == name:
                 return dict(item)
         return None
@@ -89,11 +89,11 @@ class MarkdownToolRegistryOps:
             return None
         payload = get_markdown_tool_instruction(skill_path)
         # 对外返回逻辑标识符而非服务端绝对路径，防止路径信息泄露
-        skill_name = str(item.get("name", "")).strip()
+        tool_name = str(item.get("name", "")).strip()
         return {
-            "name": skill_name,
+            "name": tool_name,
             "instruction": payload["instruction"],
-            "location": f"skill:{skill_name}",
+            "location": f"skill:{tool_name}",
             "metadata": dict(item.get("metadata") or {}),
         }
 
@@ -153,7 +153,7 @@ class MarkdownToolRegistryOps:
         if self.prune_enabled_overrides(markdown_names):
             self.save_enabled_overrides()
 
-        self._owner._markdown_skills = items
+        self._owner._markdown_tools = items
         return self.list_markdown_tools()
 
     def set_markdown_tool_enabled(self, name: str, enabled: bool) -> dict[str, Any] | None:
@@ -162,7 +162,7 @@ class MarkdownToolRegistryOps:
             return None
         self._owner._markdown_enabled_overrides[name] = bool(enabled)
         self.save_enabled_overrides()
-        self.reload_markdown_tools(set(self._owner._skills.keys()))
+        self.reload_markdown_tools(set(self._owner._tools.keys()))
         self._owner.write_tools_snapshot()
         return self.get_markdown_tool(name)
 
@@ -172,6 +172,6 @@ class MarkdownToolRegistryOps:
         if removed is not None:
             self.save_enabled_overrides()
 
-    def is_markdown_tool(self, skill_name: str) -> bool:
+    def is_markdown_tool(self, tool_name: str) -> bool:
         """判断名称是否属于已扫描的 Markdown Skill。"""
-        return any(item.get("name") == skill_name for item in self._owner._markdown_skills)
+        return any(item.get("name") == tool_name for item in self._owner._markdown_tools)

@@ -335,7 +335,7 @@ def test_registry_execute_signature_avoids_name_collision() -> None:
     """`execute` 的技能名参数不应占用 `name`，避免与工具入参冲突。"""
     sig = inspect.signature(ToolRegistry.execute)
     params = sig.parameters
-    assert "skill_name" in params
+    assert "tool_name" in params
     assert "name" not in params
 
     bound = sig.bind(
@@ -344,7 +344,7 @@ def test_registry_execute_signature_avoids_name_collision() -> None:
         session=object(),
         name="模板A",
     )
-    assert bound.arguments["skill_name"] == "save_workflow"
+    assert bound.arguments["tool_name"] == "save_workflow"
 
 
 def test_organize_workspace_creates_folder_and_moves_file() -> None:

@@ -14,7 +14,7 @@ from nini.agent.session import Session
 from nini.tools.base import ToolResult
 
 
-class TestCompleteComparisonSkill:
+class TestCompleteComparisonTool:
     """测试完整两组比较分析技能。"""
 
     @pytest.mark.asyncio
@@ -240,7 +240,7 @@ class TestCompleteComparisonSkill:
         assert "不存在" in result.message or "not found" in result.message.lower()
 
 
-class TestCompleteANOVASkill:
+class TestCompleteANOVATool:
     """测试完整 ANOVA 分析技能。"""
 
     @pytest.mark.asyncio
@@ -301,7 +301,7 @@ class TestCompleteANOVASkill:
             assert "post_hoc" in data or "tukey" in str(data).lower()
 
 
-class TestCorrelationAnalysisSkill:
+class TestCorrelationAnalysisTool:
     """测试相关性分析技能。"""
 
     @pytest.mark.asyncio
@@ -398,7 +398,7 @@ class TestCorrelationAnalysisSkill:
             assert result.success is True
 
 
-class TestCompoundSkillRegistration:
+class TestCompoundToolRegistration:
     """测试复合技能注册。"""
 
     def test_compound_skills_registered(self):
@@ -408,7 +408,7 @@ class TestCompoundSkillRegistration:
         registry = ToolRegistry()
 
         # 检查新技能是否可注册
-        skill_names = registry.list_skills()
+        skill_names = registry.list_tools()
 
         # 注册后应该包含
         from nini.tools.templates.complete_comparison import CompleteComparisonTool
@@ -419,7 +419,7 @@ class TestCompoundSkillRegistration:
         registry.register(CompleteANOVATool())
         registry.register(CorrelationAnalysisTool())
 
-        updated_names = registry.list_skills()
+        updated_names = registry.list_tools()
         assert "complete_comparison" in updated_names
         assert "complete_anova" in updated_names
         assert "correlation_analysis" in updated_names

@@ -85,7 +85,7 @@ class TestRoutesRegistration:
             "/models/active",
             "/models/routing",
             # skill_routes (markdown skill 路由)
-            "/skills/markdown/{skill_name}/enabled",
+            "/skills/markdown/{tool_name}/enabled",
             # intent_routes
             "/intent/analyze",
         ]
