@@ -157,9 +157,8 @@ class HybridRetriever:
                 knowledge_dir=self._knowledge_dir,
                 cache_dir=self._knowledge_dir / ".bm25_cache",
             )
-            import asyncio
-
-            success = await asyncio.get_event_loop().run_in_executor(None, bm25.initialize)
+            # BM25 初始化本身是轻量同步流程；避免在线程池中调度后出现挂起。
+            success = bm25.initialize()
             if success:
                 self._bm25_retriever = bm25
                 self._bm25_available = True
