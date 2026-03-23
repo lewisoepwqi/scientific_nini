@@ -198,7 +198,7 @@ class _EmptySkillRegistry:
     def get_tool_definitions(self) -> list[dict]:
         return []
 
-    def list_markdown_skills(self) -> list[dict]:
+    def list_markdown_tools(self) -> list[dict]:
         return []
 
     def get_semantic_catalog(self, skill_type: str | None = None) -> list[dict]:

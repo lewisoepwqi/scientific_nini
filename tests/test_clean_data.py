@@ -250,7 +250,7 @@ class TestCleaningStrategyRecommendation:
 
 
 @pytest.mark.asyncio
-class TestRecommendCleaningStrategySkill:
+class TestRecommendCleaningStrategyTool:
     """测试 recommend_cleaning_strategy 技能（直接实例化，不依赖注册表）。"""
 
     async def test_skill_execution(self):

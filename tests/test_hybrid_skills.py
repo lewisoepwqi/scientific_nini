@@ -59,7 +59,7 @@ def test_registry_scans_markdown_skills_and_writes_snapshot(
     monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
     registry = create_default_tool_registry()
-    catalog = registry.list_skill_catalog()
+    catalog = registry.list_tool_catalog()
     markdown_items = [item for item in catalog if item.get("type") == "markdown"]
 
     assert markdown_items, "应扫描到 Markdown 技能"
@@ -83,7 +83,7 @@ def test_markdown_skill_name_conflict_is_disabled(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     registry = create_default_tool_registry()
-    markdown = [item for item in registry.list_markdown_skills() if item["name"] == "t_test"]
+    markdown = [item for item in registry.list_markdown_tools() if item["name"] == "t_test"]
     assert markdown, "应存在同名 Markdown 技能"
     assert markdown[0]["enabled"] is False
     assert markdown[0]["metadata"]["conflict_with"] == "function"
@@ -322,7 +322,7 @@ def test_registry_markdown_skill_duplicate_prefers_higher_priority_root(
     monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
     registry = create_default_tool_registry()
-    markdown = registry.get_markdown_skill("dup_skill")
+    markdown = registry.get_markdown_tool("dup_skill")
     assert markdown is not None
     assert markdown["description"] == "高优先级目录"
 

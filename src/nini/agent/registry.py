@@ -60,7 +60,7 @@ class AgentRegistry:
         不存在的工具名记录 WARNING，不阻断注册。
         """
         if self._tool_registry is not None:
-            available = set(self._tool_registry.list_skills())
+            available = set(self._tool_registry.list_tools())
             for tool_name in agent_def.allowed_tools:
                 if tool_name not in available:
                     logger.warning(

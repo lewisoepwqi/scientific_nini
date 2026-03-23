@@ -3,9 +3,9 @@
 覆盖范围：
 - execute() 对 Markdown Skill 的错误提示
 - register() 重复注册检测
-- MarkdownSkill 的 category / to_manifest() 支持
-- scan_markdown_skills() 的 frontmatter 解析与验证
-- render_skills_snapshot() 的 category 输出
+- MarkdownTool 的 category / to_manifest() 支持
+- scan_markdown_tools() 的 frontmatter 解析与验证
+- render_tools_snapshot() 的 category 输出
 """
 
 from __future__ import annotations
@@ -19,9 +19,9 @@ from nini.config import settings
 from nini.tools.base import Tool, ToolResult
 from nini.tools.markdown_scanner import (
     VALID_CATEGORIES,
-    MarkdownSkill,
-    render_skills_snapshot,
-    scan_markdown_skills,
+    MarkdownTool,
+    render_tools_snapshot,
+    scan_markdown_tools,
 )
 from nini.tools.registry import ToolRegistry, create_default_tool_registry
 
@@ -66,8 +66,8 @@ def _write_skill_md(
 class _DummySkill(Tool):
     """用于测试注册逻辑的占位技能。"""
 
-    def __init__(self, skill_name: str = "dummy"):
-        self._name = skill_name
+    def __init__(self, tool_name: str = "dummy"):
+        self._name = tool_name
 
     @property
     def name(self) -> str:
@@ -157,17 +157,17 @@ def test_register_different_names_no_conflict() -> None:
     registry.register(_DummySkill("alpha"))
     registry.register(_DummySkill("beta"))
 
-    assert set(registry.list_skills()) == {"alpha", "beta"}
+    assert set(registry.list_tools()) == {"alpha", "beta"}
 
 
 # ---------------------------------------------------------------------------
-# 3. MarkdownSkill 的 category 与 to_manifest()
+# 3. MarkdownTool 的 category 与 to_manifest()
 # ---------------------------------------------------------------------------
 
 
 def test_markdown_skill_to_dict_includes_category() -> None:
-    """MarkdownSkill.to_dict() 应包含 category 字段。"""
-    skill = MarkdownSkill(
+    """MarkdownTool.to_dict() 应包含 category 字段。"""
+    skill = MarkdownTool(
         name="test_skill",
         description="测试",
         location="/tmp/SKILL.md",
@@ -180,8 +180,8 @@ def test_markdown_skill_to_dict_includes_category() -> None:
 
 
 def test_markdown_skill_to_manifest() -> None:
-    """MarkdownSkill.to_manifest() 应返回正确的 SkillManifest。"""
-    skill = MarkdownSkill(
+    """MarkdownTool.to_manifest() 应返回正确的 ToolManifest。"""
+    skill = MarkdownTool(
         name="pub_fig",
         description="生成期刊图表",
         location="/tmp/SKILL.md",
@@ -204,7 +204,7 @@ def test_markdown_skill_to_manifest() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. scan_markdown_skills() 解析与验证
+# 4. scan_markdown_tools() 解析与验证
 # ---------------------------------------------------------------------------
 
 
@@ -216,7 +216,7 @@ def test_scan_parses_category_from_frontmatter(tmp_path: Path) -> None:
         description="测试技能",
         category="statistics",
     )
-    results = scan_markdown_skills(tmp_path)
+    results = scan_markdown_tools(tmp_path)
 
     assert len(results) == 1
     assert results[0].category == "statistics"
@@ -238,7 +238,7 @@ def test_scan_parses_enhanced_metadata_from_frontmatter(tmp_path: Path) -> None:
             "  - 野外实验差异分析"
         ),
     )
-    results = scan_markdown_skills(tmp_path)
+    results = scan_markdown_tools(tmp_path)
 
     assert len(results) == 1
     assert results[0].brief_description == "用于快速理解技能用途"
@@ -255,7 +255,7 @@ def test_scan_defaults_category_to_other(tmp_path: Path) -> None:
         name="no_cat",
         description="无分类",
     )
-    results = scan_markdown_skills(tmp_path)
+    results = scan_markdown_tools(tmp_path)
 
     assert len(results) == 1
     assert results[0].category == "other"
@@ -269,7 +269,7 @@ def test_scan_invalid_category_falls_back_to_other(tmp_path: Path) -> None:
         description="非法分类",
         category="nonexistent_category",
     )
-    results = scan_markdown_skills(tmp_path)
+    results = scan_markdown_tools(tmp_path)
 
     assert len(results) == 1
     assert results[0].category == "other"
@@ -281,7 +281,7 @@ def test_scan_fallback_name_from_folder(tmp_path: Path) -> None:
         tmp_path / "folder_name_skill" / "SKILL.md",
         description="有描述无名称",
     )
-    results = scan_markdown_skills(tmp_path)
+    results = scan_markdown_tools(tmp_path)
 
     assert len(results) == 1
     assert results[0].name == "folder_name_skill"
@@ -293,7 +293,7 @@ def test_scan_no_frontmatter_at_all(tmp_path: Path) -> None:
     skill_path.parent.mkdir(parents=True, exist_ok=True)
     skill_path.write_text("这是一个纯文本技能定义\n", encoding="utf-8")
 
-    results = scan_markdown_skills(tmp_path)
+    results = scan_markdown_tools(tmp_path)
 
     assert len(results) == 1
     assert results[0].name == "raw_skill"
@@ -305,12 +305,12 @@ def test_scan_empty_dir(tmp_path: Path) -> None:
     """空目录应返回空列表。"""
     empty = tmp_path / "empty_skills"
     empty.mkdir()
-    assert scan_markdown_skills(empty) == []
+    assert scan_markdown_tools(empty) == []
 
 
 def test_scan_nonexistent_dir(tmp_path: Path) -> None:
     """不存在的目录应返回空列表。"""
-    assert scan_markdown_skills(tmp_path / "does_not_exist") == []
+    assert scan_markdown_tools(tmp_path / "does_not_exist") == []
 
 
 def test_scan_parses_agent_skill_metadata(tmp_path: Path) -> None:
@@ -334,7 +334,7 @@ def test_scan_parses_agent_skill_metadata(tmp_path: Path) -> None:
             "user-invocable: true"
         ),
     )
-    results = scan_markdown_skills(tmp_path)
+    results = scan_markdown_tools(tmp_path)
 
     assert len(results) == 1
     metadata = results[0].metadata
@@ -360,7 +360,7 @@ def test_scan_supports_multiple_roots_with_priority(tmp_path: Path) -> None:
         description="低优先级版本",
     )
 
-    results = scan_markdown_skills([high_root, low_root])
+    results = scan_markdown_tools([high_root, low_root])
     assert len(results) == 2
     assert results[0].metadata["discovery_priority"] == 0
     assert results[1].metadata["discovery_priority"] == 1
@@ -375,7 +375,7 @@ def test_scan_infers_opencode_source_standard(tmp_path: Path) -> None:
         description="OpenCode 技能",
         category="workflow",
     )
-    results = scan_markdown_skills(tmp_path / ".opencode" / "skills")
+    results = scan_markdown_tools(tmp_path / ".opencode" / "skills")
     assert len(results) == 1
     standards = results[0].metadata.get("source_standard")
     assert isinstance(standards, list)
@@ -383,7 +383,7 @@ def test_scan_infers_opencode_source_standard(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. render_skills_snapshot() 包含 category
+# 5. render_tools_snapshot() 包含 category
 # ---------------------------------------------------------------------------
 
 
@@ -407,7 +407,7 @@ def test_snapshot_includes_category() -> None:
             "location": "/skills/publication_figure/SKILL.md",
         },
     ]
-    text = render_skills_snapshot(skills)
+    text = render_tools_snapshot(skills)
 
     assert "## available_tools" in text
     assert "## available_markdown_skills" in text
@@ -429,7 +429,7 @@ def test_create_default_tool_registry_no_duplicate_names(
     (tmp_path / "empty_skills").mkdir()
 
     registry = create_default_tool_registry()
-    names = registry.list_skills()
+    names = registry.list_tools()
     assert len(names) == len(set(names)), "存在重复注册的技能名称"
 
 
@@ -448,7 +448,7 @@ def test_catalog_includes_category_for_both_types(
     monkeypatch.setattr(settings, "skills_dir_path", skills_dir)
 
     registry = create_default_tool_registry()
-    catalog = registry.list_skill_catalog()
+    catalog = registry.list_tool_catalog()
 
     for item in catalog:
         assert "category" in item, f"技能 {item['name']} 缺少 category 字段"
@@ -467,7 +467,7 @@ def test_function_skill_catalog_exposes_default_enhanced_metadata(
     (tmp_path / "empty").mkdir()
 
     registry = create_default_tool_registry()
-    t_test_item = next(item for item in registry.list_function_skills() if item["name"] == "t_test")
+    t_test_item = next(item for item in registry.list_function_tools() if item["name"] == "t_test")
 
     assert t_test_item["brief_description"]
     assert t_test_item["research_domain"] == "general"
@@ -506,12 +506,12 @@ def test_registry_progressive_disclosure_methods(
 
     registry = create_default_tool_registry()
 
-    index_payload = registry.get_skill_index("analysis_guide")
+    index_payload = registry.get_tool_index("analysis_guide")
     assert index_payload is not None
     assert index_payload["name"] == "analysis_guide"
     assert "brief_description" in index_payload
 
-    instruction_payload = registry.get_skill_instruction("analysis_guide")
+    instruction_payload = registry.get_tool_instruction("analysis_guide")
     assert instruction_payload is not None
     assert "## 步骤" in instruction_payload["instruction"]
     assert "name:" not in instruction_payload["instruction"]
@@ -586,7 +586,7 @@ def test_all_function_skills_use_valid_categories(
     (tmp_path / "empty").mkdir()
 
     registry = create_default_tool_registry()
-    for item in registry.list_function_skills():
+    for item in registry.list_function_tools():
         assert (
             item["category"] in VALID_CATEGORIES
         ), f"技能 {item['name']} 使用了非标准分类 '{item['category']}'"
@@ -602,7 +602,7 @@ def test_no_skills_use_deprecated_categories(
 
     registry = create_default_tool_registry()
     deprecated = {"code", "composite"}
-    for item in registry.list_function_skills():
+    for item in registry.list_function_tools():
         assert (
             item["category"] not in deprecated
         ), f"技能 {item['name']} 使用了已废弃分类 '{item['category']}'"
@@ -795,12 +795,12 @@ def test_cli_skills_create_function(
     skills_module_dir = tmp_path / "skills_module"
     skills_module_dir.mkdir()
     monkeypatch.setattr(
-        "nini.__main__._create_function_skill",
+        "nini.__main__._create_function_tool",
         lambda name, desc, cat: _create_function_skill_in(skills_module_dir, name, desc, cat),
     )
 
     args = argparse.Namespace(
-        skill_name="test_skill",
+        tool_name="test_skill",
         skill_type="function",
         category="statistics",
         description="测试技能",
@@ -829,12 +829,12 @@ def test_cli_skills_create_markdown(
 
     skills_root = tmp_path / "skills_root"
     monkeypatch.setattr(
-        "nini.__main__._create_markdown_skill",
+        "nini.__main__._create_markdown_tool",
         lambda name, desc, cat: _create_markdown_skill_in(skills_root, name, desc, cat),
     )
 
     args = argparse.Namespace(
-        skill_name="test_guide",
+        tool_name="test_guide",
         skill_type="markdown",
         category="report",
         description="测试指南",
@@ -863,7 +863,7 @@ def test_cli_skills_create_invalid_name(capsys: pytest.CaptureFixture[str]) -> N
     from nini.__main__ import _cmd_skills_create
 
     args = argparse.Namespace(
-        skill_name="Invalid-Name",
+        tool_name="Invalid-Name",
         skill_type="function",
         category="other",
         description="",

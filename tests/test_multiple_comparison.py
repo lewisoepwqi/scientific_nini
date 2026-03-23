@@ -179,7 +179,7 @@ class TestRecommendCorrectionMethod:
 
 
 @pytest.mark.asyncio
-class TestMultipleComparisonCorrectionSkill:
+class TestMultipleComparisonCorrectionTool:
     """测试多重比较校正技能。"""
 
     async def test_skill_execution_bonferroni(self):

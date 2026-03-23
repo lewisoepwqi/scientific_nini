@@ -110,7 +110,7 @@ class _ApprovalRegistry:
             }
         ]
 
-    def list_markdown_skills(self) -> list[dict[str, object]]:
+    def list_markdown_tools(self) -> list[dict[str, object]]:
         return [
             {
                 "type": "markdown",
@@ -126,13 +126,13 @@ class _ApprovalRegistry:
             }
         ]
 
-    async def execute(self, skill_name: str, session: Session, **kwargs):
-        if skill_name != "workspace_session":
-            return {"error": f"unknown skill: {skill_name}"}
+    async def execute(self, tool_name: str, session: Session, **kwargs):
+        if tool_name != "workspace_session":
+            return {"error": f"unknown skill: {tool_name}"}
         return {"success": True, "message": "workspace write ok"}
 
-    async def execute_with_fallback(self, skill_name: str, session: Session, **kwargs):
-        return await self.execute(skill_name, session=session, **kwargs)
+    async def execute_with_fallback(self, tool_name: str, session: Session, **kwargs):
+        return await self.execute(tool_name, session=session, **kwargs)
 
 
 def test_session_messages_persist_and_restore() -> None:

@@ -39,8 +39,8 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 class _DummySkill(Tool):
-    def __init__(self, skill_name: str = "dummy", expose: bool = True):
-        self._name = skill_name
+    def __init__(self, tool_name: str = "dummy", expose: bool = True):
+        self._name = tool_name
         self._expose = expose
 
     @property
@@ -144,7 +144,7 @@ class TestReplaceArguments:
 
 
 class TestContextMatching:
-    """测试 _match_skills_by_context 方法。"""
+    """测试 _match_tools_by_context 方法。"""
 
     def test_match_by_alias(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         from nini.agent.runner import AgentRunner
@@ -162,10 +162,10 @@ class TestContextMatching:
                 "tags": ["root-length", "anova"],
             },
         }
-        registry._markdown_skills = [md_skill]
+        registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
-        matches = runner._match_skills_by_context("我想做根长分析")
+        matches = runner._match_tools_by_context("我想做根长分析")
         assert len(matches) == 1
         assert matches[0]["name"] == "root-analysis"
 
@@ -182,10 +182,10 @@ class TestContextMatching:
             "enabled": True,
             "metadata": {"tags": ["ecology", "biodiversity"]},
         }
-        registry._markdown_skills = [md_skill]
+        registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
-        matches = runner._match_skills_by_context("biodiversity assessment")
+        matches = runner._match_tools_by_context("biodiversity assessment")
         assert len(matches) == 1
 
     def test_no_match(self):
@@ -201,10 +201,10 @@ class TestContextMatching:
             "enabled": True,
             "metadata": {"aliases": ["根长分析"], "tags": ["root-length"]},
         }
-        registry._markdown_skills = [md_skill]
+        registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
-        matches = runner._match_skills_by_context("天气预报查询")
+        matches = runner._match_tools_by_context("天气预报查询")
         assert len(matches) == 0
 
     def test_disabled_skill_excluded(self):
@@ -220,10 +220,10 @@ class TestContextMatching:
             "enabled": False,
             "metadata": {"aliases": ["根长分析"]},
         }
-        registry._markdown_skills = [md_skill]
+        registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
-        matches = runner._match_skills_by_context("根长分析")
+        matches = runner._match_tools_by_context("根长分析")
         assert len(matches) == 0
 
     def test_disable_model_invocation(self):
@@ -242,10 +242,10 @@ class TestContextMatching:
                 "disable_model_invocation": True,
             },
         }
-        registry._markdown_skills = [md_skill]
+        registry._markdown_tools = [md_skill]
         runner = AgentRunner(tool_registry=registry)
 
-        matches = runner._match_skills_by_context("根长分析")
+        matches = runner._match_tools_by_context("根长分析")
         assert len(matches) == 0
 
 
@@ -276,10 +276,10 @@ class TestAllowedToolsAdvisory:
         monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
         registry = ToolRegistry()
-        from nini.tools.markdown_scanner import scan_markdown_skills
+        from nini.tools.markdown_scanner import scan_markdown_tools
 
-        md_skills = scan_markdown_skills([skills_dir])
-        registry._markdown_skills = [s.to_dict() for s in md_skills]
+        md_skills = scan_markdown_tools([skills_dir])
+        registry._markdown_tools = [s.to_dict() for s in md_skills]
 
         runner = AgentRunner(tool_registry=registry)
         context = runner._build_explicit_skill_context("/test-skill my_data.csv")
@@ -311,10 +311,10 @@ class TestAllowedToolsAdvisory:
         monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
         registry = ToolRegistry()
-        from nini.tools.markdown_scanner import scan_markdown_skills
+        from nini.tools.markdown_scanner import scan_markdown_tools
 
-        md_skills = scan_markdown_skills([skills_dir])
-        registry._markdown_skills = [s.to_dict() for s in md_skills]
+        md_skills = scan_markdown_tools([skills_dir])
+        registry._markdown_tools = [s.to_dict() for s in md_skills]
 
         runner = AgentRunner(tool_registry=registry)
         context = runner._build_explicit_skill_context("/resource-skill")
@@ -339,10 +339,10 @@ class TestAllowedToolsAdvisory:
         monkeypatch.setattr(settings, "skills_auto_discover_compat_dirs", False)
 
         registry = ToolRegistry()
-        from nini.tools.markdown_scanner import scan_markdown_skills
+        from nini.tools.markdown_scanner import scan_markdown_tools
 
-        md_skills = scan_markdown_skills([skills_dir])
-        registry._markdown_skills = [s.to_dict() for s in md_skills]
+        md_skills = scan_markdown_tools([skills_dir])
+        registry._markdown_tools = [s.to_dict() for s in md_skills]
 
         runner = AgentRunner(tool_registry=registry)
         context = runner._build_explicit_skill_context("/simple-skill")

@@ -47,7 +47,7 @@ async def test_t_test_fallback_to_mann_whitney_on_non_normal() -> None:
 
     # 应该触发降级
     assert result["fallback"] is True, "非正态数据应触发降级"
-    assert result["fallback_skill"] == "mann_whitney"
+    assert result["fallback_tool"] == "mann_whitney"
     assert result["success"] is True
     assert "原始技能执行失败" in result.get(
         "fallback_reason", ""
@@ -82,7 +82,7 @@ async def test_anova_fallback_to_kruskal_wallis_on_non_normal() -> None:
 
     # 应该触发降级
     assert result["fallback"] is True, "非正态数据应触发降级"
-    assert result["fallback_skill"] == "kruskal_wallis"
+    assert result["fallback_tool"] == "kruskal_wallis"
     assert result["success"] is True
 
 
@@ -270,8 +270,8 @@ async def test_fallback_preserves_original_result_info() -> None:
     )
 
     # 检查降级信息
-    assert "original_skill" in result
-    assert result["original_skill"] == "t_test"
+    assert "original_tool" in result
+    assert result["original_tool"] == "t_test"
     if result.get("fallback"):
-        assert "fallback_skill" in result
+        assert "fallback_tool" in result
         assert "fallback_reason" in result

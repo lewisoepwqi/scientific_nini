@@ -1,9 +1,9 @@
-"""技能清单（Skill Manifest）—— Nini Skills 与 Claude Code Skills 的统一描述协议。
+"""工具清单（Tool Manifest）—— Nini Tools 与 Claude Code Skills 的统一描述协议。
 
-提供 SkillManifest 数据类，用于：
-1. 导出 Nini Skill 为 Claude Code 兼容的 Markdown 描述
-2. 从 Markdown 描述导入技能元数据
-3. 统一技能的跨平台发现与文档生成
+提供 ToolManifest 数据类，用于：
+1. 导出 Nini Tool 为 Claude Code 兼容的 Markdown 描述
+2. 从 Markdown 描述导入工具元数据
+3. 统一工具的跨平台发现与文档生成
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any
 
 
 @dataclass
-class SkillManifest:
+class ToolManifest:
     """统一技能元数据。"""
 
     name: str
@@ -32,8 +32,8 @@ class SkillManifest:
     output_types: list[str] = field(default_factory=list)  # chart, dataframe, report, artifact
 
 
-def export_to_claude_code(manifest: SkillManifest) -> str:
-    """将 SkillManifest 导出为 Claude Code 兼容的 Markdown 技能描述。
+def export_to_claude_code(manifest: ToolManifest) -> str:
+    """将 ToolManifest 导出为 Claude Code 兼容的 Markdown 技能描述。
 
     Claude Code Skills 本质是 Markdown 文件，包含工作流描述和上下文信息。
     此函数将 Nini Skill 的结构化元数据转换为可读的 Markdown 格式。
@@ -100,7 +100,7 @@ def export_to_claude_code(manifest: SkillManifest) -> str:
     return "\n".join(lines)
 
 
-def import_from_markdown(md_content: str) -> SkillManifest:
+def import_from_markdown(md_content: str) -> ToolManifest:
     """从 Markdown 描述导入技能元数据。
 
     解析 Claude Code 风格的 Markdown 技能描述，提取：
@@ -191,7 +191,7 @@ def import_from_markdown(md_content: str) -> SkillManifest:
         if current_section == "description" and stripped:
             description_lines.append(stripped)
 
-    return SkillManifest(
+    return ToolManifest(
         name=name,
         description="\n".join(description_lines),
         parameters=parameters if parameters["properties"] else {},
@@ -204,12 +204,12 @@ def import_from_markdown(md_content: str) -> SkillManifest:
     )
 
 
-def export_all_skills_markdown(skills: list[SkillManifest]) -> str:
+def export_all_tools_markdown(skills: list[ToolManifest]) -> str:
     """将多个技能清单导出为单个 Markdown 文档（技能目录）。"""
     lines = ["# Nini 技能目录", ""]
 
     # 按分类分组
-    by_category: dict[str, list[SkillManifest]] = {}
+    by_category: dict[str, list[ToolManifest]] = {}
     for s in skills:
         cat = s.category or "未分类"
         by_category.setdefault(cat, []).append(s)

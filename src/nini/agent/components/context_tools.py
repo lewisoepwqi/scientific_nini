@@ -5,16 +5,16 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from nini.agent.prompt_policy import (
-    AUTO_SKILL_MAX_COUNT,
-    INLINE_SKILL_CONTEXT_MAX_CHARS,
-    INLINE_SKILL_MAX_COUNT,
+    AUTO_TOOL_MAX_COUNT,
+    INLINE_TOOL_CONTEXT_MAX_CHARS,
+    INLINE_TOOL_MAX_COUNT,
     format_untrusted_context_block,
 )
 from nini.agent.components.context_utils import replace_arguments, sanitize_reference_text
 from nini.capabilities import create_default_capabilities
 
 
-def build_explicit_skill_context(
+def build_explicit_tool_context(
     user_message: str,
     tool_registry: Any,
     *,
@@ -25,18 +25,18 @@ def build_explicit_skill_context(
     if not user_message or tool_registry is None:
         return ""
 
-    skill_args_map: dict[str, str] = {}
+    tool_args_map: dict[str, str] = {}
     for call in context_intent_analyzer().parse_explicit_skill_calls(
         user_message,
-        limit=INLINE_SKILL_MAX_COUNT,
+        limit=INLINE_TOOL_MAX_COUNT,
     ):
         name = call["name"]
         if name:
-            skill_args_map[name] = call["arguments"]
+            tool_args_map[name] = call["arguments"]
 
-    if not hasattr(tool_registry, "list_markdown_skills"):
+    if not hasattr(tool_registry, "list_markdown_tools"):
         return ""
-    markdown_items = tool_registry.list_markdown_skills()
+    markdown_items = tool_registry.list_markdown_tools()
     if not isinstance(markdown_items, list):
         return ""
     skill_map = {
@@ -44,16 +44,16 @@ def build_explicit_skill_context(
     }
 
     blocks: list[str] = []
-    for name, arguments in skill_args_map.items():
+    for name, arguments in tool_args_map.items():
         item = skill_map.get(name)
         if not item or not bool(item.get("enabled", True)):
             continue
         metadata = item.get("metadata")
         if isinstance(metadata, dict) and metadata.get("user_invocable") is False:
             continue
-        if not hasattr(tool_registry, "get_skill_instruction"):
+        if not hasattr(tool_registry, "get_tool_instruction"):
             continue
-        instruction_payload = tool_registry.get_skill_instruction(name)
+        instruction_payload = tool_registry.get_tool_instruction(name)
         if not isinstance(instruction_payload, dict):
             continue
         instruction = str(instruction_payload.get("instruction", "")).strip()
@@ -62,7 +62,7 @@ def build_explicit_skill_context(
         if arguments:
             instruction = replace_arguments(instruction, arguments)
 
-        excerpt = sanitize_reference_text(instruction, max_len=INLINE_SKILL_CONTEXT_MAX_CHARS)
+        excerpt = sanitize_reference_text(instruction, max_len=INLINE_TOOL_CONTEXT_MAX_CHARS)
         if not excerpt:
             continue
         location = str(instruction_payload.get("location", "")).strip()
@@ -86,21 +86,21 @@ def build_explicit_skill_context(
         )
 
     if not blocks:
-        for item in match_skills_by_context(
+        for item in match_tools_by_context(
             user_message,
             tool_registry,
             context_intent_analyzer=context_intent_analyzer,
         ):
             name = str(item.get("name", "")).strip()
-            if not name or not hasattr(tool_registry, "get_skill_instruction"):
+            if not name or not hasattr(tool_registry, "get_tool_instruction"):
                 continue
-            instruction_payload = tool_registry.get_skill_instruction(name)
+            instruction_payload = tool_registry.get_tool_instruction(name)
             if not isinstance(instruction_payload, dict):
                 continue
             instruction = str(instruction_payload.get("instruction", "")).strip()
             if not instruction:
                 continue
-            excerpt = sanitize_reference_text(instruction, max_len=INLINE_SKILL_CONTEXT_MAX_CHARS)
+            excerpt = sanitize_reference_text(instruction, max_len=INLINE_TOOL_CONTEXT_MAX_CHARS)
             if not excerpt:
                 continue
 
@@ -211,7 +211,7 @@ def build_intent_runtime_context(
     )
 
 
-def match_skills_by_context(
+def match_tools_by_context(
     user_message: str,
     tool_registry: Any,
     *,
@@ -224,14 +224,14 @@ def match_skills_by_context(
     if hasattr(tool_registry, "get_semantic_catalog"):
         markdown_items = tool_registry.get_semantic_catalog(skill_type="markdown")
     else:
-        markdown_items = tool_registry.list_markdown_skills()
+        markdown_items = tool_registry.list_markdown_tools()
     if not isinstance(markdown_items, list):
         return []
 
     candidates = context_intent_analyzer().rank_semantic_skills(
         user_message,
         markdown_items,
-        limit=AUTO_SKILL_MAX_COUNT,
+        limit=AUTO_TOOL_MAX_COUNT,
     )
     matched_items: list[dict[str, Any]] = []
     for candidate in candidates:
@@ -240,11 +240,11 @@ def match_skills_by_context(
     return matched_items
 
 
-def build_skill_runtime_resources_note(tool_registry: Any, skill_name: str) -> str:
+def build_tool_runtime_resources_note(tool_registry: Any, tool_name: str) -> str:
     """构建技能运行时资源提示。"""
     if tool_registry is None or not hasattr(tool_registry, "get_runtime_resources"):
         return ""
-    payload = tool_registry.get_runtime_resources(skill_name)
+    payload = tool_registry.get_runtime_resources(tool_name)
     if not isinstance(payload, dict):
         return ""
     resources = payload.get("resources")

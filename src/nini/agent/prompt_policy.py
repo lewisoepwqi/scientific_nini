@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Final
 
 SANITIZE_MAX_LEN: Final[int] = 120
-INLINE_SKILL_CONTEXT_MAX_CHARS: Final[int] = 12000
-INLINE_SKILL_MAX_COUNT: Final[int] = 2
+INLINE_TOOL_CONTEXT_MAX_CHARS: Final[int] = 12000
+INLINE_TOOL_MAX_COUNT: Final[int] = 2
 DEFAULT_TOOL_CONTEXT_MAX_CHARS: Final[int] = 2000
 FETCH_URL_TOOL_CONTEXT_MAX_CHARS: Final[int] = 12000
 TOOL_REFERENCE_EXCERPT_MAX_CHARS: Final[int] = 8000
 AGENTS_MD_MAX_CHARS: Final[int] = 5000
-AUTO_SKILL_MAX_COUNT: Final[int] = 1
+AUTO_TOOL_MAX_COUNT: Final[int] = 1
 
 NON_DIALOG_EVENT_TYPES: Final[frozenset[str]] = frozenset({"chart", "data", "artifact", "image"})
 

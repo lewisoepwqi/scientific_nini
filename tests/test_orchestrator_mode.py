@@ -35,9 +35,9 @@ def _make_runner_with_dispatch_registered():
         fusion_engine=_MockFusion(),
     )
     registry = ToolRegistry()
-    registry._skills.clear()
+    registry._tools.clear()
     registry._llm_exposed_function_tools = set()
-    registry._skills["dispatch_agents"] = tool
+    registry._tools["dispatch_agents"] = tool
     # 不加入 _llm_exposed_function_tools，由 Orchestrator 路径控制
 
     return AgentRunner(tool_registry=registry)

@@ -14,11 +14,11 @@ from nini.agent.components.context_memory import (
     build_analysis_memory_context,
     build_research_profile_context,
 )
-from nini.agent.components.context_skills import (
-    build_explicit_skill_context,
+from nini.agent.components.context_tools import (
+    build_explicit_tool_context,
     build_intent_runtime_context,
-    build_skill_runtime_resources_note,
-    match_skills_by_context,
+    build_tool_runtime_resources_note,
+    match_tools_by_context,
 )
 from nini.agent.session import Session
 
@@ -48,7 +48,7 @@ def test_build_skill_runtime_resources_note_lists_preview_files() -> None:
         }
     )
 
-    note = build_skill_runtime_resources_note(registry, "guide")
+    note = build_tool_runtime_resources_note(registry, "guide")
 
     assert "scripts/run.py" in note
     assert "references/guide.md" in note
@@ -62,20 +62,20 @@ def test_build_explicit_skill_context_replaces_arguments_and_includes_tools() ->
             return [{"name": "guide", "arguments": "demo.csv score"}]
 
     registry = SimpleNamespace(
-        list_markdown_skills=lambda: [
+        list_markdown_tools=lambda: [
             {
                 "name": "guide",
                 "enabled": True,
                 "metadata": {"allowed_tools": ["read_file", "run_tests"]},
             }
         ],
-        get_skill_instruction=lambda name: {
+        get_tool_instruction=lambda name: {
             "instruction": "读取 $1 并分析 $2\n工具: $ARGUMENTS",
             "location": "/tmp/guide/SKILL.md",
         },
     )
 
-    context = build_explicit_skill_context(
+    context = build_explicit_tool_context(
         "/guide demo.csv score",
         registry,
         context_intent_analyzer=lambda: _Analyzer(),
@@ -105,7 +105,7 @@ def test_match_skills_by_context_returns_payloads() -> None:
         ]
     )
 
-    matched = match_skills_by_context(
+    matched = match_tools_by_context(
         "请参考实验技能",
         registry,
         context_intent_analyzer=lambda: _Analyzer(),
@@ -136,7 +136,7 @@ def test_build_intent_runtime_context_formats_candidates(monkeypatch: pytest.Mon
             return _Analysis()
 
     monkeypatch.setattr(
-        "nini.agent.components.context_skills.create_default_capabilities",
+        "nini.agent.components.context_tools.create_default_capabilities",
         lambda: [SimpleNamespace(to_dict=lambda: {"name": "difference_analysis"})],
     )
     registry = SimpleNamespace(get_semantic_catalog=lambda skill_type=None: [])

@@ -20,7 +20,7 @@ def test_registry_registers_run_r_code_conditionally() -> None:
     注意：注册逻辑使用 detect_r_backend()，它会检查本地 R 和 webr。
     """
     registry = create_default_tool_registry()
-    has_skill = "run_r_code" in registry.list_skills()
+    has_skill = "run_r_code" in registry.list_tools()
     # 使用与注册逻辑相同的检测函数
     r_backend = detect_r_backend()
     r_available = r_backend.get("available", False)

@@ -17,11 +17,11 @@ from nini.agent.components.context_memory import (
     build_long_term_memory_context,
     build_research_profile_context,
 )
-from nini.agent.components.context_skills import (
-    build_explicit_skill_context as build_explicit_skill_context_block,
+from nini.agent.components.context_tools import (
+    build_explicit_tool_context as build_explicit_tool_context_block,
     build_intent_runtime_context as build_intent_runtime_context_block,
-    build_skill_runtime_resources_note,
-    match_skills_by_context,
+    build_tool_runtime_resources_note,
+    match_tools_by_context,
 )
 from nini.agent.components.context_utils import (
     filter_valid_messages,
@@ -81,18 +81,18 @@ class ContextBuilder:
         self._tool_registry = tool_registry
 
     @property
-    def inline_skill_max_count(self) -> int:
+    def inline_tool_max_count(self) -> int:
         """暴露统一的显式技能上限，供兼容调用方复用。"""
-        from nini.agent.prompt_policy import INLINE_SKILL_MAX_COUNT
+        from nini.agent.prompt_policy import INLINE_TOOL_MAX_COUNT
 
-        return INLINE_SKILL_MAX_COUNT
+        return INLINE_TOOL_MAX_COUNT
 
     @property
-    def auto_skill_max_count(self) -> int:
+    def auto_tool_max_count(self) -> int:
         """暴露统一的自动技能匹配上限，供兼容调用方复用。"""
-        from nini.agent.prompt_policy import AUTO_SKILL_MAX_COUNT
+        from nini.agent.prompt_policy import AUTO_TOOL_MAX_COUNT
 
-        return AUTO_SKILL_MAX_COUNT
+        return AUTO_TOOL_MAX_COUNT
 
     async def build_messages_and_retrieval(
         self,
@@ -146,7 +146,7 @@ class ContextBuilder:
                 format_untrusted_context_block("harness_summary", harness_runtime_context)
             )
 
-        explicit_skill_context = self.build_explicit_skill_context(last_user_msg)
+        explicit_skill_context = self.build_explicit_tool_context(last_user_msg)
         if explicit_skill_context:
             context_parts.append(explicit_skill_context)
 
@@ -308,13 +308,13 @@ class ContextBuilder:
             self._knowledge_loader, last_user_msg, columns, context_parts
         )
 
-    def build_explicit_skill_context(self, user_message: str) -> str:
+    def build_explicit_tool_context(self, user_message: str) -> str:
         """Build context for explicitly selected skills via /skill."""
-        return build_explicit_skill_context_block(
+        return build_explicit_tool_context_block(
             user_message,
             self._tool_registry,
             context_intent_analyzer=_get_context_intent_analyzer,
-            runtime_resources_builder=self._build_skill_runtime_resources_note,
+            runtime_resources_builder=self._build_tool_runtime_resources_note,
         )
 
     def build_intent_runtime_context(self, user_message: str, intent_analysis: Any = None) -> str:
@@ -326,17 +326,17 @@ class ContextBuilder:
             intent_analysis=intent_analysis,
         )
 
-    def _match_skills_by_context(self, user_message: str) -> list[dict[str, Any]]:
+    def _match_tools_by_context(self, user_message: str) -> list[dict[str, Any]]:
         """Match Markdown Skills by checking user message against aliases, tags, and name."""
-        return match_skills_by_context(
+        return match_tools_by_context(
             user_message,
             self._tool_registry,
             context_intent_analyzer=_get_context_intent_analyzer,
         )
 
-    def _build_skill_runtime_resources_note(self, skill_name: str) -> str:
+    def _build_tool_runtime_resources_note(self, tool_name: str) -> str:
         """Build skill runtime resources note."""
-        return build_skill_runtime_resources_note(self._tool_registry, skill_name)
+        return build_tool_runtime_resources_note(self._tool_registry, tool_name)
 
     @classmethod
     def _discover_agents_md(cls) -> str:

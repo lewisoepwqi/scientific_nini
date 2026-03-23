@@ -13,7 +13,7 @@ from nini.workspace import WorkspaceManager
 
 def test_registry_contains_run_code() -> None:
     registry = create_default_tool_registry()
-    assert "run_code" in registry.list_skills()
+    assert "run_code" in registry.list_tools()
 
 
 def test_run_code_returns_scalar_result_and_stdout() -> None:

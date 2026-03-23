@@ -12,14 +12,14 @@ from nini.config import settings
 from nini.tools.base import Tool, ToolResult
 from nini.tools.registry_catalog import ToolCatalogOps
 from nini.tools.registry_core import FunctionToolRegistryOps
-from nini.tools.registry_markdown import MarkdownSkillRegistryOps
+from nini.tools.registry_markdown import MarkdownToolRegistryOps
 
 
 class _DummySkill(Tool):
     """用于测试注册与执行逻辑的占位工具。"""
 
-    def __init__(self, skill_name: str = "dummy", *, expose_to_llm: bool = True):
-        self._name = skill_name
+    def __init__(self, tool_name: str = "dummy", *, expose_to_llm: bool = True):
+        self._name = tool_name
         self._expose_to_llm = expose_to_llm
 
     @property
@@ -51,21 +51,21 @@ def registry_owner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "skills_dir_path", tmp_path / "skills")
 
     owner = SimpleNamespace(
-        _skills={},
-        _markdown_skills=[],
+        _tools={},
+        _markdown_tools=[],
         _markdown_enabled_overrides={},
         _fallback_manager=None,
         _diagnostics=None,
     )
     owner._function_ops = FunctionToolRegistryOps(owner)
-    owner._markdown_ops = MarkdownSkillRegistryOps(owner)
+    owner._markdown_ops = MarkdownToolRegistryOps(owner)
     owner._catalog_ops = ToolCatalogOps(owner)
     owner._function_ops.ensure_runtime_dependencies()
     owner._markdown_enabled_overrides = owner._markdown_ops.load_enabled_overrides()
-    owner.list_function_skills = owner._function_ops.list_function_skills
-    owner.list_markdown_skills = owner._markdown_ops.list_markdown_skills
-    owner.get_markdown_skill = owner._markdown_ops.get_markdown_skill
-    owner.write_skills_snapshot = owner._catalog_ops.write_skills_snapshot
+    owner.list_function_tools = owner._function_ops.list_function_tools
+    owner.list_markdown_tools = owner._markdown_ops.list_markdown_tools
+    owner.get_markdown_tool = owner._markdown_ops.get_markdown_tool
+    owner.write_tools_snapshot = owner._catalog_ops.write_tools_snapshot
     return owner
 
 
@@ -90,7 +90,7 @@ def test_function_registry_ops_register_and_tool_definitions(registry_owner) -> 
     ops.register(_DummySkill("alpha"))
     ops.register(_DummySkill("hidden", expose_to_llm=False))
 
-    assert ops.list_skills() == ["alpha", "hidden"]
+    assert ops.list_tools() == ["alpha", "hidden"]
     assert ops.get("alpha") is not None
 
     definitions = ops.get_tool_definitions()
@@ -101,15 +101,15 @@ def test_markdown_registry_ops_reload_disable_conflict_and_persist_override(
     registry_owner,
     tmp_path: Path,
 ) -> None:
-    """MarkdownSkillRegistryOps 应处理扫描、冲突禁用与启停覆盖。"""
+    """MarkdownToolRegistryOps 应处理扫描、冲突禁用与启停覆盖。"""
     skills_dir = tmp_path / "skills-extra"
     _write_skill_md(skills_dir / "guide" / "SKILL.md", name="guide", description="说明文档")
     _write_skill_md(skills_dir / "alpha" / "SKILL.md", name="alpha", description="同名冲突")
 
-    registry_owner._skills["alpha"] = _DummySkill("alpha")
+    registry_owner._tools["alpha"] = _DummySkill("alpha")
     ops = registry_owner._markdown_ops
 
-    items = ops.reload_markdown_skills(set(registry_owner._skills.keys()))
+    items = ops.reload_markdown_tools(set(registry_owner._tools.keys()))
 
     guide = next(item for item in items if item["name"] == "guide")
     alpha = next(item for item in items if item["name"] == "alpha")
@@ -117,7 +117,7 @@ def test_markdown_registry_ops_reload_disable_conflict_and_persist_override(
     assert alpha["enabled"] is False
     assert alpha["metadata"]["conflict_with"] == "function"
 
-    updated = ops.set_markdown_skill_enabled("guide", False)
+    updated = ops.set_markdown_tool_enabled("guide", False)
     assert updated is not None
     assert updated["enabled"] is False
     assert settings.skills_state_path.exists()
@@ -126,7 +126,7 @@ def test_markdown_registry_ops_reload_disable_conflict_and_persist_override(
 def test_catalog_ops_semantic_catalog_contains_matching_metadata(registry_owner) -> None:
     """ToolCatalogOps 应输出语义检索所需字段。"""
     registry_owner._function_ops.register(_DummySkill("alpha"))
-    registry_owner._markdown_skills = [
+    registry_owner._markdown_tools = [
         {
             "type": "markdown",
             "name": "guide",
@@ -181,7 +181,7 @@ def test_catalog_ops_write_snapshot_outputs_markdown_and_function_sections(
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
     settings.ensure_dirs()
     registry_owner._function_ops.register(_DummySkill("alpha"))
-    registry_owner._markdown_skills = [
+    registry_owner._markdown_tools = [
         {
             "type": "markdown",
             "name": "guide",
@@ -197,7 +197,7 @@ def test_catalog_ops_write_snapshot_outputs_markdown_and_function_sections(
         }
     ]
 
-    registry_owner._catalog_ops.write_skills_snapshot()
+    registry_owner._catalog_ops.write_tools_snapshot()
     snapshot = settings.skills_snapshot_path.read_text(encoding="utf-8")
 
     assert "## available_tools" in snapshot

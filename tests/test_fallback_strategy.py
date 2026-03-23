@@ -17,7 +17,7 @@ from nini.tools.registry import create_default_tool_registry, ToolRegistry
 logger = logging.getLogger(__name__)
 
 
-class TestSkillFallbackStrategy:
+class TestToolFallbackStrategy:
     """测试技能降级策略。"""
 
     @pytest.mark.asyncio
@@ -148,8 +148,8 @@ class TestSkillFallbackStrategy:
 
         assert result["success"] is True
         # 应该记录原始尝试的方法
-        if "original_skill" in result:
-            assert result["original_skill"] == "t_test"
+        if "original_tool" in result:
+            assert result["original_tool"] == "t_test"
 
 
 class TestDataDiagnostics:
@@ -304,7 +304,7 @@ class TestFallbackIntegration:
         assert result is not None
 
 
-class TestNonParametricSkills:
+class TestNonParametricTools:
     """测试非参数检验技能。"""
 
     @pytest.mark.asyncio

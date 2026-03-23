@@ -11,8 +11,8 @@ from __future__ import annotations
 from typing import Any
 
 from nini.tools.base import Tool
-from nini.tools.manifest import SkillManifest, export_to_claude_code
-from nini.tools.markdown_scanner import MarkdownSkill
+from nini.tools.manifest import ToolManifest, export_to_claude_code
+from nini.tools.markdown_scanner import MarkdownTool
 
 # ---------------------------------------------------------------------------
 # OpenAI Function Calling 格式
@@ -53,8 +53,8 @@ def to_mcp_tool(tool: Tool) -> dict[str, Any]:
     }
 
 
-def to_mcp_tool_from_markdown(md_skill: MarkdownSkill) -> dict[str, Any]:
-    """将 MarkdownSkill 转换为 MCP Tool 定义（提示词类型）。"""
+def to_mcp_tool_from_markdown(md_skill: MarkdownTool) -> dict[str, Any]:
+    """将 MarkdownTool 转换为 MCP Tool 定义（提示词类型）。"""
     return {
         "name": md_skill.name,
         "description": md_skill.description,
@@ -70,14 +70,14 @@ def to_mcp_tool_from_markdown(md_skill: MarkdownSkill) -> dict[str, Any]:
 def to_claude_code_skill(tool: Tool) -> str:
     """将 Tool 转换为 Claude Code 兼容的 Markdown Skill 描述。
 
-    通过 SkillManifest 中转，生成可读的 Markdown 文档。
+    通过 ToolManifest 中转，生成可读的 Markdown 文档。
     """
     manifest = tool.to_manifest()
     return export_to_claude_code(manifest)
 
 
-def to_claude_code_skill_from_markdown(md_skill: MarkdownSkill) -> str:
-    """将 MarkdownSkill 转换为 Claude Code 兼容的 Markdown Skill 描述。"""
+def to_claude_code_skill_from_markdown(md_skill: MarkdownTool) -> str:
+    """将 MarkdownTool 转换为 Claude Code 兼容的 Markdown Skill 描述。"""
     manifest = md_skill.to_manifest()
     return export_to_claude_code(manifest)
 
@@ -102,7 +102,7 @@ class ToolAdapter:
         """初始化适配器。
 
         Args:
-            registry: SkillRegistry 实例。
+            registry: ToolRegistry 实例。
         """
         self._registry = registry
 
@@ -112,7 +112,7 @@ class ToolAdapter:
         Args:
             exposed_only: 仅包含 expose_to_llm=True 的技能（默认 True）。
         """
-        skills = self._registry._skills.values()
+        skills = self._registry._tools.values()
         if exposed_only:
             allowlist = getattr(self._registry, "_llm_exposed_function_tools", None)
             if allowlist is not None:
@@ -126,11 +126,11 @@ class ToolAdapter:
         tools: list[dict[str, Any]] = []
 
         # Function Skills
-        for skill in self._registry._skills.values():
+        for skill in self._registry._tools.values():
             tools.append(to_mcp_tool(skill))
 
         # Markdown Skills（仅启用的）
-        for md_dict in self._registry._markdown_skills:
+        for md_dict in self._registry._markdown_tools:
             if md_dict.get("enabled", True):
                 tools.append(
                     {
@@ -144,15 +144,15 @@ class ToolAdapter:
 
     def to_claude_code_markdown(self) -> str:
         """导出所有技能为 Claude Code 格式的 Markdown 文档。"""
-        manifests: list[SkillManifest] = []
+        manifests: list[ToolManifest] = []
 
-        for skill in self._registry._skills.values():
+        for skill in self._registry._tools.values():
             manifests.append(skill.to_manifest())
 
-        for md_dict in self._registry._markdown_skills:
+        for md_dict in self._registry._markdown_tools:
             if md_dict.get("enabled", True):
                 manifests.append(
-                    SkillManifest(
+                    ToolManifest(
                         name=md_dict["name"],
                         description=md_dict.get("description", ""),
                         category=md_dict.get("category", "other"),
@@ -163,6 +163,6 @@ class ToolAdapter:
                     )
                 )
 
-        from nini.tools.manifest import export_all_skills_markdown
+        from nini.tools.manifest import export_all_tools_markdown
 
-        return export_all_skills_markdown(manifests)
+        return export_all_tools_markdown(manifests)

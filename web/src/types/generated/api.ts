@@ -30,29 +30,29 @@ export interface FileRenameRequest {
   name: string;
 }
 
-/** MarkdownSkillDirCreateRequest */
-export interface MarkdownSkillDirCreateRequest {
+/** MarkdownToolDirCreateRequest */
+export interface MarkdownToolDirCreateRequest {
   path: string;
 }
 
-/** MarkdownSkillEnabledRequest */
-export interface MarkdownSkillEnabledRequest {
+/** MarkdownToolEnabledRequest */
+export interface MarkdownToolEnabledRequest {
   enabled: boolean;
 }
 
-/** MarkdownSkillFileWriteRequest */
-export interface MarkdownSkillFileWriteRequest {
+/** MarkdownToolFileWriteRequest */
+export interface MarkdownToolFileWriteRequest {
   content?: string;
   path: string;
 }
 
-/** MarkdownSkillPathDeleteRequest */
-export interface MarkdownSkillPathDeleteRequest {
+/** MarkdownToolPathDeleteRequest */
+export interface MarkdownToolPathDeleteRequest {
   path: string;
 }
 
-/** MarkdownSkillUpdateRequest */
-export interface MarkdownSkillUpdateRequest {
+/** MarkdownToolUpdateRequest */
+export interface MarkdownToolUpdateRequest {
   category?: string;
   content?: string;
   description: string;
@@ -143,6 +143,7 @@ export interface SessionUpdateRequest {
 
 /** SetActiveModelRequest */
 export interface SetActiveModelRequest {
+  model?: string | null;
   provider_id: string;
 }
 

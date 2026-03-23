@@ -58,7 +58,7 @@ def mock_data_response():
     }
 
 
-class TestImageAnalysisSkill:
+class TestImageAnalysisTool:
     """测试图片分析技能。"""
 
     def test_skill_exists(self):
@@ -351,7 +351,7 @@ class TestImageAnalysisIntegration:
         registry = ToolRegistry()
 
         # 检查技能是否可用
-        skill_names = registry.list_skills()
+        skill_names = registry.list_tools()
         # 技能可能已注册或需要注册
         assert isinstance(skill_names, list)
 
