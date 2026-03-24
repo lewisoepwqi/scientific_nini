@@ -19,6 +19,7 @@ from nini.tools.export import ExportChartTool
 from nini.tools.export_document import ExportDocumentTool
 from nini.tools.export_report import ExportReportTool
 from nini.tools.fetch_url import FetchURLTool
+from nini.tools.generate_widget import GenerateWidgetTool
 from nini.tools.organize_workspace import OrganizeWorkspaceTool
 from nini.tools.r_code_exec import RunRCodeTool
 from nini.tools.registry_catalog import ToolCatalogOps
@@ -64,6 +65,7 @@ LLM_EXPOSED_BASE_TOOL_NAMES = {
     "report_session",
     "workspace_session",
     "code_session",
+    "generate_widget",
     # search_tools 是 LLM 发现隐藏工具的入口，必须对 LLM 可见
     "search_tools",
 }
@@ -302,6 +304,7 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(ExportReportTool())
     registry.register(OrganizeWorkspaceTool())
     registry.register(FetchURLTool())
+    registry.register(GenerateWidgetTool())
     registry.register(CompleteComparisonTool())
     registry.register(CompleteANOVATool())
     registry.register(CorrelationAnalysisTool())
