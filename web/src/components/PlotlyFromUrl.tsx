@@ -3,7 +3,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Suspense, lazy } from 'react'
-import { appendApiToken, apiFetch } from '../store/auth'
+import { apiFetch } from '../store/auth'
 
 const ChartViewer = lazy(() => import('./ChartViewer'))
 
@@ -13,13 +13,12 @@ interface Props {
 }
 
 export function buildPlotlyFetchUrl(url: string): string {
-  const authedUrl = appendApiToken(url) || url
-  const clean = authedUrl.split('#')[0]?.split('?')[0]?.toLowerCase() || ''
+  const clean = url.split('#')[0]?.split('?')[0]?.toLowerCase() || ''
   if (!clean.endsWith('.plotly.json')) {
-    return authedUrl
+    return url
   }
   try {
-    const parsed = new URL(authedUrl, window.location.origin)
+    const parsed = new URL(url, window.location.origin)
     const isWorkspaceFileApi =
       parsed.pathname.includes('/api/workspace/') && parsed.pathname.includes('/files/')
 
@@ -30,13 +29,13 @@ export function buildPlotlyFetchUrl(url: string): string {
       // /api/workspace/{sid}/files/{path} 默认返回 JSON 包装，download=1 才返回原始文件内容。
       parsed.searchParams.set('download', '1')
     }
-    if (authedUrl.startsWith('http://') || authedUrl.startsWith('https://')) {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
       return parsed.toString()
     }
     return `${parsed.pathname}${parsed.search}${parsed.hash}`
   } catch {
-    const separator = authedUrl.includes('?') ? '&' : '?'
-    return `${authedUrl}${separator}raw=1`
+    const separator = url.includes('?') ? '&' : '?'
+    return `${url}${separator}raw=1`
   }
 }
 

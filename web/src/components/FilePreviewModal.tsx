@@ -3,7 +3,7 @@
  */
 import { useEffect, useState, useCallback } from 'react'
 import { useStore } from '../store'
-import { appendApiToken } from '../store/auth'
+import { apiFetch } from '../store/auth'
 import { X, Download, Loader2 } from 'lucide-react'
 import LazyMarkdownContent from './LazyMarkdownContent'
 import PlotlyFromUrl from './PlotlyFromUrl'
@@ -50,7 +50,7 @@ export default function FilePreviewModal() {
 
     setLoading(true)
     setError(null)
-    fetch(`/api/workspace/${sessionId}/files/${fileInfo.path}/preview`)
+    apiFetch(`/api/workspace/${sessionId}/files/${fileInfo.path}/preview`)
       .then((resp) => resp.json())
       .then((payload) => {
         if (payload.success && payload.data) {
@@ -175,7 +175,7 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
 
     case 'plotly_chart':
       if (preview.download_url) {
-        return <PlotlyFromUrl url={appendApiToken(preview.download_url) || preview.download_url} alt={preview.name} />
+        return <PlotlyFromUrl url={preview.download_url} alt={preview.name} />
       }
       return <div className="text-center text-gray-500 py-12 text-sm">图表地址不可用</div>
 
@@ -221,7 +221,7 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
       if (preview.download_url) {
         return (
           <iframe
-            src={appendApiToken(preview.download_url) || preview.download_url}
+            src={preview.download_url}
             className="w-full h-[70vh] border rounded-lg"
             title={preview.name}
           />

@@ -15,6 +15,7 @@ import pandas as pd
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
+from nini.api.auth_utils import is_websocket_authenticated
 from nini.agent.runner import AgentRunner
 from nini.agent.events import EventType
 from nini.agent.session import Session, session_manager
@@ -70,15 +71,11 @@ async def websocket_agent(ws: WebSocket):
         {"type": "done"}
         {"type": "error", "data": "..."}
     """
-    # 可选 API Key 认证（通过 query param token 验证）
     from nini.config import settings as _settings
-    import secrets as _secrets
 
-    if _settings.api_key:
-        token = ws.query_params.get("token", "")
-        if not _secrets.compare_digest(token, _settings.api_key):
-            await ws.close(code=4401, reason="未授权：需要有效的 API Key")
-            return
+    if not is_websocket_authenticated(ws, _settings.api_key):
+        await ws.close(code=4401, reason="未授权：需要有效的 API Key")
+        return
 
     await ws.accept()
     logger.info("WebSocket 连接已建立")

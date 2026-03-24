@@ -19,10 +19,16 @@ from typing import Any
 from urllib.parse import quote, unquote
 
 import pandas as pd
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse, Response
 
 from nini.agent.session import session_manager
+from nini.api.auth_utils import (
+    AUTH_SESSION_COOKIE_NAME,
+    clear_auth_session_cookie,
+    is_request_authenticated,
+    set_auth_session_cookie,
+)
 from nini.config import settings
 from nini.intent import default_intent_analyzer
 from nini.models.schemas import (
@@ -2042,9 +2048,41 @@ async def health():
 
 
 @router.get("/auth/status")
-async def auth_status():
-    """返回当前服务是否要求 API Key。"""
-    return {"api_key_required": bool(settings.api_key)}
+async def auth_status(request: Request):
+    """返回当前服务鉴权要求与当前会话状态。"""
+    return {
+        "api_key_required": bool(settings.api_key),
+        "authenticated": is_request_authenticated(request, settings.api_key),
+    }
+
+
+@router.post("/auth/session")
+async def create_auth_session(request: Request):
+    """创建 HttpOnly 鉴权会话 Cookie。"""
+    api_key = settings.api_key or ""
+    if not api_key:
+        return {"success": True, "api_key_required": False, "authenticated": True}
+    if not is_request_authenticated(request, api_key):
+        raise HTTPException(status_code=401, detail="未授权：需要有效的 API Key")
+
+    response = JSONResponse(
+        {
+            "success": True,
+            "api_key_required": True,
+            "authenticated": True,
+            "cookie_name": AUTH_SESSION_COOKIE_NAME,
+        }
+    )
+    set_auth_session_cookie(response, api_key, secure=request.url.scheme == "https")
+    return response
+
+
+@router.delete("/auth/session")
+async def delete_auth_session(request: Request):
+    """清除 HttpOnly 鉴权会话 Cookie。"""
+    response = JSONResponse({"success": True, "authenticated": False})
+    clear_auth_session_cookie(response, secure=request.url.scheme == "https")
+    return response
 
 
 # ---- 包含新拆分的路由模块（渐进式重构） ----

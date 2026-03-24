@@ -1,7 +1,7 @@
 /**
  * 下载地址工具：Markdown 文件优先走 bundle 接口，保证图文资源完整。
  */
-import { appendApiToken, apiFetch } from '../store/auth'
+import { apiFetch } from '../store/auth'
 
 function appendQueryParam(url: string, key: string, value: string): string {
   const hashIndex = url.indexOf('#')
@@ -47,17 +47,15 @@ function isMarkdownFile(name: string | undefined): boolean {
 export function resolveDownloadUrl(downloadUrl: string | undefined, name?: string): string | undefined {
   if (!downloadUrl) return downloadUrl
 
-  const withToken = (url: string): string => appendApiToken(url) || url
-
   // 兼容旧 artifact 下载地址 → 迁移到新 /api/workspace/{sid}/files/ 格式
   const artifactMatch = downloadUrl.match(/^\/api\/artifacts\/([^/]+)\/(.+)$/)
   if (artifactMatch) {
     const sessionId = artifactMatch[1]
     const filename = artifactMatch[2]
     if (isMarkdownFile(name)) {
-      return withToken(`/api/workspace/${sessionId}/files/${filename}?bundle=1`)
+      return `/api/workspace/${sessionId}/files/${filename}?bundle=1`
     }
-    return withToken(`/api/workspace/${sessionId}/files/${filename}?download=1`)
+    return `/api/workspace/${sessionId}/files/${filename}?download=1`
   }
 
   const workspaceArtifactMatch = downloadUrl.match(/^\/api\/workspace\/([^/]+)\/artifacts\/(.+)$/)
@@ -65,9 +63,9 @@ export function resolveDownloadUrl(downloadUrl: string | undefined, name?: strin
     const sessionId = workspaceArtifactMatch[1]
     const filename = workspaceArtifactMatch[2]
     if (isMarkdownFile(name)) {
-      return withToken(`/api/workspace/${sessionId}/files/artifacts/${filename}?bundle=1`)
+      return `/api/workspace/${sessionId}/files/artifacts/${filename}?bundle=1`
     }
-    return withToken(`/api/workspace/${sessionId}/files/artifacts/${filename}?download=1`)
+    return `/api/workspace/${sessionId}/files/artifacts/${filename}?download=1`
   }
 
   const workspaceFilesMatch = downloadUrl.match(/^\/api\/workspace\/([^/]+)\/files\/(.+)$/)
@@ -75,9 +73,9 @@ export function resolveDownloadUrl(downloadUrl: string | undefined, name?: strin
     const sessionId = workspaceFilesMatch[1]
     const path = workspaceFilesMatch[2]
     if (isMarkdownFile(name)) {
-      return withToken(`/api/workspace/${sessionId}/files/${path}?bundle=1`)
+      return `/api/workspace/${sessionId}/files/${path}?bundle=1`
     }
-    return withToken(`/api/workspace/${sessionId}/files/${path}?download=1`)
+    return `/api/workspace/${sessionId}/files/${path}?download=1`
   }
 
   // 兼容旧 notes 下载地址 → 迁移到新格式
@@ -86,13 +84,13 @@ export function resolveDownloadUrl(downloadUrl: string | undefined, name?: strin
     const sessionId = noteMatch[1]
     const filename = noteMatch[2]
     if (isMarkdownFile(name)) {
-      return withToken(`/api/workspace/${sessionId}/files/notes/${filename}?bundle=1`)
+      return `/api/workspace/${sessionId}/files/notes/${filename}?bundle=1`
     }
-    return withToken(`/api/workspace/${sessionId}/files/notes/${filename}?download=1`)
+    return `/api/workspace/${sessionId}/files/notes/${filename}?download=1`
   }
 
-  if (isMarkdownFile(name)) return withToken(downloadUrl)
-  return withToken(appendQueryParam(downloadUrl, 'download', '1'))
+  if (isMarkdownFile(name)) return downloadUrl
+  return appendQueryParam(downloadUrl, 'download', '1')
 }
 
 export async function downloadFileFromUrl(

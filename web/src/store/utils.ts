@@ -26,7 +26,6 @@ import {
 import {
   deriveNextHint,
 } from "./plan-state-machine";
-import { appendApiToken, buildAuthHeaders } from "./auth";
 
 // Re-export plan-state-machine functions for convenience
 export {
@@ -63,8 +62,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 export function getWsUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
   const host = window.location.host;
-  const wsUrl = `${proto}://${host}/ws`;
-  return appendApiToken(wsUrl) || wsUrl;
+  return `${proto}://${host}/ws`;
 }
 
 // ---- 文件类型推断 ----
@@ -462,10 +460,6 @@ export function uploadWithProgress(
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/upload");
     xhr.responseType = "json";
-    const headers = buildAuthHeaders();
-    headers.forEach((value, key) => {
-      xhr.setRequestHeader(key, value);
-    });
 
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) return;

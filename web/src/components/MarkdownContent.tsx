@@ -5,7 +5,6 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useMemo, type ReactNode } from 'react'
 import { useStore } from '../store'
-import { appendApiToken } from '../store/auth'
 import PlotlyFromUrl from './PlotlyFromUrl'
 
 interface Props {
@@ -42,10 +41,10 @@ function normalizeArtifactUrl(url: string): string {
     const normalizedPath = `/api/workspace/${sessionId}/files/${normalizePathSegment(filename)}`
     const queryPart = query ? `?${query}` : ''
     const hashPart = hash ? `#${hash}` : ''
-    return appendApiToken(`${normalizedPath}${queryPart}${hashPart}`) || `${normalizedPath}${queryPart}${hashPart}`
+    return `${normalizedPath}${queryPart}${hashPart}`
   }
 
-  return appendApiToken(trimmed) || trimmed
+  return trimmed
 }
 
 function normalizeMarkdownArtifactLinks(content: string): string {
@@ -71,7 +70,7 @@ function resolveImageUrl(src: string, sessionId: string | null): string {
 
   // /api/workspace/{sid}/files/... 格式的路径，后端已支持直接访问
   if (src.startsWith('/api/workspace/') && src.includes('/files/')) {
-    return appendApiToken(src) || src
+    return src
   }
 
   // 处理旧 /api/artifacts/... 路径 → 迁移到新格式
@@ -81,7 +80,7 @@ function resolveImageUrl(src: string, sessionId: string | null): string {
 
   // 以 / 开头的其他路径，直接返回
   if (src.startsWith('/')) {
-    return appendApiToken(src) || src
+    return src
   }
 
   // 需要 sessionId 来转换相对路径
@@ -91,7 +90,7 @@ function resolveImageUrl(src: string, sessionId: string | null): string {
 
   if (/^chart_[A-Za-z0-9]+$/u.test(src)) {
     const chartUrl = `/api/charts/${sessionId}/${normalizePathSegment(src)}.plotly.json`
-    return appendApiToken(chartUrl) || chartUrl
+    return chartUrl
   }
 
   // 处理 ./产物/xxx.png 或 ./artifacts/xxx.png 格式的路径
@@ -100,11 +99,11 @@ function resolveImageUrl(src: string, sessionId: string | null): string {
     // 提取文件名（移除目录前缀）
     const filename = path.split('/').pop() || path
     const fileUrl = `/api/workspace/${sessionId}/files/${normalizePathSegment(filename)}`
-    return appendApiToken(fileUrl) || fileUrl
+    return fileUrl
   }
 
   // 其他情况，直接返回原路径
-  return appendApiToken(src) || src
+  return src
 }
 
 /**

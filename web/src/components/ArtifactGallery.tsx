@@ -14,7 +14,7 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react'
-import { appendApiToken } from '../store/auth'
+import { apiFetch } from '../store/auth'
 
 type FilterType = 'all' | 'chart' | 'report' | 'data' | 'script' | 'transform'
 
@@ -87,7 +87,7 @@ function ThumbnailIcon({ file }: { file: WorkspaceFile }) {
     // 直接使用文件 URL 作为缩略图
     return (
       <img
-        src={appendApiToken(file.download_url) || file.download_url}
+        src={file.download_url}
         alt={file.name}
         className="w-full h-full object-cover"
         loading="lazy"
@@ -170,7 +170,7 @@ export default function ArtifactGallery() {
     setDownloadError(null)
     setDownloading(true)
     try {
-      const resp = await fetch(`/api/workspace/${sessionId}/download-zip`, {
+      const resp = await apiFetch(`/api/workspace/${sessionId}/download-zip`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(selectedPaths),

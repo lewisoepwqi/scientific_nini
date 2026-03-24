@@ -1,43 +1,69 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  appendApiToken,
-  buildAuthHeaders,
-  clearStoredApiKey,
-  setStoredApiKey,
+  AUTH_INVALID_EVENT,
+  apiFetch,
+  clearAuthSession,
+  createAuthSession,
+  fetchAuthStatus,
 } from "./auth";
 
 describe("auth helpers", () => {
   beforeEach(() => {
-    clearStoredApiKey();
-    sessionStorage.clear();
+    vi.restoreAllMocks();
   });
 
-  it("应为 API 请求头注入 Bearer Token", () => {
-    setStoredApiKey("test-key");
-
-    const headers = buildAuthHeaders();
-
-    expect(headers.get("Authorization")).toBe("Bearer test-key");
-  });
-
-  it("应为同源 API 资源和 WebSocket 地址追加 token 参数", () => {
-    setStoredApiKey("test-key");
-    const wsUrl = `ws://${window.location.host}/ws`;
-
-    expect(appendApiToken("/api/workspace/demo/files/report.md")).toBe(
-      "/api/workspace/demo/files/report.md?token=test-key",
+  it("fetchAuthStatus 应返回服务端鉴权状态", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ api_key_required: true, authenticated: false }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
     );
-    expect(appendApiToken(wsUrl)).toBe(
-      `${wsUrl}?token=test-key`,
+
+    await expect(fetchAuthStatus()).resolves.toEqual({
+      api_key_required: true,
+      authenticated: false,
+    });
+  });
+
+  it("apiFetch 在 401 时应派发统一鉴权失效事件", async () => {
+    const listener = vi.fn();
+    window.addEventListener(AUTH_INVALID_EVENT, listener);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 401 }));
+
+    await apiFetch("/api/sessions");
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    window.removeEventListener(AUTH_INVALID_EVENT, listener);
+  });
+
+  it("createAuthSession 应携带 Bearer API Key", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200 }));
+
+    await createAuthSession("test-key");
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/auth/session",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+        headers: { Authorization: "Bearer test-key" },
+      }),
     );
   });
 
-  it("不应改写外部地址", () => {
-    setStoredApiKey("test-key");
+  it("clearAuthSession 应调用服务端删除 Cookie", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200 }));
 
-    expect(appendApiToken("https://example.com/file.png")).toBe(
-      "https://example.com/file.png",
+    await clearAuthSession();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/auth/session",
+      expect.objectContaining({
+        method: "DELETE",
+        credentials: "same-origin",
+      }),
     );
   });
 });

@@ -113,11 +113,9 @@ describe("store reconnect / retry / stop", () => {
   });
 
   it("收到 4401 关闭码后应进入重新认证状态且不重连", async () => {
-    sessionStorage.setItem("nini_api_key", "bad-key");
     useStore.setState({
       ...useStore.getInitialState(),
       apiKeyRequired: true,
-      appApiKey: "bad-key",
       authReady: true,
       _reconnectAttempts: 3,
     });
@@ -130,11 +128,9 @@ describe("store reconnect / retry / stop", () => {
     await Promise.resolve();
 
     expect(useStore.getState().authReady).toBe(false);
-    expect(useStore.getState().appApiKey).toBe("");
     expect(useStore.getState().authError).toContain("API Key");
-    expect(useStore.getState().wsStatus).toBe("failed");
-    expect(useStore.getState()._reconnectAttempts).toBe(3);
-    expect(sessionStorage.getItem("nini_api_key")).toBeNull();
+    expect(useStore.getState().wsStatus).toBe("disconnected");
+    expect(useStore.getState()._reconnectAttempts).toBe(0);
   });
 
   it("stopStreaming 应清理流式状态与消息缓冲区", () => {

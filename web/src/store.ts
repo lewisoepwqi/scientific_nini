@@ -9,10 +9,9 @@ import { create } from "zustand";
 import type { WsConnectionStatus } from "./store/websocket-status";
 import { resolveWsClosedStatus } from "./store/websocket-status";
 import {
-  clearStoredApiKey,
+  clearAuthSession,
+  createAuthSession,
   fetchAuthStatus,
-  getStoredApiKey,
-  setStoredApiKey,
   apiFetch,
 } from "./store/auth";
 
@@ -263,7 +262,6 @@ export interface AppState {
   // 用户展示偏好
   displayPreference: DisplayPreference;
   apiKeyRequired: boolean;
-  appApiKey: string;
   authReady: boolean;
   authError: string | null;
   appBootstrapping: boolean;
@@ -283,7 +281,7 @@ export interface AppState {
   // WebSocket 操作
   bootstrapApp: () => Promise<void>;
   submitApiKey: (apiKey: string) => Promise<boolean>;
-  clearAuthState: (error?: string) => void;
+  clearAuthState: (error?: string) => Promise<void>;
   connect: () => void;
   disconnect: () => void;
 
@@ -520,7 +518,6 @@ export const useStore = create<AppState>((set, get) => ({
   pricingConfig: null,
   costPanelOpen: false,
   apiKeyRequired: false,
-  appApiKey: getStoredApiKey(),
   authReady: false,
   authError: null,
   displayPreference: (() => {
@@ -554,14 +551,12 @@ export const useStore = create<AppState>((set, get) => ({
     set({ appBootstrapping: true, authError: null });
     try {
       const status = await fetchAuthStatus();
-      const storedApiKey = getStoredApiKey();
       const apiKeyRequired = status.api_key_required === true;
-      const authReady = !apiKeyRequired || Boolean(storedApiKey);
+      const authReady = !apiKeyRequired || status.authenticated === true;
       set({
         apiKeyRequired,
-        appApiKey: storedApiKey,
         authReady,
-        authError: apiKeyRequired && !storedApiKey ? "请输入 API Key" : null,
+        authError: apiKeyRequired && !authReady ? "请输入 API Key" : null,
       });
       if (!authReady) {
         set({ appBootstrapping: false });
@@ -585,18 +580,23 @@ export const useStore = create<AppState>((set, get) => ({
       set({ authError: "请输入 API Key" });
       return false;
     }
-    setStoredApiKey(normalized);
-    set({
-      appApiKey: normalized,
-      authReady: true,
-      authError: null,
-    });
+    set({ appBootstrapping: true, authError: null });
+    try {
+      await createAuthSession(normalized);
+    } catch {
+      set({
+        authReady: false,
+        authError: "API Key 无效或已过期，请重新输入。",
+        appBootstrapping: false,
+      });
+      return false;
+    }
+    set({ authReady: true, authError: null });
     await get().bootstrapApp();
     return get().authReady;
   },
 
-  clearAuthState(error = "API Key 无效或已过期，请重新输入。") {
-    clearStoredApiKey();
+  async clearAuthState(error = "API Key 无效、已过期，或鉴权会话已失效，请重新输入。") {
     if (reconnectTimerId !== null) {
       window.clearTimeout(reconnectTimerId);
       reconnectTimerId = null;
@@ -605,11 +605,15 @@ export const useStore = create<AppState>((set, get) => ({
     get().disconnect();
     set({
       apiKeyRequired,
-      appApiKey: "",
       authReady: !apiKeyRequired,
       authError: apiKeyRequired ? error : null,
       appBootstrapping: false,
     });
+    try {
+      await clearAuthSession();
+    } catch {
+      // 忽略清理 Cookie 失败，前端状态仍需回退到未认证
+    }
   },
 
   connect() {
@@ -662,29 +666,7 @@ export const useStore = create<AppState>((set, get) => ({
     ws.onclose = (event) => {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (event.code === 4401) {
-        clearStoredApiKey();
-        set({
-          ws: null,
-          wsConnected: false,
-          wsStatus: "failed",
-          isStreaming: false,
-          pendingAskUserQuestion: null,
-          _streamingText: "",
-          _currentTurnId: null,
-          _lastHandledSeq: undefined,
-          _activePlanMsgId: null,
-          _messageBuffer: {},
-          _streamingMetrics: {
-            startedAt: null,
-            turnId: null,
-            totalTokens: 0,
-            hasTokenUsage: false,
-          },
-          appApiKey: "",
-          authReady: false,
-          authError: "API Key 无效或已过期，请重新输入。",
-          appBootstrapping: false,
-        });
+        void get().clearAuthState("API Key 无效、已过期，或鉴权会话已失效，请重新输入。");
         return;
       }
       const attempts = get()._reconnectAttempts;
