@@ -251,12 +251,24 @@ export interface AskUserQuestionOption {
   description: string;
 }
 
+// 与后端 QuestionType 枚举对齐
+export type QuestionType =
+  | "missing_info"
+  | "ambiguous_requirement"
+  | "approach_choice"
+  | "risk_confirmation"
+  | "suggestion";
+
 export interface AskUserQuestionItem {
   question: string;
   header?: string;
   options: AskUserQuestionOption[];
   multiSelect?: boolean;
   allowTextInput?: boolean;
+  /** 问题类型，用于前端差异化渲染；缺少时降级为默认样式 */
+  question_type?: QuestionType;
+  /** 提问背景说明，显示在问题文本上方 */
+  context?: string;
 }
 
 export interface PendingAskUserQuestion {

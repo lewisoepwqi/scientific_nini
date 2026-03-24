@@ -10,7 +10,6 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-
 # ---- 分析计划相关事件 ----
 
 
@@ -109,7 +108,9 @@ class CompletionCheckEventData(BaseModel):
     turn_id: str = Field(..., description="当前轮标识")
     passed: bool = Field(..., description="整体是否通过")
     attempt: int = Field(..., description="当前校验轮次")
-    items: list[CompletionCheckItemEventData] = Field(default_factory=list, description="检查项列表")
+    items: list[CompletionCheckItemEventData] = Field(
+        default_factory=list, description="检查项列表"
+    )
     missing_actions: list[str] = Field(default_factory=list, description="缺失动作")
 
 
@@ -219,9 +220,7 @@ class ErrorEventData(BaseModel):
 class DoneEventData(BaseModel):
     """DONE 事件的数据结构。"""
 
-    reason: Literal["completed", "stopped", "error"] = Field(
-        "completed", description="结束原因"
-    )
+    reason: Literal["completed", "stopped", "error"] = Field("completed", description="结束原因")
 
 
 class WorkspaceUpdateEventData(BaseModel):
@@ -302,20 +301,36 @@ class ReasoningDataEventData(BaseModel):
     confidence: float = Field(default=1.0, description="决策置信度 (0-1)")
     context: dict[str, Any] = Field(default_factory=dict, description="额外上下文信息")
     # 可选字段
-    reasoning_type: Optional[str] = Field(None, description="analysis | decision | planning | reflection")
+    reasoning_type: Optional[str] = Field(
+        None, description="analysis | decision | planning | reflection"
+    )
     reasoning_subtype: Optional[str] = Field(None, description="更细粒度的类型")
     confidence_score: Optional[float] = Field(None, description="0.0 - 1.0 的置信度分数")
     key_decisions: list[str] = Field(default_factory=list, description="关键决策点列表")
     parent_id: Optional[str] = Field(None, description="父推理节点 ID（用于链式关联）")
     references: list[dict[str, Any]] = Field(default_factory=list, description="引用数据来源")
     timestamp: Optional[str] = Field(None, description="ISO 格式时间戳")
-    tags: list[str] = Field(default_factory=list, description="标签，如 [assumption_check, fallback]")
+    tags: list[str] = Field(
+        default_factory=list, description="标签，如 [assumption_check, fallback]"
+    )
+
+
+# 问题类型枚举：与 deer-flow clarification_type 对齐
+QuestionType = Literal[
+    "missing_info",  # 缺少必要信息（文件路径、参数等）
+    "ambiguous_requirement",  # 需求存在多种合理解释
+    "approach_choice",  # 存在多种有效实现方案需用户选择
+    "risk_confirmation",  # 即将执行破坏性/不可逆操作
+    "suggestion",  # 有推荐方案但需用户确认
+]
 
 
 class AskUserQuestionEventData(BaseModel):
     """ASK_USER_QUESTION 事件的数据结构。"""
 
-    questions: list[dict[str, Any]] = Field(..., description="问题列表")
+    questions: list[dict[str, Any]] = Field(
+        ..., description="问题列表（每项可含 question_type 和 context 可选字段）"
+    )
 
 
 class ArtifactEventData(BaseModel):

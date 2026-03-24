@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -70,6 +71,22 @@ _LLM_SUMMARY_PROMPT = (
 
 def _now_ts() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+
+def _strip_upload_mentions(text: str) -> str:
+    """过滤摘要中含 upload/上传 关键词的整句，防止文件路径污染长期记忆。
+
+    仅影响写入压缩摘要的文本，不修改原始 memory.jsonl。
+    """
+    lines = text.split("\n")
+    result = []
+    for line in lines:
+        # 按句末标点分割，过滤含关键词的片段
+        sentences = re.split(r"(?<=[。！？.!?])\s*", line)
+        kept = [s for s in sentences if not re.search(r"upload|上传", s, re.IGNORECASE)]
+        if kept:
+            result.append("".join(kept).rstrip())
+    return "\n".join(result).strip()
 
 
 def _trim_text(value: Any, *, max_len: int = 180) -> str:
@@ -338,7 +355,7 @@ def compress_session_history(
             "remaining_count": total,
         }
 
-    summary = _summarize_messages(archived)
+    summary = _strip_upload_mentions(_summarize_messages(archived))
     archive_path = _archive_messages(session.id, archived)
 
     session.messages = remaining
@@ -401,6 +418,9 @@ async def compress_session_history_with_llm(
     if summary is None:
         summary = _summarize_messages(archived)
         summary_mode = "lightweight"
+
+    # 过滤上传文件路径，防止污染长期记忆
+    summary = _strip_upload_mentions(summary)
 
     archive_path = _archive_messages(session.id, archived)
 

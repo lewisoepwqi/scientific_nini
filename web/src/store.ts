@@ -1638,3 +1638,8 @@ export {
 
 export { api };
 export default useStore;
+
+// 开发模式：将 store 暴露到 window，供 Playwright 验收测试注入状态
+if (import.meta.env.DEV) {
+  (window as unknown as Record<string, unknown>).__nini_store = useStore;
+}
