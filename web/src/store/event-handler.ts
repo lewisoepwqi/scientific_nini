@@ -1110,6 +1110,20 @@ export function handleEvent(
             }))
             .filter((opt) => opt.label && opt.description);
 
+          const validQuestionTypes = [
+            "missing_info",
+            "ambiguous_requirement",
+            "approach_choice",
+            "risk_confirmation",
+            "suggestion",
+          ] as const;
+          const rawType = item.question_type;
+          const question_type =
+            typeof rawType === "string" &&
+            (validQuestionTypes as readonly string[]).includes(rawType)
+              ? (rawType as AskUserQuestionItem["question_type"])
+              : undefined;
+
           return {
             question:
               typeof item.question === "string" ? item.question.trim() : "",
@@ -1120,6 +1134,9 @@ export function handleEvent(
               typeof item.allowTextInput === "boolean"
                 ? item.allowTextInput
                 : true,
+            question_type,
+            context:
+              typeof item.context === "string" ? item.context.trim() : undefined,
           };
         })
         .filter((item) => item.question && item.options.length >= 2);
