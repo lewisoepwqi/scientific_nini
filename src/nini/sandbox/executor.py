@@ -109,9 +109,7 @@ def _patch_windows_spawn_no_window() -> None:
 
             cmdline = " ".join('"%s"' % x for x in cmd)
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            startupinfo = spawn_win32.STARTUPINFO(
-                dwFlags=spawn_win32.STARTF_FORCEOFFFEEDBACK
-            )
+            startupinfo = spawn_win32.STARTUPINFO(dwFlags=spawn_win32.STARTF_FORCEOFFFEEDBACK)
 
             with open(wfd, "wb", closefd=True) as to_child:
                 try:

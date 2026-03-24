@@ -9,7 +9,6 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-
 # Keywords for detecting reasoning type
 _REASONING_TYPE_KEYWORDS = {
     "analysis": [

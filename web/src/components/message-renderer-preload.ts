@@ -40,6 +40,7 @@ export async function preloadRenderersForMessages(messages: Message[]): Promise<
         hasPlotlyUrl(message.chartData),
       ),
   );
+  const needsWidgetRenderer = messages.some((message) => Boolean(message.widget?.html));
 
   if (needsMarkdown) {
     loaders.push(preloadMarkdownRenderer());
@@ -55,6 +56,9 @@ export async function preloadRenderersForMessages(messages: Message[]): Promise<
   }
   if (needsPlotlyFromUrl) {
     loaders.push(import("./PlotlyFromUrl"));
+  }
+  if (needsWidgetRenderer) {
+    loaders.push(import("./WidgetRenderer"));
   }
 
   if (loaders.length === 0) return;

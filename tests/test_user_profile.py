@@ -116,7 +116,9 @@ class TestUserProfile:
         restored.record_test_usage("anova")
         assert restored._test_usage_counter == {"t_test": 2, "anova": 2}
         # 权重应该相等
-        assert abs(restored.preferred_methods["t_test"] - restored.preferred_methods["anova"]) < 0.01
+        assert (
+            abs(restored.preferred_methods["t_test"] - restored.preferred_methods["anova"]) < 0.01
+        )
 
 
 class TestUserProfileManager:

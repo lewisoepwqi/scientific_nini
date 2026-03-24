@@ -81,7 +81,9 @@ class LongTermMemoryEntry:
             tags=list(data.get("tags", [])),
             metadata=dict(data.get("metadata", {})),
             created_at=str(data.get("created_at", datetime.now(timezone.utc).isoformat())),
-            last_accessed_at=str(data.get("last_accessed_at", datetime.now(timezone.utc).isoformat())),
+            last_accessed_at=str(
+                data.get("last_accessed_at", datetime.now(timezone.utc).isoformat())
+            ),
             access_count=int(data.get("access_count", 0)),
         )
 
@@ -238,6 +240,7 @@ class LongTermMemoryStore:
         if self._vector_store and self._vector_store._initialized:
             try:
                 import asyncio
+
                 asyncio.create_task(
                     self._vector_store.add_document(
                         doc_id=entry.id,
@@ -368,7 +371,9 @@ class LongTermMemoryStore:
             reverse=True,
         )
         if min_importance > 0:
-            results = [r for r in results if self._compute_effective_score(r, context) >= min_importance]
+            results = [
+                r for r in results if self._compute_effective_score(r, context) >= min_importance
+            ]
 
         return results[:top_k]
 
@@ -381,10 +386,7 @@ class LongTermMemoryStore:
         Returns:
             记忆条目列表
         """
-        return [
-            entry for entry in self._entries.values()
-            if entry.source_session_id == session_id
-        ]
+        return [entry for entry in self._entries.values() if entry.source_session_id == session_id]
 
     def get_memories_by_dataset(self, dataset_name: str) -> list[LongTermMemoryEntry]:
         """获取数据集的所有记忆。
@@ -395,10 +397,7 @@ class LongTermMemoryStore:
         Returns:
             记忆条目列表
         """
-        return [
-            entry for entry in self._entries.values()
-            if entry.source_dataset == dataset_name
-        ]
+        return [entry for entry in self._entries.values() if entry.source_dataset == dataset_name]
 
     def delete_memory(self, memory_id: str) -> bool:
         """删除记忆。
@@ -419,6 +418,7 @@ class LongTermMemoryStore:
         if self._vector_store and self._vector_store._initialized:
             try:
                 import asyncio
+
                 asyncio.create_task(self._vector_store.remove_document(memory_id))
             except Exception as e:
                 logger.warning(f"从向量索引移除记忆失败: {e}")
@@ -434,7 +434,8 @@ class LongTermMemoryStore:
         return {
             "total_memories": len(self._entries),
             "type_distribution": type_counts,
-            "vector_store_available": self._vector_store is not None and self._vector_store._initialized,
+            "vector_store_available": self._vector_store is not None
+            and self._vector_store._initialized,
         }
 
 
@@ -545,6 +546,7 @@ async def extract_memories_with_llm(
 
 # ---- 知识检索集成 ----
 
+
 async def search_long_term_memories(
     query: str,
     top_k: int = 3,
@@ -565,17 +567,23 @@ async def search_long_term_memories(
 
     results = []
     for entry in entries:
-        results.append({
-            "type": "long_term_memory",
-            "memory_type": entry.memory_type,
-            "summary": entry.summary,
-            "content": entry.content,
-            "source_session": entry.source_session_id[:8] + "..." if len(entry.source_session_id) > 8 else entry.source_session_id,
-            "source_dataset": entry.source_dataset,
-            "confidence": entry.confidence,
-            "tags": entry.tags,
-            "created_at": entry.created_at,
-        })
+        results.append(
+            {
+                "type": "long_term_memory",
+                "memory_type": entry.memory_type,
+                "summary": entry.summary,
+                "content": entry.content,
+                "source_session": (
+                    entry.source_session_id[:8] + "..."
+                    if len(entry.source_session_id) > 8
+                    else entry.source_session_id
+                ),
+                "source_dataset": entry.source_dataset,
+                "confidence": entry.confidence,
+                "tags": entry.tags,
+                "created_at": entry.created_at,
+            }
+        )
 
     return results
 

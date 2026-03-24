@@ -1436,8 +1436,13 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
     if (role === "tool") {
       const toolCallId =
         typeof raw.tool_call_id === "string" ? raw.tool_call_id : undefined;
-      const normalized = normalizeToolResult(raw.content);
       const meta = toolCallId ? toolCallMap.get(toolCallId) : undefined;
+      const normalized = normalizeToolResult(
+        raw.content,
+        typeof raw.tool_name === "string" && raw.tool_name
+          ? raw.tool_name
+          : meta?.name,
+      );
       const nextMessages = upsertToolResultMessage(messages, {
         content: normalized.message,
         toolName:
@@ -1453,6 +1458,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
             : "success",
         toolIntent:
           typeof raw.intent === "string" ? raw.intent : undefined,
+        widget: normalized.widget,
         turnId,
         timestamp,
       });

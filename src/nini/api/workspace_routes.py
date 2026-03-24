@@ -41,7 +41,10 @@ async def list_workspace_files(session_id: str, q: str | None = None):
     else:
         files = workspace.list_workspace_files_with_paths()
     resources = workspace.list_resource_summaries()
-    return {"success": True, "data": {"session_id": session_id, "files": files, "resources": resources}}
+    return {
+        "success": True,
+        "data": {"session_id": session_id, "files": files, "resources": resources},
+    }
 
 
 @router.get("/workspace/{session_id}/executions")

@@ -122,6 +122,7 @@ class TestAppendAgentObservation:
         sections = manager.read_sections("u1")
         # 时间戳格式：[YYYY-MM-DD]
         import re
+
         assert re.search(r"\[\d{4}-\d{2}-\d{2}\]", sections[SECTION_AGENT])
 
     def test_multiple_entries_accumulate(self, manager):

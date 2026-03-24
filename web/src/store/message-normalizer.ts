@@ -2,6 +2,7 @@ import type {
   ArtifactInfo,
   ChartDataPayload,
   DataPreviewPayload,
+  GeneratedWidgetPayload,
   Message,
   MessageOperation,
   RetrievalItem,
@@ -51,6 +52,7 @@ interface ToolResultPayload {
   toolResult: string;
   toolStatus: "success" | "error";
   toolIntent?: string;
+  widget?: GeneratedWidgetPayload;
 }
 
 function cloneMessages(messages: Message[]): Message[] {
@@ -233,6 +235,7 @@ export function upsertToolResultMessage(
       toolResult: payload.toolResult,
       toolStatus: payload.toolStatus,
       toolIntent: payload.toolIntent ?? next[existingIndex].toolIntent,
+      widget: payload.widget ?? next[existingIndex].widget,
       turnId: payload.turnId ?? next[existingIndex].turnId,
       timestamp: payload.timestamp,
     };
@@ -249,6 +252,7 @@ export function upsertToolResultMessage(
     toolResult: payload.toolResult,
     toolStatus: payload.toolStatus,
     toolIntent: payload.toolIntent,
+    widget: payload.widget,
     turnId: payload.turnId,
     timestamp: payload.timestamp,
   });

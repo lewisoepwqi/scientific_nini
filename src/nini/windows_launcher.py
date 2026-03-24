@@ -465,7 +465,7 @@ class _TrayApp:
         self.on_exit = on_exit
         self._hwnd: int | None = None
         self._class_name = "NiniTrayWindow"
-        self._wnd_proc = None
+        self._wnd_proc: Any = None
         self._notify_data: NOTIFYICONDATAW | None = None
         self._stop_requested = threading.Event()
         self._thread: threading.Thread | None = None
@@ -695,7 +695,7 @@ class _EmbeddedWindowApp:
                 return 1
 
             try:
-                import webview  # pyright: ignore[reportMissingImports]
+                import webview  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]
             except ImportError:
                 _show_error(
                     "当前安装包缺少 pywebview 依赖。\n"

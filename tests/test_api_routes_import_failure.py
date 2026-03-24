@@ -25,8 +25,8 @@ class TestRouteImportFailureHandling:
 
         # 先卸载模块（使用 monkeypatch 确保测试结束后恢复原始模块，避免污染后续测试）
         modules_to_remove = [
-            'nini.api.routes',
-            'nini.api.workspace_routes',
+            "nini.api.routes",
+            "nini.api.workspace_routes",
         ]
         for mod in modules_to_remove:
             if mod in sys.modules:
@@ -34,20 +34,21 @@ class TestRouteImportFailureHandling:
 
         # 模拟 workspace_routes 导入失败
         def mock_import(name, *args, **kwargs):
-            if 'workspace_routes' in name:
+            if "workspace_routes" in name:
                 raise ImportError("Simulated import error: No module named 'workspace_routes'")
             return importlib.__import__(name, *args, **kwargs)
 
         with caplog.at_level(logging.WARNING):
-            with patch('builtins.__import__', side_effect=mock_import):
+            with patch("builtins.__import__", side_effect=mock_import):
                 try:
                     from nini.api import routes
+
                     importlib.reload(routes)
                 except Exception:
                     pass  # 预期可能有错误
 
         # 检查日志中是否有导入错误信息
-        error_logs = [r for r in caplog.records if 'workspace_routes' in str(r.message)]
+        error_logs = [r for r in caplog.records if "workspace_routes" in str(r.message)]
         assert len(error_logs) > 0 or True  # 由于模拟导入很复杂，只要没有崩溃就算通过
 
     def test_other_routes_still_work_when_one_fails(self):
@@ -56,14 +57,15 @@ class TestRouteImportFailureHandling:
         from nini.api import routes
 
         # 正常情况下，不应有导入错误
-        if hasattr(routes, '_route_import_errors'):
+        if hasattr(routes, "_route_import_errors"):
             other_errors = [
-                e for e in routes._route_import_errors
-                if 'workspace_routes' not in e  # 排除特定错误
+                e
+                for e in routes._route_import_errors
+                if "workspace_routes" not in e  # 排除特定错误
             ]
             # 其他路由应成功导入
-            assert 'session_routes' not in str(other_errors), "session_routes 不应导入失败"
-            assert 'models_routes' not in str(other_errors), "models_routes 不应导入失败"
+            assert "session_routes" not in str(other_errors), "session_routes 不应导入失败"
+            assert "models_routes" not in str(other_errors), "models_routes 不应导入失败"
 
     def test_graceful_degradation_with_mock_failure(self, caplog):
         """测试优雅降级：模拟部分路由失败时应用仍能启动。"""
@@ -77,20 +79,17 @@ class TestRouteImportFailureHandling:
             _ = routes.router
 
         # 验证路由模块至少部分工作
-        assert hasattr(routes, 'router'), "主路由应存在"
+        assert hasattr(routes, "router"), "主路由应存在"
 
         # 检查是否有任何关键路由被注册
-        registered_paths = [
-            r.path for r in routes.router.routes
-            if isinstance(r, APIRoute)
-        ]
+        registered_paths = [r.path for r in routes.router.routes if isinstance(r, APIRoute)]
 
         # 至少应有一些路由被注册
         assert len(registered_paths) > 0, "至少应有一些路由被注册"
 
         # 关键 API 端点应存在
-        has_models = any('/models' in p for p in registered_paths)
-        has_sessions = any('/sessions' in p for p in registered_paths)
+        has_models = any("/models" in p for p in registered_paths)
+        has_sessions = any("/sessions" in p for p in registered_paths)
 
         assert has_models or has_sessions, "至少应有 models 或 sessions 路由"
 
@@ -103,15 +102,15 @@ class TestRoutesHealthCheck:
         import os
         from pathlib import Path
 
-        api_dir = Path(__file__).parent.parent / 'src' / 'nini' / 'api'
+        api_dir = Path(__file__).parent.parent / "src" / "nini" / "api"
 
         expected_modules = [
-            'session_routes.py',
-            'workspace_routes.py',
-            'skill_routes.py',
-            'profile_routes.py',
-            'models_routes.py',
-            'intent_routes.py',
+            "session_routes.py",
+            "workspace_routes.py",
+            "skill_routes.py",
+            "profile_routes.py",
+            "models_routes.py",
+            "intent_routes.py",
         ]
 
         missing = []
@@ -138,10 +137,10 @@ class TestRoutesHealthCheck:
         http_paths = [r.path for r in http_router.routes if isinstance(r, APIRoute)]
 
         # session_routes 保留会话管理端点，但消息历史由主路由统一提供
-        assert any('/{session_id}/compress' in p for p in paths)
-        assert all('/{session_id}/messages' not in p for p in paths)
+        assert any("/{session_id}/compress" in p for p in paths)
+        assert all("/{session_id}/messages" not in p for p in paths)
 
-        found_history = any('/api/sessions/{session_id}/messages' in p for p in http_paths)
+        found_history = any("/api/sessions/{session_id}/messages" in p for p in http_paths)
         assert found_history, "主 HTTP 路由缺少 canonical 会话历史端点"
 
     def test_workspace_routes_endpoints(self):
@@ -152,9 +151,9 @@ class TestRoutesHealthCheck:
         paths = [r.path for r in router.routes if isinstance(r, APIRoute)]
 
         expected_patterns = [
-            '/workspace/{session_id}/folders',
-            '/workspace/{session_id}/executions',
-            '/workspace/{session_id}/tree',
+            "/workspace/{session_id}/folders",
+            "/workspace/{session_id}/executions",
+            "/workspace/{session_id}/tree",
         ]
 
         for pattern in expected_patterns:
@@ -169,9 +168,9 @@ class TestRoutesHealthCheck:
         paths = [r.path for r in router.routes if isinstance(r, APIRoute)]
 
         expected_patterns = [
-            '/models/active',
-            '/models/routing',
-            '/models/{provider_id}/available',
+            "/models/active",
+            "/models/routing",
+            "/models/{provider_id}/available",
         ]
 
         for pattern in expected_patterns:
@@ -185,12 +184,12 @@ class TestImportErrorDiagnosis:
     def test_individual_module_imports(self):
         """单独导入每个路由模块，验证没有导入错误。"""
         modules = [
-            'nini.api.session_routes',
-            'nini.api.workspace_routes',
-            'nini.api.skill_routes',
-            'nini.api.profile_routes',
-            'nini.api.models_routes',
-            'nini.api.intent_routes',
+            "nini.api.session_routes",
+            "nini.api.workspace_routes",
+            "nini.api.skill_routes",
+            "nini.api.profile_routes",
+            "nini.api.models_routes",
+            "nini.api.intent_routes",
         ]
 
         errors = []
@@ -220,7 +219,7 @@ class TestImportErrorDiagnosis:
         from nini.api import routes
 
         # 验证所有子路由都被包含
-        assert hasattr(routes, '_route_import_errors'), "应有 _route_import_errors 属性"
+        assert hasattr(routes, "_route_import_errors"), "应有 _route_import_errors 属性"
 
     def test_no_circular_imports(self, monkeypatch):
         """测试没有循环导入问题。"""
@@ -231,8 +230,9 @@ class TestImportErrorDiagnosis:
         # 测试已导入的路由模块不存在循环导入错误即可（若存在循环导入，测试集合阶段就会失败）。
         try:
             from nini.api import routes
+
             assert routes is not None
         except ImportError as e:
-            if 'circular import' in str(e).lower():
+            if "circular import" in str(e).lower():
                 pytest.fail(f"检测到循环导入: {e}")
             raise

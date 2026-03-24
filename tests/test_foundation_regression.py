@@ -387,6 +387,7 @@ class TestOldToolsNotExposed:
             "report_session",
             "workspace_session",
             "code_session",
+            "generate_widget",
             # search_tools 是 LLM 发现隐藏工具的入口，deferred-tools 变更中加入
             "search_tools",
         }

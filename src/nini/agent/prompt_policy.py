@@ -133,15 +133,15 @@ def compose_runtime_context_message(blocks: list[str]) -> str:
 # runtime context 块裁剪优先级（数字越小越先被裁剪）
 # 对应 design.md §4 "Skill 独立预算"：先裁引用资源，再裁 skill 正文，最后才裁历史
 RUNTIME_CONTEXT_BLOCK_PRIORITY: Final[dict[str, int]] = {
-    "skill_definition": 10,       # 先裁：引用资源 / skill 正文摘要
-    "long_term_memory": 20,       # 次裁：跨会话长期记忆
-    "knowledge_reference": 30,    # 次裁：检索知识
-    "pdca_detail": 40,            # 次裁：PDCA 详情
-    "analysis_memory": 50,        # 次裁：会话分析记忆
-    "research_profile": 60,       # 次裁：研究画像
-    "intent_analysis": 70,        # 再裁：意图提示
-    "harness_summary": 75,        # 运行时护栏摘要
-    "dataset_metadata": 80,       # 最后才裁：数据集元信息（核心上下文）
+    "skill_definition": 10,  # 先裁：引用资源 / skill 正文摘要
+    "long_term_memory": 20,  # 次裁：跨会话长期记忆
+    "knowledge_reference": 30,  # 次裁：检索知识
+    "pdca_detail": 40,  # 次裁：PDCA 详情
+    "analysis_memory": 50,  # 次裁：会话分析记忆
+    "research_profile": 60,  # 次裁：研究画像
+    "intent_analysis": 70,  # 再裁：意图提示
+    "harness_summary": 75,  # 运行时护栏摘要
+    "dataset_metadata": 80,  # 最后才裁：数据集元信息（核心上下文）
 }
 
 # 全局 runtime context 预算上限（字符数）
@@ -181,7 +181,10 @@ def trim_runtime_context_by_priority(
         return "unknown"
 
     # 按优先级升序排列（数字小的先移除）
-    indexed = [(i, b, RUNTIME_CONTEXT_BLOCK_PRIORITY.get(_extract_key(b), 999)) for i, b in enumerate(blocks)]
+    indexed = [
+        (i, b, RUNTIME_CONTEXT_BLOCK_PRIORITY.get(_extract_key(b), 999))
+        for i, b in enumerate(blocks)
+    ]
     indexed_sorted = sorted(indexed, key=lambda x: x[2])
 
     keep = set(range(len(blocks)))

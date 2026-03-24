@@ -7,8 +7,8 @@ import pytest
 from nini.agent.fusion import FusionResult, ResultFusionEngine
 from nini.agent.spawner import SubAgentResult
 
-
 # ─── 辅助 ───────────────────────────────────────────────────────────────────
+
 
 def _result(agent_id: str, summary: str, success: bool = True) -> SubAgentResult:
     return SubAgentResult(agent_id=agent_id, success=success, summary=summary)
@@ -26,6 +26,7 @@ class _MockResolver:
         self.call_count += 1
         if self._timeout:
             import asyncio
+
             await asyncio.sleep(100)  # 模拟超时
         text = self._response
 
@@ -37,6 +38,7 @@ class _MockResolver:
 
 
 # ─── FusionResult ────────────────────────────────────────────────────────────
+
 
 def test_fusion_result_defaults():
     """conflicts 和 sources 默认为空列表。"""
@@ -61,6 +63,7 @@ def test_fusion_result_all_fields():
 
 # ─── concatenate 策略 ────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_concatenate_joins_summaries():
     """concatenate 拼接各结果 summary，换行分隔，不调用 LLM。"""
@@ -84,6 +87,7 @@ async def test_concatenate_no_llm():
 
 
 # ─── auto 策略分档 ───────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_auto_empty_returns_empty():
@@ -118,6 +122,7 @@ async def test_auto_two_to_four_results_trigger_summarize():
 
 # ─── summarize 超时降级 ───────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_summarize_timeout_fallback_to_concatenate(monkeypatch):
     """summarize LLM 调用超时时降级为 concatenate，不抛出异常。"""
@@ -133,6 +138,7 @@ async def test_summarize_timeout_fallback_to_concatenate(monkeypatch):
 
 
 # ─── 冲突检测 ────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_conflicts_labeled_not_blocking():
@@ -151,6 +157,7 @@ async def test_conflicts_labeled_not_blocking():
 
 
 # ─── 无效策略降级 ────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_invalid_strategy_falls_back_to_concatenate():

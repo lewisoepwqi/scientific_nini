@@ -118,9 +118,7 @@ def test_workspace_save_text_and_download_note(client: LocalASGIClient) -> None:
     assert note_item is not None
     assert note_item["name"] == "analysis_snippet.md"
 
-    download_resp = client.get(
-        f"/api/workspace/{session_id}/files/notes/analysis_snippet.md"
-    )
+    download_resp = client.get(f"/api/workspace/{session_id}/files/notes/analysis_snippet.md")
     assert download_resp.status_code == 200
     assert "print('hello')" in download_resp.text
 
@@ -346,9 +344,7 @@ def test_download_artifact_supports_double_encoded_filename(
     encoded_once = quote(filename, safe="")
     encoded_twice = quote(encoded_once, safe="")
     encoded_once = quote(filename, safe="")
-    download_resp = client.get(
-        f"/api/workspace/{session_id}/files/artifacts/{encoded_once}"
-    )
+    download_resp = client.get(f"/api/workspace/{session_id}/files/artifacts/{encoded_once}")
     assert download_resp.status_code == 200
     assert download_resp.content == b"PNG"
 
@@ -363,9 +359,7 @@ def test_download_artifact_supports_inline_disposition(client: LocalASGIClient) 
     artifact_path = manager.artifacts_dir / filename
     artifact_path.write_bytes(b"%PDF-1.4")
 
-    inline_resp = client.get(
-        f"/api/workspace/{session_id}/files/artifacts/{filename}?inline=1"
-    )
+    inline_resp = client.get(f"/api/workspace/{session_id}/files/artifacts/{filename}?inline=1")
     assert inline_resp.status_code == 200
     assert inline_resp.content == b"%PDF-1.4"
 

@@ -223,7 +223,10 @@ def estimate_cost(
     """
     if not model or model == "unknown":
         if use_fallback:
-            cost = (input_tokens * FALLBACK_PRICING["input"] + output_tokens * FALLBACK_PRICING["output"]) / 1000
+            cost = (
+                input_tokens * FALLBACK_PRICING["input"]
+                + output_tokens * FALLBACK_PRICING["output"]
+            ) / 1000
             logger.warning(f"[Cost] 模型名称无效，使用兜底价格: model={model}, cost=${cost:.6f}")
             return cost, "fallback"
         return None, "unknown"
@@ -236,7 +239,8 @@ def estimate_cost(
 
     # 2. 尝试去掉版本日期后缀（如 -20250514）
     import re
-    base_model = re.sub(r'-\d{8}$', '', model)
+
+    base_model = re.sub(r"-\d{8}$", "", model)
     if base_model != model:
         pricing = _PRICING.get(base_model)
         if pricing:
@@ -263,8 +267,12 @@ def estimate_cost(
 
     # 5. 使用兜底价格
     if use_fallback:
-        cost = (input_tokens * FALLBACK_PRICING["input"] + output_tokens * FALLBACK_PRICING["output"]) / 1000
-        logger.warning(f"[Cost] 模型 '{model}' 无定价配置，使用兜底价格: input=${FALLBACK_PRICING['input']}, output=${FALLBACK_PRICING['output']} per 1K tokens, cost=${cost:.6f}")
+        cost = (
+            input_tokens * FALLBACK_PRICING["input"] + output_tokens * FALLBACK_PRICING["output"]
+        ) / 1000
+        logger.warning(
+            f"[Cost] 模型 '{model}' 无定价配置，使用兜底价格: input=${FALLBACK_PRICING['input']}, output=${FALLBACK_PRICING['output']} per 1K tokens, cost=${cost:.6f}"
+        )
         return cost, "fallback"
 
     logger.warning(f"[Cost] 模型 '{model}' 无定价配置，跳过成本计算")
@@ -339,13 +347,16 @@ class SessionTokenTracker:
             cost_file = self._get_cost_file_path()
             cost_file.parent.mkdir(parents=True, exist_ok=True)
 
-            record_line = json.dumps({
-                "timestamp": rec.timestamp,
-                "model": rec.model,
-                "input_tokens": rec.input_tokens,
-                "output_tokens": rec.output_tokens,
-                "cost_usd": rec.cost_usd,
-            }, ensure_ascii=False)
+            record_line = json.dumps(
+                {
+                    "timestamp": rec.timestamp,
+                    "model": rec.model,
+                    "input_tokens": rec.input_tokens,
+                    "output_tokens": rec.output_tokens,
+                    "cost_usd": rec.cost_usd,
+                },
+                ensure_ascii=False,
+            )
 
             with open(cost_file, "a", encoding="utf-8") as f:
                 f.write(record_line + "\n")

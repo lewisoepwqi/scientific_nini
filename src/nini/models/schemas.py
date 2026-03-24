@@ -23,9 +23,9 @@ class WSEvent(BaseModel):
     """服务端推送的 WebSocket 事件。"""
 
     type: str  # text / tool_call / tool_result / ask_user_question / retrieval / chart / data
-               # analysis_plan / plan_step_update / plan_progress / task_attempt / done / stopped / error
-               # iteration_start / session / reasoning / context_compressed / token_usage / artifact / image
-               # workspace_update / code_execution / pong / session_title
+    # analysis_plan / plan_step_update / plan_progress / task_attempt / done / stopped / error
+    # iteration_start / session / reasoning / context_compressed / token_usage / artifact / image
+    # workspace_update / code_execution / pong / session_title
     data: Any = None
     session_id: Optional[str] = None
     tool_call_id: Optional[str] = None

@@ -13,7 +13,12 @@ from typing import Any
 import numpy as np
 
 from nini.config import settings
-from nini.knowledge.hierarchical.index import ChunkNode, DocumentNode, HierarchicalIndex, SectionNode
+from nini.knowledge.hierarchical.index import (
+    ChunkNode,
+    DocumentNode,
+    HierarchicalIndex,
+    SectionNode,
+)
 from nini.knowledge.hierarchical.router import QueryRouter
 
 logger = logging.getLogger(__name__)

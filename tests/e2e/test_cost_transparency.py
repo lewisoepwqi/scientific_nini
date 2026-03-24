@@ -82,10 +82,7 @@ class TestCostModelsE2E:
         from nini.models.cost import ModelPricing
 
         pricing = ModelPricing(
-            input_price=0.0025,
-            output_price=0.01,
-            currency="USD",
-            tier="standard"
+            input_price=0.0025, output_price=0.01, currency="USD", tier="standard"
         )
 
         # 验证成本计算
@@ -97,10 +94,7 @@ class TestCostModelsE2E:
         from nini.models.cost import TokenUsage, ModelTokenUsage
 
         model_usage = ModelTokenUsage(
-            model_id="gpt-4o",
-            input_tokens=1000,
-            output_tokens=500,
-            total_tokens=1500
+            model_id="gpt-4o", input_tokens=1000, output_tokens=500, total_tokens=1500
         )
 
         usage = TokenUsage(
@@ -108,7 +102,7 @@ class TestCostModelsE2E:
             input_tokens=1000,
             output_tokens=500,
             total_tokens=1500,
-            model_breakdown={"gpt-4o": model_usage}
+            model_breakdown={"gpt-4o": model_usage},
         )
 
         # 验证字典转换

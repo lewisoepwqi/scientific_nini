@@ -392,7 +392,9 @@ class TestPreviewAPI:
         assert data["preview_type"] == "pdf"
         # 验证 download_url 包含 inline=1 参数
         download_url = data.get("download_url", "")
-        assert "inline=1" in download_url, f"PDF 预览 URL 应包含 inline=1 参数，实际: {download_url}"
+        assert (
+            "inline=1" in download_url
+        ), f"PDF 预览 URL 应包含 inline=1 参数，实际: {download_url}"
 
 
 class TestSearchAPI:

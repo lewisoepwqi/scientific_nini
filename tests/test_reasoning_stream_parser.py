@@ -15,6 +15,7 @@ class TestExtractReasoningFromDelta:
 
     def test_extract_reasoning_content(self):
         """应能提取 reasoning_content 字段。"""
+
         class MockDelta:
             reasoning_content = "Let me think about this..."
             content = "Final answer"
@@ -25,6 +26,7 @@ class TestExtractReasoningFromDelta:
 
     def test_extract_reasoning(self):
         """应能提取 reasoning 字段（OpenAI o1 风格）。"""
+
         class MockDelta:
             reasoning = "Thinking step by step..."
             content = "Answer"
@@ -35,6 +37,7 @@ class TestExtractReasoningFromDelta:
 
     def test_extract_thinking(self):
         """应能提取 thinking 字段。"""
+
         class MockDelta:
             thinking = "Analyzing the problem..."
             content = "Result"
@@ -45,6 +48,7 @@ class TestExtractReasoningFromDelta:
 
     def test_priority_reasoning_content_over_reasoning(self):
         """reasoning_content 优先级高于 reasoning。"""
+
         class MockDelta:
             reasoning_content = "Primary reasoning"
             reasoning = "Secondary reasoning"
@@ -57,6 +61,7 @@ class TestExtractReasoningFromDelta:
 
     def test_empty_when_no_reasoning_fields(self):
         """没有 reasoning 字段时返回空字符串。"""
+
         class MockDelta:
             content = "Just regular content"
 
@@ -71,6 +76,7 @@ class TestExtractReasoningFromDelta:
 
     def test_empty_when_reasoning_is_empty_string(self):
         """reasoning 字段为空字符串时返回空字符串。"""
+
         class MockDelta:
             reasoning_content = ""
             content = "Answer"
@@ -81,6 +87,7 @@ class TestExtractReasoningFromDelta:
 
     def test_empty_when_reasoning_is_whitespace(self):
         """reasoning 字段为空白时返回该空白（保留原始值）。"""
+
         class MockDelta:
             reasoning_content = "   "
             content = "Answer"
@@ -109,8 +116,7 @@ class TestReasoningStreamParserConsume:
         parser = ReasoningStreamParser()
 
         text, reasoning, raw = parser.consume(
-            raw_piece="Answer",
-            explicit_reasoning_piece="Let me think..."
+            raw_piece="Answer", explicit_reasoning_piece="Let me think..."
         )
 
         assert text == "Answer"
@@ -179,25 +185,19 @@ class TestNormalizeStreamPiece:
 
     def test_incremental_piece(self):
         """处理增量分片。"""
-        piece, snapshot = ReasoningStreamParser._normalize_stream_piece(
-            " world", "Hello"
-        )
+        piece, snapshot = ReasoningStreamParser._normalize_stream_piece(" world", "Hello")
         assert piece == " world"
         assert snapshot == "Hello world"
 
     def test_cumulative_piece(self):
         """处理累计分片。"""
-        piece, snapshot = ReasoningStreamParser._normalize_stream_piece(
-            "Hello world", "Hello"
-        )
+        piece, snapshot = ReasoningStreamParser._normalize_stream_piece("Hello world", "Hello")
         assert piece == " world"  # 返回增量部分
         assert snapshot == "Hello world"
 
     def test_empty_piece(self):
         """处理空分片。"""
-        piece, snapshot = ReasoningStreamParser._normalize_stream_piece(
-            "", "Hello"
-        )
+        piece, snapshot = ReasoningStreamParser._normalize_stream_piece("", "Hello")
         assert piece == ""
         assert snapshot == "Hello"
 
@@ -222,8 +222,7 @@ class TestIntegration:
 
         for raw_piece, explicit in chunks:
             text, reasoning, _ = parser.consume(
-                raw_piece=raw_piece,
-                explicit_reasoning_piece=explicit
+                raw_piece=raw_piece, explicit_reasoning_piece=explicit
             )
             all_text.append(text)
             all_reasoning.append(reasoning)

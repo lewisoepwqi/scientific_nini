@@ -40,10 +40,7 @@ class TestKnowledgeRetrievalWorkflow:
     def test_knowledge_search_endpoint(self, client, session_id):
         """测试知识库搜索端点。"""
         # 搜索端点可能存在或返回 501
-        response = client.post(
-            "/api/knowledge/search",
-            json={"query": "统计分析方法", "top_k": 5}
-        )
+        response = client.post("/api/knowledge/search", json={"query": "统计分析方法", "top_k": 5})
         # 应该返回 200 或 501（如果功能未实现）
         assert response.status_code in [200, 501]
 
@@ -67,7 +64,7 @@ class TestKnowledgeRetrievalWorkflow:
             response = client.post(
                 "/api/knowledge/documents",
                 files={"file": ("test_knowledge.txt", f, "text/plain")},
-                data={"title": "测试文档", "domain": "statistics"}
+                data={"title": "测试文档", "domain": "statistics"},
             )
 
         # 端点可能存在或返回 501
@@ -84,11 +81,7 @@ class TestHybridRetrieverE2E:
         from nini.models.knowledge import HybridSearchConfig
 
         # 测试配置创建
-        config = HybridSearchConfig(
-            vector_weight=0.7,
-            keyword_weight=0.3,
-            top_k=5
-        )
+        config = HybridSearchConfig(vector_weight=0.7, keyword_weight=0.3, top_k=5)
 
         # 验证配置
         assert config.vector_weight == 0.7
@@ -115,7 +108,7 @@ class TestHybridRetrieverE2E:
             excerpt="ANOVA 用于多组比较",
             relevance_score=0.95,
             source_method="hybrid",
-            metadata={"source": "test"}
+            metadata={"source": "test"},
         )
         doc2 = KnowledgeDocument(
             id="doc-2",
@@ -124,14 +117,11 @@ class TestHybridRetrieverE2E:
             excerpt="t 检验用于两组比较",
             relevance_score=0.85,
             source_method="hybrid",
-            metadata={"source": "test"}
+            metadata={"source": "test"},
         )
 
         result = KnowledgeSearchResult(
-            query="统计方法",
-            results=[doc1, doc2],
-            total_count=2,
-            search_method="hybrid"
+            query="统计方法", results=[doc1, doc2], total_count=2, search_method="hybrid"
         )
 
         # 验证结果结构
@@ -196,29 +186,36 @@ class TestContextInjectorE2E:
                 title="统计方法指南",
                 content="ANOVA 是方差分析方法",
                 excerpt="ANOVA 是方差分析方法",
-                relevance_score=0.9
+                relevance_score=0.9,
             ),
             KnowledgeDocument(
                 id="doc-2",
                 title="统计方法指南",
                 content="t 检验适用于两组比较",
                 excerpt="t 检验适用于两组比较",
-                relevance_score=0.85
+                relevance_score=0.85,
             ),
         ]
 
         citations = [
-            CitationInfo(index=1, document_id="doc-1", document_title="统计方法指南",
-                        excerpt="ANOVA 是方差分析方法", relevance_score=0.9),
-            CitationInfo(index=2, document_id="doc-2", document_title="统计方法指南",
-                        excerpt="t 检验适用于两组比较", relevance_score=0.85),
+            CitationInfo(
+                index=1,
+                document_id="doc-1",
+                document_title="统计方法指南",
+                excerpt="ANOVA 是方差分析方法",
+                relevance_score=0.9,
+            ),
+            CitationInfo(
+                index=2,
+                document_id="doc-2",
+                document_title="统计方法指南",
+                excerpt="t 检验适用于两组比较",
+                relevance_score=0.85,
+            ),
         ]
 
         context = KnowledgeContext(
-            query="统计方法",
-            documents=documents,
-            citations=citations,
-            total_tokens=100
+            query="统计方法", documents=documents, citations=citations, total_tokens=100
         )
 
         # 验证格式化输出
@@ -243,7 +240,8 @@ class TestCitationSystemE2E:
 
         # 简单的引用标记检测
         import re
-        citations = re.findall(r'\[(\d+)\]', text_with_citations)
+
+        citations = re.findall(r"\[(\d+)\]", text_with_citations)
 
         assert len(citations) == 2
         assert citations[0] == "1"
@@ -258,7 +256,7 @@ class TestCitationSystemE2E:
             document_id="doc-123",
             document_title="统计学指南",
             excerpt="ANOVA 方法...",
-            relevance_score=0.92
+            relevance_score=0.92,
         )
 
         assert citation.index == 1
@@ -282,14 +280,11 @@ class TestKnowledgeModelsE2E:
             excerpt="ANOVA 和 t 检验...",
             relevance_score=0.95,
             source_method="hybrid",
-            metadata={"domain": "statistics", "tags": ["anova", "t-test"]}
+            metadata={"domain": "statistics", "tags": ["anova", "t-test"]},
         )
 
         result = KnowledgeSearchResult(
-            query="统计方法",
-            results=[doc],
-            total_count=1,
-            search_method="hybrid"
+            query="统计方法", results=[doc], total_count=1, search_method="hybrid"
         )
 
         # 验证模型结构
@@ -307,7 +302,7 @@ class TestKnowledgeModelsE2E:
             content="测试内容",
             excerpt="测试摘要",
             relevance_score=0.9,
-            metadata={"tags": ["tag1", "tag2"]}
+            metadata={"tags": ["tag1", "tag2"]},
         )
 
         data = doc.model_dump()
@@ -325,7 +320,7 @@ class TestKnowledgeModelsE2E:
             title="测试文档",
             content="测试内容",
             excerpt="测试摘要",
-            relevance_score=0.9
+            relevance_score=0.9,
         )
 
         result = KnowledgeSearchResult(
@@ -333,7 +328,7 @@ class TestKnowledgeModelsE2E:
             results=[doc],
             total_count=1,
             search_method="hybrid",
-            search_time_ms=100
+            search_time_ms=100,
         )
 
         data = result.to_dict()

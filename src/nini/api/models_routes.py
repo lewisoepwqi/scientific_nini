@@ -180,15 +180,9 @@ async def list_models():
             )
         else:
             configured = bool(effective_key)
-            config_source = (
-                "db"
-                if has_db_config
-                else ("env" if env_key else "none")
-            )
+            config_source = "db" if has_db_config else ("env" if env_key else "none")
 
-        can_edit_in_place = not (
-            pid in SUPPORTED_API_MODES_BY_PROVIDER and configured
-        )
+        can_edit_in_place = not (pid in SUPPORTED_API_MODES_BY_PROVIDER and configured)
         can_delete_config = configured and config_source == "db"
         if pid in SUPPORTED_API_MODES_BY_PROVIDER and configured and not effective_api_mode:
             effective_api_mode = "unknown"
@@ -224,7 +218,11 @@ async def get_provider_available_models(
 ):
     """动态获取指定提供商的可用模型列表。"""
     from nini.agent.model_lister import list_available_models
-    from nini.config_manager import get_default_base_url_for_mode, get_effective_config, normalize_api_mode
+    from nini.config_manager import (
+        get_default_base_url_for_mode,
+        get_effective_config,
+        normalize_api_mode,
+    )
 
     cfg = await get_effective_config(provider_id)
     normalized_api_mode = normalize_api_mode(provider_id, api_mode)

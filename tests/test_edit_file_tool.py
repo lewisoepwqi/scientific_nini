@@ -10,7 +10,6 @@ import pytest
 from nini.tools.edit_file import EditFile
 from nini.workspace import WorkspaceManager
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -70,13 +69,17 @@ def test_parameters_schema(skill: EditFile):
 # ---------------------------------------------------------------------------
 
 
-async def test_empty_file_path_returns_error(skill: EditFile, mock_session: MagicMock, workspace: Path):
+async def test_empty_file_path_returns_error(
+    skill: EditFile, mock_session: MagicMock, workspace: Path
+):
     result = await skill.execute(mock_session, file_path="", operation="read")
     assert not result.success
     assert "不能为空" in result.message
 
 
-async def test_unknown_operation_returns_error(skill: EditFile, mock_session: MagicMock, workspace: Path):
+async def test_unknown_operation_returns_error(
+    skill: EditFile, mock_session: MagicMock, workspace: Path
+):
     result = await skill.execute(mock_session, file_path="test.txt", operation="delete")
     assert not result.success
     assert "不支持的操作" in result.message
@@ -134,7 +137,9 @@ async def test_read_existing_file(skill: EditFile, mock_session: MagicMock, work
     assert result.data["line_count"] == 4  # 末尾 \n 后有空行
 
 
-async def test_read_nonexistent_file_returns_error(skill: EditFile, mock_session: MagicMock, workspace: Path):
+async def test_read_nonexistent_file_returns_error(
+    skill: EditFile, mock_session: MagicMock, workspace: Path
+):
     result = await skill.execute(mock_session, file_path="no_such_file.txt", operation="read")
     assert not result.success
     assert "不存在" in result.message
@@ -159,7 +164,9 @@ async def test_write_creates_new_file(skill: EditFile, mock_session: MagicMock, 
     assert not any(item["name"] == "new_file.txt" for item in index["artifacts"])
 
 
-async def test_write_overwrites_existing_file(skill: EditFile, mock_session: MagicMock, workspace: Path):
+async def test_write_overwrites_existing_file(
+    skill: EditFile, mock_session: MagicMock, workspace: Path
+):
     test_file = workspace / "existing.txt"
     test_file.write_text("旧内容", encoding="utf-8")
 
@@ -172,7 +179,9 @@ async def test_write_overwrites_existing_file(skill: EditFile, mock_session: Mag
     assert result.data["action"] == "更新"
 
 
-async def test_write_creates_subdirectory(skill: EditFile, mock_session: MagicMock, workspace: Path):
+async def test_write_creates_subdirectory(
+    skill: EditFile, mock_session: MagicMock, workspace: Path
+):
     result = await skill.execute(
         mock_session, file_path="subdir/nested.txt", operation="write", content="嵌套文件"
     )
@@ -274,7 +283,9 @@ async def test_edit_text_replace_found(skill: EditFile, mock_session: MagicMock,
     assert result.data["method"] == "text_replace"
 
 
-async def test_edit_text_replace_not_found(skill: EditFile, mock_session: MagicMock, workspace: Path):
+async def test_edit_text_replace_not_found(
+    skill: EditFile, mock_session: MagicMock, workspace: Path
+):
     test_file = workspace / "edit_me.txt"
     test_file.write_text("原始内容\n", encoding="utf-8")
 
@@ -290,7 +301,9 @@ async def test_edit_text_replace_not_found(skill: EditFile, mock_session: MagicM
     assert "未找到" in result.message
 
 
-async def test_edit_no_params_returns_error(skill: EditFile, mock_session: MagicMock, workspace: Path):
+async def test_edit_no_params_returns_error(
+    skill: EditFile, mock_session: MagicMock, workspace: Path
+):
     test_file = workspace / "edit_me.txt"
     test_file.write_text("内容\n", encoding="utf-8")
 
@@ -371,7 +384,9 @@ async def test_edit_nonexistent_file_returns_error(
 # ---------------------------------------------------------------------------
 
 
-async def test_write_adds_file_to_workspace_index(skill: EditFile, mock_session: MagicMock, workspace: Path):
+async def test_write_adds_file_to_workspace_index(
+    skill: EditFile, mock_session: MagicMock, workspace: Path
+):
     """测试 write 操作将文件添加到文稿索引。"""
     from nini.workspace import WorkspaceManager
 
@@ -388,7 +403,9 @@ async def test_write_adds_file_to_workspace_index(skill: EditFile, mock_session:
     assert "indexed_file.md" in note_names
 
 
-async def test_append_creates_file_in_workspace_index(skill: EditFile, mock_session: MagicMock, workspace: Path):
+async def test_append_creates_file_in_workspace_index(
+    skill: EditFile, mock_session: MagicMock, workspace: Path
+):
     """测试 append 操作创建新文件时添加到文稿索引。"""
     from nini.workspace import WorkspaceManager
 

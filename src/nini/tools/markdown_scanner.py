@@ -343,9 +343,10 @@ def scan_markdown_tools(skills_dir: Path | Iterable[Path]) -> list[MarkdownTool]
                 meta.get("brief-description") or meta.get("brief_description"),
                 description,
             )
-            research_domain = str(
-                meta.get("research-domain") or meta.get("research_domain") or "general"
-            ).strip() or "general"
+            research_domain = (
+                str(meta.get("research-domain") or meta.get("research_domain") or "general").strip()
+                or "general"
+            )
             difficulty_level = _normalize_difficulty(
                 meta.get("difficulty-level") or meta.get("difficulty_level")
             )

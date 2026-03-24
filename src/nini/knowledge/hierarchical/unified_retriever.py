@@ -191,9 +191,11 @@ class UnifiedRetriever:
                 score=float(h.get("score", 0.0)),
                 level=str(h.get("level", "")),
                 source=str(h.get("source", "")),
-                metadata=cast(dict[str, Any], h.get("metadata", {}))
-                if isinstance(h.get("metadata"), dict)
-                else {},
+                metadata=(
+                    cast(dict[str, Any], h.get("metadata", {}))
+                    if isinstance(h.get("metadata"), dict)
+                    else {}
+                ),
             )
             for h in final_hits
         ]
@@ -278,40 +280,46 @@ class UnifiedRetriever:
             for doc_id, doc in self.index.l0_index.items():
                 score = self._compute_score(query, doc.title + " " + (doc.summary or ""))
                 if score > 0:
-                    results.append({
-                        "id": doc_id,
-                        "content": doc.summary or doc.content[:500],
-                        "score": score,
-                        "level": "L0",
-                        "source": doc.title,
-                        "metadata": {"file_path": str(doc.file_path)},
-                    })
+                    results.append(
+                        {
+                            "id": doc_id,
+                            "content": doc.summary or doc.content[:500],
+                            "score": score,
+                            "level": "L0",
+                            "source": doc.title,
+                            "metadata": {"file_path": str(doc.file_path)},
+                        }
+                    )
 
         elif level == "L1":
             for section_id, section in self.index.l1_index.items():
                 score = self._compute_score(query, section.title + " " + section.content[:500])
                 if score > 0:
-                    results.append({
-                        "id": section_id,
-                        "content": f"## {section.title}\n{section.content[:800]}",
-                        "score": score,
-                        "level": "L1",
-                        "source": section.title,
-                        "metadata": {"parent_doc": section.parent_doc_id},
-                    })
+                    results.append(
+                        {
+                            "id": section_id,
+                            "content": f"## {section.title}\n{section.content[:800]}",
+                            "score": score,
+                            "level": "L1",
+                            "source": section.title,
+                            "metadata": {"parent_doc": section.parent_doc_id},
+                        }
+                    )
 
         elif level == "L2":
             for chunk_id, chunk in self.index.l2_index.items():
                 score = self._compute_score(query, chunk.content)
                 if score > 0:
-                    results.append({
-                        "id": chunk_id,
-                        "content": chunk.content,
-                        "score": score,
-                        "level": "L2",
-                        "source": f"段落 {chunk_id}",
-                        "metadata": {"parent_section": chunk.parent_section_id},
-                    })
+                    results.append(
+                        {
+                            "id": chunk_id,
+                            "content": chunk.content,
+                            "score": score,
+                            "level": "L2",
+                            "source": f"段落 {chunk_id}",
+                            "metadata": {"parent_section": chunk.parent_section_id},
+                        }
+                    )
 
         return results
 

@@ -436,19 +436,19 @@ class VectorKnowledgeStore:
             doc_path = self._knowledge_dir / doc_id
             if not doc_path.exists():
                 # 尝试递归搜索文件名（不包括子目录）
-                file_name = doc_id.split('/')[-1] if '/' in doc_id else doc_id
+                file_name = doc_id.split("/")[-1] if "/" in doc_id else doc_id
                 for found_path in self._knowledge_dir.rglob(file_name):
                     doc_path = found_path
                     break
 
-            if not doc_path.exists() and not doc_id.endswith('.md'):
+            if not doc_path.exists() and not doc_id.endswith(".md"):
                 # 尝试添加 .md 扩展名
                 md_file = f"{doc_id}.md"
                 for found_path in self._knowledge_dir.rglob(md_file):
                     doc_path = found_path
                     break
 
-            if not doc_path.exists() and not doc_id.endswith('.txt'):
+            if not doc_path.exists() and not doc_id.endswith(".txt"):
                 # 最后尝试 .txt 格式（向后兼容）
                 txt_file = f"{doc_id}.txt"
                 for found_path in self._knowledge_dir.rglob(txt_file):

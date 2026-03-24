@@ -14,6 +14,20 @@ vi.mock("./LazyMarkdownContent", () => ({
 vi.mock("./PlotlyFromUrl", () => ({
   default: ({ url }: { url: string }) => <div data-testid="plotly-from-url">{url}</div>,
 }));
+vi.mock("./WidgetRenderer", () => ({
+  default: ({
+    title,
+    description,
+  }: {
+    title: string;
+    description?: string | null;
+  }) => (
+    <div data-testid="widget-renderer">
+      {title}
+      {description ? `:${description}` : ""}
+    </div>
+  ),
+}));
 
 afterEach(() => {
   vi.useRealTimers();
@@ -147,5 +161,31 @@ describe("MessageBubble reasoning", () => {
       await screen.findByTestId("plotly-from-url"),
     ).toBeInTheDocument();
     expect(screen.getByText("/api/artifacts/sess-1/demo.plotly.json")).toBeInTheDocument();
+  });
+
+  it("generate_widget 工具结果应渲染内嵌组件", async () => {
+    render(
+      <MessageBubble
+        message={{
+          id: "tool-widget-1",
+          role: "tool",
+          content: "已生成内嵌组件：统计摘要卡",
+          toolName: "generate_widget",
+          toolCallId: "tool-widget-1",
+          toolResult: "已生成内嵌组件：统计摘要卡",
+          toolStatus: "success",
+          widget: {
+            title: "统计摘要卡",
+            html: "<section>demo</section>",
+            description: "展示核心指标",
+          },
+          timestamp: Date.now(),
+        }}
+      />,
+    );
+
+    expect(await screen.findByTestId("widget-renderer")).toHaveTextContent(
+      "统计摘要卡:展示核心指标",
+    );
   });
 });

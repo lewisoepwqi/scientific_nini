@@ -104,10 +104,12 @@ async def websocket_agent(ws: WebSocket):
                 if sid == target_session_id
             ]
             for tcid in to_cancel:
-                future = pending_question_futures.pop(tcid, None)
+                pending_future: asyncio.Future[dict[str, str]] | None = (
+                    pending_question_futures.pop(tcid) if tcid in pending_question_futures else None
+                )
                 pending_question_session_map.pop(tcid, None)
-                if future is not None and not future.done():
-                    future.cancel()
+                if pending_future is not None and not pending_future.done():
+                    pending_future.cancel()
 
     def _trigger_memory_consolidation(s: Any) -> None:
         """安全地异步触发会话记忆沉淀，忽略导入或运行错误。"""

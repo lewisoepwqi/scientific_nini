@@ -1,4 +1,5 @@
 import { isRecord } from "./utils";
+import type { GeneratedWidgetPayload } from "./types";
 
 /**
  * 资源引用信息（新资源系统）
@@ -17,6 +18,31 @@ export interface NormalizedToolResult {
    * 用于新资源系统追踪资源生命周期
    */
   resourceRef?: ToolResultResourceRef;
+  widget?: GeneratedWidgetPayload;
+}
+
+function extractWidgetPayload(
+  toolName: string | undefined,
+  parsed: Record<string, unknown>,
+): GeneratedWidgetPayload | undefined {
+  if (toolName !== "generate_widget") {
+    return undefined;
+  }
+
+  const data = isRecord(parsed.data) ? parsed.data : null;
+  if (!data) return undefined;
+
+  const title = typeof data.title === "string" ? data.title : "";
+  const html = typeof data.html === "string" ? data.html : "";
+  if (!title.trim() || !html.trim()) {
+    return undefined;
+  }
+
+  return {
+    title,
+    html,
+    description: typeof data.description === "string" ? data.description : null,
+  };
 }
 
 function formatAskUserQuestionResult(parsed: Record<string, unknown>): string | null {
@@ -90,7 +116,10 @@ function extractResourceRef(parsed: Record<string, unknown>): ToolResultResource
   return undefined;
 }
 
-export function normalizeToolResult(rawContent: unknown): NormalizedToolResult {
+export function normalizeToolResult(
+  rawContent: unknown,
+  toolName?: string,
+): NormalizedToolResult {
   if (typeof rawContent !== "string" || !rawContent.trim()) {
     return { message: "", status: "success" };
   }
@@ -100,25 +129,35 @@ export function normalizeToolResult(rawContent: unknown): NormalizedToolResult {
     if (isRecord(parsed)) {
       // 提取资源引用信息
       const resourceRef = extractResourceRef(parsed);
+      const widget = extractWidgetPayload(toolName, parsed);
 
       if (typeof parsed.error === "string" && parsed.error) {
-        return { message: parsed.error, status: "error", resourceRef };
+        return { message: parsed.error, status: "error", resourceRef, widget };
       }
       if (parsed.success === false) {
         const msg =
           typeof parsed.message === "string" && parsed.message
             ? parsed.message
             : "工具执行失败";
-        return { message: msg, status: "error", resourceRef };
+        return { message: msg, status: "error", resourceRef, widget };
       }
 
       const askUserQuestionMessage = formatAskUserQuestionResult(parsed);
       if (askUserQuestionMessage) {
-        return { message: askUserQuestionMessage, status: "success", resourceRef };
+        return { message: askUserQuestionMessage, status: "success", resourceRef, widget };
       }
 
       if (typeof parsed.message === "string" && parsed.message) {
-        return { message: parsed.message, status: "success", resourceRef };
+        return { message: parsed.message, status: "success", resourceRef, widget };
+      }
+
+      if (widget) {
+        return {
+          message: `已生成内嵌组件：${widget.title}`,
+          status: "success",
+          resourceRef,
+          widget,
+        };
       }
 
       // 如果有资源引用但没有 message，生成默认消息
@@ -127,6 +166,7 @@ export function normalizeToolResult(rawContent: unknown): NormalizedToolResult {
           message: `${resourceRef.resource_type} 资源已创建: ${resourceRef.name}`,
           status: "success",
           resourceRef,
+          widget,
         };
       }
     }

@@ -97,7 +97,7 @@ class PricingConfig(BaseModel):
             input_price=0.001,  # $0.001 per 1K tokens
             output_price=0.002,  # $0.002 per 1K tokens
             currency="USD",
-            tier="standard"
+            tier="standard",
         )
     )
     enable_fallback_pricing: bool = True  # 是否启用兜底价格
@@ -126,13 +126,16 @@ class PricingConfig(BaseModel):
 
         # 2. 尝试去掉版本日期后缀（如 -20250514）
         import re
-        base_model = re.sub(r'-\d{8}$', '', model_id)
+
+        base_model = re.sub(r"-\d{8}$", "", model_id)
         if base_model != model_id and base_model in self.models:
             return self.models[base_model], "fuzzy"
 
         # 3. 尝试前缀匹配（按 key 长度降序，优先匹配长的）
         for key in sorted(self.models.keys(), key=len, reverse=True):
-            if model_id.startswith(key) or key.startswith(model_id.split("-")[0] if "-" in model_id else model_id):
+            if model_id.startswith(key) or key.startswith(
+                model_id.split("-")[0] if "-" in model_id else model_id
+            ):
                 return self.models[key], "fuzzy"
 
         # 4. 特殊处理：包含匹配（大小写不敏感）
@@ -147,7 +150,9 @@ class PricingConfig(BaseModel):
 
         return None, "unknown"
 
-    def calculate_cost_cny(self, model_id: str, input_tokens: int, output_tokens: int) -> tuple[float, str]:
+    def calculate_cost_cny(
+        self, model_id: str, input_tokens: int, output_tokens: int
+    ) -> tuple[float, str]:
         """计算人民币成本。
 
         Returns:
@@ -160,7 +165,9 @@ class PricingConfig(BaseModel):
         cost_usd = pricing.calculate_cost(input_tokens, output_tokens)
         return cost_usd * self.usd_to_cny_rate, status
 
-    def calculate_cost_usd(self, model_id: str, input_tokens: int, output_tokens: int) -> tuple[float, str]:
+    def calculate_cost_usd(
+        self, model_id: str, input_tokens: int, output_tokens: int
+    ) -> tuple[float, str]:
         """计算美元成本。
 
         Returns:

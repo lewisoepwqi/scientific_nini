@@ -65,6 +65,7 @@ async def test_runtime_context_blocks_follow_canonical_order_and_headers(
         return {"query": last_user_msg, "results": [], "mode": "hybrid"}
 
     monkeypatch.setattr(builder, "_inject_knowledge", _fake_inject)
+
     class _Memory:
         dataset_name = "demo.csv"
         statistics: list = []

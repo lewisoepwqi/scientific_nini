@@ -464,6 +464,7 @@ export interface Message {
   toolResult?: string;
   toolStatus?: "success" | "error";
   toolIntent?: string;
+  widget?: GeneratedWidgetPayload;
   chartData?: ChartDataPayload;
   dataPreview?: DataPreviewPayload;
   artifacts?: ArtifactInfo[];
@@ -487,6 +488,12 @@ export interface Message {
   retryable?: boolean;
   turnId?: string;
   timestamp: number;
+}
+
+export interface GeneratedWidgetPayload {
+  title: string;
+  html: string;
+  description?: string | null;
 }
 
 export interface SessionItem {

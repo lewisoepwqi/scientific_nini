@@ -156,12 +156,17 @@ class TestRRFFusion:
 
         # 模拟 RetrievalResult
         from nini.knowledge.hierarchical.retriever import RetrievalResult
+
         rlist1 = [
-            RetrievalResult(id=r["id"], content=r["content"], score=r["score"], level="L0", source="")
+            RetrievalResult(
+                id=r["id"], content=r["content"], score=r["score"], level="L0", source=""
+            )
             for r in list1
         ]
         rlist2 = [
-            RetrievalResult(id=r["id"], content=r["content"], score=r["score"], level="L0", source="")
+            RetrievalResult(
+                id=r["id"], content=r["content"], score=r["score"], level="L0", source=""
+            )
             for r in list2
         ]
 

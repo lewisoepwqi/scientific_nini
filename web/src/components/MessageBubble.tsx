@@ -31,6 +31,7 @@ const PlotlyFromUrl = lazy(() => import("./PlotlyFromUrl"));
 const ReasoningPanel = lazy(() => import("./ReasoningPanel"));
 const CitationMarker = lazy(() => import("./CitationMarker"));
 const CitationList = lazy(() => import("./CitationList"));
+const WidgetRenderer = lazy(() => import("./WidgetRenderer"));
 const TOOL_RESULT_PREVIEW_LIMIT = 72;
 
 function extractPlotlyJsonUrl(chartData: unknown): string | null {
@@ -135,7 +136,7 @@ function MessageBubble({
     typeof message.content === "string" &&
     message.content.includes(".plotly.json");
   const [toolExpanded, setToolExpanded] = useState(
-    message.toolStatus === "error",
+    message.toolStatus === "error" || message.toolName === "generate_widget",
   );
   const [reasoningDisplay, setReasoningDisplay] = useState(
     isReasoning && message.reasoningLive ? "" : message.content,
@@ -294,6 +295,7 @@ function MessageBubble({
   if (isTool) {
     const hasResult = !!message.toolResult;
     const isError = message.toolStatus === "error";
+    const widget = message.toolName === "generate_widget" ? message.widget : undefined;
     const resultPreview = buildToolResultPreview(message.toolResult);
     const statusLabel = hasResult
       ? isError
@@ -444,6 +446,22 @@ function MessageBubble({
                       <LazyMarkdownContent content={message.toolResult!} />
                     </div>
                   </div>
+                )}
+
+                {widget && (
+                  <Suspense
+                    fallback={
+                      <div className="mt-3 rounded-xl border border-cyan-100 bg-cyan-50/60 px-3 py-2 text-xs text-cyan-700">
+                        正在加载内嵌组件...
+                      </div>
+                    }
+                  >
+                    <WidgetRenderer
+                      title={widget.title}
+                      html={widget.html}
+                      description={widget.description}
+                    />
+                  </Suspense>
                 )}
               </div>
             )}
@@ -658,6 +676,9 @@ export default React.memo(MessageBubble, (prevProps, nextProps) => {
   // 工具消息相关字段
   if (prev.toolName !== next.toolName) return false;
   if (prev.toolResult !== next.toolResult) return false;
+  if (prev.widget?.title !== next.widget?.title) return false;
+  if (prev.widget?.html !== next.widget?.html) return false;
+  if (prev.widget?.description !== next.widget?.description) return false;
   if (prev.toolStatus !== next.toolStatus) return false;
   if (prev.toolIntent !== next.toolIntent) return false;
 

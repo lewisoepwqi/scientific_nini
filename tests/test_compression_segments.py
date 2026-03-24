@@ -71,9 +71,7 @@ class TestCompressionSegmentSerialization:
         assert restored.depth == 1
 
     def test_to_dict_is_json_serializable(self):
-        seg = CompressionSegment(
-            summary="内容", archived_count=0, created_at="2026-01-01", depth=0
-        )
+        seg = CompressionSegment(summary="内容", archived_count=0, created_at="2026-01-01", depth=0)
         json.dumps(seg.to_dict())  # 不应抛出异常
 
     def test_from_dict_defaults_missing_fields(self):
@@ -337,7 +335,9 @@ class TestBackwardCompatLoad:
         session = session_manager.create_session(sid, load_persisted_messages=True)
         assert session.compression_segments == []
 
-    def test_no_exception_when_loading_old_format(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_no_exception_when_loading_old_format(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         monkeypatch.setattr(settings, "data_dir", tmp_path)
         settings.ensure_dirs()
 
@@ -368,8 +368,12 @@ class TestPersistenceRoundtrip:
         session_dir.mkdir(parents=True, exist_ok=True)
 
         original_segs = [
-            CompressionSegment("第一段摘要", archived_count=5, created_at="2026-01-01", depth=0).to_dict(),
-            CompressionSegment("第二段摘要", archived_count=3, created_at="2026-01-02", depth=1).to_dict(),
+            CompressionSegment(
+                "第一段摘要", archived_count=5, created_at="2026-01-01", depth=0
+            ).to_dict(),
+            CompressionSegment(
+                "第二段摘要", archived_count=3, created_at="2026-01-02", depth=1
+            ).to_dict(),
         ]
 
         # 持久化
@@ -385,7 +389,9 @@ class TestPersistenceRoundtrip:
         loaded = session_manager.create_session(sid, load_persisted_messages=True)
         assert loaded.compression_segments == original_segs
 
-    def test_roundtrip_compression_segments_field_in_meta(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_roundtrip_compression_segments_field_in_meta(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """meta.json 中实际写入了 compression_segments 字段。"""
         monkeypatch.setattr(settings, "data_dir", tmp_path)
         settings.ensure_dirs()
@@ -395,7 +401,9 @@ class TestPersistenceRoundtrip:
         session_dir.mkdir(parents=True, exist_ok=True)
 
         segs = [
-            CompressionSegment("摘要X", archived_count=1, created_at="2026-01-01", depth=0).to_dict()
+            CompressionSegment(
+                "摘要X", archived_count=1, created_at="2026-01-01", depth=0
+            ).to_dict()
         ]
         session_manager.save_session_compression(
             sid,
@@ -409,7 +417,9 @@ class TestPersistenceRoundtrip:
         assert "compression_segments" in meta
         assert meta["compression_segments"] == segs
 
-    def test_none_segments_not_written_to_meta(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_none_segments_not_written_to_meta(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """compression_segments=None 时不写入 meta.json（向后兼容已有调用）。"""
         monkeypatch.setattr(settings, "data_dir", tmp_path)
         settings.ensure_dirs()

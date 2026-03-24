@@ -1318,6 +1318,7 @@ export function handleEvent(
       const compatResult = data.result ?? legacyResult;
       const normalized = normalizeToolResult(
         isRecord(compatResult) ? JSON.stringify(compatResult) : data.message,
+        typeof evt.tool_name === "string" ? evt.tool_name : undefined,
       );
       const status =
         (data.status as "success" | "error") || normalized.status || "success";
@@ -1338,6 +1339,7 @@ export function handleEvent(
               typeof evt.metadata?.intent === "string"
                 ? evt.metadata.intent
                 : undefined,
+            widget: normalized.widget,
             turnId: evt.turn_id || entry.currentTurnId || undefined,
             timestamp: Date.now(),
           }),
@@ -1356,6 +1358,7 @@ export function handleEvent(
             typeof evt.metadata?.intent === "string"
               ? evt.metadata.intent
               : undefined,
+          widget: normalized.widget,
           turnId,
           timestamp: Date.now(),
         });
