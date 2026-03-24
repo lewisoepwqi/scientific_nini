@@ -67,6 +67,10 @@ class FetchURLTool(Tool):
         return "fetch_url"
 
     @property
+    def expose_to_llm(self) -> bool:
+        return False
+
+    @property
     def category(self) -> str:
         return "utility"
 

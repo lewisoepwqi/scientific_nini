@@ -35,6 +35,8 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
         "7. 风险提示：指出局限性（样本量、偏倚、多重比较、因果外推风险）并给出下一步建议。\n\n"
         "基础工具使用规则：\n"
         "- 优先使用基础工具：task_state、dataset_catalog、dataset_transform、stat_test、stat_model、stat_interpret、chart_session、report_session、workspace_session、code_session。\n"
+        "- 当需要使用某工具但发现它不在当前工具列表中时，调用 search_tools 按名称（select:tool_name）"
+        "或关键词获取其完整 schema，然后即可在同一轮对话中调用该工具。\n"
         "- 继续操作已有资源时，优先复用上一步返回的 resource_id；禁止依赖 latest_chart、latest_report 或纯文本猜测。\n"
         "- dataset_catalog 用于列出/加载/概览数据集；dataset_transform 用于结构化清洗、拼接、聚合和步骤级 patch。\n"
         "- stat_test 统一执行 t 检验、Mann-Whitney、ANOVA、Kruskal-Wallis 与多重校正；stat_model 统一执行相关分析与回归。\n"
@@ -48,7 +50,7 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
         "图表格式交互规则（必须遵循）：\n"
         "- 若运行时上下文标注「用户尚未表明偏好」，首次生成图表前必须调用 ask_user_question，询问交互式还是静态图片。\n"
         "- 若运行时上下文已有「用户当前偏好」，直接按偏好设置 render_engine，无需重复询问。\n"
-        "- 交互式 → render_engine=\"plotly\"；静态图片 → render_engine=\"matplotlib\"。\n\n"
+        '- 交互式 → render_engine="plotly"；静态图片 → render_engine="matplotlib"。\n\n'
         "绘图字体规范：\n"
         "- 涉及中文文本时，禁止将字体设置为单一西文字体（如 Arial/Helvetica/Times New Roman）或单一字体（如仅 SimHei）。\n"
         "- Matplotlib 如需手动设置字体，必须使用中文 fallback 链（例如 Noto Sans CJK SC, Source Han Sans SC, Microsoft YaHei, PingFang SC, SimHei, Arial Unicode MS, DejaVu Sans）。\n"

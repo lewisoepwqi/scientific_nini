@@ -24,7 +24,7 @@ class RegressionTool(Tool):
 
     @property
     def expose_to_llm(self) -> bool:
-        return True
+        return False
 
     @property
     def description(self) -> str:

@@ -42,6 +42,10 @@ class RegressionAnalysisTool(Tool):
         return "workflow"
 
     @property
+    def expose_to_llm(self) -> bool:
+        return False
+
+    @property
     def description(self) -> str:
         return (
             "执行完整的回归分析，一站式输出：\n"

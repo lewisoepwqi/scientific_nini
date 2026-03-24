@@ -21,6 +21,10 @@ class ExportDocumentTool(Tool):
         return "export"
 
     @property
+    def expose_to_llm(self) -> bool:
+        return False
+
+    @property
     def description(self) -> str:
         return (
             "将工作区中的文档文件导出为 PDF 或 DOCX。"

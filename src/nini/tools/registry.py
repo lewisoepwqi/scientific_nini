@@ -47,6 +47,7 @@ from nini.tools.analysis_memory_tool import AnalysisMemoryTool
 from nini.tools.dispatch_agents import DispatchAgentsTool
 from nini.tools.search_archive import SearchMemoryArchiveTool
 from nini.tools.profile_notes import UpdateProfileNotesTool
+from nini.tools.search_tools import SearchToolsTool
 from nini.tools.workspace_session import WorkspaceSessionTool
 
 logger = logging.getLogger(__name__)
@@ -62,8 +63,8 @@ LLM_EXPOSED_BASE_TOOL_NAMES = {
     "report_session",
     "workspace_session",
     "code_session",
-    "analysis_memory",
-    "search_memory_archive",
+    # search_tools 是 LLM 发现隐藏工具的入口，必须对 LLM 可见
+    "search_tools",
 }
 
 
@@ -280,6 +281,8 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(AnalysisMemoryTool())
     registry.register(SearchMemoryArchiveTool())
     registry.register(UpdateProfileNotesTool())
+    # search_tools 作为隐藏工具的发现入口，注册时传入 registry 自身引用
+    registry.register(SearchToolsTool(registry=registry))
 
     # 注册 dispatch_agents 工具（不加入 LLM_EXPOSED_BASE_TOOL_NAMES，仅主 Agent 可用）
     from nini.agent.registry import AgentRegistry

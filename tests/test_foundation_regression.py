@@ -387,8 +387,8 @@ class TestOldToolsNotExposed:
             "report_session",
             "workspace_session",
             "code_session",
-            "analysis_memory",
-            "search_memory_archive",
+            # search_tools 是 LLM 发现隐藏工具的入口，deferred-tools 变更中加入
+            "search_tools",
         }
 
         assert LLM_EXPOSED_BASE_TOOL_NAMES == expected_base_tools

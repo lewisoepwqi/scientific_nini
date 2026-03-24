@@ -25,6 +25,10 @@ class AnalysisMemoryTool(Tool):
         return "analysis_memory"
 
     @property
+    def expose_to_llm(self) -> bool:
+        return False
+
+    @property
     def description(self) -> str:
         return (
             "查询当前会话的历史分析记忆（统计结果、关键发现、方法决策）。"
