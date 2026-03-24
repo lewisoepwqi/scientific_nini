@@ -49,6 +49,7 @@ from nini.tools.search_archive import SearchMemoryArchiveTool
 from nini.tools.profile_notes import UpdateProfileNotesTool
 from nini.tools.search_tools import SearchToolsTool
 from nini.tools.workspace_session import WorkspaceSessionTool
+from nini.tools.guardrails import DangerousPatternGuardrail, GuardrailAction, ToolGuardrail
 
 logger = logging.getLogger(__name__)
 
@@ -84,12 +85,19 @@ class ToolRegistry:
         self._diagnostics: Any = None
         self._llm_exposed_function_tools = set(LLM_EXPOSED_BASE_TOOL_NAMES)
 
+        # 默认 guardrail 链，包含危险模式拦截规则
+        self._guardrails: list[ToolGuardrail] = [DangerousPatternGuardrail()]
+
         self._function_ops = FunctionToolRegistryOps(self)
         self._markdown_ops = MarkdownToolRegistryOps(self)
         self._catalog_ops = ToolCatalogOps(self)
 
         self._function_ops.ensure_runtime_dependencies()
         self._markdown_enabled_overrides = self._markdown_ops.load_enabled_overrides()
+
+    def add_guardrail(self, guardrail: ToolGuardrail) -> None:
+        """追加一条 guardrail 规则到检查链末尾。"""
+        self._guardrails.append(guardrail)
 
     def register(self, skill: Any, *, allow_override: bool = False) -> None:
         self._function_ops.register(skill, allow_override=allow_override)
@@ -157,6 +165,28 @@ class ToolRegistry:
         session: Session,
         **kwargs: Any,
     ) -> dict[str, Any]:
+        # 遍历 guardrail 链，遇到首个非 ALLOW 决策立即拦截
+        for guardrail in self._guardrails:
+            decision = guardrail.evaluate(tool_name, kwargs)
+            if decision.decision == GuardrailAction.BLOCK:
+                logger.warning(
+                    "工具调用被 guardrail 拦截: tool=%s kwargs_keys=%s reason=%s",
+                    tool_name,
+                    list(kwargs.keys()),
+                    decision.reason,
+                )
+                return {"success": False, "message": f"操作被安全策略拦截：{decision.reason}"}
+            if decision.decision == GuardrailAction.REQUIRE_CONFIRMATION:
+                logger.warning(
+                    "工具调用需要用户确认（当前降级为拦截）: tool=%s reason=%s",
+                    tool_name,
+                    decision.reason,
+                )
+                return {
+                    "success": False,
+                    "message": f"操作需要用户确认后才能执行：{decision.reason}",
+                }
+
         return await self._function_ops.execute(
             tool_name,
             session,
