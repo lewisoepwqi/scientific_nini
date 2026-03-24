@@ -33,6 +33,7 @@ export type {
   HarnessBlockedState,
   AskUserQuestionOption,
   AskUserQuestionItem,
+  QuestionType,
   PendingAskUserQuestion,
   AskUserQuestionNotificationPreference,
   IntentOption,
