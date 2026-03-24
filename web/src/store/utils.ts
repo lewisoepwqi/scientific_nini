@@ -26,6 +26,7 @@ import {
 import {
   deriveNextHint,
 } from "./plan-state-machine";
+import { appendApiToken, buildAuthHeaders } from "./auth";
 
 // Re-export plan-state-machine functions for convenience
 export {
@@ -62,7 +63,8 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 export function getWsUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
   const host = window.location.host;
-  return `${proto}://${host}/ws`;
+  const wsUrl = `${proto}://${host}/ws`;
+  return appendApiToken(wsUrl) || wsUrl;
 }
 
 // ---- 文件类型推断 ----
@@ -460,6 +462,10 @@ export function uploadWithProgress(
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/upload");
     xhr.responseType = "json";
+    const headers = buildAuthHeaders();
+    headers.forEach((value, key) => {
+      xhr.setRequestHeader(key, value);
+    });
 
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) return;
@@ -472,6 +478,16 @@ export function uploadWithProgress(
 
     xhr.onload = () => {
       if (xhr.status < 200 || xhr.status >= 300) {
+        if (xhr.status === 401 && typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("nini:auth-invalid", {
+              detail: {
+                status: 401,
+                message: "API Key 无效或已过期，请重新输入。",
+              },
+            }),
+          );
+        }
         reject(new Error(`上传失败: HTTP ${xhr.status}`));
         return;
       }

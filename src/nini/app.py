@@ -108,7 +108,8 @@ def create_app() -> FastAPI:
     if settings.api_key:
         from starlette.responses import JSONResponse
 
-        _AUTH_EXEMPT_PREFIXES = ("/docs", "/redoc", "/openapi.json", "/health")
+        _AUTH_EXEMPT_PATHS = {"/api/auth/status", "/api/health"}
+        _AUTH_EXEMPT_PREFIXES = ("/docs", "/redoc", "/openapi.json")
 
         @app.middleware("http")
         async def api_key_middleware(
@@ -116,17 +117,22 @@ def create_app() -> FastAPI:
             call_next: Callable[[Request], Awaitable[Response]],
         ) -> Response:
             path = request.url.path
-            # 静态文件、文档、健康检查豁免
-            if any(path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES):
+            # 仅保护 API 路径，静态壳与资源不参与鉴权
+            if not path.startswith("/api/"):
                 return await call_next(request)
-            # 检查 Authorization Bearer 或 X-API-Key 头
+            if path in _AUTH_EXEMPT_PATHS or any(path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES):
+                return await call_next(request)
+            # 检查 Authorization Bearer、X-API-Key 或 token 查询参数
             auth = request.headers.get("Authorization", "")
             api_key_header = request.headers.get("X-API-Key", "")
+            query_token = request.query_params.get("token", "")
             token = ""
             if auth.startswith("Bearer "):
                 token = auth[7:]
             elif api_key_header:
                 token = api_key_header
+            elif query_token:
+                token = query_token
             api_key = settings.api_key or ""
             if not secrets.compare_digest(token, api_key):
                 return JSONResponse(

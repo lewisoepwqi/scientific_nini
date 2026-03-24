@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Download, X, Loader2 } from 'lucide-react'
 import { useStore } from '../store'
+import { appendApiToken } from '../store/auth'
 import LazyMarkdownContent from './LazyMarkdownContent'
 import PlotlyFromUrl from './PlotlyFromUrl'
 import { downloadFileFromUrl, resolveDownloadUrl } from './downloadUtils'
@@ -25,11 +26,12 @@ interface PreviewData {
 }
 
 function toInlinePreviewUrl(url: string): string {
-  const hashIndex = url.indexOf('#')
-  const hash = hashIndex >= 0 ? url.slice(hashIndex) : ''
-  const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url
+  const authedUrl = appendApiToken(url) || url
+  const hashIndex = authedUrl.indexOf('#')
+  const hash = hashIndex >= 0 ? authedUrl.slice(hashIndex) : ''
+  const base = hashIndex >= 0 ? authedUrl.slice(0, hashIndex) : authedUrl
   if (/(?:\?|&)inline=/.test(base)) {
-    return url
+    return authedUrl
   }
   const sep = base.includes('?') ? '&' : '?'
   return `${base}${sep}inline=1${hash}`
@@ -195,7 +197,7 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
       )
     case 'plotly_chart':
       if (preview.download_url) {
-        return <PlotlyFromUrl url={preview.download_url} alt={preview.name} />
+        return <PlotlyFromUrl url={appendApiToken(preview.download_url) || preview.download_url} alt={preview.name} />
       }
       return <div className="text-center text-gray-500 py-12 text-sm">图表地址不可用</div>
     case 'text': {

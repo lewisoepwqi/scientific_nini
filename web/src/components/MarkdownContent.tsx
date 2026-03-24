@@ -5,6 +5,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useMemo, type ReactNode } from 'react'
 import { useStore } from '../store'
+import { appendApiToken } from '../store/auth'
 import PlotlyFromUrl from './PlotlyFromUrl'
 
 interface Props {
@@ -41,10 +42,10 @@ function normalizeArtifactUrl(url: string): string {
     const normalizedPath = `/api/workspace/${sessionId}/files/${normalizePathSegment(filename)}`
     const queryPart = query ? `?${query}` : ''
     const hashPart = hash ? `#${hash}` : ''
-    return `${normalizedPath}${queryPart}${hashPart}`
+    return appendApiToken(`${normalizedPath}${queryPart}${hashPart}`) || `${normalizedPath}${queryPart}${hashPart}`
   }
 
-  return trimmed
+  return appendApiToken(trimmed) || trimmed
 }
 
 function normalizeMarkdownArtifactLinks(content: string): string {
@@ -70,7 +71,7 @@ function resolveImageUrl(src: string, sessionId: string | null): string {
 
   // /api/workspace/{sid}/files/... 格式的路径，后端已支持直接访问
   if (src.startsWith('/api/workspace/') && src.includes('/files/')) {
-    return src
+    return appendApiToken(src) || src
   }
 
   // 处理旧 /api/artifacts/... 路径 → 迁移到新格式
@@ -80,7 +81,7 @@ function resolveImageUrl(src: string, sessionId: string | null): string {
 
   // 以 / 开头的其他路径，直接返回
   if (src.startsWith('/')) {
-    return src
+    return appendApiToken(src) || src
   }
 
   // 需要 sessionId 来转换相对路径
@@ -89,7 +90,8 @@ function resolveImageUrl(src: string, sessionId: string | null): string {
   }
 
   if (/^chart_[A-Za-z0-9]+$/u.test(src)) {
-    return `/api/charts/${sessionId}/${normalizePathSegment(src)}.plotly.json`
+    const chartUrl = `/api/charts/${sessionId}/${normalizePathSegment(src)}.plotly.json`
+    return appendApiToken(chartUrl) || chartUrl
   }
 
   // 处理 ./产物/xxx.png 或 ./artifacts/xxx.png 格式的路径
@@ -97,11 +99,12 @@ function resolveImageUrl(src: string, sessionId: string | null): string {
     const path = src.slice(2) // 移除 ./
     // 提取文件名（移除目录前缀）
     const filename = path.split('/').pop() || path
-    return `/api/workspace/${sessionId}/files/${normalizePathSegment(filename)}`
+    const fileUrl = `/api/workspace/${sessionId}/files/${normalizePathSegment(filename)}`
+    return appendApiToken(fileUrl) || fileUrl
   }
 
   // 其他情况，直接返回原路径
-  return src
+  return appendApiToken(src) || src
 }
 
 /**

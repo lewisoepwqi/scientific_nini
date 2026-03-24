@@ -13,6 +13,7 @@ import {
   X,
   PenTool,
 } from "lucide-react";
+import { appendApiToken } from "../store/auth";
 
 interface DraftConfig {
   template: string;
@@ -189,7 +190,7 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
 
       if (data.success && data.data?.download_url) {
         const link = document.createElement("a");
-        link.href = data.data.download_url;
+        link.href = appendApiToken(data.data.download_url) || data.data.download_url;
         link.download = data.data.filename || `${selectedTemplate}_article_draft.${format}`;
         document.body.appendChild(link);
         link.click();

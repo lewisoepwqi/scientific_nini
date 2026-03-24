@@ -1,11 +1,12 @@
 /**
  * 应用根组件 —— 三栏布局（会话列表 + 对话面板 + 工作区面板），支持移动端响应式。
  */
-import { Suspense, lazy, useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState, type FormEvent } from "react";
 import { useStore } from "./store";
 import ChatPanel from "./components/ChatPanel";
 import SessionList from "./components/SessionList";
 import { getWsStatusMeta } from "./store/websocket-status";
+import { AUTH_INVALID_EVENT } from "./store/auth";
 import {
   BookOpen,
   Loader2,
@@ -43,8 +44,15 @@ const HypothesisTracker = lazy(() => import("./components/HypothesisTracker"));
 
 export default function App() {
   const connect = useStore((s) => s.connect);
-  const initApp = useStore((s) => s.initApp);
+  const bootstrapApp = useStore((s) => s.bootstrapApp);
+  const submitApiKey = useStore((s) => s.submitApiKey);
+  const clearAuthState = useStore((s) => s.clearAuthState);
   const wsStatus = useStore((s) => s.wsStatus);
+  const apiKeyRequired = useStore((s) => s.apiKeyRequired);
+  const appApiKey = useStore((s) => s.appApiKey);
+  const authReady = useStore((s) => s.authReady);
+  const authError = useStore((s) => s.authError);
+  const appBootstrapping = useStore((s) => s.appBootstrapping);
   const workspacePanelOpen = useStore((s) => s.workspacePanelOpen);
   const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel);
   type PanelType =
@@ -69,14 +77,28 @@ export default function App() {
   const activeAgents = useStore((s) => s.activeAgents);
   const completedAgents = useStore((s) => s.completedAgents);
   const hypotheses = useStore((s) => s.hypotheses);
+  const [authInput, setAuthInput] = useState(appApiKey);
 
-  // 应用初始化：恢复会话并建立 WebSocket 连接
   useEffect(() => {
-    // 先初始化应用（恢复会话），然后建立 WebSocket 连接
-    initApp().then(() => {
-      connect();
-    });
-  }, [initApp, connect]);
+    void bootstrapApp();
+  }, [bootstrapApp]);
+
+  useEffect(() => {
+    setAuthInput(appApiKey);
+  }, [appApiKey]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail =
+        event instanceof CustomEvent &&
+        typeof event.detail?.message === "string"
+          ? event.detail.message
+          : undefined;
+      clearAuthState(detail);
+    };
+    window.addEventListener(AUTH_INVALID_EVENT, handler);
+    return () => window.removeEventListener(AUTH_INVALID_EVENT, handler);
+  }, [clearAuthState]);
 
   // 监听试用到期 / ModelSelector 点击事件，自动弹出 AI 设置面板
   useEffect(() => {
@@ -204,8 +226,53 @@ export default function App() {
     </div>
   );
 
+  const handleApiKeySubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      await submitApiKey(authInput);
+    },
+    [authInput, submitApiKey],
+  );
+
   return (
     <div className="flex h-screen bg-white">
+      {apiKeyRequired && !authReady && !appBootstrapping && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 px-4 backdrop-blur-sm">
+          <form
+            onSubmit={handleApiKeySubmit}
+            className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl"
+          >
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-slate-900">输入 API Key</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                当前服务已开启鉴权。输入有效 API Key 后再初始化会话和连接。
+              </p>
+            </div>
+            <label className="mb-3 block text-sm font-medium text-slate-700">
+              API Key
+            </label>
+            <input
+              type="password"
+              value={authInput}
+              onChange={(event) => setAuthInput(event.target.value)}
+              placeholder="请输入 API Key"
+              className="mb-3 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+              autoFocus
+            />
+            {authError && (
+              <div className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                {authError}
+              </div>
+            )}
+            <button
+              type="submit"
+              className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
+            >
+              继续
+            </button>
+          </form>
+        </div>
+      )}
       {/* 桌面端侧边栏 */}
       <div className="w-64 border-r bg-gray-50 flex-shrink-0 hidden md:flex flex-col">
         <SessionList />

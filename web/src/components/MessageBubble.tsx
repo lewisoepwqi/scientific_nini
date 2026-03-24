@@ -18,6 +18,7 @@ import {
 import DataViewer from "./DataViewer";
 import ArtifactDownload from "./ArtifactDownload";
 import LazyMarkdownContent from "./LazyMarkdownContent";
+import { appendApiToken } from "../store/auth";
 
 interface Props {
   message: Message;
@@ -47,7 +48,10 @@ function extractPlotlyJsonUrl(chartData: unknown): string | null {
     return null;
   }
   const clean = rawUrl.split("#")[0]?.split("?")[0]?.toLowerCase() || "";
-  return clean.endsWith(".plotly.json") ? rawUrl : null;
+  if (!clean.endsWith(".plotly.json")) {
+    return null;
+  }
+  return appendApiToken(rawUrl) || rawUrl;
 }
 
 function buildToolResultPreview(toolResult?: string): string | null {
@@ -577,7 +581,7 @@ function MessageBubble({
                       className="rounded-lg overflow-hidden border border-gray-200 bg-white"
                     >
                       <img
-                        src={url}
+                        src={appendApiToken(url) || url}
                         alt={`图片 ${idx + 1}`}
                         className="w-full h-auto max-h-[600px] object-contain"
                         loading="lazy"

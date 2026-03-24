@@ -777,3 +777,22 @@ def test_get_session_messages_normalizes_legacy_figure_payload(client: LocalASGI
     assert "data" in chart_data
     assert "layout" in chart_data
     assert "figure" not in chart_data
+
+
+def test_missing_session_read_routes_do_not_create_session(client: LocalASGIClient) -> None:
+    missing_session_id = "ghost-session"
+
+    session_resp = client.get(f"/api/sessions/{missing_session_id}")
+    assert session_resp.status_code == 404
+
+    context_resp = client.get(f"/api/sessions/{missing_session_id}/context-size")
+    assert context_resp.status_code == 404
+
+    export_resp = client.get(f"/api/sessions/{missing_session_id}/export-all")
+    assert export_resp.status_code == 404
+
+    dataset_resp = client.get(f"/api/datasets/{missing_session_id}/missing_dataset")
+    assert dataset_resp.status_code == 404
+
+    assert session_manager.session_exists(missing_session_id) is False
+    assert all(item["id"] != missing_session_id for item in session_manager.list_sessions())

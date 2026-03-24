@@ -44,6 +44,14 @@ def get_tool_registry() -> ToolRegistry | None:
     return _tool_registry
 
 
+def _load_existing_session(session_id: str) -> Session | None:
+    """仅加载已存在的会话，避免控制消息制造空会话。"""
+    try:
+        return session_manager.load_existing(session_id)
+    except ValueError:
+        return None
+
+
 @router.websocket("/ws")
 async def websocket_agent(ws: WebSocket):
     """WebSocket Agent 交互。
@@ -401,7 +409,7 @@ async def websocket_agent(ws: WebSocket):
                         with suppress(asyncio.CancelledError):
                             await task
                         _cancel_pending_questions(stop_session_id)
-                        stopped_session = session_manager.get_or_create(stop_session_id)
+                        stopped_session = _load_existing_session(stop_session_id)
                         _trigger_memory_consolidation(stopped_session)
                         await _send_event(
                             ws,
@@ -429,7 +437,7 @@ async def websocket_agent(ws: WebSocket):
                                 task.cancel()
                                 with suppress(asyncio.CancelledError):
                                     await task
-                                stopped_session = session_manager.get_or_create(sid)
+                                stopped_session = _load_existing_session(sid)
                                 _trigger_memory_consolidation(stopped_session)
                         _cancel_pending_questions()
                         await _send_event(
@@ -524,7 +532,16 @@ async def websocket_agent(ws: WebSocket):
                     )
                     continue
 
-                retry_session = session_manager.get_or_create(session_id)
+                retry_session = _load_existing_session(session_id)
+                if retry_session is None:
+                    await _send_event(
+                        ws,
+                        "error",
+                        data="会话不存在，无法重试",
+                        session_id=session_id,
+                        active_stop_events=active_stop_events,
+                    )
+                    continue
                 retry_content = retry_session.rollback_last_turn()
                 append_user_message = False
                 if not retry_content:
@@ -635,7 +652,7 @@ async def websocket_agent(ws: WebSocket):
                 with suppress(asyncio.CancelledError):
                     await task
             # 断开连接时触发各会话的记忆沉淀
-            disconnected_session = session_manager.get_or_create(sid)
+            disconnected_session = _load_existing_session(sid)
             _trigger_memory_consolidation(disconnected_session)
         active_chat_tasks.clear()
         active_stop_events.clear()

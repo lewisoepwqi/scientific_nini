@@ -13,6 +13,17 @@ from nini.models.schemas import APIResponse, SessionUpdateRequest
 router = APIRouter(prefix="/sessions")
 
 
+def _get_existing_session_or_404(session_id: str):
+    """仅加载已存在的会话，避免查询接口隐式创建空会话。"""
+    try:
+        session = session_manager.load_existing(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return session
+
+
 @router.get("", response_model=APIResponse)
 async def list_sessions(
     q: str | None = Query(default=None, description="按会话标题关键词过滤"),
@@ -48,7 +59,7 @@ async def list_sessions(
 @router.get("/{session_id}", response_model=APIResponse)
 async def get_session(session_id: str) -> APIResponse:
     """获取单个会话信息。"""
-    session = session_manager.get_or_create(session_id)
+    session = _get_existing_session_or_404(session_id)
 
     return APIResponse(
         success=True,
@@ -99,7 +110,7 @@ async def compress_session(session_id: str, mode: str = "auto"):
     Returns:
         压缩结果
     """
-    session = session_manager.get_or_create(session_id)
+    session = _get_existing_session_or_404(session_id)
 
     if mode == "llm":
         from nini.memory.compression import compress_session_history_with_llm
@@ -132,7 +143,7 @@ async def delete_session(session_id: str) -> APIResponse:
 @router.post("/{session_id}/rollback", response_model=APIResponse)
 async def rollback_session(session_id: str) -> APIResponse:
     """回滚会话到压缩前的状态（撤销压缩）。"""
-    session = session_manager.get_or_create(session_id)
+    session = _get_existing_session_or_404(session_id)
 
     if not session.compressed_context:
         return APIResponse(success=False, error="会话没有压缩历史")
@@ -272,9 +283,7 @@ async def get_session_context_size(session_id: str):
     """获取当前会话上下文的 token 预估。"""
     from nini.utils.token_counter import count_messages_tokens, count_tokens
 
-    if not session_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="会话不存在")
-    session = session_manager.get_or_create(session_id)
+    session = _get_existing_session_or_404(session_id)
 
     message_tokens = count_messages_tokens(session.messages)
     compressed_tokens = 0
@@ -305,7 +314,7 @@ async def export_all_session_data(session_id: str):
     """导出会话的所有数据（JSON 格式）。"""
     from fastapi.responses import JSONResponse
 
-    session = session_manager.get_or_create(session_id)
+    session = _get_existing_session_or_404(session_id)
 
     export_data = {
         "session_id": session_id,

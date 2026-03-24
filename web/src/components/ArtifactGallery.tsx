@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react'
+import { appendApiToken } from '../store/auth'
 
 type FilterType = 'all' | 'chart' | 'report' | 'data' | 'script' | 'transform'
 
@@ -86,7 +87,7 @@ function ThumbnailIcon({ file }: { file: WorkspaceFile }) {
     // 直接使用文件 URL 作为缩略图
     return (
       <img
-        src={file.download_url}
+        src={appendApiToken(file.download_url) || file.download_url}
         alt={file.name}
         className="w-full h-full object-cover"
         loading="lazy"

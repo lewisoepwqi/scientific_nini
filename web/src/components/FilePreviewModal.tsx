@@ -3,6 +3,7 @@
  */
 import { useEffect, useState, useCallback } from 'react'
 import { useStore } from '../store'
+import { appendApiToken } from '../store/auth'
 import { X, Download, Loader2 } from 'lucide-react'
 import LazyMarkdownContent from './LazyMarkdownContent'
 import PlotlyFromUrl from './PlotlyFromUrl'
@@ -174,7 +175,7 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
 
     case 'plotly_chart':
       if (preview.download_url) {
-        return <PlotlyFromUrl url={preview.download_url} alt={preview.name} />
+        return <PlotlyFromUrl url={appendApiToken(preview.download_url) || preview.download_url} alt={preview.name} />
       }
       return <div className="text-center text-gray-500 py-12 text-sm">图表地址不可用</div>
 
@@ -220,7 +221,7 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
       if (preview.download_url) {
         return (
           <iframe
-            src={preview.download_url}
+            src={appendApiToken(preview.download_url) || preview.download_url}
             className="w-full h-[70vh] border rounded-lg"
             title={preview.name}
           />
