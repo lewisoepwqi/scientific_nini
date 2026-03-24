@@ -33,6 +33,7 @@ import type {
   AnalysisPlanProgress,
   AnalysisStep,
 } from "./types";
+import { apiFetch } from "./auth";
 
 import { isRecord, nextId, makePlanProgressFromSteps } from "./utils";
 import {
@@ -75,7 +76,7 @@ function buildSessionQuery(options?: SessionQueryOptions): string {
 export async function fetchSessions(options?: SessionQueryOptions): Promise<SessionItem[]> {
   try {
     const query = buildSessionQuery(options);
-    const resp = await fetch(`/api/sessions${query}`);
+    const resp = await apiFetch(`/api/sessions${query}`);
     const payload = await resp.json();
     if (payload.success && Array.isArray(payload.data)) {
       return payload.data as SessionItem[];
@@ -89,7 +90,7 @@ export async function fetchSessions(options?: SessionQueryOptions): Promise<Sess
 
 export async function createNewSession(): Promise<string | null> {
   try {
-    const resp = await fetch("/api/sessions", { method: "POST" });
+    const resp = await apiFetch("/api/sessions", { method: "POST" });
     const payload = await resp.json();
     const data = isRecord(payload) ? payload.data : null;
     const newSessionId = isRecord(data) ? data.session_id : null;
@@ -107,7 +108,7 @@ export async function switchSession(
   targetSessionId: string,
 ): Promise<{ success: boolean; messages?: unknown[] }> {
   try {
-    const resp = await fetch(`/api/sessions/${targetSessionId}/messages`);
+    const resp = await apiFetch(`/api/sessions/${targetSessionId}/messages`);
     const payload = await resp.json();
     if (!payload.success) {
       return { success: true, messages: [] };
@@ -124,7 +125,7 @@ export async function switchSession(
 
 export async function deleteSession(targetSessionId: string): Promise<boolean> {
   try {
-    const resp = await fetch(`/api/sessions/${targetSessionId}`, { method: "DELETE" });
+    const resp = await apiFetch(`/api/sessions/${targetSessionId}`, { method: "DELETE" });
     if (!resp.ok) {
       return false;
     }
@@ -141,7 +142,7 @@ export async function updateSessionTitle(
   title: string,
 ): Promise<boolean> {
   try {
-    await fetch(`/api/sessions/${targetSessionId}`, {
+    await apiFetch(`/api/sessions/${targetSessionId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title }),
@@ -166,7 +167,7 @@ export async function compressCurrentSession(
     return { success: false, message: "请先选择会话" };
   }
   try {
-    const resp = await fetch(`/api/sessions/${sessionId}/compress`, {
+    const resp = await apiFetch(`/api/sessions/${sessionId}/compress`, {
       method: "POST",
     });
     const payload = await resp.json();
@@ -197,7 +198,7 @@ export async function fetchDatasets(sessionId: string): Promise<DatasetItem[]> {
     return [];
   }
   try {
-    const resp = await fetch(`/api/datasets/${sessionId}`);
+    const resp = await apiFetch(`/api/datasets/${sessionId}`);
     const payload = await resp.json();
     const data = isRecord(payload.data) ? payload.data : null;
     const datasets =
@@ -215,7 +216,7 @@ export async function loadDataset(
 ): Promise<boolean> {
   if (!sessionId || !datasetId) return false;
   try {
-    await fetch(`/api/datasets/${sessionId}/${datasetId}/load`, {
+    await apiFetch(`/api/datasets/${sessionId}/${datasetId}/load`, {
       method: "POST",
     });
     return true;
@@ -234,7 +235,7 @@ export async function fetchWorkspaceFiles(
     return [];
   }
   try {
-    const resp = await fetch(`/api/workspace/${sessionId}/files`);
+    const resp = await apiFetch(`/api/workspace/${sessionId}/files`);
     const payload = await resp.json();
     const data = isRecord(payload.data) ? payload.data : null;
     const files = data && Array.isArray(data.files) ? data.files : [];
@@ -251,7 +252,7 @@ export async function deleteWorkspaceFile(
 ): Promise<boolean> {
   if (!sessionId || !filePath) return false;
   try {
-    const resp = await fetch(
+    const resp = await apiFetch(
       `/api/workspace/${sessionId}/files/${filePath}`,
       {
         method: "DELETE",
@@ -272,7 +273,7 @@ export async function renameWorkspaceFile(
 ): Promise<boolean> {
   if (!sessionId || !filePath || !newName.trim()) return false;
   try {
-    const resp = await fetch(
+    const resp = await apiFetch(
       `/api/workspace/${sessionId}/files/${filePath}/rename`,
       {
         method: "POST",
@@ -296,7 +297,7 @@ export async function createWorkspaceFile(
   if (!sessionId || !filename.trim()) return false;
   const path = `notes/${filename.trim()}`;
   try {
-    await fetch(`/api/workspace/${sessionId}/files/${path}`, {
+    await apiFetch(`/api/workspace/${sessionId}/files/${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: content ?? "" }),
@@ -317,7 +318,7 @@ export async function fetchFolders(
     return [];
   }
   try {
-    const resp = await fetch(`/api/workspace/${sessionId}/folders`);
+    const resp = await apiFetch(`/api/workspace/${sessionId}/folders`);
     const payload = await resp.json();
     const data = isRecord(payload.data) ? payload.data : null;
     const folders = data && Array.isArray(data.folders) ? data.folders : [];
@@ -335,7 +336,7 @@ export async function createFolder(
 ): Promise<boolean> {
   if (!sessionId || !name.trim()) return false;
   try {
-    await fetch(`/api/workspace/${sessionId}/folders`, {
+    await apiFetch(`/api/workspace/${sessionId}/folders`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, parent: parent ?? null }),
@@ -354,7 +355,7 @@ export async function moveFileToFolder(
 ): Promise<boolean> {
   if (!sessionId || !filePath) return false;
   try {
-    await fetch(`/api/workspace/${sessionId}/files/${filePath}/move`, {
+    await apiFetch(`/api/workspace/${sessionId}/files/${filePath}/move`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ folder_id: folderId }),
@@ -375,7 +376,7 @@ export async function fetchCodeExecutions(
     return [];
   }
   try {
-    const resp = await fetch(`/api/workspace/${sessionId}/executions`);
+    const resp = await apiFetch(`/api/workspace/${sessionId}/executions`);
     const payload = await resp.json();
     const data = isRecord(payload.data) ? payload.data : null;
     const executions =
@@ -392,8 +393,8 @@ export async function fetchCodeExecutions(
 export async function fetchSkills(): Promise<SkillItem[]> {
   try {
     const [skillsResp, toolsResp] = await Promise.all([
-      fetch("/api/skills"),
-      fetch("/api/tools"),
+      apiFetch("/api/skills"),
+      apiFetch("/api/tools"),
     ]);
     const [skillsPayload, toolsPayload] = await Promise.all([
       skillsResp.json(),
@@ -426,7 +427,7 @@ export async function uploadSkillFile(
   try {
     const formData = new FormData();
     formData.append("file", file);
-    const resp = await fetch("/api/skills/upload", {
+    const resp = await apiFetch("/api/skills/upload", {
       method: "POST",
       body: formData,
     });
@@ -450,7 +451,7 @@ export async function getSkillDetail(
   skillName: string,
 ): Promise<{ success: boolean; skill?: SkillDetail; message: string }> {
   try {
-    const resp = await fetch(
+    const resp = await apiFetch(
       `/api/skills/markdown/${encodeURIComponent(skillName)}`,
     );
     const payload = await resp.json();
@@ -484,7 +485,7 @@ export async function updateSkill(
   payload: { description: string; category: string; content: string },
 ): Promise<{ success: boolean; message: string }> {
   try {
-    const resp = await fetch(
+    const resp = await apiFetch(
       `/api/skills/markdown/${encodeURIComponent(skillName)}`,
       {
         method: "PUT",
@@ -513,7 +514,7 @@ export async function toggleSkillEnabled(
   enabled: boolean,
 ): Promise<{ success: boolean; message: string }> {
   try {
-    const resp = await fetch(
+    const resp = await apiFetch(
       `/api/skills/markdown/${encodeURIComponent(skillName)}/enabled`,
       {
         method: "PATCH",
@@ -541,7 +542,7 @@ export async function deleteSkill(
   skillName: string,
 ): Promise<{ success: boolean; message: string }> {
   try {
-    const resp = await fetch(
+    const resp = await apiFetch(
       `/api/skills/markdown/${encodeURIComponent(skillName)}`,
       {
         method: "DELETE",
@@ -567,7 +568,7 @@ export async function listSkillFiles(
   skillName: string,
 ): Promise<{ success: boolean; files?: SkillPathEntry[]; message: string }> {
   try {
-    const resp = await fetch(
+    const resp = await apiFetch(
       `/api/skills/markdown/${encodeURIComponent(skillName)}/files`,
     );
     const payload = await resp.json();
@@ -597,7 +598,7 @@ export async function getSkillFileContent(
   path: string,
 ): Promise<{ success: boolean; file?: SkillFileContent; message: string }> {
   try {
-    const resp = await fetch(
+    const resp = await apiFetch(
       `/api/skills/markdown/${encodeURIComponent(skillName)}/files/content?path=${encodeURIComponent(path)}`,
     );
     const payload = await resp.json();
@@ -630,7 +631,7 @@ export async function saveSkillFileContent(
   content: string,
 ): Promise<{ success: boolean; message: string }> {
   try {
-    const resp = await fetch(
+    const resp = await apiFetch(
       `/api/skills/markdown/${encodeURIComponent(skillName)}/files/content`,
       {
         method: "PUT",
@@ -666,7 +667,7 @@ export async function uploadSkillAttachment(
     formData.append("dir_path", dirPath);
     formData.append("overwrite", String(overwrite));
 
-    const resp = await fetch(
+    const resp = await apiFetch(
       `/api/skills/markdown/${encodeURIComponent(skillName)}/files/upload`,
       {
         method: "POST",
@@ -694,7 +695,7 @@ export async function createSkillDir(
   path: string,
 ): Promise<{ success: boolean; message: string }> {
   try {
-    const resp = await fetch(
+    const resp = await apiFetch(
       `/api/skills/markdown/${encodeURIComponent(skillName)}/directories`,
       {
         method: "POST",
@@ -723,7 +724,7 @@ export async function deleteSkillPath(
   path: string,
 ): Promise<{ success: boolean; message: string }> {
   try {
-    const resp = await fetch(
+    const resp = await apiFetch(
       `/api/skills/markdown/${encodeURIComponent(skillName)}/paths`,
       {
         method: "DELETE",
@@ -751,7 +752,7 @@ export async function downloadSkillBundle(
   skillName: string,
 ): Promise<{ success: boolean; message: string; filename?: string; blob?: Blob }> {
   try {
-    const resp = await fetch(
+    const resp = await apiFetch(
       `/api/skills/markdown/${encodeURIComponent(skillName)}/bundle`,
     );
     if (!resp.ok) {
@@ -773,7 +774,7 @@ export async function downloadSkillBundle(
 
 export async function fetchCapabilities(): Promise<CapabilityItem[]> {
   try {
-    const resp = await fetch("/api/capabilities");
+    const resp = await apiFetch("/api/capabilities");
     const payload = await resp.json();
     if (!resp.ok || !payload.success) {
       throw new Error("获取能力列表失败");
@@ -801,7 +802,7 @@ export async function analyzeIntent(
   try {
     const url = new URL("/api/intent/analyze", window.location.origin);
     url.searchParams.set("user_message", query);
-    const resp = await fetch(url.toString(), { method: "POST" });
+    const resp = await apiFetch(url.toString(), { method: "POST" });
     const payload = await resp.json();
     if (!resp.ok || payload.success !== true) {
       throw new Error("意图分析失败");
@@ -823,7 +824,7 @@ export async function fetchMemoryFiles(
     return [];
   }
   try {
-    const resp = await fetch(`/api/sessions/${sessionId}/memory-files`);
+    const resp = await apiFetch(`/api/sessions/${sessionId}/memory-files`);
     const payload = await resp.json();
     const rawData = isRecord(payload.data) ? payload.data : null;
     const rawFiles: unknown[] = Array.isArray(payload.data)
@@ -873,7 +874,7 @@ export async function fetchMemoryFiles(
 
 export async function fetchActiveModel(): Promise<ActiveModelInfo | null> {
   try {
-    const resp = await fetch("/api/models/active");
+    const resp = await apiFetch("/api/models/active");
     const payload = await resp.json();
     if (payload.success && isRecord(payload.data)) {
       return payload.data as ActiveModelInfo;
@@ -889,7 +890,7 @@ export async function setPreferredProvider(
   providerId: string,
 ): Promise<ActiveModelInfo | null> {
   try {
-    const resp = await fetch("/api/models/preferred", {
+    const resp = await apiFetch("/api/models/preferred", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ provider_id: providerId }),
@@ -949,7 +950,7 @@ export async function setChatRoute(
           preferred_provider: providerId || null,
           purpose_routes: conversationRoutes,
         };
-    const resp = await fetch("/api/models/routing", {
+    const resp = await apiFetch("/api/models/routing", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -967,7 +968,7 @@ export async function setChatRoute(
 
 export async function deleteProviderConfig(providerId: string): Promise<boolean> {
   try {
-    const resp = await fetch(`/api/models/${providerId}/config`, {
+    const resp = await apiFetch(`/api/models/${providerId}/config`, {
       method: "DELETE",
     });
     const payload = await resp.json();
@@ -983,7 +984,7 @@ export async function deleteProviderConfig(providerId: string): Promise<boolean>
 
 export async function fetchModelProviders(): Promise<ModelProviderInfo[]> {
   try {
-    const resp = await fetch("/api/models");
+    const resp = await apiFetch("/api/models");
     const data = await resp.json();
     if (data.success && Array.isArray(data.data)) {
       return data.data as ModelProviderInfo[];
@@ -999,7 +1000,7 @@ export async function fetchModelProviders(): Promise<ModelProviderInfo[]> {
 
 export async function fetchResearchProfile(): Promise<ResearchProfile | null> {
   try {
-    const resp = await fetch("/api/research-profile?profile_id=default");
+    const resp = await apiFetch("/api/research-profile?profile_id=default");
     const payload = await resp.json();
     if (payload.success) {
       return payload.data as ResearchProfile;
@@ -1015,7 +1016,7 @@ export async function updateResearchProfile(
   updates: Partial<ResearchProfile>,
 ): Promise<ResearchProfile | null> {
   try {
-    const resp = await fetch("/api/research-profile?profile_id=default", {
+    const resp = await apiFetch("/api/research-profile?profile_id=default", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updates),
@@ -1047,7 +1048,7 @@ export async function fetchResearchProfileNarrative(
   profileId: string = "default",
 ): Promise<ProfileNarrative | null> {
   try {
-    const resp = await fetch(
+    const resp = await apiFetch(
       `/api/research-profile/narrative?profile_id=${encodeURIComponent(profileId)}`,
     );
     const payload = await resp.json();
@@ -1103,7 +1104,7 @@ export async function fetchLongTermMemories(
     if (params.memory_type) sp.set("memory_type", params.memory_type);
     if (params.limit) sp.set("limit", String(params.limit));
     const qs = sp.toString();
-    const resp = await fetch(`/api/memory/long-term${qs ? `?${qs}` : ""}`);
+    const resp = await apiFetch(`/api/memory/long-term${qs ? `?${qs}` : ""}`);
     const data = await resp.json();
     return {
       memories: Array.isArray(data.memories) ? (data.memories as LongTermMemoryEntry[]) : [],
@@ -1116,7 +1117,7 @@ export async function fetchLongTermMemories(
 
 export async function deleteLongTermMemory(memoryId: string): Promise<boolean> {
   try {
-    const resp = await fetch(`/api/memory/long-term/${encodeURIComponent(memoryId)}`, {
+    const resp = await apiFetch(`/api/memory/long-term/${encodeURIComponent(memoryId)}`, {
       method: "DELETE",
     });
     const data = await resp.json();
@@ -1128,7 +1129,7 @@ export async function deleteLongTermMemory(memoryId: string): Promise<boolean> {
 
 export async function fetchLongTermMemoryStats(): Promise<LongTermMemoryStats | null> {
   try {
-    const resp = await fetch("/api/memory/long-term/stats");
+    const resp = await apiFetch("/api/memory/long-term/stats");
     if (!resp.ok) return null;
     return (await resp.json()) as LongTermMemoryStats;
   } catch {
@@ -1142,7 +1143,7 @@ export async function fetchTokenUsage(
   sessionId: string,
 ): Promise<TokenUsage | null> {
   try {
-    const resp = await fetch(`/api/cost/session/${sessionId}`);
+    const resp = await apiFetch(`/api/cost/session/${sessionId}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     return data as TokenUsage;
@@ -1157,7 +1158,7 @@ export async function fetchCostHistory(): Promise<{
   aggregate: AggregateCostSummary | null;
 }> {
   try {
-    const resp = await fetch("/api/cost/sessions");
+    const resp = await apiFetch("/api/cost/sessions");
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     return {
@@ -1172,7 +1173,7 @@ export async function fetchCostHistory(): Promise<{
 
 export async function fetchPricingConfig(): Promise<PricingConfig | null> {
   try {
-    const resp = await fetch("/api/cost/pricing");
+    const resp = await apiFetch("/api/cost/pricing");
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     return data as PricingConfig;

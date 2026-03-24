@@ -3,6 +3,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Suspense, lazy } from 'react'
+import { apiFetch } from '../store/auth'
 
 const ChartViewer = lazy(() => import('./ChartViewer'))
 
@@ -88,7 +89,7 @@ export default function PlotlyFromUrl({ url, alt }: Props) {
     setError(null)
 
     const fetchUrl = buildPlotlyFetchUrl(url)
-    fetch(fetchUrl, { signal: controller.signal })
+    apiFetch(fetchUrl, { signal: controller.signal })
       .then(async (resp) => {
         if (!resp.ok) {
           throw new Error(`HTTP ${resp.status}`)

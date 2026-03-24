@@ -5,7 +5,9 @@ import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useStore } from "./store";
 import ChatPanel from "./components/ChatPanel";
 import SessionList from "./components/SessionList";
+import AuthGate from "./components/AuthGate";
 import { getWsStatusMeta } from "./store/websocket-status";
+import { AUTH_INVALID_EVENT } from "./store/auth";
 import {
   BookOpen,
   Loader2,
@@ -43,8 +45,14 @@ const HypothesisTracker = lazy(() => import("./components/HypothesisTracker"));
 
 export default function App() {
   const connect = useStore((s) => s.connect);
-  const initApp = useStore((s) => s.initApp);
+  const bootstrapApp = useStore((s) => s.bootstrapApp);
+  const submitApiKey = useStore((s) => s.submitApiKey);
+  const clearAuthState = useStore((s) => s.clearAuthState);
   const wsStatus = useStore((s) => s.wsStatus);
+  const apiKeyRequired = useStore((s) => s.apiKeyRequired);
+  const authReady = useStore((s) => s.authReady);
+  const authError = useStore((s) => s.authError);
+  const appBootstrapping = useStore((s) => s.appBootstrapping);
   const workspacePanelOpen = useStore((s) => s.workspacePanelOpen);
   const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel);
   type PanelType =
@@ -70,13 +78,22 @@ export default function App() {
   const completedAgents = useStore((s) => s.completedAgents);
   const hypotheses = useStore((s) => s.hypotheses);
 
-  // 应用初始化：恢复会话并建立 WebSocket 连接
   useEffect(() => {
-    // 先初始化应用（恢复会话），然后建立 WebSocket 连接
-    initApp().then(() => {
-      connect();
-    });
-  }, [initApp, connect]);
+    void bootstrapApp();
+  }, [bootstrapApp]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail =
+        event instanceof CustomEvent &&
+        typeof event.detail?.message === "string"
+          ? event.detail.message
+          : undefined;
+      void clearAuthState(detail);
+    };
+    window.addEventListener(AUTH_INVALID_EVENT, handler);
+    return () => window.removeEventListener(AUTH_INVALID_EVENT, handler);
+  }, [clearAuthState]);
 
   // 监听试用到期 / ModelSelector 点击事件，自动弹出 AI 设置面板
   useEffect(() => {
@@ -206,6 +223,9 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-white">
+      {apiKeyRequired && !authReady && !appBootstrapping && (
+        <AuthGate error={authError} loading={appBootstrapping} onSubmit={submitApiKey} />
+      )}
       {/* 桌面端侧边栏 */}
       <div className="w-64 border-r bg-gray-50 flex-shrink-0 hidden md:flex flex-col">
         <SessionList />

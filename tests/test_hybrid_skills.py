@@ -169,6 +169,7 @@ def test_api_markdown_skill_progressive_disclosure(
 
         resources_resp = client.get("/api/skills/markdown/report_polish/runtime-resources")
         assert resources_resp.status_code == 200
+        assert resources_resp.json()["data"]["resource_root"] == "skill:report_polish"
         resources = resources_resp.json()["data"]["resources"]
         assert any(item["path"] == "references/style.md" for item in resources)
 
@@ -345,6 +346,7 @@ def test_api_markdown_skill_files_management(
         list_resp = client.get("/api/skills/markdown/skill_with_files/files")
         assert list_resp.status_code == 200
         list_payload = list_resp.json()
+        assert list_payload["data"]["root"] == "skill:skill_with_files"
         paths = {item["path"] for item in list_payload["data"]["files"]}
         assert "SKILL.md" in paths
 
@@ -376,6 +378,22 @@ def test_api_markdown_skill_files_management(
         read_payload = read_resp.json()
         assert read_payload["data"]["is_text"] is True
         assert "# 引用文档" in read_payload["data"]["content"]
+
+        binary_upload_resp = client.post(
+            "/api/skills/markdown/skill_with_files/files/upload",
+            data={"dir_path": "assets"},
+            files={"file": ("diagram.png", b"\x89PNG\r\n\x1a\n\x00\x00", "image/png")},
+        )
+        assert binary_upload_resp.status_code == 200
+
+        legacy_read_resp = client.get(
+            "/api/skills/markdown/skill_with_files/files/assets/diagram.png",
+        )
+        assert legacy_read_resp.status_code == 200
+        legacy_payload = legacy_read_resp.json()
+        assert legacy_payload["data"]["path"] == "assets/diagram.png"
+        assert legacy_payload["data"]["is_text"] is False
+        assert legacy_payload["data"]["content"] is None
 
         bundle_resp = client.get("/api/skills/markdown/skill_with_files/bundle")
         assert bundle_resp.status_code == 200

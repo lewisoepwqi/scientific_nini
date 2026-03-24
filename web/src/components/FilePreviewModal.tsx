@@ -3,6 +3,7 @@
  */
 import { useEffect, useState, useCallback } from 'react'
 import { useStore } from '../store'
+import { apiFetch } from '../store/auth'
 import { X, Download, Loader2 } from 'lucide-react'
 import LazyMarkdownContent from './LazyMarkdownContent'
 import PlotlyFromUrl from './PlotlyFromUrl'
@@ -49,7 +50,7 @@ export default function FilePreviewModal() {
 
     setLoading(true)
     setError(null)
-    fetch(`/api/workspace/${sessionId}/files/${fileInfo.path}/preview`)
+    apiFetch(`/api/workspace/${sessionId}/files/${fileInfo.path}/preview`)
       .then((resp) => resp.json())
       .then((payload) => {
         if (payload.success && payload.data) {

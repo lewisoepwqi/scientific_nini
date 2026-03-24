@@ -8,6 +8,12 @@
 import { create } from "zustand";
 import type { WsConnectionStatus } from "./store/websocket-status";
 import { resolveWsClosedStatus } from "./store/websocket-status";
+import {
+  clearAuthSession,
+  createAuthSession,
+  fetchAuthStatus,
+  apiFetch,
+} from "./store/auth";
 
 // ---- 类型导入 ----
 export type {
@@ -255,6 +261,9 @@ export interface AppState {
 
   // 用户展示偏好
   displayPreference: DisplayPreference;
+  apiKeyRequired: boolean;
+  authReady: boolean;
+  authError: string | null;
   appBootstrapping: boolean;
 
   // 多 Agent 执行状态
@@ -270,6 +279,9 @@ export interface AppState {
   // ---- 操作 ----
 
   // WebSocket 操作
+  bootstrapApp: () => Promise<void>;
+  submitApiKey: (apiKey: string) => Promise<boolean>;
+  clearAuthState: (error?: string) => Promise<void>;
   connect: () => void;
   disconnect: () => void;
 
@@ -505,6 +517,9 @@ export const useStore = create<AppState>((set, get) => ({
   aggregateCost: null,
   pricingConfig: null,
   costPanelOpen: false,
+  apiKeyRequired: false,
+  authReady: false,
+  authError: null,
   displayPreference: (() => {
     // 从 localStorage 读取用户偏好，默认为简化模式
     if (typeof window !== "undefined") {
@@ -532,7 +547,77 @@ export const useStore = create<AppState>((set, get) => ({
   // WebSocket 操作
   // ============================================================================
 
+  async bootstrapApp() {
+    set({ appBootstrapping: true, authError: null });
+    try {
+      const status = await fetchAuthStatus();
+      const apiKeyRequired = status.api_key_required === true;
+      const authReady = !apiKeyRequired || status.authenticated === true;
+      set({
+        apiKeyRequired,
+        authReady,
+        authError: apiKeyRequired && !authReady ? "请输入 API Key" : null,
+      });
+      if (!authReady) {
+        set({ appBootstrapping: false });
+        return;
+      }
+      await get().initApp();
+      get().connect();
+    } catch (error) {
+      console.error("应用启动鉴权探测失败:", error);
+      set({
+        authReady: false,
+        authError: "认证状态探测失败，请刷新后重试。",
+        appBootstrapping: false,
+      });
+    }
+  },
+
+  async submitApiKey(apiKey: string) {
+    const normalized = apiKey.trim();
+    if (!normalized) {
+      set({ authError: "请输入 API Key" });
+      return false;
+    }
+    set({ appBootstrapping: true, authError: null });
+    try {
+      await createAuthSession(normalized);
+    } catch {
+      set({
+        authReady: false,
+        authError: "API Key 无效或已过期，请重新输入。",
+        appBootstrapping: false,
+      });
+      return false;
+    }
+    set({ authReady: true, authError: null });
+    await get().bootstrapApp();
+    return get().authReady;
+  },
+
+  async clearAuthState(error = "API Key 无效、已过期，或鉴权会话已失效，请重新输入。") {
+    if (reconnectTimerId !== null) {
+      window.clearTimeout(reconnectTimerId);
+      reconnectTimerId = null;
+    }
+    const apiKeyRequired = get().apiKeyRequired;
+    get().disconnect();
+    set({
+      apiKeyRequired,
+      authReady: !apiKeyRequired,
+      authError: apiKeyRequired ? error : null,
+      appBootstrapping: false,
+    });
+    try {
+      await clearAuthSession();
+    } catch {
+      // 忽略清理 Cookie 失败，前端状态仍需回退到未认证
+    }
+  },
+
   connect() {
+    if (get().apiKeyRequired && !get().authReady) return;
     const existing = get().ws;
     if (existing && existing.readyState === WebSocket.OPEN) return;
     if (existing && existing.readyState === WebSocket.CONNECTING) {
@@ -578,8 +663,12 @@ export const useStore = create<AppState>((set, get) => ({
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (event.code === 4401) {
+        void get().clearAuthState("API Key 无效、已过期，或鉴权会话已失效，请重新输入。");
+        return;
+      }
       const attempts = get()._reconnectAttempts;
       const maxAttempts = 10;
       const hidden = typeof document !== "undefined" ? document.hidden : false;
@@ -675,6 +764,10 @@ export const useStore = create<AppState>((set, get) => ({
   // ============================================================================
 
   async initApp() {
+    if (get().apiKeyRequired && !get().authReady) {
+      set({ appBootstrapping: false });
+      return;
+    }
     set({ appBootstrapping: true });
 
     const fetchSkillsPromise = get().fetchSkills().catch(() => undefined);
@@ -899,7 +992,7 @@ export const useStore = create<AppState>((set, get) => ({
     let { sessionId } = get();
     if (!sessionId) {
       try {
-        const resp = await fetch("/api/sessions", { method: "POST" });
+        const resp = await apiFetch("/api/sessions", { method: "POST" });
         const payload = await resp.json();
         const data = isRecord(payload) ? payload.data : null;
         const createdSessionId = isRecord(data) ? data.session_id : null;

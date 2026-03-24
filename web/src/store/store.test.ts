@@ -16,7 +16,7 @@ class MockWebSocket {
   url: string;
   sent: string[] = [];
   onopen: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
 
@@ -36,6 +36,11 @@ class MockWebSocket {
   triggerOpen() {
     this.readyState = MockWebSocket.OPEN;
     this.onopen?.();
+  }
+
+  triggerClose(code = 1000) {
+    this.readyState = MockWebSocket.CLOSED;
+    this.onclose?.({ code } as unknown as CloseEvent);
   }
 }
 
@@ -105,6 +110,27 @@ describe("store reconnect / retry / stop", () => {
 
     expect(useStore.getState()._messageBuffer).toEqual({});
     expect(switchSession).toHaveBeenCalledWith("session-1");
+  });
+
+  it("收到 4401 关闭码后应进入重新认证状态且不重连", async () => {
+    useStore.setState({
+      ...useStore.getInitialState(),
+      apiKeyRequired: true,
+      authReady: true,
+      _reconnectAttempts: 3,
+    });
+
+    useStore.getState().connect();
+    const ws = MockWebSocket.instances[0];
+    expect(ws).toBeDefined();
+
+    ws.triggerClose(4401);
+    await Promise.resolve();
+
+    expect(useStore.getState().authReady).toBe(false);
+    expect(useStore.getState().authError).toContain("API Key");
+    expect(useStore.getState().wsStatus).toBe("disconnected");
+    expect(useStore.getState()._reconnectAttempts).toBe(0);
   });
 
   it("stopStreaming 应清理流式状态与消息缓冲区", () => {

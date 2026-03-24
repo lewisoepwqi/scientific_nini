@@ -472,6 +472,16 @@ export function uploadWithProgress(
 
     xhr.onload = () => {
       if (xhr.status < 200 || xhr.status >= 300) {
+        if (xhr.status === 401 && typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("nini:auth-invalid", {
+              detail: {
+                status: 401,
+                message: "API Key 无效或已过期，请重新输入。",
+              },
+            }),
+          );
+        }
         reject(new Error(`上传失败: HTTP ${xhr.status}`));
         return;
       }

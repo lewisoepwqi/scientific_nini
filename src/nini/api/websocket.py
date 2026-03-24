@@ -15,6 +15,7 @@ import pandas as pd
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
+from nini.api.auth_utils import is_websocket_authenticated
 from nini.agent.runner import AgentRunner
 from nini.agent.events import EventType
 from nini.agent.session import Session, session_manager
@@ -44,6 +45,14 @@ def get_tool_registry() -> ToolRegistry | None:
     return _tool_registry
 
 
+def _load_existing_session(session_id: str) -> Session | None:
+    """仅加载已存在的会话，避免控制消息制造空会话。"""
+    try:
+        return session_manager.load_existing(session_id)
+    except ValueError:
+        return None
+
+
 @router.websocket("/ws")
 async def websocket_agent(ws: WebSocket):
     """WebSocket Agent 交互。
@@ -62,15 +71,11 @@ async def websocket_agent(ws: WebSocket):
         {"type": "done"}
         {"type": "error", "data": "..."}
     """
-    # 可选 API Key 认证（通过 query param token 验证）
     from nini.config import settings as _settings
-    import secrets as _secrets
 
-    if _settings.api_key:
-        token = ws.query_params.get("token", "")
-        if not _secrets.compare_digest(token, _settings.api_key):
-            await ws.close(code=4401, reason="未授权：需要有效的 API Key")
-            return
+    if not is_websocket_authenticated(ws, _settings.api_key):
+        await ws.close(code=4401, reason="未授权：需要有效的 API Key")
+        return
 
     await ws.accept()
     logger.info("WebSocket 连接已建立")
@@ -401,7 +406,7 @@ async def websocket_agent(ws: WebSocket):
                         with suppress(asyncio.CancelledError):
                             await task
                         _cancel_pending_questions(stop_session_id)
-                        stopped_session = session_manager.get_or_create(stop_session_id)
+                        stopped_session = _load_existing_session(stop_session_id)
                         _trigger_memory_consolidation(stopped_session)
                         await _send_event(
                             ws,
@@ -429,7 +434,7 @@ async def websocket_agent(ws: WebSocket):
                                 task.cancel()
                                 with suppress(asyncio.CancelledError):
                                     await task
-                                stopped_session = session_manager.get_or_create(sid)
+                                stopped_session = _load_existing_session(sid)
                                 _trigger_memory_consolidation(stopped_session)
                         _cancel_pending_questions()
                         await _send_event(
@@ -524,7 +529,16 @@ async def websocket_agent(ws: WebSocket):
                     )
                     continue
 
-                retry_session = session_manager.get_or_create(session_id)
+                retry_session = _load_existing_session(session_id)
+                if retry_session is None:
+                    await _send_event(
+                        ws,
+                        "error",
+                        data="会话不存在，无法重试",
+                        session_id=session_id,
+                        active_stop_events=active_stop_events,
+                    )
+                    continue
                 retry_content = retry_session.rollback_last_turn()
                 append_user_message = False
                 if not retry_content:
@@ -635,7 +649,7 @@ async def websocket_agent(ws: WebSocket):
                 with suppress(asyncio.CancelledError):
                     await task
             # 断开连接时触发各会话的记忆沉淀
-            disconnected_session = session_manager.get_or_create(sid)
+            disconnected_session = _load_existing_session(sid)
             _trigger_memory_consolidation(disconnected_session)
         active_chat_tasks.clear()
         active_stop_events.clear()

@@ -1,6 +1,7 @@
 /**
  * 下载地址工具：Markdown 文件优先走 bundle 接口，保证图文资源完整。
  */
+import { apiFetch } from '../store/auth'
 
 function appendQueryParam(url: string, key: string, value: string): string {
   const hashIndex = url.indexOf('#')
@@ -99,7 +100,7 @@ export async function downloadFileFromUrl(
   if (!downloadUrl) {
     throw new Error('下载地址不可用')
   }
-  const response = await fetch(downloadUrl)
+  const response = await apiFetch(downloadUrl)
   if (!response.ok) {
     throw new Error(`下载失败（HTTP ${response.status}）`)
   }

@@ -89,7 +89,8 @@ function resolveImageUrl(src: string, sessionId: string | null): string {
   }
 
   if (/^chart_[A-Za-z0-9]+$/u.test(src)) {
-    return `/api/charts/${sessionId}/${normalizePathSegment(src)}.plotly.json`
+    const chartUrl = `/api/charts/${sessionId}/${normalizePathSegment(src)}.plotly.json`
+    return chartUrl
   }
 
   // 处理 ./产物/xxx.png 或 ./artifacts/xxx.png 格式的路径
@@ -97,7 +98,8 @@ function resolveImageUrl(src: string, sessionId: string | null): string {
     const path = src.slice(2) // 移除 ./
     // 提取文件名（移除目录前缀）
     const filename = path.split('/').pop() || path
-    return `/api/workspace/${sessionId}/files/${normalizePathSegment(filename)}`
+    const fileUrl = `/api/workspace/${sessionId}/files/${normalizePathSegment(filename)}`
+    return fileUrl
   }
 
   // 其他情况，直接返回原路径

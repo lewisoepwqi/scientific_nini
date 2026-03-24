@@ -19,10 +19,16 @@ from typing import Any
 from urllib.parse import quote, unquote
 
 import pandas as pd
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse, Response
 
 from nini.agent.session import session_manager
+from nini.api.auth_utils import (
+    AUTH_SESSION_COOKIE_NAME,
+    clear_auth_session_cookie,
+    is_request_authenticated,
+    set_auth_session_cookie,
+)
 from nini.config import settings
 from nini.intent import default_intent_analyzer
 from nini.models.schemas import (
@@ -150,6 +156,17 @@ def _get_markdown_tool_dir_or_404(registry: Any, tool_name: str) -> Path:
     if not tool_path.exists():
         raise HTTPException(status_code=404, detail=f"技能文件不存在: {tool_path}")
     return tool_path.parent
+
+
+def _get_existing_session_or_404(session_id: str):
+    """仅加载已存在的会话，避免读操作制造幽灵 session。"""
+    try:
+        session = session_manager.load_existing(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return session
 
 
 def _resolve_tool_relative_path(tool_dir: Path, relative_path: str) -> Path:
@@ -446,7 +463,7 @@ async def load_dataset_into_session(session_id: str, dataset_id: str):
 @router.get("/datasets/{session_id}/{dataset_name}")
 async def get_dataset(session_id: str, dataset_name: str, limit: int = 100):
     """获取数据集内容（默认前100行）。"""
-    session = session_manager.get_or_create(session_id)
+    session = _get_existing_session_or_404(session_id)
 
     if dataset_name not in session.datasets:
         raise HTTPException(status_code=404, detail=f"数据集 '{dataset_name}' 不存在")
@@ -469,7 +486,7 @@ async def get_dataset(session_id: str, dataset_name: str, limit: int = 100):
 @router.get("/datasets/{session_id}/{dataset_name}/preview")
 async def get_dataset_preview(session_id: str, dataset_name: str):
     """获取数据集预览（统计信息）。"""
-    session = session_manager.get_or_create(session_id)
+    session = _get_existing_session_or_404(session_id)
 
     if dataset_name not in session.datasets:
         raise HTTPException(status_code=404, detail=f"数据集 '{dataset_name}' 不存在")
@@ -495,7 +512,7 @@ async def get_dataset_preview(session_id: str, dataset_name: str):
 @router.delete("/datasets/{session_id}/{dataset_name}")
 async def delete_dataset(session_id: str, dataset_name: str):
     """删除数据集。"""
-    session = session_manager.get_or_create(session_id)
+    session = _get_existing_session_or_404(session_id)
 
     if dataset_name not in session.datasets:
         raise HTTPException(status_code=404, detail=f"数据集 '{dataset_name}' 不存在")
@@ -512,7 +529,7 @@ async def export_dataset(
     format: str = "csv",  # noqa: A002
 ) -> Response:
     """导出数据集为 CSV 或 Excel。"""
-    session = session_manager.get_or_create(session_id)
+    session = _get_existing_session_or_404(session_id)
 
     if dataset_name not in session.datasets:
         raise HTTPException(status_code=404, detail=f"数据集 '{dataset_name}' 不存在")
@@ -1040,7 +1057,7 @@ async def list_markdown_skill_files(tool_name: str):
     entries = _build_tool_file_entries(tool_dir)
     return APIResponse(
         success=True,
-        data={"tool_name": tool_name, "root": str(tool_dir), "files": entries},
+        data={"tool_name": tool_name, "root": f"skill:{tool_name}", "files": entries},
     )
 
 
@@ -1311,8 +1328,23 @@ async def get_markdown_skill_file(tool_name: str, file_path: str):
     if target.is_dir():
         raise HTTPException(status_code=400, detail="path 是目录，不是文件")
 
-    content = target.read_text(encoding="utf-8")
-    return APIResponse(success=True, data={"path": file_path, "content": content})
+    raw = target.read_bytes()
+    is_text = True
+    content: str | None
+    try:
+        content = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        is_text = False
+        content = None
+    return APIResponse(
+        success=True,
+        data={
+            "path": target.relative_to(tool_dir).as_posix(),
+            "is_text": is_text,
+            "size": len(raw),
+            "content": content,
+        },
+    )
 
 
 @router.post("/skills/markdown/{tool_name}/files/{file_path:path}", response_model=APIResponse)
@@ -2013,6 +2045,44 @@ _MODEL_PURPOSES = [
 @router.get("/health")
 async def health():
     return {"status": "ok", "version": "0.1.0"}
+
+
+@router.get("/auth/status")
+async def auth_status(request: Request):
+    """返回当前服务鉴权要求与当前会话状态。"""
+    return {
+        "api_key_required": bool(settings.api_key),
+        "authenticated": is_request_authenticated(request, settings.api_key),
+    }
+
+
+@router.post("/auth/session")
+async def create_auth_session(request: Request):
+    """创建 HttpOnly 鉴权会话 Cookie。"""
+    api_key = settings.api_key or ""
+    if not api_key:
+        return {"success": True, "api_key_required": False, "authenticated": True}
+    if not is_request_authenticated(request, api_key):
+        raise HTTPException(status_code=401, detail="未授权：需要有效的 API Key")
+
+    response = JSONResponse(
+        {
+            "success": True,
+            "api_key_required": True,
+            "authenticated": True,
+            "cookie_name": AUTH_SESSION_COOKIE_NAME,
+        }
+    )
+    set_auth_session_cookie(response, api_key, secure=request.url.scheme == "https")
+    return response
+
+
+@router.delete("/auth/session")
+async def delete_auth_session(request: Request):
+    """清除 HttpOnly 鉴权会话 Cookie。"""
+    response = JSONResponse({"success": True, "authenticated": False})
+    clear_auth_session_cookie(response, secure=request.url.scheme == "https")
+    return response
 
 
 # ---- 包含新拆分的路由模块（渐进式重构） ----

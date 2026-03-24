@@ -108,9 +108,10 @@ class MarkdownToolRegistryOps:
         skill_path = Path(raw_location).expanduser().resolve()
         if not skill_path.exists() or not skill_path.is_file():
             return None
+        tool_name = str(item.get("name", "")).strip()
         return {
-            "name": item.get("name"),
-            "resource_root": str(skill_path.parent),
+            "name": tool_name,
+            "resource_root": f"skill:{tool_name}",
             "resources": list_markdown_tool_runtime_resources(skill_path),
         }
 

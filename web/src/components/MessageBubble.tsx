@@ -47,7 +47,10 @@ function extractPlotlyJsonUrl(chartData: unknown): string | null {
     return null;
   }
   const clean = rawUrl.split("#")[0]?.split("?")[0]?.toLowerCase() || "";
-  return clean.endsWith(".plotly.json") ? rawUrl : null;
+  if (!clean.endsWith(".plotly.json")) {
+    return null;
+  }
+  return rawUrl;
 }
 
 function buildToolResultPreview(toolResult?: string): string | null {

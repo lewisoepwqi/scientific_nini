@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Download, X, Loader2 } from 'lucide-react'
 import { useStore } from '../store'
+import { apiFetch } from '../store/auth'
 import LazyMarkdownContent from './LazyMarkdownContent'
 import PlotlyFromUrl from './PlotlyFromUrl'
 import { downloadFileFromUrl, resolveDownloadUrl } from './downloadUtils'
@@ -74,7 +75,7 @@ export default function FilePreviewPane() {
 
     let cancelled = false
     setLoadingId(previewFileId)
-    fetch(`/api/workspace/${sessionId}/files/${fileInfo.path}/preview`)
+    apiFetch(`/api/workspace/${sessionId}/files/${fileInfo.path}/preview`)
       .then((resp) => resp.json())
       .then((payload) => {
         if (cancelled) return

@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 from starlette.responses import Response
 
+from nini.api.auth_utils import is_request_authenticated
 from nini.config import settings, _get_bundle_web_dist_dir
 from nini.models.database import init_db
 from nini.tools.registry import create_default_tool_registry
@@ -108,7 +109,8 @@ def create_app() -> FastAPI:
     if settings.api_key:
         from starlette.responses import JSONResponse
 
-        _AUTH_EXEMPT_PREFIXES = ("/docs", "/redoc", "/openapi.json", "/health")
+        _AUTH_EXEMPT_PATHS = {"/api/auth/status", "/api/auth/session", "/api/health"}
+        _AUTH_EXEMPT_PREFIXES = ("/docs", "/redoc", "/openapi.json")
 
         @app.middleware("http")
         async def api_key_middleware(
@@ -116,19 +118,12 @@ def create_app() -> FastAPI:
             call_next: Callable[[Request], Awaitable[Response]],
         ) -> Response:
             path = request.url.path
-            # 静态文件、文档、健康检查豁免
-            if any(path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES):
+            # 仅保护 API 路径，静态壳与资源不参与鉴权
+            if not path.startswith("/api/"):
                 return await call_next(request)
-            # 检查 Authorization Bearer 或 X-API-Key 头
-            auth = request.headers.get("Authorization", "")
-            api_key_header = request.headers.get("X-API-Key", "")
-            token = ""
-            if auth.startswith("Bearer "):
-                token = auth[7:]
-            elif api_key_header:
-                token = api_key_header
-            api_key = settings.api_key or ""
-            if not secrets.compare_digest(token, api_key):
+            if path in _AUTH_EXEMPT_PATHS or any(path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES):
+                return await call_next(request)
+            if not is_request_authenticated(request, settings.api_key):
                 return JSONResponse(
                     status_code=401, content={"detail": "未授权：需要有效的 API Key"}
                 )

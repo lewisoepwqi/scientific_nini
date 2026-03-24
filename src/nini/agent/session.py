@@ -475,6 +475,24 @@ class SessionManager:
 
     _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
+    def load_existing(
+        self,
+        session_id: str,
+        *,
+        load_persisted_messages: bool = True,
+    ) -> Session | None:
+        """加载已存在的会话，不存在时返回 None。"""
+        if not self._SESSION_ID_RE.match(session_id):
+            raise ValueError(f"无效的 session_id 格式: {session_id!r}")
+        if session_id in self._sessions:
+            return self._sessions[session_id]
+        if not self._session_exists_on_disk(session_id):
+            return None
+        return self.create_session(
+            session_id,
+            load_persisted_messages=load_persisted_messages,
+        )
+
     def get_or_create(self, session_id: str | None = None) -> Session:
         if session_id and not self._SESSION_ID_RE.match(session_id):
             raise ValueError(f"无效的 session_id 格式: {session_id!r}")
@@ -482,11 +500,9 @@ class SessionManager:
             return self._sessions[session_id]
 
         if session_id:
-            if self._session_exists_on_disk(session_id):
-                return self.create_session(
-                    session_id,
-                    load_persisted_messages=True,
-                )
+            session = self.load_existing(session_id, load_persisted_messages=True)
+            if session is not None:
+                return session
             return self.create_session(session_id)
 
         return self.create_session()

@@ -13,6 +13,7 @@ import {
   X,
   PenTool,
 } from "lucide-react";
+import { apiFetch } from "../store/auth";
 
 interface DraftConfig {
   template: string;
@@ -176,7 +177,7 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
     }
 
     try {
-      const response = await fetch(`/api/report/export?session_id=${sessionId}`, {
+      const response = await apiFetch(`/api/report/export?session_id=${sessionId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

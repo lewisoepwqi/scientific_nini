@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react'
+import { apiFetch } from '../store/auth'
 
 type FilterType = 'all' | 'chart' | 'report' | 'data' | 'script' | 'transform'
 
@@ -169,7 +170,7 @@ export default function ArtifactGallery() {
     setDownloadError(null)
     setDownloading(true)
     try {
-      const resp = await fetch(`/api/workspace/${sessionId}/download-zip`, {
+      const resp = await apiFetch(`/api/workspace/${sessionId}/download-zip`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(selectedPaths),
