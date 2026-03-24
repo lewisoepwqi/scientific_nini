@@ -48,6 +48,7 @@ from nini.agent.plan_parser import AnalysisPlan, AnalysisStep, parse_analysis_pl
 # 导入类型安全的事件构造器（逐步迁移中）
 from nini.agent import event_builders as eb
 from nini.agent.task_manager import TaskManager
+from nini.agent.loop_guard import LoopGuard, LoopGuardDecision
 from nini.capabilities import create_default_capabilities
 
 # 导入组件模块
@@ -353,6 +354,8 @@ class AgentRunner:
         self._ask_user_question_handler = ask_user_question_handler
         # 跟踪 context 使用率（0.0 初始，用于自适应工具结果截断预算）
         self._context_ratio: float = 0.0
+        # 循环检测守卫
+        self._loop_guard = LoopGuard()
 
     async def run(
         self,
@@ -446,6 +449,8 @@ class AgentRunner:
         )
         tool_followup_retry_used = False
         pending_followup_prompt: str | None = None
+        # 循环检测警告消息，在下一轮 LLM 请求时注入为 system 消息
+        pending_loop_warn_message: str | None = None
 
         # 仅在初始轮（非 recovery pass）触发意图澄清，避免 HarnessRunner 重试时重复发问
         if stage_override is None:
@@ -657,6 +662,17 @@ class AgentRunner:
                     },
                 ]
                 pending_followup_prompt = None
+
+            # 注入循环检测警告消息（上一轮 WARN 决策设置）
+            if pending_loop_warn_message:
+                messages = [
+                    *messages,
+                    {
+                        "role": "system",
+                        "content": pending_loop_warn_message,
+                    },
+                ]
+                pending_loop_warn_message = None
 
             # 调用 LLM（流式）；若遇到上下文超限错误，自动压缩后重试一次
             full_text = ""
@@ -1161,6 +1177,46 @@ class AgentRunner:
                 iteration += 1
                 continue
             # ── Orchestrator 钩子结束 ─────────────────────────────────────────
+
+            # ── 循环检测守卫 ──────────────────────────────────────────────────
+            _loop_decision = self._loop_guard.check(tool_calls, session.id)
+            if _loop_decision == LoopGuardDecision.FORCE_STOP:
+                # 强制终止：跳过工具执行，推送说明性文本事件后退出循环
+                _stop_msg = (
+                    "⚠️ 检测到工具调用死循环（相同工具组合已重复调用多次），"
+                    "系统已自动终止当前任务。请尝试调整问题描述或手动干预。"
+                )
+                logger.warning(
+                    "循环守卫触发 FORCE_STOP: session=%s iteration=%d",
+                    session.id,
+                    iteration,
+                )
+                yield eb.build_text_event(
+                    content=_stop_msg,
+                    turn_id=turn_id,
+                    metadata={"source": "loop_guard", "decision": "force_stop"},
+                )
+                session.add_message(
+                    "assistant",
+                    _stop_msg,
+                    turn_id=turn_id,
+                    operation="complete",
+                )
+                yield eb.build_done_event(turn_id=turn_id)
+                return
+            elif _loop_decision == LoopGuardDecision.WARN:
+                # 警告：当前轮正常执行，但在下一轮注入 system 警告消息
+                pending_loop_warn_message = (
+                    "⚠️ 注意：你已重复调用了相同的工具组合多次，这可能表明你陷入了循环。"
+                    "请仔细反思当前状态，尝试换一种方法解决问题，或直接给出你目前能得出的结论。"
+                    "继续重复相同的工具调用将导致任务被强制终止。"
+                )
+                logger.info(
+                    "循环守卫触发 WARN: session=%s iteration=%d",
+                    session.id,
+                    iteration,
+                )
+            # ── 循环检测守卫结束 ──────────────────────────────────────────────
 
             for tc in tool_calls:
                 if should_stop():
