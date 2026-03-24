@@ -35,14 +35,10 @@ async def inject_knowledge(
         knowledge_max_chars if knowledge_max_chars is not None else settings.knowledge_max_chars
     )
     retrieval_event: dict[str, Any] | None = None
-    use_context_injector = bool(
-        getattr(knowledge_loader, "supports_context_injector", False)
-    )
+    use_context_injector = bool(getattr(knowledge_loader, "supports_context_injector", False))
 
     if not use_context_injector:
-        return fallback_knowledge_load(
-            knowledge_loader, last_user_msg, columns, context_parts
-        )
+        return fallback_knowledge_load(knowledge_loader, last_user_msg, columns, context_parts)
 
     try:
         from nini.knowledge.context_injector import inject_knowledge_to_prompt

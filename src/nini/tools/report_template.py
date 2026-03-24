@@ -56,7 +56,14 @@ JOURNAL_TEMPLATES: dict[str, JournalTemplate] = {
             "突出主要发现和创新点",
             "强调研究的广泛意义",
         ],
-        section_order=["abstract", "introduction", "results", "discussion", "methods", "references"],
+        section_order=[
+            "abstract",
+            "introduction",
+            "results",
+            "discussion",
+            "methods",
+            "references",
+        ],
         style_hints={
             "abstract_max_words": 150,
             "emphasize_novelty": True,
@@ -74,7 +81,14 @@ JOURNAL_TEMPLATES: dict[str, JournalTemplate] = {
             "深入讨论研究的含义",
             "适合跨学科读者",
         ],
-        section_order=["abstract", "introduction", "methods", "results", "discussion", "references"],
+        section_order=[
+            "abstract",
+            "introduction",
+            "methods",
+            "results",
+            "discussion",
+            "references",
+        ],
         style_hints={
             "abstract_max_words": 125,
             "interdisciplinary": True,
@@ -92,7 +106,14 @@ JOURNAL_TEMPLATES: dict[str, JournalTemplate] = {
             "深入的机制探讨",
             "丰富的补充材料",
         ],
-        section_order=["abstract", "introduction", "results", "discussion", "methods", "references"],
+        section_order=[
+            "abstract",
+            "introduction",
+            "results",
+            "discussion",
+            "methods",
+            "references",
+        ],
         style_hints={
             "abstract_max_words": 150,
             "detailed_methods": True,
@@ -110,7 +131,14 @@ JOURNAL_TEMPLATES: dict[str, JournalTemplate] = {
             "强调临床意义",
             "详细的安全性数据",
         ],
-        section_order=["abstract", "introduction", "methods", "results", "discussion", "references"],
+        section_order=[
+            "abstract",
+            "introduction",
+            "methods",
+            "results",
+            "discussion",
+            "references",
+        ],
         style_hints={
             "abstract_max_words": 250,
             "structured_abstract": True,
@@ -129,7 +157,14 @@ JOURNAL_TEMPLATES: dict[str, JournalTemplate] = {
             "政策建议",
             "健康公平性",
         ],
-        section_order=["abstract", "introduction", "methods", "results", "discussion", "references"],
+        section_order=[
+            "abstract",
+            "introduction",
+            "methods",
+            "results",
+            "discussion",
+            "references",
+        ],
         style_hints={
             "abstract_max_words": 300,
             "public_health_impact": True,
@@ -148,7 +183,14 @@ JOURNAL_TEMPLATES: dict[str, JournalTemplate] = {
             "结果与讨论分开",
             "强调统计严谨性",
         ],
-        section_order=["abstract", "introduction", "methods", "results", "discussion", "references"],
+        section_order=[
+            "abstract",
+            "introduction",
+            "methods",
+            "results",
+            "discussion",
+            "references",
+        ],
         style_hints={
             "abstract_max_words": 250,
             "hypothesis_driven": True,
@@ -167,7 +209,14 @@ JOURNAL_TEMPLATES: dict[str, JournalTemplate] = {
             "性能评估数据",
             "可复现的实现",
         ],
-        section_order=["abstract", "introduction", "methods", "results", "discussion", "references"],
+        section_order=[
+            "abstract",
+            "introduction",
+            "methods",
+            "results",
+            "discussion",
+            "references",
+        ],
         style_hints={
             "abstract_max_words": 200,
             "technical_innovation": True,
@@ -185,7 +234,15 @@ JOURNAL_TEMPLATES: dict[str, JournalTemplate] = {
             "平衡的详细程度",
             "适合大多数期刊",
         ],
-        section_order=["abstract", "introduction", "methods", "results", "discussion", "conclusion", "references"],
+        section_order=[
+            "abstract",
+            "introduction",
+            "methods",
+            "results",
+            "discussion",
+            "conclusion",
+            "references",
+        ],
         style_hints={
             "abstract_max_words": 250,
             "standard_imrad": True,
@@ -214,40 +271,40 @@ def list_templates() -> list[dict[str, Any]]:
 
 def get_section_order(template_id: str, selected_sections: list[str] | None = None) -> list[str]:
     """获取章节的推荐顺序。
-    
+
     Args:
         template_id: 模板ID
         selected_sections: 用户选择的章节（可选）
-        
+
     Returns:
         按模板排序的章节列表
     """
     template = get_template(template_id)
     if not template:
         template = JOURNAL_TEMPLATES["default"]
-    
+
     order = template.section_order
-    
+
     if selected_sections:
         # 只返回用户选择且存在于模板顺序中的章节
         return [s for s in order if s in selected_sections]
-    
+
     return order
 
 
 def get_section_prompt(template_id: str, section_id: str, detail_level: str = "standard") -> str:
     """获取指定章节的生成提示。
-    
+
     Args:
         template_id: 模板ID
         section_id: 章节ID
         detail_level: 详细程度（brief/standard/detailed）
-        
+
     Returns:
         章节生成提示
     """
     template = get_template(template_id) or JOURNAL_TEMPLATES["default"]
-    
+
     section_prompts = {
         "abstract": _get_abstract_prompt(template, detail_level),
         "introduction": _get_introduction_prompt(template, detail_level),
@@ -258,14 +315,14 @@ def get_section_prompt(template_id: str, section_id: str, detail_level: str = "s
         "limitations": _get_limitations_prompt(template, detail_level),
         "references": _get_references_prompt(template, detail_level),
     }
-    
+
     return section_prompts.get(section_id, "")
 
 
 def _get_abstract_prompt(template: JournalTemplate, detail_level: str) -> str:
     """获取摘要生成提示。"""
     max_words = template.style_hints.get("abstract_max_words", 250)
-    
+
     if template.id == "nature":
         return f"""生成 Nature 风格的摘要（不超过 {max_words} 词）：
 - 第一句点明研究背景和创新点
@@ -273,14 +330,14 @@ def _get_abstract_prompt(template: JournalTemplate, detail_level: str) -> str:
 - 说明研究的广泛意义
 - 避免技术细节和统计数值
 - 使用非专业人士也能理解的语言"""
-    
+
     if template.id == "nejm":
         return f"""生成 NEJM 风格的结构化摘要（不超过 {max_words} 词）：
 - Background: 研究背景和 rationale
 - Methods: 研究设计、纳入排除标准、统计方法
 - Results: 主要终点和关键次要终点，包括具体数值和置信区间
 - Conclusions: 临床意义和安全性考量"""
-    
+
     if detail_level == "brief":
         return f"生成简洁摘要（{max_words//2} 词左右）：概述背景、方法要点、主要结果和结论。"
     elif detail_level == "detailed":
@@ -297,7 +354,7 @@ def _get_introduction_prompt(template: JournalTemplate, detail_level: str) -> st
 - 明确提出研究假设
 - 简述研究目的和理论基础
 - 结尾预告主要发现"""
-    
+
     return """生成标准引言：
 - 研究背景和意义
 - 现有研究的不足
@@ -312,7 +369,7 @@ def _get_methods_prompt(template: JournalTemplate, detail_level: str) -> str:
 - 仅描述核心方法
 - 详细方法放在补充材料
 - 说明统计软件版本和主要参数"""
-    
+
     if template.style_hints.get("clinical_focus"):
         return """生成详细的临床方法：
 - 研究设计和试验注册信息
@@ -322,7 +379,7 @@ def _get_methods_prompt(template: JournalTemplate, detail_level: str) -> str:
 - 终点指标定义
 - 统计分析方法（包括缺失值处理）
 - 伦理审批和知情同意"""
-    
+
     return """生成标准方法描述：
 - 数据来源和收集方法
 - 实验设计
@@ -338,7 +395,7 @@ def _get_results_prompt(template: JournalTemplate, detail_level: str) -> str:
 - 仅报告主要发现
 - 包含关键统计量（p值、效应量）
 - 避免重复图表中的详细数据"""
-    
+
     return """生成完整的结果描述：
 - 按逻辑顺序呈现发现
 - 报告主要和次要终点
@@ -350,28 +407,28 @@ def _get_results_prompt(template: JournalTemplate, detail_level: str) -> str:
 def _get_discussion_prompt(template: JournalTemplate, detail_level: str) -> str:
     """获取讨论生成提示。"""
     hints = []
-    
+
     if template.style_hints.get("broad_implications"):
         hints.append("强调研究发现的广泛意义")
-    
+
     if template.style_hints.get("mechanistic_insights"):
         hints.append("深入探讨机制")
-    
+
     if template.style_hints.get("clinical_focus"):
         hints.append("讨论临床意义和实际应用")
-    
+
     if template.style_hints.get("public_health_impact"):
         hints.append("评估公共卫生影响和政策建议")
-    
+
     base_prompt = """生成讨论：
 - 主要发现的总结和解释
 - 与现有文献的比较
 - 研究的意义（理论/实践/临床）
 """
-    
+
     if hints:
         base_prompt += "\n特别关注点：\n- " + "\n- ".join(hints)
-    
+
     return base_prompt
 
 

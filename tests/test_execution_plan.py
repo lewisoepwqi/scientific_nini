@@ -232,9 +232,7 @@ class TestPlannerAgent:
 
         session = Session()
         planner = PlannerAgent(
-            resolver=_FakeResolver(
-                {"intent": "比较对照组与处理组的血压差异", "must_haves": []}
-            )
+            resolver=_FakeResolver({"intent": "比较对照组与处理组的血压差异", "must_haves": []})
         )
 
         user_message = "帮我分析对照组和处理组的血压数据有没有显著差异"
@@ -252,9 +250,7 @@ class TestPlannerAgent:
         from nini.agent.session import Session
 
         session = Session()
-        planner = PlannerAgent(
-            resolver=_FakeResolver({"intent": "分析数据差异", "must_haves": []})
-        )
+        planner = PlannerAgent(resolver=_FakeResolver({"intent": "分析数据差异", "must_haves": []}))
 
         # 没有数据集的会话
         user_message = "分析数据差异"

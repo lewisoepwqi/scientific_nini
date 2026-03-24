@@ -36,10 +36,10 @@ from nini.config import settings
 from nini.tools.registry import create_default_tool_registry
 from nini.workspace import WorkspaceManager
 
-
 # =============================================================================
 # 回放数据模型
 # =============================================================================
+
 
 class PlaybackEvent:
     """回放事件基类。"""
@@ -80,6 +80,7 @@ class UserMessageEvent(PlaybackEvent):
 # 会话 13839f39e762 的关键事件序列（重构后）
 # =============================================================================
 
+
 def get_session_playback_events() -> list[PlaybackEvent]:
     """
     获取会话 13839f39e762 的关键回放事件。
@@ -106,7 +107,6 @@ def get_session_playback_events() -> list[PlaybackEvent]:
             {"operation": "load", "file_path": "experiment_data.csv"},
             expected_resource_id="ds_experiment_001",
         ),
-
         # Turn 2: 数据清洗和转换
         UserMessageEvent("turn_2", "请清洗数据，合并重复项并创建月份列"),
         ToolCallEvent(
@@ -117,13 +117,16 @@ def get_session_playback_events() -> list[PlaybackEvent]:
                 "input_datasets": ["experiment_data"],
                 "steps": [
                     {"id": "clean", "op": "clean_data", "params": {"remove_duplicates": True}},
-                    {"id": "derive_month", "op": "derive_column", "params": {"column": "month", "expr": "date.dt.month"}},
+                    {
+                        "id": "derive_month",
+                        "op": "derive_column",
+                        "params": {"column": "month", "expr": "date.dt.month"},
+                    },
                 ],
                 "output_dataset_name": "cleaned_data",
             },
             expected_resource_id="tf_clean_001",
         ),
-
         # Turn 3: 创建图表（使用 chart_session 而非直接代码）
         UserMessageEvent("turn_3", "绘制月度趋势图"),
         ToolCallEvent(
@@ -140,7 +143,6 @@ def get_session_playback_events() -> list[PlaybackEvent]:
             },
             expected_resource_id="chart_monthly_trend",
         ),
-
         # Turn 4: 导出图表
         ToolCallEvent(
             "turn_4",
@@ -158,6 +160,7 @@ def get_session_playback_events() -> list[PlaybackEvent]:
 # =============================================================================
 # 端到端回放测试
 # =============================================================================
+
 
 @pytest.fixture(autouse=True)
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -190,11 +193,13 @@ class TestSessionPlayback13839f39e762:
         session = Session()
 
         # 模拟原始数据
-        raw_data = pd.DataFrame({
-            "date": pd.date_range("2024-01-01", periods=10),
-            "value": [10, 12, 11, 13, 15, 14, 16, 18, 17, 19],
-            "group": ["A"] * 5 + ["B"] * 5,
-        })
+        raw_data = pd.DataFrame(
+            {
+                "date": pd.date_range("2024-01-01", periods=10),
+                "value": [10, 12, 11, 13, 15, 14, 16, 18, 17, 19],
+                "group": ["A"] * 5 + ["B"] * 5,
+            }
+        )
         session.datasets["raw_data"] = raw_data
 
         # 步骤1: 数据转换生成中间数据集
@@ -203,7 +208,11 @@ class TestSessionPlayback13839f39e762:
             session,
             input_datasets=["raw_data"],
             steps=[
-                {"id": "derive", "op": "derive_column", "params": {"column": "month", "expr": "date.dt.month"}},
+                {
+                    "id": "derive",
+                    "op": "derive_column",
+                    "params": {"column": "month", "expr": "date.dt.month"},
+                },
             ],
             output_dataset_name="intermediate_data",
         )
@@ -265,10 +274,12 @@ class TestSessionPlayback13839f39e762:
         session = Session()
 
         # 准备数据
-        session.datasets["data"] = pd.DataFrame({
-            "x": [1, 2, 3],
-            "y": [4, 5, 6],
-        })
+        session.datasets["data"] = pd.DataFrame(
+            {
+                "x": [1, 2, 3],
+                "y": [4, 5, 6],
+            }
+        )
 
         # 创建图表会话
         result = self._run_chart_create(
@@ -402,7 +413,12 @@ class TestSessionPlayback13839f39e762:
     # ==========================================================================
 
     def _run_transform(
-        self, registry, session, input_datasets: list[str], steps: list[dict], output_dataset_name: str
+        self,
+        registry,
+        session,
+        input_datasets: list[str],
+        steps: list[dict],
+        output_dataset_name: str,
     ) -> dict:
         """执行数据转换。"""
         import asyncio
@@ -418,9 +434,7 @@ class TestSessionPlayback13839f39e762:
             )
         )
 
-    def _run_chart_create(
-        self, registry, session, chart_id: str, dataset_name: str
-    ) -> dict:
+    def _run_chart_create(self, registry, session, chart_id: str, dataset_name: str) -> dict:
         """创建图表会话。"""
         import asyncio
 
@@ -437,9 +451,7 @@ class TestSessionPlayback13839f39e762:
             )
         )
 
-    def _run_chart_export(
-        self, registry, session, chart_id: str, format: str
-    ) -> dict:
+    def _run_chart_export(self, registry, session, chart_id: str, format: str) -> dict:
         """导出图表。"""
         import asyncio
 
@@ -458,6 +470,7 @@ class TestSessionPlayback13839f39e762:
 # =============================================================================
 # 回放测试基础设施（待扩展）
 # =============================================================================
+
 
 class SessionPlaybackRunner:
     """

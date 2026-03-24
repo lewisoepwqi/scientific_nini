@@ -21,7 +21,7 @@ class TestExplainabilityWorkflow:
             rationale="数据包含3个分组，适合使用方差分析",
             reasoning_type="decision",
             confidence_score=0.85,
-            key_decisions=["使用 ANOVA", "设置 alpha=0.05"]
+            key_decisions=["使用 ANOVA", "设置 alpha=0.05"],
         )
 
         # 验证数据结构
@@ -44,15 +44,11 @@ class TestExplainabilityWorkflow:
 
         # 添加多个推理节点
         node1 = tracker.add_reasoning(
-            content="分析数据分布",
-            reasoning_type="analysis",
-            confidence_score=0.9
+            content="分析数据分布", reasoning_type="analysis", confidence_score=0.9
         )
 
         node2 = tracker.add_reasoning(
-            content="选择统计方法",
-            reasoning_type="decision",
-            confidence_score=0.85
+            content="选择统计方法", reasoning_type="decision", confidence_score=0.85
         )
 
         # 验证链式结构
@@ -118,7 +114,7 @@ class TestExplainabilityWorkflow:
             thought="选择 ANOVA",
             rationale="适合多组比较",
             alternatives=["t-test", "Kruskal-Wallis"],
-            confidence=0.9
+            confidence=0.9,
         )
 
         assert event.type == EventType.REASONING
@@ -154,7 +150,7 @@ class TestReasoningTimelineComponent:
             "status": "completed",
             "timestamp": "2024-01-01T00:00:00Z",
             "confidence": 0.9,
-            "keyDecisions": ["使用 ANOVA"]
+            "keyDecisions": ["使用 ANOVA"],
         }
 
         assert step["id"] == "step-1"
@@ -181,7 +177,7 @@ class TestDecisionTagComponent:
             "text": "使用 ANOVA 方法",
             "type": "primary",
             "confidence": 0.9,
-            "icon": "target"
+            "icon": "target",
         }
 
         assert decision["text"] == "使用 ANOVA 方法"

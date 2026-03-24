@@ -12,6 +12,7 @@ from nini.knowledge.loader import KnowledgeEntry, KnowledgeLoader
 # 导出 BM25 检索器（本地优先）
 try:
     from nini.knowledge.local_bm25 import LocalBM25Retriever
+
     _bm25_available = True
 except ImportError:
     _bm25_available = False

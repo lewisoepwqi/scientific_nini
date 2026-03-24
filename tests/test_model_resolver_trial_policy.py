@@ -65,8 +65,15 @@ async def test_builtin_fast_exhausted_prompts_switch_to_deep() -> None:
             AsyncMock(return_value=[]),
         ),
     ):
-        with pytest.raises(RuntimeError, match="系统内置「快速」试用额度已用完，请切换到「深度」继续使用。"):
-            _ = [chunk async for chunk in resolver.chat([{"role": "user", "content": "hi"}], purpose="chat")]
+        with pytest.raises(
+            RuntimeError, match="系统内置「快速」试用额度已用完，请切换到「深度」继续使用。"
+        ):
+            _ = [
+                chunk
+                async for chunk in resolver.chat(
+                    [{"role": "user", "content": "hi"}], purpose="chat"
+                )
+            ]
 
 
 @pytest.mark.asyncio
@@ -87,7 +94,12 @@ async def test_builtin_quota_all_exhausted_prompts_user_to_configure_provider() 
             RuntimeError,
             match="系统内置试用额度已全部用完，请在「AI 设置」中配置自己的模型服务商继续使用。",
         ):
-            _ = [chunk async for chunk in resolver.chat([{"role": "user", "content": "hi"}], purpose="chat")]
+            _ = [
+                chunk
+                async for chunk in resolver.chat(
+                    [{"role": "user", "content": "hi"}], purpose="chat"
+                )
+            ]
 
 
 @pytest.mark.asyncio
@@ -112,7 +124,12 @@ async def test_single_user_provider_does_not_auto_fallback() -> None:
         AsyncMock(return_value=["openai"]),
     ):
         with pytest.raises(RuntimeError, match="所有 LLM 客户端均失败: openai: quota exceeded"):
-            _ = [chunk async for chunk in resolver.chat([{"role": "user", "content": "hi"}], purpose="chat")]
+            _ = [
+                chunk
+                async for chunk in resolver.chat(
+                    [{"role": "user", "content": "hi"}], purpose="chat"
+                )
+            ]
 
 
 @pytest.mark.asyncio

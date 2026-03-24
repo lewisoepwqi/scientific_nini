@@ -15,7 +15,6 @@ import pytest
 from nini.tools.markdown_scanner import scan_markdown_tools
 from nini.capabilities.defaults import create_default_capabilities
 
-
 # ---------------------------------------------------------------------------
 # Markdown Skill 扫描测试
 # ---------------------------------------------------------------------------
@@ -48,9 +47,7 @@ def test_article_draft_skill_has_instruction_body():
     """SKILL.md 正文（工作流说明）不能为空。"""
     from nini.tools.markdown_scanner import get_markdown_tool_instruction
 
-    skill_path = (
-        Path(__file__).parent.parent / ".nini" / "skills" / "article-draft" / "SKILL.md"
-    )
+    skill_path = Path(__file__).parent.parent / ".nini" / "skills" / "article-draft" / "SKILL.md"
     assert skill_path.exists(), f"SKILL.md 不存在: {skill_path}"
 
     payload = get_markdown_tool_instruction(skill_path)
@@ -95,4 +92,6 @@ def test_article_draft_capability_suggested_workflow():
     assert "data_summary" in cap.suggested_workflow
     assert "edit_file" in cap.suggested_workflow
     assert "export_document" in cap.suggested_workflow
-    assert "workspace_session" in cap.suggested_workflow  # list_workspace_files 已合并到 workspace_session
+    assert (
+        "workspace_session" in cap.suggested_workflow
+    )  # list_workspace_files 已合并到 workspace_session

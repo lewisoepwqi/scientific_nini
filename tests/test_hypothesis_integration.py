@@ -18,7 +18,6 @@ from nini.agent.hypothesis_context import Hypothesis, HypothesisContext
 from nini.agent.spawner import SubAgentResult, SubAgentSpawner
 from nini.agent.registry import AgentDefinition
 
-
 # ── 辅助函数 ───────────────────────────────────────────────────────────────────
 
 
@@ -55,6 +54,7 @@ def make_session_with_capture() -> tuple:
 
 def make_tool_registry():
     from unittest.mock import MagicMock
+
     registry = MagicMock()
     registry.create_subset.return_value = MagicMock()
     return registry
@@ -62,6 +62,7 @@ def make_tool_registry():
 
 def make_registry(agent_def: AgentDefinition):
     from unittest.mock import MagicMock
+
     registry = MagicMock()
     registry.get.return_value = agent_def
     return registry
@@ -79,6 +80,7 @@ async def test_paradigm_switched_precedes_hypothesis_generated():
 
     async def mock_runner_run(sess, task):
         from nini.agent.events import AgentEvent, EventType
+
         yield AgentEvent(type=EventType.TEXT, data="假设：近5年XXX领域存在显著趋势")
 
     with patch("nini.agent.runner.AgentRunner") as MockRunner:
@@ -92,7 +94,9 @@ async def test_paradigm_switched_precedes_hypothesis_generated():
     # 验证顺序
     paradigm_idx = next(i for i, e in enumerate(captured) if e.type.value == "paradigm_switched")
     hyp_idx = next(i for i, e in enumerate(captured) if e.type.value == "hypothesis_generated")
-    assert paradigm_idx < hyp_idx, f"paradigm_switched({paradigm_idx}) 应在 hypothesis_generated({hyp_idx}) 之前"
+    assert (
+        paradigm_idx < hyp_idx
+    ), f"paradigm_switched({paradigm_idx}) 应在 hypothesis_generated({hyp_idx}) 之前"
 
 
 # ── 测试 2：paradigm_switched 事件 data 结构可 JSON 序列化 ────────────────────
@@ -107,6 +111,7 @@ async def test_hypothesis_events_json_serializable():
 
     async def mock_runner_run(sess, task):
         from nini.agent.events import AgentEvent, EventType
+
         yield AgentEvent(type=EventType.TEXT, data="假设推理内容")
 
     with patch("nini.agent.runner.AgentRunner") as MockRunner:
@@ -135,6 +140,7 @@ async def test_hypothesis_generated_event_data_structure():
 
     async def mock_runner_run(sess, task):
         from nini.agent.events import AgentEvent, EventType
+
         yield AgentEvent(type=EventType.TEXT, data="近5年研究表明XXX")
 
     with patch("nini.agent.runner.AgentRunner") as MockRunner:
@@ -164,6 +170,7 @@ async def test_paradigm_switched_event_data_structure():
 
     async def mock_runner_run(sess, task):
         from nini.agent.events import AgentEvent, EventType
+
         yield AgentEvent(type=EventType.TEXT, data="")
 
     with patch("nini.agent.runner.AgentRunner") as MockRunner:
@@ -193,6 +200,7 @@ async def test_evidence_collected_in_second_iteration():
 
     async def mock_runner_run(sess, task):
         from nini.agent.events import AgentEvent, EventType
+
         call_count[0] += 1
         yield AgentEvent(type=EventType.TEXT, data=f"第{call_count[0]}轮输出")
 
@@ -204,9 +212,9 @@ async def test_evidence_collected_in_second_iteration():
 
     event_types = [e.type.value for e in captured]
     # 至少有一次 evidence_collected（第2轮+）
-    assert "evidence_collected" in event_types, (
-        f"未收到 evidence_collected，实际事件类型：{event_types}"
-    )
+    assert (
+        "evidence_collected" in event_types
+    ), f"未收到 evidence_collected，实际事件类型：{event_types}"
 
 
 # ── 测试 6：hypothesis_validated 在置信度达到阈值时推送 ──────────────────────
@@ -222,6 +230,7 @@ async def test_hypothesis_validated_when_confidence_high():
     # 跑 3 轮，每轮 +0.15 支持证据，起始 0.5 → 0.65 → validated
     async def mock_runner_run(sess, task):
         from nini.agent.events import AgentEvent, EventType
+
         yield AgentEvent(type=EventType.TEXT, data="强有力的证据支持该假设")
 
     with patch("nini.agent.runner.AgentRunner") as MockRunner:
@@ -250,6 +259,7 @@ async def test_spawn_entry_point_emits_hypothesis_events():
 
     async def mock_runner_run(sess, task):
         from nini.agent.events import AgentEvent, EventType
+
         yield AgentEvent(type=EventType.TEXT, data="假设推理")
 
     with patch("nini.agent.runner.AgentRunner") as MockRunner:

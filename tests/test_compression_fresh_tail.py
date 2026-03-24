@@ -28,9 +28,9 @@ class TestFreshTailProtection:
         session = _make_session_with_messages(25)
         result = compress_session_history(session, ratio=0.2, min_messages=20)
         assert result["success"] is True
-        assert len(session.messages) == 20, (
-            f"应保留 20 条，实际保留 {len(session.messages)} 条 (Bug 未修复)"
-        )
+        assert (
+            len(session.messages) == 20
+        ), f"应保留 20 条，实际保留 {len(session.messages)} 条 (Bug 未修复)"
 
     def test_keep_recent_respected_various_totals(self):
         """不同消息总数下，保留数量均符合 min_messages 约束。"""
@@ -55,9 +55,9 @@ class TestFreshTailProtection:
         result = compress_session_history(session, ratio=0.3, min_messages=20)
         assert result["success"] is True
         archived = result["archived_count"]
-        assert archived <= int(100 * 0.3) + 1, (
-            f"单次归档不应超过 ratio=0.3 的 30 条，实际归档 {archived} 条"
-        )
+        assert (
+            archived <= int(100 * 0.3) + 1
+        ), f"单次归档不应超过 ratio=0.3 的 30 条，实际归档 {archived} 条"
         assert len(session.messages) >= 20
 
     def test_archive_at_least_one(self):
@@ -106,11 +106,9 @@ class TestFreshTailProtectionLLM:
             return_value="摘要内容",
         ):
             session = _make_session_with_messages(30)
-            result = await compress_session_history_with_llm(
-                session, ratio=0.5, min_messages=20
-            )
+            result = await compress_session_history_with_llm(session, ratio=0.5, min_messages=20)
 
         assert result["success"] is True
-        assert len(session.messages) >= 20, (
-            f"LLM 压缩后应保留 >=20 条，实际 {len(session.messages)} 条"
-        )
+        assert (
+            len(session.messages) >= 20
+        ), f"LLM 压缩后应保留 >=20 条，实际 {len(session.messages)} 条"

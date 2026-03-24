@@ -338,18 +338,27 @@ async def test_priority_placeholder_does_not_block_first_dual_mode_config() -> N
 
 def test_infer_api_mode_from_base_url() -> None:
     """应能根据已知端点反推双模式供应商的模式。"""
-    assert infer_api_mode_from_base_url(
-        "zhipu",
-        "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-    ) == API_MODE_STANDARD
-    assert infer_api_mode_from_base_url(
-        "dashscope",
-        "https://coding.dashscope.aliyuncs.com/v1",
-    ) == API_MODE_CODING_PLAN
-    assert infer_api_mode_from_base_url(
-        "dashscope",
-        "https://example.com/custom",
-    ) is None
+    assert (
+        infer_api_mode_from_base_url(
+            "zhipu",
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        )
+        == API_MODE_STANDARD
+    )
+    assert (
+        infer_api_mode_from_base_url(
+            "dashscope",
+            "https://coding.dashscope.aliyuncs.com/v1",
+        )
+        == API_MODE_CODING_PLAN
+    )
+    assert (
+        infer_api_mode_from_base_url(
+            "dashscope",
+            "https://example.com/custom",
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio
@@ -502,7 +511,9 @@ def test_list_models_ollama_status_after_delete_db_config(
     assert final_ollama["config_source"] == expected_source
 
 
-def test_list_models_returns_dual_mode_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_list_models_returns_dual_mode_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`/api/models` 应返回双模式供应商的模式与锁定状态。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
     settings.ensure_dirs()

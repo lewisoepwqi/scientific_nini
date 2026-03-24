@@ -1680,6 +1680,7 @@ class WorkspaceManager:
 
     def get_file_preview_by_path(self, relative_path: str) -> dict[str, Any]:
         """按路径获取文件预览。"""
+        target: Path | None = None
         try:
             target = self.resolve_workspace_path(relative_path, allow_missing=False)
         except FileNotFoundError:
@@ -1687,6 +1688,8 @@ class WorkspaceManager:
             target = self._resolve_fuzzy_filename(relative_path)
             if target is None:
                 raise FileNotFoundError(relative_path)
+        if target is None:
+            raise FileNotFoundError(relative_path)
         if target.is_dir():
             raise IsADirectoryError(relative_path)
 

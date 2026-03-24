@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # 尝试导入 embedding 依赖
 try:
     import numpy as np
+
     NUMPY_AVAILABLE = True
 except ImportError:
     NUMPY_AVAILABLE = False
@@ -46,7 +47,7 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
         if norm_a == 0 or norm_b == 0:
             return 0.0
         return dot / (norm_a * norm_b)
-    
+
     # NumPy 实现（更快）
     a_arr = np_module.array(a, dtype=np_module.float32)
     b_arr = np_module.array(b, dtype=np_module.float32)
@@ -110,6 +111,7 @@ class SimpleEmbeddingProvider:
             return self._client
 
         from nini.config import settings
+
         if not settings.openai_api_key:
             return None
 

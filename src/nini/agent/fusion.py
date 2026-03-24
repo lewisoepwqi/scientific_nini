@@ -84,7 +84,9 @@ class ResultFusionEngine:
         conflicts = self._detect_conflicts(results)
 
         if self._resolver is None:
-            logger.warning("ResultFusionEngine._summarize: model_resolver 未配置，降级为 concatenate")
+            logger.warning(
+                "ResultFusionEngine._summarize: model_resolver 未配置，降级为 concatenate"
+            )
             fallback = self._concatenate(results)
             fallback.conflicts = conflicts
             return fallback
@@ -113,7 +115,9 @@ class ResultFusionEngine:
             fallback.conflicts = conflicts
             return fallback
         except Exception as exc:
-            logger.warning("ResultFusionEngine._summarize: LLM 调用失败: %s，降级为 concatenate", exc)
+            logger.warning(
+                "ResultFusionEngine._summarize: LLM 调用失败: %s，降级为 concatenate", exc
+            )
             fallback = self._concatenate(results)
             fallback.conflicts = conflicts
             return fallback
@@ -124,7 +128,9 @@ class ResultFusionEngine:
         conflicts = self._detect_conflicts(results)
 
         if self._resolver is None:
-            logger.warning("ResultFusionEngine._consensus: model_resolver 未配置，降级为 concatenate")
+            logger.warning(
+                "ResultFusionEngine._consensus: model_resolver 未配置，降级为 concatenate"
+            )
             fallback = self._concatenate(results)
             fallback.conflicts = conflicts
             return fallback
@@ -145,7 +151,9 @@ class ResultFusionEngine:
                 sources=sources,
             )
         except (asyncio.TimeoutError, Exception) as exc:
-            logger.warning("ResultFusionEngine._consensus: LLM 调用失败: %s，降级为 concatenate", exc)
+            logger.warning(
+                "ResultFusionEngine._consensus: LLM 调用失败: %s，降级为 concatenate", exc
+            )
             fallback = self._concatenate(results)
             fallback.conflicts = conflicts
             return fallback
@@ -171,8 +179,10 @@ class ResultFusionEngine:
 
         # 将批次结果转换为伪 SubAgentResult，再汇总
         if len(batch_results) <= 1:
-            result = batch_results[0] if batch_results else FusionResult(
-                content="", strategy="hierarchical"
+            result = (
+                batch_results[0]
+                if batch_results
+                else FusionResult(content="", strategy="hierarchical")
             )
             result.sources = sources
             result.strategy = "hierarchical"

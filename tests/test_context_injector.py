@@ -150,7 +150,7 @@ class TestInjectKnowledgeToPrompt:
                     title="测试文档",
                     content="这是内容",
                     excerpt="这是摘要",
-                    relevance_score=0.9
+                    relevance_score=0.9,
                 )
             ]
             mock_retriever.search = AsyncMock(return_value=mock_result)

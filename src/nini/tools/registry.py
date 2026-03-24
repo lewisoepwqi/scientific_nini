@@ -256,7 +256,7 @@ class ToolRegistry:
         self, *, skill: Any, session: Session, kwargs: dict[str, Any]
     ):
         return await self._function_ops._execute_tool_in_thread(
-            skill=skill,
+            tool=skill,
             session=session,
             kwargs=kwargs,
         )

@@ -1598,7 +1598,7 @@ async def list_tools():
 
 
 @router.get("/skills", response_model=APIResponse)
-async def list_tools(skill_type: str | None = None):
+async def list_skills(skill_type: str | None = None):
     """获取技能目录。
 
     参数：

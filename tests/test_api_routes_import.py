@@ -17,36 +17,42 @@ class TestRouteModuleImport:
     def test_session_routes_import(self):
         """session_routes 模块应能正确导入。"""
         from nini.api.session_routes import router
+
         assert router is not None
         assert len(router.routes) > 0
 
     def test_workspace_routes_import(self):
         """workspace_routes 模块应能正确导入。"""
         from nini.api.workspace_routes import router
+
         assert router is not None
         assert len(router.routes) > 0
 
     def test_skill_routes_import(self):
         """skill_routes 模块应能正确导入。"""
         from nini.api.skill_routes import router
+
         assert router is not None
         assert len(router.routes) > 0
 
     def test_profile_routes_import(self):
         """profile_routes 模块应能正确导入。"""
         from nini.api.profile_routes import router
+
         assert router is not None
         assert len(router.routes) > 0
 
     def test_models_routes_import(self):
         """models_routes 模块应能正确导入。"""
         from nini.api.models_routes import router
+
         assert router is not None
         assert len(router.routes) > 0
 
     def test_intent_routes_import(self):
         """intent_routes 模块应能正确导入。"""
         from nini.api.intent_routes import router
+
         assert router is not None
         assert len(router.routes) > 0
 
@@ -59,10 +65,10 @@ class TestRoutesRegistration:
         from nini.api import routes
 
         # 检查是否有路由导入错误
-        if hasattr(routes, '_route_import_errors'):
-            assert len(routes._route_import_errors) == 0, (
-                f"路由导入错误: {routes._route_import_errors}"
-            )
+        if hasattr(routes, "_route_import_errors"):
+            assert (
+                len(routes._route_import_errors) == 0
+            ), f"路由导入错误: {routes._route_import_errors}"
 
     def test_all_routes_registered(self):
         """所有新路由模块的端点应被注册到主路由。"""
@@ -108,6 +114,7 @@ class TestRoutesWithApp:
     def app(self):
         """创建测试应用。"""
         from nini.app import create_app
+
         return create_app()
 
     def test_app_includes_all_routes(self, app: FastAPI):
@@ -136,10 +143,7 @@ class TestRoutesWithApp:
 
         if missing:
             available = sorted([p for p in all_paths if p.startswith("/api")])[:20]
-            pytest.fail(
-                f"缺少端点: {missing}\n"
-                f"可用端点（前20个）: {available}"
-            )
+            pytest.fail(f"缺少端点: {missing}\n" f"可用端点（前20个）: {available}")
 
     def test_workspace_routes_registered(self, app: FastAPI):
         """工作区路由应正确注册。"""
@@ -190,10 +194,7 @@ class TestEndpointsAvailability:
 
         app = create_app()
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://testserver"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             yield client
 
     @pytest.mark.asyncio
@@ -211,9 +212,9 @@ class TestEndpointsAvailability:
         response = await client.get("/api/workspace/test-session/folders")
         # 不应返回 404（路由未注册）
         # 可能返回 404 因为会话不存在，但那是业务逻辑，不是路由问题
-        assert response.status_code != 404 or "detail" in response.text, (
-            "端点返回404可能是因为路由未注册，检查错误信息"
-        )
+        assert (
+            response.status_code != 404 or "detail" in response.text
+        ), "端点返回404可能是因为路由未注册，检查错误信息"
 
 
 class TestModelRoutingEndpoint:
@@ -233,10 +234,7 @@ class TestModelRoutingEndpoint:
 
         app = create_app()
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://testserver"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             yield client
 
     @pytest.mark.asyncio
@@ -244,16 +242,8 @@ class TestModelRoutingEndpoint:
         """POST /api/models/routing 应正确处理 purpose_routes 字段。"""
         payload = {
             "purpose_routes": {
-                "chat": {
-                    "provider_id": "zhipu",
-                    "model": "glm-5",
-                    "base_url": None
-                },
-                "planning": {
-                    "provider_id": "zhipu",
-                    "model": "glm-5",
-                    "base_url": None
-                }
+                "chat": {"provider_id": "zhipu", "model": "glm-5", "base_url": None},
+                "planning": {"provider_id": "zhipu", "model": "glm-5", "base_url": None},
             }
         }
 
@@ -275,9 +265,7 @@ class TestModelRoutingEndpoint:
     @pytest.mark.asyncio
     async def test_set_model_routing_with_preferred_provider(self, client):
         """POST /api/models/routing 应正确处理 preferred_provider 字段。"""
-        payload = {
-            "preferred_provider": "deepseek"
-        }
+        payload = {"preferred_provider": "deepseek"}
 
         response = await client.post("/api/models/routing", json=payload)
 
@@ -290,12 +278,7 @@ class TestModelRoutingEndpoint:
     @pytest.mark.asyncio
     async def test_set_model_routing_with_purpose_providers_compat(self, client):
         """POST /api/models/routing 应兼容旧版 purpose_providers 字段。"""
-        payload = {
-            "purpose_providers": {
-                "chat": "openai",
-                "title_generation": "anthropic"
-            }
-        }
+        payload = {"purpose_providers": {"chat": "openai", "title_generation": "anthropic"}}
 
         response = await client.post("/api/models/routing", json=payload)
 
@@ -312,11 +295,7 @@ class TestModelRoutingEndpoint:
         """POST /api/models/routing 对无效提供商应返回错误。"""
         payload = {
             "purpose_routes": {
-                "chat": {
-                    "provider_id": "invalid_provider",
-                    "model": "test-model",
-                    "base_url": None
-                }
+                "chat": {"provider_id": "invalid_provider", "model": "test-model", "base_url": None}
             }
         }
 

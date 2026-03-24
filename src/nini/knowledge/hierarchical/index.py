@@ -65,8 +65,8 @@ class HierarchicalIndex:
 
         # 三级索引存储
         self.l0_index: dict[str, DocumentNode] = {}  # doc_id -> DocumentNode
-        self.l1_index: dict[str, SectionNode] = {}   # section_id -> SectionNode
-        self.l2_index: dict[str, ChunkNode] = {}     # chunk_id -> ChunkNode
+        self.l1_index: dict[str, SectionNode] = {}  # section_id -> SectionNode
+        self.l2_index: dict[str, ChunkNode] = {}  # chunk_id -> ChunkNode
 
         # 父子关系映射
         self.parent_map: dict[str, str] = {}  # child_id -> parent_id

@@ -168,10 +168,12 @@ class TestRegressionAnalysisCapability:
     async def test_insufficient_sample_size(self, capability):
         """测试样本量不足的情况。"""
         # 创建小数据集
-        df = pd.DataFrame({
-            "x1": [1, 2, 3],
-            "y": [1, 2, 3],
-        })
+        df = pd.DataFrame(
+            {
+                "x1": [1, 2, 3],
+                "y": [1, 2, 3],
+            }
+        )
         session = Session()
         session.datasets["small_data"] = df
 

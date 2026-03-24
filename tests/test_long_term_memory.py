@@ -191,6 +191,7 @@ async def test_high_importance_triggers_consolidation(tmp_path):
         new_callable=AsyncMock,
     ) as mock_consolidate:
         import asyncio
+
         mock_task = asyncio.Future()
         mock_task.set_result(0)
 

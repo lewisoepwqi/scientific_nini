@@ -212,8 +212,7 @@ def test_websocket_file_name_confirmation_is_converted_to_ask_user_question(
         if call_state["count"] == 1:
             yield LLMChunk(
                 text=(
-                    f"建议文件名为 `{suggestion}`。"
-                    "您确认使用此文件名，或希望修改后再生成文章？"
+                    f"建议文件名为 `{suggestion}`。" "您确认使用此文件名，或希望修改后再生成文章？"
                 )
             )
             return
@@ -302,7 +301,9 @@ def test_websocket_sandbox_import_approval_flow(
         assert tool_name == "run_code"
         run_code_calls["count"] += 1
         extra_allowed_imports = kwargs.get("extra_allowed_imports") or []
-        if "sympy" not in extra_allowed_imports and not session.has_sandbox_import_approval("sympy"):
+        if "sympy" not in extra_allowed_imports and not session.has_sandbox_import_approval(
+            "sympy"
+        ):
             return {
                 "success": False,
                 "message": "继续执行前需要用户审批导入扩展包：sympy",

@@ -177,9 +177,9 @@ class LocalBM25Retriever:
                 for word in words:
                     word = word.strip()
                     # 中文长词（3字以上）生成 bi-gram
-                    if len(word) >= 3 and all('\u4e00' <= c <= '\u9fff' for c in word):
+                    if len(word) >= 3 and all("\u4e00" <= c <= "\u9fff" for c in word):
                         for i in range(len(word) - 1):
-                            bigram = word[i:i + 2]
+                            bigram = word[i : i + 2]
                             tokens.append(bigram)
             else:
                 self._jieba_available = False

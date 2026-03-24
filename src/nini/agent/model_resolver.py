@@ -312,7 +312,7 @@ class ModelResolver:
     def _load_encrypted_packaged_secret(name: str) -> str | None:
         """从打包阶段生成的模块中读取并解密密钥。"""
         try:
-            from nini import _builtin_key  # type: ignore[import]
+            from nini import _builtin_key  # type: ignore[attr-defined, import-not-found]
 
             value = getattr(_builtin_key, name, None)
             if isinstance(value, str) and value:

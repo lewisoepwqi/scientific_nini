@@ -29,9 +29,7 @@ async def test_consolidate_high_confidence_finding_is_saved(mock_store, tmp_path
     from nini.memory.compression import AnalysisMemory, Finding
 
     memory = AnalysisMemory(session_id="sess1", dataset_name="data.csv")
-    memory.findings.append(
-        Finding(category="normality", summary="数据近似正态", confidence=0.85)
-    )
+    memory.findings.append(Finding(category="normality", summary="数据近似正态", confidence=0.85))
 
     # consolidate_session_memories 内部做 from nini.memory.compression import list_session_analysis_memories
     # 因此 patch 路径需指向实际被导入的位置
@@ -59,9 +57,7 @@ async def test_consolidate_low_confidence_finding_is_skipped(mock_store, tmp_pat
     from nini.memory.compression import AnalysisMemory, Finding
 
     memory = AnalysisMemory(session_id="sess2", dataset_name="data.csv")
-    memory.findings.append(
-        Finding(category="outlier", summary="可能存在异常值", confidence=0.5)
-    )
+    memory.findings.append(Finding(category="outlier", summary="可能存在异常值", confidence=0.5))
 
     with (
         patch(
@@ -87,12 +83,8 @@ async def test_consolidate_statistic_significant_has_higher_importance(mock_stor
     from nini.memory.compression import AnalysisMemory, StatisticResult
 
     memory = AnalysisMemory(session_id="sess3", dataset_name="data.csv")
-    memory.statistics.append(
-        StatisticResult(test_name="t_test", significant=True, p_value=0.02)
-    )
-    memory.statistics.append(
-        StatisticResult(test_name="anova", significant=False, p_value=0.45)
-    )
+    memory.statistics.append(StatisticResult(test_name="t_test", significant=True, p_value=0.02))
+    memory.statistics.append(StatisticResult(test_name="anova", significant=False, p_value=0.45))
 
     importance_scores = []
     mock_store.add_memory = MagicMock(

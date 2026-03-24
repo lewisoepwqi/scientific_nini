@@ -265,10 +265,10 @@ class TaskRouter:
 
         if self._resolver is None or not self._enable_llm_fallback:
             # 无 LLM 时逐个规则路由
-            results = []
+            rule_results = []
             for task in tasks:
-                results.append(self._rule_route(task))
-            return results
+                rule_results.append(self._rule_route(task))
+            return rule_results
 
         tasks_json = json.dumps(tasks, ensure_ascii=False, indent=2)
         prompt = _LLM_BATCH_ROUTING_PROMPT.format(tasks_json=tasks_json)
@@ -288,7 +288,7 @@ class TaskRouter:
             if not isinstance(data_list, list):
                 raise ValueError(f"期望 JSON 数组，实际: {type(data_list)}")
 
-            results: list[RoutingDecision] = []
+            routed_results: list[RoutingDecision] = []
             for i, (task, data) in enumerate(zip(tasks, data_list)):
                 agent_ids = data.get("agent_ids", [])
                 sub_tasks = data.get("tasks", [])
@@ -300,7 +300,7 @@ class TaskRouter:
                 elif len(sub_tasks) > len(agent_ids):
                     sub_tasks = sub_tasks[: len(agent_ids)]
 
-                results.append(
+                routed_results.append(
                     RoutingDecision(
                         agent_ids=agent_ids,
                         tasks=sub_tasks,
@@ -311,10 +311,10 @@ class TaskRouter:
                 )
 
             # 若 LLM 返回数量不足，补充规则路由
-            for task in tasks[len(results) :]:
-                results.append(self._rule_route(task))
+            for task in tasks[len(routed_results) :]:
+                routed_results.append(self._rule_route(task))
 
-            return results
+            return routed_results
 
         except Exception as exc:
             logger.warning("TaskRouter.route_batch LLM 调用失败: %s，降级为规则路由", exc)

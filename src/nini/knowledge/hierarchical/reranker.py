@@ -175,9 +175,7 @@ class CrossEncoderReranker:
 
             # 在后台线程中执行模型推理
             loop = asyncio.get_event_loop()
-            batch_scores = await loop.run_in_executor(
-                None, self._model.predict, batch
-            )
+            batch_scores = await loop.run_in_executor(None, self._model.predict, batch)
             scores.extend(batch_scores)
 
         return scores

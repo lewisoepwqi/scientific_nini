@@ -167,7 +167,7 @@ class TestReasoningEdgeCases:
     def test_special_characters(self):
         """处理包含特殊字符的 reasoning"""
         previous = "思考："
-        incoming = '思考：\n1. 第一点\n2. 第二点\n```code```'
+        incoming = "思考：\n1. 第一点\n2. 第二点\n```code```"
         is_live = False
 
         if is_live is False:

@@ -120,9 +120,7 @@ class RetrievalCache:
         Returns:
             清理的条目数
         """
-        expired_keys = [
-            key for key, entry in self._cache.items() if entry.is_expired
-        ]
+        expired_keys = [key for key, entry in self._cache.items() if entry.is_expired]
         for key in expired_keys:
             del self._cache[key]
         return len(expired_keys)

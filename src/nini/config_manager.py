@@ -114,6 +114,7 @@ def has_material_model_config(config: Mapping[str, Any] | None) -> bool:
             return True
     return False
 
+
 # 默认提供商优先级（数值越小优先级越高）
 PROVIDER_PRIORITY_ORDER: tuple[str, ...] = (
     "openai",
@@ -207,10 +208,12 @@ async def save_model_config(
     if provider in SUPPORTED_API_MODES_BY_PROVIDER:
         if not normalized_api_mode:
             raise ValueError(f"{provider} 必须选择 API 模式")
-        final_base_url = normalized_base_url or get_default_base_url_for_mode(
+        final_base_url: str | None = normalized_base_url or get_default_base_url_for_mode(
             provider, normalized_api_mode
         )
-        final_model = normalized_model or get_default_model_for_mode(provider, normalized_api_mode)
+        final_model: str | None = normalized_model or get_default_model_for_mode(
+            provider, normalized_api_mode
+        )
     else:
         final_base_url = normalized_base_url
         final_model = normalized_model
@@ -235,9 +238,8 @@ async def save_model_config(
                 "api_mode": existing[5],
                 "base_url": existing[6],
             }
-            if (
-                provider in SUPPORTED_API_MODES_BY_PROVIDER
-                and has_material_model_config(existing_cfg)
+            if provider in SUPPORTED_API_MODES_BY_PROVIDER and has_material_model_config(
+                existing_cfg
             ):
                 raise ValueError("该供应商已配置，如需修改请先删除当前配置后重新配置")
             # 更新：如果未提供新 Key 则保留旧值
@@ -871,8 +873,9 @@ async def get_active_provider_id() -> str | None:
             (_ACTIVE_PROVIDER_KEY,),
         )
         row = await cursor.fetchone()
-        if row and row[0] and row[0] in VALID_PROVIDERS:
-            return row[0]
+        value = row[0] if row else None
+        if isinstance(value, str) and value in VALID_PROVIDERS:
+            return value
         return None
     finally:
         await db.close()

@@ -60,7 +60,11 @@ class TaskManager:
         for t in raw_tasks:
             task_id = int(t.get("id", len(items) + 1))
             raw_depends = t.get("depends_on", [])
-            depends_on = [int(d) for d in raw_depends if str(d).isdigit()] if isinstance(raw_depends, list) else []
+            depends_on = (
+                [int(d) for d in raw_depends if str(d).isdigit()]
+                if isinstance(raw_depends, list)
+                else []
+            )
             items.append(
                 TaskItem(
                     id=task_id,

@@ -140,7 +140,9 @@ class SandboxReviewRequired(Exception):
         *,
         violations: Iterable[PolicyViolation] | None = None,
     ) -> None:
-        normalized_packages = sorted({str(pkg or "").strip() for pkg in packages if str(pkg or "").strip()})
+        normalized_packages = sorted(
+            {str(pkg or "").strip() for pkg in packages if str(pkg or "").strip()}
+        )
         self.packages = normalized_packages
         self.violations = list(violations or [])
         package_text = ", ".join(self.packages) if self.packages else "<unknown>"
@@ -216,13 +218,21 @@ def _reviewable_violation(module_name: str, *, lineno: int | None = None) -> Pol
     )
 
 
-def validate_import(root: str, module_name: str, *, lineno: int | None = None, extra_allowed_imports: Iterable[str] | None = None) -> None:
+def validate_import(
+    root: str,
+    module_name: str,
+    *,
+    lineno: int | None = None,
+    extra_allowed_imports: Iterable[str] | None = None,
+) -> None:
     """校验单个导入请求，必要时抛出审批或策略异常。"""
     allowed_roots = get_allowed_import_roots(extra_allowed_imports)
     if root in allowed_roots:
         return
     if root in REVIEWABLE_IMPORT_ROOTS:
-        raise SandboxReviewRequired([root], violations=[_reviewable_violation(module_name, lineno=lineno)])
+        raise SandboxReviewRequired(
+            [root], violations=[_reviewable_violation(module_name, lineno=lineno)]
+        )
     if root in HARD_DENY_IMPORT_ROOTS:
         raise SandboxPolicyError(f"不允许导入模块: {module_name}（高风险模块）")
     raise SandboxPolicyError(f"不允许导入模块: {module_name}")
@@ -252,7 +262,9 @@ def validate_code(code: str, *, extra_allowed_imports: Iterable[str] | None = No
                     )
                 except SandboxReviewRequired as exc:
                     for violation in exc.violations:
-                        reviewable_violations[violation.root or _root_module(module_name)] = violation
+                        reviewable_violations[violation.root or _root_module(module_name)] = (
+                            violation
+                        )
                 except SandboxPolicyError as exc:
                     violations.append(
                         PolicyViolation(
