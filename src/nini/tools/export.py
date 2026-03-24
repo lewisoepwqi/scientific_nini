@@ -36,6 +36,10 @@ class ExportChartTool(Tool):
         return "export"
 
     @property
+    def expose_to_llm(self) -> bool:
+        return False
+
+    @property
     def description(self) -> str:
         return "将最近生成的图表导出为 PNG/JPEG/SVG/PDF/HTML/JSON 文件。"
 

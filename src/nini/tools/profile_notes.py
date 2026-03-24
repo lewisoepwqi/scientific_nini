@@ -52,7 +52,7 @@ class UpdateProfileNotesTool(Tool):
 
     @property
     def expose_to_llm(self) -> bool:
-        return True
+        return False
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         observation = str(kwargs.get("observation", "")).strip()

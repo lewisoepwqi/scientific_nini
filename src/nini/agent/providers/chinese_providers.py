@@ -151,15 +151,13 @@ class ZhipuClient(OpenAICompatibleClient):
             content = "" if message.get("content") is None else str(message.get("content"))
 
             if role == "assistant" and message.get("tool_calls"):
-                tool_summary = self._summarize_tool_calls(message.get("tool_calls"))
-                merged_content = content.strip()
-                if tool_summary:
-                    merged_content = (
-                        f"{merged_content}\n\n{tool_summary}".strip()
-                        if merged_content
-                        else tool_summary
-                    )
-                normalized.append({"role": "assistant", "content": merged_content})
+                # 不注入历史工具调用文本摘要：注入 "[历史工具调用]" 格式会导致
+                # GLM-5 通过上下文模仿学习到该格式，下一轮用纯文本输出"工具调用"
+                # 而非真正的 function call，从而使 ReAct 循环提前退出。
+                # 工具的执行结果已通过后续 tool_result 消息提供，模型无需再看调用指令。
+                stripped = content.strip()
+                if stripped:
+                    normalized.append({"role": "assistant", "content": stripped})
                 continue
 
             if role == "tool":

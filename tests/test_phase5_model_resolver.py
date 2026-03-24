@@ -734,7 +734,12 @@ def test_moonshot_client_normalizes_assistant_tool_calls_for_thinking_mode() -> 
 
 
 def test_zhipu_client_flattens_tool_history_to_plain_text() -> None:
-    """Zhipu 请求体应将历史 tool_calls 压成普通 assistant 文本。"""
+    """Zhipu 请求体应丢弃历史 tool_calls，只保留 assistant 的文字内容。
+
+    注：之前的实现会注入 [历史工具调用] 格式文本，但这会导致 GLM-5
+    通过上下文模仿在下一轮将工具调用输出为纯文本而非真实 function call，
+    从而使 ReAct 循环提前退出。修复后只保留文字内容，不注入调用摘要。
+    """
     client = ZhipuClient(api_key="zhipu-test-key", model="glm-5")
 
     normalized = client._normalize_messages_for_provider(  # noqa: SLF001
@@ -757,16 +762,12 @@ def test_zhipu_client_flattens_tool_history_to_plain_text() -> None:
         ]
     )
 
-    assert normalized == [
-        {
-            "role": "assistant",
-            "content": "继续\n\n[历史工具调用]\n- task_state: {}",
-        }
-    ]
+    # 只保留文字内容，不注入工具调用摘要
+    assert normalized == [{"role": "assistant", "content": "继续"}]
 
 
 def test_zhipu_client_normalizes_nested_tool_call_fields() -> None:
-    """Zhipu 请求体应清理并压缩 tool_calls 内的嵌套字段。"""
+    """Zhipu 请求体应丢弃历史 tool_calls；content 为 None 时不产生消息。"""
     client = ZhipuClient(api_key="zhipu-test-key", model="glm-5")
 
     normalized = client._normalize_messages_for_provider(  # noqa: SLF001
@@ -791,12 +792,8 @@ def test_zhipu_client_normalizes_nested_tool_call_fields() -> None:
         ]
     )
 
-    assert normalized == [
-        {
-            "role": "assistant",
-            "content": '[历史工具调用]\n- task_state: {"operation": "update"}',
-        }
-    ]
+    # content 为 None，不注入工具调用摘要 → 输出为空列表
+    assert normalized == []
 
 
 def test_zhipu_client_flattens_tool_role_to_assistant_context() -> None:

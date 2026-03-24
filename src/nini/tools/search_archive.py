@@ -60,6 +60,10 @@ class SearchMemoryArchiveTool(Tool):
         return "search_memory_archive"
 
     @property
+    def expose_to_llm(self) -> bool:
+        return False
+
+    @property
     def description(self) -> str:
         return (
             "在当前会话被压缩归档的历史对话中，通过关键词搜索相关记录。"

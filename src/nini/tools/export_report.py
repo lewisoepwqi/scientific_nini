@@ -871,6 +871,10 @@ class ExportReportTool(Tool):
         return "export_report"
 
     @property
+    def expose_to_llm(self) -> bool:
+        return False
+
+    @property
     def category(self) -> str:
         return "export"
 
