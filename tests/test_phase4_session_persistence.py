@@ -371,7 +371,7 @@ def test_get_session_messages_from_memory(client: LocalASGIClient) -> None:
     """从内存中的活跃会话获取消息历史。"""
     # 创建会话
     resp = client.post("/api/sessions")
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     session_id = resp.json()["data"]["session_id"]
 
     # 向会话添加消息

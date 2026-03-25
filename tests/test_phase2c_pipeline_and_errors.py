@@ -33,7 +33,7 @@ def test_phase2c_upload_ttest_chart_pipeline(app_with_temp_data):
     with LocalASGIClient(app_with_temp_data) as client:
         # 1) 创建会话
         create_resp = client.post("/api/sessions")
-        assert create_resp.status_code == 200
+        assert create_resp.status_code == 201
         session_id = create_resp.json()["data"]["session_id"]
 
         # 2) 上传数据

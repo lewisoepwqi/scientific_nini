@@ -27,13 +27,15 @@ class TestCostTransparencyWorkflow:
     def session_id(self, client):
         """创建测试会话。"""
         response = client.post("/api/sessions", json={"title": "成本测试会话"})
-        assert response.status_code == 200
+        assert response.status_code == 201
         result = response.json()
         # 处理不同的响应格式
         if "id" in result:
             return result["id"]
         elif "session_id" in result:
             return result["session_id"]
+        elif isinstance(result.get("data"), dict) and "session_id" in result["data"]:
+            return result["data"]["session_id"]
         else:
             pytest.skip("Session creation response format unexpected")
 

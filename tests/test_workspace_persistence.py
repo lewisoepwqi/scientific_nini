@@ -39,7 +39,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def test_workspace_dataset_persist_and_reload(client: LocalASGIClient) -> None:
     create_resp = client.post("/api/sessions")
-    assert create_resp.status_code == 200
+    assert create_resp.status_code == 201
     session_id = create_resp.json()["data"]["session_id"]
 
     upload_resp = client.post(
