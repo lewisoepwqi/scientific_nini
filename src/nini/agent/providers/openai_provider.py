@@ -192,14 +192,14 @@ class OpenAICompatibleClient(BaseLLMClient):
         api_key: str | None,
         base_url: str | None,
         model: str | None,
-    ):
+    ) -> None:
         self._api_key = api_key
         self._base_url = base_url
         self._model = model
-        self._client = None
-        self._http_client = None
+        self._client: Any | None = None
+        self._http_client: Any | None = None
 
-    def _ensure_client(self):
+    def _ensure_client(self) -> None:
         if self._client is None:
             from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 

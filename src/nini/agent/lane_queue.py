@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class LaneQueue:
     """每个会话一个 lane，确保技能串行执行。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._locks: dict[str, asyncio.Lock] = {}
 
     def _get_lock(self, session_id: str) -> asyncio.Lock:

@@ -62,7 +62,7 @@ class FallbackManager:
         ],
     }
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._strategies: dict[str, FallbackStrategyConfig] = {}
         self._precondition_checks: dict[
             str, Callable[["Session", dict[str, Any]], dict[str, Any]]

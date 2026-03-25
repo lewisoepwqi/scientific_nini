@@ -31,10 +31,13 @@ class LocalASGIClient:
     def request(self, method: str, url: str, **kwargs):
         async def _run():
             transport = httpx.ASGITransport(app=self._app)
+            cookies = kwargs.pop("cookies", None)
             async with httpx.AsyncClient(
                 transport=transport,
                 base_url="http://testserver",
             ) as client:
+                if cookies:
+                    client.cookies.update(cookies)
                 response = await client.request(method, url, **kwargs)
                 await response.aread()
                 return response
