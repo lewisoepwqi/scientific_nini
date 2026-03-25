@@ -6,6 +6,7 @@ import { useStore } from "./store";
 import ChatPanel from "./components/ChatPanel";
 import SessionList from "./components/SessionList";
 import AuthGate from "./components/AuthGate";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { getWsStatusMeta } from "./store/websocket-status";
 import { AUTH_INVALID_EVENT } from "./store/auth";
 import {
@@ -222,214 +223,196 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-screen bg-white">
-      {apiKeyRequired && !authReady && !appBootstrapping && (
-        <AuthGate error={authError} loading={appBootstrapping} onSubmit={submitApiKey} />
-      )}
-      {/* 桌面端侧边栏 */}
-      <div className="w-64 border-r bg-gray-50 flex-shrink-0 hidden md:flex flex-col">
-        <SessionList />
-      </div>
+    <ErrorBoundary>
+      <div className="flex h-screen bg-white">
+        {apiKeyRequired && !authReady && !appBootstrapping && (
+          <AuthGate error={authError} loading={appBootstrapping} onSubmit={submitApiKey} />
+        )}
+        {/* 桌面端侧边栏 */}
+        <div className="w-64 border-r bg-gray-50 flex-shrink-0 hidden md:flex flex-col">
+          <SessionList />
+        </div>
 
-      {/* 移动端侧边栏（覆盖式） */}
-      {sidebarOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/30 md:hidden"
-            onClick={() => setSidebarOpen(false)}
-          />
-          <div className="fixed inset-y-0 left-0 z-50 w-72 bg-gray-50 shadow-xl md:hidden flex flex-col">
-            <SessionList onClose={() => setSidebarOpen(false)} />
-          </div>
-        </>
-      )}
+        {/* 移动端侧边栏（覆盖式） */}
+        {sidebarOpen && (
+          <>
+            <div
+              className="fixed inset-0 z-40 bg-black/30 md:hidden"
+              onClick={() => setSidebarOpen(false)}
+            />
+            <div className="fixed inset-y-0 left-0 z-50 w-72 bg-gray-50 shadow-xl md:hidden flex flex-col">
+              <SessionList onClose={() => setSidebarOpen(false)} />
+            </div>
+          </>
+        )}
 
-      {/* 主面板 */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* 顶栏 */}
-        <div className="h-12 border-b flex items-center justify-between px-4 bg-white flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors md:hidden"
-              title="会话列表"
-            >
-              <Menu size={18} />
-            </button>
-            <span className="text-sm font-medium text-gray-600">对话</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setActivePanel("capabilities")}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-purple-600 transition-colors"
-              title="分析能力"
-            >
-              <Sparkles size={16} />
-            </button>
-            <button
-              onClick={() => setActivePanel("report")}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-emerald-600 transition-colors"
-              title="生成文章初稿"
-            >
-              <FileText size={16} />
-            </button>
-            <button
-              onClick={() => setActivePanel("cost")}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-amber-600 transition-colors"
-              title="成本统计"
-            >
-              <Coins size={16} />
-            </button>
-            <button
-              onClick={() => setActivePanel("profile")}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-sky-600 transition-colors"
-              title="研究画像"
-            >
-              <User size={16} />
-            </button>
-            <button
-              onClick={() => setActivePanel("tools")}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
-              title="工具清单"
-            >
-              <Wrench size={16} />
-            </button>
-            <button
-              onClick={() => setActivePanel("knowledge")}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-indigo-600 transition-colors"
-              title="知识库"
-            >
-              <Library size={16} />
-            </button>
-            <button
-              onClick={() => setActivePanel("skills")}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
-              title="技能管理"
-            >
-              <BookOpen size={16} />
-            </button>
-            <button
-              onClick={() => setActivePanel("settings")}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
-              title="模型配置"
-            >
-              <Settings size={16} />
-            </button>
-            <button
-              onClick={toggleWorkspacePanel}
-              className={`p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${
-                workspacePanelOpen
-                  ? "text-blue-600 bg-blue-50"
-                  : "text-gray-500"
-              }`}
-              title={workspacePanelOpen ? "关闭工作区" : "打开工作区"}
-            >
-              {workspacePanelOpen ? (
-                <PanelRightClose size={16} />
-              ) : (
-                <PanelRightOpen size={16} />
-              )}
-            </button>
-            <div className="flex items-center gap-1.5 text-xs">
-              {wsStatusMeta.tone === "success" && (
-                <>
-                  <Wifi size={12} className="text-emerald-500" />
-                  <span className="text-emerald-600 hidden sm:inline">
-                    {wsStatusMeta.label}
-                  </span>
-                </>
-              )}
-              {wsStatusMeta.tone === "progress" && (
-                <>
-                  <Loader2 size={12} className="animate-spin text-sky-500" />
-                  <span className="text-sky-600 hidden sm:inline">
-                    {wsStatusMeta.label}
-                  </span>
-                </>
-              )}
-              {wsStatusMeta.tone === "warning" && (
-                <>
-                  <Loader2 size={12} className="animate-spin text-amber-500" />
-                  <span className="text-amber-600 hidden sm:inline">
-                    {wsStatusMeta.label}
-                  </span>
-                </>
-              )}
-              {wsStatusMeta.tone === "danger" && (
-                <>
-                  <WifiOff size={12} className="text-red-400" />
-                  <span className="text-red-500 hidden sm:inline">
-                    {wsStatusMeta.label}
-                  </span>
-                </>
-              )}
-              {wsStatusMeta.tone === "muted" && (
-                <>
-                  <WifiOff size={12} className="text-gray-400" />
-                  <span className="text-gray-500 hidden sm:inline">
-                    {wsStatusMeta.label}
-                  </span>
-                </>
-              )}
+        {/* 主面板 */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* 顶栏 */}
+          <div className="h-12 border-b flex items-center justify-between px-4 bg-white flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors md:hidden"
+                title="会话列表"
+              >
+                <Menu size={18} />
+              </button>
+              <span className="text-sm font-medium text-gray-600">对话</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setActivePanel("capabilities")}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-purple-600 transition-colors"
+                title="分析能力"
+              >
+                <Sparkles size={16} />
+              </button>
+              <button
+                onClick={() => setActivePanel("report")}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-emerald-600 transition-colors"
+                title="生成文章初稿"
+              >
+                <FileText size={16} />
+              </button>
+              <button
+                onClick={() => setActivePanel("cost")}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-amber-600 transition-colors"
+                title="成本统计"
+              >
+                <Coins size={16} />
+              </button>
+              <button
+                onClick={() => setActivePanel("profile")}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-sky-600 transition-colors"
+                title="研究画像"
+              >
+                <User size={16} />
+              </button>
+              <button
+                onClick={() => setActivePanel("tools")}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+                title="工具清单"
+              >
+                <Wrench size={16} />
+              </button>
+              <button
+                onClick={() => setActivePanel("knowledge")}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-indigo-600 transition-colors"
+                title="知识库"
+              >
+                <Library size={16} />
+              </button>
+              <button
+                onClick={() => setActivePanel("skills")}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+                title="技能管理"
+              >
+                <BookOpen size={16} />
+              </button>
+              <button
+                onClick={() => setActivePanel("settings")}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+                title="模型配置"
+              >
+                <Settings size={16} />
+              </button>
+              <button
+                onClick={toggleWorkspacePanel}
+                className={`p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${
+                  workspacePanelOpen
+                    ? "text-blue-600 bg-blue-50"
+                    : "text-gray-500"
+                }`}
+                title={workspacePanelOpen ? "关闭工作区" : "打开工作区"}
+              >
+                {workspacePanelOpen ? (
+                  <PanelRightClose size={16} />
+                ) : (
+                  <PanelRightOpen size={16} />
+                )}
+              </button>
+              <div className="flex items-center gap-1.5 text-xs">
+                {wsStatusMeta.tone === "success" && (
+                  <>
+                    <Wifi size={12} className="text-emerald-500" />
+                    <span className="text-emerald-600 hidden sm:inline">
+                      {wsStatusMeta.label}
+                    </span>
+                  </>
+                )}
+                {wsStatusMeta.tone === "progress" && (
+                  <>
+                    <Loader2 size={12} className="animate-spin text-sky-500" />
+                    <span className="text-sky-600 hidden sm:inline">
+                      {wsStatusMeta.label}
+                    </span>
+                  </>
+                )}
+                {wsStatusMeta.tone === "warning" && (
+                  <>
+                    <Loader2 size={12} className="animate-spin text-amber-500" />
+                    <span className="text-amber-600 hidden sm:inline">
+                      {wsStatusMeta.label}
+                    </span>
+                  </>
+                )}
+                {wsStatusMeta.tone === "danger" && (
+                  <>
+                    <WifiOff size={12} className="text-red-400" />
+                    <span className="text-red-500 hidden sm:inline">
+                      {wsStatusMeta.label}
+                    </span>
+                  </>
+                )}
+                {wsStatusMeta.tone === "muted" && (
+                  <>
+                    <WifiOff size={12} className="text-gray-400" />
+                    <span className="text-gray-500 hidden sm:inline">
+                      {wsStatusMeta.label}
+                    </span>
+                  </>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* 多 Agent 执行状态面板（WorkflowTopology 在 ≥2 个 Agent 时自动渲染） */}
+          {(Object.keys(activeAgents).length > 0 || completedAgents.length > 0) && (
+            <div className="px-4 pt-3 space-y-2">
+              <Suspense fallback={null}>
+                <WorkflowTopology />
+              </Suspense>
+              <Suspense fallback={null}>
+                <AgentExecutionPanel />
+              </Suspense>
+            </div>
+          )}
+
+          {/* 假设推理追踪面板（hypothesis_driven 范式激活时显示） */}
+          {hypotheses.length > 0 && (
+            <div className="px-4 pt-2">
+              <Suspense fallback={null}>
+                <HypothesisTracker />
+              </Suspense>
+            </div>
+          )}
+
+          {/* 对话面板 */}
+          <ChatPanel />
         </div>
 
-        {/* 多 Agent 执行状态面板（WorkflowTopology 在 ≥2 个 Agent 时自动渲染） */}
-        {(Object.keys(activeAgents).length > 0 || completedAgents.length > 0) && (
-          <div className="px-4 pt-3 space-y-2">
-            <Suspense fallback={null}>
-              <WorkflowTopology />
-            </Suspense>
-            <Suspense fallback={null}>
-              <AgentExecutionPanel />
-            </Suspense>
-          </div>
-        )}
-
-        {/* 假设推理追踪面板（hypothesis_driven 范式激活时显示） */}
-        {hypotheses.length > 0 && (
-          <div className="px-4 pt-2">
-            <Suspense fallback={null}>
-              <HypothesisTracker />
-            </Suspense>
-          </div>
-        )}
-
-        {/* 对话面板 */}
-        <ChatPanel />
-      </div>
-
-      {/* 桌面端工作区面板 */}
-      {workspacePanelOpen && (
-        <div
-          className="border-l flex-shrink-0 hidden md:flex flex-col relative"
-          style={{ width: `${workspacePanelWidth}px` }}
-        >
+        {/* 桌面端工作区面板 */}
+        {workspacePanelOpen && (
           <div
-            onMouseDown={handleWorkspaceResizeStart}
-            className="absolute left-0 top-0 h-full w-1.5 -translate-x-1/2 cursor-col-resize z-20 bg-transparent hover:bg-blue-200/40 active:bg-blue-300/60"
-            title="拖拽调整宽度"
-          />
-          <div className="flex-1 min-h-0">
-            <Suspense fallback={workspacePanelFallback}>
-              <WorkspaceSidebar />
-            </Suspense>
-          </div>
-          <Suspense fallback={null}>
-            <MemoryPanel />
-          </Suspense>
-        </div>
-      )}
-
-      {/* 移动端工作区面板（覆盖式抽屉） */}
-      {workspacePanelOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/30 md:hidden"
-            onClick={toggleWorkspacePanel}
-          />
-          <div className="fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-xl md:hidden flex flex-col">
+            className="border-l flex-shrink-0 hidden md:flex flex-col relative"
+            style={{ width: `${workspacePanelWidth}px` }}
+          >
+            <div
+              onMouseDown={handleWorkspaceResizeStart}
+              className="absolute left-0 top-0 h-full w-1.5 -translate-x-1/2 cursor-col-resize z-20 bg-transparent hover:bg-blue-200/40 active:bg-blue-300/60"
+              title="拖拽调整宽度"
+            />
             <div className="flex-1 min-h-0">
               <Suspense fallback={workspacePanelFallback}>
                 <WorkspaceSidebar />
@@ -439,48 +422,68 @@ export default function App() {
               <MemoryPanel />
             </Suspense>
           </div>
-        </>
-      )}
+        )}
 
-      {/* 模型配置弹窗 */}
-      {activePanel !== null && (
-        <Suspense fallback={dialogFallback}>
-          <ModelConfigPanel
-            open={activePanel === "settings"}
-            onClose={closePanel}
-          />
-          <SkillCatalogPanel
-            open={activePanel === "tools"}
-            onClose={closePanel}
-          />
-          <CapabilityPanel
-            open={activePanel === "capabilities"}
-            onClose={closePanel}
-          />
-          <MarkdownSkillManagerPanel
-            open={activePanel === "skills"}
-            onClose={closePanel}
-          />
-          <ResearchProfilePanel
-            isOpen={activePanel === "profile"}
-            onClose={closePanel}
-          />
-          <ArticleDraftPanel
-            isOpen={activePanel === "report"}
-            onClose={closePanel}
-            sessionId={sessionId}
-            onStartDraftDialog={handleStartDraftDialog}
-          />
-          <CostPanel
-            isOpen={activePanel === "cost"}
-            onClose={closePanel}
-          />
-          <KnowledgePanel
-            isOpen={activePanel === "knowledge"}
-            onClose={closePanel}
-          />
-        </Suspense>
-      )}
-    </div>
+        {/* 移动端工作区面板（覆盖式抽屉） */}
+        {workspacePanelOpen && (
+          <>
+            <div
+              className="fixed inset-0 z-40 bg-black/30 md:hidden"
+              onClick={toggleWorkspacePanel}
+            />
+            <div className="fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-xl md:hidden flex flex-col">
+              <div className="flex-1 min-h-0">
+                <Suspense fallback={workspacePanelFallback}>
+                  <WorkspaceSidebar />
+                </Suspense>
+              </div>
+              <Suspense fallback={null}>
+                <MemoryPanel />
+              </Suspense>
+            </div>
+          </>
+        )}
+
+        {/* 模型配置弹窗 */}
+        {activePanel !== null && (
+          <Suspense fallback={dialogFallback}>
+            <ModelConfigPanel
+              open={activePanel === "settings"}
+              onClose={closePanel}
+            />
+            <SkillCatalogPanel
+              open={activePanel === "tools"}
+              onClose={closePanel}
+            />
+            <CapabilityPanel
+              open={activePanel === "capabilities"}
+              onClose={closePanel}
+            />
+            <MarkdownSkillManagerPanel
+              open={activePanel === "skills"}
+              onClose={closePanel}
+            />
+            <ResearchProfilePanel
+              isOpen={activePanel === "profile"}
+              onClose={closePanel}
+            />
+            <ArticleDraftPanel
+              isOpen={activePanel === "report"}
+              onClose={closePanel}
+              sessionId={sessionId}
+              onStartDraftDialog={handleStartDraftDialog}
+            />
+            <CostPanel
+              isOpen={activePanel === "cost"}
+              onClose={closePanel}
+            />
+            <KnowledgePanel
+              isOpen={activePanel === "knowledge"}
+              onClose={closePanel}
+            />
+          </Suspense>
+        )}
+      </div>
+    </ErrorBoundary>
   );
 }

@@ -71,7 +71,7 @@ async def get_session(session_id: str) -> APIResponse:
     )
 
 
-@router.post("", response_model=APIResponse)
+@router.post("", response_model=APIResponse, status_code=201)
 async def create_session() -> APIResponse:
     """创建新会话。"""
     session = session_manager.create_session(load_persisted_messages=False)

@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 import sys
 import warnings
 from pathlib import Path
+
+import httpx
+import pytest
+import pytest_asyncio
+
+from nini.agent.session import session_manager
+from nini.app import create_app
+from nini.config import settings
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -18,3 +27,27 @@ warnings.filterwarnings(
     category=ResourceWarning,
     message=r"unclosed event loop .*",
 )
+
+
+@pytest_asyncio.fixture
+async def async_client(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncIterator[httpx.AsyncClient]:
+    """提供带隔离数据目录的异步 HTTP 客户端。"""
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    monkeypatch.setattr(settings, "api_key", "")
+    settings.ensure_dirs()
+    session_manager._sessions.clear()
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            yield client
+
+    session_manager._sessions.clear()
