@@ -19,6 +19,29 @@ from nini.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _validate_ref_path(ref_path: str, session_dir: Path) -> Path | None:
+    """验证引用路径安全性，防止路径遍历攻击。
+
+    返回规范化后的绝对路径，如果路径不安全则返回 None 并记录警告。
+    """
+    ref = Path(ref_path)
+    # 拒绝绝对路径
+    if ref.is_absolute():
+        logger.warning("[Memory] 拒绝不安全的引用路径（绝对路径）: %s", ref_path)
+        return None
+    # 拒绝包含 .. 的路径
+    if ".." in ref.parts:
+        logger.warning("[Memory] 拒绝不安全的引用路径（路径遍历）: %s", ref_path)
+        return None
+    # resolve 后检查是否仍在 artifacts 目录内
+    artifacts_root = (session_dir / "workspace" / "artifacts").resolve()
+    payload_path = (artifacts_root / ref).resolve()
+    if not payload_path.is_relative_to(artifacts_root):
+        logger.warning("[Memory] 引用路径逃逸工作空间: %s", ref_path)
+        return None
+    return payload_path
+
+
 def _infer_event_type(entry: dict[str, Any]) -> str:
     """推断缺失的事件类型，兼容旧格式历史消息。"""
     role = str(entry.get("role", "")).strip()
@@ -241,7 +264,12 @@ class ConversationMemory:
                 continue
 
             ref_path = value["_ref"]
-            payload_path = self._dir / "workspace" / "artifacts" / ref_path
+
+            # 路径安全验证：拒绝绝对路径、路径遍历、工作空间外引用
+            validated = _validate_ref_path(ref_path, self._dir)
+            if validated is None:
+                continue
+            payload_path = validated
 
             # 加载引用数据
             try:
@@ -282,7 +310,7 @@ class ConversationMemory:
                 finally:
                     conn.close()
         except Exception:
-            pass
+            logger.warning("[Memory] SQLite 连接获取失败", exc_info=True)
 
     def load_all(self, *, resolve_refs: bool = False) -> list[dict[str, Any]]:
         """加载所有记录。优先从 SQLite 读取，回退到 JSONL。

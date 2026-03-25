@@ -120,6 +120,14 @@ class TestDangerousPatternGuardrail:
         )
         assert decision.decision == GuardrailAction.BLOCK
 
+    def test_system_path_proc_blocked(self):
+        """参数含 /proc/ 路径 → BLOCK。"""
+        decision = self.guardrail.evaluate(
+            "run_code",
+            {"file_path": "/proc/self/environ"},
+        )
+        assert decision.decision == GuardrailAction.BLOCK
+
     def test_normal_tool_call_allowed(self):
         """普通工具调用 → ALLOW。"""
         decision = self.guardrail.evaluate(
