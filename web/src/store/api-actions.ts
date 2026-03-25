@@ -32,6 +32,8 @@ import type {
   AnalysisTaskItem,
   AnalysisPlanProgress,
   AnalysisStep,
+  DeepTaskState,
+  RecipeCard,
 } from "./types";
 import { apiFetch } from "./auth";
 
@@ -104,19 +106,60 @@ export async function createNewSession(): Promise<string | null> {
   }
 }
 
+export interface SessionDetail {
+  id: string;
+  title: string;
+  message_count: number;
+  task_kind?: string | null;
+  recipe_id?: string | null;
+  recipe_inputs?: Record<string, string>;
+  deep_task_state?: DeepTaskState | null;
+}
+
+export async function fetchSessionDetail(
+  sessionId: string,
+): Promise<SessionDetail | null> {
+  if (!sessionId) return null;
+  try {
+    const resp = await apiFetch(`/api/sessions/${sessionId}`);
+    const payload = await resp.json();
+    if (!payload.success || !isRecord(payload.data)) return null;
+    return payload.data as SessionDetail;
+  } catch (e) {
+    console.error("获取会话详情失败:", e);
+    return null;
+  }
+}
+
+export async function fetchRecipes(): Promise<RecipeCard[]> {
+  try {
+    const resp = await apiFetch("/api/recipes");
+    const payload = await resp.json();
+    const data = isRecord(payload.data) ? payload.data : null;
+    const recipes = data && Array.isArray(data.recipes) ? data.recipes : [];
+    return recipes as RecipeCard[];
+  } catch (e) {
+    console.error("获取 Recipe 列表失败:", e);
+    return [];
+  }
+}
+
 export async function switchSession(
   targetSessionId: string,
-): Promise<{ success: boolean; messages?: unknown[] }> {
+): Promise<{ success: boolean; messages?: unknown[]; detail?: SessionDetail | null }> {
   try {
-    const resp = await apiFetch(`/api/sessions/${targetSessionId}/messages`);
+    const [resp, detail] = await Promise.all([
+      apiFetch(`/api/sessions/${targetSessionId}/messages`),
+      fetchSessionDetail(targetSessionId),
+    ]);
     const payload = await resp.json();
     if (!payload.success) {
-      return { success: true, messages: [] };
+      return { success: true, messages: [], detail };
     }
     const data = isRecord(payload.data) ? payload.data : null;
     const rawMessages =
       isRecord(data) && Array.isArray(data.messages) ? data.messages : [];
-    return { success: true, messages: rawMessages as unknown[] };
+    return { success: true, messages: rawMessages as unknown[], detail };
   } catch (e) {
     console.error("切换会话失败:", e);
     return { success: false };

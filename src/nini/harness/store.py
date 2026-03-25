@@ -47,8 +47,12 @@ class HarnessTraceStore:
             run_id=record.run_id,
             session_id=record.session_id,
             turn_id=record.turn_id,
+            task_id=record.task_id,
+            recipe_id=record.recipe_id,
             status=record.status,
             failure_tags=record.failure_tags,
+            recovery_count=(record.task_metrics.recovery_count if record.task_metrics else 0),
+            budget_warning_count=len(record.budget_warnings),
             duration_ms=self._duration_ms(record),
             input_tokens=int(record.summary.get("input_tokens", 0) or 0),
             output_tokens=int(record.summary.get("output_tokens", 0) or 0),
@@ -66,13 +70,18 @@ class HarnessTraceStore:
             await db.execute(
                 """
                 INSERT INTO harness_runs(
-                    run_id, session_id, turn_id, status, failure_tags,
+                    run_id, session_id, turn_id, task_id, recipe_id, status, failure_tags,
+                    recovery_count, budget_warning_count,
                     duration_ms, input_tokens, output_tokens, estimated_cost_usd,
                     trace_path, created_at, updated_at
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(run_id) DO UPDATE SET
+                    task_id=excluded.task_id,
+                    recipe_id=excluded.recipe_id,
                     status=excluded.status,
                     failure_tags=excluded.failure_tags,
+                    recovery_count=excluded.recovery_count,
+                    budget_warning_count=excluded.budget_warning_count,
                     duration_ms=excluded.duration_ms,
                     input_tokens=excluded.input_tokens,
                     output_tokens=excluded.output_tokens,
@@ -84,8 +93,12 @@ class HarnessTraceStore:
                     summary.run_id,
                     summary.session_id,
                     summary.turn_id,
+                    summary.task_id,
+                    summary.recipe_id,
                     summary.status,
                     json.dumps(summary.failure_tags, ensure_ascii=False),
+                    summary.recovery_count,
+                    summary.budget_warning_count,
                     summary.duration_ms,
                     summary.input_tokens,
                     summary.output_tokens,
@@ -105,6 +118,18 @@ class HarnessTraceStore:
             if cls._schema_ready:
                 return
             await init_db()
+            async with await get_db() as db:
+                for ddl in (
+                    "ALTER TABLE harness_runs ADD COLUMN task_id TEXT",
+                    "ALTER TABLE harness_runs ADD COLUMN recipe_id TEXT",
+                    "ALTER TABLE harness_runs ADD COLUMN recovery_count INTEGER DEFAULT 0",
+                    "ALTER TABLE harness_runs ADD COLUMN budget_warning_count INTEGER DEFAULT 0",
+                ):
+                    try:
+                        await db.execute(ddl)
+                    except Exception:
+                        pass
+                await db.commit()
             cls._schema_ready = True
 
     async def list_runs(
@@ -114,8 +139,9 @@ class HarnessTraceStore:
     ) -> list[HarnessRunSummary]:
         """读取摘要列表。"""
         query = (
-            "SELECT run_id, session_id, turn_id, status, failure_tags, duration_ms, "
-            "input_tokens, output_tokens, estimated_cost_usd, trace_path, created_at, updated_at "
+            "SELECT run_id, session_id, turn_id, task_id, recipe_id, status, failure_tags, "
+            "recovery_count, budget_warning_count, duration_ms, input_tokens, output_tokens, "
+            "estimated_cost_usd, trace_path, created_at, updated_at "
             "FROM harness_runs"
         )
         params: list[Any] = []
@@ -137,8 +163,14 @@ class HarnessTraceStore:
                     run_id=str(row_data["run_id"]),
                     session_id=str(row_data["session_id"]),
                     turn_id=str(row_data["turn_id"]),
+                    task_id=str(row_data["task_id"]) if row_data["task_id"] is not None else None,
+                    recipe_id=(
+                        str(row_data["recipe_id"]) if row_data["recipe_id"] is not None else None
+                    ),
                     status=str(row_data["status"]),
                     failure_tags=json.loads(str(row_data["failure_tags"] or "[]")),
+                    recovery_count=int(row_data["recovery_count"] or 0),
+                    budget_warning_count=int(row_data["budget_warning_count"] or 0),
                     duration_ms=int(row_data["duration_ms"] or 0),
                     input_tokens=int(row_data["input_tokens"] or 0),
                     output_tokens=int(row_data["output_tokens"] or 0),
@@ -168,8 +200,14 @@ class HarnessTraceStore:
             "run_id": record.run_id,
             "session_id": record.session_id,
             "turn_id": record.turn_id,
+            "task_id": record.task_id,
+            "recipe_id": record.recipe_id,
             "status": record.status,
             "failure_tags": record.failure_tags,
+            "budget_warnings": [item.model_dump(mode="json") for item in record.budget_warnings],
+            "task_metrics": (
+                record.task_metrics.model_dump(mode="json") if record.task_metrics else None
+            ),
             "completion_checks": [
                 item.model_dump(mode="json") for item in record.completion_checks
             ],
@@ -191,6 +229,106 @@ class HarnessTraceStore:
             "total_runs": len(summaries),
             "failure_distribution": dict(counter),
         }
+
+    def _evaluate_core_recipe_benchmarks_from_summaries(
+        self,
+        summaries: list[HarnessRunSummary],
+        *,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """基于摘要列表评估核心 Recipe 基准集。"""
+        config_path = Path(__file__).resolve().parents[1] / "config" / "core_recipe_benchmarks.json"
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+        thresholds = payload.get("gate_thresholds", {})
+        benchmark_defs = payload.get("benchmarks", [])
+
+        latest_by_recipe: dict[str, HarnessRunSummary] = {}
+        for item in summaries:
+            recipe_id = str(item.recipe_id or "").strip()
+            if recipe_id and recipe_id not in latest_by_recipe:
+                latest_by_recipe[recipe_id] = item
+
+        results: list[dict[str, Any]] = []
+        required_total = 0
+        required_present = 0
+        passed_total = 0
+        for item in benchmark_defs:
+            if not isinstance(item, dict):
+                continue
+            recipe_id = str(item.get("recipe_id", "")).strip()
+            expected_status = str(item.get("expected_status", "completed")).strip() or "completed"
+            required = bool(item.get("required", False))
+            benchmark_id = str(item.get("benchmark_id", recipe_id)).strip() or recipe_id
+            if required:
+                required_total += 1
+            matched = latest_by_recipe.get(recipe_id)
+            if matched is not None and required:
+                required_present += 1
+            passed = matched is not None and matched.status == expected_status
+            if passed:
+                passed_total += 1
+            results.append(
+                {
+                    "benchmark_id": benchmark_id,
+                    "recipe_id": recipe_id,
+                    "expected_status": expected_status,
+                    "required": required,
+                    "run_id": matched.run_id if matched is not None else None,
+                    "actual_status": matched.status if matched is not None else "missing",
+                    "failure_tags": matched.failure_tags if matched is not None else [],
+                    "passed": passed,
+                }
+            )
+
+        total = len(results)
+        pass_rate = (passed_total / total) if total else 0.0
+        coverage = (required_present / required_total) if required_total else 1.0
+        min_pass_rate = float(thresholds.get("min_pass_rate", 1.0) or 1.0)
+        required_coverage = float(thresholds.get("required_coverage", 1.0) or 1.0)
+        gate_passed = pass_rate >= min_pass_rate and coverage >= required_coverage
+        gate_failure_counter: Counter[str] = Counter()
+        for item in summaries:
+            if item.failure_tags:
+                gate_failure_counter.update(item.failure_tags)
+            elif item.status != "completed":
+                gate_failure_counter.update(["unknown_failure"])
+        for item in results:
+            if item.get("passed"):
+                continue
+            actual_status = str(item.get("actual_status", "missing")).strip() or "missing"
+            gate_failure_counter.update([f"benchmark:{actual_status}"])
+
+        return {
+            "total_runs": len(summaries),
+            "failure_distribution": dict(gate_failure_counter),
+            "core_recipe_benchmarks": {
+                "gate_passed": gate_passed,
+                "gate_thresholds": {
+                    "min_pass_rate": min_pass_rate,
+                    "required_coverage": required_coverage,
+                },
+                "pass_rate": round(pass_rate, 4),
+                "required_coverage": round(coverage, 4),
+                "top_failure_tags": gate_failure_counter.most_common(5),
+                "sample_results": results,
+            },
+        }
+
+    async def evaluate_core_recipe_benchmarks_async(
+        self, session_id: str | None = None
+    ) -> dict[str, Any]:
+        """异步评估核心 Recipe 基准集。"""
+        summaries = await self.list_runs(session_id=session_id, limit=500)
+        return self._evaluate_core_recipe_benchmarks_from_summaries(
+            summaries, session_id=session_id
+        )
+
+    def evaluate_core_recipe_benchmarks(self, session_id: str | None = None) -> dict[str, Any]:
+        """评估核心 Recipe 基准集的最近一次回放结果。"""
+        summaries = asyncio.run(self.list_runs(session_id=session_id, limit=500))
+        return self._evaluate_core_recipe_benchmarks_from_summaries(
+            summaries, session_id=session_id
+        )
 
     @staticmethod
     def _duration_ms(record: HarnessTraceRecord) -> int:

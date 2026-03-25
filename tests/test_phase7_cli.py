@@ -209,3 +209,26 @@ def test_cli_harness_eval_outputs_failure_distribution(
 
     assert ret == 0
     assert '"tool_loop": 1' in out
+
+
+def test_cli_harness_eval_gate_returns_nonzero_when_gate_failed(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _FakeStore:
+        def evaluate_core_recipe_benchmarks(self, session_id: str | None = None):
+            _ = session_id
+            return {
+                "core_recipe_benchmarks": {
+                    "gate_passed": False,
+                    "pass_rate": 0.5,
+                    "sample_results": [],
+                }
+            }
+
+    monkeypatch.setattr("nini.harness.store.HarnessTraceStore", _FakeStore)
+    ret = main(["harness", "eval", "--gate"])
+    out = capsys.readouterr().out
+
+    assert ret == 1
+    assert '"gate_passed": false' in out

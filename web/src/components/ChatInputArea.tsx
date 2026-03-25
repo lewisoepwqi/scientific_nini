@@ -135,6 +135,7 @@ export default function ChatInputArea() {
   const skills = useStore((s) => s.skills);
   const fetchSkills = useStore((s) => s.fetchSkills);
   const modelFallback = useStore((s) => s.modelFallback);
+  const recipes = useStore((s) => s.recipes);
 
   const [input, setInput] = useState("");
   const [isDragActive, setIsDragActive] = useState(false);
@@ -143,6 +144,7 @@ export default function ChatInputArea() {
   const [contextTokens, setContextTokens] = useState<number | null>(null);
   const [slashContext, setSlashContext] = useState<SlashContext | null>(null);
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
+  const [dismissedRecipeId, setDismissedRecipeId] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dragDepthRef = useRef(0);
 
@@ -283,6 +285,26 @@ export default function ChatInputArea() {
       textareaRef.current.style.height = "auto";
     }
   }, [input, isStreaming, pendingAskUserQuestion, sendMessage, setComposerDraft]);
+
+  const suggestedRecipe =
+    input.trim().length === 0
+      ? null
+      : recipes.find((recipe) =>
+          recipe.recommended_triggers.some((trigger) => {
+            const token = trigger.trim().toLowerCase();
+            return token !== "" && input.trim().toLowerCase().includes(token);
+          }),
+        ) ?? null;
+
+  useEffect(() => {
+    if (!suggestedRecipe) {
+      setDismissedRecipeId(null);
+      return;
+    }
+    if (dismissedRecipeId && dismissedRecipeId !== suggestedRecipe.recipe_id) {
+      setDismissedRecipeId(null);
+    }
+  }, [dismissedRecipeId, suggestedRecipe]);
 
   const applySlashSkill = useCallback(
     (skill: SkillItem) => {
@@ -501,6 +523,43 @@ export default function ChatInputArea() {
   return (
     <div className="border-t bg-white px-4 py-3">
       <div className="max-w-3xl mx-auto">
+        {suggestedRecipe && dismissedRecipeId !== suggestedRecipe.recipe_id && (
+          <div className="mb-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-900">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                命中推荐模板：
+                <span className="ml-1 font-semibold">{suggestedRecipe.name}</span>
+                <div className="mt-1 text-xs text-emerald-700">{suggestedRecipe.summary}</div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = input.trim();
+                    if (!text) return;
+                    sendMessage(text, {
+                      recipeId: suggestedRecipe.recipe_id,
+                      recipeInputs: {},
+                    });
+                    setInput("");
+                    setComposerDraft("");
+                    setDismissedRecipeId(null);
+                  }}
+                  className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700"
+                >
+                  按模板执行
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDismissedRecipeId(suggestedRecipe.recipe_id)}
+                  className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700"
+                >
+                  继续自由对话
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <div
           className="relative rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm"
           onDragEnter={handleComposerDragEnter}

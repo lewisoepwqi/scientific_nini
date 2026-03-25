@@ -42,6 +42,8 @@ export type {
   QuestionType,
   PendingAskUserQuestion,
   AskUserQuestionNotificationPreference,
+  RecipeCard,
+  DeepTaskState,
   IntentOption,
   IntentSkillCall,
   IntentSkillSummary,
@@ -87,6 +89,8 @@ import type {
   HarnessBlockedState,
   PendingAskUserQuestion,
   AskUserQuestionNotificationPreference,
+  RecipeCard,
+  DeepTaskState,
   IntentAnalysisView,
   ResearchProfile,
   TokenUsage,
@@ -192,6 +196,10 @@ export interface AppState {
   workspaceFiles: WorkspaceFile[];
   skills: SkillItem[];
   capabilities: CapabilityItem[];
+  recipes: RecipeCard[];
+  recipesLoaded: boolean;
+  activeRecipeId: string | null;
+  deepTaskState: DeepTaskState | null;
 
   // 记忆面板
   memoryFiles: MemoryFile[];
@@ -287,7 +295,10 @@ export interface AppState {
 
   // 会话操作
   initApp: () => Promise<void>;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (
+    content: string,
+    options?: { recipeId?: string; recipeInputs?: Record<string, string> },
+  ) => Promise<void>;
   submitAskUserQuestionAnswers: (answers: Record<string, string>) => void;
   stopStreaming: () => void;
   retryLastTurn: () => Promise<void>;
@@ -301,6 +312,7 @@ export interface AppState {
   fetchWorkspaceFiles: () => Promise<void>;
   fetchSkills: () => Promise<void>;
   fetchCapabilities: () => Promise<void>;
+  fetchRecipes: () => Promise<void>;
   analyzeIntent: (content: string) => Promise<void>;
 
   // 技能管理操作
@@ -406,6 +418,8 @@ const SESSION_RESET_STATE = {
     hasTokenUsage: false,
   } as StreamingMetrics,
   analysisTasks: [] as AnalysisTaskItem[],
+  activeRecipeId: null as string | null,
+  deepTaskState: null as DeepTaskState | null,
   currentIntentAnalysis: null as IntentAnalysisView | null,
   composerDraft: "",
 };
@@ -462,6 +476,10 @@ export const useStore = create<AppState>((set, get) => ({
   workspaceFiles: [],
   skills: [],
   capabilities: [],
+  recipes: [],
+  recipesLoaded: false,
+  activeRecipeId: null,
+  deepTaskState: null,
   memoryFiles: [],
   activeModel: null,
   runtimeModel: null,
@@ -771,6 +789,7 @@ export const useStore = create<AppState>((set, get) => ({
     set({ appBootstrapping: true });
 
     const fetchSkillsPromise = get().fetchSkills().catch(() => undefined);
+    const fetchRecipesPromise = get().fetchRecipes().catch(() => undefined);
     const fetchSessionsPromise = get().fetchSessions();
 
     if (_modelConfigHandler) {
@@ -801,11 +820,15 @@ export const useStore = create<AppState>((set, get) => ({
       }
     } finally {
       await fetchSkillsPromise;
+      await fetchRecipesPromise;
       set({ appBootstrapping: false });
     }
   },
 
-  async sendMessage(content: string) {
+  async sendMessage(
+    content: string,
+    options?: { recipeId?: string; recipeInputs?: Record<string, string> },
+  ) {
     const { ws, sessionId, pendingAskUserQuestion } = get();
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     if (pendingAskUserQuestion) return;
@@ -830,6 +853,13 @@ export const useStore = create<AppState>((set, get) => ({
           type: "chat",
           content,
           session_id: sessionId,
+          metadata:
+            options?.recipeId
+              ? {
+                  recipe_id: options.recipeId,
+                  recipe_inputs: options.recipeInputs ?? {},
+                }
+              : {},
         })
       );
     } catch (e) {
@@ -841,6 +871,22 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => ({
       isStreaming: true,
       runningSessions: new Set([...s.runningSessions, sessionId ?? ""]),
+      activeRecipeId: options?.recipeId ?? s.activeRecipeId,
+      deepTaskState:
+        options?.recipeId && s.recipes.length > 0
+          ? {
+              task_id: "",
+              status: "queued",
+              current_step_index: 1,
+              total_steps:
+                s.recipes.find((recipe) => recipe.recipe_id === options.recipeId)?.steps.length ?? 0,
+              current_step_title:
+                s.recipes.find((recipe) => recipe.recipe_id === options.recipeId)?.steps[0]?.title ??
+                "",
+              next_hint: "正在创建 deep task...",
+              retry_count: 0,
+            }
+          : s.deepTaskState,
       composerDraft: "",
       pendingAskUserQuestion: null,
       _streamingText: "",
@@ -1118,6 +1164,11 @@ export const useStore = create<AppState>((set, get) => ({
     set({ capabilities });
   },
 
+  async fetchRecipes() {
+    const recipes = await api.fetchRecipes();
+    set({ recipes, recipesLoaded: true });
+  },
+
   async analyzeIntent(content: string) {
     const result = await api.analyzeIntent(content);
     set({ currentIntentAnalysis: result });
@@ -1260,6 +1311,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     const rawMessages = result.messages || [];
+    const sessionDetail = result.detail ?? null;
     const restored = api.buildSessionRestoreState(
       rawMessages as RawSessionMessage[],
     );
@@ -1332,6 +1384,11 @@ export const useStore = create<AppState>((set, get) => ({
         cachedSessionUi && shouldUseCachedUi
           ? cachedSessionUi.blockedState
           : null,
+      activeRecipeId:
+        typeof sessionDetail?.recipe_id === "string" && sessionDetail.recipe_id
+          ? sessionDetail.recipe_id
+          : null,
+      deepTaskState: sessionDetail?.deep_task_state ?? null,
       currentIntentAnalysis:
         cachedSessionUi && shouldUseCachedUi
           ? cachedSessionUi.currentIntentAnalysis

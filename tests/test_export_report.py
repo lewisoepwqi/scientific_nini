@@ -336,11 +336,9 @@ async def test_export_report_with_mock_weasyprint(
     assert result.artifacts
     assert result.artifacts[0]["format"] == "pdf"
     assert result.artifacts[0]["download_url"].endswith(
-        f"/api/workspace/{mock_session.id}/files/notes/exports/test_report.pdf"
+        f"/api/workspace/{mock_session.id}/files/artifacts/exports/test_report.pdf"
     )
-    pdf_path = (
-        setup_report / mock_session.id / "workspace" / "notes" / "exports" / "test_report.pdf"
-    )
+    pdf_path = setup_report / mock_session.id / "workspace" / "artifacts" / "exports" / "test_report.pdf"
     assert pdf_path.read_bytes() == fake_pdf
 
 
@@ -472,7 +470,7 @@ async def test_export_report_custom_filename(
     assert result.success
     assert "my_output.pdf" in result.message
     assert result.artifacts[0]["download_url"].endswith(
-        f"/api/workspace/{mock_session.id}/files/notes/exports/my_output.pdf"
+        f"/api/workspace/{mock_session.id}/files/artifacts/exports/my_output.pdf"
     )
 
 

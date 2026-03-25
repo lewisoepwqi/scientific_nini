@@ -38,6 +38,14 @@ def _get_bundle_templates_dir() -> Path:
     return root / "templates" / "journal_styles"
 
 
+def _get_bundle_recipes_dir() -> Path:
+    """获取 Recipe 配置目录。"""
+    root = _get_bundle_root()
+    if IS_FROZEN:
+        return root / "assets" / "config" / "recipes"
+    return root / "config" / "recipes"
+
+
 def _get_bundle_skill_dirs() -> list[Path]:
     """获取随安装包携带的内置技能目录。"""
     root = _get_bundle_root()
@@ -297,6 +305,13 @@ class Settings(BaseSettings):
     auto_compress_threshold_tokens: int = 30000
     auto_compress_target_tokens: int = 15000
 
+    # ---- Deep Task 可观测性 ----
+    deep_task_budget_token_limit: int = 12000
+    deep_task_budget_cost_limit_usd: float = 2.0
+    deep_task_budget_tool_call_limit: int = 24
+    deep_task_external_retry_limit: int = 2
+    deep_task_external_timeout_seconds: int = 90
+
     # ---- Memory 优化 ----
     memory_large_payload_threshold_bytes: int = 10 * 1024  # 10 KB，超过此大小的数据引用化
     memory_auto_compress: bool = True
@@ -392,6 +407,11 @@ class Settings(BaseSettings):
     def profiles_dir(self) -> Path:
         """用户画像存储目录。"""
         return self.data_dir / "profiles"
+
+    @property
+    def recipes_dir(self) -> Path:
+        """Recipe 配置目录。"""
+        return _get_bundle_recipes_dir()
 
     def ensure_dirs(self) -> None:
         """集中创建所有必要目录。在模块加载时及 data_dir 变更后调用。"""

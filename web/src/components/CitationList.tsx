@@ -7,6 +7,20 @@ import { BookOpen } from "lucide-react";
 import type { RetrievalItem } from "../store";
 import { getCredibilityLabel } from "./CitationMarker";
 
+function getVerificationLabel(status?: RetrievalItem["verificationStatus"]): {
+  text: string;
+  color: string;
+} | null {
+  if (!status) return null;
+  if (status === "verified") {
+    return { text: "已验证", color: "text-emerald-700 bg-emerald-50 border-emerald-200" };
+  }
+  if (status === "conflicted") {
+    return { text: "证据冲突", color: "text-rose-700 bg-rose-50 border-rose-200" };
+  }
+  return { text: "待验证", color: "text-amber-700 bg-amber-50 border-amber-200" };
+}
+
 interface CitationListProps {
   /** 检索结果列表 */
   retrievals: RetrievalItem[];
@@ -18,6 +32,13 @@ export default function CitationList({
   retrievals,
 }: CitationListProps) {
   if (!retrievals || retrievals.length === 0) return null;
+
+  const formatTime = (value?: string): string | null => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString("zh-CN", { hour12: false });
+  };
 
   return (
     <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700">
@@ -31,6 +52,7 @@ export default function CitationList({
       <ul className="space-y-1.5">
         {retrievals.map((retrieval, index) => {
           const credibility = getCredibilityLabel(retrieval.score);
+          const verification = getVerificationLabel(retrieval.verificationStatus);
           return (
             <li
               key={`${retrieval.source}-${index}`}
@@ -54,12 +76,53 @@ export default function CitationList({
                       {credibility.text}
                     </span>
                   )}
+                  {verification && (
+                    <span
+                      className={`inline-flex px-1.5 py-0 rounded text-[10px] border ${verification.color}`}
+                    >
+                      {verification.text}
+                    </span>
+                  )}
                 </div>
                 {/* 知识片段 */}
                 {retrieval.snippet && (
                   <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">
                     {retrieval.snippet}
                   </p>
+                )}
+                {(retrieval.sourceType || retrieval.acquisitionMethod || retrieval.sourceId) && (
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400 dark:text-slate-500">
+                    {retrieval.sourceType && (
+                      <span className="rounded border border-slate-200 px-1 py-0 dark:border-slate-700">
+                        {retrieval.sourceType}
+                      </span>
+                    )}
+                    {retrieval.acquisitionMethod && (
+                      <span>获取方式：{retrieval.acquisitionMethod}</span>
+                    )}
+                    {retrieval.claimId && <span>claim_id：{retrieval.claimId}</span>}
+                    {retrieval.sourceId && <span>来源ID：{retrieval.sourceId}</span>}
+                  </div>
+                )}
+                {(retrieval.sourceTime || retrieval.accessedAt) && (
+                  <div className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">
+                    {retrieval.sourceTime && (
+                      <span>来源时间：{formatTime(retrieval.sourceTime)}</span>
+                    )}
+                    {retrieval.sourceTime && retrieval.accessedAt && <span> · </span>}
+                    {retrieval.accessedAt && (
+                      <span>获取时间：{formatTime(retrieval.accessedAt)}</span>
+                    )}
+                  </div>
+                )}
+                {(retrieval.reasonSummary || retrieval.conflictSummary) && (
+                  <div className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                    {retrieval.reasonSummary && <span>原因：{retrieval.reasonSummary}</span>}
+                    {retrieval.reasonSummary && retrieval.conflictSummary && <span> · </span>}
+                    {retrieval.conflictSummary && (
+                      <span>冲突：{retrieval.conflictSummary}</span>
+                    )}
+                  </div>
                 )}
               </div>
             </li>

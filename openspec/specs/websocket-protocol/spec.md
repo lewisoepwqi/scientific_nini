@@ -131,3 +131,63 @@ WebSocket 协议 SHALL 支持显式表达进入阻塞态的运行，而不是仅
 - **WHEN** 旧客户端忽略新增的 `blocked` 事件
 - **THEN** 其他既有事件流 SHALL 继续保持可消费
 - **AND** 新增事件不得破坏现有会话基础交互
+
+### Requirement: WebSocket 协议必须支持 Recipe 生命周期事件
+
+系统 SHALL 在 WebSocket 通道中表达 Recipe 启动、任务分类与生命周期状态变化，使前端能够稳定展示模板任务执行过程。
+
+#### Scenario: Recipe 启动后推送任务初始化事件
+- **WHEN** 用户通过 Recipe Center 或接受推荐启动模板任务
+- **THEN** 服务端推送包含 `recipe_id`、任务类型与初始状态的事件
+- **AND** 前端可据此切换到 deep task 展示模式
+
+#### Scenario: deep task 状态变化时推送生命周期事件
+- **WHEN** deep task 状态在 `queued`、`running`、`retrying`、`blocked`、`completed`、`failed` 之间变化
+- **THEN** 服务端推送对应状态事件
+- **AND** 事件中包含任务标识、当前步骤与原因摘要
+
+### Requirement: WebSocket 协议必须支持 Recipe 步骤进度事件
+
+系统 SHALL 提供可增量消费的 Recipe 步骤进度事件，表达总步骤数、当前步骤、步骤状态与下一步提示。
+
+#### Scenario: deep task 进入某一步骤
+- **WHEN** 系统开始执行某个 Recipe 步骤
+- **THEN** 服务端推送步骤进度事件
+- **AND** 事件中包含步骤索引、步骤标题、步骤状态与总步骤数
+
+#### Scenario: deep task 进入重试
+- **WHEN** 当前步骤因可恢复错误进入重试
+- **THEN** 服务端推送步骤进度事件
+- **AND** 事件中包含 `retrying` 状态与失败原因摘要
+
+### Requirement: WebSocket 关键事件必须携带任务标识与尝试标识
+
+系统 SHALL 在 deep task 相关关键事件中携带 `task_id`，并在存在恢复或重试时携带尝试标识，以便前端与诊断系统稳定关联。
+
+#### Scenario: 关键事件携带 task_id
+
+- **WHEN** 服务端推送与 deep task 相关的关键事件
+- **THEN** 事件中包含 `task_id`
+- **AND** 前端可用该标识关联同一次 deep task 的不同事件
+
+#### Scenario: 重试事件携带尝试标识
+
+- **WHEN** deep task 的某个动作进入重试或恢复
+- **THEN** 对应事件包含尝试标识
+- **AND** 能区分原始尝试与恢复尝试
+
+### Requirement: WebSocket 协议必须支持预算告警事件字段
+
+系统 SHALL 在 deep task 触发预算阈值时输出可消费的预算告警字段或事件，并允许客户端在本阶段忽略这些字段而不影响基础交互。
+
+#### Scenario: 任务超预算时推送告警
+
+- **WHEN** deep task 超过预设预算阈值
+- **THEN** 服务端推送预算告警相关字段或事件
+- **AND** 告警中包含 `task_id` 与告警摘要
+
+#### Scenario: 客户端忽略预算告警仍保持兼容
+
+- **WHEN** 客户端尚未实现预算告警的专门展示
+- **THEN** 客户端仍可继续消费其他 deep task 关键事件
+- **AND** 预算告警至少被记录到 trace、日志或诊断事件中

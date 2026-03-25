@@ -36,6 +36,8 @@ class HarnessRunContext(BaseModel):
     artifacts: list[HarnessArtifactSummary] = Field(default_factory=list)
     tool_hints: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
+    task_id: str | None = None
+    recipe_id: str | None = None
 
     def to_runtime_block(self) -> str:
         """转换为 runtime context 摘要块。"""
@@ -85,6 +87,35 @@ class BlockedState(BaseModel):
     message: str
     recoverable: bool = True
     suggested_action: str | None = None
+    task_id: str | None = None
+    attempt_id: str | None = None
+
+
+class HarnessBudgetWarning(BaseModel):
+    """任务级预算告警。"""
+
+    task_id: str
+    metric: Literal["tokens", "cost_usd", "tool_calls"]
+    threshold: float
+    current_value: float
+    warning_level: Literal["warning", "critical"]
+    message: str
+    recipe_id: str | None = None
+    timestamp: str = Field(default_factory=utc_now_iso)
+
+
+class HarnessTaskMetrics(BaseModel):
+    """deep task 关键指标摘要。"""
+
+    task_id: str | None = None
+    recipe_id: str | None = None
+    final_status: str = "completed"
+    total_duration_ms: int = 0
+    step_durations_ms: dict[str, int] = Field(default_factory=dict)
+    recovery_count: int = 0
+    tool_call_count: int = 0
+    failure_types: list[str] = Field(default_factory=list)
+    budget_warnings: list[HarnessBudgetWarning] = Field(default_factory=list)
 
 
 class HarnessTraceEvent(BaseModel):
@@ -107,11 +138,15 @@ class HarnessTraceRecord(BaseModel):
     turn_id: str
     user_message: str
     run_context: HarnessRunContext
+    task_id: str | None = None
+    recipe_id: str | None = None
     stage_history: list[dict[str, Any]] = Field(default_factory=list)
     events: list[HarnessTraceEvent] = Field(default_factory=list)
     completion_checks: list[CompletionCheckResult] = Field(default_factory=list)
     blocked: BlockedState | None = None
     failure_tags: list[str] = Field(default_factory=list)
+    budget_warnings: list[HarnessBudgetWarning] = Field(default_factory=list)
+    task_metrics: HarnessTaskMetrics | None = None
     status: Literal["completed", "blocked", "stopped", "error"] = "completed"
     summary: dict[str, Any] = Field(default_factory=dict)
     started_at: str = Field(default_factory=utc_now_iso)
@@ -124,8 +159,12 @@ class HarnessRunSummary(BaseModel):
     run_id: str
     session_id: str
     turn_id: str
+    task_id: str | None = None
+    recipe_id: str | None = None
     status: str
     failure_tags: list[str] = Field(default_factory=list)
+    recovery_count: int = 0
+    budget_warning_count: int = 0
     duration_ms: int = 0
     input_tokens: int = 0
     output_tokens: int = 0

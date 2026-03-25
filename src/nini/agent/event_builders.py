@@ -22,6 +22,7 @@ from nini.models.event_schemas import (
     CompletionCheckEventData,
     CompletionCheckItemEventData,
     BlockedEventData,
+    BudgetWarningEventData,
     TokenUsageEventData,
     ModelFallbackEventData,
     SessionTokenUsageEventData,
@@ -326,6 +327,39 @@ def build_blocked_event(
 
     return AgentEvent(
         type=EventType.BLOCKED,
+        data=data,
+        turn_id=turn_id,
+    )
+
+
+def build_budget_warning_event(
+    *,
+    task_id: str,
+    metric: str,
+    threshold: float,
+    current_value: float,
+    warning_level: str,
+    message: str,
+    recipe_id: str | None = None,
+    turn_id: str | None = None,
+    **extra,
+) -> AgentEvent:
+    """构造 BUDGET_WARNING 事件。"""
+    event_data = BudgetWarningEventData(
+        task_id=task_id,
+        metric=metric,  # type: ignore[arg-type]
+        threshold=threshold,
+        current_value=current_value,
+        warning_level=warning_level,  # type: ignore[arg-type]
+        message=message,
+        recipe_id=recipe_id,
+    )
+
+    data = event_data.model_dump()
+    data.update(extra)
+
+    return AgentEvent(
+        type=EventType.BUDGET_WARNING,
         data=data,
         turn_id=turn_id,
     )

@@ -88,6 +88,16 @@ class CitationInfo(BaseModel):
     document_title: str
     excerpt: str
     relevance_score: float
+    source_id: Optional[str] = None
+    source_type: Optional[str] = None
+    acquisition_method: Optional[str] = None
+    accessed_at: Optional[datetime] = None
+    source_time: Optional[datetime] = None
+    stable_ref: Optional[str] = None
+    claim_id: Optional[str] = None
+    verification_status: Optional[str] = None
+    reason_summary: Optional[str] = None
+    conflict_summary: Optional[str] = None
     url: Optional[str] = None
 
 

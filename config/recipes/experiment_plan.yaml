@@ -1,0 +1,68 @@
+recipe_id: experiment_plan
+name: 实验设计与统计计划
+summary: 将研究问题转成实验流程、关键变量、统计方法和最小可执行方案。
+scenario: 适合开题、实验前讨论、方法学预审或方案复核。
+example_input: 基于动物实验比较两种干预方案对炎症因子的影响，帮我出实验设计和统计计划。
+recommended_triggers:
+  - 实验设计
+  - 研究方案
+  - 统计计划
+  - 方法设计
+deep_task_keywords:
+  - 设计
+  - 方案
+  - 样本量
+input_fields:
+  - key: research_question
+    label: 研究问题
+    required: true
+    placeholder: 例如：两种干预方案是否降低炎症因子水平
+    example: 两种干预方案是否降低炎症因子水平
+  - key: subjects
+    label: 研究对象
+    required: false
+    placeholder: 例如：小鼠 / 患者队列
+    example: 小鼠
+  - key: endpoints
+    label: 主要终点
+    required: false
+    placeholder: 例如：IL-6、TNF-a
+    example: IL-6、TNF-a
+steps:
+  - id: design
+    title: 抽取研究结构
+    description: 明确对象、分组、变量、终点和约束条件。
+  - id: stats
+    title: 匹配统计分析路径
+    description: 给出主要比较、备选方法、假设检查和样本量提醒。
+  - id: deliverable
+    title: 输出实验与统计计划
+    description: 形成可执行的步骤清单、风险点和补充数据需求。
+default_outputs:
+  - id: plan
+    label: 实验设计清单
+    type: markdown
+  - id: stats
+    label: 统计分析计划
+    type: checklist
+recovery:
+  max_retries: 1
+  user_hint: 如果终点或分组不清晰，请先补充实验对象、样本量和主要终点。
+  fallback_action: 请求用户补充终点或分组
+starter_prompt_template: |
+  你正在以 Recipe 模式执行「{recipe_name}」。
+
+  用户原始请求：
+  {user_request}
+
+  用户补充输入：
+  {input_bullets}
+
+  请按以下步骤推进：
+  {step_bullets}
+
+  默认输出：
+  {output_bullets}
+
+  输出时优先保证方案可执行、统计口径明确，并标出潜在风险点。
+  若流程受阻，请遵循以下恢复提示：{fallback_hint}

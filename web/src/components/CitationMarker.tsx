@@ -28,6 +28,12 @@ export default function CitationMarker({
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const [tooltipPos, setTooltipPos] = useState<"above" | "below">("below");
   const markerRef = useRef<HTMLButtonElement>(null);
+  const formatTime = (value?: string): string | null => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString("zh-CN", { hour12: false });
+  };
 
   // 计算 tooltip 位置，避免超出视口
   useEffect(() => {
@@ -50,6 +56,16 @@ export default function CitationMarker({
     if (retrieval.score >= 0.8) return { text: "高可信度", color: "text-emerald-600 bg-emerald-50" };
     if (retrieval.score >= 0.6) return { text: "一般参考", color: "text-amber-600 bg-amber-50" };
     return { text: "参考", color: "text-slate-500 bg-slate-100" };
+  })();
+  const verificationLabel = (() => {
+    if (!retrieval?.verificationStatus) return null;
+    if (retrieval.verificationStatus === "verified") {
+      return { text: "已验证", color: "text-emerald-700 bg-emerald-50" };
+    }
+    if (retrieval.verificationStatus === "conflicted") {
+      return { text: "证据冲突", color: "text-rose-700 bg-rose-50" };
+    }
+    return { text: "待验证", color: "text-amber-700 bg-amber-50" };
   })();
 
   return (
@@ -118,11 +134,31 @@ export default function CitationMarker({
                 {credibilityLabel.text}
               </span>
             )}
+            {verificationLabel && (
+              <span
+                className={`ml-1 inline-flex px-1.5 py-0.5 rounded text-[10px] ${verificationLabel.color}`}
+              >
+                {verificationLabel.text}
+              </span>
+            )}
 
             {/* 片段预览 */}
             {retrieval.snippet && (
               <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 line-clamp-3">
                 {retrieval.snippet}
+              </div>
+            )}
+
+            {(retrieval.sourceType || retrieval.acquisitionMethod || retrieval.sourceId) && (
+              <div className="mt-2 space-y-1 text-[10px] text-slate-400 dark:text-slate-500">
+                {retrieval.sourceType && <div>来源类型：{retrieval.sourceType}</div>}
+                {retrieval.acquisitionMethod && <div>获取方式：{retrieval.acquisitionMethod}</div>}
+                {retrieval.claimId && <div>claim_id：{retrieval.claimId}</div>}
+                {retrieval.sourceId && <div>来源ID：{retrieval.sourceId}</div>}
+                {retrieval.sourceTime && <div>来源时间：{formatTime(retrieval.sourceTime)}</div>}
+                {retrieval.accessedAt && <div>获取时间：{formatTime(retrieval.accessedAt)}</div>}
+                {retrieval.reasonSummary && <div>原因摘要：{retrieval.reasonSummary}</div>}
+                {retrieval.conflictSummary && <div>冲突摘要：{retrieval.conflictSummary}</div>}
               </div>
             )}
           </div>

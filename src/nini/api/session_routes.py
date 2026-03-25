@@ -67,6 +67,10 @@ async def get_session(session_id: str) -> APIResponse:
             "id": session.id,
             "title": session.title,
             "message_count": len(session.messages),
+            "task_kind": session.task_kind,
+            "recipe_id": session.recipe_id,
+            "recipe_inputs": session.recipe_inputs,
+            "deep_task_state": session.deep_task_state,
         },
     )
 

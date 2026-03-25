@@ -8,7 +8,17 @@ from pathlib import Path
 from typing import Any
 
 from nini.agent.session import Session
-from nini.models import ReportSection, ReportSessionRecord, ResourceType
+from nini.claim_verification import apply_claim_verification
+from nini.evidence import normalize_source_record, render_methods_v1, utc_now
+from nini.models import (
+    ClaimVerificationStatus,
+    EvidenceBlock,
+    MethodsLedgerEntry,
+    ReportSection,
+    ReportSessionRecord,
+    ResourceType,
+    SourceRecord,
+)
 from nini.tools.base import Tool, ToolResult
 from nini.tools.export_report import export_workspace_document
 from nini.tools.report import _sanitize_chinese_filename
@@ -59,12 +69,21 @@ class ReportSessionTool(Tool):
                 },
                 "summary_text": {"type": "string"},
                 "methods": {"type": "string"},
+                "methods_v1": {"type": "string"},
+                "methods_entries": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                },
                 "conclusions": {"type": "string"},
+                "evidence_blocks": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                },
                 "section_key": {"type": "string"},
                 "mode": {"type": "string", "enum": ["replace", "append"]},
                 "content": {"type": "string"},
                 "artifact_resource_id": {"type": "string"},
-                "output_format": {"type": "string", "enum": ["pdf", "docx"]},
+                "output_format": {"type": "string", "enum": ["pdf", "docx", "pptx", "tex"]},
                 "filename": {"type": "string"},
             },
             "required": ["operation"],
@@ -93,7 +112,11 @@ class ReportSessionTool(Tool):
             session_id=session.id,
             title=title,
             sections=sections,
+            evidence_blocks=self._normalize_evidence_blocks(kwargs, report_id=report_id),
+            methods_ledger=self._normalize_methods_ledger(kwargs, sections=sections),
         )
+        record.methods_v1 = self._resolve_methods_v1(kwargs, record.methods_ledger)
+        apply_claim_verification(record)
         filename = self._normalize_markdown_filename(kwargs.get("filename"))
         if filename:
             record.markdown_path = f"notes/reports/{filename}"
@@ -130,10 +153,15 @@ class ReportSessionTool(Tool):
             if section.key != section_key:
                 continue
             section.content = content if mode == "replace" else section.content + content
+            self._refresh_section_claim_summary(record, section)
             matched = True
             break
         if not matched:
             return ToolResult(success=False, message=f"未找到章节: {section_key}")
+        if section_key == "methods" and not kwargs.get("methods_v1"):
+            record.methods_ledger = self._build_default_methods_ledger(record.sections)
+            record.methods_v1 = render_methods_v1(record.methods_ledger)
+        apply_claim_verification(record)
         manager = WorkspaceManager(session.id)
         markdown_rel_path = self._write_report_markdown(manager, record)
         record.markdown_path = markdown_rel_path
@@ -168,10 +196,18 @@ class ReportSessionTool(Tool):
                 continue
             if artifact_resource_id not in section.attachments:
                 section.attachments.append(artifact_resource_id)
+            resource = WorkspaceManager(session.id).get_resource_summary(artifact_resource_id)
+            if isinstance(resource, dict):
+                self._upsert_section_evidence_source(
+                    record,
+                    section=section,
+                    source=normalize_source_record(resource),
+                )
             matched = True
             break
         if not matched:
             return ToolResult(success=False, message=f"未找到章节: {section_key}")
+        apply_claim_verification(record)
         manager = WorkspaceManager(session.id)
         markdown_rel_path = self._write_report_markdown(manager, record)
         record.markdown_path = markdown_rel_path
@@ -261,6 +297,90 @@ class ReportSessionTool(Tool):
             sections.append(ReportSection(key="summary", title="分析摘要", content=""))
         return sections
 
+    def _normalize_evidence_blocks(
+        self,
+        kwargs: dict[str, Any],
+        *,
+        report_id: str,
+    ) -> list[EvidenceBlock]:
+        raw_blocks = kwargs.get("evidence_blocks")
+        if not isinstance(raw_blocks, list):
+            return []
+
+        normalized: list[EvidenceBlock] = []
+        for index, item in enumerate(raw_blocks, 1):
+            if not isinstance(item, dict):
+                continue
+            claim_id = str(item.get("claim_id", "")).strip() or f"{report_id}:claim_{index}"
+            claim_summary = str(item.get("claim_summary", "")).strip()
+            if not claim_summary:
+                continue
+            raw_sources = item.get("sources")
+            sources = (
+                [
+                    normalize_source_record(source)
+                    for source in raw_sources
+                    if isinstance(source, dict)
+                ]
+                if isinstance(raw_sources, list)
+                else []
+            )
+            normalized.append(
+                EvidenceBlock(
+                    claim_id=claim_id,
+                    claim_summary=claim_summary,
+                    section_key=str(item.get("section_key", "")).strip() or None,
+                    sources=sources,
+                )
+            )
+        return normalized
+
+    def _normalize_methods_ledger(
+        self,
+        kwargs: dict[str, Any],
+        *,
+        sections: list[ReportSection],
+    ) -> list[MethodsLedgerEntry]:
+        raw_entries = kwargs.get("methods_entries")
+        if isinstance(raw_entries, list) and raw_entries:
+            return [
+                MethodsLedgerEntry.model_validate(item)
+                for item in raw_entries
+                if isinstance(item, dict)
+            ]
+        return self._build_default_methods_ledger(sections)
+
+    def _build_default_methods_ledger(
+        self,
+        sections: list[ReportSection],
+    ) -> list[MethodsLedgerEntry]:
+        methods_section = next((section for section in sections if section.key == "methods"), None)
+        if methods_section is None or not methods_section.content.strip():
+            return []
+        return [
+            MethodsLedgerEntry(
+                entry_id="methods_v1_seed",
+                step_name="方法说明整理",
+                method_name="报告方法摘要整理",
+                tool_name="report_session",
+                data_sources=[],
+                key_parameters={},
+                executed_at=utc_now(),
+                notes=methods_section.content.strip(),
+                missing_fields=["data_sources", "model_version"],
+            )
+        ]
+
+    def _resolve_methods_v1(
+        self,
+        kwargs: dict[str, Any],
+        methods_ledger: list[MethodsLedgerEntry],
+    ) -> str:
+        explicit = str(kwargs.get("methods_v1", "") or "").strip()
+        if explicit:
+            return explicit
+        return render_methods_v1(methods_ledger)
+
     def _record_path(self, manager: WorkspaceManager, report_id: str) -> Path:
         return manager.build_managed_resource_path(
             ResourceType.REPORT,
@@ -298,6 +418,34 @@ class ReportSessionTool(Tool):
                 "markdown_path": record.markdown_path,
                 "section_count": len(record.sections),
                 "section_keys": [section.key for section in record.sections],
+                "claim_ids": [block.claim_id for block in record.evidence_blocks],
+                "evidence_count": len(record.evidence_blocks),
+                "verification_counts": {
+                    "verified": len(
+                        [
+                            block
+                            for block in record.evidence_blocks
+                            if block.verification_status == ClaimVerificationStatus.VERIFIED
+                        ]
+                    ),
+                    "pending_verification": len(
+                        [
+                            block
+                            for block in record.evidence_blocks
+                            if block.verification_status
+                            == ClaimVerificationStatus.PENDING_VERIFICATION
+                        ]
+                    ),
+                    "conflicted": len(
+                        [
+                            block
+                            for block in record.evidence_blocks
+                            if block.verification_status == ClaimVerificationStatus.CONFLICTED
+                        ]
+                    ),
+                },
+                "methods_entry_count": len(record.methods_ledger),
+                "methods_v1": record.methods_v1,
                 "export_ids": record.export_ids,
             },
         )
@@ -310,15 +458,53 @@ class ReportSessionTool(Tool):
         lines = [f"# {record.title}", ""]
         for section in record.sections:
             lines.append(f"## {section.title}")
-            lines.append(section.content or "")
+            section_content = section.content or ""
+            if section.key == "summary" and record.evidence_blocks:
+                section_content = "以下摘要仅纳入已验证结论。"
+            lines.append(section_content)
+            if section.key == "methods" and record.methods_v1:
+                lines.append("")
+                lines.append(record.methods_v1)
+            if section.key == "summary":
+                lines.extend(self._verified_summary_lines(record))
+            section_evidence = [
+                block for block in record.evidence_blocks if block.section_key == section.key
+            ]
+            if section_evidence:
+                for block in section_evidence:
+                    lines.extend(self._evidence_markdown_lines(block))
             if section.attachments:
                 lines.append("")
                 lines.append("### 关联资源")
                 for resource_id in section.attachments:
                     lines.extend(self._resource_markdown_lines(manager, resource_id))
             lines.append("")
+        lines.extend(self._verification_appendix_lines(record))
         manager.save_text_file(rel_path, "\n".join(lines).strip() + "\n")
         return rel_path
+
+    def _evidence_markdown_lines(self, block: EvidenceBlock) -> list[str]:
+        lines = [
+            "",
+            "### Evidence Block",
+            f"- claim_id: `{block.claim_id}`",
+            f"- 结论摘要: {block.claim_summary}",
+            f"- 验证状态: {self._status_label(block.verification_status)}",
+            f"- 置信度: {block.confidence_score:.2f}",
+        ]
+        if block.reason_summary:
+            lines.append(f"- 原因摘要: {block.reason_summary}")
+        if block.conflict_summary:
+            lines.append(f"- 冲突摘要: {block.conflict_summary}")
+        if not block.sources:
+            lines.append("- 来源: 未记录")
+            lines.append("")
+            return lines
+        lines.append("- 来源列表:")
+        for source in block.sources:
+            lines.append(f"  - {self._format_source_line(source)}")
+        lines.append("")
+        return lines
 
     def _normalize_markdown_filename(self, filename: Any) -> str | None:
         if not isinstance(filename, str) or not filename.strip():
@@ -455,3 +641,113 @@ class ReportSessionTool(Tool):
                     ids.append(str(item.get("id", "")))
                     break
         return [item for item in ids if item]
+
+    def _upsert_section_evidence_source(
+        self,
+        record: ReportSessionRecord,
+        *,
+        section: ReportSection,
+        source: SourceRecord,
+    ) -> None:
+        claim_id = f"{record.id}:{section.key}"
+        claim_summary = self._summarize_claim(section)
+        block = next(
+            (
+                item
+                for item in record.evidence_blocks
+                if item.claim_id == claim_id or item.section_key == section.key
+            ),
+            None,
+        )
+        if block is None:
+            block = EvidenceBlock(
+                claim_id=claim_id,
+                claim_summary=claim_summary,
+                section_key=section.key,
+                sources=[],
+            )
+            record.evidence_blocks.append(block)
+        else:
+            block.claim_summary = claim_summary
+            block.section_key = section.key
+        if not any(item.source_id == source.source_id for item in block.sources):
+            block.sources.append(source)
+
+    def _refresh_section_claim_summary(
+        self,
+        record: ReportSessionRecord,
+        section: ReportSection,
+    ) -> None:
+        claim_id = f"{record.id}:{section.key}"
+        for block in record.evidence_blocks:
+            if block.claim_id == claim_id or block.section_key == section.key:
+                block.claim_summary = self._summarize_claim(section)
+                block.section_key = section.key
+
+    def _summarize_claim(self, section: ReportSection) -> str:
+        content = str(section.content or "").strip()
+        if not content:
+            return section.title
+        compact = " ".join(line.strip() for line in content.splitlines() if line.strip())
+        return compact[:160] + ("..." if len(compact) > 160 else "")
+
+    def _format_source_line(self, source: SourceRecord) -> str:
+        parts = [source.title, f"[{source.source_type}]"]
+        if source.acquisition_method:
+            parts.append(f"获取方式: {source.acquisition_method}")
+        if source.source_time is not None:
+            parts.append(f"来源时间: {source.source_time.isoformat()}")
+        if source.accessed_at is not None:
+            parts.append(f"获取时间: {source.accessed_at.isoformat()}")
+        parts.append(f"source_id: {source.source_id}")
+        return "；".join(parts)
+
+    def _verified_summary_lines(self, record: ReportSessionRecord) -> list[str]:
+        verified_blocks = [
+            block
+            for block in record.evidence_blocks
+            if block.verification_status == ClaimVerificationStatus.VERIFIED
+        ]
+        lines = ["", "### 已验证结论摘要"]
+        if not verified_blocks:
+            lines.append("- 当前没有可写入最终摘要的已验证结论。")
+            lines.append("")
+            return lines
+        for block in verified_blocks:
+            lines.append(f"- {block.claim_summary}（置信度 {block.confidence_score:.2f}）")
+        lines.append("")
+        return lines
+
+    def _verification_appendix_lines(self, record: ReportSessionRecord) -> list[str]:
+        pending_blocks = [
+            block
+            for block in record.evidence_blocks
+            if block.verification_status == ClaimVerificationStatus.PENDING_VERIFICATION
+        ]
+        conflicted_blocks = [
+            block
+            for block in record.evidence_blocks
+            if block.verification_status == ClaimVerificationStatus.CONFLICTED
+        ]
+        lines: list[str] = []
+        if pending_blocks:
+            lines.extend(["## 待验证结论", ""])
+            for block in pending_blocks:
+                lines.append(
+                    f"- {block.claim_summary}：{block.reason_summary or '尚缺少足够证据。'}"
+                )
+            lines.append("")
+        if conflicted_blocks:
+            lines.extend(["## 证据冲突结论", ""])
+            for block in conflicted_blocks:
+                reason = block.conflict_summary or block.reason_summary or "存在冲突来源。"
+                lines.append(f"- {block.claim_summary}：{reason}")
+            lines.append("")
+        return lines
+
+    def _status_label(self, status: ClaimVerificationStatus | str) -> str:
+        if status == ClaimVerificationStatus.VERIFIED:
+            return "已验证"
+        if status == ClaimVerificationStatus.CONFLICTED:
+            return "证据冲突"
+        return "待验证"

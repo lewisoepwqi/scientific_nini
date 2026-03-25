@@ -44,6 +44,10 @@ class Session:
     harness_runtime_context: str = ""
     # 图表输出格式偏好："interactive"（Plotly）/ "image"（Matplotlib/PNG）/ None（未设置）
     chart_output_preference: str | None = None
+    task_kind: str = "quick_task"
+    recipe_id: str | None = None
+    recipe_inputs: dict[str, Any] = field(default_factory=dict)
+    deep_task_state: dict[str, Any] = field(default_factory=dict)
     conversation_memory: ConversationMemory = field(init=False, repr=False)
     knowledge_memory: KnowledgeMemory = field(init=False, repr=False)
     task_manager: TaskManager = field(init=False, repr=False)
@@ -342,6 +346,28 @@ class Session:
         normalized = str(profile_id or "").strip() or "default"
         self.research_profile_id = normalized
 
+    def bind_recipe_context(
+        self,
+        *,
+        task_kind: str,
+        recipe_id: str | None,
+        recipe_inputs: dict[str, Any] | None = None,
+    ) -> None:
+        """绑定当前会话的任务分类与 Recipe 上下文。"""
+        self.task_kind = str(task_kind or "").strip() or "quick_task"
+        self.recipe_id = str(recipe_id or "").strip() or None
+        self.recipe_inputs = (
+            {str(key): value for key, value in (recipe_inputs or {}).items() if str(key).strip()}
+            if recipe_inputs
+            else {}
+        )
+
+    def set_deep_task_state(self, **state: Any) -> None:
+        """更新 deep task 状态。"""
+        next_state = dict(self.deep_task_state)
+        next_state.update({key: value for key, value in state.items() if value is not None})
+        self.deep_task_state = next_state
+
     def _check_auto_compress(self) -> None:
         """检查是否需要自动压缩（基于 Token 数估算）。"""
         if not settings.memory_auto_compress:
@@ -415,6 +441,10 @@ class SessionManager:
         tool_approval_grants: dict[str, str] = {}
         sandbox_approved_imports: set[str] = self._load_persistent_sandbox_import_approvals()
         chart_output_preference: str | None = None
+        task_kind = "quick_task"
+        recipe_id: str | None = None
+        recipe_inputs: dict[str, Any] = {}
+        deep_task_state: dict[str, Any] = {}
         compression_segments: list[dict[str, Any]] = []
         if load_persisted_messages:
             meta = self._load_session_meta(sid)
@@ -439,6 +469,22 @@ class SessionManager:
             raw_pref = meta.get("chart_output_preference")
             if raw_pref in ("interactive", "image"):
                 chart_output_preference = raw_pref
+            loaded_task_kind = str(meta.get("task_kind", "") or "").strip()
+            if loaded_task_kind:
+                task_kind = loaded_task_kind
+            loaded_recipe_id = str(meta.get("recipe_id", "") or "").strip()
+            if loaded_recipe_id:
+                recipe_id = loaded_recipe_id
+            raw_recipe_inputs = meta.get("recipe_inputs")
+            if isinstance(raw_recipe_inputs, dict):
+                recipe_inputs = {
+                    str(key): value
+                    for key, value in raw_recipe_inputs.items()
+                    if str(key).strip()
+                }
+            raw_deep_task_state = meta.get("deep_task_state")
+            if isinstance(raw_deep_task_state, dict):
+                deep_task_state = dict(raw_deep_task_state)
             # 加载 compression_segments；向后兼容旧格式
             raw_segs = meta.get("compression_segments")
             if isinstance(raw_segs, list) and raw_segs:
@@ -464,6 +510,10 @@ class SessionManager:
             last_compressed_at=last_compressed_at,
             research_profile_id=research_profile_id,
             chart_output_preference=chart_output_preference,
+            task_kind=task_kind,
+            recipe_id=recipe_id,
+            recipe_inputs=recipe_inputs,
+            deep_task_state=deep_task_state,
             compression_segments=compression_segments,
             load_persisted_messages=load_persisted_messages,
         )
@@ -695,6 +745,32 @@ class SessionManager:
         """持久化会话图表输出格式偏好。"""
         if preference in ("interactive", "image"):
             self._save_session_meta_fields(session_id, {"chart_output_preference": preference})
+
+    def save_session_recipe_context(
+        self,
+        session_id: str,
+        *,
+        task_kind: str,
+        recipe_id: str | None,
+        recipe_inputs: dict[str, Any] | None = None,
+    ) -> None:
+        """持久化 Recipe 绑定信息。"""
+        self._save_session_meta_fields(
+            session_id,
+            {
+                "task_kind": str(task_kind or "").strip() or "quick_task",
+                "recipe_id": str(recipe_id or "").strip() or None,
+                "recipe_inputs": recipe_inputs or {},
+            },
+        )
+
+    def save_session_deep_task_state(
+        self,
+        session_id: str,
+        deep_task_state: dict[str, Any],
+    ) -> None:
+        """持久化 deep task 状态。"""
+        self._save_session_meta_fields(session_id, {"deep_task_state": deep_task_state})
 
     def save_session_tool_approvals(
         self,

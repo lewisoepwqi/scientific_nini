@@ -49,7 +49,12 @@ function isChartFile(file: WorkspaceFile): boolean {
 
 function isReportFile(file: WorkspaceFile): boolean {
   const ext = file.name.split('.').pop()?.toLowerCase() || ''
-  return ['md', 'txt', 'pdf'].includes(ext)
+  const metaType = String(file.meta?.type || '').toLowerCase()
+  const projectArtifact = getProjectArtifactMeta(file)
+  const artifactType = String(projectArtifact?.artifact_type || '').toLowerCase()
+  return ['md', 'txt', 'pdf', 'docx', 'pptx', 'tex'].includes(ext)
+    || metaType === 'report'
+    || artifactType === 'report'
 }
 
 function isDataFile(file: WorkspaceFile): boolean {
@@ -78,6 +83,11 @@ function isTransformFile(file: WorkspaceFile): boolean {
   if (file.resource_type === 'transform') return true
   // 也可以通过 meta 中的 transform_id 判断
   return !!file.meta?.transform_id
+}
+
+function getProjectArtifactMeta(file: WorkspaceFile): Record<string, unknown> | null {
+  const raw = file.meta?.project_artifact
+  return raw && typeof raw === 'object' ? raw as Record<string, unknown> : null
 }
 
 function ThumbnailIcon({ file }: { file: WorkspaceFile }) {
@@ -111,7 +121,7 @@ function ThumbnailIcon({ file }: { file: WorkspaceFile }) {
   if (['html', 'htm'].includes(ext)) {
     return <FileCode size={28} className="text-orange-400" />
   }
-  if (['md', 'txt', 'pdf'].includes(ext)) {
+  if (['md', 'txt', 'pdf', 'docx', 'pptx', 'tex'].includes(ext)) {
     return <FileText size={28} className="text-blue-400" />
   }
   if (['csv', 'xlsx', 'xls', 'tsv', 'json'].includes(ext)) {
@@ -162,19 +172,31 @@ export default function ArtifactGallery() {
 
   const handleBatchDownload = useCallback(async () => {
     if (selectedIds.size === 0 || !sessionId) return
-    const selectedPaths = filteredArtifacts
-      .filter((file) => selectedIds.has(file.id))
+    const selectedFiles = filteredArtifacts.filter((file) => selectedIds.has(file.id))
+    const projectArtifactIds = selectedFiles
+      .map((file) => {
+        const meta = getProjectArtifactMeta(file)
+        return typeof meta?.id === 'string' ? meta.id : null
+      })
+      .filter((id): id is string => Boolean(id))
+    const selectedPaths = selectedFiles
       .map((file) => file.path)
       .filter((path): path is string => Boolean(path))
-    if (selectedPaths.length === 0) return
+    if (selectedPaths.length === 0 && projectArtifactIds.length === 0) return
     setDownloadError(null)
     setDownloading(true)
     try {
-      const resp = await apiFetch(`/api/workspace/${sessionId}/download-zip`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(selectedPaths),
-      })
+      const useProjectArtifacts = projectArtifactIds.length === selectedFiles.length
+      const resp = await apiFetch(
+        useProjectArtifacts
+          ? `/api/workspace/${sessionId}/project-artifacts/download-zip`
+          : `/api/workspace/${sessionId}/download-zip`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(useProjectArtifacts ? projectArtifactIds : selectedPaths),
+        },
+      )
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}`)
       }
@@ -275,6 +297,18 @@ export default function ArtifactGallery() {
                   <div className="text-[10px] text-gray-700 truncate" title={file.name}>
                     {file.name}
                   </div>
+                  {(() => {
+                    const meta = getProjectArtifactMeta(file)
+                    const version = typeof meta?.version === 'number' ? meta.version : null
+                    const format = typeof meta?.format === 'string' ? meta.format : null
+                    if (version === null && !format) return null
+                    return (
+                      <div className="mt-0.5 flex items-center gap-1 text-[9px] text-gray-400">
+                        {version !== null && <span>v{version}</span>}
+                        {format && <span className="uppercase">{format}</span>}
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
             )

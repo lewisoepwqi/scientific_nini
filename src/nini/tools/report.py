@@ -587,6 +587,20 @@ class GenerateReportTool(Tool):
                     "type": "string",
                     "description": "结论与建议：基于结果的解释、局限性、下一步建议",
                 },
+                "evidence_blocks": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "可选。关键结论的证据块，至少包含 claim_summary 与来源列表",
+                },
+                "methods_entries": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "可选。METHODS 台账条目，用于生成 METHODS v1",
+                },
+                "methods_v1": {
+                    "type": "string",
+                    "description": "可选。显式传入的 METHODS v1 文本",
+                },
                 "dataset_names": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -631,6 +645,9 @@ class GenerateReportTool(Tool):
         summary_text = _strip_tool_mentions(str(kwargs.get("summary_text", "") or ""))
         methods = _strip_tool_mentions(str(kwargs.get("methods", "") or ""))
         conclusions = _strip_tool_mentions(str(kwargs.get("conclusions", "") or ""))
+        evidence_blocks = kwargs.get("evidence_blocks")
+        methods_entries = kwargs.get("methods_entries")
+        methods_v1 = _strip_tool_mentions(str(kwargs.get("methods_v1", "") or ""))
         dataset_names = kwargs.get("dataset_names") or None
         include_recent_messages = bool(kwargs.get("include_recent_messages", True))
         include_charts = bool(kwargs.get("include_charts", True))
@@ -666,6 +683,9 @@ class GenerateReportTool(Tool):
                 {"key": "conclusions", "title": "结论与建议", "content": conclusions},
                 {"key": "report", "title": "完整报告", "content": preview_md},
             ],
+            evidence_blocks=evidence_blocks,
+            methods_entries=methods_entries,
+            methods_v1=methods_v1,
         )
         if not report_result.success:
             return report_result

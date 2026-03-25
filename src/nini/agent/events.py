@@ -37,6 +37,7 @@ class EventType(str, Enum):
     RUN_CONTEXT = "run_context"  # 当前轮 harness 运行上下文摘要
     COMPLETION_CHECK = "completion_check"  # 完成前结构化校验结果
     BLOCKED = "blocked"  # harness 阻塞状态
+    BUDGET_WARNING = "budget_warning"  # deep task 预算告警
 
     # WebSocket 专用事件类型
     WORKSPACE_UPDATE = "workspace_update"  # 通知前端刷新工作区

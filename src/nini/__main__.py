@@ -234,6 +234,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     harness_eval_parser = harness_subparsers.add_parser("eval", help="聚合 harness 失败分类")
     harness_eval_parser.add_argument("--session-id", default=None, help="按会话过滤")
+    harness_eval_parser.add_argument(
+        "--gate",
+        action="store_true",
+        help="按核心 Recipe 基准集执行发布门禁评估",
+    )
     harness_eval_parser.set_defaults(func=_cmd_harness_eval)
 
     def _register_tool_subcommands(
@@ -584,6 +589,12 @@ def _cmd_harness_eval(args: argparse.Namespace) -> int:
     from nini.harness.store import HarnessTraceStore
 
     store = HarnessTraceStore()
+    if args.gate:
+        result = store.evaluate_core_recipe_benchmarks(session_id=args.session_id)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        gate_payload = result.get("core_recipe_benchmarks", {})
+        return 0 if bool(gate_payload.get("gate_passed")) else 1
+
     result = asyncio.run(store.aggregate_failures(session_id=args.session_id))
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

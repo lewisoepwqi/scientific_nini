@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import math
+import uuid
 from contextlib import suppress
 from typing import Any
 
@@ -22,6 +23,7 @@ from nini.agent.session import Session, session_manager
 from nini.agent.title_generator import generate_title
 from nini.harness.runner import HarnessRunner
 from nini.models.schemas import WSEvent
+from nini.recipe import RecipeDefinition, classify_task_request, get_recipe_registry
 from nini.tools.registry import ToolRegistry
 from nini.workspace import WorkspaceManager
 
@@ -88,6 +90,7 @@ async def websocket_agent(ws: WebSocket):
     pending_question_futures: dict[str, asyncio.Future[dict[str, str]]] = {}
     # tool_call_id → session_id，用于精确取消指定会话的挂起提问
     pending_question_session_map: dict[str, str] = {}
+    recipe_registry = get_recipe_registry()
 
     def _cancel_pending_questions(target_session_id: str | None = None) -> None:
         """取消等待中的 ask_user_question 回答。
@@ -150,11 +153,222 @@ async def websocket_agent(ws: WebSocket):
             pending_question_futures.pop(tool_call_id, None)
             pending_question_session_map.pop(tool_call_id, None)
 
+    def _normalize_recipe_inputs(raw: Any) -> dict[str, str]:
+        """规范化 Recipe 输入。"""
+        if not isinstance(raw, dict):
+            return {}
+        normalized: dict[str, str] = {}
+        for raw_key, raw_value in raw.items():
+            key = str(raw_key or "").strip()
+            value = str(raw_value or "").strip()
+            if key and value:
+                normalized[key] = value
+        return normalized
+
+    def _persist_task_context(session: Session) -> None:
+        """持久化 Recipe 与 deep task 上下文。"""
+        session_manager.save_session_recipe_context(
+            session.id,
+            task_kind=session.task_kind,
+            recipe_id=session.recipe_id,
+            recipe_inputs=session.recipe_inputs,
+        )
+        if session.deep_task_state:
+            session_manager.save_session_deep_task_state(session.id, session.deep_task_state)
+
+    def _build_recipe_plan_steps(
+        recipe: RecipeDefinition,
+        *,
+        task_id: str,
+        current_step_index: int,
+        workflow_status: str,
+    ) -> list[dict[str, Any]]:
+        """将 Recipe 步骤映射为 analysis plan 结构。"""
+        steps: list[dict[str, Any]] = []
+        total_steps = len(recipe.steps)
+        for index, step in enumerate(recipe.steps, start=1):
+            status = "pending"
+            raw_status = "pending"
+            if workflow_status == "completed":
+                status = "completed"
+                raw_status = "completed"
+            elif index < current_step_index:
+                status = "completed"
+                raw_status = "completed"
+            elif index == current_step_index:
+                if workflow_status in {"running", "queued", "retrying"}:
+                    status = "in_progress"
+                    raw_status = workflow_status
+                elif workflow_status in {"blocked", "failed"}:
+                    status = "failed"
+                    raw_status = workflow_status
+            steps.append(
+                {
+                    "id": index,
+                    "title": step.title,
+                    "tool_hint": step.description or None,
+                    "status": status,
+                    "raw_status": raw_status,
+                    "action_id": f"{task_id}:{step.id}",
+                }
+            )
+        if total_steps > 0 and workflow_status == "completed":
+            steps[-1]["status"] = "completed"
+            steps[-1]["raw_status"] = "completed"
+        return steps
+
+    async def _emit_deep_task_snapshot(
+        session: Session,
+        recipe: RecipeDefinition,
+        *,
+        workflow_status: str,
+        current_step_index: int,
+        next_hint: str | None = None,
+        block_reason: str | None = None,
+        retry_count: int | None = None,
+        emit_task_attempt: bool = False,
+    ) -> None:
+        """推送 deep task 生命周期与步骤进度。"""
+        task_id = str(session.deep_task_state.get("task_id", "")).strip()
+        if not task_id:
+            return
+        total_steps = len(recipe.steps)
+        safe_index = max(1, min(current_step_index, total_steps))
+        effective_retry_count = (
+            retry_count
+            if retry_count is not None
+            else int(session.deep_task_state.get("retry_count", 0))
+        )
+        attempt_id = f"{task_id}:workflow:{effective_retry_count + 1}"
+        session.deep_task_state.update(
+            {
+                "task_id": task_id,
+                "status": workflow_status,
+                "current_step_index": safe_index,
+                "total_steps": total_steps,
+                "current_step_title": recipe.steps[safe_index - 1].title,
+                "next_hint": next_hint,
+                "block_reason": block_reason,
+                "retry_count": effective_retry_count,
+                "current_attempt_id": attempt_id,
+            }
+        )
+        _persist_task_context(session)
+
+        await _send_event(
+            ws,
+            EventType.SESSION.value,
+            data={
+                "session_id": session.id,
+                "task_kind": session.task_kind,
+                "recipe_id": session.recipe_id,
+                "deep_task_state": session.deep_task_state,
+            },
+            session_id=session.id,
+            active_stop_events=active_stop_events,
+        )
+
+        steps = _build_recipe_plan_steps(
+            recipe,
+            task_id=task_id,
+            current_step_index=safe_index,
+            workflow_status=workflow_status,
+        )
+        await _send_event(
+            ws,
+            EventType.ANALYSIS_PLAN.value,
+            data={"steps": steps, "raw_text": f"{recipe.name} 执行计划"},
+            session_id=session.id,
+            active_stop_events=active_stop_events,
+        )
+        await _send_event(
+            ws,
+            EventType.PLAN_PROGRESS.value,
+            data={
+                "steps": steps,
+                "current_step_index": safe_index,
+                "total_steps": total_steps,
+                "step_title": recipe.steps[safe_index - 1].title,
+                "step_status": workflow_status,
+                "next_hint": next_hint,
+                "block_reason": block_reason,
+                "recipe_id": recipe.recipe_id,
+                "task_id": task_id,
+                "task_kind": session.task_kind,
+                "retry_count": session.deep_task_state.get("retry_count", 0),
+            },
+            session_id=session.id,
+            active_stop_events=active_stop_events,
+        )
+        if emit_task_attempt:
+            await _send_event(
+                ws,
+                EventType.TASK_ATTEMPT.value,
+                data={
+                    "action_id": f"{task_id}:{recipe.steps[safe_index - 1].id}",
+                    "step_id": safe_index,
+                    "tool_name": "recipe_runtime",
+                    "attempt": int(session.deep_task_state.get("retry_count", 0)) + 1,
+                    "max_attempts": max(1, recipe.recovery.max_retries + 1),
+                    "status": "retrying" if workflow_status == "retrying" else "failed",
+                    "task_id": task_id,
+                    "attempt_id": attempt_id,
+                    "note": next_hint,
+                    "error": block_reason,
+                },
+                session_id=session.id,
+                active_stop_events=active_stop_events,
+            )
+
+    async def _initialize_deep_task_workspace(
+        session: Session,
+        recipe: RecipeDefinition,
+        user_request: str,
+    ) -> None:
+        """初始化 deep task 工作区并归档输入摘要。"""
+        workspace = WorkspaceManager(session.id)
+        workspace.ensure_dirs()
+        lines = [
+            f"# {recipe.name}",
+            "",
+            f"- recipe_id: `{recipe.recipe_id}`",
+            f"- task_kind: `{session.task_kind}`",
+            "",
+            "## 原始请求",
+            "",
+            user_request.strip(),
+            "",
+            "## 结构化输入",
+            "",
+        ]
+        if session.recipe_inputs:
+            lines.extend([f"- {key}: {value}" for key, value in session.recipe_inputs.items()])
+        else:
+            lines.append("- 未提供额外输入")
+        workspace.save_text_note(
+            "\n".join(lines).strip() + "\n",
+            filename=f"recipe_{recipe.recipe_id}_request.md",
+        )
+        await _send_event(
+            ws,
+            EventType.WORKSPACE_UPDATE.value,
+            data={
+                "action": "add",
+                "recipe_id": recipe.recipe_id,
+                "task_id": session.deep_task_state.get("task_id"),
+                "attempt_id": session.deep_task_state.get("current_attempt_id"),
+                "initialized": True,
+            },
+            session_id=session.id,
+            active_stop_events=active_stop_events,
+        )
+
     async def _run_chat(
         session: Session,
         content: str,
         *,
         append_user_message: bool,
+        recipe: RecipeDefinition | None = None,
     ) -> None:
         runner = HarnessRunner(
             agent_runner=AgentRunner(
@@ -206,131 +420,227 @@ async def websocket_agent(ws: WebSocket):
         session.event_callback = _forward_session_event
 
         try:
-            async for event in runner.run(
-                session,
-                content,
-                append_user_message=append_user_message,
-                stop_event=stop_event,
-            ):
-                if event.type == EventType.ASK_USER_QUESTION and event.tool_call_id:
-                    loop = asyncio.get_running_loop()
-                    future = pending_question_futures.get(event.tool_call_id)
-                    if future is None or future.done():
-                        pending_question_futures[event.tool_call_id] = loop.create_future()
-                    # 记录 tool_call_id → session_id 映射
-                    pending_question_session_map[event.tool_call_id] = session.id
-
-                await _send_event(
-                    ws,
-                    event.type.value,
-                    data=event.data,
-                    session_id=session.id,
-                    tool_call_id=event.tool_call_id,
-                    tool_name=event.tool_name,
-                    turn_id=event.turn_id,
-                    metadata=event.metadata,
-                    active_stop_events=active_stop_events,
-                )
-                # 分析思路事件：通知前端刷新工作区（已保存为产物）
-                if (
-                    event.type == EventType.REASONING
-                    and isinstance(event.metadata, dict)
-                    and event.metadata.get("workspace_update") == "add"
-                ):
-                    await _send_event(
-                        ws,
-                        EventType.WORKSPACE_UPDATE.value,
-                        data={"action": "add"},
-                        session_id=session.id,
-                        active_stop_events=active_stop_events,
-                    )
-                # 产物或图片生成后通知前端刷新工作区面板
-                if event.type in (EventType.ARTIFACT, EventType.IMAGE):
-                    await _send_event(
-                        ws,
-                        EventType.WORKSPACE_UPDATE.value,
-                        data={"action": "add"},
-                        session_id=session.id,
-                        active_stop_events=active_stop_events,
-                    )
-                # 工具调用：缓存代码执行工具的源代码
-                if (
-                    event.type == EventType.TOOL_CALL
-                    and event.tool_name
-                    and event.tool_name in _code_exec_tools
-                    and event.tool_call_id
-                ):
-                    try:
-                        call_data = event.data if isinstance(event.data, dict) else {}
-                        args_raw = call_data.get("arguments", "{}")
-                        args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
-                        code = args.get("code", "") if isinstance(args, dict) else ""
-                        if code:
-                            _pending_code[event.tool_call_id] = str(code)
-                        # 缓存完整工具调用参数
-                        _pending_tool_args[event.tool_call_id] = {
-                            "tool_name": event.tool_name,
-                            "tool_args": args if isinstance(args, dict) else {},
-                            "intent": (
-                                event.metadata.get("intent")
-                                if isinstance(event.metadata, dict)
-                                else None
+            max_attempts = max(1, (recipe.recovery.max_retries + 1) if recipe else 1)
+            current_attempt = 0
+            milestones = {"tooling_started": False, "output_started": False}
+            while current_attempt < max_attempts:
+                current_attempt += 1
+                if recipe is not None:
+                    await _emit_deep_task_snapshot(
+                        session,
+                        recipe,
+                        workflow_status="retrying" if current_attempt > 1 else "running",
+                        current_step_index=max(
+                            1,
+                            min(
+                                int(session.deep_task_state.get("current_step_index", 1)),
+                                len(recipe.steps),
                             ),
-                        }
-                    except Exception:
-                        logger.debug("代码执行参数解析失败", exc_info=True)
-                # 工具执行结果：如果是代码执行类工具，配对源代码后持久化并推送事件
-                if (
-                    event.type == EventType.TOOL_RESULT
-                    and event.tool_name
-                    and event.tool_name in _code_exec_tools
-                ):
-                    try:
-                        result_data = event.data if isinstance(event.data, dict) else {}
-                        # 从缓存中取出配对的源代码和工具参数
-                        paired_code = _pending_code.pop(event.tool_call_id or "", "")
-                        tool_info = _pending_tool_args.pop(event.tool_call_id or "", {})
-                        # 计算当前上下文 token 数
-                        from nini.utils.token_counter import count_messages_tokens
-
-                        ctx_tokens = count_messages_tokens(session.messages)
-                        wm = WorkspaceManager(session.id)
-                        event_intent = (
-                            event.metadata.get("intent")
-                            if isinstance(event.metadata, dict)
+                        ),
+                        next_hint=(
+                            recipe.recovery.user_hint or "正在根据回退策略重试。"
+                            if current_attempt > 1
+                            else "正在整理任务上下文并准备执行。"
+                        ),
+                        block_reason=(
+                            str(session.deep_task_state.get("last_error", "") or "")
+                            if current_attempt > 1
                             else None
-                        )
-                        payload = result_data.get("data")
-                        execution_id = ""
-                        if isinstance(payload, dict):
-                            execution_id = str(payload.get("execution_id", "")).strip()
-                        exec_record = wm.get_code_execution(execution_id) if execution_id else None
-                        if exec_record is None:
-                            exec_record = wm.save_code_execution(
-                                code=paired_code,
-                                output=str(
-                                    result_data.get("message", result_data.get("output", ""))
-                                ),
-                                status=str(result_data.get("status", "success")),
-                                language=(
-                                    "r"
-                                    if str(tool_info.get("tool_name", "")) == "run_r_code"
-                                    else "python"
-                                ),
-                                tool_name=tool_info.get("tool_name"),
-                                tool_args=tool_info.get("tool_args"),
-                                context_token_count=ctx_tokens,
-                                intent=event_intent or tool_info.get("intent"),
-                            )
+                        ),
+                        retry_count=max(0, current_attempt - 1),
+                        emit_task_attempt=current_attempt > 1,
+                    )
+                try:
+                    async for event in runner.run(
+                        session,
+                        content,
+                        append_user_message=append_user_message,
+                        stop_event=stop_event,
+                    ):
+                        if event.type == EventType.ASK_USER_QUESTION and event.tool_call_id:
+                            loop = asyncio.get_running_loop()
+                            future = pending_question_futures.get(event.tool_call_id)
+                            if future is None or future.done():
+                                pending_question_futures[event.tool_call_id] = loop.create_future()
+                            pending_question_session_map[event.tool_call_id] = session.id
+
+                        if recipe is not None:
+                            if (
+                                event.type
+                                in {
+                                    EventType.TOOL_CALL,
+                                    EventType.RETRIEVAL,
+                                    EventType.DATA,
+                                    EventType.CHART,
+                                }
+                                and not milestones["tooling_started"]
+                            ):
+                                milestones["tooling_started"] = True
+                                await _emit_deep_task_snapshot(
+                                    session,
+                                    recipe,
+                                    workflow_status="running",
+                                    current_step_index=min(2, len(recipe.steps)),
+                                    next_hint="正在执行核心分析或检索步骤。",
+                                    retry_count=max(0, current_attempt - 1),
+                                )
+                            elif (
+                                event.type in {EventType.TEXT, EventType.ARTIFACT, EventType.IMAGE}
+                                and not milestones["output_started"]
+                            ):
+                                milestones["output_started"] = True
+                                await _emit_deep_task_snapshot(
+                                    session,
+                                    recipe,
+                                    workflow_status="running",
+                                    current_step_index=len(recipe.steps),
+                                    next_hint="正在整理最终输出与下一步建议。",
+                                    retry_count=max(0, current_attempt - 1),
+                                )
+
                         await _send_event(
                             ws,
-                            EventType.CODE_EXECUTION.value,
-                            data=exec_record,
+                            event.type.value,
+                            data=event.data,
                             session_id=session.id,
+                            tool_call_id=event.tool_call_id,
+                            tool_name=event.tool_name,
+                            turn_id=event.turn_id,
+                            metadata=event.metadata,
                             active_stop_events=active_stop_events,
                         )
-                    except Exception as exc:
-                        logger.debug("保存代码执行记录失败: %s", exc)
+                        if (
+                            event.type == EventType.REASONING
+                            and isinstance(event.metadata, dict)
+                            and event.metadata.get("workspace_update") == "add"
+                        ):
+                            await _send_event(
+                                ws,
+                                EventType.WORKSPACE_UPDATE.value,
+                                data={
+                                    "action": "add",
+                                    "recipe_id": session.recipe_id,
+                                    "task_id": session.deep_task_state.get("task_id"),
+                                    "attempt_id": session.deep_task_state.get("current_attempt_id"),
+                                },
+                                session_id=session.id,
+                                active_stop_events=active_stop_events,
+                            )
+                        if event.type in (EventType.ARTIFACT, EventType.IMAGE):
+                            await _send_event(
+                                ws,
+                                EventType.WORKSPACE_UPDATE.value,
+                                data={
+                                    "action": "add",
+                                    "recipe_id": session.recipe_id,
+                                    "task_id": session.deep_task_state.get("task_id"),
+                                    "attempt_id": session.deep_task_state.get("current_attempt_id"),
+                                },
+                                session_id=session.id,
+                                active_stop_events=active_stop_events,
+                            )
+                        if (
+                            event.type == EventType.TOOL_CALL
+                            and event.tool_name
+                            and event.tool_name in _code_exec_tools
+                            and event.tool_call_id
+                        ):
+                            try:
+                                call_data = event.data if isinstance(event.data, dict) else {}
+                                args_raw = call_data.get("arguments", "{}")
+                                args = (
+                                    json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+                                )
+                                code = args.get("code", "") if isinstance(args, dict) else ""
+                                if code:
+                                    _pending_code[event.tool_call_id] = str(code)
+                                _pending_tool_args[event.tool_call_id] = {
+                                    "tool_name": event.tool_name,
+                                    "tool_args": args if isinstance(args, dict) else {},
+                                    "intent": (
+                                        event.metadata.get("intent")
+                                        if isinstance(event.metadata, dict)
+                                        else None
+                                    ),
+                                }
+                            except Exception:
+                                logger.debug("代码执行参数解析失败", exc_info=True)
+                        if (
+                            event.type == EventType.TOOL_RESULT
+                            and event.tool_name
+                            and event.tool_name in _code_exec_tools
+                        ):
+                            try:
+                                result_data = event.data if isinstance(event.data, dict) else {}
+                                paired_code = _pending_code.pop(event.tool_call_id or "", "")
+                                tool_info = _pending_tool_args.pop(event.tool_call_id or "", {})
+                                from nini.utils.token_counter import count_messages_tokens
+
+                                ctx_tokens = count_messages_tokens(session.messages)
+                                wm = WorkspaceManager(session.id)
+                                event_intent = (
+                                    event.metadata.get("intent")
+                                    if isinstance(event.metadata, dict)
+                                    else None
+                                )
+                                payload = result_data.get("data")
+                                execution_id = ""
+                                if isinstance(payload, dict):
+                                    execution_id = str(payload.get("execution_id", "")).strip()
+                                exec_record = (
+                                    wm.get_code_execution(execution_id) if execution_id else None
+                                )
+                                if exec_record is None:
+                                    exec_record = wm.save_code_execution(
+                                        code=paired_code,
+                                        output=str(
+                                            result_data.get(
+                                                "message", result_data.get("output", "")
+                                            )
+                                        ),
+                                        status=str(result_data.get("status", "success")),
+                                        language=(
+                                            "r"
+                                            if str(tool_info.get("tool_name", "")) == "run_r_code"
+                                            else "python"
+                                        ),
+                                        tool_name=tool_info.get("tool_name"),
+                                        tool_args=tool_info.get("tool_args"),
+                                        context_token_count=ctx_tokens,
+                                        intent=event_intent or tool_info.get("intent"),
+                                    )
+                                await _send_event(
+                                    ws,
+                                    EventType.CODE_EXECUTION.value,
+                                    data=exec_record,
+                                    session_id=session.id,
+                                    active_stop_events=active_stop_events,
+                                )
+                            except Exception as exc:
+                                logger.debug("保存代码执行记录失败: %s", exc)
+                    break
+                except Exception as exc:
+                    if recipe is not None and current_attempt < max_attempts:
+                        session.deep_task_state["last_error"] = str(exc)
+                        _persist_task_context(session)
+                        logger.warning(
+                            "deep task 执行失败，准备重试: session_id=%s attempt=%d err=%s",
+                            session.id,
+                            current_attempt,
+                            exc,
+                        )
+                        continue
+                    raise
+
+            if recipe is not None:
+                await _emit_deep_task_snapshot(
+                    session,
+                    recipe,
+                    workflow_status="completed",
+                    current_step_index=len(recipe.steps),
+                    next_hint="任务已完成，可在工作区查看 Recipe 请求摘要与生成产物。",
+                    retry_count=max(0, current_attempt - 1),
+                )
 
             # 对话完成后异步生成会话标题（首次对话时）
             logger.debug(
@@ -353,6 +663,21 @@ async def websocket_agent(ws: WebSocket):
             _cancel_pending_questions(session.id)
         except Exception as e:
             logger.error("WebSocket 聊天任务异常: %s", e, exc_info=True)
+            if recipe is not None:
+                with suppress(Exception):
+                    await _emit_deep_task_snapshot(
+                        session,
+                        recipe,
+                        workflow_status="failed",
+                        current_step_index=max(
+                            1,
+                            int(session.deep_task_state.get("current_step_index", 1)),
+                        ),
+                        next_hint=recipe.recovery.user_hint or "请补充更多上下文后再试。",
+                        block_reason=str(e),
+                        retry_count=int(session.deep_task_state.get("retry_count", 0)),
+                        emit_task_attempt=True,
+                    )
             with suppress(Exception):
                 await _send_event(
                     ws,
@@ -560,7 +885,13 @@ async def websocket_agent(ws: WebSocket):
                 await _send_event(
                     ws,
                     EventType.SESSION.value,
-                    data={"session_id": retry_session.id},
+                    data={
+                        "session_id": retry_session.id,
+                        "task_kind": retry_session.task_kind,
+                        "recipe_id": retry_session.recipe_id,
+                        "deep_task_state": retry_session.deep_task_state or None,
+                    },
+                    session_id=retry_session.id,
                     active_stop_events=active_stop_events,
                 )
 
@@ -572,6 +903,7 @@ async def websocket_agent(ws: WebSocket):
                         retry_session,
                         retry_content,
                         append_user_message=append_user_message,
+                        recipe=recipe_registry.get(retry_session.recipe_id),
                     )
                 )
                 continue
@@ -589,6 +921,37 @@ async def websocket_agent(ws: WebSocket):
 
                 session_id = msg.get("session_id")
                 chat_session = session_manager.get_or_create(session_id)
+                metadata = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
+                requested_recipe_id = str(metadata.get("recipe_id", "") or "").strip() or None
+                recipe_inputs = _normalize_recipe_inputs(metadata.get("recipe_inputs"))
+                explicit_recipe = recipe_registry.get(requested_recipe_id or chat_session.recipe_id)
+                classification = classify_task_request(
+                    content,
+                    explicit_recipe=explicit_recipe,
+                    registry=recipe_registry,
+                )
+                recommended_recipe_id = classification.get("recommended_recipe_id")
+                bound_recipe = (
+                    explicit_recipe if classification.get("task_kind") == "deep_task" else None
+                )
+                chat_session.bind_recipe_context(
+                    task_kind=str(classification.get("task_kind", "quick_task")),
+                    recipe_id=bound_recipe.recipe_id if bound_recipe is not None else None,
+                    recipe_inputs=recipe_inputs if bound_recipe is not None else {},
+                )
+                chat_session.deep_task_state = {}
+                if bound_recipe is not None:
+                    chat_session.deep_task_state = {
+                        "task_id": uuid.uuid4().hex[:12],
+                        "status": "queued",
+                        "current_step_index": 1,
+                        "total_steps": len(bound_recipe.steps),
+                        "current_step_title": bound_recipe.steps[0].title,
+                        "next_hint": "已创建 deep task，正在初始化工作区。",
+                        "retry_count": 0,
+                        "current_attempt_id": None,
+                    }
+                _persist_task_context(chat_session)
 
                 # 检查该会话是否已有运行中任务（不阻塞其他会话）
                 existing_task = active_chat_tasks.get(chat_session.id)
@@ -606,15 +969,33 @@ async def websocket_agent(ws: WebSocket):
                 await _send_event(
                     ws,
                     EventType.SESSION.value,
-                    data={"session_id": chat_session.id},
+                    data={
+                        "session_id": chat_session.id,
+                        "task_kind": chat_session.task_kind,
+                        "recipe_id": chat_session.recipe_id,
+                        "deep_task_state": chat_session.deep_task_state or None,
+                        "recommended_recipe_id": recommended_recipe_id,
+                    },
+                    session_id=chat_session.id,
                     active_stop_events=active_stop_events,
                 )
+                if bound_recipe is not None:
+                    await _initialize_deep_task_workspace(chat_session, bound_recipe, content)
 
                 # 运行 Agent（后台任务，按 session_id 注册）
                 stop_event = asyncio.Event()
                 active_stop_events[chat_session.id] = stop_event
                 active_chat_tasks[chat_session.id] = asyncio.create_task(
-                    _run_chat(chat_session, content, append_user_message=True)
+                    _run_chat(
+                        chat_session,
+                        (
+                            bound_recipe.render_prompt(content, chat_session.recipe_inputs)
+                            if bound_recipe is not None
+                            else content
+                        ),
+                        append_user_message=True,
+                        recipe=bound_recipe,
+                    )
                 )
                 continue
 

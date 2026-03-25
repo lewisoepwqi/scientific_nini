@@ -230,6 +230,66 @@ def _document_to_export_payload(source_path: Path) -> tuple[str, str, str]:
     raise ValueError(f"暂不支持导出此文档类型: {ext or source_path.name}")
 
 
+async def _run_export_operation_with_retry(
+    *,
+    operation_name: str,
+    manager: WorkspaceManager,
+    export_job_id: str,
+    operation: Callable[[], "asyncio.Future[_T] | asyncio.Task[_T] | Any"],
+) -> _T:
+    """对导出链路的外部依赖执行有限次重试与超时控制。"""
+    timeout_seconds = max(1, int(settings.deep_task_external_timeout_seconds))
+    max_attempts = max(1, int(settings.deep_task_external_retry_limit) + 1)
+    attempts: list[dict[str, Any]] = []
+    last_error: str | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = await asyncio.wait_for(operation(), timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            last_error = (
+                f"{operation_name} 超时：超过 {timeout_seconds} 秒，"
+                f"第 {attempt}/{max_attempts} 次尝试失败。"
+            )
+            attempts.append({"attempt": attempt, "status": "timeout", "message": last_error})
+        except Exception as exc:
+            last_error = f"{operation_name} 失败：{exc}"
+            attempts.append(
+                {
+                    "attempt": attempt,
+                    "status": "error",
+                    "message": last_error,
+                }
+            )
+        else:
+            attempts.append({"attempt": attempt, "status": "success"})
+            manager.update_export_job(
+                export_job_id,
+                metadata={
+                    "external_attempts": attempts,
+                    "retry_policy": {
+                        "max_attempts": max_attempts,
+                        "timeout_seconds": timeout_seconds,
+                    },
+                },
+            )
+            return result
+
+        manager.update_export_job(
+            export_job_id,
+            message=last_error,
+            metadata={
+                "external_attempts": attempts,
+                "retry_policy": {
+                    "max_attempts": max_attempts,
+                    "timeout_seconds": timeout_seconds,
+                },
+            },
+        )
+
+    raise RuntimeError(last_error or f"{operation_name} 失败")
+
+
 def _windows_subprocess_kwargs() -> dict[str, Any]:
     """Windows 下隐藏短生命周期子进程窗口。"""
     if sys.platform != "win32":
@@ -654,6 +714,7 @@ def _build_export_relative_path(
     source_path: str,
     output_format: str,
     filename: str | None = None,
+    target_dir_override: str | None = None,
 ) -> str:
     """为导出文件生成不冲突的工作区相对路径。"""
     source_rel = source_path.strip().strip("/")
@@ -667,7 +728,7 @@ def _build_export_relative_path(
     if not safe_name.lower().endswith(f".{output_format}"):
         safe_name += f".{output_format}"
 
-    target_dir = _default_export_directory(source_rel)
+    target_dir = target_dir_override or _default_export_directory(source_rel)
     candidate = safe_name
     stem = Path(safe_name).stem or source_name
     suffix = Path(safe_name).suffix or f".{output_format}"
@@ -690,9 +751,11 @@ async def export_workspace_document(
     filename: str | None = None,
     prefer_latest_report: bool = False,
 ) -> ToolResult:
-    """将工作区文档导出为 PDF 或 DOCX。"""
+    """将工作区文档导出为正式交付文件。"""
     fmt = output_format.strip().lower()
-    if fmt not in {"pdf", "docx"}:
+    if fmt == "latex":
+        fmt = "tex"
+    if fmt not in {"pdf", "docx", "pptx", "tex"}:
         return ToolResult(success=False, message=f"不支持的导出格式: {output_format}")
 
     source_file, error_message = _resolve_document_source(
@@ -717,6 +780,41 @@ async def export_workspace_document(
     except FileNotFoundError:
         return ToolResult(success=False, message=f"文档 `{source_path}` 不存在。")
 
+    target_resource_id = (
+        source_ref.strip()
+        if isinstance(source_ref, str)
+        and source_ref.strip()
+        and not source_ref.strip().endswith((".md", ".txt", ".html", ".htm"))
+        and "/" not in source_ref.strip()
+        else None
+    )
+    source_meta = source_file.get("meta", {}) if isinstance(source_file, dict) else {}
+    source_subtype = (
+        str(source_meta.get("subtype", "")).strip().lower() if isinstance(source_meta, dict) else ""
+    )
+    is_formal_report_export = (
+        prefer_latest_report
+        or source_subtype == "report"
+        or source_path.startswith("notes/reports/")
+        or source_path.startswith("reports/")
+    )
+    source_task_id = str(session.deep_task_state.get("task_id", "")).strip() or None
+    export_idempotency_key = (
+        f"report-export:{source_task_id}:{target_resource_id or Path(source_path).stem}:{fmt}"
+        if source_task_id
+        else None
+    )
+    export_job = manager.create_export_job(
+        target_resource_id=target_resource_id,
+        target_resource_type="report" if is_formal_report_export else "document",
+        output_format=fmt,
+        template_id=f"template_{fmt}",
+        source_task_id=source_task_id,
+        idempotency_key=export_idempotency_key,
+        status="running",
+        metadata={"source_ref": source_ref or "", "prefer_latest_report": prefer_latest_report},
+    )
+
     if fmt == "pdf":
         html, image_stats = _resolve_images_to_base64_with_stats(html, session.id)
         plotly_failed = image_stats.get("plotly_failed", [])
@@ -731,6 +829,11 @@ async def export_workspace_document(
                 _is_chrome_missing_error(str(item.get("error", ""))) for item in failed_items
             )
             if has_chrome_missing:
+                manager.update_export_job(
+                    str(export_job.get("id", "")),
+                    status="failed",
+                    message="PDF 导出前置图表转换失败",
+                )
                 return ToolResult(
                     success=False,
                     message=(
@@ -742,6 +845,11 @@ async def export_workspace_document(
                         f"失败图表：{failed_names or '未知'}"
                     ),
                 )
+            manager.update_export_job(
+                str(export_job.get("id", "")),
+                status="failed",
+                message="PDF 导出前置图表转换失败",
+            )
             return ToolResult(
                 success=False,
                 message=(
@@ -753,8 +861,13 @@ async def export_workspace_document(
         chromium_exc: Exception | None = None
         if sys.platform == "win32":
             try:
-                output_bytes = await _run_blocking_in_isolated_thread(
-                    lambda: _render_pdf_with_chromium(html)
+                output_bytes = await _run_export_operation_with_retry(
+                    operation_name="Chromium PDF 导出",
+                    manager=manager,
+                    export_job_id=str(export_job.get("id", "")),
+                    operation=lambda: _run_blocking_in_isolated_thread(
+                        lambda: _render_pdf_with_chromium(html)
+                    ),
                 )
             except Exception as exc:
                 chromium_exc = exc
@@ -768,9 +881,19 @@ async def export_workspace_document(
                 import weasyprint  # type: ignore[import-not-found,import-untyped]
             except ImportError:
                 if chromium_exc is not None:
+                    manager.update_export_job(
+                        str(export_job.get("id", "")),
+                        status="failed",
+                        message="PDF 导出依赖缺失",
+                    )
                     return ToolResult(
                         success=False, message=_format_pdf_export_failure(chromium_exc)
                     )
+                manager.update_export_job(
+                    str(export_job.get("id", "")),
+                    status="failed",
+                    message="PDF 导出依赖缺失",
+                )
                 return ToolResult(
                     success=False,
                     message=(
@@ -782,12 +905,22 @@ async def export_workspace_document(
                     ),
                 )
             try:
-                output_bytes = await _run_blocking_in_isolated_thread(
-                    lambda: weasyprint.HTML(string=html).write_pdf(),  # type: ignore[union-attr]
+                output_bytes = await _run_export_operation_with_retry(
+                    operation_name="WeasyPrint PDF 导出",
+                    manager=manager,
+                    export_job_id=str(export_job.get("id", "")),
+                    operation=lambda: _run_blocking_in_isolated_thread(
+                        lambda: weasyprint.HTML(string=html).write_pdf(),  # type: ignore[union-attr]
+                    ),
                 )
             except Exception as exc:
                 logger.error("PDF 生成失败: %s", exc, exc_info=True)
                 if chromium_exc is not None:
+                    manager.update_export_job(
+                        str(export_job.get("id", "")),
+                        status="failed",
+                        message="PDF 导出失败",
+                    )
                     return ToolResult(
                         success=False,
                         message=(
@@ -795,39 +928,104 @@ async def export_workspace_document(
                             + "\n已尝试回退 weasyprint，但回退链路也失败。"
                         ),
                     )
+                manager.update_export_job(
+                    str(export_job.get("id", "")),
+                    status="failed",
+                    message="PDF 导出失败",
+                )
                 return ToolResult(success=False, message=_format_pdf_export_failure(exc))
     else:
         try:
             from nini.tools.report_exporter import export_report as export_markdown_report
 
-            output_bytes = await _run_blocking_in_isolated_thread(
-                lambda: export_markdown_report(raw_text, "docx", title),
+            output_bytes = await _run_export_operation_with_retry(
+                operation_name=f"{fmt.upper()} 导出",
+                manager=manager,
+                export_job_id=str(export_job.get("id", "")),
+                operation=lambda: _run_blocking_in_isolated_thread(
+                    lambda: export_markdown_report(raw_text, fmt, title),
+                ),
             )
         except ImportError as exc:
-            return ToolResult(success=False, message=f"DOCX 导出依赖缺失: {exc}")
+            manager.update_export_job(
+                str(export_job.get("id", "")),
+                status="failed",
+                message=f"{fmt.upper()} 导出依赖缺失",
+            )
+            return ToolResult(success=False, message=f"{fmt.upper()} 导出依赖缺失: {exc}")
         except Exception as exc:
-            logger.error("DOCX 生成失败: %s", exc, exc_info=True)
-            return ToolResult(success=False, message=f"DOCX 生成失败: {exc}")
+            logger.error("%s 生成失败: %s", fmt.upper(), exc, exc_info=True)
+            manager.update_export_job(
+                str(export_job.get("id", "")),
+                status="failed",
+                message=f"{fmt.upper()} 生成失败",
+            )
+            return ToolResult(success=False, message=f"{fmt.upper()} 生成失败: {exc}")
 
     output_relative_path = _build_export_relative_path(
         manager,
         source_path=source_path,
         output_format=fmt,
         filename=filename,
+        target_dir_override="artifacts/exports" if is_formal_report_export else None,
     )
     output_path = manager.resolve_workspace_path(output_relative_path, allow_missing=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_bytes is None:
         return ToolResult(success=False, message="导出失败：未生成有效文件内容。")
     output_path.write_bytes(output_bytes)
-    manager.sync_text_document_record(output_relative_path)
-
-    subtype = "pdf_export" if fmt == "pdf" else "docx_export"
+    if not is_formal_report_export and fmt in {"pdf", "docx"}:
+        manager.sync_text_document_record(output_relative_path)
+    subtype = {
+        "pdf": "pdf_export",
+        "docx": "docx_export",
+        "pptx": "pptx_export",
+        "tex": "latex_export",
+    }[fmt]
     document = manager.resolve_document_file(output_relative_path)
-    download_url = (
-        str(document.get("download_url"))
-        if isinstance(document, dict)
-        else manager.build_workspace_file_download_url(output_relative_path)
+    download_url = str(document.get("download_url")) if isinstance(document, dict) else ""
+    if not download_url:
+        download_url = manager.build_workspace_file_download_url(output_relative_path)
+    output_artifact_ids: list[str] = []
+    project_artifact_id: str | None = None
+    if is_formal_report_export:
+        artifact_record = manager.add_artifact_record(
+            name=output_path.name,
+            artifact_type="report",
+            file_path=output_path,
+            format_hint=fmt,
+        )
+        project_artifact = manager.register_project_artifact(
+            artifact_type="report",
+            name=output_path.name,
+            path=output_path,
+            format=fmt,
+            template_id=f"template_{fmt}",
+            resource_id=target_resource_id,
+            source_task_id=source_task_id,
+            export_job_id=str(export_job.get("id", "")),
+            idempotency_key=(
+                f"project-artifact:{source_task_id}:{target_resource_id or Path(source_path).stem}:{fmt}"
+                if source_task_id
+                else None
+            ),
+            logical_key=f"report:{target_resource_id or Path(source_path).stem}:{fmt}",
+            available_formats=[fmt],
+            metadata={
+                "source_path": source_path,
+                "subtype": subtype,
+            },
+        )
+        project_artifact_id = str(project_artifact.get("id", "")).strip() or None
+        output_artifact_ids = [
+            str(artifact_record.get("id", "")).strip(),
+            str(project_artifact.get("id", "")).strip(),
+        ]
+    manager.update_export_job(
+        str(export_job.get("id", "")),
+        status="completed",
+        output_artifact_ids=[item for item in output_artifact_ids if item],
+        message="导出完成",
     )
     artifact = {
         "name": output_path.name,
@@ -837,6 +1035,8 @@ async def export_workspace_document(
         "download_url": download_url,
         "kind": "document",
         "source_path": source_path,
+        "export_job_id": export_job.get("id"),
+        "project_artifact_id": project_artifact_id,
     }
 
     if not hasattr(session, "documents") or not isinstance(session.documents, dict):
@@ -858,6 +1058,8 @@ async def export_workspace_document(
             "source_path": source_path,
             "output_path": output_relative_path,
             "document_type": subtype,
+            "export_job_id": export_job.get("id"),
+            "project_artifact_id": project_artifact_id,
         },
         artifacts=[artifact],
     )
