@@ -51,6 +51,48 @@ TITLE_MODEL_MATCHERS: dict[str, list[tuple[str, ...]]] = {
     "ollama": [],
 }
 
+# ---- 模型上下文窗口映射 ----
+# 按模型名称前缀/关键词匹配，返回 context window 大小（token 数）。
+# 列表按优先级排序：更具体的模式在前。
+_MODEL_CONTEXT_WINDOWS: list[tuple[tuple[str, ...], int]] = [
+    (("claude-3-5",), 200_000),
+    (("claude-3",), 200_000),
+    (("claude-4",), 200_000),
+    (("claude",), 200_000),
+    (("gpt-4.1",), 1_047_576),
+    (("gpt-4o",), 128_000),
+    (("gpt-4-turbo",), 128_000),
+    (("gpt-4",), 8_192),
+    (("gpt-3.5",), 16_385),
+    (("o1",), 200_000),
+    (("o3",), 200_000),
+    (("o4",), 200_000),
+    (("deepseek",), 64_000),
+    (("glm-5",), 128_000),
+    (("glm-4",), 128_000),
+    (("glm-3",), 8_192),
+    (("moonshot", "128k"), 128_000),
+    (("moonshot", "32k"), 32_000),
+    (("moonshot", "8k"), 8_000),
+    (("kimi",), 128_000),
+    (("qwen-max",), 32_000),
+    (("qwen-plus",), 131_072),
+    (("qwen-turbo",), 131_072),
+    (("qwen",), 32_000),
+    (("abab",), 245_760),
+    (("minimax",), 245_760),
+]
+
+
+def _match_context_window(model_name: str) -> int | None:
+    """根据模型名称匹配 context window 大小。"""
+    lower = model_name.lower()
+    for keywords, window_size in _MODEL_CONTEXT_WINDOWS:
+        if all(kw in lower for kw in keywords):
+            return window_size
+    return None
+
+
 # ---- 用途路由映射 ----
 
 # 内置默认路由，可通过配置覆盖
@@ -515,6 +557,16 @@ class ModelResolver:
             "fallback_active_model",
         )
         return active_client
+
+    def get_model_context_window(self) -> int | None:
+        """获取当前活跃模型的 context window 大小（token 数）。"""
+        client = self._get_single_active_client() or self._trial_client
+        if client is None:
+            return None
+        model_name = client.get_model_name()
+        if not model_name:
+            return None
+        return _match_context_window(model_name)
 
     async def chat(
         self,

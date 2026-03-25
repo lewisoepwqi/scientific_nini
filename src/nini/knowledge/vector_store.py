@@ -91,16 +91,25 @@ class VectorKnowledgeStore:
             self._index = None
             return False
 
+    def _get_availability(self) -> str:
+        """获取知识库可用性状态。"""
+        if not _check_llama_index() or self._index is None:
+            return "not_ready"
+        if not self._knowledge_dir.is_dir() or not any(self._knowledge_dir.rglob("*.md")):
+            return "empty"
+        return "available"
+
     def query(
         self,
         query_text: str,
         *,
         top_k: int = 3,
         max_total_chars: int = 3000,
-    ) -> tuple[str, list[dict[str, Any]]]:
-        """向量语义检索，返回 (拼接文本, 命中详情列表)。"""
+    ) -> tuple[str, list[dict[str, Any]], str]:
+        """向量语义检索，返回 (拼接文本, 命中详情列表, availability)。"""
+        availability = self._get_availability()
         if not self.is_available or not query_text:
-            return "", []
+            return "", [], availability
 
         try:
             from llama_index.core import QueryBundle
@@ -146,10 +155,10 @@ class VectorKnowledgeStore:
                     }
                 )
 
-            return "\n\n".join(parts), hit_items
+            return "\n\n".join(parts), hit_items, availability
         except Exception:
             logger.warning("向量检索执行失败", exc_info=True)
-            return "", []
+            return "", [], availability
 
     def _needs_rebuild(self) -> bool:
         """通过 MD5 哈希检测知识文件是否变更。"""
@@ -419,7 +428,7 @@ class VectorKnowledgeStore:
         Returns:
             (文档ID, 分数) 列表
         """
-        _, hit_items = self.query(query, top_k=top_k)
+        _, hit_items, _ = self.query(query, top_k=top_k)
         return [(item.get("source", "unknown"), item.get("score", 0.0)) for item in hit_items]
 
     async def get_document(self, doc_id: str) -> dict[str, Any] | None:

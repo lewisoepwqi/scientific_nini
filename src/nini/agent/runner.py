@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -430,6 +431,8 @@ class AgentRunner:
                 )
 
         max_iter = settings.agent_max_iterations
+        timeout_seconds = settings.agent_max_timeout_seconds
+        loop_start_time = time.monotonic()
         should_stop = stop_event.is_set if stop_event else (lambda: False)
         report_markdown_for_turn: str | None = None
         active_plan: AnalysisPlan | None = None
@@ -621,6 +624,21 @@ class AgentRunner:
         while max_iter <= 0 or iteration < max_iter:
             if should_stop():
                 yield eb.build_done_event(turn_id=turn_id)
+                return
+
+            # Wall-clock 超时检查
+            if timeout_seconds > 0 and (time.monotonic() - loop_start_time) > timeout_seconds:
+                logger.warning(
+                    "Agent 循环超时: session=%s, elapsed=%.1fs, limit=%ds",
+                    session.id,
+                    time.monotonic() - loop_start_time,
+                    timeout_seconds,
+                )
+                yield eb.build_error_event(
+                    message=f"Agent 运行超时（已运行 {int(time.monotonic() - loop_start_time)} 秒，"
+                    f"限制 {timeout_seconds} 秒）",
+                    turn_id=turn_id,
+                )
                 return
 
             # 通知前端新迭代开始（用于重置流式文本累积）
@@ -906,8 +924,9 @@ class AgentRunner:
             if usage:
                 input_tokens = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
                 if input_tokens > 0:
-                    # 使用保守的 128K 上限作为默认值
-                    self._context_ratio = min(1.0, input_tokens / 128000)
+                    # 动态获取当前模型的 context window，未知模型 fallback 128K
+                    context_window = self._resolver.get_model_context_window() or 128_000
+                    self._context_ratio = min(1.0, input_tokens / context_window)
 
             # 记录 token 消耗
             if usage and settings.enable_cost_tracking:
@@ -1087,8 +1106,9 @@ class AgentRunner:
                 # 会话结束后异步沉淀分析记忆为跨会话长期记忆
                 try:
                     from nini.memory.long_term_memory import consolidate_session_memories
+                    from nini.utils.background_tasks import track_background_task
 
-                    asyncio.create_task(consolidate_session_memories(session.id))
+                    track_background_task(consolidate_session_memories(session.id))
                 except Exception:
                     logger.debug("长期记忆沉淀失败", exc_info=True)
 
@@ -1335,7 +1355,8 @@ class AgentRunner:
                             turn_id=turn_id,
                         )
                     else:
-                        assert decision.approval_key is not None
+                        if decision.approval_key is None:
+                            raise RuntimeError("内部错误: approval_key 不应为 None")
                         if session.has_tool_approval(decision.approval_key):
                             logger.info(
                                 "复用会话级工具放行: session=%s tool=%s approval_key=%s",
@@ -1493,7 +1514,8 @@ class AgentRunner:
                             "message": "当前通道不支持 ask_user_question 交互。",
                         }
                     else:
-                        assert questions is not None
+                        if questions is None:
+                            raise RuntimeError("内部错误: questions 不应为 None")
                         yield eb.build_ask_user_question_event(
                             questions=questions,
                             turn_id=turn_id,

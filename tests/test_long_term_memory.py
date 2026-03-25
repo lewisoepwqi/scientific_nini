@@ -195,8 +195,14 @@ async def test_high_importance_triggers_consolidation(tmp_path):
         mock_task = asyncio.Future()
         mock_task.set_result(0)
 
-        with patch.object(asyncio, "get_event_loop") as mock_loop:
-            mock_loop.return_value.create_task = MagicMock(return_value=mock_task)
+        def _track_stub(coro):
+            coro.close()
+            return mock_task
+
+        with patch(
+            "nini.utils.background_tasks.track_background_task",
+            side_effect=_track_stub,
+        ) as mock_track:
             store.add_memory(
                 memory_type="finding",
                 content="重要发现",
@@ -206,4 +212,46 @@ async def test_high_importance_triggers_consolidation(tmp_path):
             )
             # in-flight 锁应已被加入
             assert "sess_high" in LongTermMemoryStore._consolidating or True  # 任务已创建
-            mock_loop.return_value.create_task.assert_called_once()
+            mock_track.assert_called_once()
+
+
+def test_streaming_load_1000_entries(tmp_path):
+    """验证 1000+ 条记忆的流式加载正确性。"""
+    import builtins
+    import json as _json
+    import uuid as _uuid
+
+    entries_file = tmp_path / "entries.jsonl"
+    lines = []
+    for i in range(1200):
+        entry_data = {
+            "id": str(_uuid.uuid4()),
+            "memory_type": "finding",
+            "content": f"记忆内容 {i}" * 10,
+            "summary": f"摘要 {i}",
+            "source_session_id": "sess_perf",
+        }
+        lines.append(_json.dumps(entry_data, ensure_ascii=False))
+    entries_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    store = LongTermMemoryStore(storage_dir=tmp_path)
+    assert len(store._entries) == 1200
+
+    original_open = builtins.open
+    open_called = False
+
+    def tracking_open(*args, **kwargs):
+        nonlocal open_called
+        open_called = True
+        return original_open(*args, **kwargs)
+
+    store2 = LongTermMemoryStore.__new__(LongTermMemoryStore)
+    store2._storage_dir = tmp_path
+    store2._entries = {}
+    store2._vector_store = None
+
+    with patch("builtins.open", side_effect=tracking_open):
+        store2._load_entries()
+
+    assert open_called
+    assert len(store2._entries) == 1200

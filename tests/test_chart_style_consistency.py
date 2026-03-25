@@ -302,3 +302,47 @@ def test_cross_engine_visual_similarity_ssim_threshold() -> None:
     hist_b /= max(hist_b.sum(), 1.0)
     score = _compute_ssim(hist_a, hist_b)
     assert score >= settings.chart_similarity_threshold
+
+
+def test_dpi_clamped_to_600_with_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """DPI=1000 应被截断到 600 并产生 warning 日志。"""
+    import logging
+    from unittest.mock import patch
+
+    with caplog.at_level(logging.WARNING, logger="nini.charts.style_contract"):
+        spec = build_style_spec("default")
+        assert 300 <= spec.dpi <= 600
+
+    fake_template = {
+        "font": "Arial",
+        "font_size": 12,
+        "line_width": 1.2,
+        "dpi": 1000,
+        "figure_size": [6.4, 4.8],
+        "colors": ["#4477AA"],
+    }
+    caplog.clear()
+    with (
+        caplog.at_level(logging.WARNING, logger="nini.charts.style_contract"),
+        patch("nini.charts.style_contract.get_template", return_value=fake_template),
+    ):
+        spec = build_style_spec("default")
+        assert spec.dpi == 600
+        assert any("DPI" in r.message and "1000" in r.message for r in caplog.records)
+
+
+def test_dpi_below_300_clamped_up() -> None:
+    """DPI=100 应被提升到下限 300。"""
+    from unittest.mock import patch
+
+    fake_template = {
+        "font": "Arial",
+        "font_size": 12,
+        "line_width": 1.2,
+        "dpi": 100,
+        "figure_size": [6.4, 4.8],
+        "colors": ["#4477AA"],
+    }
+    with patch("nini.charts.style_contract.get_template", return_value=fake_template):
+        spec = build_style_spec("default")
+        assert spec.dpi == 300

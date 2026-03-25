@@ -175,14 +175,12 @@ class KnowledgeLoader:
             )
 
         if self._strategy == "vector" and self.vector_available:
-            return cast(
-                tuple[str, list[dict[str, Any]]],
-                self._vector_store.query(
-                    user_message,
-                    top_k=max_entries,
-                    max_total_chars=max_total_chars,
-                ),
+            text, hits, _availability = self._vector_store.query(
+                user_message,
+                top_k=max_entries,
+                max_total_chars=max_total_chars,
             )
+            return text, hits
 
         if self._strategy == "hybrid" and self.vector_available:
             # 混合检索：向量 + 关键词
@@ -191,7 +189,7 @@ class KnowledgeLoader:
                 max_entries=max_entries,
                 max_total_chars=max_total_chars,
             )
-            vector_text, vector_hits = self._vector_store.query(
+            vector_text, vector_hits, _availability = self._vector_store.query(
                 user_message,
                 top_k=max_entries,
                 max_total_chars=max_total_chars,

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 from nini.config import settings
 from nini.tools.templates.journal_styles import get_template, get_template_names
 from nini.utils.chart_fonts import CJK_FONT_FAMILY, get_matplotlib_font_list, with_cjk_font_fallback
+
+logger = logging.getLogger(__name__)
 
 _SUPPORTED_ENGINES = {"auto", "plotly", "matplotlib"}
 
@@ -155,12 +158,16 @@ def build_style_spec(style: str | None = None) -> ChartStyleSpec:
     if not colors:
         colors = ("#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE", "#AA3377", "#BBBBBB")
 
+    clamped_dpi = max(300, min(600, dpi))
+    if clamped_dpi != dpi:
+        logger.warning("DPI 值 %d 超出范围 [300, 600]，已截断至 %d", dpi, clamped_dpi)
+
     return ChartStyleSpec(
         style_key=key,
         font_family=font_family,
         font_size=font_size,
         line_width=line_width,
-        dpi=max(300, dpi),
+        dpi=clamped_dpi,
         figure_size=figure_size,
         colors=colors,
         export_formats=tuple(parse_export_formats(settings.chart_default_export_formats)),
