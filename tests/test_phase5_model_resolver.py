@@ -1514,3 +1514,41 @@ def test_model_resolver_load_trial_api_key_from_packaged_blob(
     monkeypatch.setattr("nini.agent.model_resolver.settings.trial_api_key", "")
 
     assert ModelResolver._load_trial_api_key() == "sk-trial-123"  # noqa: SLF001
+
+
+def test_get_model_context_window_claude():
+    """Claude 模型应返回 200K context window。"""
+    client = FakeClient(provider_id="anthropic", model="claude-3-5-sonnet-20241022", available=True)
+    resolver = ModelResolver(clients=[client])
+    resolver._active_provider_id = "anthropic"
+    assert resolver.get_model_context_window() == 200_000
+
+
+def test_get_model_context_window_gpt4o():
+    """GPT-4o 模型应返回 128K context window。"""
+    client = FakeClient(provider_id="openai", model="gpt-4o-2024-08-06", available=True)
+    resolver = ModelResolver(clients=[client])
+    resolver._active_provider_id = "openai"
+    assert resolver.get_model_context_window() == 128_000
+
+
+def test_get_model_context_window_deepseek():
+    """DeepSeek 模型应返回 64K context window。"""
+    client = FakeClient(provider_id="deepseek", model="deepseek-chat", available=True)
+    resolver = ModelResolver(clients=[client])
+    resolver._active_provider_id = "deepseek"
+    assert resolver.get_model_context_window() == 64_000
+
+
+def test_get_model_context_window_unknown_model():
+    """未知模型应返回 None。"""
+    client = FakeClient(provider_id="custom", model="my-custom-llm-v1", available=True)
+    resolver = ModelResolver(clients=[client])
+    resolver._active_provider_id = "custom"
+    assert resolver.get_model_context_window() is None
+
+
+def test_get_model_context_window_no_active_client():
+    """无活跃客户端时应返回 None。"""
+    resolver = ModelResolver(clients=[])
+    assert resolver.get_model_context_window() is None

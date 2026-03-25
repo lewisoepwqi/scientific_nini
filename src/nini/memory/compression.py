@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -253,7 +254,7 @@ async def try_merge_oldest_segments(session: Session, max_segments: int) -> None
 def _archive_messages(session_id: str, messages: list[dict[str, Any]]) -> Path:
     archive_dir = settings.sessions_dir / session_id / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
-    archive_path = archive_dir / f"compressed_{_now_ts()}.json"
+    archive_path = archive_dir / f"compressed_{_now_ts()}_{uuid.uuid4().hex[:8]}.json"
     archive_path.write_text(
         json.dumps(messages, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",

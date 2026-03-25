@@ -110,15 +110,17 @@ class LongTermMemoryStore:
         if not entries_file.exists():
             return
 
-        for line in entries_file.read_text(encoding="utf-8").strip().split("\n"):
-            if not line.strip():
-                continue
-            try:
-                data = json.loads(line)
-                entry = LongTermMemoryEntry.from_dict(data)
-                self._entries[entry.id] = entry
-            except Exception as e:
-                logger.warning(f"加载记忆条目失败: {e}")
+        with open(entries_file, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    entry = LongTermMemoryEntry.from_dict(data)
+                    self._entries[entry.id] = entry
+                except Exception as e:
+                    logger.warning(f"加载记忆条目失败: {e}")
 
         logger.info(f"已加载 {len(self._entries)} 条长期记忆")
 

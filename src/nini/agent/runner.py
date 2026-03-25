@@ -924,8 +924,9 @@ class AgentRunner:
             if usage:
                 input_tokens = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
                 if input_tokens > 0:
-                    # 使用保守的 128K 上限作为默认值
-                    self._context_ratio = min(1.0, input_tokens / 128000)
+                    # 动态获取当前模型的 context window，未知模型 fallback 128K
+                    context_window = self._resolver.get_model_context_window() or 128_000
+                    self._context_ratio = min(1.0, input_tokens / context_window)
 
             # 记录 token 消耗
             if usage and settings.enable_cost_tracking:
