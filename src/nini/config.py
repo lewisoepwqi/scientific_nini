@@ -221,6 +221,8 @@ class Settings(BaseSettings):
     # ---- Agent ----
     # <= 0 表示不限制迭代次数（仅受用户中止/模型与工具自然收敛约束）
     agent_max_iterations: int = 0
+    # Wall-clock 超时（秒），0 表示不限制。防止 Agent 循环无限运行耗尽 API 配额。
+    agent_max_timeout_seconds: int = 300
     tool_argument_normalization_enabled: bool = True
     tool_circuit_breaker_threshold: int = 2
 
