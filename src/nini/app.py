@@ -144,11 +144,18 @@ def create_app() -> FastAPI:
 
     # 挂载前端静态文件（如果已构建）
     if _WEB_DIST.exists() and (_WEB_DIST / "index.html").exists():
-        from starlette.requests import Request
-        from starlette.responses import Response
-        from fastapi.responses import FileResponse
+        from fastapi.responses import HTMLResponse
 
-        _index_html = str(_WEB_DIST / "index.html")
+        _index_html_content = (_WEB_DIST / "index.html").read_text(encoding="utf-8")
+
+        @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+        async def serve_web_index() -> HTMLResponse:
+            """返回前端入口页。
+
+            测试环境中的 httpx ASGITransport 与 FileResponse 组合会阻塞，
+            这里直接返回 HTML 文本，避免根路径请求卡住。
+            """
+            return HTMLResponse(_index_html_content)
 
         # 1. 挂载静态文件（html=True 让 / 自动映射到 index.html）
         app.mount("/", StaticFiles(directory=str(_WEB_DIST), html=True), name="web")
@@ -164,7 +171,7 @@ def create_app() -> FastAPI:
             path = request.url.path
             # 仅对非 API/WS 路径的 404 返回 index.html（SPA 客户端路由）
             if response.status_code == 404 and not path.startswith("/api/") and path != "/ws":
-                return FileResponse(_index_html)
+                return HTMLResponse(_index_html_content)
             return response
 
         logger.info("前端静态文件已挂载: %s (SPA fallback 已启用)", _WEB_DIST)

@@ -237,7 +237,7 @@ async def get_provider_available_models(
 
 
 @router.post("/models/priorities", response_model=APIResponse)
-async def set_model_priorities(request: ModelPrioritiesRequest):
+async def set_model_priorities(request: ModelPrioritiesRequest) -> APIResponse:
     """设置模型优先级。"""
     from nini.agent.model_resolver import ModelResolver
 
@@ -248,7 +248,7 @@ async def set_model_priorities(request: ModelPrioritiesRequest):
 
 
 @router.get("/models/routing", response_model=APIResponse)
-async def get_model_routing():
+async def get_model_routing() -> APIResponse:
     """获取用途模型路由配置与当前生效模型。"""
     from nini.agent.model_resolver import model_resolver
     from nini.config_manager import get_model_purpose_routes
@@ -259,7 +259,8 @@ async def get_model_routing():
     purpose_providers: dict[str, str | None] = {}
     for item in _MODEL_PURPOSES:
         purpose = item["id"]
-        purpose_providers[purpose] = purpose_routes.get(purpose, {}).get("provider_id")
+        route = purpose_routes.get(purpose)
+        purpose_providers[purpose] = route["provider_id"] if route else None
         active_by_purpose[purpose] = model_resolver.get_active_model_info(purpose=purpose)
 
     return APIResponse(

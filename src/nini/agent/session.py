@@ -396,7 +396,7 @@ class Session:
 class SessionManager:
     """管理所有活跃会话。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._sessions: dict[str, Session] = {}
 
     def create_session(

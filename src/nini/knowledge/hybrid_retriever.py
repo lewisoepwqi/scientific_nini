@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 class KeywordIndex:
     """简单的关键词索引（基于 TF-IDF 概念简化版）。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.documents: dict[str, dict[str, Any]] = {}
         self.word_docs: dict[str, set[str]] = {}
 

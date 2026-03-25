@@ -41,7 +41,7 @@ class CapabilityRegistry:
     - CapabilityRegistry 管理用户可理解的能力封装
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._capabilities: dict[str, Capability] = {}
 
     def register(self, capability: Capability) -> None:
