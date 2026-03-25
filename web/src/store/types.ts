@@ -18,6 +18,19 @@ export interface RetrievalItem {
   score?: number;
   hits?: number;
   snippet: string;
+  sourceId?: string;
+  sourceType?: string;
+  acquisitionMethod?: string;
+  accessedAt?: string;
+  sourceTime?: string;
+  stableRef?: string;
+  documentId?: string;
+  resourceId?: string;
+  sourceUrl?: string;
+  claimId?: string;
+  verificationStatus?: "verified" | "pending_verification" | "conflicted";
+  reasonSummary?: string;
+  conflictSummary?: string;
 }
 
 export interface SkillItem {
@@ -242,6 +255,58 @@ export interface HarnessBlockedState {
   message: string;
   recoverable: boolean;
   suggestedAction?: string | null;
+}
+
+// ---- Recipe / Deep Task 类型 ----
+
+export interface RecipeInputField {
+  key: string;
+  label: string;
+  required: boolean;
+  placeholder: string;
+  example: string;
+}
+
+export interface RecipeStepDefinition {
+  id: string;
+  title: string;
+  description: string;
+}
+
+export interface RecipeOutputDefinition {
+  id: string;
+  label: string;
+  type: string;
+}
+
+export interface RecipeRecoveryRule {
+  max_retries: number;
+  user_hint: string;
+  fallback_action: string;
+}
+
+export interface RecipeCard {
+  recipe_id: string;
+  name: string;
+  summary: string;
+  scenario: string;
+  example_input: string;
+  recommended_triggers: string[];
+  input_fields: RecipeInputField[];
+  steps: RecipeStepDefinition[];
+  default_outputs: RecipeOutputDefinition[];
+  recovery: RecipeRecoveryRule;
+}
+
+export interface DeepTaskState {
+  task_id: string;
+  status: "queued" | "running" | "retrying" | "blocked" | "completed" | "failed";
+  current_step_index: number;
+  total_steps: number;
+  current_step_title: string;
+  next_hint?: string | null;
+  block_reason?: string | null;
+  retry_count: number;
 }
 
 // ---- 意图分析类型 ----

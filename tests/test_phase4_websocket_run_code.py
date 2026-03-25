@@ -271,3 +271,4 @@ def test_websocket_emits_retrieval_event(
     assert isinstance(data["results"], list) and data["results"]
     assert "source" in data["results"][0]
     assert "snippet" in data["results"][0]
+    assert "source_id" in data["results"][0]

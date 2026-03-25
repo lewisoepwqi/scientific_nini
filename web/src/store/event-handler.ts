@@ -20,6 +20,7 @@ import type {
   CompletionCheckState,
   HarnessBlockedState,
   AgentInfo,
+  DeepTaskState,
 } from "./types";
 
 import {
@@ -326,6 +327,8 @@ export interface AppStateSubset {
   harnessRunContext: HarnessRunContextState | null;
   completionCheck: CompletionCheckState | null;
   blockedState: HarnessBlockedState | null;
+  activeRecipeId?: string | null;
+  deepTaskState?: DeepTaskState | null;
   pendingAskUserQuestionsBySession: Record<string, {
     sessionId: string;
     sessionTitle: string;
@@ -483,9 +486,24 @@ export function handleEvent(
     case "session": {
       const data = evt.data;
       if (isRecord(data) && typeof data.session_id === "string") {
+        const nextRecipeId =
+          typeof data.recipe_id === "string" && data.recipe_id.trim()
+            ? data.recipe_id.trim()
+            : null;
+        const rawDeepTaskState = isRecord(data.deep_task_state) ? data.deep_task_state : null;
+        const nextDeepTaskState =
+          rawDeepTaskState &&
+          typeof rawDeepTaskState.task_id === "string" &&
+          typeof rawDeepTaskState.status === "string"
+            ? (rawDeepTaskState as unknown as DeepTaskState)
+            : null;
         const currentSessionId = get().sessionId;
         if (!currentSessionId || currentSessionId === data.session_id) {
-          set({ sessionId: data.session_id });
+          set({
+            sessionId: data.session_id,
+            activeRecipeId: nextRecipeId,
+            deepTaskState: nextDeepTaskState,
+          });
         }
         // 新会话创建后刷新会话列表
         get().fetchSessions();

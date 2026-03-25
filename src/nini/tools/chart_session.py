@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from pathlib import Path
 from typing import Any
 
 from nini.agent.session import Session
+from nini.config import settings
 from nini.models import ChartSessionRecord, ResourceType
 from nini.tools.base import Tool, ToolResult
 from nini.tools.export import ExportChartTool
@@ -162,6 +164,7 @@ class ChartSessionTool(Tool):
             render_engine=str(spec.get("render_engine") or "auto"),
             artifact_ids=artifact_ids,
             last_export_ids=existing.last_export_ids if existing else [],
+            last_export_metadata=existing.last_export_metadata if existing else {},
         )
         self._persist_chart_record(manager, record)
         return ToolResult(
@@ -218,19 +221,167 @@ class ChartSessionTool(Tool):
             "height": kwargs.get("height", 800),
             "scale": kwargs.get("scale", 2.0),
         }
-        result = await self._export.execute(session, **export_params)
-        if not result.success:
-            return result
-
         manager = WorkspaceManager(session.id)
+        source_task_id = str(session.deep_task_state.get("task_id", "")).strip() or None
+        requested_format = str(kwargs.get("format", "png")).strip() or "png"
+        export_job = manager.create_export_job(
+            target_resource_id=chart_id,
+            target_resource_type="chart",
+            output_format=requested_format,
+            template_id=str(record.spec.get("journal_style") or "default"),
+            source_task_id=source_task_id,
+            idempotency_key=(
+                f"chart-export:{source_task_id}:{chart_id}:{requested_format}"
+                if source_task_id
+                else None
+            ),
+            status="running",
+            metadata={"chart_type": record.chart_type, "dataset_name": record.dataset_name},
+        )
+        timeout_seconds = max(1, int(settings.deep_task_external_timeout_seconds))
+        max_attempts = max(1, int(settings.deep_task_external_retry_limit) + 1)
+        attempt_log: list[dict[str, Any]] = []
+        result: ToolResult | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                current = await asyncio.wait_for(
+                    self._export.execute(session, **export_params),
+                    timeout=timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                message = (
+                    f"图表导出超时：超过 {timeout_seconds} 秒，"
+                    f"第 {attempt}/{max_attempts} 次尝试失败。"
+                )
+                attempt_log.append({"attempt": attempt, "status": "timeout", "message": message})
+                manager.update_export_job(
+                    str(export_job.get("id", "")),
+                    message=message,
+                    metadata={
+                        "external_attempts": attempt_log,
+                        "retry_policy": {
+                            "max_attempts": max_attempts,
+                            "timeout_seconds": timeout_seconds,
+                        },
+                    },
+                )
+                if attempt >= max_attempts:
+                    result = ToolResult(success=False, message=message)
+                    break
+                continue
+
+            result = current
+            attempt_log.append(
+                {
+                    "attempt": attempt,
+                    "status": "success" if current.success else "error",
+                    "message": current.message,
+                }
+            )
+            manager.update_export_job(
+                str(export_job.get("id", "")),
+                metadata={
+                    "external_attempts": attempt_log,
+                    "retry_policy": {
+                        "max_attempts": max_attempts,
+                        "timeout_seconds": timeout_seconds,
+                    },
+                },
+            )
+            if current.success or attempt >= max_attempts:
+                break
+
+        if result is None or not result.success:
+            manager.update_export_job(
+                str(export_job.get("id", "")),
+                status="failed",
+                message=(result.message if result is not None else "图表导出失败"),
+            )
+            return result or ToolResult(success=False, message="图表导出失败")
+
         record.artifact_ids = self._resolve_artifact_ids(manager, recreate.artifacts)
         record.last_export_ids = self._resolve_artifact_ids(manager, result.artifacts)
+        actual_format = (
+            str((result.data or {}).get("format", "")).strip()
+            if isinstance(result.data, dict)
+            else ""
+        ) or requested_format
+        failed_formats = [requested_format] if actual_format != requested_format else []
+        chart_artifact_name = (
+            str((result.data or {}).get("filename", "")).strip()
+            if isinstance(result.data, dict)
+            else ""
+        )
+        chart_artifact_path = (
+            manager.resolve_workspace_path(
+                f"artifacts/{chart_artifact_name}" if chart_artifact_name else "",
+                allow_missing=True,
+            )
+            if chart_artifact_name
+            else None
+        )
+        if chart_artifact_name and chart_artifact_path is not None and chart_artifact_path.exists():
+            project_artifact = manager.register_project_artifact(
+                artifact_type="chart",
+                name=chart_artifact_name,
+                path=chart_artifact_path,
+                format=actual_format,
+                template_id=str(record.spec.get("journal_style") or "default"),
+                resource_id=chart_id,
+                source_task_id=source_task_id,
+                export_job_id=str(export_job.get("id", "")),
+                idempotency_key=(
+                    f"project-artifact:{source_task_id}:{chart_id}:{requested_format}"
+                    if source_task_id
+                    else None
+                ),
+                logical_key=f"chart:{chart_id}:{requested_format}",
+                available_formats=[actual_format],
+                failed_formats=failed_formats,
+                metadata={
+                    "chart_type": record.chart_type,
+                    "render_engine": record.render_engine,
+                    "resolution": {
+                        "width": int(kwargs.get("width", 1200)),
+                        "height": int(kwargs.get("height", 800)),
+                        "scale": float(kwargs.get("scale", 2.0)),
+                    },
+                    "style_template": record.spec.get("journal_style") or "default",
+                },
+            )
+            manager.update_export_job(
+                str(export_job.get("id", "")),
+                status="completed",
+                output_artifact_ids=[str(project_artifact.get("id", ""))],
+                message="图表导出完成",
+            )
+        else:
+            manager.update_export_job(
+                str(export_job.get("id", "")),
+                status="completed",
+                message="图表导出完成",
+            )
+        record.last_export_metadata = {
+            "requested_format": requested_format,
+            "successful_formats": [actual_format],
+            "failed_formats": failed_formats,
+            "style_template": record.spec.get("journal_style") or "default",
+            "resolution": {
+                "width": int(kwargs.get("width", 1200)),
+                "height": int(kwargs.get("height", 800)),
+                "scale": float(kwargs.get("scale", 2.0)),
+            },
+            "export_job_id": export_job.get("id"),
+        }
         self._persist_chart_record(manager, record)
         payload = result.to_dict()
         data = payload.get("data", {}) if isinstance(payload.get("data"), dict) else {}
         data["chart_id"] = chart_id
         data["resource_id"] = chart_id
         data["resource_type"] = "chart"
+        data["export_job_id"] = export_job.get("id")
+        data["successful_formats"] = [actual_format]
+        data["failed_formats"] = failed_formats
         payload["data"] = data
         return ToolResult(**payload)
 
@@ -271,6 +422,7 @@ class ChartSessionTool(Tool):
                 "title": record.spec.get("title") or "",
                 "artifact_ids": record.artifact_ids,
                 "last_export_ids": record.last_export_ids,
+                "last_export_metadata": record.last_export_metadata,
             },
         )
 

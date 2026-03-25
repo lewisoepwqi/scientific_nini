@@ -5,9 +5,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 
 from nini.config import settings
 from nini.workspace import WorkspaceManager
@@ -41,9 +42,17 @@ async def list_workspace_files(session_id: str, q: str | None = None):
     else:
         files = workspace.list_workspace_files_with_paths()
     resources = workspace.list_resource_summaries()
+    project_artifacts = workspace.list_project_artifacts()
+    export_jobs = workspace.list_export_jobs()
     return {
         "success": True,
-        "data": {"session_id": session_id, "files": files, "resources": resources},
+        "data": {
+            "session_id": session_id,
+            "files": files,
+            "resources": resources,
+            "project_artifacts": project_artifacts,
+            "export_jobs": export_jobs,
+        },
     }
 
 
@@ -67,6 +76,37 @@ async def list_workspace_resources(session_id: str):
     workspace = WorkspaceManager(session_id)
     resources = workspace.list_resource_summaries()
     return {"success": True, "data": {"session_id": session_id, "resources": resources}}
+
+
+@router.get("/workspace/{session_id}/project-artifacts")
+async def list_project_artifacts(session_id: str):
+    """列出项目级正式产物。"""
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+    return {
+        "success": True,
+        "data": {
+            "session_id": session_id,
+            "project_artifacts": workspace.list_project_artifacts(),
+            "export_jobs": workspace.list_export_jobs(),
+        },
+    }
+
+
+@router.post("/workspace/{session_id}/project-artifacts/download-zip")
+async def download_project_artifacts_zip(session_id: str, artifact_ids: list[str]):
+    """按项目产物 ID 打包下载。"""
+    _ensure_workspace_session_exists(session_id)
+    if not artifact_ids:
+        raise HTTPException(status_code=400, detail="artifact_ids 不能为空")
+    workspace = WorkspaceManager(session_id)
+    payload = workspace.batch_download_project_artifacts(artifact_ids)
+    if not payload:
+        raise HTTPException(status_code=404, detail="未找到可打包的项目产物")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"project_artifacts_{session_id[:8]}_{ts}.zip"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=payload, media_type="application/zip", headers=headers)
 
 
 @router.get("/workspace/{session_id}/folders")

@@ -1,0 +1,68 @@
+recipe_id: literature_review
+name: 文献综述提纲
+summary: 快速生成某个研究主题的综述提纲、检索范围和证据组织建议。
+scenario: 适合开题前梳理研究现状、准备综述或搭建 Related Work 章节。
+example_input: 帮我围绕“肠道菌群与抑郁症”做一份综述提纲，并列出优先检索方向。
+recommended_triggers:
+  - 文献综述
+  - 综述提纲
+  - related work
+  - 研究现状
+deep_task_keywords:
+  - 文献
+  - 综述
+  - 检索
+input_fields:
+  - key: topic
+    label: 研究主题
+    required: true
+    placeholder: 例如：肠道菌群与抑郁症
+    example: 肠道菌群与抑郁症
+  - key: scope
+    label: 综述范围
+    required: false
+    placeholder: 例如：近五年临床研究
+    example: 近五年临床研究
+  - key: output_goal
+    label: 目标输出
+    required: false
+    placeholder: 例如：开题汇报提纲 / 论文 Related Work
+    example: 开题汇报提纲
+steps:
+  - id: scope
+    title: 明确综述范围
+    description: 整理主题、边界、时间范围和预期产物。
+  - id: search
+    title: 规划检索与证据框架
+    description: 给出关键词分组、数据库建议和证据分类维度。
+  - id: outline
+    title: 输出综述提纲
+    description: 形成可直接写作的章节结构、要点和下一步动作。
+default_outputs:
+  - id: outline
+    label: 综述提纲
+    type: markdown
+  - id: search-plan
+    label: 检索计划
+    type: checklist
+recovery:
+  max_retries: 1
+  user_hint: 如果主题过宽，请先收窄疾病、技术路线或时间范围。
+  fallback_action: 请求用户补充研究边界
+starter_prompt_template: |
+  你正在以 Recipe 模式执行「{recipe_name}」。
+
+  用户原始请求：
+  {user_request}
+
+  用户补充输入：
+  {input_bullets}
+
+  请按以下步骤推进：
+  {step_bullets}
+
+  默认输出：
+  {output_bullets}
+
+  若信息不足，请优先收缩范围，不要泛化到教科书式总结。
+  若流程受阻，请遵循以下恢复提示：{fallback_hint}

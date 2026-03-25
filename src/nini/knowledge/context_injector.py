@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from nini.evidence import normalize_source_record
 from nini.knowledge.hybrid_retriever import get_hybrid_retriever
 from nini.models.knowledge import (
     CitationInfo,
@@ -108,6 +109,7 @@ class ContextInjector:
             # 构建引用信息
             citations = []
             for i, doc in enumerate(documents, 1):
+                source_record = normalize_source_record(doc)
                 citations.append(
                     CitationInfo(
                         index=i,
@@ -115,6 +117,13 @@ class ContextInjector:
                         document_title=doc.title,
                         excerpt=doc.excerpt,
                         relevance_score=doc.relevance_score,
+                        source_id=source_record.source_id,
+                        source_type=source_record.source_type,
+                        acquisition_method=source_record.acquisition_method,
+                        accessed_at=source_record.accessed_at,
+                        source_time=source_record.source_time,
+                        stable_ref=source_record.stable_ref,
+                        url=source_record.url,
                     )
                 )
 

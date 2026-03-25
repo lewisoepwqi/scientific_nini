@@ -331,11 +331,34 @@ class TestCommonEventBuilders:
         event = build_workspace_update_event(
             action="add",
             file_id="file_1",
+            task_id="task_demo",
+            attempt_id="task_demo:workflow:1",
         )
 
         assert event.type == EventType.WORKSPACE_UPDATE
         assert event.data["action"] == "add"
         assert event.data["file_id"] == "file_1"
+        assert event.data["task_id"] == "task_demo"
+        assert event.data["attempt_id"] == "task_demo:workflow:1"
+
+    def test_build_budget_warning(self):
+        """构造预算告警事件。"""
+        from nini.agent.event_builders import build_budget_warning_event
+
+        event = build_budget_warning_event(
+            task_id="task_demo",
+            metric="tokens",
+            threshold=1000,
+            current_value=1200,
+            warning_level="warning",
+            message="预算超阈值",
+            recipe_id="literature_review",
+        )
+
+        assert event.type == EventType.BUDGET_WARNING
+        assert event.data["task_id"] == "task_demo"
+        assert event.data["metric"] == "tokens"
+        assert event.data["recipe_id"] == "literature_review"
 
 
 class TestEventValidation:

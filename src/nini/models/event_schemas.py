@@ -51,6 +51,10 @@ class PlanProgressEventData(BaseModel):
     step_status: str = Field(..., description="当前步骤状态")
     next_hint: Optional[str] = Field(None, description="下一步提示")
     block_reason: Optional[str] = Field(None, description="阻塞原因")
+    recipe_id: Optional[str] = Field(None, description="绑定的 Recipe 标识")
+    task_id: Optional[str] = Field(None, description="deep task 标识")
+    task_kind: Optional[str] = Field(None, description="任务类型")
+    retry_count: Optional[int] = Field(None, description="当前重试次数")
 
 
 class TaskAttemptEventData(BaseModel):
@@ -64,6 +68,8 @@ class TaskAttemptEventData(BaseModel):
     status: Literal["in_progress", "retrying", "success", "failed"] = Field(
         ..., description="尝试状态"
     )
+    task_id: Optional[str] = Field(None, description="deep task 标识")
+    attempt_id: Optional[str] = Field(None, description="尝试标识")
     note: Optional[str] = Field(None, description="备注")
     error: Optional[str] = Field(None, description="错误信息")
 
@@ -91,6 +97,8 @@ class RunContextEventData(BaseModel):
     artifacts: list[RunContextArtifactSummary] = Field(default_factory=list, description="产物摘要")
     tool_hints: list[str] = Field(default_factory=list, description="推荐工具提示")
     constraints: list[str] = Field(default_factory=list, description="关键约束")
+    task_id: Optional[str] = Field(None, description="deep task 标识")
+    recipe_id: Optional[str] = Field(None, description="Recipe 标识")
 
 
 class CompletionCheckItemEventData(BaseModel):
@@ -112,6 +120,7 @@ class CompletionCheckEventData(BaseModel):
         default_factory=list, description="检查项列表"
     )
     missing_actions: list[str] = Field(default_factory=list, description="缺失动作")
+    task_id: Optional[str] = Field(None, description="deep task 标识")
 
 
 class BlockedEventData(BaseModel):
@@ -121,7 +130,21 @@ class BlockedEventData(BaseModel):
     reason_code: str = Field(..., description="阻塞原因代码")
     message: str = Field(..., description="阻塞说明")
     recoverable: bool = Field(True, description="是否可恢复")
+    task_id: Optional[str] = Field(None, description="deep task 标识")
+    attempt_id: Optional[str] = Field(None, description="尝试标识")
     suggested_action: Optional[str] = Field(None, description="建议动作")
+
+
+class BudgetWarningEventData(BaseModel):
+    """BUDGET_WARNING 事件的数据结构。"""
+
+    task_id: str = Field(..., description="deep task 标识")
+    metric: Literal["tokens", "cost_usd", "tool_calls"] = Field(..., description="预算指标")
+    threshold: float = Field(..., description="预算阈值")
+    current_value: float = Field(..., description="当前值")
+    warning_level: Literal["warning", "critical"] = Field(..., description="告警级别")
+    message: str = Field(..., description="告警摘要")
+    recipe_id: Optional[str] = Field(None, description="Recipe 标识")
 
 
 # ---- Token 使用相关事件 ----
@@ -229,6 +252,10 @@ class WorkspaceUpdateEventData(BaseModel):
     action: Literal["add", "remove", "update"] = Field(..., description="操作类型")
     file_id: Optional[str] = Field(None, description="文件 ID")
     folder_id: Optional[str] = Field(None, description="文件夹 ID")
+    recipe_id: Optional[str] = Field(None, description="绑定的 Recipe 标识")
+    task_id: Optional[str] = Field(None, description="deep task 标识")
+    attempt_id: Optional[str] = Field(None, description="尝试标识")
+    initialized: Optional[bool] = Field(None, description="是否完成工作区初始化")
 
 
 class SessionTitleEventData(BaseModel):
@@ -253,6 +280,9 @@ class SessionEventData(BaseModel):
     """SESSION 事件的数据结构。"""
 
     session_id: str = Field(..., description="会话 ID")
+    task_kind: Optional[str] = Field(None, description="任务类型")
+    recipe_id: Optional[str] = Field(None, description="绑定的 Recipe 标识")
+    deep_task_state: Optional[dict[str, Any]] = Field(None, description="deep task 状态")
 
 
 class StoppedEventData(BaseModel):

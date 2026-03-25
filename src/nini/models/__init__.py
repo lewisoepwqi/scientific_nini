@@ -10,13 +10,20 @@ from nini.models.execution_plan import (
 )
 from nini.models.session_resources import (
     ChartSessionRecord,
+    ClaimVerificationCandidate,
+    ClaimVerificationStatus,
     CodeExecutionRecord,
+    EvidenceBlock,
+    ExportJobRecord,
     ExecutionErrorLocation,
+    MethodsLedgerEntry,
+    ProjectArtifactRecord,
     ReportSection,
     ReportSessionRecord,
     ResourceType,
     ScriptSessionRecord,
     SessionResourceSummary,
+    SourceRecord,
 )
 from nini.models.schemas import APIResponse, DatasetInfo, UploadResponse
 from nini.models.user_profile import UserProfile
@@ -31,12 +38,19 @@ __all__ = [
     "PhaseType",
     # Session resources
     "ResourceType",
+    "ClaimVerificationStatus",
     "SessionResourceSummary",
     "ExecutionErrorLocation",
     "CodeExecutionRecord",
     "ScriptSessionRecord",
     "ChartSessionRecord",
     "ReportSection",
+    "ClaimVerificationCandidate",
+    "SourceRecord",
+    "EvidenceBlock",
+    "ProjectArtifactRecord",
+    "ExportJobRecord",
+    "MethodsLedgerEntry",
     "ReportSessionRecord",
     # User profile
     "UserProfile",

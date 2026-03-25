@@ -8,6 +8,7 @@ import pytest
 
 from nini.agent import event_builders as eb
 from nini.agent.session import Session
+from nini.config import settings
 from nini.harness.models import HarnessRunContext, HarnessTraceRecord
 from nini.harness.runner import HarnessRunner
 from nini.harness.store import HarnessTraceStore
@@ -179,6 +180,40 @@ class _CaptureTraceStore:
         return None
 
 
+class _BudgetRunner:
+    async def run(
+        self,
+        session: Session,
+        user_message: str,
+        *,
+        append_user_message: bool = True,
+        stop_event=None,
+        turn_id: str | None = None,
+        stage_override: str | None = None,
+    ):
+        _ = user_message, stop_event, stage_override
+        assert turn_id is not None
+        if append_user_message:
+            session.add_message("user", "执行深任务", turn_id=turn_id)
+        yield eb.build_iteration_start_event(iteration=0, turn_id=turn_id)
+        yield eb.build_tool_call_event(
+            tool_call_id="call_budget",
+            name="run_code",
+            arguments={"code": "print(1)"},
+            turn_id=turn_id,
+        )
+        yield eb.build_token_usage_event(
+            input_tokens=60,
+            output_tokens=40,
+            model="demo-model",
+            cost_usd=0.25,
+            turn_id=turn_id,
+        )
+        session.add_message("assistant", "最终分析完成。", turn_id=turn_id)
+        yield eb.build_text_event("最终分析完成。", turn_id=turn_id)
+        yield eb.build_done_event(turn_id=turn_id)
+
+
 @pytest.mark.asyncio
 async def test_harness_runner_recovers_from_failed_completion_check() -> None:
     runner = HarnessRunner(agent_runner=_CompletionRecoveryRunner())
@@ -227,6 +262,44 @@ async def test_harness_runner_stops_after_error_without_completion_check() -> No
 
     assert event_types == ["iteration_start", "error"]
     assert trace_store.records[0].status == "error"
+
+
+@pytest.mark.asyncio
+async def test_harness_runner_records_task_metrics_and_budget_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "deep_task_budget_token_limit", 50)
+    monkeypatch.setattr(settings, "deep_task_budget_cost_limit_usd", 0.2)
+    monkeypatch.setattr(settings, "deep_task_budget_tool_call_limit", 1)
+
+    trace_store = _CaptureTraceStore()
+    runner = HarnessRunner(agent_runner=_BudgetRunner(), trace_store=trace_store)
+    session = Session()
+    session.bind_recipe_context(task_kind="deep_task", recipe_id="literature_review")
+    session.set_deep_task_state(
+        task_id="task_demo",
+        retry_count=0,
+        current_attempt_id="task_demo:workflow:1",
+    )
+
+    events = [event async for event in runner.run(session, "执行深任务")]
+
+    budget_events = [event for event in events if event.type.value == "budget_warning"]
+    assert len(budget_events) >= 2
+    assert all(event.data["task_id"] == "task_demo" for event in budget_events)
+    assert any(event.data["metric"] == "tokens" for event in budget_events)
+    assert any(event.data["metric"] == "cost_usd" for event in budget_events)
+
+    record = trace_store.records[0]
+    assert record.task_id == "task_demo"
+    assert record.recipe_id == "literature_review"
+    assert record.task_metrics is not None
+    assert record.task_metrics.final_status == "completed"
+    assert record.task_metrics.total_duration_ms >= 0
+    assert record.task_metrics.tool_call_count == 1
+    assert record.task_metrics.recovery_count == 0
+    assert record.task_metrics.step_durations_ms
+    assert len(record.budget_warnings) >= 2
 
 
 @pytest.mark.asyncio
@@ -339,6 +412,37 @@ async def test_harness_trace_store_persists_and_replays(
         tmp_path / "data" / "sessions" / "session_demo" / "harness" / "traces" / "run_demo.json"
     )
     assert json.loads(trace_path.read_text(encoding="utf-8"))["run_id"] == "run_demo"
+
+
+@pytest.mark.asyncio
+async def test_harness_trace_store_evaluates_core_recipe_gate(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+    await init_db()
+
+    store = HarnessTraceStore()
+    for recipe_id in ("literature_review", "experiment_plan"):
+        await store.save_run(
+            HarnessTraceRecord(
+                run_id=f"run_{recipe_id}",
+                session_id="session_gate",
+                turn_id=f"turn_{recipe_id}",
+                user_message="请执行回放",
+                run_context=HarnessRunContext(turn_id=f"turn_{recipe_id}", recipe_id=recipe_id),
+                task_id=f"task_{recipe_id}",
+                recipe_id=recipe_id,
+                status="completed",
+                finished_at="2026-03-14T00:00:01+00:00",
+            )
+        )
+
+    result = await store.evaluate_core_recipe_benchmarks_async(session_id="session_gate")
+
+    assert result["core_recipe_benchmarks"]["gate_passed"] is False
+    assert result["core_recipe_benchmarks"]["sample_results"]
+    assert result["core_recipe_benchmarks"]["top_failure_tags"]
 
 
 def test_artifact_check_passes_for_capability_description() -> None:

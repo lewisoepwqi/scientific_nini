@@ -19,14 +19,17 @@ from nini.agent import event_builders as eb
 from nini.agent.events import AgentEvent, EventType
 from nini.agent.runner import AgentRunner
 from nini.agent.session import Session
+from nini.config import settings
 from nini.harness.models import (
     BlockedState,
     CompletionCheckItem,
     CompletionCheckResult,
     HarnessArtifactSummary,
+    HarnessBudgetWarning,
     HarnessDatasetSummary,
     HarnessRunContext,
     HarnessRunSummary,
+    HarnessTaskMetrics,
     HarnessTraceEvent,
     HarnessTraceRecord,
 )
@@ -80,6 +83,8 @@ class HarnessRunner:
         run_id = uuid.uuid4().hex
         run_context = self._build_run_context(session, turn_id=turn_id)
         session.harness_runtime_context = run_context.to_runtime_block()
+        task_id = run_context.task_id
+        recipe_id = run_context.recipe_id
 
         trace = HarnessTraceRecord(
             run_id=run_id,
@@ -87,6 +92,8 @@ class HarnessRunner:
             turn_id=turn_id,
             user_message=user_message,
             run_context=run_context,
+            task_id=task_id,
+            recipe_id=recipe_id,
         )
 
         combined_stop_event = asyncio.Event()
@@ -104,6 +111,9 @@ class HarnessRunner:
         recovered_tool_signatures: set[str] = set()
         blocked_state: BlockedState | None = None
         completed = False
+        recovery_count = 0
+        tool_call_count = 0
+        emitted_budget_levels: set[tuple[str, str]] = set()
 
         try:
             run_context_event = eb.build_run_context_event(
@@ -112,16 +122,20 @@ class HarnessRunner:
                 artifacts=[item.model_dump() for item in run_context.artifacts],
                 tool_hints=run_context.tool_hints,
                 constraints=run_context.constraints,
+                task_id=task_id,
+                recipe_id=recipe_id,
             )
             while not completed and blocked_state is None:
                 iteration_started = False
                 run_context_emitted = False
+                self._finish_current_stage(trace)
                 trace.stage_history.append(
                     {
                         "attempt": completion_attempt + 1,
                         "stage": "verification" if completion_attempt > 0 else "planning",
                         "purpose": "verification" if completion_attempt > 0 else "planning",
                         "reasoning_budget": "high" if completion_attempt >= 0 else "medium",
+                        "started_at": _utc_now_iso(),
                     }
                 )
 
@@ -141,6 +155,52 @@ class HarnessRunner:
                         yield event
                         completed = True
                         break
+
+                    if event.type == EventType.TOOL_CALL:
+                        tool_call_count += 1
+                        budget_event = self._build_budget_warning_if_needed(
+                            trace=trace,
+                            task_id=task_id,
+                            recipe_id=recipe_id,
+                            metric="tool_calls",
+                            current_value=float(tool_call_count),
+                            threshold=float(settings.deep_task_budget_tool_call_limit),
+                            emitted_levels=emitted_budget_levels,
+                            turn_id=turn_id,
+                        )
+                        if budget_event is not None:
+                            yield budget_event
+
+                    if event.type == EventType.TOKEN_USAGE:
+                        summary_after_event = self._build_trace_summary(trace)
+                        token_total = float(
+                            int(summary_after_event.get("input_tokens", 0))
+                            + int(summary_after_event.get("output_tokens", 0))
+                        )
+                        for metric, current_value, threshold in (
+                            (
+                                "tokens",
+                                token_total,
+                                float(settings.deep_task_budget_token_limit),
+                            ),
+                            (
+                                "cost_usd",
+                                float(summary_after_event.get("estimated_cost_usd", 0.0)),
+                                float(settings.deep_task_budget_cost_limit_usd),
+                            ),
+                        ):
+                            budget_event = self._build_budget_warning_if_needed(
+                                trace=trace,
+                                task_id=task_id,
+                                recipe_id=recipe_id,
+                                metric=metric,
+                                current_value=current_value,
+                                threshold=threshold,
+                                emitted_levels=emitted_budget_levels,
+                                turn_id=turn_id,
+                            )
+                            if budget_event is not None:
+                                yield budget_event
 
                     if event.type == EventType.ITERATION_START:
                         iteration_started = True
@@ -167,11 +227,14 @@ class HarnessRunner:
                             session=session,
                             event=event,
                             turn_id=turn_id,
+                            task_id=task_id,
+                            attempt_id=self._current_attempt_id(session, task_id),
                             tool_error_counts=tool_error_counts,
                             tool_failure_messages=tool_failure_messages,
                             recovered_tool_signatures=recovered_tool_signatures,
                         )
                         if recovery_event is not None:
+                            recovery_count += 1
                             combined_stop_event.set()
                             yield recovery_event
                             append_flag = False
@@ -218,6 +281,7 @@ class HarnessRunner:
                     attempt=completion.attempt,
                     items=[item.model_dump() for item in completion.items],
                     missing_actions=completion.missing_actions,
+                    task_id=task_id,
                 )
 
                 if completion.passed:
@@ -238,10 +302,13 @@ class HarnessRunner:
                         reason_code="completion_verification_failed",
                         message="当前结果未通过完成校验，且补救后仍未满足结束条件。",
                         recoverable=True,
+                        task_id=task_id,
+                        attempt_id=self._current_attempt_id(session, task_id),
                         suggested_action="补充缺失分析、处理失败工具或调整问题范围后重试。",
                     )
                     break
 
+                recovery_count += 1
                 recovery_note = (
                     "系统已拦截过早结束：当前结果仍缺少必要验证或产物，"
                     "接下来将继续执行并优先补齐缺口。"
@@ -276,6 +343,8 @@ class HarnessRunner:
                     reason_code=blocked_state.reason_code,
                     message=blocked_state.message,
                     recoverable=blocked_state.recoverable,
+                    task_id=blocked_state.task_id,
+                    attempt_id=blocked_state.attempt_id,
                     suggested_action=blocked_state.suggested_action,
                 )
                 yield eb.build_stopped_event(message=blocked_state.message, turn_id=turn_id)
@@ -283,6 +352,7 @@ class HarnessRunner:
             session.harness_runtime_context = ""
             if bridge_task is not None:
                 bridge_task.cancel()
+            self._finish_current_stage(trace)
             trace.summary = self._build_trace_summary(trace)
             if trace.finished_at is None:
                 trace.finished_at = _utc_now_iso()
@@ -290,6 +360,11 @@ class HarnessRunner:
                     trace.status = "stopped"
                 elif trace.status == "completed":
                     trace.status = "error"
+            trace.task_metrics = self._build_task_metrics(
+                trace,
+                recovery_count=recovery_count,
+                tool_call_count=tool_call_count,
+            )
             await self._trace_store.save_run(trace)
 
     @staticmethod
@@ -348,12 +423,17 @@ class HarnessRunner:
         if chart_pref:
             constraints.append(f"图表偏好：{chart_pref}")
 
+        task_id = str(session.deep_task_state.get("task_id", "")).strip() or None
+        recipe_id = str(session.recipe_id or "").strip() or None
+
         return HarnessRunContext(
             turn_id=turn_id,
             datasets=datasets,
             artifacts=artifacts,
             tool_hints=tool_hints[:6],
             constraints=constraints,
+            task_id=task_id,
+            recipe_id=recipe_id,
         )
 
     def _run_completion_check(
@@ -445,6 +525,8 @@ class HarnessRunner:
         session: Session,
         event: AgentEvent,
         turn_id: str,
+        task_id: str | None,
+        attempt_id: str | None,
         tool_error_counts: dict[str, int],
         tool_failure_messages: dict[str, str],
         recovered_tool_signatures: set[str],
@@ -477,6 +559,8 @@ class HarnessRunner:
                 reason_code="tool_loop",
                 message=f"工具 `{tool_name}` 连续失败，恢复后仍未推进，当前轮已阻塞。",
                 recoverable=True,
+                task_id=task_id,
+                attempt_id=attempt_id,
                 suggested_action="检查参数、切换分析方法，或补充更明确的输入。",
             )
         if count >= 2:
@@ -585,3 +669,116 @@ class HarnessRunner:
             "output_tokens": output_tokens,
             "estimated_cost_usd": estimated_cost_usd,
         }
+
+    @staticmethod
+    def _current_attempt_id(session: Session, task_id: str | None) -> str | None:
+        current_attempt_id = str(session.deep_task_state.get("current_attempt_id", "")).strip()
+        if current_attempt_id:
+            return current_attempt_id
+        if not task_id:
+            return None
+        retry_count = int(session.deep_task_state.get("retry_count", 0) or 0)
+        return f"{task_id}:workflow:{retry_count + 1}"
+
+    @staticmethod
+    def _finish_current_stage(trace: HarnessTraceRecord) -> None:
+        if not trace.stage_history:
+            return
+        current = trace.stage_history[-1]
+        if "ended_at" not in current:
+            current["ended_at"] = _utc_now_iso()
+
+    def _build_budget_warning_if_needed(
+        self,
+        *,
+        trace: HarnessTraceRecord,
+        task_id: str | None,
+        recipe_id: str | None,
+        metric: str,
+        current_value: float,
+        threshold: float,
+        emitted_levels: set[tuple[str, str]],
+        turn_id: str,
+    ) -> AgentEvent | None:
+        if not task_id or threshold <= 0 or current_value < threshold:
+            return None
+        warning_level = "critical" if current_value >= threshold * 1.5 else "warning"
+        dedup_key = (metric, warning_level)
+        if dedup_key in emitted_levels:
+            return None
+        emitted_levels.add(dedup_key)
+        warning = HarnessBudgetWarning(
+            task_id=task_id,
+            metric=metric,  # type: ignore[arg-type]
+            threshold=threshold,
+            current_value=current_value,
+            warning_level=warning_level,  # type: ignore[arg-type]
+            message=f"deep task 预算接近或超过阈值：{metric}={current_value:.2f}，阈值={threshold:.2f}",
+            recipe_id=recipe_id,
+        )
+        trace.budget_warnings.append(warning)
+        event = eb.build_budget_warning_event(
+            task_id=warning.task_id,
+            metric=warning.metric,
+            threshold=warning.threshold,
+            current_value=warning.current_value,
+            warning_level=warning.warning_level,
+            message=warning.message,
+            recipe_id=warning.recipe_id,
+            turn_id=turn_id,
+        )
+        self._record_event(trace, event)
+        return event
+
+    @staticmethod
+    def _build_task_metrics(
+        trace: HarnessTraceRecord,
+        *,
+        recovery_count: int,
+        tool_call_count: int,
+    ) -> HarnessTaskMetrics:
+        step_durations_ms: dict[str, int] = {}
+        for item in trace.stage_history:
+            stage = str(item.get("stage", "")).strip() or "unknown"
+            started_at = str(item.get("started_at", "")).strip()
+            ended_at = str(item.get("ended_at", "")).strip()
+            if not started_at or not ended_at:
+                continue
+            try:
+                duration_ms = max(
+                    0,
+                    int(
+                        (
+                            datetime.fromisoformat(ended_at) - datetime.fromisoformat(started_at)
+                        ).total_seconds()
+                        * 1000
+                    ),
+                )
+            except ValueError:
+                continue
+            step_durations_ms[stage] = step_durations_ms.get(stage, 0) + duration_ms
+
+        return HarnessTaskMetrics(
+            task_id=trace.task_id,
+            recipe_id=trace.recipe_id,
+            final_status=trace.status,
+            total_duration_ms=(
+                max(
+                    0,
+                    int(
+                        (
+                            datetime.fromisoformat(trace.finished_at)
+                            - datetime.fromisoformat(trace.started_at)
+                        ).total_seconds()
+                        * 1000
+                    ),
+                )
+                if trace.finished_at
+                else 0
+            ),
+            step_durations_ms=step_durations_ms,
+            recovery_count=recovery_count,
+            tool_call_count=tool_call_count,
+            failure_types=list(trace.failure_tags),
+            budget_warnings=[item.model_copy(deep=True) for item in trace.budget_warnings],
+        )

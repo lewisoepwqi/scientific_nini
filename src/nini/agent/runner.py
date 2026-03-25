@@ -603,6 +603,11 @@ class AgentRunner:
             """创建任务尝试事件（attempt 级别），用于前端展示重试轨迹。"""
             nonlocal plan_event_seq
             plan_event_seq += 1
+            task_id = str(session.deep_task_state.get("task_id", "")).strip() or None
+            attempt_id = None
+            if task_id:
+                action_part = str(action_id or tool_name or "action").strip() or "action"
+                attempt_id = f"{task_id}:{action_part}:{attempt}"
             return eb.build_task_attempt_event(
                 action_id=action_id,
                 step_id=step_id,
@@ -614,6 +619,8 @@ class AgentRunner:
                 note=note,
                 turn_id=turn_id,
                 seq=plan_event_seq,
+                task_id=task_id,
+                attempt_id=attempt_id,
             )
 
         # 自动上下文压缩检查

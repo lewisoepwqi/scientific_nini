@@ -57,6 +57,14 @@ export interface PlanProgressEventData {
   next_hint?: string | null;
   /** 阻塞原因 */
   block_reason?: string | null;
+  /** 绑定的 Recipe 标识 */
+  recipe_id?: string | null;
+  /** deep task 标识 */
+  task_id?: string | null;
+  /** 任务类型 */
+  task_kind?: string | null;
+  /** 当前重试次数 */
+  retry_count?: number | null;
 }
 
 /** TASK_ATTEMPT 事件的数据结构 */
@@ -73,6 +81,10 @@ export interface TaskAttemptEventData {
   max_attempts: number;
   /** 尝试状态 */
   status: "in_progress" | "retrying" | "success" | "failed";
+  /** deep task 标识 */
+  task_id?: string | null;
+  /** 尝试标识 */
+  attempt_id?: string | null;
   /** 备注 */
   note?: string;
   /** 错误信息 */
@@ -96,6 +108,8 @@ export interface RunContextEventData {
   artifacts: RunContextArtifactSummary[];
   tool_hints: string[];
   constraints: string[];
+  task_id?: string | null;
+  recipe_id?: string | null;
 }
 
 export interface CompletionCheckItemEventData {
@@ -111,6 +125,7 @@ export interface CompletionCheckEventData {
   attempt: number;
   items: CompletionCheckItemEventData[];
   missing_actions: string[];
+  task_id?: string | null;
 }
 
 export interface BlockedEventData {
@@ -118,7 +133,27 @@ export interface BlockedEventData {
   reason_code: string;
   message: string;
   recoverable: boolean;
+  task_id?: string | null;
+  attempt_id?: string | null;
   suggested_action?: string | null;
+}
+
+/** BUDGET_WARNING 事件的数据结构 */
+export interface BudgetWarningEventData {
+  /** deep task 标识 */
+  task_id: string;
+  /** 预算指标 */
+  metric: "tokens" | "cost_usd" | "tool_calls";
+  /** 预算阈值 */
+  threshold: number;
+  /** 当前值 */
+  current_value: number;
+  /** 告警级别 */
+  warning_level: "warning" | "critical";
+  /** 告警摘要 */
+  message: string;
+  /** Recipe 标识 */
+  recipe_id?: string | null;
 }
 
 // ---- Token 使用相关事件 ----
@@ -227,6 +262,14 @@ export interface WorkspaceUpdateEventData {
   file_id?: string;
   /** 文件夹 ID */
   folder_id?: string;
+  /** 绑定的 Recipe 标识 */
+  recipe_id?: string | null;
+  /** deep task 标识 */
+  task_id?: string | null;
+  /** 尝试标识 */
+  attempt_id?: string | null;
+  /** 是否完成工作区初始化 */
+  initialized?: boolean | null;
 }
 
 /** SESSION_TITLE 事件的数据结构 */
@@ -257,6 +300,10 @@ export interface CodeExecutionEventData {
 export interface SessionEventData {
   /** 会话 ID */
   session_id: string;
+  task_kind?: string | null;
+  recipe_id?: string | null;
+  deep_task_state?: Record<string, unknown> | null;
+  recommended_recipe_id?: string | null;
 }
 
 /** STOPPED 事件的数据结构 */
@@ -282,6 +329,7 @@ export type WSEventData =
   | RunContextEventData
   | CompletionCheckEventData
   | BlockedEventData
+  | BudgetWarningEventData
   | TokenUsageEventData
   | SessionTokenUsageEventData
   | ToolCallEventData

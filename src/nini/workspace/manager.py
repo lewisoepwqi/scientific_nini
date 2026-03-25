@@ -33,6 +33,8 @@ from nini.config import settings
 from nini.models.session_resources import (
     CodeExecutionRecord,
     ExecutionErrorLocation,
+    ExportJobRecord,
+    ProjectArtifactRecord,
     ResourceType,
     SessionResourceSummary,
 )
@@ -705,6 +707,8 @@ class WorkspaceManager:
             "notes": [],
             "folders": [],
             "resources": [],
+            "project_artifacts": [],
+            "export_jobs": [],
         }
 
     def _load_index(self) -> dict[str, Any]:
@@ -722,6 +726,8 @@ class WorkspaceManager:
             data.setdefault("notes", [])
             data.setdefault("folders", [])
             data.setdefault("resources", [])
+            data.setdefault("project_artifacts", [])
+            data.setdefault("export_jobs", [])
             data.setdefault("session_id", self.session_id)
             data.setdefault("version", 2)
             return data
@@ -813,6 +819,22 @@ class WorkspaceManager:
         index = self._load_index()
         resources = self._resource_bucket(index)
         result = [item for item in resources if isinstance(item, dict)]
+        return sorted(result, key=lambda item: str(item.get("created_at", "")), reverse=True)
+
+    def list_project_artifacts(self) -> list[dict[str, Any]]:
+        index = self._load_index()
+        artifacts = index.get("project_artifacts", [])
+        if not isinstance(artifacts, list):
+            return []
+        result = [item for item in artifacts if isinstance(item, dict)]
+        return sorted(result, key=lambda item: str(item.get("created_at", "")), reverse=True)
+
+    def list_export_jobs(self) -> list[dict[str, Any]]:
+        index = self._load_index()
+        jobs = index.get("export_jobs", [])
+        if not isinstance(jobs, list):
+            return []
+        result = [item for item in jobs if isinstance(item, dict)]
         return sorted(result, key=lambda item: str(item.get("created_at", "")), reverse=True)
 
     def get_managed_resource_dir(self, resource_type: ResourceType | str) -> Path:
@@ -1019,6 +1041,12 @@ class WorkspaceManager:
         if not isinstance(artifacts, list):
             artifacts = []
         normalized_path = str(file_path)
+        rel_path = self._relative_workspace_path(file_path)
+        download_url = (
+            self.build_workspace_file_download_url(rel_path)
+            if rel_path
+            else self.build_artifact_file_download_url(name)
+        )
         now = _now_iso()
         record: dict[str, Any] = {
             "id": uuid.uuid4().hex[:12],
@@ -1027,7 +1055,7 @@ class WorkspaceManager:
             "type": artifact_type,
             "format": format_hint,
             "path": normalized_path,
-            "download_url": self.build_artifact_file_download_url(name),
+            "download_url": download_url,
             "created_at": now,
             "visibility": visibility,
         }
@@ -1049,7 +1077,7 @@ class WorkspaceManager:
             item["type"] = artifact_type
             item["format"] = format_hint
             item["path"] = normalized_path
-            item["download_url"] = self.build_artifact_file_download_url(name)
+            item["download_url"] = download_url
             item["created_at"] = now
             item["visibility"] = visibility
             record = item
@@ -1074,7 +1102,7 @@ class WorkspaceManager:
                 name=name,
                 source_kind="artifacts",
                 path=file_path,
-                download_url=self.build_artifact_file_download_url(name),
+                download_url=download_url,
                 metadata={
                     "artifact_type": artifact_type,
                     "format": format_hint,
@@ -1127,6 +1155,206 @@ class WorkspaceManager:
             reverse=True,
         )
 
+    def create_export_job(
+        self,
+        *,
+        target_resource_id: str | None,
+        target_resource_type: str | None,
+        output_format: str,
+        template_id: str | None = None,
+        source_task_id: str | None = None,
+        idempotency_key: str | None = None,
+        status: str = "pending",
+        message: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        index = self._load_index()
+        jobs = index.setdefault("export_jobs", [])
+        normalized_idempotency_key = (
+            idempotency_key.strip()
+            if isinstance(idempotency_key, str) and idempotency_key.strip()
+            else None
+        )
+        if normalized_idempotency_key:
+            for item in jobs:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("idempotency_key", "")).strip() != normalized_idempotency_key:
+                    continue
+                if metadata:
+                    current = item.get("metadata")
+                    merged = dict(current) if isinstance(current, dict) else {}
+                    merged.update(metadata)
+                    item["metadata"] = merged
+                if source_task_id and not item.get("source_task_id"):
+                    item["source_task_id"] = source_task_id
+                if template_id and not item.get("template_id"):
+                    item["template_id"] = template_id
+                if target_resource_id and not item.get("target_resource_id"):
+                    item["target_resource_id"] = target_resource_id
+                if target_resource_type and not item.get("target_resource_type"):
+                    item["target_resource_type"] = target_resource_type
+                if message and not item.get("message"):
+                    item["message"] = message
+                item["updated_at"] = _now_iso()
+                self._save_index(index)
+                return item
+        record = ExportJobRecord(
+            id=uuid.uuid4().hex[:12],
+            session_id=self.session_id,
+            target_resource_id=target_resource_id,
+            target_resource_type=target_resource_type,
+            template_id=template_id,
+            output_format=output_format,
+            status=status,
+            source_task_id=source_task_id,
+            idempotency_key=normalized_idempotency_key,
+            message=message,
+            metadata=metadata or {},
+        )
+        jobs.append(record.model_dump(mode="json"))
+        self._save_index(index)
+        return record.model_dump(mode="json")
+
+    def update_export_job(
+        self,
+        job_id: str,
+        *,
+        status: str | None = None,
+        output_artifact_ids: list[str] | None = None,
+        message: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        index = self._load_index()
+        jobs = index.get("export_jobs", [])
+        if not isinstance(jobs, list):
+            return None
+        for item in jobs:
+            if not isinstance(item, dict) or str(item.get("id", "")).strip() != job_id:
+                continue
+            if status is not None:
+                item["status"] = status
+            if output_artifact_ids is not None:
+                item["output_artifact_ids"] = list(output_artifact_ids)
+            if message is not None:
+                item["message"] = message
+            if metadata:
+                current = item.get("metadata")
+                merged = dict(current) if isinstance(current, dict) else {}
+                merged.update(metadata)
+                item["metadata"] = merged
+            item["updated_at"] = _now_iso()
+            self._save_index(index)
+            return item
+        return None
+
+    def register_project_artifact(
+        self,
+        *,
+        artifact_type: str,
+        name: str,
+        path: Path,
+        format: str | None = None,  # noqa: A002
+        template_id: str | None = None,
+        resource_id: str | None = None,
+        source_task_id: str | None = None,
+        export_job_id: str | None = None,
+        idempotency_key: str | None = None,
+        logical_key: str | None = None,
+        available_formats: list[str] | None = None,
+        failed_formats: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        index = self._load_index()
+        project_artifacts = index.setdefault("project_artifacts", [])
+        normalized_idempotency_key = (
+            idempotency_key.strip()
+            if isinstance(idempotency_key, str) and idempotency_key.strip()
+            else None
+        )
+        if normalized_idempotency_key:
+            for item in project_artifacts:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("idempotency_key", "")).strip() != normalized_idempotency_key:
+                    continue
+                if metadata:
+                    current = item.get("metadata")
+                    merged = dict(current) if isinstance(current, dict) else {}
+                    merged.update(metadata)
+                    item["metadata"] = merged
+                if available_formats is not None:
+                    item["available_formats"] = list(available_formats)
+                if failed_formats is not None:
+                    item["failed_formats"] = list(failed_formats)
+                if export_job_id and not item.get("export_job_id"):
+                    item["export_job_id"] = export_job_id
+                if source_task_id and not item.get("source_task_id"):
+                    item["source_task_id"] = source_task_id
+                if template_id and not item.get("template_id"):
+                    item["template_id"] = template_id
+                item["updated_at"] = _now_iso()
+                self._save_index(index)
+                return item
+        normalized_logical_key = (
+            logical_key.strip()
+            if isinstance(logical_key, str) and logical_key.strip()
+            else f"{artifact_type}:{resource_id or Path(name).stem}"
+        )
+        previous_versions = [
+            item
+            for item in project_artifacts
+            if isinstance(item, dict)
+            and str(item.get("logical_key", "")).strip() == normalized_logical_key
+        ]
+        version = 1 + max(
+            [int(item.get("version", 0)) for item in previous_versions if item.get("version")],
+            default=0,
+        )
+        rel_path = self._relative_workspace_path(path) or path.name
+        record = ProjectArtifactRecord(
+            id=uuid.uuid4().hex[:12],
+            session_id=self.session_id,
+            artifact_type=artifact_type,
+            name=name,
+            logical_key=normalized_logical_key,
+            version=version,
+            path=rel_path,
+            format=format,
+            template_id=template_id,
+            resource_id=resource_id,
+            source_task_id=source_task_id,
+            export_job_id=export_job_id,
+            idempotency_key=normalized_idempotency_key,
+            download_url=self.build_workspace_file_download_url(rel_path),
+            available_formats=list(available_formats or ([format] if format else [])),
+            failed_formats=list(failed_formats or []),
+            metadata=metadata or {},
+        )
+        project_artifacts.append(record.model_dump(mode="json"))
+        self._save_index(index)
+        return record.model_dump(mode="json")
+
+    def batch_download_project_artifacts(self, artifact_ids: list[str]) -> bytes:
+        records = self.list_project_artifacts()
+        selected_paths: list[str] = []
+        for artifact_id in artifact_ids:
+            match = next(
+                (
+                    item
+                    for item in records
+                    if str(item.get("id", "")).strip() == str(artifact_id).strip()
+                ),
+                None,
+            )
+            if match is None:
+                continue
+            selected_paths.append(str(match.get("path", "")).strip())
+        cleaned = [path for path in selected_paths if path]
+        if not cleaned:
+            return b""
+        return self.batch_download_paths(cleaned)
+
     def save_text_note(self, content: str, filename: str | None = None) -> dict[str, Any]:
         self.ensure_dirs()
         raw_name = filename or f"note_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.md"
@@ -1143,10 +1371,18 @@ class WorkspaceManager:
     def _artifact_should_display_as_document(self, item: dict[str, Any]) -> bool:
         """兼容旧索引：文本文档与报告产物按文档展示。"""
         artifact_type = str(item.get("type", "")).strip().lower()
-        if artifact_type not in {"text_file", "report"}:
+        if artifact_type == "text_file":
+            path = Path(str(item.get("path", "")).strip())
+            return self._should_index_as_document(path)
+        if artifact_type != "report":
             return False
         path = Path(str(item.get("path", "")).strip())
-        return self._should_index_as_document(path)
+        return path.suffix.lower() in {
+            ".md",
+            ".txt",
+            ".html",
+            ".htm",
+        } and self._should_index_as_document(path)
 
     def list_notes(self) -> list[dict[str, Any]]:
         index = self._load_index()
@@ -1221,6 +1457,7 @@ class WorkspaceManager:
             if path.exists() and path.is_file():
                 size = path.stat().st_size
             rel_path = self._relative_workspace_path(path)
+            project_artifact = self._project_artifact_by_path(rel_path)
             download_url = (
                 self.build_workspace_file_download_url(rel_path)
                 if rel_path
@@ -1243,6 +1480,7 @@ class WorkspaceManager:
                             "subtype": subtype,
                             "migrated_from": "artifact",
                             "type": item.get("type"),
+                            "project_artifact": project_artifact,
                             "capabilities": self._build_capabilities(
                                 kind="document",
                                 path=path,
@@ -1279,6 +1517,7 @@ class WorkspaceManager:
                         "versions": item.get("versions", []),
                         "version": item.get("version"),
                         "visibility": item.get("visibility", "deliverable"),
+                        "project_artifact": project_artifact,
                         "capabilities": self._build_capabilities(
                             kind="result",
                             path=path,
@@ -1348,6 +1587,14 @@ class WorkspaceManager:
                 copied["path"] = path_by_id[file_id]
             enriched.append(copied)
         return enriched
+
+    def _project_artifact_by_path(self, relative_path: str | None) -> dict[str, Any] | None:
+        if not relative_path:
+            return None
+        for item in self.list_project_artifacts():
+            if str(item.get("path", "")).strip() == relative_path:
+                return item
+        return None
 
     def search_files_with_paths(self, query: str) -> list[dict[str, Any]]:
         """根据文件名搜索工作空间文件，并补充相对路径。"""

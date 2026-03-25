@@ -2099,6 +2099,13 @@ except Exception as _e:
     _route_import_errors.append(f"session_routes: {_e}")
 
 try:
+    from .recipe_routes import router as recipe_router
+
+    router.include_router(recipe_router)
+except Exception as _e:
+    _route_import_errors.append(f"recipe_routes: {_e}")
+
+try:
     from .workspace_routes import router as workspace_router
 
     router.include_router(workspace_router)

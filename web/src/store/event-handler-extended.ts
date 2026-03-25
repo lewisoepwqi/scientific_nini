@@ -14,6 +14,7 @@ import type {
   ArtifactInfo,
   RetrievalItem,
   StreamingMetrics,
+  DeepTaskState,
 } from "./types";
 import type { AppStateSubset, GetStateFn, SetStateFn } from "./event-handler";
 
@@ -68,6 +69,46 @@ function isActiveSessionEvent(evt: WSEvent, get: GetStateFn): boolean {
 }
 
 import { emitSessionsChanged } from "./session-lifecycle";
+
+function normalizeDeepTaskStatus(raw: unknown): DeepTaskState["status"] {
+  if (typeof raw !== "string") return "running";
+  const normalized = raw.trim().toLowerCase();
+  switch (normalized) {
+    case "queued":
+      return "queued";
+    case "retrying":
+      return "retrying";
+    case "blocked":
+      return "blocked";
+    case "failed":
+      return "failed";
+    case "completed":
+    case "done":
+      return "completed";
+    default:
+      return "running";
+  }
+}
+
+function buildDeepTaskStateFromProgress(
+  data: Record<string, unknown>,
+  nextProgress: NonNullable<AppStateSubset["analysisPlanProgress"]>,
+  previousState: DeepTaskState | null | undefined,
+): DeepTaskState | null {
+  if (typeof data.task_id !== "string" || !data.task_id.trim()) {
+    return previousState ?? null;
+  }
+  return {
+    task_id: data.task_id.trim(),
+    status: normalizeDeepTaskStatus(nextProgress.step_status),
+    current_step_index: nextProgress.current_step_index,
+    total_steps: nextProgress.total_steps,
+    current_step_title: nextProgress.step_title,
+    next_hint: nextProgress.next_hint,
+    block_reason: nextProgress.block_reason,
+    retry_count: typeof data.retry_count === "number" ? data.retry_count : 0,
+  };
+}
 
 export function handleExtendedEvent(
   evt: WSEvent,
@@ -407,6 +448,15 @@ export function handleExtendedEvent(
             : nextProgress.step_status;
           return {
             ...entry,
+            activeRecipeId:
+              typeof data.recipe_id === "string" && data.recipe_id.trim()
+                ? data.recipe_id.trim()
+                : entry.activeRecipeId,
+            deepTaskState: buildDeepTaskStateFromProgress(
+              data,
+              nextProgress,
+              entry.deepTaskState,
+            ),
             analysisPlanProgress: nextProgress,
             analysisTasks: updateAnalysisTaskById(entry.analysisTasks, taskId, {
               title: nextProgress.step_title,
@@ -466,6 +516,11 @@ export function handleExtendedEvent(
                 : undefined,
         });
         return {
+          activeRecipeId:
+            typeof data.recipe_id === "string" && data.recipe_id.trim()
+              ? data.recipe_id.trim()
+              : s.activeRecipeId,
+          deepTaskState: buildDeepTaskStateFromProgress(data, nextProgress, s.deepTaskState),
           analysisPlanProgress: nextProgress,
           analysisTasks: nextTasks,
           _analysisPlanOrder: eventOrder,
@@ -604,6 +659,29 @@ export function handleExtendedEvent(
           score: typeof item.score === "number" ? item.score : undefined,
           hits: typeof item.hits === "number" ? item.hits : undefined,
           snippet: typeof item.snippet === "string" ? item.snippet : "",
+          sourceId: typeof item.source_id === "string" ? item.source_id : undefined,
+          sourceType: typeof item.source_type === "string" ? item.source_type : undefined,
+          acquisitionMethod:
+            typeof item.acquisition_method === "string"
+              ? item.acquisition_method
+              : undefined,
+          accessedAt: typeof item.accessed_at === "string" ? item.accessed_at : undefined,
+          sourceTime: typeof item.source_time === "string" ? item.source_time : undefined,
+          stableRef: typeof item.stable_ref === "string" ? item.stable_ref : undefined,
+          documentId: typeof item.document_id === "string" ? item.document_id : undefined,
+          resourceId: typeof item.resource_id === "string" ? item.resource_id : undefined,
+          sourceUrl: typeof item.source_url === "string" ? item.source_url : undefined,
+          claimId: typeof item.claim_id === "string" ? item.claim_id : undefined,
+          verificationStatus:
+            item.verification_status === "verified" ||
+            item.verification_status === "pending_verification" ||
+            item.verification_status === "conflicted"
+              ? item.verification_status
+              : undefined,
+          reasonSummary:
+            typeof item.reason_summary === "string" ? item.reason_summary : undefined,
+          conflictSummary:
+            typeof item.conflict_summary === "string" ? item.conflict_summary : undefined,
         }));
       if (retrievals.length === 0) return true;
 
@@ -802,6 +880,19 @@ export function handleExtendedEvent(
 
     case "workspace_update":
       if (!isActiveSessionEvent(evt, get)) return true;
+      if (isRecord(evt.data)) {
+        const data = evt.data;
+        set((s) => ({
+          activeRecipeId:
+            typeof data.recipe_id === "string" && data.recipe_id.trim()
+              ? data.recipe_id.trim()
+              : s.activeRecipeId,
+          deepTaskState:
+            s.deepTaskState && typeof data.task_id === "string" && data.task_id.trim()
+              ? { ...s.deepTaskState, task_id: data.task_id.trim() }
+              : s.deepTaskState,
+        }));
+      }
       get().fetchWorkspaceFiles();
       get().fetchDatasets();
       return true;

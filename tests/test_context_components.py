@@ -165,11 +165,12 @@ def test_fallback_knowledge_load_uses_legacy_loader() -> None:
     context_parts: list[str] = []
     event = fallback_knowledge_load(_Loader(), "怎么做 t 检验", ["value"], context_parts)
 
-    assert event == {
-        "query": "怎么做 t 检验",
-        "results": [{"source": "guide", "score": 0.8, "snippet": "摘要"}],
-        "mode": "hybrid",
-    }
+    assert event is not None
+    assert event["query"] == "怎么做 t 检验"
+    assert event["mode"] == "hybrid"
+    assert event["results"][0]["source"] == "guide"
+    assert event["results"][0]["source_id"].startswith("source:")
+    assert event["results"][0]["acquisition_method"] == "unknown"
     assert "相关背景知识" in context_parts[0]
 
 
@@ -192,11 +193,12 @@ async def test_inject_knowledge_falls_back_when_new_pipeline_fails(
     context_parts: list[str] = []
     event = await inject_knowledge(_Loader(), session, "分析方法", ["value"], context_parts)
 
-    assert event == {
-        "query": "分析方法",
-        "results": [{"source": "legacy", "score": 0.5, "snippet": "回退摘要"}],
-        "mode": "keyword",
-    }
+    assert event is not None
+    assert event["query"] == "分析方法"
+    assert event["mode"] == "keyword"
+    assert event["results"][0]["source"] == "legacy"
+    assert event["results"][0]["source_id"].startswith("source:")
+    assert event["results"][0]["acquisition_method"] == "unknown"
     assert "回退知识" in context_parts[0]
 
 

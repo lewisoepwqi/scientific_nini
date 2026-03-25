@@ -2,6 +2,7 @@ import type {
   AnalysisPlanProgress,
   AnalysisTaskItem,
   CompletionCheckState,
+  DeepTaskState,
   HarnessBlockedState,
   HarnessRunContextState,
   IntentAnalysisView,
@@ -21,6 +22,8 @@ export interface SessionUiCacheEntry {
   workspacePanelTab: "files" | "executions" | "tasks";
   streamingMetrics: StreamingMetrics;
   tokenUsage: TokenUsage | null;
+  activeRecipeId: string | null;
+  deepTaskState: DeepTaskState | null;
   currentTurnId: string | null;
   streamingText: string;
   lastHandledSeq: number | undefined;
@@ -41,6 +44,8 @@ export interface SessionUiCacheSnapshotSource {
   workspacePanelTab: "files" | "executions" | "tasks";
   _streamingMetrics: StreamingMetrics;
   tokenUsage: TokenUsage | null;
+  activeRecipeId: string | null;
+  deepTaskState: DeepTaskState | null;
   _currentTurnId: string | null;
   _streamingText: string;
   _lastHandledSeq: number | undefined;
@@ -109,6 +114,8 @@ export function createEmptySessionUiCacheEntry(): SessionUiCacheEntry {
       hasTokenUsage: false,
     },
     tokenUsage: null,
+    activeRecipeId: null,
+    deepTaskState: null,
     currentTurnId: null,
     streamingText: "",
     lastHandledSeq: undefined,
@@ -143,6 +150,8 @@ export function cloneSessionUiCacheEntry(
     workspacePanelTab: entry.workspacePanelTab,
     streamingMetrics: cloneStreamingMetrics(entry.streamingMetrics),
     tokenUsage: cloneTokenUsage(entry.tokenUsage),
+    activeRecipeId: entry.activeRecipeId,
+    deepTaskState: entry.deepTaskState ? { ...entry.deepTaskState } : null,
     currentTurnId: entry.currentTurnId,
     streamingText: entry.streamingText,
     lastHandledSeq: entry.lastHandledSeq,
@@ -177,6 +186,8 @@ export function captureSessionUiCacheEntry(
     workspacePanelTab: source.workspacePanelTab,
     streamingMetrics: cloneStreamingMetrics(source._streamingMetrics),
     tokenUsage: cloneTokenUsage(source.tokenUsage),
+    activeRecipeId: source.activeRecipeId,
+    deepTaskState: source.deepTaskState ? { ...source.deepTaskState } : null,
     currentTurnId: source._currentTurnId,
     streamingText: source._streamingText,
     lastHandledSeq: source._lastHandledSeq,

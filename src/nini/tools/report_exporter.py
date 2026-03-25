@@ -1,4 +1,4 @@
-"""报告导出器 — 支持 Markdown 转 DOCX 和 PDF。
+"""报告导出器 — 支持 Markdown 转 DOCX、PDF、PPTX 和 LaTeX。
 
 提供发表级报告的多格式导出能力。
 """
@@ -390,6 +390,117 @@ class PDFExporter(ReportExporter):
         return text
 
 
+class PPTXExporter(ReportExporter):
+    """Markdown 转 PPTX 导出器。"""
+
+    def __init__(self, markdown_content: str, title: str = "科研数据分析报告") -> None:
+        super().__init__(markdown_content)
+        self.title = title
+
+    def export(self) -> bytes:
+        try:
+            from pptx import Presentation  # type: ignore[import-not-found]
+            from pptx.util import Inches, Pt  # type: ignore[import-not-found]
+        except ImportError:
+            logger.error("python-pptx 未安装，无法导出 PPTX")
+            raise ImportError("请安装 python-pptx: pip install python-pptx")
+
+        prs = Presentation()
+        lines = [line.strip() for line in self.markdown.splitlines()]
+
+        title_slide = prs.slides.add_slide(prs.slide_layouts[0])
+        title_slide.shapes.title.text = self.title
+        title_slide.placeholders[1].text = "由 Nini 导出"
+
+        sections: list[tuple[str, list[str]]] = []
+        current_title = "概览"
+        current_lines: list[str] = []
+        for line in lines:
+            if line.startswith("## "):
+                if current_lines:
+                    sections.append((current_title, current_lines))
+                current_title = line[3:]
+                current_lines = []
+                continue
+            if line.startswith("# "):
+                continue
+            if line:
+                current_lines.append(line)
+        if current_lines:
+            sections.append((current_title, current_lines))
+
+        for section_title, bullets in sections:
+            slide = prs.slides.add_slide(prs.slide_layouts[1])
+            slide.shapes.title.text = section_title
+            text_frame = slide.placeholders[1].text_frame
+            text_frame.clear()
+            for idx, bullet in enumerate(bullets[:8]):
+                paragraph = text_frame.paragraphs[0] if idx == 0 else text_frame.add_paragraph()
+                paragraph.text = bullet.replace("- ", "")
+                paragraph.level = 0
+                paragraph.font.size = Pt(18)
+
+        buffer = BytesIO()
+        prs.save(buffer)
+        buffer.seek(0)
+        return buffer.getvalue()
+
+
+class LaTeXExporter(ReportExporter):
+    """Markdown 转 LaTeX 导出器。"""
+
+    def __init__(self, markdown_content: str, title: str = "科研数据分析报告") -> None:
+        super().__init__(markdown_content)
+        self.title = title
+
+    def export(self) -> bytes:
+        body_lines = []
+        for raw_line in self.markdown.splitlines():
+            line = raw_line.strip()
+            if line.startswith("# "):
+                continue
+            if line.startswith("## "):
+                body_lines.append(f"\\section{{{self._escape(line[3:])}}}")
+                continue
+            if line.startswith("### "):
+                body_lines.append(f"\\subsection{{{self._escape(line[4:])}}}")
+                continue
+            if line.startswith("- "):
+                body_lines.append(f"\\item {self._escape(line[2:])}")
+                continue
+            body_lines.append(self._escape(line))
+
+        body = "\n".join(body_lines)
+        tex = (
+            "\\documentclass{article}\n"
+            "\\usepackage[UTF8]{ctex}\n"
+            "\\usepackage{geometry}\n"
+            "\\geometry{margin=1in}\n"
+            f"\\title{{{self._escape(self.title)}}}\n"
+            "\\begin{document}\n"
+            "\\maketitle\n"
+            f"{body}\n"
+            "\\end{document}\n"
+        )
+        return tex.encode("utf-8")
+
+    def _escape(self, text: str) -> str:
+        replacements = {
+            "\\": "\\textbackslash{}",
+            "&": "\\&",
+            "%": "\\%",
+            "$": "\\$",
+            "#": "\\#",
+            "_": "\\_",
+            "{": "\\{",
+            "}": "\\}",
+        }
+        escaped = text
+        for src, dest in replacements.items():
+            escaped = escaped.replace(src, dest)
+        return escaped
+
+
 def export_report(
     markdown_content: str,
     format: str,  # noqa: A002
@@ -400,7 +511,7 @@ def export_report(
 
     Args:
         markdown_content: Markdown 格式的报告内容
-        format: 导出格式（docx/pdf）
+        format: 导出格式（docx/pdf/pptx/tex）
         title: 报告标题
         journal_style: 期刊风格
 
@@ -420,6 +531,14 @@ def export_report(
     elif format == "pdf":
         pdf_exporter = PDFExporter(markdown_content, title, journal_style)
         return pdf_exporter.export()
+
+    elif format == "pptx":
+        pptx_exporter = PPTXExporter(markdown_content, title)
+        return pptx_exporter.export()
+
+    elif format in {"tex", "latex"}:
+        latex_exporter = LaTeXExporter(markdown_content, title)
+        return latex_exporter.export()
 
     else:
         raise ValueError(f"不支持的导出格式: {format}")

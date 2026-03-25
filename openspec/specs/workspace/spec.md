@@ -152,6 +152,45 @@ TBD - created by archiving change add-workspace-panel. Update Purpose after arch
 - **WHEN** 版本数量超过上限（默认 10）
 - **THEN** 自动清理最旧的版本
 
+### Requirement: 产物画廊
+系统 SHALL 提供产物画廊或等价的项目产物列表视图，以项目级正式交付物为主展示图表和报告产物，支持按类型筛选和批量下载。
+
+#### Scenario: 查看产物画廊
+- **WHEN** 用户在文件 Tab 中切换到画廊视图或项目产物视图
+- **THEN** 以网格缩略图或列表方式显示所有正式产物
+
+#### Scenario: 筛选产物类型
+- **WHEN** 用户选择筛选条件（图表/报告/数据快照）
+- **THEN** 仅显示对应类型的产物
+
+#### Scenario: 批量选择产物
+- **WHEN** 用户勾选多个产物的复选框
+- **THEN** 底部显示已选数量和"批量下载"按钮
+
+#### Scenario: 批量下载为 ZIP
+- **WHEN** 用户选择多个产物后点击"批量下载"按钮
+- **THEN** 后端将选中文件打包为 ZIP 文件，浏览器自动下载
+
+#### Scenario: 项目产物列表展示正式交付物
+- **WHEN** 用户进入项目产物视图
+- **THEN** 系统展示当前项目的正式产物列表
+- **AND** 每个产物展示类型、版本号、创建时间与下载入口
+
+### Requirement: 文件版本控制
+系统 SHALL 为产物文件维护版本历史，同一产物多次生成时保留历史版本，并在项目产物视图中暴露基础版本号。
+
+#### Scenario: 自动创建版本
+- **WHEN** Agent 重新生成同名产物
+- **THEN** 旧版本保留在版本历史中，新版本成为当前版本
+
+#### Scenario: 查看版本历史
+- **WHEN** 用户在文件详情或项目产物视图中查看版本信息
+- **THEN** 显示所有历史版本列表，可下载任意版本
+
+#### Scenario: 版本数量上限
+- **WHEN** 版本数量超过上限（默认 10）
+- **THEN** 自动清理最旧的版本
+
 ### Requirement: Agent 自定义文件夹
 系统 SHALL 允许 Agent 通过 skill 调用创建自定义文件夹并组织文件。
 
@@ -160,11 +199,17 @@ TBD - created by archiving change add-workspace-panel. Update Purpose after arch
 - **THEN** 工作区中创建新文件夹，文件移动到指定位置
 
 ### Requirement: WebSocket 实时更新
-系统 SHALL 在文件变更（新增/删除/重命名/产物生成）时通过 WebSocket 推送 `workspace_update` 事件，前端自动刷新文件列表。
+系统 SHALL 在文件变更（新增/删除/重命名/产物生成）以及 deep task 项目工作区初始化时通过 WebSocket 推送 `workspace_update` 事件，前端自动刷新文件列表与工作区上下文。
 
 #### Scenario: 产物生成后实时更新
 - **WHEN** Agent 生成新产物
 - **THEN** 前端工作区面板自动显示新文件，无需手动刷新
+
+#### Scenario: deep task 创建项目工作区后实时更新
+- **WHEN** Recipe 启动并完成项目工作区初始化
+- **THEN** 服务端推送 `workspace_update` 事件
+- **AND** 事件中包含工作区标识、绑定的 `recipe_id` 与初始化状态
+- **AND** 前端自动刷新当前会话的工作区上下文
 
 ### Requirement: Excel 多工作表加载模式
 系统 SHALL 在 `load_dataset` 中支持多工作表读取模式，以便模型根据分析任务选择按 sheet 分析或跨 sheet 合并分析。
@@ -274,4 +319,3 @@ The system SHALL provide API endpoints for uploading knowledge documents and tri
 - **WHEN** 脚本经过 patch 并再次执行
 - **THEN** 工作区执行历史保存新的执行记录
 - **AND** 与原失败记录建立关联
-
