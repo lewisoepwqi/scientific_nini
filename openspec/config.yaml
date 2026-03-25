@@ -1,20 +1,30 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  项目名称：Nini。本项目是一个本地优先的科研数据分析 AI Agent 平台，当前处于发布后维护阶段。
+  仓库结构：后端与 Agent Runtime 位于 `src/nini/`，前端位于 `web/`，测试位于 `tests/`，文档位于 `docs/`，运行时数据默认位于 `data/`。
+  技术栈：Python 3.12、FastAPI、WebSocket、aiosqlite、pandas、numpy、scipy、statsmodels、plotly、kaleido；前端使用 React、TypeScript、Vite、Zustand、Tailwind。
+  运行方式：单进程入口为 `nini start`（或 `python -m nini start`）；默认持久化依赖为 SQLite + 本地文件系统。
+  模型与集成：支持 OpenAI、Anthropic、Ollama、Moonshot、Kimi Coding、智谱、DeepSeek、阿里百炼、MiniMax 多模型路由。
+  代码与文档约定：所有文档与注释使用中文；Python 使用 snake_case 并遵循 black 风格；TypeScript/React 组件使用 PascalCase，变量使用 camelCase。
+  开发约束：优先最小改动，避免无关重构；新能力优先补测试后再接入 WebSocket 事件流；新增依赖必须说明原因并优先复用现有依赖。
+  Git 工作流：禁止直接在 main 开发；使用 feature/fix/chore/docs 分支，经 PR 合并回 main，默认使用 squash merge；提交信息遵循 Conventional Commits。
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  proposal:
+    - 提案必须写清变更内容、影响范围与验证方式；存在明显风险时补充回滚思路。
+    - 说明本次 change 的非目标，避免把无关重构混入同一提案。
+
+  specs:
+    - 规格沿用 OpenSpec 的 Requirement/Scenario 结构，Scenario 使用 GIVEN/WHEN/THEN 描述行为。
+    - 优先复用现有 capability 名称与目录，避免为近义能力重复创建 spec。
+    - Requirement 关注外部行为与约束，不把实现细节或重构步骤写入 spec。
+
+  tasks:
+    - 任务拆成可验证的最小增量，优先覆盖实现、测试、文档与验证步骤。
+    - 涉及后端、Agent、sandbox 或 API 变更时，默认包含 `pytest -q` 验证。
+    - 涉及前端改动时，默认包含 `cd web && npm run build`；涉及 CLI 改动时，检查 `tests/test_phase7_cli.py` 是否需要补充。
+
+  design:
+    - 设计文档记录架构影响、关键数据流、兼容性、风险点与回滚方式。
+    - 优先引用现有模块、目录和约束；只有在必要时才引入新依赖或新抽象。
