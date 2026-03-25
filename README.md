@@ -1,125 +1,95 @@
-# Nini：科研数据分析 AI Agent
+# Nini：本地优先的科研数据分析 AI Agent
 
 [![CI](https://github.com/lewisoepwqi/scientific_nini/actions/workflows/ci.yml/badge.svg)](https://github.com/lewisoepwqi/scientific_nini/actions/workflows/ci.yml)
 
-Nini 是一个本地优先（local-first）的科研数据分析 Agent。
-用户通过对话上传并分析数据，Agent 自动调用统计、作图、清洗、代码执行与报告生成技能。
+Nini 是一个面向科研数据分析场景的本地优先（local-first）AI Agent 平台。
+它提供 Web UI、HTTP/WebSocket API、Agent Runtime、工具系统、会话持久化与受限代码执行环境，目标是让用户通过对话完成数据导入、清洗、统计分析、可视化、知识检索与报告导出。
 
-> **核心特点**：对话式交互、多模型自动路由、沙箱安全执行、零代码数据分析
+当前仓库已经完成从旧三服务结构到单仓单架构的收敛，开发重点集中在：
 
-## 核心能力
+- `src/nini/`：后端、Agent Runtime、工具、存储与 API
+- `web/`：React + TypeScript 前端
+- `tests/`：后端与集成测试
+- `docs/`：使用、开发、配置与架构文档
 
-**统计分析**
-- `t_test`、`anova`、`correlation`、`regression`、`mann_whitney`、`kruskal_wallis`、`multiple_comparison`
-- 含自动降级：正态性不满足时 t_test → mann_whitney
+## 当前能力
 
-**可视化**
-- `create_chart`（7 种图表 + 6 种期刊风格）、`export_chart`
+- 对话式分析：通过聊天驱动数据预览、清洗、统计检验、图表生成与报告整理
+- 多模型路由：支持 OpenAI、Anthropic、Ollama、Moonshot、Kimi Coding、智谱、DeepSeek、阿里百炼、MiniMax
+- 工具系统：同时支持 Function Tools 与 Markdown Skills，并提供 CLI 管理与导出能力
+- 安全执行：`run_code` 使用 AST 检查、导入白名单、超时与资源限制；`run_r_code` 支持可选 R 环境
+- 持久化与工作区：默认使用 `SQLite + 本地文件系统`，会话、上传文件、产物和记忆默认落在 `data/`
+- API 与流式事件：提供 HTTP 接口、WebSocket 事件流，以及面向集成场景的 MCP Server
+- 可观测与回放：内置 harness trace 存储、回放与评测聚合命令，便于回归分析
 
-**数据处理**
-- `load_dataset`、`preview_data`、`data_summary`、`clean_data`、`data_quality`、`diagnostics`
+## 架构概览
 
-**代码执行**
-- `run_code`：受限沙箱（AST 静态分析 + 受限 builtins + 进程隔离）
-- `run_r_code`：R 语言沙箱执行（需本地安装 R 环境）
+运行链路如下：
 
-**网络 / 多模态**
-- `fetch_url`（网页抓取）、`image_analysis`（图像分析）、`interpretation`（统计结果解读）
+`Web UI -> FastAPI Gateway(HTTP + WebSocket) -> Agent Runner(ReAct) -> Skills/Tools -> Memory/Storage`
 
-**任务规划**
-- `task_write`：LLM 驱动的结构化任务列表，Agent 自动拆解并跟踪分析步骤
-
-**产物生成**
-- `generate_report`、`export_report`、`organize_workspace`
-
-**基础设施**
-- 对话式 WebSocket 流式交互（text / chart / data / tool_call / done 事件）
-- 会话持久化：本地 `data/sessions/{session_id}`
-- 多模型路由：OpenAI、Anthropic、Ollama、Moonshot、Kimi Coding、智谱、DeepSeek、阿里百炼，按优先级自动故障转移
-
-## 项目结构
+仓库结构：
 
 ```text
 scientific_nini/
-├── src/nini/                 # 后端与 Agent Runtime
-│   ├── agent/                # AgentRunner、模型路由、会话、任务规划
-│   ├── tools/                # 全部技能实现（base、registry 及各技能文件）
-│   ├── sandbox/              # Python/R 沙箱执行与安全策略
-│   ├── charts/               # 图表渲染器与风格契约
-│   ├── models/               # 数据模型（Schema、执行计划、用户画像）
-│   ├── knowledge/            # RAG 向量检索
-│   ├── memory/               # 对话历史压缩与存储
-│   ├── workspace/            # 会话文件管理
-│   └── api/                  # HTTP 路由与 WebSocket 端点
-├── web/                      # 前端（React 18 + Vite + TypeScript + Tailwind）
-├── tests/                    # 后端测试（pytest）
-├── docs/                     # 使用文档
-├── openspec/                 # 变更提案流程
-├── data/                     # 运行时数据（会话、上传文件，gitignored）
+├── src/nini/                 # 后端、Agent Runtime、工具、存储、CLI、MCP
+├── web/                      # React + TypeScript + Vite 前端
+├── tests/                    # pytest 测试
+├── docs/                     # 使用与开发文档
+├── openspec/                 # 变更提案与规格流程
+├── data/                     # 本地运行时数据（默认 gitignored）
 └── pyproject.toml
 ```
 
 ## 系统要求
 
-- **Python**: >= 3.12
-- **Node.js**: >= 18（前端开发需要）
-- **操作系统**: Linux, macOS, Windows (WSL2 推荐)
-- **内存**: 建议 4GB+
-- **R 环境**（可选）: 如需执行 R 代码，需本地安装 R
+- Python `>=3.12`
+- Node.js `>=18`（前端开发与构建需要）
+- Linux / macOS / Windows（建议 WSL2）
+- 可选本地 R 环境：需要执行 `run_r_code` 时安装
 
 ## 快速开始
 
-### 1. 安装
+### 1. 安装依赖
 
-**基础安装**（仅核心功能）：
-
-```bash
-pip install -e .
-```
-
-**开发安装**（推荐，包含测试和构建工具）：
+推荐开发环境直接安装：
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-**完整安装**（包含本地检索增强和 R 代码执行，推荐）：
-
-```bash
-pip install -e ".[dev,local,webr]"
-```
-
-**可选依赖组说明**：
+常见可选依赖组：
 
 | 依赖组 | 说明 |
-|--------|------|
-| `[dev]` | 开发工具：pytest, black, mypy, weasyprint |
-| `[local]` | 本地检索增强：jieba 中文分词 + rank-bm25 检索（零外部 API 依赖） |
-| `[pdf]` | PDF 导出功能（weasyprint）|
-| `[webr]` | WebR 支持（浏览器内运行 R）|
-| `[mcp]` | MCP (Model Context Protocol) 服务器支持 |
+| --- | --- |
+| `[dev]` | 开发工具、测试工具与常用本地运行依赖 |
+| `[pdf]` | PDF 导出所需依赖 |
+| `[local]` | 本地模型与本地向量检索相关依赖 |
+| `[local_vector]` | 本地向量检索增强 |
+| `[advanced_retrieval]` | 高级检索能力 |
+| `[mcp]` | MCP Server 支持 |
+| `[webr]` | WebR 相关支持 |
 
-> 提示：
-> - 若看到 "jieba 未安装" 或 "rank_bm25 未安装" 警告，需安装 `[local]` 依赖组
-> - 若看到 "R 环境不可用" 警告，需安装 `[webr]` 依赖组或本地 R 环境
+如果只想安装最小运行依赖，可执行：
+
+```bash
+pip install -e .
+```
 
 ### 2. 初始化配置
 
 ```bash
-nini init          # 生成 .env
-nini init --force  # 覆盖已有 .env
+nini init
 ```
 
-编辑 `.env` 文件，至少配置一个模型提供商的 API Key：
+生成 `.env` 后，至少配置一个模型提供商。例如：
 
 ```bash
-# 示例：使用 OpenAI
 NINI_OPENAI_API_KEY=sk-your-api-key
 NINI_OPENAI_MODEL=gpt-4o
 ```
 
-支持多种模型：OpenAI、Anthropic、Moonshot AI (Kimi)、DeepSeek、智谱 AI (GLM)、阿里百炼、Kimi Coding、Ollama 本地模型。
-可同时配置多个，Nini 会按优先级自动路由并故障转移。
+也可以配置多家提供商，让 Nini 按优先级自动路由与故障转移。
 
 ### 3. 环境检查
 
@@ -127,136 +97,135 @@ NINI_OPENAI_MODEL=gpt-4o
 nini doctor
 ```
 
+该命令会检查 Python 版本、数据目录可写性、模型路由配置，以及 `weasyprint`、R 环境、前端构建产物等可选项。
+
 ### 4. 启动服务
 
-**生产模式**：
-
-```bash
-nini start
-```
-
-**开发模式**（热重载）：
+开发模式：
 
 ```bash
 nini start --reload
 ```
 
-启动后访问：`http://127.0.0.1:8000`
-
-**前端开发模式**（热更新，推荐开发时使用）：
-
-另开终端执行：
+生产模式：
 
 ```bash
-cd web && npm install && npm run dev
+nini start
 ```
 
-访问 `http://localhost:3000`，API 和 WebSocket 请求自动代理到后端 8000 端口。
+默认访问地址：`http://127.0.0.1:8000`
 
-## 常用工作流
+如果希望前端单独热更新，另开终端执行：
 
-1. 上传 `CSV / Excel` 文件
-2. 在对话框输入需求，例如：
-   - `帮我预览数据并给出摘要`
-   - `比较 treatment 和 control 的差异并做 t 检验`
-   - `生成 Nature 风格箱线图`
-   - `对数值列做清洗并标准化`
-   - `用 R 跑一下线性混合模型`
-3. 导出结果：
-   - `帮我导出这张图为 SVG`
-   - `生成一份完整分析报告并导出 PDF`
+```bash
+cd web
+npm install
+npm run dev
+```
+
+此时前端开发服务器默认运行在 `http://localhost:3000`，并代理后端 API / WebSocket。
+
+## 常用 CLI
+
+`nini` 等价于 `python -m nini`。当前常用命令包括：
+
+- `nini start`：启动 FastAPI、WebSocket 与静态前端
+- `nini init`：生成 `.env` 模板
+- `nini doctor`：执行环境自检
+- `nini export-memory <session_id>`：导出会话记忆
+- `nini harness list|show|replay|eval`：查看与分析 harness 运行记录
+- `nini tools list|create|export`：管理 Function Tools 与 Markdown Skills
+- `nini mcp`：以 stdio 方式启动 MCP Server，供 Claude Code / Codex 等工具接入
+
+更多参数见 [CLI 参考](docs/cli_reference.md)。
+
+## 典型使用流程
+
+1. 启动服务并打开 Web UI。
+2. 上传 `CSV / Excel` 数据集。
+3. 通过对话提出分析需求，例如：
+   - `帮我预览数据并总结关键字段`
+   - `比较 treatment 和 control 的差异，并选择合适的统计检验`
+   - `生成适合论文插图的箱线图和散点图`
+   - `清洗缺失值并输出一份分析报告`
+4. 按需导出图表、报告或工作区文件。
 
 ## 开发验证
 
+最小回归建议执行：
+
 ```bash
-# 格式检查
 black --check src tests
-
-# 类型检查
 mypy src/nini
-
-# 后端测试
 pytest -q
-
-# 前端构建（TypeScript 检查 + 打包）
 cd web && npm run build
+```
 
-# E2E 测试（前端交互改动时）
+按需补充：
+
+```bash
+python -m build
 cd web && npm run test:e2e
 ```
 
-## 打包发布
+## 打包
 
 ```bash
 python -m build
 ```
 
-产物输出到 `dist/`，安装验证：
+构建产物输出到 `dist/`。本地烟测建议使用实际文件名安装：
 
 ```bash
-pip install dist/nini-0.1.0-py3-none-any.whl
+pip install dist/nini-*.whl
 nini doctor
 nini start
 ```
 
-## 故障排查
+## 文档导航
 
-### 启动时提示 "jieba 未安装" 或 "rank_bm25 未安装"
-
-安装 `[local]` 依赖组：
-```bash
-pip install -e ".[local]"
-```
-
-### 启动时提示 "R 环境不可用"
-
-安装 `[webr]` 依赖组（无需本地安装 R）：
-```bash
-pip install -e ".[webr]"
-```
-
-或安装本地 R 环境：
-- **Ubuntu/Debian**: `sudo apt-get install r-base`
-- **macOS**: `brew install r`
-- **Windows**: 从 [CRAN](https://cran.r-project.org/) 下载安装
-
-安装后确保 `Rscript` 命令在 PATH 中可用。
-
-### 前端开发服务器无法连接后端
-
-检查 `web/vite.config.ts` 中的代理配置，确保后端服务已启动在 8000 端口。
-
-### 模型调用失败
-
-1. 检查 `.env` 中 API Key 是否正确配置
-2. 运行 `nini doctor` 检查环境
-3. 查看控制台详细错误日志（设置 `NINI_DEBUG=true`）
-
-### 代码执行超时
-
-调整 `.env` 中的沙箱超时配置：
-```bash
-NINI_SANDBOX_TIMEOUT=120  # 秒
-```
-
-### 更多问题
-
-查看完整文档：
-- [快速上手指南](docs/nini_quickstart.md)
+- [快速开始](docs/nini_quickstart.md)
 - [配置说明](docs/configuration.md)
 - [CLI 参考](docs/cli_reference.md)
-- [API 与 WebSocket 协议](docs/api_reference.md)
+- [API 与 WebSocket 参考](docs/api_reference.md)
 - [开发与发布指南](docs/development.md)
+- [架构概念](docs/architecture-concepts.md)
+- [能力开发指南](docs/capability-development-guide.md)
+- [添加 Skills](docs/adding-skills.md)
 
-## 贡献指南
+## 常见问题
 
-欢迎提交 Issue 和 PR！请确保：
+### `nini doctor` 提示未配置模型
 
-1. 代码通过 `black --check src tests` 格式检查
-2. 类型检查 `mypy src/nini` 无错误
-3. 测试 `pytest -q` 全部通过
-4. 遵循 Conventional Commits 提交规范
+检查 `.env` 中是否至少设置了一组有效的模型配置，例如 `NINI_OPENAI_API_KEY`，或确保本地 `Ollama` 配置完整。
+
+### PDF 导出不可用
+
+安装带 PDF 依赖的环境：
+
+```bash
+pip install -e ".[pdf]"
+```
+
+如果是开发环境，通常直接安装 `.[dev]` 即可。
+
+### R 工具不可用
+
+若需要 `run_r_code`，请安装本地 `Rscript`，或根据场景补装 `.[webr]`。
+
+### 前端页面无法连接后端
+
+确认后端已经启动在 `8000` 端口，并检查 `web/vite.config.ts` 中的代理配置。
+
+## 贡献
+
+请遵循仓库内 `AGENTS.md` / Git 工作流要求：
+
+- 不在 `main` 直接开发
+- 使用 `feature/fix/chore/docs` 分支
+- 提交前至少完成 `pytest -q` 与 `cd web && npm run build`
+- 提交信息使用 Conventional Commits，例如 `docs(readme): refresh project overview`
 
 ## 许可证
 
-MIT License - 详见 [LICENSE](LICENSE) 文件。
+MIT License，详见 [LICENSE](LICENSE)。
