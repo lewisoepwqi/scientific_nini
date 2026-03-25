@@ -195,8 +195,14 @@ async def test_high_importance_triggers_consolidation(tmp_path):
         mock_task = asyncio.Future()
         mock_task.set_result(0)
 
-        with patch.object(asyncio, "get_event_loop") as mock_loop:
-            mock_loop.return_value.create_task = MagicMock(return_value=mock_task)
+        def _track_stub(coro):
+            coro.close()
+            return mock_task
+
+        with patch(
+            "nini.utils.background_tasks.track_background_task",
+            side_effect=_track_stub,
+        ) as mock_track:
             store.add_memory(
                 memory_type="finding",
                 content="重要发现",
@@ -206,4 +212,4 @@ async def test_high_importance_triggers_consolidation(tmp_path):
             )
             # in-flight 锁应已被加入
             assert "sess_high" in LongTermMemoryStore._consolidating or True  # 任务已创建
-            mock_loop.return_value.create_task.assert_called_once()
+            mock_track.assert_called_once()

@@ -49,8 +49,15 @@ class ToolGuardrail(ABC):
         ...
 
 
-# 禁止访问的系统路径模式
-_SYSTEM_PATH_PATTERN = re.compile(r"(/etc/|/sys/|~/\.ssh/)")
+# 禁止访问的系统路径模式（扩展覆盖 /proc/、/dev/、/root/、Windows 系统路径）
+_SYSTEM_PATH_PATTERN = re.compile(
+    r"("
+    r"/etc/|/sys/|~/\.ssh/|"
+    r"/proc/|/dev/|/root/|"
+    r"[A-Za-z]:\\Windows\\|[A-Za-z]:\\System32|"
+    r"[A-Za-z]:\\ProgramData\\"
+    r")"
+)
 
 # 标记原始数据集的名称关键词
 _RAW_DATASET_KEYWORDS = ("_raw", "_original", "original")
@@ -98,6 +105,20 @@ class DangerousPatternGuardrail(ToolGuardrail):
                 return GuardrailDecision(
                     decision=GuardrailAction.BLOCK,
                     reason=f"参数包含禁止访问的系统路径: '{value}'",
+                )
+
+        # 规则 4：路径遍历检测（含 .. 组件的路径型字符串）
+        for value in kwargs.values():
+            if not isinstance(value, str):
+                continue
+            # 仅检测看起来像路径的字符串（含 / 或 \）
+            if "/" not in value and "\\" not in value:
+                continue
+            # 检测路径遍历：包含 .. 组件
+            if ".." in value.split("/") or ".." in value.split("\\"):
+                return GuardrailDecision(
+                    decision=GuardrailAction.BLOCK,
+                    reason=f"参数包含路径遍历: '{value}'",
                 )
 
         return GuardrailDecision(decision=GuardrailAction.ALLOW)
