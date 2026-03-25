@@ -22,6 +22,7 @@ import pytest
 from nini.agent.session import Session
 from nini.config import settings
 from nini.memory.db import (
+    get_archive_search_mode,
     get_indexed_archive_files,
     get_session_db,
     insert_archived_messages_bulk,
@@ -89,6 +90,22 @@ class TestSchemaInit:
     def test_fts5_available(self):
         """当前环境应支持 FTS5。"""
         assert is_fts5_available() is True
+
+    def test_archive_search_mode_returns_fts5_when_available(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """FTS5 可用时应返回 fts5 模式。"""
+        monkeypatch.setattr("nini.memory.db.is_fts5_available", lambda: True)
+        assert get_archive_search_mode() == "fts5"
+
+    def test_archive_search_mode_returns_like_fallback_when_fts5_unavailable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """FTS5 不可用时应返回 like_fallback 模式。"""
+        monkeypatch.setattr("nini.memory.db.is_fts5_available", lambda: False)
+        assert get_archive_search_mode() == "like_fallback"
 
 
 class TestMessageCRUD:

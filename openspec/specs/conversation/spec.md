@@ -51,3 +51,16 @@ The system SHALL expose one canonical contract for session message history and S
 - **THEN** the system SHALL use one canonical runtime context builder for that conversation state
 - **AND** the resulting context ordering and labeling SHALL NOT depend on whether the call originated from a direct runner path or a helper abstraction
 
+
+### Requirement: Archive search API exposes search capability metadata
+The system SHALL include `search_mode` in archive search responses so clients can detect whether full-text search is available or the system has degraded to a fallback path.
+
+#### Scenario: Archive search response includes search mode
+- **WHEN** the archive search API is called
+- **THEN** the response SHALL include `search_mode`
+- **AND** the value SHALL be `"fts5"` or `"like_fallback"`
+
+#### Scenario: Archive search still works when FTS5 is unavailable
+- **WHEN** FTS5 is unavailable and the user performs archive search
+- **THEN** the system SHALL return results through the LIKE fallback path
+- **AND** `search_mode` SHALL be `"like_fallback"`

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,7 +10,14 @@ import pytest
 
 from nini.agent.session import Session
 from nini.config import settings
-from nini.tools.base import Tool, ToolResult
+from nini.tools.base import (
+    Tool,
+    ToolError,
+    ToolInputError,
+    ToolResult,
+    ToolSystemError,
+    ToolTimeoutError,
+)
 from nini.tools.registry_catalog import ToolCatalogOps
 from nini.tools.registry_core import FunctionToolRegistryOps
 from nini.tools.registry_markdown import MarkdownToolRegistryOps
@@ -40,6 +48,28 @@ class _DummySkill(Tool):
 
     async def execute(self, session: Session, **kwargs) -> ToolResult:
         return ToolResult(success=True, message=f"ok:{kwargs.get('value', '')}")
+
+
+class _ErrorSkill(Tool):
+    """用于测试异常分层调度的占位工具。"""
+
+    def __init__(self, error: Exception):
+        self._error = error
+
+    @property
+    def name(self) -> str:
+        return "error_skill"
+
+    @property
+    def description(self) -> str:
+        return "抛出异常的测试工具"
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {}}
+
+    async def execute(self, session: Session, **kwargs) -> ToolResult:
+        raise self._error
 
 
 @pytest.fixture
@@ -204,3 +234,58 @@ def test_catalog_ops_write_snapshot_outputs_markdown_and_function_sections(
     assert "## available_markdown_skills" in snapshot
     assert "alpha" in snapshot
     assert "guide" in snapshot
+
+
+def test_tool_exception_hierarchy_isinstance() -> None:
+    """工具异常层次应满足继承关系与 isinstance 判定。"""
+    input_error = ToolInputError("input")
+    timeout_error = ToolTimeoutError("timeout")
+    system_error = ToolSystemError("system")
+
+    assert isinstance(input_error, ToolError)
+    assert isinstance(timeout_error, ToolError)
+    assert isinstance(system_error, ToolError)
+    assert not isinstance(input_error, ToolTimeoutError)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected", "level_name"),
+    [
+        (ToolInputError("参数错误"), {"success": False, "message": "参数错误"}, "INFO"),
+        (
+            ToolTimeoutError("执行超时"),
+            {"success": False, "message": "执行超时", "retryable": True},
+            "WARNING",
+        ),
+        (
+            ToolSystemError("磁盘已满"),
+            {"success": False, "message": "系统错误: 磁盘已满"},
+            "ERROR",
+        ),
+        (
+            RuntimeError("未知故障"),
+            {"success": False, "message": "执行失败: 未知故障"},
+            "ERROR",
+        ),
+    ],
+)
+async def test_function_registry_ops_execute_maps_exception_types(
+    registry_owner,
+    caplog: pytest.LogCaptureFixture,
+    error: Exception,
+    expected: dict[str, object],
+    level_name: str,
+) -> None:
+    """execute 应按异常类型返回对应格式并记录合适日志级别。"""
+    registry_owner._function_ops.register(_ErrorSkill(error), allow_override=True)
+    caplog.set_level(logging.INFO)
+
+    result = await registry_owner._function_ops.execute(
+        "error_skill",
+        Session(),
+        lambda _: False,
+    )
+
+    assert result == expected
+    assert any(record.levelname == level_name for record in caplog.records)

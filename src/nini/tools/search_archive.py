@@ -120,6 +120,7 @@ class SearchMemoryArchiveTool(Tool):
             )
 
         keyword_lower = keyword.lower()
+        search_mode = self._get_search_mode()
 
         # ---- 优先路径：SQLite 查询 ----
         db_result = await self._search_sqlite(session_dir, keyword_lower, max_results)
@@ -130,7 +131,7 @@ class SearchMemoryArchiveTool(Tool):
         if not archive_dir.exists():
             return ToolResult(
                 success=True,
-                data={"results": [], "files_searched": 0},
+                data={"results": [], "files_searched": 0, "search_mode": search_mode},
                 message="当前会话尚无压缩归档，无历史可检索",
             )
 
@@ -206,12 +207,20 @@ class SearchMemoryArchiveTool(Tool):
                 "files_searched": len(unindexed),
                 "indexed_files": len(indexed_files),
                 "used_index": used_index,
+                "search_mode": search_mode,
             },
             message=(
                 f"（{'索引+' if used_index else ''}全量扫描）"
                 f"在 {total_sources} 个归档来源中找到 {len(top_results)} 条相关记录"
             ),
         )
+
+    @staticmethod
+    def _get_search_mode() -> str:
+        """返回当前搜索模式。"""
+        from nini.memory.db import get_archive_search_mode
+
+        return get_archive_search_mode()
 
     async def _search_sqlite(
         self, session_dir: Any, keyword_lower: str, max_results: int
@@ -222,6 +231,7 @@ class SearchMemoryArchiveTool(Tool):
         使用 FTS5 MATCH（若可用），否则使用 LIKE 全表扫描。
         """
         from nini.memory.db import (
+            get_archive_search_mode,
             get_indexed_archive_files,
             get_session_db,
             is_fts5_available,
@@ -337,6 +347,7 @@ class SearchMemoryArchiveTool(Tool):
                         "files_searched": len(unindexed_files),
                         "indexed_files": len(indexed_files),
                         "used_index": True,
+                        "search_mode": get_archive_search_mode(),
                     },
                     message=(
                         f"（SQLite 索引+{'全量扫描' if unindexed_files else ''}）"

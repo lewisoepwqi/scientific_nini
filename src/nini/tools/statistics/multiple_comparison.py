@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
-from nini.tools.base import Tool, ToolResult
+from nini.agent.session import Session
+from nini.tools.base import Tool, ToolInputError, ToolResult, ToolSystemError, ToolTimeoutError
 
 
 def bonferroni_correction(p_values: list[float], alpha: float = 0.05) -> dict[str, Any]:
@@ -188,7 +190,7 @@ class MultipleComparisonCorrectionTool(Tool):
             "required": ["p_values"],
         }
 
-    async def execute(self, session, **kwargs: Any) -> ToolResult:
+    async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         p_values = kwargs["p_values"]
         method = kwargs.get("method", "bonferroni")
         alpha = kwargs.get("alpha", 0.05)
@@ -213,5 +215,16 @@ class MultipleComparisonCorrectionTool(Tool):
                 f"(α = {alpha})"
             )
             return ToolResult(success=True, data=result, message=message)
+        except asyncio.TimeoutError:
+            return ToolResult(
+                success=False,
+                message=str(ToolTimeoutError("多重比较校正超时")),
+                retryable=True,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return ToolResult(success=False, message=str(ToolInputError(str(exc))))
         except Exception as exc:
-            return ToolResult(success=False, message=f"多重比较校正失败: {exc}")
+            return ToolResult(
+                success=False,
+                message=str(ToolSystemError(f"多重比较校正失败: {exc}")),
+            )

@@ -72,6 +72,11 @@ def is_fts5_available() -> bool:
     return _FTS5_AVAILABLE
 
 
+def get_archive_search_mode() -> str:
+    """返回当前归档搜索模式。"""
+    return "fts5" if is_fts5_available() else "like_fallback"
+
+
 def _init_schema(conn: sqlite3.Connection) -> None:
     """初始化数据库 schema。FTS5 不可用时静默跳过虚拟表。"""
     conn.executescript(_SCHEMA_SQL)

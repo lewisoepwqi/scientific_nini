@@ -168,9 +168,9 @@ class CompleteANOVATool(Tool):
                 "comparisons": comparisons,
                 "significant_pairs": sum(1 for c in comparisons if c["significant"]),
             }
-        except Exception as e:
-            logger.warning("事后检验失败: %s", e)
-            return {"error": str(e)}
+        except (TypeError, ValueError) as exc:
+            logger.warning("事后检验失败: %s", exc)
+            return {"error": str(exc)}
 
     def _calculate_effect_size(
         self, group_data: list[pd.Series], anova_result: dict[str, Any]

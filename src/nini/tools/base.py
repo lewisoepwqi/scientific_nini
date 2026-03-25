@@ -19,6 +19,7 @@ class ToolResult:
     success: bool = True
     data: Any = None
     message: str = ""
+    retryable: bool = False
     # 图表相关
     has_chart: bool = False
     chart_data: Any = None
@@ -36,6 +37,8 @@ class ToolResult:
             "success": self.success,
             "message": self.message,
         }
+        if self.retryable:
+            result["retryable"] = True
         if self.data is not None:
             result["data"] = self.data
         if self.has_chart:
@@ -49,6 +52,22 @@ class ToolResult:
         if self.metadata:
             result["metadata"] = self.metadata
         return result
+
+
+class ToolError(Exception):
+    """工具执行异常基类。"""
+
+
+class ToolInputError(ToolError):
+    """用户输入错误，不可重试。"""
+
+
+class ToolTimeoutError(ToolError):
+    """工具执行超时，可重试。"""
+
+
+class ToolSystemError(ToolError):
+    """系统级故障，通常需要告警。"""
 
 
 class Tool(ABC):

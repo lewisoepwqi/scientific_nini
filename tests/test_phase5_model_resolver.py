@@ -10,6 +10,8 @@ import types
 from typing import Any, AsyncGenerator, cast
 from unittest.mock import AsyncMock, patch
 
+import httpx
+import openai
 import pytest
 
 from nini.agent.model_resolver import ModelResolver
@@ -71,6 +73,12 @@ class FakeClient(BaseLLMClient):
             yield chunk
 
 
+def _make_response(status_code: int) -> httpx.Response:
+    """构造带 request 的 HTTP 响应。"""
+    request = httpx.Request("POST", "https://example.test/v1/chat/completions")
+    return httpx.Response(status_code=status_code, request=request)
+
+
 @pytest.mark.asyncio
 async def test_model_resolver_fallback_to_next_available_client() -> None:
     resolver = ModelResolver(
@@ -117,6 +125,68 @@ async def test_model_resolver_emits_fallback_metadata() -> None:
     assert first.fallback_from_model == "model-a"
     assert first.fallback_reason == "quota exceeded"
     assert len(first.fallback_chain) == 2
+
+
+@pytest.mark.asyncio
+async def test_model_resolver_rate_limit_error_triggers_fallback() -> None:
+    """429 限流错误应触发 fallback 到下一个可用客户端。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(
+                provider_id="openai",
+                model="gpt-primary",
+                available=True,
+                error=openai.RateLimitError(
+                    "too many requests",
+                    response=_make_response(429),
+                    body=None,
+                ),
+            ),
+            FakeClient(
+                provider_id="backup",
+                model="gpt-backup",
+                available=True,
+                chunks=[LLMChunk(text="fallback-ok", finish_reason="stop")],
+            ),
+        ]
+    )
+
+    chunks = [chunk async for chunk in resolver.chat([{"role": "user", "content": "hi"}])]
+
+    assert len(chunks) == 1
+    assert chunks[0].provider_id == "backup"
+    assert chunks[0].fallback_applied is True
+    assert chunks[0].fallback_reason == "请求过于频繁，请稍后重试"
+
+
+@pytest.mark.asyncio
+async def test_model_resolver_authentication_error_stops_fallback() -> None:
+    """401 认证错误应立即报错，不继续 fallback。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(
+                provider_id="openai",
+                model="gpt-primary",
+                available=True,
+                error=openai.AuthenticationError(
+                    "bad key",
+                    response=_make_response(401),
+                    body=None,
+                ),
+            ),
+            FakeClient(
+                provider_id="backup",
+                model="gpt-backup",
+                available=True,
+                chunks=[LLMChunk(text="should-not-run", finish_reason="stop")],
+            ),
+        ]
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        _ = [chunk async for chunk in resolver.chat([{"role": "user", "content": "hi"}])]
+
+    assert "API Key 无效" in str(exc.value)
 
 
 @pytest.mark.asyncio

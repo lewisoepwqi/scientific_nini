@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import statsmodels.api as sm
 
 from nini.agent.session import Session
-from nini.tools.base import Tool, ToolResult
+from nini.tools.base import Tool, ToolInputError, ToolResult, ToolSystemError, ToolTimeoutError
 from nini.tools.statistics.base import _ensure_finite, _get_df, _record_stat_result, _safe_float
 
 
@@ -104,5 +105,16 @@ class RegressionTool(Tool):
                 significant=bool(model.f_pvalue < 0.05) if model.f_pvalue is not None else False,
             )
             return ToolResult(success=True, data=result, message=message)
+        except asyncio.TimeoutError:
+            return ToolResult(
+                success=False,
+                message=str(ToolTimeoutError("回归分析超时")),
+                retryable=True,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return ToolResult(success=False, message=str(ToolInputError(str(exc))))
         except Exception as exc:
-            return ToolResult(success=False, message=f"回归分析失败: {exc}")
+            return ToolResult(
+                success=False,
+                message=str(ToolSystemError(f"回归分析失败: {exc}")),
+            )
