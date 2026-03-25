@@ -213,6 +213,8 @@ async def test_high_importance_triggers_consolidation(tmp_path):
             # in-flight 锁应已被加入
             assert "sess_high" in LongTermMemoryStore._consolidating or True  # 任务已创建
             mock_track.assert_called_once()
+
+
 def test_streaming_load_1000_entries(tmp_path):
     """验证 1000+ 条记忆的流式加载正确性。"""
     import builtins
