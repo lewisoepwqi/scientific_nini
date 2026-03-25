@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from importlib import import_module
 from typing import Any
@@ -9,7 +10,7 @@ from typing import Any
 import numpy as np
 
 from nini.agent.session import Session
-from nini.tools.base import Tool, ToolResult
+from nini.tools.base import Tool, ToolInputError, ToolResult, ToolSystemError, ToolTimeoutError
 from nini.tools.statistics.base import (
     _ensure_finite,
     _get_df,
@@ -126,32 +127,29 @@ class ANOVATool(Tool):
                 )
 
             if pval <= 0.05 and n_groups >= 3:
-                try:
-                    clean_df = df[[value_col, group_col]].dropna()
-                    tukey = statistics_exports.pairwise_tukeyhsd(
-                        endog=clean_df[value_col],
-                        groups=clean_df[group_col],
-                        alpha=0.05,
-                    )
-                    post_hoc = []
-                    idx = 0
-                    total_groups = len(tukey.groupsunique)
-                    for i in range(total_groups):
-                        for j in range(i + 1, total_groups):
-                            if idx < len(tukey.pvalues):
-                                post_hoc.append(
-                                    {
-                                        "group1": str(tukey.groupsunique[i]),
-                                        "group2": str(tukey.groupsunique[j]),
-                                        "mean_diff": _safe_float(tukey.meandiffs[idx]),
-                                        "p_value": _safe_float(tukey.pvalues[idx]),
-                                        "significant": bool(tukey.reject[idx]),
-                                    }
-                                )
-                            idx += 1
-                    result["post_hoc"] = post_hoc
-                except Exception as exc:
-                    logger.warning("ANOVA 事后检验失败: %s", exc)
+                clean_df = df[[value_col, group_col]].dropna()
+                tukey = statistics_exports.pairwise_tukeyhsd(
+                    endog=clean_df[value_col],
+                    groups=clean_df[group_col],
+                    alpha=0.05,
+                )
+                post_hoc = []
+                idx = 0
+                total_groups = len(tukey.groupsunique)
+                for i in range(total_groups):
+                    for j in range(i + 1, total_groups):
+                        if idx < len(tukey.pvalues):
+                            post_hoc.append(
+                                {
+                                    "group1": str(tukey.groupsunique[i]),
+                                    "group2": str(tukey.groupsunique[j]),
+                                    "mean_diff": _safe_float(tukey.meandiffs[idx]),
+                                    "p_value": _safe_float(tukey.pvalues[idx]),
+                                    "significant": bool(tukey.reject[idx]),
+                                }
+                            )
+                        idx += 1
+                result["post_hoc"] = post_hoc
 
             if pval <= 0.05 and n_groups >= 3:
                 n_comparisons = n_groups * (n_groups - 1) // 2
@@ -184,5 +182,17 @@ class ANOVATool(Tool):
             )
 
             return ToolResult(success=True, data=result, message=message)
-        except ValueError as exc:
-            return ToolResult(success=False, message=str(exc))
+        except asyncio.TimeoutError as exc:
+            logger.warning("ANOVA 计算超时: %s", exc)
+            return ToolResult(
+                success=False,
+                message=str(ToolTimeoutError("ANOVA 计算超时")),
+                retryable=True,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return ToolResult(success=False, message=str(ToolInputError(str(exc))))
+        except Exception as exc:
+            return ToolResult(
+                success=False,
+                message=str(ToolSystemError(f"ANOVA 执行失败: {exc}")),
+            )

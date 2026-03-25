@@ -9,7 +9,13 @@ from typing import Any, cast
 from nini.agent.lane_queue import lane_queue
 from nini.agent.session import Session
 from nini.config import settings
-from nini.tools.base import Tool, ToolResult
+from nini.tools.base import (
+    Tool,
+    ToolInputError,
+    ToolResult,
+    ToolSystemError,
+    ToolTimeoutError,
+)
 from nini.tools.diagnostics import DataDiagnostics
 from nini.tools.fallback import get_fallback_manager
 
@@ -150,9 +156,18 @@ class FunctionToolRegistryOps:
             if isinstance(error_code, str) and error_code.strip():
                 result_dict.setdefault("error_code", error_code.strip())
             return result_dict
+        except ToolInputError as exc:
+            logger.info("工具 %s 输入错误: %s", tool_name, exc)
+            return {"success": False, "message": str(exc)}
+        except ToolTimeoutError as exc:
+            logger.warning("工具 %s 超时: %s", tool_name, exc)
+            return {"success": False, "message": str(exc), "retryable": True}
+        except ToolSystemError as exc:
+            logger.error("工具 %s 系统错误: %s", tool_name, exc, exc_info=True)
+            return {"success": False, "message": f"系统错误: {exc}"}
         except Exception as exc:
-            logger.error("技能 %s 执行失败: %s", tool_name, exc, exc_info=True)
-            return {"success": False, "message": f"技能执行失败: {exc}"}
+            logger.error("工具 %s 未分类异常: %s", tool_name, exc, exc_info=True)
+            return {"success": False, "message": f"执行失败: {exc}"}
 
     @staticmethod
     def _normalize_tool_kwargs(

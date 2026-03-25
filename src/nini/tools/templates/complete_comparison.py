@@ -134,7 +134,7 @@ class CompleteComparisonTool(Tool):
                     "p_value": float(p1),
                     "normal": p1 > 0.05,
                 }
-            except Exception:
+            except ValueError:
                 assumptions["normality_test1"] = {"error": "检验失败"}
 
         if len(data2) >= 3 and len(data2) <= 5000:
@@ -145,7 +145,7 @@ class CompleteComparisonTool(Tool):
                     "p_value": float(p2),
                     "normal": p2 > 0.05,
                 }
-            except Exception:
+            except ValueError:
                 assumptions["normality_test2"] = {"error": "检验失败"}
 
         # Levene 方差齐性检验
@@ -156,7 +156,7 @@ class CompleteComparisonTool(Tool):
                 "p_value": float(p),
                 "equal_variance": p > 0.05,
             }
-        except Exception:
+        except ValueError:
             assumptions["variance_test"] = {"error": "检验失败"}
 
         # 决定是否使用非参数方法

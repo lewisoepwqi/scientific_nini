@@ -58,10 +58,27 @@ class TestSearchMemoryArchiveTool:
 
         assert result.success is True
         assert result.data["files_searched"] == 1
+        assert result.data["search_mode"] == "fts5"
         assert len(result.data["results"]) == 2
         # 每条结果应含 snippet
         for r in result.data["results"]:
             assert "p 值" in r["snippet"]
+
+    async def test_search_mode_falls_back_when_fts5_unavailable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """FTS5 不可用时，响应应显式返回 like_fallback。"""
+        session = Session()
+        messages = [{"role": "user", "content": "关键词命中测试内容"}]
+        _make_archive_file(session.id, messages)
+        monkeypatch.setattr("nini.memory.db.is_fts5_available", lambda: False)
+
+        tool = SearchMemoryArchiveTool()
+        result = await tool.execute(session, keyword="关键词")
+
+        assert result.success is True
+        assert result.data["search_mode"] == "like_fallback"
 
     async def test_no_match_returns_empty(self):
         """无匹配时返回空结果列表。"""

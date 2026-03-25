@@ -6,9 +6,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 from contextlib import suppress
 from typing import Any, AsyncGenerator
+
+import anthropic
+import httpx
+import openai
 
 from nini.config import settings
 from nini.builtin_key_crypto import decrypt_key
@@ -139,6 +144,26 @@ PURPOSE_ROUTE_FALLBACKS: dict[str, str] = {
     "planning": "chat",
     "verification": "chat",
 }
+
+
+@dataclass(frozen=True)
+class _LLMErrorDisposition:
+    """LLM 调用错误的统一判定结果。"""
+
+    message: str
+    should_fallback: bool
+    log_level: int
+
+
+def _extract_http_status_code(exc: Exception) -> int | None:
+    """从 provider/httpx 异常中提取 HTTP 状态码。"""
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code
+    return None
 
 
 def _blank_purpose_route() -> PurposeRoute:
@@ -568,6 +593,64 @@ class ModelResolver:
             return None
         return _match_context_window(model_name)
 
+    def _classify_llm_error(self, exc: Exception) -> _LLMErrorDisposition:
+        """将 LLM/HTTP 异常映射为重试策略与用户友好提示。"""
+        status_code = _extract_http_status_code(exc)
+
+        if isinstance(exc, (openai.AuthenticationError, anthropic.AuthenticationError)):
+            return _LLMErrorDisposition(
+                message="API Key 无效或已过期，请检查配置",
+                should_fallback=False,
+                log_level=logging.ERROR,
+            )
+        if status_code in {401, 403}:
+            return _LLMErrorDisposition(
+                message="API Key 无效或权限不足，请检查配置",
+                should_fallback=False,
+                log_level=logging.ERROR,
+            )
+        if isinstance(exc, (openai.RateLimitError, anthropic.RateLimitError)) or status_code == 429:
+            return _LLMErrorDisposition(
+                message="请求过于频繁，请稍后重试",
+                should_fallback=True,
+                log_level=logging.WARNING,
+            )
+        if isinstance(exc, httpx.TimeoutException):
+            return _LLMErrorDisposition(
+                message="连接超时，请检查网络或 Base URL",
+                should_fallback=True,
+                log_level=logging.WARNING,
+            )
+        if isinstance(exc, httpx.ConnectError):
+            return _LLMErrorDisposition(
+                message="无法连接到服务器，请检查网络或 Base URL",
+                should_fallback=True,
+                log_level=logging.WARNING,
+            )
+        if status_code == 503:
+            return _LLMErrorDisposition(
+                message="服务暂时不可用，请稍后重试",
+                should_fallback=True,
+                log_level=logging.WARNING,
+            )
+        if status_code == 400:
+            return _LLMErrorDisposition(
+                message="请求参数无效，请检查模型或 Base URL 配置",
+                should_fallback=False,
+                log_level=logging.ERROR,
+            )
+        if isinstance(exc, (openai.APIError, anthropic.APIError)):
+            return _LLMErrorDisposition(
+                message=self._compact_error_message(exc),
+                should_fallback=True,
+                log_level=logging.ERROR,
+            )
+        return _LLMErrorDisposition(
+            message=self._compact_error_message(exc),
+            should_fallback=True,
+            log_level=logging.ERROR,
+        )
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -751,7 +834,8 @@ class ModelResolver:
                 return
             except Exception as e:
                 last_error = e
-                compact_error = self._compact_error_message(e)
+                disposition = self._classify_llm_error(e)
+                compact_error = disposition.message
                 debug_dump_path = str(getattr(e, "debug_dump_path", "") or "").strip() or None
                 fallback_chain.append(
                     {
@@ -763,21 +847,18 @@ class ModelResolver:
                         "error": compact_error,
                     }
                 )
+                log_message = (
+                    "LLM 客户端调用失败，尝试下一个提供商: provider=%s model=%s reason=%s"
+                    if disposition.should_fallback
+                    else "LLM 客户端调用失败，停止 fallback: provider=%s model=%s reason=%s"
+                )
+                log_args: tuple[Any, ...] = (provider_id, model_name, compact_error)
                 if debug_dump_path:
-                    logger.warning(
-                        "LLM 客户端调用失败，尝试下一个提供商: provider=%s model=%s reason=%s dump=%s",
-                        provider_id,
-                        model_name,
-                        compact_error,
-                        debug_dump_path,
-                    )
-                else:
-                    logger.warning(
-                        "LLM 客户端调用失败，尝试下一个提供商: provider=%s model=%s reason=%s",
-                        provider_id,
-                        model_name,
-                        compact_error,
-                    )
+                    log_message += " dump=%s"
+                    log_args = (*log_args, debug_dump_path)
+                logger.log(disposition.log_level, log_message, *log_args)
+                if not disposition.should_fallback:
+                    raise RuntimeError(compact_error) from e
 
         if last_error is not None:
             summary = " | ".join(
@@ -1261,17 +1342,8 @@ class ModelResolver:
                 "message": "连接成功",
             }
         except Exception as e:
-            error_msg = str(e)
-            # 常见错误友好提示
-            if "authentication" in error_msg.lower() or "api key" in error_msg.lower():
-                error_msg = "API Key 无效或已过期"
-            elif "rate limit" in error_msg.lower():
-                error_msg = "请求过于频繁，请稍后重试"
-            elif "timeout" in error_msg.lower():
-                error_msg = "连接超时，请检查网络或 Base URL"
-            elif "connection" in error_msg.lower():
-                error_msg = "无法连接到服务器，请检查网络或 Base URL"
-            return {"success": False, "error": error_msg}
+            disposition = self._classify_llm_error(e)
+            return {"success": False, "error": disposition.message}
 
     def set_preferred_model(self, provider: str | None, model: str | None) -> None:
         """设置首选模型。

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from scipy import stats
 
 from nini.agent.session import Session
-from nini.tools.base import Tool, ToolResult
+from nini.tools.base import Tool, ToolInputError, ToolResult, ToolSystemError, ToolTimeoutError
 from nini.tools.statistics.base import _get_df, _record_stat_result, _safe_float
 
 
@@ -113,8 +114,19 @@ class MannWhitneyTool(Tool):
                 significant=bool(pval < 0.05),
             )
             return ToolResult(success=True, data=result, message=message)
+        except asyncio.TimeoutError:
+            return ToolResult(
+                success=False,
+                message=str(ToolTimeoutError("Mann-Whitney U 检验超时")),
+                retryable=True,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return ToolResult(success=False, message=str(ToolInputError(str(exc))))
         except Exception as exc:
-            return ToolResult(success=False, message=f"Mann-Whitney U 检验失败: {exc}")
+            return ToolResult(
+                success=False,
+                message=str(ToolSystemError(f"Mann-Whitney U 检验失败: {exc}")),
+            )
 
 
 class KruskalWallisTool(Tool):
@@ -216,5 +228,16 @@ class KruskalWallisTool(Tool):
                 significant=bool(pval < 0.05),
             )
             return ToolResult(success=True, data=result, message=message)
+        except asyncio.TimeoutError:
+            return ToolResult(
+                success=False,
+                message=str(ToolTimeoutError("Kruskal-Wallis H 检验超时")),
+                retryable=True,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return ToolResult(success=False, message=str(ToolInputError(str(exc))))
         except Exception as exc:
-            return ToolResult(success=False, message=f"Kruskal-Wallis H 检验失败: {exc}")
+            return ToolResult(
+                success=False,
+                message=str(ToolSystemError(f"Kruskal-Wallis H 检验失败: {exc}")),
+            )
