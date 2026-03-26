@@ -38,6 +38,8 @@ class EventType(str, Enum):
     COMPLETION_CHECK = "completion_check"  # 完成前结构化校验结果
     BLOCKED = "blocked"  # harness 阻塞状态
     BUDGET_WARNING = "budget_warning"  # deep task 预算告警
+    SKILL_STEP = "skill_step"  # Skill 步骤执行进度
+    SKILL_SUMMARY = "skill_summary"  # Skill 执行汇总
 
     # WebSocket 专用事件类型
     WORKSPACE_UPDATE = "workspace_update"  # 通知前端刷新工作区

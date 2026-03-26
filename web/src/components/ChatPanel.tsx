@@ -3,7 +3,7 @@
  * 输入区提取为 ChatInputArea，避免每次击键触发消息列表重渲染。
  * 所有消息按原始顺序展示，保持思考-行动-回答的连贯性。
  *
- * 注意：分析进度和任务只显示在工作区的"任务"Tab中，不在对话区域展示
+ * 注意：分析计划仍只在工作区的“任务”Tab 中展示，Skill 进度面板会在对话区顶部显示
  */
 import { useEffect, useRef, useMemo, useCallback, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -16,6 +16,7 @@ import IntentTimelineItem from './IntentTimelineItem'
 import { Loader2 } from 'lucide-react'
 import RecipeCenter from './RecipeCenter'
 import DeepTaskProgressCard from './DeepTaskProgressCard'
+import SkillProgressPanel from './SkillProgressPanel'
 
 const compactTokenFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
@@ -289,6 +290,7 @@ export default function ChatPanel() {
             </div>
           )}
           {showConversationContent && <DeepTaskProgressCard />}
+          {showConversationContent && <SkillProgressPanel />}
           {/* 所有消息按原始顺序展示 */}
           {showConversationContent && messages.map((msg) => {
             const isUser = msg.role === 'user'

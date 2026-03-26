@@ -14,7 +14,7 @@ from collections.abc import Callable, Coroutine, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
-from nini.models.event_schemas import SkillStepEventData
+from nini.models.event_schemas import SkillStepEventData, SkillSummaryEventData
 from nini.models.skill_contract import ContractResult, SkillContract, SkillStep, StepExecutionRecord
 
 logger = logging.getLogger(__name__)
@@ -195,6 +195,8 @@ class ContractRunner:
         else:
             overall_status = "completed"
 
+        await self._emit_summary(step_records, total_ms, overall_status, step_outputs)
+
         return ContractResult(
             status=overall_status,
             step_records=step_records,
@@ -366,7 +368,13 @@ class ContractRunner:
             step_output = await self._run_step_logic(step, session, step_inputs)
             self._collect_step_evidence(step, session, step_output)
             duration_ms = int((time.monotonic() - start_ms) * 1000)
-            await self._emit(step, "completed", duration_ms=duration_ms, layer=layer)
+            await self._emit(
+                step,
+                "completed",
+                duration_ms=duration_ms,
+                layer=layer,
+                output_level=self._extract_output_level(step_output),
+            )
             return _StepOutcome(
                 record=StepExecutionRecord(
                     step_id=step.id,
@@ -387,7 +395,13 @@ class ContractRunner:
                     step_output = await self._run_step_logic(step, session, step_inputs)
                     self._collect_step_evidence(step, session, step_output)
                     duration_ms = int((time.monotonic() - start_ms) * 1000)
-                    await self._emit(step, "completed", duration_ms=duration_ms, layer=layer)
+                    await self._emit(
+                        step,
+                        "completed",
+                        duration_ms=duration_ms,
+                        layer=layer,
+                        output_level=self._extract_output_level(step_output),
+                    )
                     return _StepOutcome(
                         record=StepExecutionRecord(
                             step_id=step.id,
@@ -850,6 +864,7 @@ class ContractRunner:
         output_summary: str = "",
         duration_ms: int | None = None,
         layer: int | None = None,
+        output_level: str | None = None,
     ) -> None:
         """通过 callback 发射 skill_step 事件。"""
         event_data = SkillStepEventData(
@@ -860,7 +875,7 @@ class ContractRunner:
             status=status,
             layer=layer,
             trust_level=step.trust_level.value,
-            output_level=None,
+            output_level=output_level,
             input_summary="",
             error_message=error_message,
             output_summary=output_summary,
@@ -870,3 +885,68 @@ class ContractRunner:
             await self._callback("skill_step", event_data)
         except Exception as cb_exc:
             logger.warning("skill_step 事件发射失败: %s", cb_exc)
+
+    async def _emit_summary(
+        self,
+        step_records: list[StepExecutionRecord],
+        total_ms: int,
+        overall_status: ContractStatus,
+        step_outputs: Mapping[str, Any],
+    ) -> None:
+        """通过 callback 发射 skill_summary 事件。"""
+        event_data = SkillSummaryEventData(
+            skill_name=self._skill_name,
+            total_steps=len(step_records),
+            completed_steps=sum(1 for record in step_records if record.status == "completed"),
+            skipped_steps=sum(1 for record in step_records if record.status == "skipped"),
+            failed_steps=sum(1 for record in step_records if record.status == "failed"),
+            total_duration_ms=total_ms,
+            overall_status=overall_status,
+            trust_ceiling=self._contract.trust_ceiling.value,
+            output_level=self._collect_summary_output_level(step_outputs.values()),
+        )
+        try:
+            await self._callback("skill_summary", event_data)
+        except Exception as cb_exc:
+            logger.warning("skill_summary 事件发射失败: %s", cb_exc)
+
+    @staticmethod
+    def _extract_output_level(step_output: Any) -> str | None:
+        """尽量从步骤输出中提取 output_level。"""
+        if not isinstance(step_output, Mapping):
+            return None
+
+        for source in (
+            step_output,
+            step_output.get("data") if isinstance(step_output.get("data"), Mapping) else None,
+            (
+                step_output.get("metadata")
+                if isinstance(step_output.get("metadata"), Mapping)
+                else None
+            ),
+        ):
+            if not isinstance(source, Mapping):
+                continue
+            raw_level = source.get("output_level")
+            if isinstance(raw_level, str) and raw_level.strip():
+                return raw_level.strip().lower()
+            if hasattr(raw_level, "value") and isinstance(raw_level.value, str):
+                return raw_level.value.strip().lower()
+        return None
+
+    def _collect_summary_output_level(self, step_outputs: Any) -> str | None:
+        """汇总所有步骤输出中的最高 output_level。"""
+        level_rank = {"o1": 1, "o2": 2, "o3": 3, "o4": 4}
+        best_level: str | None = None
+        best_rank = 0
+
+        for step_output in step_outputs:
+            level = self._extract_output_level(step_output)
+            if level is None:
+                continue
+            rank = level_rank.get(level, 0)
+            if rank > best_rank:
+                best_rank = rank
+                best_level = level
+
+        return best_level

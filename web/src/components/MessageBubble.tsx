@@ -34,6 +34,21 @@ const CitationList = lazy(() => import("./CitationList"));
 const WidgetRenderer = lazy(() => import("./WidgetRenderer"));
 const TOOL_RESULT_PREVIEW_LIMIT = 72;
 
+function getOutputLevelMeta(outputLevel?: "o1" | "o2" | "o3" | "o4" | null) {
+  switch (outputLevel) {
+    case "o1":
+      return { label: "建议级", className: "border-slate-200 bg-slate-50 text-slate-600" };
+    case "o2":
+      return { label: "草稿级", className: "border-sky-200 bg-sky-50 text-sky-700" };
+    case "o3":
+      return { label: "可审阅级", className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
+    case "o4":
+      return { label: "可导出级", className: "border-violet-200 bg-violet-50 text-violet-700" };
+    default:
+      return null;
+  }
+}
+
 function extractPlotlyJsonUrl(chartData: unknown): string | null {
   if (!chartData || typeof chartData !== "object") {
     return null;
@@ -152,6 +167,7 @@ function MessageBubble({
     (!!message.images && message.images.length > 0) ||
     hasEmbeddedPlotly;
   const plotlyUrl = extractPlotlyJsonUrl(message.chartData);
+  const outputLevelMeta = getOutputLevelMeta(message.outputLevel);
   const thinkingLabelClass = message.reasoningLive
     ? "nini-thinking-shimmer"
     : "";
@@ -589,6 +605,15 @@ function MessageBubble({
                   ))}
                 </div>
               )}
+              {outputLevelMeta && (
+                <div className="mt-3">
+                  <span
+                    className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium ${outputLevelMeta.className}`}
+                  >
+                    输出等级 {message.outputLevel?.toUpperCase()} · {outputLevelMeta.label}
+                  </span>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -690,6 +715,7 @@ export default React.memo(MessageBubble, (prevProps, nextProps) => {
   if (prev.reasoningLive !== next.reasoningLive) return false;
   if (prev.chartData !== next.chartData) return false;
   if (prev.retrievals !== next.retrievals) return false;
+  if (prev.outputLevel !== next.outputLevel) return false;
 
   // 重试相关
   if (prevProps.showRetry !== nextProps.showRetry) return false;

@@ -5,6 +5,7 @@ import type {
   GeneratedWidgetPayload,
   Message,
   MessageOperation,
+  OutputLevel,
   RetrievalItem,
 } from "./types";
 
@@ -21,6 +22,7 @@ interface AssistantTextPayload {
   artifacts?: ArtifactInfo[];
   images?: string[];
   retrievals?: RetrievalItem[];
+  outputLevel?: OutputLevel | null;
   errorMeta?: Partial<Message>;
 }
 
@@ -102,6 +104,7 @@ export function upsertAssistantTextMessage(
       artifacts: payload.artifacts ?? existing.artifacts,
       images: payload.images ?? existing.images,
       retrievals: payload.retrievals ?? existing.retrievals,
+      outputLevel: payload.outputLevel ?? existing.outputLevel,
       timestamp: payload.timestamp,
       ...payload.errorMeta,
     };
@@ -119,6 +122,7 @@ export function upsertAssistantTextMessage(
     artifacts: payload.artifacts,
     images: payload.images,
     retrievals: payload.retrievals,
+    outputLevel: payload.outputLevel,
     timestamp: payload.timestamp,
     ...payload.errorMeta,
   });

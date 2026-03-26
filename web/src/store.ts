@@ -44,6 +44,9 @@ export type {
   AskUserQuestionNotificationPreference,
   RecipeCard,
   DeepTaskState,
+  OutputLevel,
+  SkillExecutionStep,
+  SkillExecutionState,
   IntentOption,
   IntentSkillCall,
   IntentSkillSummary,
@@ -91,6 +94,7 @@ import type {
   AskUserQuestionNotificationPreference,
   RecipeCard,
   DeepTaskState,
+  SkillExecutionState,
   IntentAnalysisView,
   ResearchProfile,
   TokenUsage,
@@ -174,6 +178,7 @@ import {
   cloneAnalysisTasks,
   cloneMessages,
   clonePlanProgress,
+  cloneSkillExecution,
   cloneStreamingMetrics,
   cloneTokenUsage,
   deleteSessionUiCacheEntry,
@@ -200,6 +205,7 @@ export interface AppState {
   recipesLoaded: boolean;
   activeRecipeId: string | null;
   deepTaskState: DeepTaskState | null;
+  skillExecution: SkillExecutionState | null;
 
   // 记忆面板
   memoryFiles: MemoryFile[];
@@ -299,6 +305,7 @@ export interface AppState {
     content: string,
     options?: { recipeId?: string; recipeInputs?: Record<string, string> },
   ) => Promise<void>;
+  submitSkillReviewDecision: (stepId: string, decision: "confirm" | "cancel") => void;
   submitAskUserQuestionAnswers: (answers: Record<string, string>) => void;
   stopStreaming: () => void;
   retryLastTurn: () => Promise<void>;
@@ -420,6 +427,7 @@ const SESSION_RESET_STATE = {
   analysisTasks: [] as AnalysisTaskItem[],
   activeRecipeId: null as string | null,
   deepTaskState: null as DeepTaskState | null,
+  skillExecution: null as SkillExecutionState | null,
   currentIntentAnalysis: null as IntentAnalysisView | null,
   composerDraft: "",
 };
@@ -480,6 +488,7 @@ export const useStore = create<AppState>((set, get) => ({
   recipesLoaded: false,
   activeRecipeId: null,
   deepTaskState: null,
+  skillExecution: null,
   memoryFiles: [],
   activeModel: null,
   runtimeModel: null,
@@ -887,6 +896,7 @@ export const useStore = create<AppState>((set, get) => ({
               retry_count: 0,
             }
           : s.deepTaskState,
+      skillExecution: null,
       composerDraft: "",
       pendingAskUserQuestion: null,
       _streamingText: "",
@@ -902,6 +912,28 @@ export const useStore = create<AppState>((set, get) => ({
         hasTokenUsage: false,
       },
     }));
+  },
+
+  submitSkillReviewDecision(stepId: string, decision: "confirm" | "cancel") {
+    const { ws, sessionId, skillExecution } = get();
+    if (!sessionId || !stepId || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+    ws.send(
+      JSON.stringify({
+        type: decision === "confirm" ? "review_confirm" : "review_cancel",
+        session_id: sessionId,
+        step_id: stepId,
+      })
+    );
+
+    if (!skillExecution) return;
+    set({
+      skillExecution: {
+        ...skillExecution,
+        pendingReviewStepId: stepId,
+        updatedAt: Date.now(),
+      },
+    });
   },
 
   submitAskUserQuestionAnswers(answers: Record<string, string>) {
@@ -998,6 +1030,7 @@ export const useStore = create<AppState>((set, get) => ({
       isStreaming: true,
       runningSessions: new Set([...s.runningSessions, sessionId ?? ""]),
       currentIntentAnalysis: null,
+      skillExecution: null,
       pendingAskUserQuestion: null,
       _streamingText: "",
       _currentTurnId: null,
@@ -1323,6 +1356,7 @@ export const useStore = create<AppState>((set, get) => ({
         targetSessionRunning ||
         cachedSessionUi.messages.length > restored.messages.length ||
         cachedSessionUi.analysisTasks.length > restored.analysisTasks.length ||
+        cachedSessionUi.skillExecution !== null ||
         cachedSessionUi.streamingMetrics.hasTokenUsage ||
         cachedSessionUi.harnessRunContext !== null ||
         cachedSessionUi.completionCheck !== null ||
@@ -1383,6 +1417,10 @@ export const useStore = create<AppState>((set, get) => ({
       blockedState:
         cachedSessionUi && shouldUseCachedUi
           ? cachedSessionUi.blockedState
+          : null,
+      skillExecution:
+        cachedSessionUi && shouldUseCachedUi
+          ? cloneSkillExecution(cachedSessionUi.skillExecution)
           : null,
       activeRecipeId:
         typeof sessionDetail?.recipe_id === "string" && sessionDetail.recipe_id

@@ -21,6 +21,8 @@ import type {
   HarnessBlockedState,
   AgentInfo,
   DeepTaskState,
+  OutputLevel,
+  SkillExecutionState,
 } from "./types";
 
 import {
@@ -276,6 +278,166 @@ function finalizeReasoningMessages(
   return changed ? next : messages;
 }
 
+function normalizeOutputLevel(value: unknown): OutputLevel | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "o1" || normalized === "o2" || normalized === "o3" || normalized === "o4"
+    ? normalized
+    : null;
+}
+
+function trustLevelRank(value: string | null | undefined): number {
+  switch ((value || "").trim().toLowerCase()) {
+    case "t3":
+      return 3;
+    case "t2":
+      return 2;
+    case "t1":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function applyDoneOutputLevel(
+  messages: Message[],
+  turnId: string | null | undefined,
+  outputLevel: OutputLevel | null,
+): Message[] {
+  if (!outputLevel) return messages;
+  const next = messages.map((message) => ({ ...message }));
+  for (let index = next.length - 1; index >= 0; index -= 1) {
+    const message = next[index];
+    if (message.role !== "assistant" || message.isReasoning) continue;
+    if (turnId && message.turnId && message.turnId !== turnId) continue;
+    next[index] = {
+      ...message,
+      outputLevel,
+    };
+    return next;
+  }
+  return messages;
+}
+
+function upsertSkillExecutionStep(
+  current: SkillExecutionState | null,
+  payload: Record<string, unknown>,
+): SkillExecutionState {
+  const updatedAt = Date.now();
+  const stepId =
+    typeof payload.step_id === "string" && payload.step_id.trim()
+      ? payload.step_id.trim()
+      : `step-${updatedAt}`;
+  const skillName =
+    typeof payload.skill_name === "string" && payload.skill_name.trim()
+      ? payload.skill_name.trim()
+      : current?.activeSkill ?? null;
+  const status =
+    payload.status === "started" ||
+    payload.status === "completed" ||
+    payload.status === "failed" ||
+    payload.status === "skipped" ||
+    payload.status === "review_required"
+      ? payload.status
+      : "started";
+  const step = {
+    stepId,
+    stepName:
+      typeof payload.step_name === "string" && payload.step_name.trim()
+        ? payload.step_name.trim()
+        : stepId,
+    status,
+    layer: typeof payload.layer === "number" ? payload.layer : null,
+    trustLevel:
+      typeof payload.trust_level === "string" && payload.trust_level.trim()
+        ? payload.trust_level.trim()
+        : null,
+    outputLevel: normalizeOutputLevel(payload.output_level),
+    outputSummary:
+      typeof payload.output_summary === "string" ? payload.output_summary : "",
+    errorMessage:
+      typeof payload.error_message === "string" && payload.error_message.trim()
+        ? payload.error_message.trim()
+        : null,
+    durationMs: typeof payload.duration_ms === "number" ? payload.duration_ms : null,
+    updatedAt,
+  } as SkillExecutionState["steps"][number];
+
+  const existingSteps = current?.activeSkill === skillName ? current.steps : [];
+  const nextSteps = existingSteps.some((item) => item.stepId === step.stepId)
+    ? existingSteps.map((item) => (item.stepId === step.stepId ? { ...item, ...step } : item))
+    : [...existingSteps, step];
+  nextSteps.sort((left, right) => {
+    const leftLayer = left.layer ?? Number.MAX_SAFE_INTEGER;
+    const rightLayer = right.layer ?? Number.MAX_SAFE_INTEGER;
+    if (leftLayer !== rightLayer) return leftLayer - rightLayer;
+    return left.updatedAt - right.updatedAt;
+  });
+
+  const trustCeiling = nextSteps.reduce<string | null>((highest, item) => {
+    return trustLevelRank(item.trustLevel) > trustLevelRank(highest) ? item.trustLevel : highest;
+  }, current?.trustCeiling ?? null);
+  const outputLevel =
+    nextSteps.reduce<OutputLevel | null>((highest, item) => {
+      const currentRank = highest ? Number(highest.slice(1)) : 0;
+      const nextRank = item.outputLevel ? Number(item.outputLevel.slice(1)) : 0;
+      return nextRank > currentRank ? item.outputLevel : highest;
+    }, current?.outputLevel ?? null) ?? null;
+
+  return {
+    skillName: skillName,
+    activeSkill: skillName,
+    steps: nextSteps,
+    trustCeiling,
+    outputLevel,
+    overallStatus: current?.overallStatus ?? null,
+    totalDurationMs: current?.totalDurationMs ?? null,
+    totalSteps: current?.totalSteps ?? null,
+    completedSteps: nextSteps.filter((item) => item.status === "completed").length,
+    skippedSteps: nextSteps.filter((item) => item.status === "skipped").length,
+    failedSteps: nextSteps.filter((item) => item.status === "failed").length,
+    pendingReviewStepId: status === "review_required" ? step.stepId : null,
+    updatedAt,
+  };
+}
+
+function applySkillSummary(
+  current: SkillExecutionState | null,
+  payload: Record<string, unknown>,
+): SkillExecutionState | null {
+  if (!current) return null;
+  return {
+    ...current,
+    skillName: current.skillName,
+    activeSkill:
+      payload.overall_status === "completed" || payload.overall_status === "partial" || payload.overall_status === "failed"
+        ? null
+        : current.activeSkill,
+    trustCeiling:
+      typeof payload.trust_ceiling === "string" && payload.trust_ceiling.trim()
+        ? payload.trust_ceiling.trim()
+        : current.trustCeiling,
+    outputLevel: normalizeOutputLevel(payload.output_level) ?? current.outputLevel,
+    overallStatus:
+      payload.overall_status === "completed" ||
+      payload.overall_status === "partial" ||
+      payload.overall_status === "failed"
+        ? payload.overall_status
+        : current.overallStatus,
+    totalDurationMs:
+      typeof payload.total_duration_ms === "number" ? payload.total_duration_ms : current.totalDurationMs,
+    totalSteps: typeof payload.total_steps === "number" ? payload.total_steps : current.totalSteps,
+    completedSteps:
+      typeof payload.completed_steps === "number" ? payload.completed_steps : current.completedSteps,
+    skippedSteps:
+      typeof payload.skipped_steps === "number" ? payload.skipped_steps : current.skippedSteps,
+    failedSteps:
+      typeof payload.failed_steps === "number" ? payload.failed_steps : current.failedSteps,
+    pendingReviewStepId: null,
+    updatedAt: Date.now(),
+  };
+}
+
 // ---- 主事件处理器 ----
 
 export type SetStateFn = (
@@ -327,6 +489,7 @@ export interface AppStateSubset {
   harnessRunContext: HarnessRunContextState | null;
   completionCheck: CompletionCheckState | null;
   blockedState: HarnessBlockedState | null;
+  skillExecution: SkillExecutionState | null;
   activeRecipeId?: string | null;
   deepTaskState?: DeepTaskState | null;
   pendingAskUserQuestionsBySession: Record<string, {
@@ -1390,6 +1553,38 @@ export function handleEvent(
       break;
     }
 
+    case "skill_step": {
+      const data = isRecord(evt.data) ? evt.data : {};
+      const backgroundSessionId = getBackgroundSessionId(evt, get);
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+          ...entry,
+          skillExecution: upsertSkillExecutionStep(entry.skillExecution, data),
+        }));
+        break;
+      }
+      set((s) => ({
+        skillExecution: upsertSkillExecutionStep(s.skillExecution, data),
+      }));
+      break;
+    }
+
+    case "skill_summary": {
+      const data = isRecord(evt.data) ? evt.data : {};
+      const backgroundSessionId = getBackgroundSessionId(evt, get);
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
+          ...entry,
+          skillExecution: applySkillSummary(entry.skillExecution, data),
+        }));
+        break;
+      }
+      set((s) => ({
+        skillExecution: applySkillSummary(s.skillExecution, data),
+      }));
+      break;
+    }
+
     case "retrieval":
     case "chart":
     case "data":
@@ -1442,6 +1637,8 @@ export function handleEvent(
       const doneEvtSid = evt.session_id ?? get().sessionId ?? null;
       const doneCurSid = get().sessionId;
       const doneIsActive = !doneEvtSid || doneEvtSid === doneCurSid;
+      const doneData = isRecord(evt.data) ? evt.data : {};
+      const outputLevel = normalizeOutputLevel(doneData.output_level);
       set((s) => {
         // 从 runningSessions 中移除已完成的会话
         const nextRunning = doneEvtSid
@@ -1487,7 +1684,11 @@ export function handleEvent(
               }
               return {
                 ...entry,
-                messages: finalizeReasoningMessages(entry.messages, turnId, true),
+                messages: applyDoneOutputLevel(
+                  finalizeReasoningMessages(entry.messages, turnId, true),
+                  turnId,
+                  outputLevel,
+                ),
                 currentTurnId: null,
                 streamingText: "",
                 activePlanMsgId: null,
@@ -1497,6 +1698,7 @@ export function handleEvent(
                 streamingMetrics: resetStreamingMetrics(),
                 analysisPlanProgress: progress,
                 analysisTasks: tasks,
+                skillExecution: entry.skillExecution,
               };
             });
           }
@@ -1543,7 +1745,11 @@ export function handleEvent(
           };
         }
         return {
-          messages: finalizeReasoningMessages(s.messages, turnId, true),
+          messages: applyDoneOutputLevel(
+            finalizeReasoningMessages(s.messages, turnId, true),
+            turnId,
+            outputLevel,
+          ),
           isStreaming: false,
           runningSessions: nextRunning,
           ...(doneEvtSid ? buildPendingAskUserQuestionPatch(s, doneEvtSid, null) : {}),

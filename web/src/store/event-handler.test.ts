@@ -36,6 +36,7 @@ function createState(
     harnessRunContext: null,
     completionCheck: null,
     blockedState: null,
+    skillExecution: null,
     pendingAskUserQuestionsBySession: {},
     pendingAskUserQuestion: null,
     askUserQuestionNotificationPreference: "default",
@@ -936,5 +937,96 @@ describe("handleEvent 文本去重", () => {
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0]?.content).toBe("检索上下文：test query");
     expect(state.messages[0]?.isError).not.toBe(true);
+  });
+
+  it("skill_step 事件应更新当前会话的 skillExecution 状态", async () => {
+    const harness = createHarness({ sessionId: "session-current" });
+
+    await harness.dispatch({
+      type: "skill_step",
+      session_id: "session-current",
+      data: {
+        skill_name: "experiment-design",
+        step_id: "generate_plan",
+        step_name: "生成方案",
+        status: "review_required",
+        trust_level: "t2",
+      },
+    });
+
+    expect(harness.getState().skillExecution).toMatchObject({
+      activeSkill: "experiment-design",
+      pendingReviewStepId: "generate_plan",
+      trustCeiling: "t2",
+    });
+    expect(harness.getState().skillExecution?.steps).toHaveLength(1);
+  });
+
+  it("skill_summary 事件应在后台会话缓存中关闭 activeSkill", async () => {
+    const harness = createHarness({ sessionId: "session-current" });
+
+    await harness.dispatch({
+      type: "skill_step",
+      session_id: "session-bg",
+      data: {
+        skill_name: "experiment-design",
+        step_id: "generate_plan",
+        step_name: "生成方案",
+        status: "completed",
+        trust_level: "t2",
+        output_level: "o3",
+      },
+    });
+    await harness.dispatch({
+      type: "skill_summary",
+      session_id: "session-bg",
+      data: {
+        skill_name: "experiment-design",
+        total_steps: 1,
+        completed_steps: 1,
+        skipped_steps: 0,
+        failed_steps: 0,
+        total_duration_ms: 1200,
+        overall_status: "completed",
+        trust_ceiling: "t2",
+        output_level: "o3",
+      },
+    });
+
+    const cached = getSessionUiCacheEntry("session-bg");
+    expect(cached?.skillExecution).toMatchObject({
+      activeSkill: null,
+      overallStatus: "completed",
+      outputLevel: "o3",
+      totalDurationMs: 1200,
+    });
+  });
+
+  it("done 事件应把 output_level 写入最新 assistant 消息", async () => {
+    const harness = createHarness({
+      sessionId: "session-current",
+      messages: [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "分析已完成",
+          turnId: "turn-1",
+          timestamp: 1,
+        },
+      ],
+      _currentTurnId: "turn-1",
+    });
+
+    await harness.dispatch({
+      type: "done",
+      session_id: "session-current",
+      turn_id: "turn-1",
+      data: {
+        reason: "completed",
+        output_level: "o2",
+      },
+    });
+
+    expect(harness.getState().messages[0]?.outputLevel).toBe("o2");
   });
 });

@@ -930,6 +930,49 @@ async def websocket_agent(ws: WebSocket):
                     reset_log_context(session_token)
                 continue
 
+            if msg_type in {"review_confirm", "review_cancel"}:
+                session_id = msg.get("session_id")
+                step_id = msg.get("step_id")
+                if not isinstance(session_id, str) or not session_id.strip():
+                    await _send_event(
+                        ws,
+                        "error",
+                        data=f"{msg_type} 缺少有效的 session_id",
+                        active_stop_events=active_stop_events,
+                    )
+                    continue
+                if not isinstance(step_id, str) or not step_id.strip():
+                    await _send_event(
+                        ws,
+                        "error",
+                        data=f"{msg_type} 缺少有效的 step_id",
+                        session_id=session_id,
+                        active_stop_events=active_stop_events,
+                    )
+                    continue
+
+                review_session = _load_existing_session(session_id)
+                active_runner = (
+                    getattr(review_session, "_active_contract_runner", None)
+                    if review_session is not None
+                    else None
+                )
+                if active_runner is None:
+                    await _send_event(
+                        ws,
+                        "error",
+                        data="当前没有等待确认的 Skill 步骤",
+                        session_id=session_id,
+                        active_stop_events=active_stop_events,
+                    )
+                    continue
+
+                if msg_type == "review_confirm":
+                    active_runner.approve_review(step_id.strip())
+                else:
+                    active_runner.reject_review(step_id.strip())
+                continue
+
             if msg_type == "chat":
                 content = msg.get("content", "").strip()
                 if not content:
@@ -1150,6 +1193,8 @@ def _to_json_safe(value: Any) -> Any:
     """递归转换为 JSON 安全结构。"""
     if value is None:
         return None
+    if hasattr(value, "model_dump"):
+        return _to_json_safe(value.model_dump(mode="json"))
     if isinstance(value, (str, bool, int)):
         return value
     if isinstance(value, float):
