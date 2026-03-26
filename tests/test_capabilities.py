@@ -14,6 +14,7 @@ from nini.capabilities import (
     create_default_capabilities,
 )
 from nini.config import settings
+from nini.models.risk import OutputLevel, ResearchPhase, RiskLevel
 from tests.client_utils import LocalASGIClient
 
 
@@ -369,3 +370,134 @@ def test_execute_capability_api_passes_through_extra_params(
     payload = resp.json()
     assert payload["data"]["echo"]["custom_flag"] == "keep-me"
     assert payload["data"]["echo"]["nested"] == {"mode": "extended"}
+
+
+class TestResearchPhase:
+    """测试 ResearchPhase 枚举完整性。"""
+
+    def test_all_eight_phases_defined(self):
+        """ResearchPhase 应包含八大研究阶段。"""
+        expected = {
+            "topic_selection",
+            "literature_review",
+            "experiment_design",
+            "data_collection",
+            "data_analysis",
+            "paper_writing",
+            "submission",
+            "dissemination",
+        }
+        actual = {phase.value for phase in ResearchPhase}
+        assert actual == expected
+
+    def test_research_phase_is_str_enum(self):
+        """ResearchPhase 应为 str 枚举，可直接作字符串使用。"""
+        assert ResearchPhase.DATA_ANALYSIS == "data_analysis"
+        assert isinstance(ResearchPhase.DATA_ANALYSIS, str)
+
+    def test_research_phase_exported_from_models(self):
+        """ResearchPhase 应从 nini.models 可直接导入。"""
+        from nini.models import ResearchPhase as ImportedPhase
+
+        assert ImportedPhase is ResearchPhase
+
+
+class TestCapabilityNewFields:
+    """测试 Capability 新增字段的默认值与 to_dict 输出。"""
+
+    def test_new_fields_default_to_none(self):
+        """未标注 phase/risk_level/max_output_level 时应默认为 None。"""
+        cap = Capability(name="test", display_name="测试", description="测试能力")
+        assert cap.phase is None
+        assert cap.risk_level is None
+        assert cap.max_output_level is None
+
+    def test_to_dict_includes_new_fields_as_none(self):
+        """to_dict 应包含三个新字段，未标注时值为 None。"""
+        cap = Capability(name="test", display_name="测试", description="测试能力")
+        data = cap.to_dict()
+        assert "phase" in data
+        assert "risk_level" in data
+        assert "max_output_level" in data
+        assert data["phase"] is None
+        assert data["risk_level"] is None
+        assert data["max_output_level"] is None
+
+    def test_to_dict_serializes_enum_values_as_strings(self):
+        """to_dict 应将枚举值序列化为字符串。"""
+        cap = Capability(
+            name="test",
+            display_name="测试",
+            description="测试能力",
+            phase=ResearchPhase.DATA_ANALYSIS,
+            risk_level=RiskLevel.MEDIUM,
+            max_output_level=OutputLevel.O4,
+        )
+        data = cap.to_dict()
+        assert data["phase"] == "data_analysis"
+        assert data["risk_level"] == "medium"
+        assert data["max_output_level"] == "o4"
+
+
+class TestDefaultCapabilityAnnotations:
+    """验证现有 Capability 的阶段/风险标注正确性。"""
+
+    def _caps(self) -> dict[str, Capability]:
+        return {cap.name: cap for cap in create_default_capabilities()}
+
+    def test_data_analysis_capabilities_have_correct_phase(self):
+        """数据分析类能力应标注为 data_analysis 阶段。"""
+        caps = self._caps()
+        for name in ("difference_analysis", "correlation_analysis", "regression_analysis",
+                     "data_exploration", "data_cleaning", "report_generation"):
+            assert caps[name].phase == ResearchPhase.DATA_ANALYSIS, f"{name}.phase 不正确"
+
+    def test_visualization_phase_is_none(self):
+        """visualization 跨阶段使用，phase 应为 None。"""
+        caps = self._caps()
+        assert caps["visualization"].phase is None
+
+    def test_paper_writing_capabilities_have_correct_phase(self):
+        """论文写作类能力应标注为 paper_writing 阶段。"""
+        caps = self._caps()
+        for name in ("article_draft", "citation_management", "peer_review"):
+            assert caps[name].phase == ResearchPhase.PAPER_WRITING, f"{name}.phase 不正确"
+
+    def test_research_planning_phase_is_experiment_design(self):
+        """研究规划应标注为 experiment_design 阶段。"""
+        caps = self._caps()
+        assert caps["research_planning"].phase == ResearchPhase.EXPERIMENT_DESIGN
+
+    def test_high_risk_capabilities(self):
+        """高风险能力应标注 risk_level=HIGH。"""
+        caps = self._caps()
+        for name in ("article_draft", "peer_review", "research_planning"):
+            assert caps[name].risk_level == RiskLevel.HIGH, f"{name}.risk_level 不正确"
+
+    def test_low_risk_capabilities(self):
+        """低风险能力应标注 risk_level=LOW。"""
+        caps = self._caps()
+        for name in ("data_exploration", "data_cleaning", "visualization"):
+            assert caps[name].risk_level == RiskLevel.LOW, f"{name}.risk_level 不正确"
+
+    def test_max_output_level_o4_capabilities(self):
+        """可达 O4 输出等级的能力应正确标注。"""
+        caps = self._caps()
+        for name in ("difference_analysis", "correlation_analysis", "regression_analysis",
+                     "visualization", "report_generation"):
+            assert caps[name].max_output_level == OutputLevel.O4, f"{name}.max_output_level 不正确"
+
+    def test_max_output_level_o2_capabilities(self):
+        """草稿级能力应标注 max_output_level=O2。"""
+        caps = self._caps()
+        for name in ("article_draft", "peer_review", "research_planning"):
+            assert caps[name].max_output_level == OutputLevel.O2, f"{name}.max_output_level 不正确"
+
+    def test_all_capabilities_have_all_three_fields_set(self):
+        """所有 11 个默认 Capability 均应完成三个新字段的标注（visualization.phase 允许为 None）。"""
+        caps = self._caps()
+        assert len(caps) == 11
+        for name, cap in caps.items():
+            # risk_level 和 max_output_level 必须标注
+            assert cap.risk_level is not None, f"{name}.risk_level 未标注"
+            assert cap.max_output_level is not None, f"{name}.max_output_level 未标注"

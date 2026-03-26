@@ -16,6 +16,7 @@ from nini.capabilities.executors import (
     RegressionAnalysisCapability,
     VisualizationCapability,
 )
+from nini.models.risk import OutputLevel, ResearchPhase, RiskLevel
 
 
 def _create_difference_analysis_executor(registry: Any | None = None) -> Any:
@@ -77,6 +78,9 @@ def create_default_capabilities() -> list[Capability]:
                 "t_test",  # 或根据数据特征自动选择
                 "chart_session",
             ],
+            phase=ResearchPhase.DATA_ANALYSIS,
+            risk_level=RiskLevel.MEDIUM,
+            max_output_level=OutputLevel.O4,
         ),
         Capability(
             name="correlation_analysis",
@@ -96,6 +100,9 @@ def create_default_capabilities() -> list[Capability]:
                 "stat_model",
                 "chart_session",
             ],
+            phase=ResearchPhase.DATA_ANALYSIS,
+            risk_level=RiskLevel.MEDIUM,
+            max_output_level=OutputLevel.O4,
         ),
         Capability(
             name="regression_analysis",
@@ -115,6 +122,9 @@ def create_default_capabilities() -> list[Capability]:
                 "stat_model",
                 "chart_session",
             ],
+            phase=ResearchPhase.DATA_ANALYSIS,
+            risk_level=RiskLevel.MEDIUM,
+            max_output_level=OutputLevel.O4,
         ),
         Capability(
             name="data_exploration",
@@ -134,6 +144,9 @@ def create_default_capabilities() -> list[Capability]:
                 "dataset_catalog",
                 "data_summary",
             ],
+            phase=ResearchPhase.DATA_ANALYSIS,
+            risk_level=RiskLevel.LOW,
+            max_output_level=OutputLevel.O3,
         ),
         Capability(
             name="data_cleaning",
@@ -152,6 +165,9 @@ def create_default_capabilities() -> list[Capability]:
                 "dataset_catalog",
                 "dataset_transform",
             ],
+            phase=ResearchPhase.DATA_ANALYSIS,
+            risk_level=RiskLevel.LOW,
+            max_output_level=OutputLevel.O3,
         ),
         Capability(
             name="visualization",
@@ -169,6 +185,9 @@ def create_default_capabilities() -> list[Capability]:
                 "chart_session",
                 "export_chart",
             ],
+            phase=None,  # 通用，不限阶段
+            risk_level=RiskLevel.LOW,
+            max_output_level=OutputLevel.O4,
         ),
         Capability(
             name="report_generation",
@@ -186,6 +205,9 @@ def create_default_capabilities() -> list[Capability]:
                 "generate_report",
                 "export_document",
             ],
+            phase=ResearchPhase.DATA_ANALYSIS,
+            risk_level=RiskLevel.MEDIUM,
+            max_output_level=OutputLevel.O4,
         ),
         Capability(
             name="article_draft",
@@ -212,6 +234,9 @@ def create_default_capabilities() -> list[Capability]:
                 "edit_file",
                 "export_document",
             ],
+            phase=ResearchPhase.PAPER_WRITING,
+            risk_level=RiskLevel.HIGH,
+            max_output_level=OutputLevel.O2,
         ),
         Capability(
             name="citation_management",
@@ -220,6 +245,9 @@ def create_default_capabilities() -> list[Capability]:
             icon="📚",
             is_executable=False,
             execution_message="请在对话中描述需要整理的参考文献和目标格式，Agent 将调用 citation_manager 为你处理。",
+            phase=ResearchPhase.PAPER_WRITING,
+            risk_level=RiskLevel.MEDIUM,
+            max_output_level=OutputLevel.O3,
         ),
         Capability(
             name="peer_review",
@@ -228,6 +256,9 @@ def create_default_capabilities() -> list[Capability]:
             icon="📋",
             is_executable=False,
             execution_message="请在对话中粘贴审稿意见，Agent 将调用 review_assistant 帮你整理回复思路和草拟回信。",
+            phase=ResearchPhase.PAPER_WRITING,
+            risk_level=RiskLevel.HIGH,
+            max_output_level=OutputLevel.O2,
         ),
         Capability(
             name="research_planning",
@@ -236,5 +267,8 @@ def create_default_capabilities() -> list[Capability]:
             icon="🗺️",
             is_executable=False,
             execution_message="请在对话中描述你的研究目标和约束条件，Agent 将调用 research_planner 帮你制定实验方案。",
+            phase=ResearchPhase.EXPERIMENT_DESIGN,
+            risk_level=RiskLevel.HIGH,
+            max_output_level=OutputLevel.O2,
         ),
     ]

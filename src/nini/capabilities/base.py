@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nini.agent.session import Session
+    from nini.models.risk import OutputLevel, ResearchPhase, RiskLevel
 
 
 CapabilityExecutorFactory = Callable[[Any | None], Any]
@@ -67,6 +68,15 @@ class Capability:
         compare=False,
     )
 
+    # 所属研究阶段（None 表示通用，不限阶段）
+    phase: ResearchPhase | None = None
+
+    # 默认风险等级
+    risk_level: RiskLevel | None = None
+
+    # 该能力可达到的最高输出等级（受 trust-ceiling 约束）
+    max_output_level: OutputLevel | None = None
+
     def get_workflow_for_context(self, context: dict[str, Any]) -> list[str]:
         """根据上下文返回定制化的工作流。
 
@@ -101,6 +111,9 @@ class Capability:
             "suggested_workflow": self.suggested_workflow,
             "is_executable": self.supports_direct_execution(),
             "execution_message": self.execution_message,
+            "phase": self.phase.value if self.phase is not None else None,
+            "risk_level": self.risk_level.value if self.risk_level is not None else None,
+            "max_output_level": self.max_output_level.value if self.max_output_level is not None else None,
         }
 
     def supports_direct_execution(self) -> bool:
