@@ -10,11 +10,13 @@ export default function AskUserQuestionPanel({
   pending,
   onSubmit,
 }: AskUserQuestionPanelProps) {
+  const [activeIndex, setActiveIndex] = useState(0);
   const [selectedMap, setSelectedMap] = useState<Record<number, string[]>>({});
   const [textMap, setTextMap] = useState<Record<number, string>>({});
   const [errors, setErrors] = useState<Record<number, string>>({});
 
   useEffect(() => {
+    setActiveIndex(0);
     setSelectedMap({});
     setTextMap({});
     setErrors({});
@@ -22,14 +24,16 @@ export default function AskUserQuestionPanel({
 
   const questionCount = pending.questions.length;
 
-  const canSubmit = useMemo(() => {
-    return pending.questions.every((question, index) => {
+  const completionMap = useMemo(() => {
+    return pending.questions.map((question, index) => {
       const selected = selectedMap[index] || [];
       const text = (textMap[index] || "").trim();
       if (question.multiSelect) return selected.length > 0 || Boolean(text);
       return Boolean(selected[0]) || Boolean(text);
     });
   }, [pending.questions, selectedMap, textMap]);
+  const completedCount = completionMap.filter(Boolean).length;
+  const activeQuestion = pending.questions[activeIndex];
 
   const toggleMultiOption = (questionIndex: number, label: string) => {
     setSelectedMap((prev) => {
@@ -88,6 +92,10 @@ export default function AskUserQuestionPanel({
 
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
+      const firstInvalidIndex = pending.questions.findIndex((_, index) => nextErrors[index]);
+      if (firstInvalidIndex >= 0) {
+        setActiveIndex(firstInvalidIndex);
+      }
       return;
     }
     onSubmit(answers);
@@ -113,88 +121,156 @@ export default function AskUserQuestionPanel({
     return "flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 px-2.5 py-2 hover:bg-gray-50";
   }
 
+  function getTabStyle(index: number): string {
+    if (errors[index]) {
+      return "border-red-200 bg-red-50 text-red-700";
+    }
+    if (index === activeIndex) {
+      return "border-blue-400 bg-blue-50 text-blue-700 shadow-sm";
+    }
+    if (completionMap[index]) {
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    }
+    return "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50";
+  }
+
   return (
     <div className="border-t border-blue-100 bg-blue-50/60 px-4 py-3">
       <div className="mx-auto max-w-3xl rounded-2xl border border-blue-200 bg-white p-4 shadow-sm">
-        <div className="mb-3 text-sm font-semibold text-blue-700">
-          需要你补充 {questionCount} 个信息点，回答后继续执行
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm font-semibold text-blue-700">
+            需要你补充 {questionCount} 个信息点，回答后继续执行
+          </div>
+          <div className="text-xs font-medium text-blue-600">
+            已完成 {completedCount} / {questionCount}
+          </div>
         </div>
 
-        <div className="space-y-4">
-          {pending.questions.map((question, index) => {
-            const selected = selectedMap[index] || [];
-            const text = textMap[index] || "";
-            const isRisk = question.question_type === "risk_confirmation";
-            return (
-              <section key={`${question.question}-${index}`} className={getSectionStyle(question.question_type)}>
-                <div className="mb-2">
-                  {isRisk && (
-                    <div className="mb-1 flex items-center gap-1 text-xs font-semibold text-red-600">
-                      <span>⚠️</span>
-                      <span>此操作不可逆，请谨慎确认</span>
-                    </div>
-                  )}
-                  {question.context && (
-                    <div className="mb-1 text-xs text-gray-500">{question.context}</div>
-                  )}
-                  {question.header && (
-                    <div className="text-xs font-medium text-gray-500">{question.header}</div>
-                  )}
-                  <div className="text-sm font-medium text-gray-900">{question.question}</div>
-                </div>
-
-                <div className="space-y-2">
-                  {question.options.map((option) => {
-                    const checked = selected.includes(option.label);
-                    return (
-                      <label
-                        key={option.label}
-                        className={getOptionStyle(question.question_type, checked)}
-                      >
-                        <input
-                          type={question.multiSelect ? "checkbox" : "radio"}
-                          name={`ask-q-${index}`}
-                          checked={checked}
-                          onChange={() =>
-                            question.multiSelect
-                              ? toggleMultiOption(index, option.label)
-                              : setSingleOption(index, option.label)
-                          }
-                          className="mt-1"
-                        />
-                        <span>
-                          <span className="block text-sm text-gray-800">{option.label}</span>
-                          <span className="block text-xs text-gray-500">{option.description}</span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-
-                {question.allowTextInput !== false && (
-                  <div className="mt-2">
-                    <input
-                      value={text}
-                      onChange={(event) => setTextAnswer(index, event.target.value)}
-                      placeholder="或输入自定义回答"
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
-                    />
-                  </div>
+        {questionCount > 1 && (
+          <div
+            className="mb-4 flex flex-wrap gap-2"
+            role="tablist"
+            aria-label="待回答问题列表"
+          >
+            {pending.questions.map((question, index) => (
+              <button
+                key={`${question.question}-${index}`}
+                type="button"
+                id={`ask-user-question-tab-${index}`}
+                role="tab"
+                aria-selected={index === activeIndex}
+                aria-controls={`ask-user-question-panel-${index}`}
+                onClick={() => setActiveIndex(index)}
+                className={`inline-flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs font-medium transition-colors ${getTabStyle(index)}`}
+              >
+                <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/80 text-[11px] font-semibold">
+                  {index + 1}
+                </span>
+                <span className="min-w-0 truncate">
+                  {question.header || question.question}
+                </span>
+                {completionMap[index] && (
+                  <span className="shrink-0 text-[11px] font-semibold">已答</span>
                 )}
-
                 {errors[index] && (
-                  <div className="mt-2 text-xs text-red-600">{errors[index]}</div>
+                  <span className="shrink-0 text-[11px] font-semibold">未完成</span>
                 )}
-              </section>
-            );
-          })}
-        </div>
+              </button>
+            ))}
+          </div>
+        )}
 
-        <div className="mt-4 flex justify-end">
+        {activeQuestion && (
+          <section
+            id={`ask-user-question-panel-${activeIndex}`}
+            role="tabpanel"
+            aria-labelledby={`ask-user-question-tab-${activeIndex}`}
+            className={getSectionStyle(activeQuestion.question_type)}
+          >
+            <div className="mb-2">
+              {activeQuestion.question_type === "risk_confirmation" && (
+                <div className="mb-1 flex items-center gap-1 text-xs font-semibold text-red-600">
+                  <span>⚠️</span>
+                  <span>此操作不可逆，请谨慎确认</span>
+                </div>
+              )}
+              {activeQuestion.context && (
+                <div className="mb-1 text-xs text-gray-500">{activeQuestion.context}</div>
+              )}
+              {activeQuestion.header && (
+                <div className="text-xs font-medium text-gray-500">{activeQuestion.header}</div>
+              )}
+              <div className="text-sm font-medium text-gray-900">{activeQuestion.question}</div>
+            </div>
+
+            <div className="space-y-2">
+              {activeQuestion.options.map((option) => {
+                const checked = (selectedMap[activeIndex] || []).includes(option.label);
+                return (
+                  <label
+                    key={option.label}
+                    className={getOptionStyle(activeQuestion.question_type, checked)}
+                  >
+                    <input
+                      type={activeQuestion.multiSelect ? "checkbox" : "radio"}
+                      name={`ask-q-${activeIndex}`}
+                      checked={checked}
+                      onChange={() =>
+                        activeQuestion.multiSelect
+                          ? toggleMultiOption(activeIndex, option.label)
+                          : setSingleOption(activeIndex, option.label)
+                      }
+                      className="mt-1"
+                    />
+                    <span>
+                      <span className="block text-sm text-gray-800">{option.label}</span>
+                      <span className="block text-xs text-gray-500">{option.description}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {activeQuestion.allowTextInput !== false && (
+              <div className="mt-2">
+                <input
+                  value={textMap[activeIndex] || ""}
+                  onChange={(event) => setTextAnswer(activeIndex, event.target.value)}
+                  placeholder="或输入自定义回答"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+              </div>
+            )}
+
+            {errors[activeIndex] && (
+              <div className="mt-2 text-xs text-red-600">{errors[activeIndex]}</div>
+            )}
+          </section>
+        )}
+
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveIndex((prev) => Math.max(0, prev - 1))}
+              disabled={activeIndex === 0}
+              className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              上一题
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveIndex((prev) => Math.min(questionCount - 1, prev + 1))}
+              disabled={activeIndex === questionCount - 1}
+              className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              下一题
+            </button>
+          </div>
           <button
+            type="button"
             onClick={handleSubmit}
-            disabled={!canSubmit}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
           >
             提交回答并继续
           </button>
