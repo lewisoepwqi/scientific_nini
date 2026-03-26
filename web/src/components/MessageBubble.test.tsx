@@ -188,4 +188,20 @@ describe("MessageBubble reasoning", () => {
       "统计摘要卡:展示核心指标",
     );
   });
+
+  it("assistant 消息应展示输出等级标签", () => {
+    render(
+      <MessageBubble
+        message={{
+          id: "assistant-output-1",
+          role: "assistant",
+          content: "这是可审阅的结论摘要。",
+          outputLevel: "o3",
+          timestamp: Date.now(),
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/输出等级 O3 · 可审阅级/u)).toBeInTheDocument();
+  });
 });

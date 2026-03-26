@@ -252,6 +252,37 @@ export interface ErrorEventData {
 export interface DoneEventData {
   /** 结束原因 */
   reason: "completed" | "stopped" | "error";
+  /** 本轮回复的综合输出等级 */
+  output_level?: "o1" | "o2" | "o3" | "o4" | null;
+}
+
+/** SKILL_STEP 事件的数据结构 */
+export interface SkillStepEventData {
+  skill_name: string;
+  skill_version: string;
+  step_id: string;
+  step_name: string;
+  status: "started" | "completed" | "failed" | "skipped" | "review_required";
+  layer?: number | null;
+  trust_level?: string | null;
+  output_level?: "o1" | "o2" | "o3" | "o4" | null;
+  input_summary?: string;
+  output_summary?: string;
+  error_message?: string | null;
+  duration_ms?: number | null;
+}
+
+/** SKILL_SUMMARY 事件的数据结构 */
+export interface SkillSummaryEventData {
+  skill_name: string;
+  total_steps: number;
+  completed_steps: number;
+  skipped_steps: number;
+  failed_steps: number;
+  total_duration_ms: number;
+  overall_status: "completed" | "partial" | "failed";
+  trust_ceiling?: string | null;
+  output_level?: "o1" | "o2" | "o3" | "o4" | null;
 }
 
 /** WORKSPACE_UPDATE 事件的数据结构 */
@@ -337,6 +368,8 @@ export type WSEventData =
   | TextEventData
   | ErrorEventData
   | DoneEventData
+  | SkillStepEventData
+  | SkillSummaryEventData
   | WorkspaceUpdateEventData
   | SessionTitleEventData
   | CodeExecutionEventData

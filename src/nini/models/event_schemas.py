@@ -430,6 +430,22 @@ class SkillStepEventData(BaseModel):
     duration_ms: Optional[int] = Field(None, description="步骤耗时（毫秒）")
 
 
+class SkillSummaryEventData(BaseModel):
+    """SKILL_SUMMARY 事件的数据结构。"""
+
+    skill_name: str = Field(..., description="Skill 名称")
+    total_steps: int = Field(..., description="总步骤数")
+    completed_steps: int = Field(..., description="完成步骤数")
+    skipped_steps: int = Field(..., description="跳过步骤数")
+    failed_steps: int = Field(..., description="失败步骤数")
+    total_duration_ms: int = Field(..., description="Skill 总耗时（毫秒）")
+    overall_status: Literal["completed", "partial", "failed"] = Field(
+        ..., description="Skill 整体执行状态"
+    )
+    trust_ceiling: Optional[str] = Field(None, description="Skill 契约信任上限")
+    output_level: Optional[str] = Field(None, description="Skill 综合输出等级")
+
+
 class ContextCompressedEventData(BaseModel):
     """CONTEXT_COMPRESSED 事件的数据结构。"""
 

@@ -7,6 +7,7 @@ import type {
   HarnessRunContextState,
   IntentAnalysisView,
   Message,
+  SkillExecutionState,
   StreamingMetrics,
   TokenUsage,
 } from "./types";
@@ -24,6 +25,7 @@ export interface SessionUiCacheEntry {
   tokenUsage: TokenUsage | null;
   activeRecipeId: string | null;
   deepTaskState: DeepTaskState | null;
+  skillExecution: SkillExecutionState | null;
   currentTurnId: string | null;
   streamingText: string;
   lastHandledSeq: number | undefined;
@@ -46,6 +48,7 @@ export interface SessionUiCacheSnapshotSource {
   tokenUsage: TokenUsage | null;
   activeRecipeId: string | null;
   deepTaskState: DeepTaskState | null;
+  skillExecution: SkillExecutionState | null;
   _currentTurnId: string | null;
   _streamingText: string;
   _lastHandledSeq: number | undefined;
@@ -97,6 +100,16 @@ export function cloneTokenUsage(tokenUsage: TokenUsage | null): TokenUsage | nul
   };
 }
 
+export function cloneSkillExecution(
+  skillExecution: SkillExecutionState | null,
+): SkillExecutionState | null {
+  if (!skillExecution) return null;
+  return {
+    ...skillExecution,
+    steps: skillExecution.steps.map((step) => ({ ...step })),
+  };
+}
+
 export function createEmptySessionUiCacheEntry(): SessionUiCacheEntry {
   return {
     messages: [],
@@ -116,6 +129,7 @@ export function createEmptySessionUiCacheEntry(): SessionUiCacheEntry {
     tokenUsage: null,
     activeRecipeId: null,
     deepTaskState: null,
+    skillExecution: null,
     currentTurnId: null,
     streamingText: "",
     lastHandledSeq: undefined,
@@ -152,6 +166,7 @@ export function cloneSessionUiCacheEntry(
     tokenUsage: cloneTokenUsage(entry.tokenUsage),
     activeRecipeId: entry.activeRecipeId,
     deepTaskState: entry.deepTaskState ? { ...entry.deepTaskState } : null,
+    skillExecution: cloneSkillExecution(entry.skillExecution),
     currentTurnId: entry.currentTurnId,
     streamingText: entry.streamingText,
     lastHandledSeq: entry.lastHandledSeq,
@@ -188,6 +203,7 @@ export function captureSessionUiCacheEntry(
     tokenUsage: cloneTokenUsage(source.tokenUsage),
     activeRecipeId: source.activeRecipeId,
     deepTaskState: source.deepTaskState ? { ...source.deepTaskState } : null,
+    skillExecution: cloneSkillExecution(source.skillExecution),
     currentTurnId: source._currentTurnId,
     streamingText: source._streamingText,
     lastHandledSeq: source._lastHandledSeq,

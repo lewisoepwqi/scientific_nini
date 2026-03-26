@@ -12,8 +12,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
+from nini.agent.events import AgentEvent, EventType
 from nini.tools.base import Tool
 from nini.tools.manifest import ToolManifest, export_to_claude_code
 from nini.tools.markdown_scanner import MarkdownTool
@@ -206,5 +208,33 @@ async def execute_with_contract(
             f"metadata['contract'] 类型错误：期望 SkillContract，实际为 {type(contract).__name__}"
         )
 
-    runner = ContractRunner(contract=contract, skill_name=md_skill.name, callback=callback)
-    return await runner.run(session=session, inputs=inputs or {})
+    runtime_callback = callback
+    session_event_callback = (
+        getattr(session, "event_callback", None) if session is not None else None
+    )
+    if session_event_callback is not None:
+
+        async def runtime_callback(event_type: str, data: Any) -> None:
+            await callback(event_type, data)
+
+            event_type_enum = {
+                "skill_step": EventType.SKILL_STEP,
+                "skill_summary": EventType.SKILL_SUMMARY,
+            }.get(event_type)
+            if event_type_enum is None:
+                return
+
+            payload = data.model_dump(mode="json") if hasattr(data, "model_dump") else data
+            event = AgentEvent(type=event_type_enum, data=payload)
+            result = session_event_callback(event)
+            if asyncio.iscoroutine(result):
+                await result
+
+    runner = ContractRunner(contract=contract, skill_name=md_skill.name, callback=runtime_callback)
+    if session is not None:
+        setattr(session, "_active_contract_runner", runner)
+    try:
+        return await runner.run(session=session, inputs=inputs or {})
+    finally:
+        if session is not None and getattr(session, "_active_contract_runner", None) is runner:
+            setattr(session, "_active_contract_runner", None)

@@ -309,6 +309,46 @@ export interface DeepTaskState {
   retry_count: number;
 }
 
+export type OutputLevel = "o1" | "o2" | "o3" | "o4";
+
+export type SkillStepStatus =
+  | "started"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "review_required";
+
+export type SkillOverallStatus = "completed" | "partial" | "failed";
+
+export interface SkillExecutionStep {
+  stepId: string;
+  stepName: string;
+  status: SkillStepStatus;
+  layer: number | null;
+  trustLevel: string | null;
+  outputLevel: OutputLevel | null;
+  outputSummary: string;
+  errorMessage: string | null;
+  durationMs: number | null;
+  updatedAt: number;
+}
+
+export interface SkillExecutionState {
+  skillName: string | null;
+  activeSkill: string | null;
+  steps: SkillExecutionStep[];
+  trustCeiling: string | null;
+  outputLevel: OutputLevel | null;
+  overallStatus: SkillOverallStatus | null;
+  totalDurationMs: number | null;
+  totalSteps: number | null;
+  completedSteps: number;
+  skippedSteps: number;
+  failedSteps: number;
+  pendingReviewStepId: string | null;
+  updatedAt: number | null;
+}
+
 // ---- 意图分析类型 ----
 
 export interface AskUserQuestionOption {
@@ -551,6 +591,7 @@ export interface Message {
   errorHint?: string | null;
   errorDetail?: string | null;
   retryable?: boolean;
+  outputLevel?: OutputLevel | null;
   turnId?: string;
   timestamp: number;
 }
@@ -723,6 +764,7 @@ export interface RawSessionMessage {
   data_preview?: unknown;
   artifacts?: ArtifactInfo[];
   images?: string[];
+  output_level?: string | null;
   // Reasoning 相关字段
   reasoning_id?: string | null;
   reasoning_live?: boolean | null;
