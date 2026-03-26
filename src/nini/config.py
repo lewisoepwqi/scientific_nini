@@ -271,6 +271,11 @@ class Settings(BaseSettings):
     font_fallback_url: str = ""  # 自定义字体下载 URL，空串使用内置镜像列表
     font_auto_download: bool = True  # 是否启用运行时自动下载字体
 
+    # ---- 网络插件 ----
+    network_timeout: int = 10  # 网络可用性检测超时（秒），对应环境变量 NINI_NETWORK_TIMEOUT
+    network_probe_url: str = "https://www.baidu.com"  # 可用性探测目标（可换为国内可达地址）
+    network_proxy: str | None = None  # HTTP 代理地址（可选），如 http://proxy:8080
+
     # ---- 功能特性开关 ----
     enable_cost_tracking: bool = True  # 启用成本追踪
     enable_reasoning: bool = True  # 启用推理事件展示
