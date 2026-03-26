@@ -4,15 +4,23 @@
 - OpenAI Function Calling（现有格式，向后兼容）
 - MCP（Model Context Protocol）Tool Definition
 - Claude Code Markdown Skill
+
+执行路由：
+- 若 MarkdownTool.metadata 中存在 "contract" 键，路由至 ContractRunner 执行
+- 否则走现有提示词注入路径（保持向后兼容）
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nini.tools.base import Tool
 from nini.tools.manifest import ToolManifest, export_to_claude_code
 from nini.tools.markdown_scanner import MarkdownTool
+
+if TYPE_CHECKING:
+    from nini.models.skill_contract import ContractResult
+    from nini.skills.contract_runner import EventCallback
 
 # ---------------------------------------------------------------------------
 # OpenAI Function Calling 格式
@@ -166,3 +174,37 @@ class ToolAdapter:
         from nini.tools.manifest import export_all_tools_markdown
 
         return export_all_tools_markdown(manifests)
+
+
+# ---------------------------------------------------------------------------
+# 契约路由执行（contract vs. 现有提示词注入路径）
+# ---------------------------------------------------------------------------
+
+
+def has_contract(md_skill: MarkdownTool) -> bool:
+    """判断 MarkdownTool 是否携带 SkillContract。"""
+    return "contract" in md_skill.metadata
+
+
+async def execute_with_contract(
+    md_skill: MarkdownTool,
+    session: Any,
+    callback: "EventCallback",
+    inputs: dict[str, Any] | None = None,
+) -> "ContractResult":
+    """使用 ContractRunner 执行携带 contract 的 MarkdownTool。
+
+    调用方需先用 ``has_contract(md_skill)`` 确认存在 contract。
+    若 metadata["contract"] 不是 SkillContract 实例，将抛出 TypeError。
+    """
+    from nini.models.skill_contract import SkillContract
+    from nini.skills.contract_runner import ContractRunner
+
+    contract = md_skill.metadata["contract"]
+    if not isinstance(contract, SkillContract):
+        raise TypeError(
+            f"metadata['contract'] 类型错误：期望 SkillContract，实际为 {type(contract).__name__}"
+        )
+
+    runner = ContractRunner(contract=contract, skill_name=md_skill.name, callback=callback)
+    return await runner.run(session=session, inputs=inputs or {})

@@ -39,6 +39,7 @@ from nini.models.session_resources import (
     SourceRecord,
 )
 from nini.models.schemas import APIResponse, DatasetInfo, UploadResponse
+from nini.models.skill_contract import ContractResult, SkillContract, SkillStep, StepExecutionRecord
 from nini.models.user_profile import UserProfile
 
 __all__ = [
@@ -83,4 +84,9 @@ __all__ = [
     "APIResponse",
     "DatasetInfo",
     "UploadResponse",
+    # Skill 契约
+    "SkillStep",
+    "SkillContract",
+    "StepExecutionRecord",
+    "ContractResult",
 ]

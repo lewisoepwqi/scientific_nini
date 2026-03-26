@@ -405,6 +405,28 @@ class ImageEventData(BaseModel):
     mime_type: Optional[str] = Field(None, description="MIME 类型")
 
 
+class SkillStepEventData(BaseModel):
+    """SKILL_STEP 事件的数据结构。
+
+    用于 ContractRunner 步骤执行的 observability 事件，
+    每步骤的 start / complete / failed / skipped / review_required 均发射此类事件。
+    """
+
+    skill_name: str = Field(..., description="Skill 名称")
+    skill_version: str = Field("1", description="Skill 契约版本")
+    step_id: str = Field(..., description="步骤 ID")
+    step_name: str = Field(..., description="步骤显示名称")
+    status: Literal[
+        "started", "completed", "failed", "skipped", "review_required"
+    ] = Field(..., description="步骤状态")
+    trust_level: Optional[str] = Field(None, description="步骤信任等级")
+    output_level: Optional[str] = Field(None, description="步骤输出等级")
+    input_summary: str = Field("", description="输入摘要")
+    output_summary: str = Field("", description="输出摘要")
+    error_message: Optional[str] = Field(None, description="错误信息（失败时）")
+    duration_ms: Optional[int] = Field(None, description="步骤耗时（毫秒）")
+
+
 class ContextCompressedEventData(BaseModel):
     """CONTEXT_COMPRESSED 事件的数据结构。"""
 
