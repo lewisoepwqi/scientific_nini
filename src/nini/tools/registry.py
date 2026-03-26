@@ -36,6 +36,7 @@ from nini.tools.statistics import (
 )
 from nini.tools.stat_interpret import StatInterpretTool
 from nini.tools.stat_model import StatModelTool
+from nini.tools.sample_size import SampleSizeTool
 from nini.tools.stat_test import StatTestTool
 from nini.tools.task_write import TaskWriteTool
 from nini.tools.task_state import TaskStateTool
@@ -291,6 +292,7 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(ANOVATool())
     registry.register(KruskalWallisTool())
     registry.register(StatTestTool())
+    registry.register(SampleSizeTool())
     registry.register(StatModelTool())
     registry.register(StatInterpretTool())
     registry.register(CodeSessionTool())

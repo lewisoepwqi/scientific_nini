@@ -563,6 +563,7 @@ def test_valid_categories_constant() -> None:
         "report",
         "workflow",
         "utility",
+        "experiment_design",
         "other",
     }
     assert VALID_CATEGORIES == expected

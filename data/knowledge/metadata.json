@@ -1,1 +1,15 @@
-{}
+{
+  "2c311785-ffe2-4532-8fa8-2e9947b0fc11": {
+    "id": "2c311785-ffe2-4532-8fa8-2e9947b0fc11",
+    "title": "测试文档",
+    "file_type": "txt",
+    "file_size": 87,
+    "index_status": "indexed",
+    "created_at": "2026-03-26T12:46:38.749578+00:00",
+    "updated_at": "2026-03-26T12:46:38.749585+00:00",
+    "description": "",
+    "domain": "statistics",
+    "tags": [],
+    "chunk_count": 1
+  }
+}

@@ -28,6 +28,7 @@ VALID_CATEGORIES = frozenset(
         "report",
         "workflow",
         "utility",
+        "experiment_design",
         "other",
     }
 )
@@ -63,6 +64,13 @@ class MarkdownTool:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        # 将 metadata 中不可 JSON 序列化的对象（如 SkillContract）转换为字典
+        serializable_metadata: dict[str, Any] = {}
+        for k, v in self.metadata.items():
+            if hasattr(v, "model_dump"):
+                serializable_metadata[k] = v.model_dump()
+            else:
+                serializable_metadata[k] = v
         return {
             "type": "markdown",
             "name": self.name,
@@ -74,7 +82,7 @@ class MarkdownTool:
             "typical_use_cases": self.typical_use_cases,
             "location": self.location,
             "enabled": self.enabled,
-            "metadata": self.metadata,
+            "metadata": serializable_metadata,
         }
 
     def to_manifest(self) -> "ToolManifest":
