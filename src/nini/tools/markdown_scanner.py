@@ -394,6 +394,20 @@ def scan_markdown_tools(skills_dir: Path | Iterable[Path]) -> list[MarkdownTool]
             if openai_cfg:
                 metadata["openai_agent_config"] = openai_cfg
 
+            # 解析 contract 段（可选，格式错误时优雅降级）
+            contract_raw = meta.get("contract")
+            if contract_raw is not None:
+                try:
+                    from nini.models.skill_contract import SkillContract
+
+                    metadata["contract"] = SkillContract.model_validate(contract_raw)
+                except Exception as contract_exc:
+                    logger.warning(
+                        "Markdown 技能 %s 的 contract 段格式错误，已跳过契约解析: %s",
+                        path,
+                        contract_exc,
+                    )
+
             items.append(
                 MarkdownTool(
                     name=name,
