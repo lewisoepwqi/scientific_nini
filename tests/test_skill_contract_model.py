@@ -9,7 +9,6 @@ from pydantic import ValidationError
 from nini.models.risk import TrustLevel
 from nini.models.skill_contract import ContractResult, SkillContract, SkillStep, StepExecutionRecord
 
-
 # ---------------------------------------------------------------------------
 # SkillStep 测试
 # ---------------------------------------------------------------------------
@@ -20,6 +19,9 @@ class TestSkillStep:
         step = SkillStep(id="load_data", name="加载数据", description="加载用户数据集")
         assert step.id == "load_data"
         assert step.depends_on == []
+        assert step.condition is None
+        assert step.input_from == {}
+        assert step.output_key is None
         assert step.trust_level == TrustLevel.T1
         assert step.review_gate is False
         assert step.retry_policy == "skip"
@@ -32,6 +34,9 @@ class TestSkillStep:
         assert d["name"] == "步骤1"
         assert d["trust_level"] == TrustLevel.T1
         assert "depends_on" in d
+        assert "condition" in d
+        assert "input_from" in d
+        assert "output_key" in d
         assert "review_gate" in d
 
     def test_retry_policy_valid_values(self) -> None:

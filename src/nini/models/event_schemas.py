@@ -233,7 +233,9 @@ class TextEventData(BaseModel):
     """TEXT 事件的数据结构。"""
 
     content: str = Field(..., description="文本内容")
-    output_level: Optional[OutputLevel] = Field(None, description="分片级输出等级（预留扩展，初期不启用）")
+    output_level: Optional[OutputLevel] = Field(
+        None, description="分片级输出等级（预留扩展，初期不启用）"
+    )
 
 
 class ErrorEventData(BaseModel):
@@ -416,9 +418,10 @@ class SkillStepEventData(BaseModel):
     skill_version: str = Field("1", description="Skill 契约版本")
     step_id: str = Field(..., description="步骤 ID")
     step_name: str = Field(..., description="步骤显示名称")
-    status: Literal[
-        "started", "completed", "failed", "skipped", "review_required"
-    ] = Field(..., description="步骤状态")
+    status: Literal["started", "completed", "failed", "skipped", "review_required"] = Field(
+        ..., description="步骤状态"
+    )
+    layer: Optional[int] = Field(None, description="步骤所在的 DAG 层级（从 0 开始）")
     trust_level: Optional[str] = Field(None, description="步骤信任等级")
     output_level: Optional[str] = Field(None, description="步骤输出等级")
     input_summary: str = Field("", description="输入摘要")

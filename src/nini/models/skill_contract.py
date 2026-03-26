@@ -29,6 +29,12 @@ class SkillStep(BaseModel):
     description: str = Field(..., description="步骤说明")
     tool_hint: str | None = Field(None, description="推荐使用的工具")
     depends_on: list[str] = Field(default_factory=list, description="前置步骤 ID 列表")
+    condition: str | None = Field(None, description="步骤执行条件表达式")
+    input_from: dict[str, str] = Field(
+        default_factory=dict,
+        description="步骤输入绑定，格式为 {参数名: 'step_id.path'}",
+    )
+    output_key: str | None = Field(None, description="步骤输出写入共享上下文的键名")
     trust_level: TrustLevel = Field(TrustLevel.T1, description="步骤信任等级")
     review_gate: bool = Field(False, description="是否需要人工复核")
     retry_policy: Literal["retry", "skip", "abort"] = Field(

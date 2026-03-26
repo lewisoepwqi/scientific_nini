@@ -48,14 +48,14 @@ class TestTopologicalSort:
         cb = AsyncMock()
         runner = ContractRunner(contract, skill_name="test", callback=cb)
         ordered = runner._topological_sort(contract.steps)
-        assert [s.id for s in ordered] == ["a", "b", "c"]
+        assert [[s.id for s in layer] for layer in ordered] == [["a"], ["b"], ["c"]]
 
     def test_no_dependencies_preserves_declaration_order(self) -> None:
         contract = make_contract(step("x"), step("y"), step("z"))
         cb = AsyncMock()
         runner = ContractRunner(contract, skill_name="test", callback=cb)
         ordered = runner._topological_sort(contract.steps)
-        assert [s.id for s in ordered] == ["x", "y", "z"]
+        assert [[s.id for s in layer] for layer in ordered] == [["x", "y", "z"]]
 
 
 # ---------------------------------------------------------------------------
@@ -141,9 +141,7 @@ class TestReviewGate:
         async def cb(event_type: str, data: Any) -> None:
             events.append((event_type, data))
 
-        runner = ContractRunner(
-            contract, skill_name="s", callback=cb, review_gate_timeout=0.1
-        )
+        runner = ContractRunner(contract, skill_name="s", callback=cb, review_gate_timeout=0.1)
         # 不确认，让其超时
         result = await runner.run(session=None)
 
@@ -162,9 +160,7 @@ class TestReviewGate:
         async def cb(event_type: str, data: Any) -> None:
             events.append((event_type, data))
 
-        runner = ContractRunner(
-            contract, skill_name="s", callback=cb, review_gate_timeout=2.0
-        )
+        runner = ContractRunner(contract, skill_name="s", callback=cb, review_gate_timeout=2.0)
 
         async def confirm_later() -> None:
             await asyncio.sleep(0.05)
@@ -185,9 +181,7 @@ class TestReviewGate:
         async def cb(event_type: str, data: Any) -> None:
             events.append((event_type, data))
 
-        runner = ContractRunner(
-            contract, skill_name="s", callback=cb, review_gate_timeout=0.05
-        )
+        runner = ContractRunner(contract, skill_name="s", callback=cb, review_gate_timeout=0.05)
         result = await runner.run(session=None)
         # review_gate 未确认 → skipped（abort 仅在执行失败时生效，review 超时走跳过路径）
         assert result.step_records[0].status == "skipped"
