@@ -6,6 +6,7 @@ import asyncio
 import argparse
 import importlib
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Sequence
@@ -360,6 +361,14 @@ def _cmd_start(args: argparse.Namespace) -> int:
         print("缺少依赖，请先运行: pip install -e .[dev]")
         return 1
 
+    from nini.config import settings
+    from nini.logging_config import setup_logging
+
+    os.environ["NINI_LOG_LEVEL"] = args.log_level
+    settings.log_level = args.log_level
+    settings.ensure_dirs()
+    setup_logging(log_level=args.log_level)
+
     # 自动打开浏览器（打包模式默认开启，开发模式也开启，--no-open 可禁用）
     if not args.no_open and not args.reload:
         import threading
@@ -379,6 +388,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
         reload=args.reload,
         reload_dirs=["src"] if args.reload else None,
         log_level=args.log_level,
+        log_config=None,
     )
     return 0
 

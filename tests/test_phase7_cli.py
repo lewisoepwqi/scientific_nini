@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -56,6 +57,29 @@ def test_cli_start_default_command_invokes_uvicorn(monkeypatch: pytest.MonkeyPat
     _, kwargs = calls[0]
     assert kwargs["port"] == 9001
     assert kwargs["host"] == "0.0.0.0"
+    assert kwargs["log_level"] == "info"
+    assert kwargs["log_config"] is None
+
+
+def test_cli_start_log_level_updates_app_and_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def fake_run(*args: object, **kwargs: object) -> None:
+        calls.append((args, kwargs))
+
+    fake_uvicorn = SimpleNamespace(run=fake_run)
+    monkeypatch.setitem(sys.modules, "uvicorn", fake_uvicorn)
+    monkeypatch.delenv("NINI_LOG_LEVEL", raising=False)
+
+    ret = main(["start", "--log-level", "debug", "--no-open"])
+
+    assert ret == 0
+    assert len(calls) == 1
+    _, kwargs = calls[0]
+    assert kwargs["log_level"] == "debug"
+    assert kwargs["log_config"] is None
+    assert settings.log_level == "debug"
+    assert os.environ["NINI_LOG_LEVEL"] == "debug"
 
 
 def test_cli_doctor_returns_success_with_default_config(
