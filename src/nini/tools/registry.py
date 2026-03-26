@@ -12,6 +12,7 @@ from nini.sandbox.r_router import detect_r_backend
 from nini.tools.chart_session import ChartSessionTool
 from nini.tools.code_session import CodeSessionTool
 from nini.tools.code_exec import RunCodeTool
+from nini.tools.collect_artifacts import CollectArtifactsTool
 from nini.tools.dataset_catalog import DatasetCatalogTool
 from nini.tools.data_ops import DataSummaryTool, LoadDatasetTool
 from nini.tools.dataset_transform import DatasetTransformTool
@@ -67,6 +68,7 @@ LLM_EXPOSED_BASE_TOOL_NAMES = {
     "chart_session",
     "report_session",
     "workspace_session",
+    "collect_artifacts",
     "code_session",
     "generate_widget",
     "search_literature",
@@ -320,6 +322,7 @@ def create_default_tool_registry(*, plugin_registry: Any | None = None) -> ToolR
     registry.register(FetchURLTool())
     registry.register(GenerateWidgetTool())
     registry.register(SearchLiteratureTool(plugin_registry=plugin_registry))
+    registry.register(CollectArtifactsTool())
     registry.register(CompleteComparisonTool())
     registry.register(CompleteANOVATool())
     registry.register(CorrelationAnalysisTool())

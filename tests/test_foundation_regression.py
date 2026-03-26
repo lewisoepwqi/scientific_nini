@@ -386,6 +386,7 @@ class TestOldToolsNotExposed:
             "chart_session",
             "report_session",
             "workspace_session",
+            "collect_artifacts",
             "code_session",
             "generate_widget",
             "search_literature",
