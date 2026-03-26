@@ -10,6 +10,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from nini.models.risk import OutputLevel
+
 # ---- 分析计划相关事件 ----
 
 
@@ -231,6 +233,7 @@ class TextEventData(BaseModel):
     """TEXT 事件的数据结构。"""
 
     content: str = Field(..., description="文本内容")
+    output_level: Optional[OutputLevel] = Field(None, description="分片级输出等级（预留扩展，初期不启用）")
 
 
 class ErrorEventData(BaseModel):
@@ -244,6 +247,7 @@ class DoneEventData(BaseModel):
     """DONE 事件的数据结构。"""
 
     reason: Literal["completed", "stopped", "error"] = Field("completed", description="结束原因")
+    output_level: Optional[OutputLevel] = Field(None, description="本轮回复的综合输出等级")
 
 
 class WorkspaceUpdateEventData(BaseModel):
