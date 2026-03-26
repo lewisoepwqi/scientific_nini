@@ -394,7 +394,12 @@ async def websocket_agent(ws: WebSocket):
                         loaded,
                     )
             except Exception as exc:
-                logger.warning("恢复工作空间数据集失败: session_id=%s err=%s", session.id, exc)
+                logger.warning(
+                    "恢复工作空间数据集失败: session_id=%s err=%s",
+                    session.id,
+                    exc,
+                    exc_info=True,
+                )
             session.workspace_hydrated = True
 
         # 缓存代码执行工具的输入代码，用于配对 tool_call → tool_result
@@ -623,7 +628,7 @@ async def websocket_agent(ws: WebSocket):
                                     active_stop_events=active_stop_events,
                                 )
                             except Exception as exc:
-                                logger.debug("保存代码执行记录失败: %s", exc)
+                                logger.debug("保存代码执行记录失败: %s", exc, exc_info=True)
                     break
                 except Exception as exc:
                     if recipe is not None and current_attempt < max_attempts:
@@ -1042,7 +1047,7 @@ async def websocket_agent(ws: WebSocket):
                 active_stop_events=active_stop_events,
             )
         except Exception:
-            pass
+            logger.debug("WebSocket 异常后发送错误事件失败", exc_info=True)
     finally:
         _cancel_pending_questions()
         # 断开连接时 cancel 所有会话的后台任务，并触发各自的记忆沉淀
@@ -1080,7 +1085,7 @@ async def _auto_generate_title(ws: WebSocket, session: Any) -> None:
                 session_id=session.id,
             )
     except Exception as e:
-        logger.debug("自动生成会话标题失败: %s", e)
+        logger.debug("自动生成会话标题失败: %s", e, exc_info=True)
 
 
 async def _keepalive(ws: WebSocket) -> None:

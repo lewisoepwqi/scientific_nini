@@ -363,6 +363,12 @@ class HybridRetriever:
         if long_term_memories:
             result.metadata = {"long_term_memories": long_term_memories}
 
+        logger.info(
+            "混合检索完成: query=%s results=%d duration_ms=%d",
+            query,
+            len(documents),
+            search_time_ms,
+        )
         return result
 
     async def rebuild_index(self) -> bool:

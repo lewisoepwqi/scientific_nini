@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import pandas as pd
@@ -89,6 +90,7 @@ class HybridRExecutor(RSandboxExecutor):
         dataset_name: str | None,
         persist_df: bool,
     ) -> dict[str, Any]:
+        start_time = time.monotonic()
         # 策略检查（两路共用，在路由前执行）
         validate_r_code(code)
 
@@ -116,6 +118,11 @@ class HybridRExecutor(RSandboxExecutor):
                     logger.warning("webr 执行异常，降级原生 R: %s", exc)
                 else:
                     if result.get("success"):
+                        logger.info(
+                            "R 路由执行完成: backend=webr session=%s duration_ms=%d",
+                            session_id,
+                            int((time.monotonic() - start_time) * 1000),
+                        )
                         return result
                     webr_error = result.get("error", "未知错误")
                     logger.warning("webr 执行失败，降级原生 R: %s", webr_error)
@@ -144,13 +151,19 @@ class HybridRExecutor(RSandboxExecutor):
             }
 
         # 调用父类 _execute_sync（validate_r_code 已在上方执行，父类会再次调用但无副作用）
-        return super()._execute_sync(
+        result = super()._execute_sync(
             code=code,
             session_id=session_id,
             datasets=datasets,
             dataset_name=dataset_name,
             persist_df=persist_df,
         )
+        logger.info(
+            "R 路由执行完成: backend=native_r session=%s duration_ms=%d",
+            session_id,
+            int((time.monotonic() - start_time) * 1000),
+        )
+        return result
 
 
 # 模块级单例，供 r_code_exec.py 和其他调用方使用

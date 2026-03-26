@@ -728,6 +728,17 @@ class SandboxExecutor:
         persist_df: bool,
         extra_allowed_imports: Iterable[str] | None,
     ) -> dict[str, Any]:
+        start_time = time.monotonic()
+
+        def _with_duration(payload: dict[str, Any]) -> dict[str, Any]:
+            logger.info(
+                "Python 沙箱执行完成: session=%s success=%s duration_ms=%d",
+                session_id,
+                bool(payload.get("success", False)),
+                int((time.monotonic() - start_time) * 1000),
+            )
+            return payload
+
         normalized_extra_allowed_imports = sorted(get_allowed_import_roots(extra_allowed_imports))
         validate_code(code, extra_allowed_imports=normalized_extra_allowed_imports)
 
@@ -797,27 +808,31 @@ class SandboxExecutor:
                     )
                 if payload.get("policy_error"):
                     raise SandboxPolicyError(str(payload.get("error") or "沙箱策略拦截"))
-            return payload
+            return _with_duration(payload)
 
         if process.is_alive():
             process.terminate()
             process.join(timeout=1)
             parent_conn.close()
-            return {
-                "success": False,
-                "error": f"代码执行超时（>{self.timeout_seconds}s）",
-                "stdout": "",
-                "stderr": "",
-            }
+            return _with_duration(
+                {
+                    "success": False,
+                    "error": f"代码执行超时（>{self.timeout_seconds}s）",
+                    "stdout": "",
+                    "stderr": "",
+                }
+            )
 
         process.join(timeout=0.2)
         parent_conn.close()
-        return {
-            "success": False,
-            "error": "沙箱进程异常退出，未返回结果",
-            "stdout": "",
-            "stderr": "",
-        }
+        return _with_duration(
+            {
+                "success": False,
+                "error": "沙箱进程异常退出，未返回结果",
+                "stdout": "",
+                "stderr": "",
+            }
+        )
 
 
 sandbox_executor = SandboxExecutor()

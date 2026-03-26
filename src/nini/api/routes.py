@@ -351,6 +351,13 @@ async def upload_file(
         df = read_dataframe(save_path, ext)
     except Exception as e:
         save_path.unlink(missing_ok=True)
+        logger.warning(
+            "上传数据集解析失败: session=%s filename=%s ext=%s",
+            session_id,
+            file.filename,
+            ext,
+            exc_info=True,
+        )
         raise HTTPException(status_code=400, detail=f"无法解析文件: {e}")
 
     if ext in ("xlsx", "xls"):
@@ -868,6 +875,13 @@ async def rename_workspace_file(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        logger.error(
+            "重命名工作区文件失败: session=%s path=%s new_name=%s",
+            session_id,
+            file_path,
+            request.name,
+            exc_info=True,
+        )
         raise HTTPException(status_code=500, detail=f"重命名失败: {exc}") from exc
 
     for updated in result.get("updated_records", []):
@@ -906,6 +920,12 @@ async def save_workspace_file(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
+        logger.error(
+            "保存工作区文本文件失败: session=%s path=%s",
+            session_id,
+            file_path,
+            exc_info=True,
+        )
         raise HTTPException(status_code=500, detail=f"保存失败: {exc}") from exc
 
 
@@ -921,6 +941,14 @@ async def delete_workspace_file(session_id: str, file_path: str):
         raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(
+            "删除工作区文件失败: session=%s path=%s",
+            session_id,
+            file_path,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail=f"删除失败: {exc}") from exc
 
     for deleted in result.get("deleted_records", []):
         if not isinstance(deleted, dict) or deleted.get("kind") != "dataset":
