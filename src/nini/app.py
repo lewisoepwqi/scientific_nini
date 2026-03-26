@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import secrets
 from contextlib import asynccontextmanager
@@ -56,11 +57,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("加载数据库模型配置失败（将使用 .env 配置）: %s", e)
 
-    # 初始化工具注册中心
-    registry = create_default_tool_registry()
-    set_tool_registry(registry)
-    logger.info("已注册 %d 个工具", len(registry.list_tools()))
-
     # 初始化插件注册表
     plugin_registry = PluginRegistry()
     plugin_registry.register(NetworkPlugin())
@@ -73,6 +69,14 @@ async def lifespan(app: FastAPI):
         len(available),
         len(unavailable),
     )
+
+    # 初始化工具注册中心
+    if "plugin_registry" in inspect.signature(create_default_tool_registry).parameters:
+        registry = create_default_tool_registry(plugin_registry=plugin_registry)
+    else:
+        registry = create_default_tool_registry()
+    set_tool_registry(registry)
+    logger.info("已注册 %d 个工具", len(registry.list_tools()))
 
     logger.info("Nini 启动完成 ✓")
 

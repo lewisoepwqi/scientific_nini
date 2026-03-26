@@ -12,6 +12,13 @@ from nini.plugins.base import DegradationInfo, Plugin
 
 logger = logging.getLogger(__name__)
 
+_SEMANTIC_SCHOLAR_PROBE_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+_SEMANTIC_SCHOLAR_PROBE_PARAMS = {
+    "query": "test",
+    "limit": 1,
+    "fields": "title",
+}
+
 # 尝试在模块级导入 httpx，不影响无 httpx 环境的模块加载
 try:
     import httpx as httpx
@@ -39,7 +46,8 @@ class NetworkPlugin(Plugin):
     async def is_available(self) -> bool:
         """检测网络连通性。
 
-        尝试 HEAD 请求配置的探测地址，超时或失败则返回 False。
+        先探测通用网络连通性，再检测 Semantic Scholar API 端点可达性。
+        任一环节失败都返回 False。
         """
         if not _HTTPX_AVAILABLE or httpx is None:
             logger.warning("httpx 未安装，NetworkPlugin 不可用")
@@ -55,7 +63,14 @@ class NetworkPlugin(Plugin):
 
             async with httpx.AsyncClient(proxies=proxies, timeout=timeout) as client:
                 response = await client.head(settings.network_probe_url)
-                return response.status_code < 500
+                if response.status_code >= 500:
+                    return False
+
+                semantic_response = await client.get(
+                    _SEMANTIC_SCHOLAR_PROBE_URL,
+                    params=_SEMANTIC_SCHOLAR_PROBE_PARAMS,
+                )
+                return semantic_response.status_code < 500
         except Exception as e:
             logger.debug("网络可用性检测失败: %s", e)
             return False
