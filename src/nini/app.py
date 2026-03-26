@@ -23,6 +23,8 @@ from nini.api.auth_utils import is_request_authenticated
 from nini.config import settings, _get_bundle_web_dist_dir
 from nini.logging_config import bind_log_context, reset_log_context, setup_logging
 from nini.models.database import init_db
+from nini.plugins.network import NetworkPlugin
+from nini.plugins.registry import PluginRegistry
 from nini.tools.registry import create_default_tool_registry
 from nini.api.websocket import set_tool_registry
 
@@ -59,12 +61,26 @@ async def lifespan(app: FastAPI):
     set_tool_registry(registry)
     logger.info("已注册 %d 个工具", len(registry.list_tools()))
 
+    # 初始化插件注册表
+    plugin_registry = PluginRegistry()
+    plugin_registry.register(NetworkPlugin())
+    await plugin_registry.initialize_all()
+    app.state.plugin_registry = plugin_registry
+    available = plugin_registry.list_available()
+    unavailable = plugin_registry.list_unavailable()
+    logger.info(
+        "插件初始化完成：可用 %d 个，不可用 %d 个",
+        len(available),
+        len(unavailable),
+    )
+
     logger.info("Nini 启动完成 ✓")
 
     yield
 
     # 关闭
     logger.info("Nini 关闭中 ...")
+    await plugin_registry.shutdown_all()
 
 
 def create_app() -> FastAPI:
