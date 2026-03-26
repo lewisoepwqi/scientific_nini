@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import time
 from contextlib import suppress
 from typing import Any, AsyncGenerator
 
@@ -786,6 +787,7 @@ class ModelResolver:
             provider_id = getattr(client, "provider_id", "") or ""
             provider_name = getattr(client, "provider_name", provider_id) or provider_id
             model_name = client.get_model_name() or "unknown"
+            attempt_start_time = time.monotonic()
             success_entry = {
                 "provider_id": provider_id,
                 "provider_name": provider_name,
@@ -831,6 +833,14 @@ class ModelResolver:
                         fallback_reason=first_failed.get("error") if first_failed else None,
                         fallback_chain=[*fallback_chain, success_entry],
                     )
+                logger.info(
+                    "模型调用完成: purpose=%s provider=%s model=%s attempt=%d duration_ms=%d",
+                    purpose,
+                    provider_id,
+                    model_name,
+                    attempt,
+                    int((time.monotonic() - attempt_start_time) * 1000),
+                )
                 return
             except Exception as e:
                 last_error = e
@@ -856,7 +866,16 @@ class ModelResolver:
                 if debug_dump_path:
                     log_message += " dump=%s"
                     log_args = (*log_args, debug_dump_path)
-                logger.log(disposition.log_level, log_message, *log_args)
+                logger.log(
+                    disposition.log_level,
+                    log_message,
+                    *log_args,
+                    exc_info=True,
+                    extra={
+                        "duration_ms": int((time.monotonic() - attempt_start_time) * 1000),
+                        "purpose": purpose,
+                    },
+                )
                 if not disposition.should_fallback:
                     raise RuntimeError(compact_error) from e
 
@@ -1302,7 +1321,11 @@ class ModelResolver:
                             resolved_model = first_model
             except Exception:
                 # 测试连接仍应继续尝试默认模型，避免模型列表接口失败直接中断。
-                pass
+                logger.debug(
+                    "测试连接获取模型列表失败，回退默认模型: provider=%s",
+                    provider_id,
+                    exc_info=True,
+                )
 
         has_override = any(value is not None for value in (api_key, model, base_url))
         client = (
@@ -1319,6 +1342,7 @@ class ModelResolver:
             return {"success": False, "error": f"未知的提供商: {provider_id}"}
         if not client.is_available():
             return {"success": False, "error": "提供商未配置或不可用（请检查 API Key）"}
+        start_time = time.monotonic()
         try:
             # 发送一个简单的测试请求验证连接
             test_messages = [{"role": "user", "content": "Hi"}]
@@ -1335,14 +1359,28 @@ class ModelResolver:
                 if response_text:
                     break
 
-            return {
+            result = {
                 "success": True,
                 "provider": provider_id,
                 "model": client.get_model_name(),
                 "message": "连接成功",
             }
+            logger.info(
+                "模型连通性测试完成: provider=%s success=%s duration_ms=%d",
+                provider_id,
+                result["success"],
+                int((time.monotonic() - start_time) * 1000),
+            )
+            return result
         except Exception as e:
             disposition = self._classify_llm_error(e)
+            logger.warning(
+                "模型连通性测试失败: provider=%s reason=%s duration_ms=%d",
+                provider_id,
+                disposition.message,
+                int((time.monotonic() - start_time) * 1000),
+                exc_info=True,
+            )
             return {"success": False, "error": disposition.message}
 
     def set_preferred_model(self, provider: str | None, model: str | None) -> None:

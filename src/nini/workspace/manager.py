@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
 import mimetypes
 import re
 import shutil
@@ -69,6 +70,8 @@ _DOCUMENT_EXCLUDED_ROOTS = {
     "reports",
     "transforms",
 }
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -571,9 +574,11 @@ class WorkspaceManager:
     def save_text_file(self, relative_path: str, content: str) -> Path:
         """按路径保存文本文件。"""
         target = self.resolve_workspace_path(relative_path, allow_missing=True)
+        logger.info("开始保存工作区文本文件: session=%s path=%s", self.session_id, relative_path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         self._upsert_note_record_for_path(target)
+        logger.info("工作区文本文件保存完成: session=%s path=%s", self.session_id, relative_path)
         return target
 
     def sync_text_document_record(self, relative_path: str) -> dict[str, Any] | None:
@@ -586,6 +591,7 @@ class WorkspaceManager:
         target = self.resolve_workspace_path(relative_path, allow_missing=False)
         if target == self.workspace_dir:
             raise ValueError("不能删除工作空间根目录")
+        logger.info("开始删除工作区路径: session=%s path=%s", self.session_id, relative_path)
 
         index = self._load_index()
         removed_records = self._remove_records_under_path(index, target)
@@ -596,6 +602,12 @@ class WorkspaceManager:
             target.unlink(missing_ok=False)
 
         self._save_index(index)
+        logger.info(
+            "工作区路径删除完成: session=%s path=%s deleted_records=%d",
+            self.session_id,
+            relative_path,
+            len(removed_records),
+        )
         return {
             "path": relative_path,
             "deleted_records": [
@@ -624,6 +636,12 @@ class WorkspaceManager:
         if new_path.exists():
             raise FileExistsError(new_path.name)
 
+        logger.info(
+            "开始重命名工作区文件: session=%s old_path=%s new_name=%s",
+            self.session_id,
+            relative_path,
+            safe_name,
+        )
         target.rename(new_path)
 
         index = self._load_index()
@@ -732,6 +750,12 @@ class WorkspaceManager:
             data.setdefault("version", 2)
             return data
         except Exception:
+            logger.warning(
+                "加载工作区索引失败，已重建默认索引: session=%s path=%s",
+                self.session_id,
+                self.index_path,
+                exc_info=True,
+            )
             index = self._default_index()
             self._save_index(index)
             return index
@@ -1022,9 +1046,21 @@ class WorkspaceManager:
             try:
                 _, df = self.load_dataset_by_id(dataset_id)
             except Exception:
+                logger.warning(
+                    "恢复工作区数据集失败: session=%s dataset_id=%s name=%s",
+                    self.session_id,
+                    dataset_id,
+                    name,
+                    exc_info=True,
+                )
                 continue
             session.datasets[name] = df
             loaded += 1
+        logger.info(
+            "工作区数据集恢复完成: session=%s loaded=%d",
+            self.session_id,
+            loaded,
+        )
         return loaded
 
     def add_artifact_record(
@@ -2030,6 +2066,9 @@ class WorkspaceManager:
                 if isinstance(data, dict):
                     records.append(CodeExecutionRecord.model_validate(data).model_dump(mode="json"))
             except Exception:
+                logger.debug(
+                    "读取代码执行记录失败: session=%s path=%s", self.session_id, path, exc_info=True
+                )
                 continue
         records.sort(key=lambda r: str(r.get("created_at", "")), reverse=True)
         return records[:limit]
@@ -2045,6 +2084,12 @@ class WorkspaceManager:
             if isinstance(data, dict):
                 return CodeExecutionRecord.model_validate(data).model_dump(mode="json")
         except Exception:
+            logger.debug(
+                "读取单条代码执行记录失败: session=%s execution_id=%s",
+                self.session_id,
+                execution_id,
+                exc_info=True,
+            )
             return None
         return None
 
@@ -2066,6 +2111,12 @@ class WorkspaceManager:
 
         stored_record["folder"] = folder_id
         self._save_index(index)
+        logger.info(
+            "工作区路径移动完成: session=%s path=%s folder_id=%s",
+            self.session_id,
+            relative_path,
+            folder_id,
+        )
         return {
             "kind": self._public_kind_for_record(kind, stored_record),
             "record": stored_record,

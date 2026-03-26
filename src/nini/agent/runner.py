@@ -874,7 +874,7 @@ class AgentRunner:
                             yield forced_event
                             messages, _ = await self._build_messages_and_retrieval(session)
                             continue
-                    logger.error("LLM 调用失败: %s", e)
+                    logger.error("LLM 调用失败: %s", e, exc_info=True)
                     yield eb.build_error_event(message=str(e), turn_id=turn_id)
                     return
                 break
@@ -1265,7 +1265,11 @@ class AgentRunner:
                             if intent:
                                 tool_call_metadata["intent"] = intent
                     except Exception:
-                        pass
+                        logger.debug(
+                            "解析工具调用 intent 元数据失败: tool=%s",
+                            func_name,
+                            exc_info=True,
+                        )
 
                 # 从 task_manager 获取当前 in_progress 任务（用于 TASK_ATTEMPT 事件关联）
                 # task_write/task_state 本身不计入任务执行轨迹
@@ -2241,9 +2245,18 @@ class AgentRunner:
         session: Session,
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         """通过 canonical context builder 构建发送给 LLM 的消息列表。"""
-        return await self._context_builder.build_messages_and_retrieval(
+        start_time = time.monotonic()
+        messages, retrieval_event = await self._context_builder.build_messages_and_retrieval(
             session, context_ratio=self._context_ratio
         )
+        logger.info(
+            "Agent 上下文构建完成: session=%s messages=%d retrieval=%s duration_ms=%d",
+            session.id,
+            len(messages),
+            "yes" if retrieval_event is not None else "no",
+            int((time.monotonic() - start_time) * 1000),
+        )
+        return messages, retrieval_event
 
     def _build_explicit_skill_context(self, user_message: str) -> str:
         """兼容旧测试入口，委托给 canonical context builder。"""
@@ -3330,6 +3343,7 @@ class AgentRunner:
         except json.JSONDecodeError:
             return {"error": f"工具参数解析失败: {arguments}"}
 
+        start_time = time.monotonic()
         try:
             result = await self._tool_registry.execute_with_fallback(name, session=session, **args)
             return result
@@ -3338,6 +3352,13 @@ class AgentRunner:
         except Exception as e:
             logger.error("工具 %s 执行失败: %s", name, e, exc_info=True)
             return {"error": f"工具 {name} 执行失败: {e}"}
+        finally:
+            logger.info(
+                "工具执行结束: session=%s tool=%s duration_ms=%d",
+                session.id,
+                name,
+                int((time.monotonic() - start_time) * 1000),
+            )
 
     def _record_research_profile_activity(
         self,

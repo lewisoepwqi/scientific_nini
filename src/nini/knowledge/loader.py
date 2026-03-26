@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -105,6 +106,7 @@ class KnowledgeLoader:
 
     def reload(self) -> None:
         """重新扫描知识目录（线程安全）。"""
+        start_time = time.monotonic()
         with self._lock:
             new_entries: list[KnowledgeEntry] = []
             if self._dir.is_dir():
@@ -120,6 +122,12 @@ class KnowledgeLoader:
             self._entries = new_entries
             if self._vector_store is not None:
                 self._vector_store.build_or_load()
+        logger.info(
+            "知识条目重载完成: strategy=%s entries=%d duration_ms=%d",
+            self._strategy,
+            len(self._entries),
+            int((time.monotonic() - start_time) * 1000),
+        )
 
     def select(
         self,
@@ -160,12 +168,14 @@ class KnowledgeLoader:
         3. 按得分排序
         4. 取前 max_entries 个，总字符数不超过 max_total_chars
         """
+        start_time = time.monotonic()
         if not user_message:
             return "", []
 
         # 根据策略选择检索方式
+        result: tuple[str, list[dict[str, Any]]]
         if self._strategy == "bm25" and self.bm25_available:
-            return cast(
+            result = cast(
                 tuple[str, list[dict[str, Any]]],
                 self._bm25_retriever.search(
                     user_message,
@@ -173,12 +183,25 @@ class KnowledgeLoader:
                     max_total_chars=max_total_chars,
                 ),
             )
+            logger.info(
+                "知识检索完成: strategy=%s hits=%d duration_ms=%d",
+                self._strategy,
+                len(result[1]),
+                int((time.monotonic() - start_time) * 1000),
+            )
+            return result
 
         if self._strategy == "vector" and self.vector_available:
             text, hits, _availability = self._vector_store.query(
                 user_message,
                 top_k=max_entries,
                 max_total_chars=max_total_chars,
+            )
+            logger.info(
+                "知识检索完成: strategy=%s hits=%d duration_ms=%d",
+                self._strategy,
+                len(hits),
+                int((time.monotonic() - start_time) * 1000),
             )
             return text, hits
 
@@ -194,19 +217,33 @@ class KnowledgeLoader:
                 top_k=max_entries,
                 max_total_chars=max_total_chars,
             )
-            return self._merge_results(
+            result = self._merge_results(
                 vector_hits=vector_hits,
                 keyword_hits=keyword_hits,
                 max_entries=max_entries,
                 max_total_chars=max_total_chars,
             )
+            logger.info(
+                "知识检索完成: strategy=%s hits=%d duration_ms=%d",
+                self._strategy,
+                len(result[1]),
+                int((time.monotonic() - start_time) * 1000),
+            )
+            return result
 
         # 默认回退到关键词检索
-        return self._keyword_search(
+        result = self._keyword_search(
             user_message,
             max_entries=max_entries,
             max_total_chars=max_total_chars,
         )
+        logger.info(
+            "知识检索完成: strategy=%s hits=%d duration_ms=%d",
+            self._strategy,
+            len(result[1]),
+            int((time.monotonic() - start_time) * 1000),
+        )
+        return result
 
     def _keyword_search(
         self,

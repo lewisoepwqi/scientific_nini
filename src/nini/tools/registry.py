@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from nini.agent.session import Session
@@ -203,13 +204,22 @@ class ToolRegistry:
         enable_fallback: bool = True,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        return await self._function_ops.execute_with_fallback(
+        start_time = time.monotonic()
+        result = await self._function_ops.execute_with_fallback(
             tool_name,
             session,
             tool_executor=self.execute,
             enable_fallback=enable_fallback,
             **kwargs,
         )
+        logger.info(
+            "工具注册中心执行完成: session=%s tool=%s success=%s duration_ms=%d",
+            session.id,
+            tool_name,
+            bool(result.get("success", True)) if isinstance(result, dict) else True,
+            int((time.monotonic() - start_time) * 1000),
+        )
+        return result
 
     def create_subset(self, allowed_tool_names: list[str]) -> "ToolRegistry":
         """构造仅包含指定工具的受限注册表实例。

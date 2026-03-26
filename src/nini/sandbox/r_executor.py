@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -22,6 +23,8 @@ try:
     import resource  # type: ignore[attr-defined]
 except Exception:  # pragma: no cover
     resource = None  # type: ignore[assignment]
+
+logger = logging.getLogger(__name__)
 
 
 BIOC_PACKAGES: set[str] = {
@@ -426,16 +429,29 @@ class RSandboxExecutor:
         dataset_name: str | None,
         persist_df: bool,
     ) -> dict[str, Any]:
+        start_time = time.monotonic()
+
+        def _with_duration(payload: dict[str, Any]) -> dict[str, Any]:
+            logger.info(
+                "R 沙箱执行完成: session=%s success=%s duration_ms=%d",
+                session_id,
+                bool(payload.get("success", False)),
+                int((time.monotonic() - start_time) * 1000),
+            )
+            return payload
+
         validate_r_code(code)
 
         installation = detect_r_installation()
         if not installation.get("available"):
-            return {
-                "success": False,
-                "stdout": "",
-                "stderr": "",
-                "error": installation.get("message", "Rscript 不可用"),
-            }
+            return _with_duration(
+                {
+                    "success": False,
+                    "stdout": "",
+                    "stderr": "",
+                    "error": installation.get("message", "Rscript 不可用"),
+                }
+            )
 
         run_id = f"run_{int(time.time())}_{uuid.uuid4().hex[:8]}"
         working_dir = settings.sessions_dir / session_id / "r_sandbox_tmp" / run_id
@@ -453,20 +469,24 @@ class RSandboxExecutor:
             missing = {pkg for pkg, ok in pkg_status.items() if not ok}
             if missing:
                 if not settings.r_auto_install_packages:
-                    return {
-                        "success": False,
-                        "stdout": "",
-                        "stderr": "",
-                        "error": f"缺少 R 包: {', '.join(sorted(missing))}",
-                    }
+                    return _with_duration(
+                        {
+                            "success": False,
+                            "stdout": "",
+                            "stderr": "",
+                            "error": f"缺少 R 包: {', '.join(sorted(missing))}",
+                        }
+                    )
                 install_ok, install_log = install_r_packages(missing)
                 if not install_ok:
-                    return {
-                        "success": False,
-                        "stdout": "",
-                        "stderr": install_log,
-                        "error": "R 包自动安装失败",
-                    }
+                    return _with_duration(
+                        {
+                            "success": False,
+                            "stdout": "",
+                            "stderr": install_log,
+                            "error": "R 包自动安装失败",
+                        }
+                    )
 
         user_code_path = working_dir / "user_code.R"
         user_code_path.write_text(code, encoding="utf-8")
@@ -496,19 +516,24 @@ class RSandboxExecutor:
                 **_windows_subprocess_kwargs(),
             )
         except subprocess.TimeoutExpired:
-            return {
-                "success": False,
-                "stdout": "",
-                "stderr": "",
-                "error": f"R 代码执行超时（>{self.timeout_seconds}s）",
-            }
+            return _with_duration(
+                {
+                    "success": False,
+                    "stdout": "",
+                    "stderr": "",
+                    "error": f"R 代码执行超时（>{self.timeout_seconds}s）",
+                }
+            )
         except Exception as exc:
-            return {
-                "success": False,
-                "stdout": "",
-                "stderr": "",
-                "error": f"R 代码执行失败: {exc}",
-            }
+            logger.warning("R 沙箱执行异常: session=%s", session_id, exc_info=True)
+            return _with_duration(
+                {
+                    "success": False,
+                    "stdout": "",
+                    "stderr": "",
+                    "error": f"R 代码执行失败: {exc}",
+                }
+            )
 
         stdout_text = (proc.stdout or "").strip()
         stderr_text = (proc.stderr or "").strip()
@@ -524,12 +549,14 @@ class RSandboxExecutor:
                 result_data = {}
 
         if proc.returncode != 0 and not result_data.get("success", False):
-            return {
-                "success": False,
-                "stdout": stdout_text,
-                "stderr": stderr_text,
-                "error": str(result_data.get("error") or "R 代码执行失败"),
-            }
+            return _with_duration(
+                {
+                    "success": False,
+                    "stdout": stdout_text,
+                    "stderr": stderr_text,
+                    "error": str(result_data.get("error") or "R 代码执行失败"),
+                }
+            )
 
         output_df: pd.DataFrame | None = None
         output_df_path = working_dir / "_output_df.csv"
@@ -599,7 +626,7 @@ class RSandboxExecutor:
         if output_df is not None:
             payload["output_df"] = output_df
 
-        return payload
+        return _with_duration(payload)
 
 
 __all__ = [

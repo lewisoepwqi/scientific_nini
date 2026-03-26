@@ -271,15 +271,28 @@ class WebRExecutor:
         dataset_name: str | None,
         persist_df: bool,
     ) -> dict[str, Any]:
+        start_time = time.monotonic()
+
+        def _with_duration(payload: dict[str, Any]) -> dict[str, Any]:
+            logger.info(
+                "WebR 沙箱执行完成: session=%s success=%s duration_ms=%d",
+                session_id,
+                bool(payload.get("success", False)),
+                int((time.monotonic() - start_time) * 1000),
+            )
+            return payload
+
         validate_r_code(code)
 
         if not _check_webr():
-            return {
-                "success": False,
-                "stdout": "",
-                "stderr": "",
-                "error": f"webr 不可用: {_webr_import_error}",
-            }
+            return _with_duration(
+                {
+                    "success": False,
+                    "stdout": "",
+                    "stderr": "",
+                    "error": f"webr 不可用: {_webr_import_error}",
+                }
+            )
 
         run_id = f"webr_{int(time.time())}_{uuid.uuid4().hex[:8]}"
         working_dir = settings.sessions_dir / session_id / "webr_tmp" / run_id
@@ -302,12 +315,15 @@ class WebRExecutor:
         except RSandboxPolicyError:
             raise
         except Exception as exc:
-            return {
-                "success": False,
-                "stdout": "",
-                "stderr": "",
-                "error": f"webr 执行异常: {exc}",
-            }
+            logger.warning("WebR 沙箱执行异常: session=%s", session_id, exc_info=True)
+            return _with_duration(
+                {
+                    "success": False,
+                    "stdout": "",
+                    "stderr": "",
+                    "error": f"webr 执行异常: {exc}",
+                }
+            )
 
         stdout_lines = stdout_raw.splitlines()
         user_stdout_lines: list[str] = []
@@ -326,12 +342,14 @@ class WebRExecutor:
         stderr_text = stderr_raw.strip()
 
         if error_msg is not None:
-            return {
-                "success": False,
-                "stdout": stdout_text,
-                "stderr": stderr_text,
-                "error": error_msg,
-            }
+            return _with_duration(
+                {
+                    "success": False,
+                    "stdout": stdout_text,
+                    "stderr": stderr_text,
+                    "error": error_msg,
+                }
+            )
 
         result_obj: Any = None
         if result_json:
@@ -363,19 +381,21 @@ class WebRExecutor:
 
             shutil.rmtree(working_dir, ignore_errors=True)
         except Exception:
-            pass
+            logger.debug("清理 WebR 临时目录失败: path=%s", working_dir, exc_info=True)
 
-        return {
-            "success": True,
-            "stdout": stdout_text,
-            "stderr": stderr_text,
-            "result": result_obj,
-            "result_type": type(result_obj).__name__ if result_obj is not None else "null",
-            "figures": figures,
-            "datasets": {},
-            "workdir": str(working_dir),
-            "backend": "webr",
-        }
+        return _with_duration(
+            {
+                "success": True,
+                "stdout": stdout_text,
+                "stderr": stderr_text,
+                "result": result_obj,
+                "result_type": type(result_obj).__name__ if result_obj is not None else "null",
+                "figures": figures,
+                "datasets": {},
+                "workdir": str(working_dir),
+                "backend": "webr",
+            }
+        )
 
 
 webr_executor = WebRExecutor()
