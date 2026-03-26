@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 import secrets
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Awaitable, Callable
 
 from fastapi import FastAPI
@@ -22,6 +21,7 @@ from starlette.responses import Response
 
 from nini.api.auth_utils import is_request_authenticated
 from nini.config import settings, _get_bundle_web_dist_dir
+from nini.logging_config import bind_log_context, reset_log_context, setup_logging
 from nini.models.database import init_db
 from nini.tools.registry import create_default_tool_registry
 from nini.api.websocket import set_tool_registry
@@ -36,11 +36,11 @@ _WEB_DIST = _get_bundle_web_dist_dir()
 async def lifespan(app: FastAPI):
     """应用生命周期：启动/关闭时执行。"""
     # 启动
-    logging.basicConfig(
-        level=logging.DEBUG if settings.debug else logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    log_path = setup_logging()
+    app.state.log_file_path = log_path
     logger.info("Nini 启动中 ...")
+    if log_path is not None:
+        logger.info("日志文件已启用: %s", log_path)
 
     # 初始化数据库
     await init_db()
@@ -69,6 +69,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     """创建 FastAPI 应用实例。"""
+    setup_logging()
     app = FastAPI(
         title="Nini - 科研数据分析 AI Agent",
         version="0.1.0",
@@ -98,12 +99,26 @@ def create_app() -> FastAPI:
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         request_id = request.headers.get("X-Request-ID") or secrets.token_hex(8)
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        return response
+        token = bind_log_context(request_id=request_id)
+        try:
+            logger.info("处理 HTTP 请求: %s %s", request.method, request.url.path)
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+            logger.info(
+                "HTTP 请求处理完成: %s %s status=%s",
+                request.method,
+                request.url.path,
+                response.status_code,
+            )
+            return response
+        except Exception:
+            logger.exception("HTTP 请求处理异常: %s %s", request.method, request.url.path)
+            raise
+        finally:
+            reset_log_context(token)
 
     # 可选 API Key 认证中间件
     if settings.api_key:

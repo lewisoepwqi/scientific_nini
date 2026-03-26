@@ -157,6 +157,12 @@ class Settings(BaseSettings):
     app_name: str = "Nini"
     debug: bool = False
     data_dir: Path = _get_user_data_dir()
+    log_level: str | None = None
+    log_dir_path: str | None = None
+    log_file_name: str = "nini.log"
+    log_rotate_when: str = "midnight"
+    log_rotate_interval: int = 1
+    log_backup_count: int = 7
 
     # ---- 安全 ----
     api_key: str | None = None  # 设置后所有 API/WS 请求需携带此密钥
@@ -330,6 +336,20 @@ class Settings(BaseSettings):
         return self.data_dir / "uploads"
 
     @property
+    def logs_dir(self) -> Path:
+        if self.log_dir_path:
+            return Path(self.log_dir_path).expanduser()
+        return self.data_dir / "logs"
+
+    @property
+    def log_file_path(self) -> Path:
+        return self.logs_dir / self.log_file_name
+
+    @property
+    def effective_log_level(self) -> str:
+        return str(self.log_level or ("DEBUG" if self.debug else "INFO")).upper()
+
+    @property
     def sessions_dir(self) -> Path:
         return self.data_dir / "sessions"
 
@@ -417,6 +437,7 @@ class Settings(BaseSettings):
         """集中创建所有必要目录。在模块加载时及 data_dir 变更后调用。"""
         for d in (
             self.data_dir,
+            self.logs_dir,
             self.upload_dir,
             self.sessions_dir,
             self.db_path.parent,  # data/db/

@@ -22,6 +22,7 @@ from nini.agent.events import EventType
 from nini.agent.session import Session, session_manager
 from nini.agent.title_generator import generate_title
 from nini.harness.runner import HarnessRunner
+from nini.logging_config import bind_log_context, reset_log_context
 from nini.models.schemas import WSEvent
 from nini.recipe import RecipeDefinition, classify_task_request, get_recipe_registry
 from nini.tools.registry import ToolRegistry
@@ -78,6 +79,9 @@ async def websocket_agent(ws: WebSocket):
     if not is_websocket_authenticated(ws, _settings.api_key):
         await ws.close(code=4401, reason="未授权：需要有效的 API Key")
         return
+
+    connection_id = uuid.uuid4().hex[:12]
+    connection_token = bind_log_context(connection_id=connection_id)
 
     await ws.accept()
     logger.info("WebSocket 连接已建立")
@@ -370,6 +374,7 @@ async def websocket_agent(ws: WebSocket):
         append_user_message: bool,
         recipe: RecipeDefinition | None = None,
     ) -> None:
+        session_token = bind_log_context(session_id=session.id)
         runner = HarnessRunner(
             agent_runner=AgentRunner(
                 tool_registry=_tool_registry,
@@ -420,6 +425,7 @@ async def websocket_agent(ws: WebSocket):
         session.event_callback = _forward_session_event
 
         try:
+            logger.info("开始处理 WebSocket 会话消息")
             max_attempts = max(1, (recipe.recovery.max_retries + 1) if recipe else 1)
             current_attempt = 0
             milestones = {"tooling_started": False, "output_started": False}
@@ -692,6 +698,7 @@ async def websocket_agent(ws: WebSocket):
             # 从字典中移除该会话的任务和停止事件
             active_chat_tasks.pop(session.id, None)
             active_stop_events.pop(session.id, None)
+            reset_log_context(session_token)
 
     try:
         while True:
@@ -721,33 +728,38 @@ async def websocket_agent(ws: WebSocket):
             if msg_type == "stop":
                 stop_session_id = msg.get("session_id")
                 if stop_session_id:
+                    session_token = bind_log_context(session_id=str(stop_session_id))
                     # 停止指定会话的任务
-                    task = active_chat_tasks.get(stop_session_id)
-                    if task and not task.done():
-                        stop_ev = active_stop_events.get(stop_session_id)
-                        if stop_ev:
-                            stop_ev.set()
-                        task.cancel()
-                        with suppress(asyncio.CancelledError):
-                            await task
-                        _cancel_pending_questions(stop_session_id)
-                        stopped_session = _load_existing_session(stop_session_id)
-                        _trigger_memory_consolidation(stopped_session)
-                        await _send_event(
-                            ws,
-                            EventType.STOPPED.value,
-                            data="已停止当前请求",
-                            session_id=stop_session_id,
-                            active_stop_events=active_stop_events,
-                        )
-                    else:
-                        await _send_event(
-                            ws,
-                            EventType.STOPPED.value,
-                            data="当前没有进行中的请求",
-                            session_id=stop_session_id,
-                            active_stop_events=active_stop_events,
-                        )
+                    try:
+                        logger.info("处理 WebSocket 消息: type=stop")
+                        task = active_chat_tasks.get(stop_session_id)
+                        if task and not task.done():
+                            stop_ev = active_stop_events.get(stop_session_id)
+                            if stop_ev:
+                                stop_ev.set()
+                            task.cancel()
+                            with suppress(asyncio.CancelledError):
+                                await task
+                            _cancel_pending_questions(stop_session_id)
+                            stopped_session = _load_existing_session(stop_session_id)
+                            _trigger_memory_consolidation(stopped_session)
+                            await _send_event(
+                                ws,
+                                EventType.STOPPED.value,
+                                data="已停止当前请求",
+                                session_id=stop_session_id,
+                                active_stop_events=active_stop_events,
+                            )
+                        else:
+                            await _send_event(
+                                ws,
+                                EventType.STOPPED.value,
+                                data="当前没有进行中的请求",
+                                session_id=stop_session_id,
+                                active_stop_events=active_stop_events,
+                            )
+                    finally:
+                        reset_log_context(session_token)
                 else:
                     # 向后兼容：无 session_id 时停止所有运行中任务
                     if active_chat_tasks:
@@ -842,70 +854,75 @@ async def websocket_agent(ws: WebSocket):
                     )
                     continue
 
-                # 检查该会话是否已有运行中任务
-                existing_task = active_chat_tasks.get(session_id)
-                if existing_task and not existing_task.done():
+                session_token = bind_log_context(session_id=session_id)
+                try:
+                    logger.info("处理 WebSocket 消息: type=retry")
+                    # 检查该会话是否已有运行中任务
+                    existing_task = active_chat_tasks.get(session_id)
+                    if existing_task and not existing_task.done():
+                        await _send_event(
+                            ws,
+                            "error",
+                            data="当前有进行中的请求，请先停止后再重试",
+                            session_id=session_id,
+                            active_stop_events=active_stop_events,
+                        )
+                        continue
+
+                    retry_session = _load_existing_session(session_id)
+                    if retry_session is None:
+                        await _send_event(
+                            ws,
+                            "error",
+                            data="会话不存在，无法重试",
+                            session_id=session_id,
+                            active_stop_events=active_stop_events,
+                        )
+                        continue
+                    retry_content = retry_session.rollback_last_turn()
+                    append_user_message = False
+                    if not retry_content:
+                        raw_content = msg.get("content", "")
+                        retry_content = raw_content.strip() if isinstance(raw_content, str) else ""
+                        append_user_message = True
+
+                    if not retry_content:
+                        await _send_event(
+                            ws,
+                            "error",
+                            data="没有可重试的用户消息",
+                            session_id=session_id,
+                            active_stop_events=active_stop_events,
+                        )
+                        continue
+
+                    # 返回 session_id 方便客户端追踪
                     await _send_event(
                         ws,
-                        "error",
-                        data="当前有进行中的请求，请先停止后再重试",
-                        session_id=session_id,
+                        EventType.SESSION.value,
+                        data={
+                            "session_id": retry_session.id,
+                            "task_kind": retry_session.task_kind,
+                            "recipe_id": retry_session.recipe_id,
+                            "deep_task_state": retry_session.deep_task_state or None,
+                        },
+                        session_id=retry_session.id,
                         active_stop_events=active_stop_events,
                     )
-                    continue
 
-                retry_session = _load_existing_session(session_id)
-                if retry_session is None:
-                    await _send_event(
-                        ws,
-                        "error",
-                        data="会话不存在，无法重试",
-                        session_id=session_id,
-                        active_stop_events=active_stop_events,
+                    # 运行 Agent（后台任务，按 session_id 注册）
+                    stop_event = asyncio.Event()
+                    active_stop_events[retry_session.id] = stop_event
+                    active_chat_tasks[retry_session.id] = asyncio.create_task(
+                        _run_chat(
+                            retry_session,
+                            retry_content,
+                            append_user_message=append_user_message,
+                            recipe=recipe_registry.get(retry_session.recipe_id),
+                        )
                     )
-                    continue
-                retry_content = retry_session.rollback_last_turn()
-                append_user_message = False
-                if not retry_content:
-                    raw_content = msg.get("content", "")
-                    retry_content = raw_content.strip() if isinstance(raw_content, str) else ""
-                    append_user_message = True
-
-                if not retry_content:
-                    await _send_event(
-                        ws,
-                        "error",
-                        data="没有可重试的用户消息",
-                        session_id=session_id,
-                        active_stop_events=active_stop_events,
-                    )
-                    continue
-
-                # 返回 session_id 方便客户端追踪
-                await _send_event(
-                    ws,
-                    EventType.SESSION.value,
-                    data={
-                        "session_id": retry_session.id,
-                        "task_kind": retry_session.task_kind,
-                        "recipe_id": retry_session.recipe_id,
-                        "deep_task_state": retry_session.deep_task_state or None,
-                    },
-                    session_id=retry_session.id,
-                    active_stop_events=active_stop_events,
-                )
-
-                # 运行 Agent（后台任务，按 session_id 注册）
-                stop_event = asyncio.Event()
-                active_stop_events[retry_session.id] = stop_event
-                active_chat_tasks[retry_session.id] = asyncio.create_task(
-                    _run_chat(
-                        retry_session,
-                        retry_content,
-                        append_user_message=append_user_message,
-                        recipe=recipe_registry.get(retry_session.recipe_id),
-                    )
-                )
+                finally:
+                    reset_log_context(session_token)
                 continue
 
             if msg_type == "chat":
@@ -921,82 +938,89 @@ async def websocket_agent(ws: WebSocket):
 
                 session_id = msg.get("session_id")
                 chat_session = session_manager.get_or_create(session_id)
-                metadata = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
-                requested_recipe_id = str(metadata.get("recipe_id", "") or "").strip() or None
-                recipe_inputs = _normalize_recipe_inputs(metadata.get("recipe_inputs"))
-                explicit_recipe = recipe_registry.get(requested_recipe_id or chat_session.recipe_id)
-                classification = classify_task_request(
-                    content,
-                    explicit_recipe=explicit_recipe,
-                    registry=recipe_registry,
-                )
-                recommended_recipe_id = classification.get("recommended_recipe_id")
-                bound_recipe = (
-                    explicit_recipe if classification.get("task_kind") == "deep_task" else None
-                )
-                chat_session.bind_recipe_context(
-                    task_kind=str(classification.get("task_kind", "quick_task")),
-                    recipe_id=bound_recipe.recipe_id if bound_recipe is not None else None,
-                    recipe_inputs=recipe_inputs if bound_recipe is not None else {},
-                )
-                chat_session.deep_task_state = {}
-                if bound_recipe is not None:
-                    chat_session.deep_task_state = {
-                        "task_id": uuid.uuid4().hex[:12],
-                        "status": "queued",
-                        "current_step_index": 1,
-                        "total_steps": len(bound_recipe.steps),
-                        "current_step_title": bound_recipe.steps[0].title,
-                        "next_hint": "已创建 deep task，正在初始化工作区。",
-                        "retry_count": 0,
-                        "current_attempt_id": None,
-                    }
-                _persist_task_context(chat_session)
+                session_token = bind_log_context(session_id=chat_session.id)
+                try:
+                    logger.info("处理 WebSocket 消息: type=chat")
+                    metadata = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
+                    requested_recipe_id = str(metadata.get("recipe_id", "") or "").strip() or None
+                    recipe_inputs = _normalize_recipe_inputs(metadata.get("recipe_inputs"))
+                    explicit_recipe = recipe_registry.get(
+                        requested_recipe_id or chat_session.recipe_id
+                    )
+                    classification = classify_task_request(
+                        content,
+                        explicit_recipe=explicit_recipe,
+                        registry=recipe_registry,
+                    )
+                    recommended_recipe_id = classification.get("recommended_recipe_id")
+                    bound_recipe = (
+                        explicit_recipe if classification.get("task_kind") == "deep_task" else None
+                    )
+                    chat_session.bind_recipe_context(
+                        task_kind=str(classification.get("task_kind", "quick_task")),
+                        recipe_id=bound_recipe.recipe_id if bound_recipe is not None else None,
+                        recipe_inputs=recipe_inputs if bound_recipe is not None else {},
+                    )
+                    chat_session.deep_task_state = {}
+                    if bound_recipe is not None:
+                        chat_session.deep_task_state = {
+                            "task_id": uuid.uuid4().hex[:12],
+                            "status": "queued",
+                            "current_step_index": 1,
+                            "total_steps": len(bound_recipe.steps),
+                            "current_step_title": bound_recipe.steps[0].title,
+                            "next_hint": "已创建 deep task，正在初始化工作区。",
+                            "retry_count": 0,
+                            "current_attempt_id": None,
+                        }
+                    _persist_task_context(chat_session)
 
-                # 检查该会话是否已有运行中任务（不阻塞其他会话）
-                existing_task = active_chat_tasks.get(chat_session.id)
-                if existing_task and not existing_task.done():
+                    # 检查该会话是否已有运行中任务（不阻塞其他会话）
+                    existing_task = active_chat_tasks.get(chat_session.id)
+                    if existing_task and not existing_task.done():
+                        await _send_event(
+                            ws,
+                            "error",
+                            data="当前有进行中的请求，请等待完成或先停止",
+                            session_id=chat_session.id,
+                            active_stop_events=active_stop_events,
+                        )
+                        continue
+
+                    # 返回 session_id 方便客户端追踪
                     await _send_event(
                         ws,
-                        "error",
-                        data="当前有进行中的请求，请等待完成或先停止",
+                        EventType.SESSION.value,
+                        data={
+                            "session_id": chat_session.id,
+                            "task_kind": chat_session.task_kind,
+                            "recipe_id": chat_session.recipe_id,
+                            "deep_task_state": chat_session.deep_task_state or None,
+                            "recommended_recipe_id": recommended_recipe_id,
+                        },
                         session_id=chat_session.id,
                         active_stop_events=active_stop_events,
                     )
-                    continue
+                    if bound_recipe is not None:
+                        await _initialize_deep_task_workspace(chat_session, bound_recipe, content)
 
-                # 返回 session_id 方便客户端追踪
-                await _send_event(
-                    ws,
-                    EventType.SESSION.value,
-                    data={
-                        "session_id": chat_session.id,
-                        "task_kind": chat_session.task_kind,
-                        "recipe_id": chat_session.recipe_id,
-                        "deep_task_state": chat_session.deep_task_state or None,
-                        "recommended_recipe_id": recommended_recipe_id,
-                    },
-                    session_id=chat_session.id,
-                    active_stop_events=active_stop_events,
-                )
-                if bound_recipe is not None:
-                    await _initialize_deep_task_workspace(chat_session, bound_recipe, content)
-
-                # 运行 Agent（后台任务，按 session_id 注册）
-                stop_event = asyncio.Event()
-                active_stop_events[chat_session.id] = stop_event
-                active_chat_tasks[chat_session.id] = asyncio.create_task(
-                    _run_chat(
-                        chat_session,
-                        (
-                            bound_recipe.render_prompt(content, chat_session.recipe_inputs)
-                            if bound_recipe is not None
-                            else content
-                        ),
-                        append_user_message=True,
-                        recipe=bound_recipe,
+                    # 运行 Agent（后台任务，按 session_id 注册）
+                    stop_event = asyncio.Event()
+                    active_stop_events[chat_session.id] = stop_event
+                    active_chat_tasks[chat_session.id] = asyncio.create_task(
+                        _run_chat(
+                            chat_session,
+                            (
+                                bound_recipe.render_prompt(content, chat_session.recipe_inputs)
+                                if bound_recipe is not None
+                                else content
+                            ),
+                            append_user_message=True,
+                            recipe=bound_recipe,
+                        )
                     )
-                )
+                finally:
+                    reset_log_context(session_token)
                 continue
 
             await _send_event(
@@ -1039,6 +1063,7 @@ async def websocket_agent(ws: WebSocket):
             await keepalive_task
         except asyncio.CancelledError:
             pass
+        reset_log_context(connection_token)
 
 
 async def _auto_generate_title(ws: WebSocket, session: Any) -> None:
