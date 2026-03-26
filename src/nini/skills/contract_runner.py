@@ -109,6 +109,7 @@ class ContractRunner:
             step_records=step_records,
             total_ms=total_ms,
             error_message=abort_error,
+            evidence_chain=self._snapshot_evidence_chain(session),
         )
 
     def approve_review(self, step_id: str) -> None:
@@ -191,7 +192,8 @@ class ContractRunner:
         start_ms = time.monotonic()
 
         try:
-            await self._run_step_logic(step, session, inputs)
+            step_output = await self._run_step_logic(step, session, inputs)
+            self._collect_step_evidence(step, session, step_output)
             duration_ms = int((time.monotonic() - start_ms) * 1000)
             await self._emit(step, "completed", duration_ms=duration_ms)
             return StepExecutionRecord(
@@ -206,7 +208,8 @@ class ContractRunner:
                 # 重试一次
                 logger.info("步骤 '%s' 重试中...", step.id)
                 try:
-                    await self._run_step_logic(step, session, inputs)
+                    step_output = await self._run_step_logic(step, session, inputs)
+                    self._collect_step_evidence(step, session, step_output)
                     duration_ms = int((time.monotonic() - start_ms) * 1000)
                     await self._emit(step, "completed", duration_ms=duration_ms)
                     return StepExecutionRecord(
@@ -243,7 +246,7 @@ class ContractRunner:
 
     async def _run_step_logic(
         self, step: SkillStep, session: Any, inputs: dict[str, Any]
-    ) -> None:
+    ) -> Any:
         """执行步骤的实际逻辑（V1 占位实现，由子类或注入函数覆盖）。
 
         V1 中步骤的实际执行（调用 tool_hint 或 LLM 推理）由上层 AgentRunner
@@ -252,7 +255,202 @@ class ContractRunner:
         # V1 占位：如有注入的执行器则调用，否则直接返回（步骤视为成功）
         executor = getattr(self, "_step_executor", None)
         if executor is not None:
-            await executor(step, session, inputs)
+            return await executor(step, session, inputs)
+        return None
+
+    def _snapshot_evidence_chain(self, session: Any) -> Any:
+        """返回当前会话上的证据链快照。"""
+        if not self._contract.evidence_required or session is None:
+            return None
+        collector = getattr(session, "evidence_collector", None)
+        if collector is None:
+            return None
+        return collector.chain.model_copy(deep=True)
+
+    def _collect_step_evidence(self, step: SkillStep, session: Any, step_output: Any) -> None:
+        """在需要时根据步骤输出自动追加证据节点。"""
+        if not self._contract.evidence_required or session is None:
+            return
+
+        collector = getattr(session, "evidence_collector", None)
+        if collector is None:
+            return
+
+        payload = step_output if isinstance(step_output, dict) else {}
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+
+        try:
+            node_type = self._infer_evidence_node_type(step, payload, data, metadata)
+            parent_ids = self._resolve_parent_ids(collector, payload, data, metadata)
+            dataset_name = self._pick_string(payload, data, metadata, keys=("dataset_name", "dataset"))
+
+            if node_type == "data":
+                label = dataset_name or step.name
+                collector.add_data_node(
+                    label,
+                    source_ref=self._pick_string(payload, data, metadata, keys=("source_ref", "path")),
+                    metadata=self._build_evidence_metadata(step, payload, data, metadata),
+                )
+                return
+
+            if dataset_name and not parent_ids and node_type in {"analysis", "chart", "conclusion"}:
+                matching_data_nodes = collector.find_nodes(dataset_name, node_type="data")
+                data_node = matching_data_nodes[-1] if matching_data_nodes else collector.add_data_node(
+                    dataset_name
+                )
+                parent_ids = [data_node.id]
+
+            if node_type == "chart":
+                chart_label = self._pick_string(
+                    payload,
+                    data,
+                    metadata,
+                    keys=("chart_path", "artifact_path", "path", "chart_title"),
+                ) or step.name
+                collector.add_chart_node(
+                    chart_label,
+                    parent_ids=parent_ids or collector.latest_node_ids("analysis", "data"),
+                    metadata=self._build_evidence_metadata(step, payload, data, metadata),
+                )
+                return
+
+            if node_type == "conclusion":
+                claim = self._pick_string(
+                    payload,
+                    data,
+                    metadata,
+                    keys=("claim", "conclusion", "summary", "message"),
+                ) or step.description
+                collector.add_conclusion_node(
+                    claim,
+                    parent_ids=parent_ids
+                    or collector.latest_node_ids("analysis", "chart", "data", "result"),
+                    metadata=self._build_evidence_metadata(step, payload, data, metadata),
+                )
+                return
+
+            params = self._pick_mapping(payload, data, metadata, keys=("params", "arguments", "inputs"))
+            result_ref = self._pick_string(
+                payload,
+                data,
+                metadata,
+                keys=("result_ref", "source_ref", "resource_id"),
+            )
+            collector.add_analysis_node(
+                step.tool_hint or step.name,
+                params=params,
+                result_ref=result_ref,
+                parent_ids=parent_ids or collector.latest_node_ids("analysis", "data", "chart"),
+                label=self._pick_string(
+                    payload,
+                    data,
+                    metadata,
+                    keys=("label", "summary", "message"),
+                )
+                or step.name,
+                metadata=self._build_evidence_metadata(step, payload, data, metadata),
+            )
+        except Exception as exc:
+            logger.warning("步骤 '%s' 证据收集失败: %s", step.id, exc)
+
+    def _infer_evidence_node_type(
+        self,
+        step: SkillStep,
+        payload: dict[str, Any],
+        data: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> str:
+        explicit_type = self._pick_string(
+            payload,
+            data,
+            metadata,
+            keys=("evidence_node_type", "node_type", "resource_type"),
+        )
+        if explicit_type in {"data", "analysis", "result", "chart", "conclusion"}:
+            return explicit_type
+
+        tool_hint = (step.tool_hint or "").lower()
+        if any(
+            self._pick_string(payload, data, metadata, keys=(key,))
+            for key in ("claim", "conclusion", "claim_summary")
+        ):
+            return "conclusion"
+        if payload.get("has_chart") or any(
+            token in tool_hint for token in ("chart", "plot", "visual", "graph")
+        ):
+            return "chart"
+        if any(token in tool_hint for token in ("dataset", "load", "data_catalog")):
+            return "data"
+        return "analysis"
+
+    def _resolve_parent_ids(
+        self,
+        collector: Any,
+        payload: dict[str, Any],
+        data: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> list[str]:
+        raw_parent_ids = None
+        for source in (payload, data, metadata):
+            candidate = source.get("parent_ids")
+            if isinstance(candidate, list):
+                raw_parent_ids = candidate
+                break
+        if raw_parent_ids is None:
+            return []
+        return [
+            str(parent_id)
+            for parent_id in raw_parent_ids
+            if isinstance(parent_id, str) and parent_id in {node.id for node in collector.chain.nodes}
+        ]
+
+    def _build_evidence_metadata(
+        self,
+        step: SkillStep,
+        payload: dict[str, Any],
+        data: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        evidence_metadata: dict[str, Any] = {
+            "step_id": step.id,
+            "step_name": step.name,
+        }
+        if step.tool_hint:
+            evidence_metadata["tool_hint"] = step.tool_hint
+        params = self._pick_mapping(payload, data, metadata, keys=("params", "arguments", "inputs"))
+        if params:
+            evidence_metadata["params"] = params
+        for source in (metadata, data, payload):
+            for key in ("resource_type", "result_ref", "chart_path", "dataset_name"):
+                value = source.get(key)
+                if value is not None:
+                    evidence_metadata.setdefault(key, value)
+        return evidence_metadata
+
+    @staticmethod
+    def _pick_string(
+        *sources: dict[str, Any],
+        keys: tuple[str, ...],
+    ) -> str | None:
+        for source in sources:
+            for key in keys:
+                value = source.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return None
+
+    @staticmethod
+    def _pick_mapping(
+        *sources: dict[str, Any],
+        keys: tuple[str, ...],
+    ) -> dict[str, Any]:
+        for source in sources:
+            for key in keys:
+                value = source.get(key)
+                if isinstance(value, dict):
+                    return value
+        return {}
 
     async def _wait_for_review(self, step: SkillStep) -> bool:
         """阻塞等待用户确认 review_gate，超时返回 False。"""

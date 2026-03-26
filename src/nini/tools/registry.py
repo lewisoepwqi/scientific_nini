@@ -53,6 +53,7 @@ from nini.tools.analysis_memory_tool import AnalysisMemoryTool
 from nini.tools.dispatch_agents import DispatchAgentsTool
 from nini.tools.search_archive import SearchMemoryArchiveTool
 from nini.tools.profile_notes import UpdateProfileNotesTool
+from nini.tools.query_evidence import QueryEvidenceTool
 from nini.tools.search_tools import SearchToolsTool
 from nini.tools.workspace_session import WorkspaceSessionTool
 from nini.tools.guardrails import DangerousPatternGuardrail, GuardrailAction, ToolGuardrail
@@ -332,6 +333,7 @@ def create_default_tool_registry(*, plugin_registry: Any | None = None) -> ToolR
     registry.register(EditFile())
     registry.register(WorkspaceSessionTool())
     registry.register(AnalysisMemoryTool())
+    registry.register(QueryEvidenceTool())
     registry.register(SearchMemoryArchiveTool())
     registry.register(UpdateProfileNotesTool())
     # search_tools 作为隐藏工具的发现入口，注册时传入 registry 自身引用

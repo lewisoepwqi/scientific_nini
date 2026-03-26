@@ -11,6 +11,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from nini.models.risk import TrustLevel
+from nini.models.session_resources import EvidenceChain
 
 # 信任等级排序（数值越大等级越高）
 _TRUST_ORDER: dict[TrustLevel, int] = {
@@ -113,3 +114,4 @@ class ContractResult(BaseModel):
     )
     total_ms: int | None = Field(None, description="总耗时（毫秒）")
     error_message: str | None = Field(None, description="整体失败时的错误信息")
+    evidence_chain: EvidenceChain | None = Field(default=None, description="证据链快照")
