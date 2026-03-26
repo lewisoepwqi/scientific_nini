@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-Nini 是一个本地优先的科研数据分析 AI Agent。用户通过对话上传并分析数据，Agent 自动调用统计、作图、清洗、代码执行与报告生成技能。单进程同时提供 HTTP API、WebSocket Agent 交互和前端静态文件。
+Nini 是一个本地优先的科研全流程 AI 研究伙伴。用户通过对话上传并分析数据，Agent 自动调用统计、作图、清洗、代码执行与报告生成技能，同时提供文献调研、实验设计、论文写作等科研全阶段的框架性引导，核心优势在数据分析阶段。单进程同时提供 HTTP API、WebSocket Agent 交互和前端静态文件。
 
 ## 常用命令
 
