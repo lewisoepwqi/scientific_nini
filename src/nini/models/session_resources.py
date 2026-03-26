@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -143,6 +144,31 @@ class EvidenceBlock(BaseModel):
     confidence_score: float = Field(default=0.0, description="置信度评分")
     reason_summary: str = Field(default="", description="状态原因摘要")
     conflict_summary: str | None = Field(default=None, description="冲突摘要")
+
+
+EvidenceNodeType = Literal["data", "analysis", "result", "chart", "conclusion"]
+
+
+class EvidenceNode(BaseModel):
+    """证据链节点。"""
+
+    id: str = Field(min_length=1, description="节点 ID")
+    node_type: EvidenceNodeType = Field(description="节点类型")
+    label: str = Field(min_length=1, description="节点描述")
+    source_ref: str | None = Field(default=None, description="来源引用")
+    parent_ids: list[str] = Field(default_factory=list, description="上游节点 ID 列表")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="附加信息")
+
+
+class EvidenceChain(BaseModel):
+    """会话级证据链。"""
+
+    session_id: str = Field(min_length=1, description="所属会话 ID")
+    nodes: list[EvidenceNode] = Field(default_factory=list, description="证据节点列表")
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="创建时间",
+    )
 
 
 class ClaimVerificationCandidate(BaseModel):

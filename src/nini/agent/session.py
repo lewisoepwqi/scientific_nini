@@ -51,13 +51,17 @@ class Session:
     conversation_memory: ConversationMemory = field(init=False, repr=False)
     knowledge_memory: KnowledgeMemory = field(init=False, repr=False)
     task_manager: TaskManager = field(init=False, repr=False)
+    evidence_collector: Any = field(init=False, repr=False)
     # 工具执行期间的事件回调，允许工具流式发送进度更新
     event_callback: Any = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
+        from nini.agent.evidence_collector import EvidenceCollector
+
         self.conversation_memory = ConversationMemory(self.id)
         self.knowledge_memory = KnowledgeMemory(self.id)
         self.task_manager = TaskManager()
+        self.evidence_collector = EvidenceCollector(self.id)
         # 防御：meta.json 中 null 值或类型错误时重置为空列表
         if not isinstance(self.compression_segments, list):
             self.compression_segments = []
