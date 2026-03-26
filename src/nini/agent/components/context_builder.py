@@ -48,9 +48,18 @@ from nini.memory.research_profile import (
     DEFAULT_RESEARCH_PROFILE_ID,
     get_research_profile_manager,
 )
+from nini.models.risk import ResearchPhase
+from nini.tools.detect_phase import detect_phase_from_text
 from nini.utils.token_counter import count_messages_tokens
 
 logger = logging.getLogger(__name__)
+
+
+_PHASE_SKILL_MAP: dict[ResearchPhase, tuple[str, ...]] = {
+    ResearchPhase.EXPERIMENT_DESIGN: ("experiment-design-helper",),
+    ResearchPhase.LITERATURE_REVIEW: ("literature-review",),
+    ResearchPhase.PAPER_WRITING: ("writing-guide",),
+}
 
 
 def _get_intent_analyzer():
@@ -139,6 +148,10 @@ class ContextBuilder:
         )
         if intent_runtime_context:
             context_parts.append(intent_runtime_context)
+
+        phase_runtime_context = self.build_phase_runtime_context(last_user_msg)
+        if phase_runtime_context:
+            context_parts.append(phase_runtime_context)
 
         harness_runtime_context = str(getattr(session, "harness_runtime_context", "") or "").strip()
         if harness_runtime_context:
@@ -326,6 +339,32 @@ class ContextBuilder:
             intent_analysis=intent_analysis,
         )
 
+    def build_phase_runtime_context(self, user_message: str) -> str:
+        """构建研究阶段导航上下文。"""
+        if not user_message:
+            return ""
+
+        current_phase, confidence, _matched_keywords = detect_phase_from_text(user_message)
+
+        recommended_capabilities = [
+            cap.name
+            for cap in create_default_capabilities()
+            if cap.phase == current_phase
+            or (current_phase == ResearchPhase.DATA_ANALYSIS and cap.phase is None)
+        ]
+        recommended_skills = self._get_phase_matched_skills(current_phase)
+
+        parts = [
+            f"- current_phase: {current_phase.value}",
+            f"- phase_confidence: {confidence:.2f}",
+        ]
+        if recommended_capabilities:
+            parts.append("- recommended_capabilities: " + ", ".join(recommended_capabilities))
+        if recommended_skills:
+            parts.append("- recommended_skills: " + ", ".join(recommended_skills))
+
+        return format_untrusted_context_block("phase_navigation", "\n".join(parts))
+
     def _match_tools_by_context(self, user_message: str) -> list[dict[str, Any]]:
         """Match Markdown Skills by checking user message against aliases, tags, and name."""
         return match_tools_by_context(
@@ -337,6 +376,26 @@ class ContextBuilder:
     def _build_tool_runtime_resources_note(self, tool_name: str) -> str:
         """Build skill runtime resources note."""
         return build_tool_runtime_resources_note(self._tool_registry, tool_name)
+
+    def _get_phase_matched_skills(self, current_phase: ResearchPhase) -> list[str]:
+        """返回与当前阶段匹配的 Markdown Skill 名称。"""
+        if self._tool_registry is None or not hasattr(self._tool_registry, "list_markdown_tools"):
+            return list(_PHASE_SKILL_MAP.get(current_phase, ()))
+
+        markdown_items = self._tool_registry.list_markdown_tools()
+        if not isinstance(markdown_items, list):
+            return list(_PHASE_SKILL_MAP.get(current_phase, ()))
+
+        enabled_names = {
+            str(item.get("name", "")).strip()
+            for item in markdown_items
+            if isinstance(item, dict) and bool(item.get("enabled", True))
+        }
+        return [
+            skill_name
+            for skill_name in _PHASE_SKILL_MAP.get(current_phase, ())
+            if skill_name in enabled_names
+        ]
 
     @classmethod
     def _discover_agents_md(cls) -> str:

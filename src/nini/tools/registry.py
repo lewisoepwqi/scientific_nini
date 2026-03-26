@@ -16,6 +16,7 @@ from nini.tools.collect_artifacts import CollectArtifactsTool
 from nini.tools.dataset_catalog import DatasetCatalogTool
 from nini.tools.data_ops import DataSummaryTool, LoadDatasetTool
 from nini.tools.dataset_transform import DatasetTransformTool
+from nini.tools.detect_phase import DetectPhaseTool
 from nini.tools.edit_file import EditFile
 from nini.tools.export import ExportChartTool
 from nini.tools.export_document import ExportDocumentTool
@@ -290,6 +291,7 @@ def create_default_tool_registry(*, plugin_registry: Any | None = None) -> ToolR
     registry.register(DataSummaryTool())
     registry.register(DatasetCatalogTool())
     registry.register(DatasetTransformTool())
+    registry.register(DetectPhaseTool())
     # 保留原子统计工具：被 fallback.py 和 planner.py 硬编码引用
     registry.register(TTestTool())
     registry.register(MannWhitneyTool())
