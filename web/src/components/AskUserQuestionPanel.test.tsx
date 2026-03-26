@@ -77,14 +77,16 @@ describe("AskUserQuestionPanel", () => {
     expect(screen.getByDisplayValue("请附带 SVG 图表")).toBeInTheDocument();
   });
 
-  it("提交时若存在未完成题应跳转到首个未完成题", () => {
+  it("未完成全部问题前应禁用提交按钮", () => {
     render(<AskUserQuestionPanel pending={buildPending()} onSubmit={vi.fn()} />);
 
-    fireEvent.click(getOptionRadio("最近30天"));
-    fireEvent.click(screen.getByRole("button", { name: "提交回答并继续" }));
+    const submitButton = screen.getByRole("button", { name: "提交回答并继续" });
+    expect(submitButton).toBeDisabled();
+    expect(screen.getByText("还需完成 3 题后才可提交")).toBeInTheDocument();
 
-    expect(screen.getByText("结果需要什么输出格式？")).toBeInTheDocument();
-    expect(screen.getByText("请先完成该问题")).toBeInTheDocument();
+    fireEvent.click(getOptionRadio("最近30天"));
+    expect(submitButton).toBeDisabled();
+    expect(screen.getByText("还需完成 2 题后才可提交")).toBeInTheDocument();
   });
 
   it("全部回答后应提交所有答案", () => {
@@ -102,6 +104,29 @@ describe("AskUserQuestionPanel", () => {
       "你希望分析哪个数据范围？": "最近90天",
       "结果需要什么输出格式？": "Markdown 报告",
       "是否确认覆盖现有文件？": "确认覆盖",
+    });
+  });
+
+  it("跳过当前题后应计入完成状态，并以已跳过提交", () => {
+    const onSubmit = vi.fn();
+    render(<AskUserQuestionPanel pending={buildPending()} onSubmit={onSubmit} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "跳过此题" }));
+    expect(screen.getByRole("tab", { name: /数据范围已跳过/u })).toBeInTheDocument();
+    expect(screen.getByText("结果需要什么输出格式？")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "跳过此题" }));
+    fireEvent.click(screen.getByRole("button", { name: "跳过此题" }));
+
+    const submitButton = screen.getByRole("button", { name: "提交回答并继续" });
+    expect(submitButton).toBeEnabled();
+
+    fireEvent.click(submitButton);
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      "你希望分析哪个数据范围？": "已跳过",
+      "结果需要什么输出格式？": "已跳过",
+      "是否确认覆盖现有文件？": "已跳过",
     });
   });
 });

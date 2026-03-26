@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { PendingAskUserQuestion, QuestionType } from "../store";
 
+const SKIPPED_ANSWER_VALUE = "已跳过";
+
 interface AskUserQuestionPanelProps {
   pending: PendingAskUserQuestion;
   onSubmit: (answers: Record<string, string>) => void;
@@ -13,12 +15,14 @@ export default function AskUserQuestionPanel({
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedMap, setSelectedMap] = useState<Record<number, string[]>>({});
   const [textMap, setTextMap] = useState<Record<number, string>>({});
+  const [skippedMap, setSkippedMap] = useState<Record<number, boolean>>({});
   const [errors, setErrors] = useState<Record<number, string>>({});
 
   useEffect(() => {
     setActiveIndex(0);
     setSelectedMap({});
     setTextMap({});
+    setSkippedMap({});
     setErrors({});
   }, [pending.toolCallId]);
 
@@ -26,14 +30,17 @@ export default function AskUserQuestionPanel({
 
   const completionMap = useMemo(() => {
     return pending.questions.map((question, index) => {
+      if (skippedMap[index]) return true;
       const selected = selectedMap[index] || [];
       const text = (textMap[index] || "").trim();
       if (question.multiSelect) return selected.length > 0 || Boolean(text);
       return Boolean(selected[0]) || Boolean(text);
     });
-  }, [pending.questions, selectedMap, textMap]);
+  }, [pending.questions, selectedMap, skippedMap, textMap]);
   const completedCount = completionMap.filter(Boolean).length;
+  const isAllCompleted = completedCount === questionCount;
   const activeQuestion = pending.questions[activeIndex];
+  const isActiveSkipped = Boolean(skippedMap[activeIndex]);
 
   const toggleMultiOption = (questionIndex: number, label: string) => {
     setSelectedMap((prev) => {
@@ -49,26 +56,43 @@ export default function AskUserQuestionPanel({
         [questionIndex]: [...prevSelected, label],
       };
     });
+    setSkippedMap((prev) => ({ ...prev, [questionIndex]: false }));
     setErrors((prev) => ({ ...prev, [questionIndex]: "" }));
   };
 
   const setSingleOption = (questionIndex: number, label: string) => {
     setSelectedMap((prev) => ({ ...prev, [questionIndex]: [label] }));
+    setSkippedMap((prev) => ({ ...prev, [questionIndex]: false }));
     setErrors((prev) => ({ ...prev, [questionIndex]: "" }));
   };
 
   const setTextAnswer = (questionIndex: number, value: string) => {
     setTextMap((prev) => ({ ...prev, [questionIndex]: value }));
+    setSkippedMap((prev) => ({ ...prev, [questionIndex]: false }));
     if (value.trim()) {
       setErrors((prev) => ({ ...prev, [questionIndex]: "" }));
     }
   };
 
+  const skipCurrentQuestion = () => {
+    setSkippedMap((prev) => ({ ...prev, [activeIndex]: true }));
+    setErrors((prev) => ({ ...prev, [activeIndex]: "" }));
+    if (activeIndex < questionCount - 1) {
+      setActiveIndex(activeIndex + 1);
+    }
+  };
+
   const handleSubmit = () => {
+    if (!isAllCompleted) return;
+
     const nextErrors: Record<number, string> = {};
     const answers: Record<string, string> = {};
 
     pending.questions.forEach((question, index) => {
+      if (skippedMap[index]) {
+        answers[question.question] = SKIPPED_ANSWER_VALUE;
+        return;
+      }
       const selected = selectedMap[index] || [];
       const text = (textMap[index] || "").trim();
       let answer = "";
@@ -128,6 +152,9 @@ export default function AskUserQuestionPanel({
     if (index === activeIndex) {
       return "border-blue-400 bg-blue-50 text-blue-700 shadow-sm";
     }
+    if (skippedMap[index]) {
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    }
     if (completionMap[index]) {
       return "border-emerald-200 bg-emerald-50 text-emerald-700";
     }
@@ -170,7 +197,9 @@ export default function AskUserQuestionPanel({
                   {question.header || question.question}
                 </span>
                 {completionMap[index] && (
-                  <span className="shrink-0 text-[11px] font-semibold">已答</span>
+                  <span className="shrink-0 text-[11px] font-semibold">
+                    {skippedMap[index] ? "已跳过" : "已答"}
+                  </span>
                 )}
                 {errors[index] && (
                   <span className="shrink-0 text-[11px] font-semibold">未完成</span>
@@ -202,6 +231,12 @@ export default function AskUserQuestionPanel({
               )}
               <div className="text-sm font-medium text-gray-900">{activeQuestion.question}</div>
             </div>
+
+            {isActiveSkipped && (
+              <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                当前问题已跳过；你仍可返回补充回答。
+              </div>
+            )}
 
             <div className="space-y-2">
               {activeQuestion.options.map((option) => {
@@ -266,14 +301,31 @@ export default function AskUserQuestionPanel({
             >
               下一题
             </button>
+            {!completionMap[activeIndex] && (
+              <button
+                type="button"
+                onClick={skipCurrentQuestion}
+                className="rounded-lg px-2 py-1 text-xs font-medium text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600"
+              >
+                跳过此题
+              </button>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
-          >
-            提交回答并继续
-          </button>
+          <div className="flex flex-col items-end gap-1">
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!isAllCompleted}
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+            >
+              提交回答并继续
+            </button>
+            {!isAllCompleted && (
+              <div className="text-[11px] text-gray-400">
+                还需完成 {questionCount - completedCount} 题后才可提交
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
