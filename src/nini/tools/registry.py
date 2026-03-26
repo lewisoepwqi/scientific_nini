@@ -37,6 +37,7 @@ from nini.tools.statistics import (
 from nini.tools.stat_interpret import StatInterpretTool
 from nini.tools.stat_model import StatModelTool
 from nini.tools.sample_size import SampleSizeTool
+from nini.tools.search_literature import SearchLiteratureTool
 from nini.tools.stat_test import StatTestTool
 from nini.tools.task_write import TaskWriteTool
 from nini.tools.task_state import TaskStateTool
@@ -68,6 +69,7 @@ LLM_EXPOSED_BASE_TOOL_NAMES = {
     "workspace_session",
     "code_session",
     "generate_widget",
+    "search_literature",
     # search_tools 是 LLM 发现隐藏工具的入口，必须对 LLM 可见
     "search_tools",
 }
@@ -277,7 +279,7 @@ class ToolRegistry:
         return FunctionToolRegistryOps._run_tool_coroutine(skill, session, kwargs)
 
 
-def create_default_tool_registry() -> ToolRegistry:
+def create_default_tool_registry(*, plugin_registry: Any | None = None) -> ToolRegistry:
     """创建并注册默认工具集(Tools)。"""
     registry = ToolRegistry()
     registry.register(TaskWriteTool())
@@ -317,6 +319,7 @@ def create_default_tool_registry() -> ToolRegistry:
     registry.register(OrganizeWorkspaceTool())
     registry.register(FetchURLTool())
     registry.register(GenerateWidgetTool())
+    registry.register(SearchLiteratureTool(plugin_registry=plugin_registry))
     registry.register(CompleteComparisonTool())
     registry.register(CompleteANOVATool())
     registry.register(CorrelationAnalysisTool())
