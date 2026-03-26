@@ -842,15 +842,27 @@ describe("handleEvent 文本去重", () => {
               {
                 question: "你更关注哪类结果？",
                 header: "分析偏好",
+                options: [
+                  {
+                    label: "effect_size",
+                    description: "效应量与置信区间",
+                  },
+                ],
               },
               {
                 question: "还需要补充什么要求？",
                 header: "补充要求",
+                options: [
+                  {
+                    label: "confidence_interval",
+                    description: "请同时报告置信区间",
+                  },
+                ],
               },
             ],
             answers: {
-              "你更关注哪类结果？": "效应量",
-              "还需要补充什么要求？": "请同时报告置信区间",
+              "你更关注哪类结果？": "effect_size",
+              "还需要补充什么要求？": "confidence_interval",
             },
           },
         },
@@ -867,13 +879,13 @@ describe("handleEvent 文本去重", () => {
     const toolResult = harness.getState().messages[0]?.toolResult || "";
     // 验证先展示问题，再展示回答（用 → 标记）
     expect(toolResult).toContain("分析偏好：你更关注哪类结果？");
-    expect(toolResult).toContain("→ 效应量");
+    expect(toolResult).toContain("→ 效应量与置信区间");
     expect(toolResult).toContain("补充要求：还需要补充什么要求？");
     expect(toolResult).toContain("→ 请同时报告置信区间");
 
     // 验证问题出现在答案之前（通过索引位置判断）
     const questionIndex = toolResult.indexOf("你更关注哪类结果？");
-    const answerIndex = toolResult.indexOf("→ 效应量");
+    const answerIndex = toolResult.indexOf("→ 效应量与置信区间");
     expect(questionIndex).toBeLessThan(answerIndex);
   });
 

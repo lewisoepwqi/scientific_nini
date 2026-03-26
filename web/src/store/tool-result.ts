@@ -45,6 +45,40 @@ function extractWidgetPayload(
   };
 }
 
+function resolveAnswerDisplayValues(
+  item: Record<string, unknown>,
+  rawAnswer: string,
+): string[] {
+  const answer = rawAnswer.trim();
+  if (!answer) return [];
+
+  const rawOptions = Array.isArray(item.options) ? item.options : [];
+  const optionMap = new Map<string, string>();
+
+  rawOptions.forEach((option) => {
+    if (!isRecord(option)) return;
+    const label = typeof option.label === "string" ? option.label.trim() : "";
+    const description =
+      typeof option.description === "string" ? option.description.trim() : "";
+    if (!label) return;
+    optionMap.set(label, description || label);
+  });
+
+  const multiSelect = item.multiSelect === true;
+  if (!multiSelect) {
+    return [optionMap.get(answer) || answer];
+  }
+
+  const parts = answer
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) return [];
+
+  return parts.map((part) => optionMap.get(part) || part);
+}
+
 function formatAskUserQuestionResult(parsed: Record<string, unknown>): string | null {
   const data = isRecord(parsed.data) ? parsed.data : null;
   if (!data) return null;
@@ -75,6 +109,8 @@ function formatAskUserQuestionResult(parsed: Record<string, unknown>): string | 
       }
     }
     if (!answer) return;
+    const answerDisplayValues = resolveAnswerDisplayValues(item, answer);
+    if (answerDisplayValues.length === 0) return;
 
     // 先展示问题，再展示用户回答
     if (header && question) {
@@ -87,7 +123,9 @@ function formatAskUserQuestionResult(parsed: Record<string, unknown>): string | 
     } else {
       lines.push(`${fallbackLabel}`);
     }
-    lines.push(`→ ${answer}`);
+    answerDisplayValues.forEach((value) => {
+      lines.push(`→ ${value}`);
+    });
 
     // 多个问题之间加空行分隔
     if (index < rawQuestions.length - 1) {

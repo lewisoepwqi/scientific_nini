@@ -199,6 +199,94 @@ def test_websocket_ask_user_question_text_is_not_duplicated(
     assert "收到，继续分析。" in text_events
 
 
+def test_websocket_ask_user_question_does_not_repeat_after_answer(
+    app_with_temp_data,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ask_user_question 返回答案后，后续轮次不应因历史上下文污染而再次重复提问。"""
+    call_state = {"count": 0}
+
+    async def fake_chat(messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        call_state["count"] += 1
+        if call_state["count"] == 1:
+            yield LLMChunk(
+                text="我先确认实验设计约束。",
+                tool_calls=[
+                    {
+                        "id": "tool-ask-repeat-1",
+                        "type": "function",
+                        "function": {
+                            "name": "ask_user_question",
+                            "arguments": json.dumps(
+                                {
+                                    "questions": [
+                                        {
+                                            "question": "请选择样本量状态",
+                                            "header": "对象与样本",
+                                            "options": [
+                                                {
+                                                    "label": "物种已定，样本量待定",
+                                                    "description": "尚未确定样本量，需要功效分析。",
+                                                },
+                                                {
+                                                    "label": "完全未定，需要从零规划",
+                                                    "description": "需从物种和样本量一起规划。",
+                                                },
+                                            ],
+                                            "multiSelect": False,
+                                        }
+                                    ]
+                                },
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+                finish_reason="tool_calls",
+            )
+            return
+
+        joined = "\n".join(str(m.get("content") or "") for m in messages)
+        assert "当前只需先通过 ask_user_question" not in joined
+        assert "我先确认实验设计约束" not in joined
+        assert "ask_user_question 已完成，用户回答如下" in joined
+
+        yield LLMChunk(text="已基于你的回答继续生成实验与统计计划。")
+
+    monkeypatch.setattr(model_resolver, "chat", fake_chat)
+
+    with live_websocket_connect(app_with_temp_data, "/ws") as ws:
+        ws.send_text(json.dumps({"type": "chat", "content": "请给我实验设计和统计计划"}))
+
+        events = []
+        ask_count = 0
+        for _ in range(24):
+            evt = ws.receive_json()
+            events.append(evt)
+            if evt["type"] == "ask_user_question":
+                ask_count += 1
+                ws.send_text(
+                    json.dumps(
+                        {
+                            "type": "ask_user_question_answer",
+                            "tool_call_id": evt.get("tool_call_id"),
+                            "answers": {
+                                "请选择样本量状态": "物种已定，样本量待定",
+                            },
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+            if evt["type"] in {"done", "error"}:
+                break
+
+    assert ask_count == 1
+    assert any(
+        evt["type"] == "text" and evt.get("data") == "已基于你的回答继续生成实验与统计计划。"
+        for evt in events
+    )
+
+
 def test_websocket_file_name_confirmation_is_converted_to_ask_user_question(
     app_with_temp_data,
     monkeypatch: pytest.MonkeyPatch,

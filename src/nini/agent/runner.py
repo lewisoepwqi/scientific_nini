@@ -76,6 +76,9 @@ logger = logging.getLogger(__name__)
 
 # 仅主 Agent 可调用的 Orchestrator 工具集（子 Agent 不暴露，防止递归派发）
 ORCHESTRATOR_TOOL_NAMES: frozenset[str] = frozenset({"dispatch_agents"})
+GENERIC_ASK_OPTION_LABEL_RE = re.compile(
+    r"^(?:[A-Da-d]|[1-4]|选项[一二三四1234A-Da-d]?|方案[一二三四1234A-Da-d]?)$"
+)
 
 # 兼容别名：测试通过下划线前缀名称访问此函数
 _replace_arguments = replace_arguments
@@ -2622,7 +2625,10 @@ class AgentRunner:
             "type": "function",
             "function": {
                 "name": "ask_user_question",
-                "description": ("向用户发起 1-4 个澄清问题，等待用户完成回答后继续任务。"),
+                "description": (
+                    "向用户发起 1-4 个澄清问题，等待用户完成回答后继续任务。"
+                    " options.label 必须是短标题，options.description 必须是消除歧义的完整说明。"
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -2634,23 +2640,48 @@ class AgentRunner:
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "question": {"type": "string"},
-                                    "header": {"type": "string"},
+                                    "question": {
+                                        "type": "string",
+                                        "description": "用户真正要回答的问题文本。",
+                                    },
+                                    "header": {
+                                        "type": "string",
+                                        "description": "问题分组标题，建议为 2-6 个字的主题短语。",
+                                    },
                                     "options": {
                                         "type": "array",
                                         "minItems": 2,
                                         "maxItems": 4,
+                                        "description": (
+                                            "候选选项。label 用于短标题展示，description 用于解释该选项的具体含义。"
+                                        ),
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "label": {"type": "string"},
-                                                "description": {"type": "string"},
+                                                "label": {
+                                                    "type": "string",
+                                                    "description": (
+                                                        "短标题/总结性短语。禁止使用 A/B/C、1/2/3、选项一 等占位写法。"
+                                                    ),
+                                                },
+                                                "description": {
+                                                    "type": "string",
+                                                    "description": (
+                                                        "消除歧义的完整说明，解释选择该项后意味着什么，不能仅重复 label。"
+                                                    ),
+                                                },
                                             },
                                             "required": ["label", "description"],
                                         },
                                     },
-                                    "multiSelect": {"type": "boolean"},
-                                    "allowTextInput": {"type": "boolean"},
+                                    "multiSelect": {
+                                        "type": "boolean",
+                                        "description": "是否允许同一问题多选。",
+                                    },
+                                    "allowTextInput": {
+                                        "type": "boolean",
+                                        "description": "是否允许用户额外输入自由文本。",
+                                    },
                                 },
                                 "required": ["question", "options"],
                             },
@@ -2700,6 +2731,16 @@ class AgentRunner:
                     return None, f"第 {q_idx} 个问题的第 {opt_idx} 个选项缺少 label。"
                 if not description:
                     return None, f"第 {q_idx} 个问题的第 {opt_idx} 个选项缺少 description。"
+                if GENERIC_ASK_OPTION_LABEL_RE.fullmatch(label):
+                    return (
+                        None,
+                        f"第 {q_idx} 个问题的第 {opt_idx} 个选项 label 不能使用 A/B/C、1/2/3 或“选项一/方案一”这类占位标题。",
+                    )
+                if label == description:
+                    return (
+                        None,
+                        f"第 {q_idx} 个问题的第 {opt_idx} 个选项 description 不能与 label 完全相同。",
+                    )
                 normalized_options.append(
                     {
                         "label": label,

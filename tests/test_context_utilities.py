@@ -313,7 +313,6 @@ def test_prepare_messages_for_llm_replays_multiturn_tool_history_without_local_m
 
     assert prepared == [
         {"role": "user", "content": "开始分析"},
-        {"role": "assistant", "content": "我先规划任务。"},
         {
             "role": "assistant",
             "content": "",
@@ -335,6 +334,99 @@ def test_prepare_messages_for_llm_replays_multiturn_tool_history_without_local_m
         },
         {"role": "assistant", "content": "继续生成报告。"},
     ]
+
+
+def test_prepare_messages_for_llm_filters_reasoning_and_summarizes_ask_user_question() -> None:
+    """ask_user_question 历史回放时应保留已回答摘要，而非重复提问文案。"""
+    ask_payload = json.dumps(
+        {
+            "success": True,
+            "message": "已收到用户回答。",
+            "data": {
+                "questions": [
+                    {
+                        "question": "请选择实验对象与样本量情况",
+                        "header": "对象与样本",
+                        "options": [
+                            {
+                                "label": "物种已定，样本量待定",
+                                "description": "尚未确定样本量，需要基于效应量与检验功效估算。",
+                            }
+                        ],
+                    },
+                    {
+                        "question": "是否存在额外约束？",
+                        "header": "约束条件",
+                        "options": [
+                            {
+                                "label": "重复测量",
+                                "description": "同一动物在多个时间点采血，需要重复测量模型。",
+                            }
+                        ],
+                    },
+                ],
+                "answers": {
+                    "请选择实验对象与样本量情况": "物种已定，样本量待定",
+                    "是否存在额外约束？": "已跳过",
+                },
+            },
+        },
+        ensure_ascii=False,
+    )
+    messages = [
+        {"role": "user", "content": "帮我制定实验设计"},
+        {
+            "role": "assistant",
+            "content": "我先通过 ask_user_question 澄清对象与约束。",
+            "event_type": "reasoning",
+        },
+        {
+            "role": "assistant",
+            "content": "我将先提问。",
+            "event_type": "tool_call",
+            "tool_calls": [
+                {
+                    "id": "call-ask-1",
+                    "type": "function",
+                    "function": {
+                        "name": "ask_user_question",
+                        "arguments": '{"questions":[{"question":"请选择实验对象与样本量情况"}]}',
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-ask-1",
+            "tool_name": "ask_user_question",
+            "content": ask_payload,
+        },
+    ]
+
+    prepared = prepare_messages_for_llm(messages)
+
+    assert prepared[0] == {"role": "user", "content": "帮我制定实验设计"}
+    assert prepared[1] == {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "id": "call-ask-1",
+                "type": "function",
+                "function": {
+                    "name": "ask_user_question",
+                    "arguments": '{"questions":[{"question":"请选择实验对象与样本量情况"}]}',
+                },
+            }
+        ],
+    }
+    assert prepared[2]["role"] == "tool"
+    assert prepared[2]["tool_call_id"] == "call-ask-1"
+    assert "ask_user_question 已完成" in prepared[2]["content"]
+    assert "对象与样本" in prepared[2]["content"]
+    assert "尚未确定样本量，需要基于效应量与检验功效估算" in prepared[2]["content"]
+    assert "用户选择跳过此题" in prepared[2]["content"]
+    assert "我先通过 ask_user_question 澄清对象与约束" not in str(prepared)
 
 
 def test_summarize_tool_result_dict_omits_code_session_data_excerpt() -> None:

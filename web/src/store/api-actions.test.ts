@@ -447,10 +447,17 @@ describe("buildMessagesFromHistory", () => {
                   {
                     question: "你更关注哪类结果？",
                     header: "分析偏好",
+                    options: [
+                      {
+                        label: "effect_size",
+                        description: "效应量与置信区间",
+                      },
+                    ],
                   },
                   {
                     question: "请输入导出文件名",
                     header: "文件名",
+                    options: [],
                   },
                 ],
               }),
@@ -469,14 +476,21 @@ describe("buildMessagesFromHistory", () => {
               {
                 question: "你更关注哪类结果？",
                 header: "分析偏好",
+                options: [
+                  {
+                    label: "effect_size",
+                    description: "效应量与置信区间",
+                  },
+                ],
               },
               {
                 question: "请输入导出文件名",
                 header: "文件名",
+                options: [],
               },
             ],
             answers: {
-              "你更关注哪类结果？": "效应量",
+              "你更关注哪类结果？": "effect_size",
               请输入导出文件名: "gsd_research_report.md",
             },
           },
@@ -499,7 +513,7 @@ describe("buildMessagesFromHistory", () => {
       toolStatus: "success",
     });
     expect(messages[0]?.toolResult).toContain("分析偏好：你更关注哪类结果？");
-    expect(messages[0]?.toolResult).toContain("→ 效应量");
+    expect(messages[0]?.toolResult).toContain("→ 效应量与置信区间");
     expect(messages[0]?.toolResult).toContain("文件名：请输入导出文件名");
     expect(messages[0]?.toolResult).toContain("→ gsd_research_report.md");
   });
