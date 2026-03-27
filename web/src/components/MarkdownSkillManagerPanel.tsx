@@ -3,6 +3,7 @@
  */
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, type SkillItem, type SkillPathEntry } from '../store'
+import BaseModal from './BaseModal'
 import {
   X,
   RefreshCw,
@@ -534,18 +535,16 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
     ? skillFiles.find((entry) => entry.path === selectedPath) ?? null
     : null
 
-  if (!open) return null
-
   const enabledCount = markdownSkills.filter((s) => s.enabled).length
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl mx-4 max-h-[92vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b">
+    <BaseModal open={open} onClose={onClose} title="技能管理" maxWidthClass="max-w-7xl">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-7xl mx-4 max-h-[92vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b dark:border-slate-700">
           <div className="flex items-center gap-2">
             <BookOpen size={18} className="text-emerald-600" />
-            <h2 className="text-base font-semibold text-gray-800">技能管理（Markdown）</h2>
-            <span className="text-xs text-gray-400">{enabledCount} 个启用 / {markdownSkills.length} 个技能</span>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-slate-200">技能管理（Markdown）</h2>
+            <span className="text-xs text-gray-400 dark:text-slate-500">{enabledCount} 个启用 / {markdownSkills.length} 个技能</span>
           </div>
           <div className="flex items-center gap-1">
             <input
@@ -558,7 +557,7 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={busyKey === 'upload'}
-              className="px-2.5 py-1.5 rounded-lg text-xs border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              className="px-2.5 py-1.5 rounded-lg text-xs border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
               title="上传 Markdown Skill"
             >
               <span className="inline-flex items-center gap-1">
@@ -568,14 +567,14 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
             </button>
             <button
               onClick={fetchSkills}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
+              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-400 dark:text-slate-500 transition-colors"
               title="刷新"
             >
               <RefreshCw size={14} />
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
+              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-400 dark:text-slate-500 transition-colors"
               title="关闭"
             >
               <X size={16} />
@@ -584,52 +583,52 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
         </div>
 
         {(notice || error) && (
-          <div className={`px-5 py-2 text-xs border-b ${error ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
+          <div className={`px-5 py-2 text-xs border-b ${error ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-800' : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800'}`}>
             {error || notice}
           </div>
         )}
 
         <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1.05fr_1.95fr]">
-          <div className="min-h-0 overflow-y-auto px-5 py-3 border-r border-gray-100">
+          <div className="min-h-0 overflow-y-auto px-5 py-3 border-r border-gray-100 dark:border-slate-700">
             <div className="space-y-1">
               {grouped.map(([cat, items]) => {
                 const isOpen = openCats.has(cat)
                 const label = CATEGORY_LABELS[cat] || cat
                 return (
-                  <div key={cat} className="border border-gray-200 rounded-lg">
+                  <div key={cat} className="border border-gray-200 dark:border-slate-700 rounded-lg">
                     <button
                       onClick={() => toggleCat(cat)}
-                      className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-gray-50 transition-colors"
+                      className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
                     >
                       {isOpen ? (
-                        <ChevronDown size={14} className="text-gray-400" />
+                        <ChevronDown size={14} className="text-gray-400 dark:text-slate-500" />
                       ) : (
-                        <ChevronRight size={14} className="text-gray-400" />
+                        <ChevronRight size={14} className="text-gray-400 dark:text-slate-500" />
                       )}
-                      <span className="text-sm font-medium text-gray-700">{label}</span>
-                      <span className="ml-auto text-xs text-gray-400">{items.length}</span>
+                      <span className="text-sm font-medium text-gray-700 dark:text-slate-300">{label}</span>
+                      <span className="ml-auto text-xs text-gray-400 dark:text-slate-500">{items.length}</span>
                     </button>
                     {isOpen && (
-                      <div className="border-t px-3 py-2 space-y-1.5">
+                      <div className="border-t dark:border-slate-700 px-3 py-2 space-y-1.5">
                         {items.map((s) => {
                           const conflict = hasFunctionConflict(s)
                           const toggleBusy = busyKey === `toggle:${s.name}`
                           const editBusy = busyKey === `edit:${s.name}`
                           const deleteBusy = busyKey === `delete:${s.name}`
                           return (
-                            <div key={s.name} className="text-xs border border-gray-100 rounded px-2 py-1.5">
+                            <div key={s.name} className="text-xs border border-gray-100 dark:border-slate-700 rounded px-2 py-1.5">
                               <div className="flex items-start gap-2">
-                                <span className={`font-mono flex-shrink-0 ${s.enabled ? 'text-gray-700' : 'text-gray-400 line-through'}`}>
+                                <span className={`font-mono flex-shrink-0 ${s.enabled ? 'text-gray-700 dark:text-slate-300' : 'text-gray-400 dark:text-slate-500 line-through'}`}>
                                   {s.name}
                                 </span>
-                                <span className="text-gray-400 flex-1">{s.description}</span>
+                                <span className="text-gray-400 dark:text-slate-500 flex-1">{s.description}</span>
                                 {conflict && (
-                                  <span className="text-[10px] text-amber-600 bg-amber-100 px-1 rounded">同名冲突</span>
+                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-1 rounded">同名冲突</span>
                                 )}
                               </div>
 
                               <div className="mt-1.5 flex items-center justify-between gap-2">
-                                <label className="inline-flex items-center gap-1.5 text-[11px] text-gray-600">
+                                <label className="inline-flex items-center gap-1.5 text-[11px] text-gray-600 dark:text-slate-400">
                                   <input
                                     type="checkbox"
                                     checked={s.enabled}
@@ -642,7 +641,7 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
                                   <button
                                     onClick={() => handleStartEdit(s)}
                                     disabled={editBusy}
-                                    className="px-1.5 py-1 rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                                    className="px-1.5 py-1 rounded border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
                                     title="编辑"
                                   >
                                     {editBusy ? <Loader2 size={11} className="animate-spin" /> : <Pencil size={11} />}
@@ -650,7 +649,7 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
                                   <button
                                     onClick={() => handleDelete(s)}
                                     disabled={deleteBusy}
-                                    className="px-1.5 py-1 rounded border border-red-200 text-red-500 hover:bg-red-50 disabled:opacity-50"
+                                    className="px-1.5 py-1 rounded border border-red-200 dark:border-red-800 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
                                     title="删除技能"
                                   >
                                     {deleteBusy ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
@@ -666,30 +665,30 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
                 )
               })}
               {grouped.length === 0 && (
-                <div className="text-xs text-gray-400 text-center py-6">暂无 Markdown 技能</div>
+                <div className="text-xs text-gray-400 dark:text-slate-500 text-center py-6">暂无 Markdown 技能</div>
               )}
             </div>
           </div>
 
           <div className="min-h-0 overflow-y-auto px-5 py-4 space-y-4">
             {!editingSkill && (
-              <div className="h-full flex items-center justify-center text-xs text-gray-400">
+              <div className="h-full flex items-center justify-center text-xs text-gray-400 dark:text-slate-500">
                 从左侧选择一个技能进行管理
               </div>
             )}
 
             {editingSkill && (
               <>
-                <div className="space-y-3 border border-gray-200 rounded-lg p-3">
+                <div className="space-y-3 border border-gray-200 dark:border-slate-700 rounded-lg p-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-semibold text-gray-800">技能内容编辑：{editingSkill.name}</h3>
-                      <p className="text-xs text-gray-400 mt-0.5">编辑 SKILL.md 的描述/分类/正文</p>
+                      <h3 className="text-sm font-semibold text-gray-800 dark:text-slate-200">技能内容编辑：{editingSkill.name}</h3>
+                      <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">编辑 SKILL.md 的描述/分类/正文</p>
                     </div>
                     <button
                       onClick={handleSaveEdit}
                       disabled={savingEdit}
-                      className="px-2.5 py-1.5 rounded-lg text-xs border border-emerald-200 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                      className="px-2.5 py-1.5 rounded-lg text-xs border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 disabled:opacity-50"
                     >
                       <span className="inline-flex items-center gap-1">
                         {savingEdit ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
@@ -699,21 +698,21 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
                   </div>
 
                   <div>
-                    <label className="block text-xs text-gray-600 mb-1">描述</label>
+                    <label className="block text-xs text-gray-600 dark:text-slate-400 mb-1">描述</label>
                     <input
                       value={editDescription}
                       onChange={(e) => setEditDescription(e.target.value)}
-                      className="w-full px-2.5 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                      className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-100 dark:bg-slate-800 dark:text-slate-200 dark:placeholder-slate-500"
                       placeholder="技能描述"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs text-gray-600 mb-1">分类</label>
+                    <label className="block text-xs text-gray-600 dark:text-slate-400 mb-1">分类</label>
                     <select
                       value={editCategory}
                       onChange={(e) => setEditCategory(e.target.value)}
-                      className="w-full px-2.5 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                      className="w-full px-2.5 py-2 text-sm border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-100 dark:bg-slate-800 dark:text-slate-200"
                     >
                       {CATEGORY_OPTIONS.map((opt) => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -722,33 +721,33 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
                   </div>
 
                   <div>
-                    <label className="block text-xs text-gray-600 mb-1">正文（不含 frontmatter）</label>
+                    <label className="block text-xs text-gray-600 dark:text-slate-400 mb-1">正文（不含 frontmatter）</label>
                     <textarea
                       value={editContent}
                       onChange={(e) => setEditContent(e.target.value)}
-                      className="w-full min-h-[220px] px-2.5 py-2 text-xs font-mono border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                      className="w-full min-h-[220px] px-2.5 py-2 text-xs font-mono border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-100 dark:bg-slate-800 dark:text-slate-200 dark:placeholder-slate-500"
                       placeholder="请输入 Markdown 正文"
                     />
                   </div>
                 </div>
 
-                <div className="space-y-3 border border-gray-200 rounded-lg p-3">
+                <div className="space-y-3 border border-gray-200 dark:border-slate-700 rounded-lg p-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-semibold text-gray-800">附属文件管理（scripts/references/assets）</h3>
-                      <p className="text-xs text-gray-400 mt-0.5">支持目录创建、附件上传、文本文件编辑与技能包下载</p>
+                      <h3 className="text-sm font-semibold text-gray-800 dark:text-slate-200">附属文件管理（scripts/references/assets）</h3>
+                      <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">支持目录创建、附件上传、文本文件编辑与技能包下载</p>
                     </div>
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => refreshSkillFiles(editingSkill.name)}
-                        className="px-2 py-1 rounded text-xs border border-gray-200 text-gray-600 hover:bg-gray-50"
+                        className="px-2 py-1 rounded text-xs border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800"
                       >
                         {filesLoading ? <Loader2 size={12} className="animate-spin" /> : '刷新文件'}
                       </button>
                       <button
                         onClick={handleDownloadBundle}
                         disabled={busyKey === 'download-bundle'}
-                        className="px-2 py-1 rounded text-xs border border-blue-200 text-blue-600 hover:bg-blue-50 disabled:opacity-50"
+                        className="px-2 py-1 rounded text-xs border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50"
                       >
                         <span className="inline-flex items-center gap-1">
                           {busyKey === 'download-bundle' ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
@@ -759,18 +758,18 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
                   </div>
 
                   <div className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-3">
-                    <div className="border rounded-lg p-2">
+                    <div className="border dark:border-slate-700 rounded-lg p-2">
                       <div className="flex items-center gap-2 mb-2">
                         <input
                           value={newDirPath}
                           onChange={(e) => setNewDirPath(e.target.value)}
                           placeholder="新目录路径，如 scripts/helpers"
-                          className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded"
+                          className="flex-1 px-2 py-1 text-xs border border-gray-200 dark:border-slate-600 rounded dark:bg-slate-800 dark:text-slate-200 dark:placeholder-slate-500"
                         />
                         <button
                           onClick={handleCreateDir}
                           disabled={busyKey === 'create-dir'}
-                          className="px-2 py-1 text-xs border rounded border-gray-200 hover:bg-gray-50 disabled:opacity-50"
+                          className="px-2 py-1 text-xs border rounded border-gray-200 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 dark:text-slate-300"
                         >
                           <span className="inline-flex items-center gap-1">
                             {busyKey === 'create-dir' ? <Loader2 size={11} className="animate-spin" /> : <FolderPlus size={11} />}
@@ -784,7 +783,7 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
                           value={uploadDirPath}
                           onChange={(e) => setUploadDirPath(e.target.value)}
                           placeholder="上传目录（可空，根目录）"
-                          className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded"
+                          className="flex-1 px-2 py-1 text-xs border border-gray-200 dark:border-slate-600 rounded dark:bg-slate-800 dark:text-slate-200 dark:placeholder-slate-500"
                         />
                         <input
                           ref={attachmentInputRef}
@@ -795,7 +794,7 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
                         <button
                           onClick={() => attachmentInputRef.current?.click()}
                           disabled={busyKey === 'upload-attachment'}
-                          className="px-2 py-1 text-xs border rounded border-gray-200 hover:bg-gray-50 disabled:opacity-50"
+                          className="px-2 py-1 text-xs border rounded border-gray-200 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 dark:text-slate-300"
                         >
                           <span className="inline-flex items-center gap-1">
                             {busyKey === 'upload-attachment' ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
@@ -804,9 +803,9 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
                         </button>
                       </div>
 
-                      <div className="max-h-[300px] overflow-y-auto border rounded">
+                      <div className="max-h-[300px] overflow-y-auto border dark:border-slate-700 rounded">
                         {fileTree.length === 0 && (
-                          <div className="text-xs text-gray-400 p-3">暂无文件</div>
+                          <div className="text-xs text-gray-400 dark:text-slate-500 p-3">暂无文件</div>
                         )}
                         {fileTree.map((node) => {
                           const renderNode = (entryNode: SkillTreeNode, depth: number): JSX.Element => {
@@ -827,17 +826,17 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
                                     if (isDir) handleToggleDir(entryNode.path)
                                     void handleSelectPath(entry)
                                   }}
-                                  className={`w-full text-left py-1.5 text-xs border-b last:border-b-0 hover:bg-gray-50 flex items-center gap-1.5 ${isSelected ? 'bg-emerald-50' : ''}`}
+                                  className={`w-full text-left py-1.5 text-xs border-b last:border-b-0 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 flex items-center gap-1.5 ${isSelected ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''}`}
                                   style={{ paddingLeft: `${8 + depth * 14}px`, paddingRight: '8px' }}
                                 >
                                   {isDir ? (
-                                    isOpen ? <ChevronDown size={12} className="text-gray-400" /> : <ChevronRight size={12} className="text-gray-400" />
+                                    isOpen ? <ChevronDown size={12} className="text-gray-400 dark:text-slate-500" /> : <ChevronRight size={12} className="text-gray-400 dark:text-slate-500" />
                                   ) : (
                                     <span className="inline-block w-3" />
                                   )}
-                                  {isDir ? <Folder size={12} className="text-sky-500" /> : <FileText size={12} className="text-gray-500" />}
+                                  {isDir ? <Folder size={12} className="text-sky-500" /> : <FileText size={12} className="text-gray-500 dark:text-slate-400" />}
                                   <span className="font-mono truncate">{entryNode.name}</span>
-                                  <span className="ml-auto text-[10px] text-gray-400">{entryNode.path}</span>
+                                  <span className="ml-auto text-[10px] text-gray-400 dark:text-slate-500">{entryNode.path}</span>
                                 </button>
                                 {isDir && isOpen && entryNode.children.length > 0 && (
                                   <div>
@@ -855,7 +854,7 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
                         <button
                           onClick={handleDeletePath}
                           disabled={!selectedPath || busyKey === 'delete-path'}
-                          className="px-2 py-1 text-xs border rounded border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          className="px-2 py-1 text-xs border rounded border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
                         >
                           <span className="inline-flex items-center gap-1">
                             {busyKey === 'delete-path' ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
@@ -865,13 +864,13 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
                       </div>
                     </div>
 
-                    <div className="border rounded-lg p-2">
+                    <div className="border dark:border-slate-700 rounded-lg p-2">
                       <div className="flex items-center justify-between mb-2">
-                        <div className="text-xs text-gray-600 font-mono truncate">{selectedPath || '未选择文件'}</div>
+                        <div className="text-xs text-gray-600 dark:text-slate-400 font-mono truncate">{selectedPath || '未选择文件'}</div>
                         <button
                           onClick={handleSaveSelectedFile}
                           disabled={!selectedPath || !selectedFileIsText || !selectedFileDirty || busyKey === 'save-file'}
-                          className="px-2 py-1 text-xs border rounded border-emerald-200 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                          className="px-2 py-1 text-xs border rounded border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 disabled:opacity-50"
                         >
                           <span className="inline-flex items-center gap-1">
                             {busyKey === 'save-file' ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
@@ -881,11 +880,11 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
                       </div>
 
                       {fileLoading && (
-                        <div className="text-xs text-gray-400">正在读取文件...</div>
+                        <div className="text-xs text-gray-400 dark:text-slate-500">正在读取文件...</div>
                       )}
 
                       {!fileLoading && selectedPath && !selectedFileIsText && (
-                        <div className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded p-2">
+                        <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded p-2">
                           {selectedEntry?.type === 'dir'
                             ? '当前选中目录，不支持文本编辑。'
                             : '当前文件为二进制文件，不支持文本编辑。'}
@@ -899,13 +898,13 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
                             setSelectedFileContent(e.target.value)
                             setSelectedFileDirty(true)
                           }}
-                          className="w-full min-h-[300px] px-2 py-2 text-xs font-mono border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                          className="w-full min-h-[300px] px-2 py-2 text-xs font-mono border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-100 dark:bg-slate-800 dark:text-slate-200 dark:placeholder-slate-500"
                           placeholder="文件内容"
                         />
                       )}
 
                       {!selectedPath && !fileLoading && (
-                        <div className="text-xs text-gray-400">选择左侧文件后可在此查看或编辑。</div>
+                        <div className="text-xs text-gray-400 dark:text-slate-500">选择左侧文件后可在此查看或编辑。</div>
                       )}
                     </div>
                   </div>
@@ -915,6 +914,6 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
           </div>
         </div>
       </div>
-    </div>
+    </BaseModal>
   )
 }

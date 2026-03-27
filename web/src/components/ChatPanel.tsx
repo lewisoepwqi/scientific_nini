@@ -231,26 +231,26 @@ export default function ChatPanel() {
           {showBootstrapState && (
             <div className="min-h-[60vh] px-1 py-4">
               <div className="mx-auto max-w-2xl">
-                <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-6 shadow-[0_18px_45px_-32px_rgba(15,23,42,0.45)]">
+                <div className="rounded-[28px] border border-slate-200/80 bg-white/90 dark:border-slate-700/60 dark:bg-slate-800/90 p-6 shadow-[0_18px_45px_-32px_rgba(15,23,42,0.45)]">
                   <div className="flex items-center gap-4">
-                    <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-sky-100 to-teal-50" />
+                    <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-sky-100 to-teal-50 dark:from-sky-900/40 dark:to-teal-900/40" />
                     <div className="flex-1 space-y-2">
-                      <div className="h-4 w-40 rounded-full bg-slate-200 animate-pulse" />
-                      <div className="h-3 w-72 max-w-full rounded-full bg-slate-100 animate-pulse" />
+                      <div className="h-4 w-40 rounded-full bg-slate-200 dark:bg-slate-600 animate-pulse" />
+                      <div className="h-3 w-72 max-w-full rounded-full bg-slate-100 dark:bg-slate-700 animate-pulse" />
                     </div>
                   </div>
                   <div className="mt-8 space-y-4">
-                    <div className="ml-auto max-w-[62%] rounded-3xl rounded-br-xl bg-slate-100/90 px-5 py-4">
-                      <div className="h-3 w-28 rounded-full bg-slate-200 animate-pulse" />
+                    <div className="ml-auto max-w-[62%] rounded-3xl rounded-br-xl bg-slate-100/90 dark:bg-slate-700/70 px-5 py-4">
+                      <div className="h-3 w-28 rounded-full bg-slate-200 dark:bg-slate-600 animate-pulse" />
                     </div>
-                    <div className="max-w-[72%] rounded-3xl rounded-bl-xl border border-slate-200/80 bg-white px-5 py-4">
+                    <div className="max-w-[72%] rounded-3xl rounded-bl-xl border border-slate-200/80 bg-white dark:border-slate-600/60 dark:bg-slate-800 px-5 py-4">
                       <div className="space-y-2">
-                        <div className="h-3 w-5/6 rounded-full bg-slate-200 animate-pulse" />
-                        <div className="h-3 w-2/3 rounded-full bg-slate-100 animate-pulse" />
+                        <div className="h-3 w-5/6 rounded-full bg-slate-200 dark:bg-slate-600 animate-pulse" />
+                        <div className="h-3 w-2/3 rounded-full bg-slate-100 dark:bg-slate-700 animate-pulse" />
                       </div>
                     </div>
-                    <div className="ml-auto max-w-[54%] rounded-3xl rounded-br-xl bg-slate-100/90 px-5 py-4">
-                      <div className="h-3 w-24 rounded-full bg-slate-200 animate-pulse" />
+                    <div className="ml-auto max-w-[54%] rounded-3xl rounded-br-xl bg-slate-100/90 dark:bg-slate-700/70 px-5 py-4">
+                      <div className="h-3 w-24 rounded-full bg-slate-200 dark:bg-slate-600 animate-pulse" />
                     </div>
                   </div>
                 </div>
@@ -273,8 +273,8 @@ export default function ChatPanel() {
           {showConversationContent && isNoSession && (
             <div className="min-h-[60vh] py-6 space-y-5">
               <RecipeCenter />
-              <div className="flex flex-col items-center justify-center text-gray-400">
-                <h2 className="text-xl font-semibold text-gray-600 mb-2">或先开一个自由会话</h2>
+              <div className="flex flex-col items-center justify-center text-gray-400 dark:text-slate-500">
+                <h2 className="text-xl font-semibold text-gray-600 dark:text-slate-300 mb-2">或先开一个自由会话</h2>
                 <p className="text-sm text-center max-w-md">
                   你也可以直接进入普通对话，上传数据后自然语言描述分析需求。
                 </p>
@@ -282,7 +282,7 @@ export default function ChatPanel() {
                   type="button"
                   onClick={() => { void handleCreateSession() }}
                   disabled={creatingSession}
-                  className="mt-5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+                  className="mt-5 rounded-xl border border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
                 >
                   {creatingSession ? '新建中...' : '新建会话'}
                 </button>
@@ -302,7 +302,7 @@ export default function ChatPanel() {
               !lastRetryableAssistantErrorId
 
             return (
-              <div key={msg.id}>
+              <div key={msg.id} style={{ contentVisibility: 'auto', containIntrinsicSize: '0 200px' }}>
                 <MessageBubble
                   message={msg}
                   showRetry={showRetry}
@@ -323,17 +323,17 @@ export default function ChatPanel() {
           </div>
 
           {isStreaming && (
-            <div className="flex items-center gap-2 text-gray-400 text-sm ml-11">
+            <div className="flex items-center gap-2 text-gray-400 dark:text-slate-500 text-sm ml-11">
               <Loader2 size={14} className="animate-spin" />
               <span>Nini is working...</span>
-              <span className="text-gray-400/90">{elapsedSeconds}s</span>
+              <span className="text-gray-400/90 dark:text-slate-500/90">{elapsedSeconds}s</span>
               {compactTokenText && (
-                <span className="text-gray-400/90">·</span>
+                <span className="text-gray-400/90 dark:text-slate-500/90">·</span>
               )}
               {compactTokenText && (
                 <span
                   data-testid="streaming-token-usage"
-                  className="inline-flex items-center tabular-nums text-gray-400/90"
+                  className="inline-flex items-center tabular-nums text-gray-400/90 dark:text-slate-500/90"
                 >
                   ↓ {compactTokenText} tokens
                 </span>
@@ -341,13 +341,13 @@ export default function ChatPanel() {
             </div>
           )}
           {!isStreaming && lastRetryableAssistantError && (
-            <div className="ml-11 mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm">
-              <div className="font-medium text-red-700">
+            <div className="ml-11 mb-4 rounded-xl border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20 px-4 py-3 text-sm">
+              <div className="font-medium text-red-700 dark:text-red-400">
                 {lastRetryableAssistantError.errorHint || '模型调用异常，请稍后重试。'}
               </div>
               <button
                 onClick={handleRetry}
-                className="mt-2 inline-flex items-center rounded-lg border border-red-200 bg-white px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 transition-colors"
+                className="mt-2 inline-flex items-center rounded-lg border border-red-200 bg-white dark:border-red-800 dark:bg-slate-800 px-3 py-1 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
               >
                 重试上一轮
               </button>

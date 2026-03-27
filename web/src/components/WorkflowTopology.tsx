@@ -61,8 +61,8 @@ export default function WorkflowTopology() {
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-      <p className="mb-2 text-xs font-medium text-gray-500">并行执行中</p>
+    <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 px-4 py-3">
+      <p className="mb-2 text-xs font-medium text-gray-500 dark:text-slate-400">并行执行中</p>
       <div className="flex flex-wrap gap-2">
         {allAgents.map((agent) => (
           <AgentNode key={agent.agentId} agent={agent} />

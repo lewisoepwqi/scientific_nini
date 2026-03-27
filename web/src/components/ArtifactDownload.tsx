@@ -28,13 +28,13 @@ export default function ArtifactDownload({ artifacts }: Props) {
         <a
           key={`${artifact.name}-${idx}`}
           href={href}
-          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200
-                     bg-white hover:bg-blue-50 hover:border-blue-300 text-sm text-gray-700
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-slate-700
+                     bg-white dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-300 text-sm text-gray-700 dark:text-slate-300
                      transition-colors cursor-pointer mr-2"
         >
           {getIcon(artifact)}
           <span className="truncate max-w-[200px]">{artifact.name}</span>
-          <Download size={12} className="text-gray-400 flex-shrink-0" />
+          <Download size={12} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
         </a>
         )
       })}

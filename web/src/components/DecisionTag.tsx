@@ -19,27 +19,27 @@ interface DecisionTagProps {
 
 const typeConfig = {
   primary: {
-    bgColor: "bg-blue-100",
-    textColor: "text-blue-800",
-    borderColor: "border-blue-300",
+    bgColor: "bg-blue-100 dark:bg-blue-900/20",
+    textColor: "text-blue-800 dark:text-blue-400",
+    borderColor: "border-blue-300 dark:border-blue-800",
     label: "主要决策",
   },
   secondary: {
-    bgColor: "bg-gray-100",
-    textColor: "text-gray-700",
-    borderColor: "border-gray-300",
+    bgColor: "bg-gray-100 dark:bg-slate-700",
+    textColor: "text-gray-700 dark:text-slate-300",
+    borderColor: "border-gray-300 dark:border-slate-600",
     label: "次要决策",
   },
   fallback: {
-    bgColor: "bg-amber-100",
-    textColor: "text-amber-800",
-    borderColor: "border-amber-300",
+    bgColor: "bg-amber-100 dark:bg-amber-900/30",
+    textColor: "text-amber-800 dark:text-amber-400",
+    borderColor: "border-amber-300 dark:border-amber-800",
     label: "备选方案",
   },
   suggestion: {
-    bgColor: "bg-emerald-100",
-    textColor: "text-emerald-800",
-    borderColor: "border-emerald-300",
+    bgColor: "bg-emerald-100 dark:bg-emerald-900/20",
+    textColor: "text-emerald-800 dark:text-emerald-400",
+    borderColor: "border-emerald-300 dark:border-emerald-800",
     label: "建议",
   },
 };
@@ -61,7 +61,7 @@ export const DecisionTag: React.FC<DecisionTagProps> = ({
   return (
     <div className={`space-y-2 ${className}`}>
       {!compact && (
-        <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-2">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-slate-400 mb-2">
           <ArrowRight size={12} />
           <span>关键决策</span>
         </div>
@@ -163,7 +163,7 @@ export const DecisionHighlighter: React.FC<DecisionHighlighterProps> = ({
           return (
             <mark
               key={index}
-              className="bg-amber-100 text-amber-900 px-0.5 rounded font-medium"
+              className="bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-400 px-0.5 rounded font-medium"
             >
               {part}
             </mark>

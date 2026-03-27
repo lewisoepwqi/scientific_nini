@@ -142,7 +142,7 @@ export default function IntentSummaryCard({
             <div className="flex items-start gap-2">
               <Target size={14} className="text-sky-600 mt-0.5 shrink-0" />
               <div className="min-w-0">
-                <div className="text-[11px] text-slate-400 mb-1">
+                <div className="text-[11px] text-slate-400 dark:text-slate-500 mb-1">
                   推荐分析类型
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -169,7 +169,7 @@ export default function IntentSummaryCard({
             <div className="flex items-start gap-2">
               <Wrench size={14} className="text-emerald-600 mt-0.5 shrink-0" />
               <div className="min-w-0">
-                <div className="text-[11px] text-slate-400 mb-1">
+                <div className="text-[11px] text-slate-400 dark:text-slate-500 mb-1">
                   推荐工具
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -232,7 +232,7 @@ export default function IntentSummaryCard({
           {analysis.capability_candidates.length === 0 &&
             analysis.tool_hints.length === 0 &&
             !hasClarification && (
-              <div className="flex items-center gap-2 text-xs text-slate-400 italic">
+              <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500 italic">
                 <Lightbulb size={12} />
                 <span>暂无具体推荐，系统将基于您的描述进行分析</span>
               </div>

@@ -1,7 +1,7 @@
 /**
  * 文件列表项组件：图标 + 名称 + 大小 + 操作按钮（下载/重命名/删除）。
  */
-import { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useStore, type WorkspaceFile } from '../store'
 import { downloadFileFromUrl, resolveDownloadUrl } from './downloadUtils'
 import {
@@ -58,7 +58,7 @@ interface Props {
   file: WorkspaceFile
 }
 
-export default function FileListItem({ file }: Props) {
+export default React.memo(function FileListItem({ file }: Props) {
   const deleteWorkspaceFile = useStore((s) => s.deleteWorkspaceFile)
   const renameWorkspaceFile = useStore((s) => s.renameWorkspaceFile)
   const openPreview = useStore((s) => s.openPreview)
@@ -100,7 +100,7 @@ export default function FileListItem({ file }: Props) {
   )
 
   return (
-    <div className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-100 transition-colors">
+    <div className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors">
       {/* 可点击区域：图标 + 文件名信息 */}
       {isRenaming ? (
         <>
@@ -118,9 +118,9 @@ export default function FileListItem({ file }: Props) {
                     setIsRenaming(false)
                   }
                 }}
-                className="flex-1 min-w-0 text-xs rounded border border-blue-300 px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                className="flex-1 min-w-0 text-xs rounded border border-blue-300 dark:border-blue-600 px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
               />
-              <button onClick={handleRename} className="p-0.5 text-emerald-600 hover:text-emerald-700">
+              <button onClick={handleRename} className="p-2 text-emerald-600 hover:text-emerald-700">
                 <Check size={12} />
               </button>
               <button
@@ -128,7 +128,7 @@ export default function FileListItem({ file }: Props) {
                   setRenameValue(file.name)
                   setIsRenaming(false)
                 }}
-                className="p-0.5 text-gray-400 hover:text-gray-600"
+                className="p-2 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300"
               >
                 <X size={12} />
               </button>
@@ -143,20 +143,20 @@ export default function FileListItem({ file }: Props) {
         >
           {getFileIcon(file)}
           <div className="flex-1 min-w-0">
-            <div className="text-xs text-gray-700 truncate hover:text-blue-600 transition-colors">{file.name}</div>
-            <div className="text-[10px] text-gray-400">
+            <div className="text-xs text-gray-700 dark:text-slate-300 truncate hover:text-blue-600 transition-colors">{file.name}</div>
+            <div className="text-[10px] text-gray-400 dark:text-slate-500">
               {kindLabels[file.kind] || file.kind} · {formatSize(file.size)}
             </div>
           </div>
         </div>
       )}
 
-      {/* 操作按钮 */}
+      {/* 操作按钮：始终可见（触屏可点击），桌面端 hover 时更突出 */}
       {!isRenaming && (
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
           <button
             onClick={handleDownload}
-            className="p-1 rounded hover:bg-gray-200 text-gray-500"
+            className="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-500 dark:text-slate-400"
             title="下载"
           >
             <Download size={12} />
@@ -167,7 +167,7 @@ export default function FileListItem({ file }: Props) {
               setRenameValue(file.name)
               setIsRenaming(true)
             }}
-            className="p-1 rounded hover:bg-gray-200 text-gray-500"
+            className="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-500 dark:text-slate-400"
             title="重命名"
           >
             <Pencil size={12} />
@@ -177,7 +177,7 @@ export default function FileListItem({ file }: Props) {
               e.stopPropagation()
               handleDelete()
             }}
-            className="p-1 rounded hover:bg-red-100 text-gray-500 hover:text-red-600"
+            className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-gray-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400"
             title="删除"
           >
             <Trash2 size={12} />
@@ -186,4 +186,4 @@ export default function FileListItem({ file }: Props) {
       )}
     </div>
   )
-}
+})

@@ -26,19 +26,19 @@ export default function DeepTaskProgressCard() {
   }
 
   return (
-    <div className="mb-4 rounded-[24px] border border-emerald-200/80 bg-emerald-50/70 p-4 shadow-sm">
+    <div className="mb-4 rounded-[24px] border border-emerald-200/80 dark:border-emerald-800/80 bg-emerald-50/70 dark:bg-emerald-900/20 p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-400">
             {recipeName}
           </div>
-          <div className="mt-1 text-sm font-medium text-slate-900">
+          <div className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
             Step {deepTaskState.current_step_index} / {deepTaskState.total_steps}
             {" · "}
             {deepTaskState.current_step_title}
           </div>
         </div>
-        <div className="rounded-full border border-emerald-300 bg-white px-3 py-1 text-xs font-medium text-emerald-700">
+        <div className="rounded-full border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-800 px-3 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
           {STATUS_LABELS[deepTaskState.status] ?? deepTaskState.status}
         </div>
       </div>
@@ -59,12 +59,12 @@ export default function DeepTaskProgressCard() {
             key={step.id}
             className={`rounded-2xl border px-3 py-3 text-xs ${
               step.status === "done"
-                ? "border-emerald-300 bg-white text-emerald-700"
+                ? "border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-400"
                 : step.status === "failed" || step.status === "blocked"
-                  ? "border-rose-200 bg-white text-rose-700"
+                  ? "border-rose-200 dark:border-rose-800 bg-white dark:bg-slate-800 text-rose-700 dark:text-rose-400"
                   : step.status === "in_progress"
-                    ? "border-amber-200 bg-white text-amber-700"
-                    : "border-slate-200 bg-white text-slate-500"
+                    ? "border-amber-200 dark:border-amber-800 bg-white dark:bg-slate-800 text-amber-700 dark:text-amber-400"
+                    : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400"
             }`}
           >
             <div className="font-semibold">Step {step.id}</div>

@@ -8,6 +8,11 @@ import FileUpload from "./FileUpload";
 import ModelSelector from "./ModelSelector";
 import { Send, Square, Archive } from "lucide-react";
 
+/** 上下文安全等级进度条颜色 */
+const CONTEXT_SAFE_COLOR = 'rgba(16, 185, 129, 0.28)'
+const CONTEXT_WARNING_COLOR = 'rgba(249, 115, 22, 0.26)'
+const CONTEXT_DANGER_COLOR = 'rgba(239, 68, 68, 0.26)'
+
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(1, value));
@@ -507,10 +512,10 @@ export default function ChatInputArea() {
         : "critical";
   const compressProgressColor =
     compressLevel === "safe"
-      ? "rgba(16, 185, 129, 0.28)"
+      ? CONTEXT_SAFE_COLOR
       : compressLevel === "warning"
-        ? "rgba(249, 115, 22, 0.26)"
-        : "rgba(239, 68, 68, 0.26)";
+        ? CONTEXT_WARNING_COLOR
+        : CONTEXT_DANGER_COLOR;
   const compressTextColor =
     compressLevel === "safe"
       ? "text-emerald-700"
@@ -521,10 +526,10 @@ export default function ChatInputArea() {
   const usagePercent = Math.round(contextUsageRatio * 100);
 
   return (
-    <div className="border-t bg-white px-4 py-3">
+    <div className="border-t bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
       <div className="max-w-3xl mx-auto">
         {suggestedRecipe && dismissedRecipeId !== suggestedRecipe.recipe_id && (
-          <div className="mb-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-900">
+          <div className="mb-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 命中推荐模板：
@@ -552,7 +557,7 @@ export default function ChatInputArea() {
                 <button
                   type="button"
                   onClick={() => setDismissedRecipeId(suggestedRecipe.recipe_id)}
-                  className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700"
+                  className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 dark:bg-slate-800 dark:text-emerald-400"
                 >
                   继续自由对话
                 </button>
@@ -561,7 +566,7 @@ export default function ChatInputArea() {
           </div>
         )}
         <div
-          className="relative rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm"
+          className="relative rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-slate-600 dark:bg-slate-800"
           onDragEnter={handleComposerDragEnter}
           onDragLeave={handleComposerDragLeave}
           onDragOver={handleComposerDragOver}
@@ -580,15 +585,15 @@ export default function ChatInputArea() {
             placeholder="描述你的分析需求..."
             rows={1}
             className="w-full resize-none border-0 bg-transparent px-1 py-1.5 text-sm
-                       focus:outline-none placeholder:text-gray-400"
+                       focus:outline-none placeholder:text-gray-400 dark:placeholder:text-slate-500"
             style={{ minHeight: "42px" }}
           />
 
           {slashMenuOpen && (
-            <div className="absolute left-3 right-3 bottom-[calc(100%+18px)] z-20 rounded-xl border border-gray-200 bg-white shadow-lg">
+            <div className="absolute left-3 right-3 bottom-[calc(100%+18px)] z-20 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-slate-600 dark:bg-slate-800">
               <div className="max-h-56 overflow-y-auto p-1.5">
                 {filteredSlashSkills.length === 0 ? (
-                  <div className="px-2.5 py-2 text-xs text-gray-400">
+                  <div className="px-2.5 py-2 text-xs text-gray-400 dark:text-slate-500">
                     未找到匹配技能
                   </div>
                 ) : (
@@ -598,13 +603,13 @@ export default function ChatInputArea() {
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => applySlashSkill(skill)}
                       className={`w-full rounded-lg px-2.5 py-2 text-left transition-colors ${
-                        idx === slashActiveIndex ? "bg-blue-50" : "hover:bg-gray-50"
+                        idx === slashActiveIndex ? "bg-blue-50 dark:bg-blue-900/20" : "hover:bg-gray-50 dark:hover:bg-slate-700"
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs text-blue-700">/{skill.name}</span>
+                        <span className="font-mono text-xs text-blue-700 dark:text-blue-400">/{skill.name}</span>
                         {skill.category && (
-                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">
+                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500 dark:bg-slate-700 dark:text-slate-400">
                             {skill.category}
                           </span>
                         )}
@@ -619,7 +624,7 @@ export default function ChatInputArea() {
                   ))
                 )}
               </div>
-              <div className="border-t px-2.5 py-1.5 text-[10px] text-gray-400">
+              <div className="border-t px-2.5 py-1.5 text-[10px] text-gray-400 dark:border-slate-700">
                 ↑↓ 选择，Enter/Tab 插入，Esc 关闭
               </div>
             </div>
@@ -642,10 +647,10 @@ export default function ChatInputArea() {
                              compressTextColor
                            } ${
                              compressLevel === "safe"
-                               ? "border-emerald-200 hover:bg-emerald-50/60"
+                               ? "border-emerald-200 hover:bg-emerald-50/60 dark:border-emerald-800 dark:hover:bg-emerald-900/20"
                                : compressLevel === "warning"
-                                 ? "border-orange-200 hover:bg-orange-50/60"
-                                 : "border-red-200 hover:bg-red-50/60"
+                                 ? "border-orange-200 hover:bg-orange-50/60 dark:border-orange-800 dark:hover:bg-orange-900/20"
+                                 : "border-red-200 hover:bg-red-50/60 dark:border-red-800 dark:hover:bg-red-900/20"
                            }`}
                 title={
                   contextTokens === null
@@ -683,7 +688,7 @@ export default function ChatInputArea() {
                   disabled={!input.trim() || Boolean(pendingAskUserQuestion)}
                   className="flex-shrink-0 w-10 h-10 rounded-2xl bg-blue-600 text-white
                              flex items-center justify-center
-                             hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed
+                             hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-slate-600 disabled:cursor-not-allowed
                              transition-colors"
                 >
                   <Send size={16} />
@@ -693,20 +698,20 @@ export default function ChatInputArea() {
           </div>
 
           {isDragActive && (
-            <div className="pointer-events-none absolute inset-0 rounded-2xl border-2 border-blue-500 bg-blue-50/80 flex items-center justify-center text-sm font-medium text-blue-600">
+            <div className="pointer-events-none absolute inset-0 rounded-2xl border-2 border-blue-500 bg-blue-50/80 flex items-center justify-center text-sm font-medium text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
               释放以上传文件（支持多文件）
             </div>
           )}
         </div>
 
         {modelFallback ? (
-          <div className="mt-1 px-1 text-[11px] text-amber-600">
+          <div className="mt-1 px-1 text-[11px] text-amber-600 dark:text-amber-400">
             当前已自动降级到 `{modelFallback.to_model}`
             {modelFallback.reason ? `（原因：${modelFallback.reason}）` : ""}
           </div>
         ) : null}
 
-        <div className="mt-1 px-1 text-[11px] text-gray-400">
+        <div className="mt-1 px-1 text-[11px] text-gray-400 dark:text-slate-500">
           Enter 发送，Shift + Enter 换行，输入 / 快速插入技能，可直接拖拽文件到输入框
         </div>
       </div>

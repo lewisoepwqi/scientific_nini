@@ -32,7 +32,7 @@ function StepIcon({ status }: { status: string }) {
     case "skipped":
       return <SkipForward size={16} className="text-gray-400" />;
     default:
-      return <Circle size={16} className="text-gray-300" />;
+      return <Circle size={16} className="text-gray-400 dark:text-slate-500" />;
   }
 }
 
@@ -45,34 +45,34 @@ export default function AnalysisPlanCard({ content, analysisPlan }: Props) {
 
   return (
     <div className="flex gap-3 mb-4">
-      <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-indigo-100 text-indigo-600">
+      <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
         <Lightbulb size={16} />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 overflow-hidden">
+        <div className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-900/20 overflow-hidden">
           {/* 标题栏 */}
           <button
             onClick={() => setExpanded(!expanded)}
-            className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-indigo-100/50 transition-colors"
+            className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-indigo-100/50 dark:hover:bg-indigo-900/30 transition-colors"
           >
             <div className="flex items-center gap-2">
-              <Lightbulb size={14} className="text-indigo-600" />
-              <span className="font-medium text-indigo-900">
+              <Lightbulb size={14} className="text-indigo-600 dark:text-indigo-400" />
+              <span className="font-medium text-indigo-900 dark:text-indigo-200">
                 {steps
                   ? `分析计划 (${completedCount}/${totalCount})`
                   : "分析思路"}
               </span>
             </div>
             {expanded ? (
-              <ChevronDown size={14} className="text-indigo-600" />
+              <ChevronDown size={14} className="text-indigo-600 dark:text-indigo-400" />
             ) : (
-              <ChevronRight size={14} className="text-indigo-600" />
+              <ChevronRight size={14} className="text-indigo-600 dark:text-indigo-400" />
             )}
           </button>
 
           {/* 内容区 */}
           {expanded && (
-            <div className="px-4 pb-3 border-t border-indigo-200/50">
+            <div className="px-4 pb-3 border-t border-indigo-200/50 dark:border-indigo-800/50">
               {steps ? (
                 <ul className="mt-2 space-y-1.5">
                   {steps.map((step) => (
@@ -86,15 +86,15 @@ export default function AnalysisPlanCard({ content, analysisPlan }: Props) {
                       <span
                         className={
                           step.status === "done"
-                            ? "text-gray-500 line-through"
+                            ? "text-gray-500 dark:text-slate-400 line-through"
                             : step.status === "failed" ||
                                 step.status === "blocked"
-                              ? "text-red-700"
+                              ? "text-red-700 dark:text-red-400"
                               : step.status === "skipped"
-                                ? "text-gray-400 line-through"
+                                ? "text-gray-400 dark:text-slate-500 line-through"
                                 : step.status === "in_progress"
-                                  ? "text-indigo-900 font-medium"
-                                  : "text-indigo-900"
+                                  ? "text-indigo-900 dark:text-indigo-200 font-medium"
+                                  : "text-indigo-900 dark:text-indigo-200"
                         }
                       >
                         {step.title}
@@ -103,7 +103,7 @@ export default function AnalysisPlanCard({ content, analysisPlan }: Props) {
                   ))}
                 </ul>
               ) : (
-                <div className="mt-2 text-sm text-indigo-900 markdown-body prose prose-sm max-w-none prose-headings:text-indigo-900 prose-strong:text-indigo-900">
+                <div className="mt-2 text-sm text-indigo-900 dark:text-indigo-200 markdown-body prose prose-sm max-w-none prose-headings:text-indigo-900 dark:prose-headings:text-indigo-200 prose-strong:text-indigo-900 dark:prose-strong:text-indigo-200">
                   <LazyMarkdownContent content={content} />
                 </div>
               )}

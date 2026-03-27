@@ -90,11 +90,11 @@ export default function WidgetRenderer({ title, html, description }: Props) {
   }, [sendMessage]);
 
   return (
-    <div className="mt-3 overflow-hidden rounded-2xl border border-cyan-200/70 bg-white/90 shadow-sm">
-      <div className="border-b border-cyan-100 bg-gradient-to-r from-cyan-50 via-white to-slate-50 px-4 py-3">
-        <div className="text-sm font-semibold text-slate-900">{title}</div>
+    <div className="mt-3 overflow-hidden rounded-2xl border border-cyan-200/70 dark:border-cyan-800/50 bg-white/90 dark:bg-slate-900/90 shadow-sm">
+      <div className="border-b border-cyan-100 dark:border-cyan-900/50 bg-gradient-to-r from-cyan-50 via-white to-slate-50 dark:from-cyan-900/20 dark:via-slate-900 dark:to-slate-900 px-4 py-3">
+        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</div>
         {description && (
-          <p className="mt-1 text-xs leading-5 text-slate-600">{description}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">{description}</p>
         )}
       </div>
       <iframe

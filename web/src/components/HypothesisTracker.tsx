@@ -107,10 +107,10 @@ export default function HypothesisTracker() {
   }
 
   return (
-    <div className="rounded-lg border border-purple-200 bg-purple-50/60 px-4 py-3">
+    <div className="rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-900/20 px-4 py-3">
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs font-medium text-purple-700">假设推理中</p>
-        <span className="text-[10px] text-purple-500">
+        <p className="text-xs font-medium text-purple-700 dark:text-purple-400">假设推理中</p>
+        <span className="text-[10px] text-purple-500 dark:text-purple-400">
           阶段：{currentPhase}　轮次：{iterationCount}
         </span>
       </div>

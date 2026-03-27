@@ -1,8 +1,15 @@
 /**
- * Plotly 图表渲染组件。
+ * Plotly 图表渲染组件 —— 使用 createPlotlyComponent + index-cartesian 按需子包，
+ * 将图表 chunk 从 ~1MB 缩减至 ~300KB。
  */
-import Plot from 'react-plotly.js'
-import type * as Plotly from 'plotly.js'
+import createPlotlyComponent from 'react-plotly.js/factory'
+// @ts-expect-error — index-cartesian 是 plotly.js 的运行时子包，无独立类型声明
+import PlotlyCartesian from 'plotly.js/lib/index-cartesian'
+import type * as PlotlyTypes from 'plotly.js'
+
+// 使用 index-cartesian 子包创建 Plot 组件，比完整引入小 ~70%
+const Plot = createPlotlyComponent(PlotlyCartesian)
+
 import { isRecord } from '../store/utils'
 
 import type { ChartDataPayload } from '../store/types'
@@ -32,15 +39,20 @@ function withChineseFallback(family: string): string {
   return hasCjkFont ? trimmed : `${trimmed}, ${CJK_FONT_FAMILY}`
 }
 
-function buildAxis(axis: unknown): Partial<Plotly.LayoutAxis> {
-  const base = isRecord(axis) ? (axis as Partial<Plotly.LayoutAxis>) : {}
+function isDarkMode(): boolean {
+  if (typeof document === 'undefined') return false
+  return document.documentElement.classList.contains('dark')
+}
+
+function buildAxis(axis: unknown): Partial<PlotlyTypes.LayoutAxis> {
+  const base = isRecord(axis) ? (axis as Partial<PlotlyTypes.LayoutAxis>) : {}
   return {
     showline: true,
-    linecolor: '#9CA3AF',
+    linecolor: isDarkMode() ? '#475569' : '#9CA3AF',
     linewidth: 1,
     ticks: 'outside',
-    tickcolor: '#9CA3AF',
-    gridcolor: '#E5E7EB',
+    tickcolor: isDarkMode() ? '#475569' : '#9CA3AF',
+    gridcolor: isDarkMode() ? '#334155' : '#E5E7EB',
     zeroline: false,
     automargin: true,
     ...base,
@@ -69,39 +81,39 @@ export default function ChartViewer({ chartData }: Props) {
     return <div className="text-xs text-red-500">图表数据格式无效</div>
   }
 
-  const data = Array.isArray(normalized.data) ? (normalized.data as Plotly.Data[]) : []
-  const baseLayout = isRecord(normalized.layout) ? (normalized.layout as Partial<Plotly.Layout>) : {}
-  const baseConfig = isRecord(normalized.config) ? (normalized.config as Partial<Plotly.Config>) : {}
+  const data = Array.isArray(normalized.data) ? (normalized.data as PlotlyTypes.Data[]) : []
+  const baseLayout = isRecord(normalized.layout) ? (normalized.layout as Partial<PlotlyTypes.Layout>) : {}
+  const baseConfig = isRecord(normalized.config) ? (normalized.config as Partial<PlotlyTypes.Config>) : {}
 
   if (data.length === 0) {
     return <div className="text-xs text-red-500">图表数据为空</div>
   }
 
-  const baseFont = isRecord(baseLayout.font) ? (baseLayout.font as Partial<Plotly.Font>) : {}
+  const baseFont = isRecord(baseLayout.font) ? (baseLayout.font as Partial<PlotlyTypes.Font>) : {}
 
-  const layout: Partial<Plotly.Layout> = {
+  const layout: Partial<PlotlyTypes.Layout> = {
     ...baseLayout,
     autosize: true,
     height: typeof baseLayout.height === 'number' ? baseLayout.height : 420,
     colorway: Array.isArray(baseLayout.colorway) && baseLayout.colorway.length > 0
       ? baseLayout.colorway
       : SCIENTIFIC_COLORWAY,
-    paper_bgcolor: baseLayout.paper_bgcolor ?? '#FFFFFF',
-    plot_bgcolor: baseLayout.plot_bgcolor ?? '#FFFFFF',
+    paper_bgcolor: baseLayout.paper_bgcolor ?? (isDarkMode() ? '#0f172a' : '#FFFFFF'),
+    plot_bgcolor: baseLayout.plot_bgcolor ?? (isDarkMode() ? '#0f172a' : '#FFFFFF'),
     font: {
       ...baseFont,
       family: withChineseFallback(typeof baseFont.family === 'string' ? baseFont.family : ''),
       size: typeof baseFont.size === 'number' ? baseFont.size : 12,
-      color: typeof baseFont.color === 'string' ? baseFont.color : '#111827',
+      color: typeof baseFont.color === 'string' ? baseFont.color : (isDarkMode() ? '#e2e8f0' : '#111827'),
     },
     margin: isRecord(baseLayout.margin)
-      ? ({ l: 56, r: 24, t: 56, b: 48, ...(baseLayout.margin as Partial<Plotly.Margin>) })
+      ? ({ l: 56, r: 24, t: 56, b: 48, ...(baseLayout.margin as Partial<PlotlyTypes.Margin>) })
       : { l: 56, r: 24, t: 56, b: 48 },
     xaxis: buildAxis(baseLayout.xaxis),
     yaxis: buildAxis(baseLayout.yaxis),
   }
 
-  const config: Partial<Plotly.Config> = {
+  const config: Partial<PlotlyTypes.Config> = {
     responsive: true,
     displaylogo: false,
     ...baseConfig,
