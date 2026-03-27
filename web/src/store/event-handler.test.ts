@@ -957,9 +957,69 @@ describe("handleEvent 文本去重", () => {
     expect(harness.getState().skillExecution).toMatchObject({
       activeSkill: "experiment-design",
       pendingReviewStepId: "generate_plan",
+      submittingReviewStepId: null,
       trustCeiling: "t2",
     });
     expect(harness.getState().skillExecution?.steps).toHaveLength(1);
+  });
+
+  it("新 Skill 开始时不应继承上一个 Skill 的汇总状态", async () => {
+    const harness = createHarness({
+      sessionId: "session-current",
+      skillExecution: {
+        skillName: "literature-review",
+        activeSkill: null,
+        steps: [
+          {
+            stepId: "generate_output",
+            stepName: "输出生成",
+            status: "completed",
+            layer: 0,
+            trustLevel: "t1",
+            outputLevel: "o2",
+            outputSummary: "已完成",
+            errorMessage: null,
+            durationMs: 800,
+            updatedAt: 1,
+          },
+        ],
+        trustCeiling: "t1",
+        outputLevel: "o2",
+        overallStatus: "completed",
+        totalDurationMs: 800,
+        totalSteps: 1,
+        completedSteps: 1,
+        skippedSteps: 0,
+        failedSteps: 0,
+        pendingReviewStepId: null,
+        submittingReviewStepId: null,
+        updatedAt: 1,
+      },
+    });
+
+    await harness.dispatch({
+      type: "skill_step",
+      session_id: "session-current",
+      data: {
+        skill_name: "experiment-design",
+        step_id: "define_problem",
+        step_name: "问题定义",
+        status: "started",
+        trust_level: "t1",
+      },
+    });
+
+    expect(harness.getState().skillExecution).toMatchObject({
+      skillName: "experiment-design",
+      activeSkill: "experiment-design",
+      overallStatus: null,
+      totalDurationMs: null,
+      totalSteps: null,
+      outputLevel: null,
+      completedSteps: 0,
+      skippedSteps: 0,
+      failedSteps: 0,
+    });
   });
 
   it("skill_summary 事件应在后台会话缓存中关闭 activeSkill", async () => {

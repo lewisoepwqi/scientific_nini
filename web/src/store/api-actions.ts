@@ -33,6 +33,7 @@ import type {
   AnalysisPlanProgress,
   AnalysisStep,
   DeepTaskState,
+  OutputLevel,
   RecipeCard,
 } from "./types";
 import { apiFetch } from "./auth";
@@ -73,6 +74,14 @@ function buildSessionQuery(options?: SessionQueryOptions): string {
   }
   const query = params.toString();
   return query ? `?${query}` : "";
+}
+
+function normalizeHistoryOutputLevel(value: unknown): OutputLevel | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "o1" || normalized === "o2" || normalized === "o3" || normalized === "o4"
+    ? normalized
+    : null;
 }
 
 export async function fetchSessions(options?: SessionQueryOptions): Promise<SessionItem[]> {
@@ -1349,6 +1358,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
           turnId,
           operation,
           chartData: raw.chart_data as ChartDataPayload | undefined,
+          outputLevel: normalizeHistoryOutputLevel(raw.output_level),
         });
         messages.splice(0, messages.length, ...nextMessages);
         continue;
@@ -1364,6 +1374,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
           turnId,
           operation,
           dataPreview: raw.data_preview as DataPreviewPayload | undefined,
+          outputLevel: normalizeHistoryOutputLevel(raw.output_level),
         });
         messages.splice(0, messages.length, ...nextMessages);
         continue;
@@ -1388,6 +1399,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
             turnId,
             operation,
             artifacts,
+            outputLevel: normalizeHistoryOutputLevel(raw.output_level),
           });
           messages.splice(0, messages.length, ...nextMessages);
         }
@@ -1404,6 +1416,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
           turnId,
           operation,
           images: Array.isArray(raw.images) ? raw.images : [],
+          outputLevel: normalizeHistoryOutputLevel(raw.output_level),
         });
         messages.splice(0, messages.length, ...nextMessages);
         continue;
@@ -1443,6 +1456,7 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
           messageId,
           turnId,
           operation,
+          outputLevel: normalizeHistoryOutputLevel(raw.output_level),
           errorMeta: isErrorText ? buildErrorMeta(cleanedContent) : undefined,
         });
         messages.splice(0, messages.length, ...nextMessages);

@@ -126,6 +126,33 @@ class _DummyToolRegistry:
             ],
         }
 
+    def list_markdown_tools(self) -> list[dict[str, object]]:
+        return []
+
+    async def execute_with_fallback(self, tool_name: str, session: Session, **kwargs):
+        return await self.execute(tool_name, session, **kwargs)
+
+
+class _MarkdownOutputLevelRegistry:
+    def get_tool_definitions(self) -> list[dict[str, object]]:
+        return []
+
+    def list_markdown_tools(self) -> list[dict[str, object]]:
+        return [
+            {
+                "name": "experiment-design-helper",
+                "description": "实验设计引导工作流",
+                "category": "experiment_design",
+                "enabled": True,
+                "metadata": {
+                    "contract": {
+                        "trust_ceiling": "t1",
+                    }
+                },
+                "aliases": ["实验设计"],
+            }
+        ]
+
     async def execute_with_fallback(self, tool_name: str, session: Session, **kwargs):
         # 默认实现：直接调用 execute，不触发 fallback
         return await self.execute(tool_name, session=session, **kwargs)
@@ -892,6 +919,28 @@ async def test_generate_report_uses_saved_markdown_as_final_response() -> None:
     assert all("这段不应出现" not in payload for payload in text_payloads)
     assert session.messages[-1]["role"] == "assistant"
     assert "## 分析摘要" in str(session.messages[-1]["content"])
+
+
+@pytest.mark.asyncio
+async def test_runner_persists_output_level_from_active_markdown_skill() -> None:
+    session = Session()
+    runner = AgentRunner(
+        resolver=_DummyResolver(),
+        tool_registry=_MarkdownOutputLevelRegistry(),
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    events = []
+    async for event in runner.run(session, "/experiment-design-helper 请给出实验设计建议"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    done_event = next(event for event in events if event.type == EventType.DONE)
+    payload = done_event.data if isinstance(done_event.data, dict) else {}
+    assert payload.get("output_level") == "o2"
+    assert session.messages[-1]["role"] == "assistant"
+    assert session.messages[-1]["output_level"] == "o2"
 
 
 @pytest.mark.asyncio
