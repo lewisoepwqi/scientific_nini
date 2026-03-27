@@ -109,6 +109,8 @@ class ContractRunner:
         self._skill_name = skill_name
         self._callback = callback
         self._review_gate_timeout = review_gate_timeout
+        self._last_step_outputs: dict[str, Any] = {}
+        self._last_output_aliases: dict[str, Any] = {}
         # step_id -> asyncio.Event，用于 review_gate 确认
         self._review_events: dict[str, asyncio.Event] = {}
         # step_id -> True=确认继续 False=拒绝/超时
@@ -184,6 +186,8 @@ class ContractRunner:
                     abort_error = outcome.record.error_message
 
         total_ms = int((time.monotonic() - start_total) * 1000)
+        self._last_step_outputs = dict(step_outputs)
+        self._last_output_aliases = dict(output_aliases)
 
         # 汇总状态
         if aborted:
@@ -218,6 +222,14 @@ class ContractRunner:
         event = self._review_events.get(step_id)
         if event:
             event.set()
+
+    def get_step_output(self, step_id: str) -> Any:
+        """获取最近一次运行中指定步骤的输出。"""
+        return self._last_step_outputs.get(step_id)
+
+    def get_output_alias(self, name: str) -> Any:
+        """获取最近一次运行中 output_key 对应的输出。"""
+        return self._last_output_aliases.get(name)
 
     # ------------------------------------------------------------------
     # 内部实现
@@ -466,6 +478,8 @@ class ContractRunner:
                 step_outputs,
                 output_aliases,
             )
+        resolved_inputs["_contract_step_outputs"] = dict(step_outputs)
+        resolved_inputs["_contract_output_aliases"] = dict(output_aliases)
         return resolved_inputs
 
     def _resolve_reference(

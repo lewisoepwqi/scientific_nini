@@ -135,7 +135,7 @@ export default function SkillProgressPanel() {
         {skillExecution.steps.map((step) => {
           const meta = statusMeta(step.status);
           const stepOutputLevel = outputLevelMeta(step.outputLevel);
-          const waitingDecision = skillExecution.pendingReviewStepId === step.stepId;
+          const waitingDecision = skillExecution.submittingReviewStepId === step.stepId;
 
           return (
             <article

@@ -930,7 +930,7 @@ export const useStore = create<AppState>((set, get) => ({
     set({
       skillExecution: {
         ...skillExecution,
-        pendingReviewStepId: stepId,
+        submittingReviewStepId: stepId,
         updatedAt: Date.now(),
       },
     });

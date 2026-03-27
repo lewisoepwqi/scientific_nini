@@ -12,6 +12,7 @@ import logging
 import re
 import time
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -51,6 +52,9 @@ from nini.agent import event_builders as eb
 from nini.agent.task_manager import TaskManager
 from nini.agent.loop_guard import LoopGuard, LoopGuardDecision
 from nini.capabilities import create_default_capabilities
+from nini.models.risk import OutputLevel, TRUST_CEILING_MAP, TrustLevel
+from nini.models.skill_contract import SkillContract
+from nini.skills.contract_executor import ContractSkillExecutor
 
 # 导入组件模块
 from nini.agent.components import (
@@ -79,6 +83,7 @@ ORCHESTRATOR_TOOL_NAMES: frozenset[str] = frozenset({"dispatch_agents"})
 GENERIC_ASK_OPTION_LABEL_RE = re.compile(
     r"^(?:[A-Da-d]|[1-4]|选项[一二三四1234A-Da-d]?|方案[一二三四1234A-Da-d]?)$"
 )
+_OUTPUT_LEVEL_TOKEN_RE = re.compile(r"\b(o[1-4])\b", re.IGNORECASE)
 
 # 兼容别名：测试通过下划线前缀名称访问此函数
 _replace_arguments = replace_arguments
@@ -385,6 +390,9 @@ class AgentRunner:
         if append_user_message:
             session.add_message("user", user_message, turn_id=turn_id)
 
+        skill_detection_text = get_last_user_message(session) or user_message
+        active_markdown_tools = self._select_active_markdown_tools(skill_detection_text)
+
         # ---- 图表格式偏好检测 ----
         detected_pref = _detect_chart_preference(user_message)
         if detected_pref and detected_pref != session.chart_output_preference:
@@ -432,6 +440,18 @@ class AgentRunner:
                         "deep_calls_remaining": trial_status.get("deep_calls_remaining"),
                     },
                 )
+
+        contract_invocation = self._resolve_explicit_contract_skill_invocation(skill_detection_text)
+        if contract_invocation is not None:
+            async for contract_event in self._run_contract_markdown_skill(
+                session=session,
+                user_message=user_message,
+                skill_item=contract_invocation["skill"],
+                skill_arguments=contract_invocation["arguments"],
+                turn_id=turn_id,
+            ):
+                yield contract_event
+            return
 
         max_iter = settings.agent_max_iterations
         timeout_seconds = settings.agent_max_timeout_seconds
@@ -1077,11 +1097,17 @@ class AgentRunner:
                 final_message_id = current_message_id or f"{turn_id}-{message_seq}"
                 if current_message_id is None:
                     message_seq += 1
+                final_output_level = self._infer_turn_output_level(
+                    final_text=final_text,
+                    active_markdown_tools=active_markdown_tools,
+                )
                 final_message_extra: dict[str, Any] = {}
                 if effective_model_info:
                     final_message_extra["effective_model"] = effective_model_info
                 if fallback_chain:
                     final_message_extra["fallback_chain"] = fallback_chain
+                if final_output_level is not None:
+                    final_message_extra["output_level"] = final_output_level.value
                 session.add_message(
                     "assistant",
                     final_text,
@@ -1111,7 +1137,12 @@ class AgentRunner:
                             turn_id=turn_id,
                         )
 
-                yield eb.build_done_event(turn_id=turn_id)
+                yield eb.build_done_event(
+                    turn_id=turn_id,
+                    output_level=(
+                        final_output_level.value if final_output_level is not None else None
+                    ),
+                )
 
                 # 会话结束后异步沉淀分析记忆为跨会话长期记忆
                 try:
@@ -2197,11 +2228,17 @@ class AgentRunner:
                 report_message_id = current_message_id or f"{turn_id}-{message_seq}"
                 if current_message_id is None:
                     message_seq += 1
+                report_output_level = self._infer_turn_output_level(
+                    final_text=report_markdown_for_turn,
+                    active_markdown_tools=active_markdown_tools,
+                )
                 report_message_extra: dict[str, Any] = {}
                 if effective_model_info:
                     report_message_extra["effective_model"] = effective_model_info
                 if fallback_chain:
                     report_message_extra["fallback_chain"] = fallback_chain
+                if report_output_level is not None:
+                    report_message_extra["output_level"] = report_output_level.value
                 session.add_message(
                     "assistant",
                     report_markdown_for_turn,
@@ -2227,7 +2264,12 @@ class AgentRunner:
                         "operation": "complete",
                     },
                 )
-                yield eb.build_done_event(turn_id=turn_id)
+                yield eb.build_done_event(
+                    turn_id=turn_id,
+                    output_level=(
+                        report_output_level.value if report_output_level is not None else None
+                    ),
+                )
                 return
             iteration += 1
 
@@ -2502,6 +2544,177 @@ class AgentRunner:
             auto_limit=self._context_builder.auto_tool_max_count,
         )
 
+    def _resolve_explicit_contract_skill_invocation(
+        self,
+        user_message: str,
+    ) -> dict[str, Any] | None:
+        """解析显式 `/skill` 调用中的 contract Markdown Skill。"""
+        if not user_message or self._tool_registry is None:
+            return None
+        if not hasattr(self._tool_registry, "list_markdown_tools"):
+            return None
+        if not hasattr(self._tool_registry, "get_tool_instruction"):
+            return None
+
+        markdown_items = self._tool_registry.list_markdown_tools()
+        if not isinstance(markdown_items, list):
+            return None
+
+        skill_map = {
+            str(item.get("name", "")).strip(): item
+            for item in markdown_items
+            if isinstance(item, dict)
+        }
+        for call in default_intent_analyzer.parse_explicit_skill_calls(user_message, limit=1):
+            item = skill_map.get(call["name"])
+            if not isinstance(item, dict) or not bool(item.get("enabled", True)):
+                continue
+            metadata = item.get("metadata")
+            if not isinstance(metadata, dict) or metadata.get("contract") is None:
+                continue
+            return {
+                "skill": item,
+                "arguments": str(call.get("arguments", "") or "").strip(),
+            }
+        return None
+
+    async def _run_contract_markdown_skill(
+        self,
+        *,
+        session: Session,
+        user_message: str,
+        skill_item: dict[str, Any],
+        skill_arguments: str,
+        turn_id: str,
+    ) -> AsyncGenerator[AgentEvent, None]:
+        """执行显式调用的 contract Markdown Skill。"""
+        skill_name = str(skill_item.get("name", "")).strip()
+        if not skill_name:
+            yield eb.build_error_event("contract Skill 名称为空，无法执行", turn_id=turn_id)
+            yield eb.build_done_event(reason="failed", turn_id=turn_id)
+            return
+
+        if self._tool_registry is None or not hasattr(self._tool_registry, "get_tool_instruction"):
+            yield eb.build_error_event(
+                "工具注册中心未初始化，无法执行 contract Skill", turn_id=turn_id
+            )
+            yield eb.build_done_event(reason="failed", turn_id=turn_id)
+            return
+
+        instruction_payload = self._tool_registry.get_tool_instruction(skill_name)
+        if not isinstance(instruction_payload, dict):
+            yield eb.build_error_event(
+                f"未找到 {skill_name} 的技能正文，无法执行 contract Skill",
+                turn_id=turn_id,
+            )
+            yield eb.build_done_event(reason="failed", turn_id=turn_id)
+            return
+
+        metadata = skill_item.get("metadata")
+        contract_raw = metadata.get("contract") if isinstance(metadata, dict) else None
+        try:
+            contract = (
+                contract_raw
+                if isinstance(contract_raw, SkillContract)
+                else SkillContract.model_validate(contract_raw)
+            )
+        except Exception as exc:
+            yield eb.build_error_event(
+                f"{skill_name} 的 contract 配置无效: {exc}",
+                turn_id=turn_id,
+            )
+            yield eb.build_done_event(reason="failed", turn_id=turn_id)
+            return
+
+        event_queue: asyncio.Queue[AgentEvent] = asyncio.Queue()
+
+        async def callback(event_type: str, data: Any) -> None:
+            event_type_enum = {
+                "skill_step": EventType.SKILL_STEP,
+                "skill_summary": EventType.SKILL_SUMMARY,
+            }.get(event_type)
+            if event_type_enum is None:
+                return
+            payload = data.model_dump(mode="json") if hasattr(data, "model_dump") else data
+            await event_queue.put(
+                AgentEvent(
+                    type=event_type_enum,
+                    data=payload,
+                    turn_id=turn_id,
+                )
+            )
+
+        executor = ContractSkillExecutor(
+            skill_name=skill_name,
+            instruction=str(instruction_payload.get("instruction", "") or ""),
+            contract=contract,
+            tool_registry=self._tool_registry,
+            resolver=self._resolver,
+            callback=callback,
+        )
+        execution_task = asyncio.create_task(
+            executor.execute(
+                session=session,
+                user_message=user_message,
+                skill_arguments=skill_arguments,
+            )
+        )
+
+        while True:
+            if execution_task.done() and event_queue.empty():
+                break
+
+            queue_get_task = asyncio.create_task(event_queue.get())
+            done, pending = await asyncio.wait(
+                {execution_task, queue_get_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if queue_get_task in done:
+                yield queue_get_task.result()
+            else:
+                queue_get_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await queue_get_task
+
+        try:
+            outcome = await execution_task
+        except Exception as exc:
+            logger.error("contract Skill 执行失败: skill=%s err=%s", skill_name, exc, exc_info=True)
+            yield eb.build_error_event(
+                f"{skill_name} 执行失败: {exc}",
+                turn_id=turn_id,
+            )
+            yield eb.build_done_event(reason="failed", turn_id=turn_id)
+            return
+
+        final_text = outcome.final_text.strip()
+        final_output_level = outcome.output_level or self._infer_turn_output_level(
+            final_text=final_text,
+            active_markdown_tools=[skill_item],
+        )
+        message_id = f"{turn_id}-0"
+        session.add_message(
+            "assistant",
+            final_text,
+            turn_id=turn_id,
+            message_id=message_id,
+            operation="complete",
+            output_level=final_output_level.value if final_output_level is not None else None,
+        )
+        yield eb.build_text_event(
+            content=final_text,
+            turn_id=turn_id,
+            metadata={
+                "message_id": message_id,
+                "operation": "complete",
+            },
+        )
+        yield eb.build_done_event(
+            reason=outcome.contract_result.status,
+            turn_id=turn_id,
+            output_level=final_output_level.value if final_output_level is not None else None,
+        )
+
     def _resolve_allowed_tool_recommendations(
         self,
         user_message: str,
@@ -2509,6 +2722,60 @@ class AgentRunner:
         """根据激活的 Markdown Skills 解析 allowed_tools 推荐集合。"""
         items = self._select_active_markdown_tools(user_message)
         return default_intent_analyzer.collect_allowed_tools(items)
+
+    @staticmethod
+    def _output_level_from_text(text: str) -> OutputLevel | None:
+        """从文本中提取显式输出等级标记。"""
+        if not text:
+            return None
+        match = _OUTPUT_LEVEL_TOKEN_RE.search(text)
+        if match is None:
+            return None
+        token = match.group(1).lower()
+        try:
+            return OutputLevel(token)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _output_level_from_active_markdown_tools(
+        markdown_items: list[dict[str, Any]],
+    ) -> OutputLevel | None:
+        """根据激活的 Markdown Skills 推断本轮输出等级上限。"""
+        best_level: OutputLevel | None = None
+        best_rank = 0
+        for item in markdown_items:
+            metadata = item.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            contract = metadata.get("contract")
+            if not isinstance(contract, dict):
+                continue
+            raw_ceiling = str(contract.get("trust_ceiling", "") or "").strip().lower()
+            try:
+                trust_ceiling = TrustLevel(raw_ceiling)
+            except ValueError:
+                continue
+            allowed_levels = TRUST_CEILING_MAP.get(trust_ceiling, [])
+            if not allowed_levels:
+                continue
+            candidate = allowed_levels[-1]
+            candidate_rank = int(candidate.value[1:])
+            if candidate_rank > best_rank:
+                best_rank = candidate_rank
+                best_level = candidate
+        return best_level
+
+    def _infer_turn_output_level(
+        self,
+        *,
+        final_text: str,
+        active_markdown_tools: list[dict[str, Any]],
+    ) -> OutputLevel | None:
+        """优先从最终文本提取输出等级，缺失时回退到激活 Skill 的 trust ceiling。"""
+        return self._output_level_from_text(
+            final_text
+        ) or self._output_level_from_active_markdown_tools(active_markdown_tools)
 
     @classmethod
     def _discover_agents_md(cls) -> str:

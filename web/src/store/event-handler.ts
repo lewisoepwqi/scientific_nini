@@ -340,6 +340,7 @@ function upsertSkillExecutionStep(
     payload.status === "review_required"
       ? payload.status
       : "started";
+  const isContinuation = current?.activeSkill === skillName;
   const step = {
     stepId,
     stepName:
@@ -363,7 +364,7 @@ function upsertSkillExecutionStep(
     updatedAt,
   } as SkillExecutionState["steps"][number];
 
-  const existingSteps = current?.activeSkill === skillName ? current.steps : [];
+  const existingSteps = isContinuation ? current.steps : [];
   const nextSteps = existingSteps.some((item) => item.stepId === step.stepId)
     ? existingSteps.map((item) => (item.stepId === step.stepId ? { ...item, ...step } : item))
     : [...existingSteps, step];
@@ -376,13 +377,28 @@ function upsertSkillExecutionStep(
 
   const trustCeiling = nextSteps.reduce<string | null>((highest, item) => {
     return trustLevelRank(item.trustLevel) > trustLevelRank(highest) ? item.trustLevel : highest;
-  }, current?.trustCeiling ?? null);
+  }, isContinuation ? current?.trustCeiling ?? null : null);
   const outputLevel =
     nextSteps.reduce<OutputLevel | null>((highest, item) => {
       const currentRank = highest ? Number(highest.slice(1)) : 0;
       const nextRank = item.outputLevel ? Number(item.outputLevel.slice(1)) : 0;
       return nextRank > currentRank ? item.outputLevel : highest;
-    }, current?.outputLevel ?? null) ?? null;
+    }, isContinuation ? current?.outputLevel ?? null : null) ?? null;
+
+  const pendingReviewStepId =
+    status === "review_required"
+      ? step.stepId
+      : current?.pendingReviewStepId === step.stepId
+        ? null
+        : isContinuation
+          ? current?.pendingReviewStepId ?? null
+          : null;
+  const submittingReviewStepId =
+    current?.submittingReviewStepId === step.stepId
+      ? null
+      : isContinuation
+        ? current?.submittingReviewStepId ?? null
+        : null;
 
   return {
     skillName: skillName,
@@ -390,13 +406,14 @@ function upsertSkillExecutionStep(
     steps: nextSteps,
     trustCeiling,
     outputLevel,
-    overallStatus: current?.overallStatus ?? null,
-    totalDurationMs: current?.totalDurationMs ?? null,
-    totalSteps: current?.totalSteps ?? null,
+    overallStatus: isContinuation ? current?.overallStatus ?? null : null,
+    totalDurationMs: isContinuation ? current?.totalDurationMs ?? null : null,
+    totalSteps: isContinuation ? current?.totalSteps ?? null : null,
     completedSteps: nextSteps.filter((item) => item.status === "completed").length,
     skippedSteps: nextSteps.filter((item) => item.status === "skipped").length,
     failedSteps: nextSteps.filter((item) => item.status === "failed").length,
-    pendingReviewStepId: status === "review_required" ? step.stepId : null,
+    pendingReviewStepId,
+    submittingReviewStepId,
     updatedAt,
   };
 }
@@ -434,6 +451,7 @@ function applySkillSummary(
     failedSteps:
       typeof payload.failed_steps === "number" ? payload.failed_steps : current.failedSteps,
     pendingReviewStepId: null,
+    submittingReviewStepId: null,
     updatedAt: Date.now(),
   };
 }

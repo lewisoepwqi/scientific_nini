@@ -346,6 +346,7 @@ export interface SkillExecutionState {
   skippedSteps: number;
   failedSteps: number;
   pendingReviewStepId: string | null;
+  submittingReviewStepId: string | null;
   updatedAt: number | null;
 }
 

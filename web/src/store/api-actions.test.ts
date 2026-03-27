@@ -203,6 +203,29 @@ describe("buildMessagesFromHistory", () => {
     });
   });
 
+  it("应恢复 assistant 历史中的 output_level", () => {
+    const rawMessages: RawSessionMessage[] = [
+      {
+        role: "assistant",
+        content: "这是 O2 草稿级输出",
+        event_type: "text",
+        message_id: "turn-output-1-0",
+        turn_id: "turn-output-1",
+        output_level: "o2",
+        _ts: "2026-03-10T10:00:00Z",
+      },
+    ];
+
+    const messages = buildMessagesFromHistory(rawMessages);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      role: "assistant",
+      content: "这是 O2 草稿级输出",
+      outputLevel: "o2",
+    });
+  });
+
   it("应从 task_write 历史中恢复任务列表", () => {
     const rawMessages: RawSessionMessage[] = [
       {
