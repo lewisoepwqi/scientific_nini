@@ -312,7 +312,7 @@ export default function ModelSelector({
     <div className="relative" ref={wrapperRef}>
       <button
         onClick={handleToggleMenu}
-        className={`flex items-center gap-1.5 rounded-2xl hover:bg-gray-100 transition-colors border border-gray-200 text-gray-600 ${triggerClass}`}
+        className={`flex items-center gap-1.5 rounded-2xl hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-400 ${triggerClass}`}
         title={`快速切换模型，当前 ${displayText}`}
         aria-label="快速切换模型"
         aria-haspopup="menu"
@@ -322,21 +322,21 @@ export default function ModelSelector({
         <span className="truncate max-w-[120px]">{displayText}</span>
         <ChevronDown
           size={12}
-          className={`text-gray-400 transition-transform ${menuOpen ? "rotate-180" : ""}`}
+          className={`text-gray-400 dark:text-slate-500 transition-transform ${menuOpen ? "rotate-180" : ""}`}
         />
       </button>
 
       {menuOpen ? (
         <div
-          className={`absolute bottom-[calc(100%+10px)] right-0 z-30 flex max-h-[min(34rem,calc(100vh-8rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.16)] ${menuWidthClass}`}
+          className={`absolute bottom-[calc(100%+10px)] right-0 z-30 flex max-h-[min(34rem,calc(100vh-8rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-[0_18px_50px_rgba(15,23,42,0.16)] ${menuWidthClass}`}
         >
-          <div className="border-b border-slate-100 bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.14),_transparent_55%),linear-gradient(180deg,_rgba(248,250,252,0.96),_rgba(255,255,255,1))] px-4 py-3">
+          <div className="border-b border-slate-100 dark:border-slate-700 bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.14),_transparent_55%),linear-gradient(180deg,_rgba(248,250,252,0.96),_rgba(255,255,255,1))] dark:bg-slate-900 px-4 py-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400">
+                <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
                   快速切换
                 </div>
-                <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
                   <span className="truncate">{displayText}</span>
                   {effectiveRuntimeModel?.model &&
                   effectiveRuntimeModel.model !== selectedModel ? (
@@ -345,18 +345,18 @@ export default function ModelSelector({
                     </span>
                   ) : null}
                 </div>
-                <div className="mt-1 text-xs text-slate-500">
+                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   {displayProvider}
                 </div>
               </div>
-              <div className="rounded-full border border-blue-100 bg-white/80 p-1.5 text-blue-600 shadow-sm">
+              <div className="rounded-full border border-blue-100 dark:border-blue-800 bg-white/80 dark:bg-slate-700 p-1.5 text-blue-600 dark:text-blue-400 shadow-sm">
                 <Sparkles size={14} />
               </div>
             </div>
           </div>
 
           <div className="flex-1 overflow-y-auto px-2 py-2">
-            <div className="px-2 pb-1 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+            <div className="px-2 pb-1 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
               系统内置
             </div>
 
@@ -364,14 +364,14 @@ export default function ModelSelector({
               className={`mt-1 overflow-hidden rounded-xl border transition-colors ${
                 selectedProviderId === BUILTIN_PROVIDER_ID
                   ? "border-blue-200 bg-blue-50/70 shadow-sm"
-                  : "border-slate-200 bg-white"
+                  : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
               }`}
             >
               <button
                 type="button"
                 onClick={() => handleToggleProvider(BUILTIN_PROVIDER_ID)}
                 className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors ${
-                  expandedProviderId === BUILTIN_PROVIDER_ID ? "bg-slate-50" : "hover:bg-slate-50"
+                  expandedProviderId === BUILTIN_PROVIDER_ID ? "bg-slate-50 dark:bg-slate-700/50" : "hover:bg-slate-50 dark:hover:bg-slate-700/50"
                 }`}
               >
                 <div
@@ -385,7 +385,7 @@ export default function ModelSelector({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium text-slate-800">
+                    <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">
                       {BUILTIN_PROVIDER_NAME}
                     </span>
                     {selectedProviderId === BUILTIN_PROVIDER_ID ? (
@@ -394,26 +394,26 @@ export default function ModelSelector({
                       </span>
                     ) : null}
                   </div>
-                  <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500">
+                  <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                     <span className="truncate">
                       {selectedProviderId === BUILTIN_PROVIDER_ID
                         ? selectedModel || "请选择模式"
                         : "快速 / 深度"}
                     </span>
-                    <span className="text-slate-300">·</span>
+                    <span className="text-slate-300 dark:text-slate-600">·</span>
                     <span className="whitespace-nowrap">2 个模式</span>
                   </div>
                 </div>
                 <ChevronDown
                   size={14}
-                  className={`flex-shrink-0 text-slate-400 transition-transform ${
+                  className={`flex-shrink-0 text-slate-400 dark:text-slate-500 transition-transform ${
                     expandedProviderId === BUILTIN_PROVIDER_ID ? "rotate-180" : ""
                   }`}
                 />
               </button>
 
               {expandedProviderId === BUILTIN_PROVIDER_ID ? (
-                <div className="border-t border-slate-100 bg-white px-2 py-2">
+                <div className="border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-2">
                   {BUILTIN_MODE_OPTIONS.map((option) => {
                     const optionKey = `${BUILTIN_PROVIDER_ID}:${option.id}`;
                     const isSelected =
@@ -445,8 +445,8 @@ export default function ModelSelector({
                         disabled={switchingKey !== null}
                         className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
                           isSelected
-                            ? "border border-blue-200 bg-blue-50 text-slate-800 shadow-sm"
-                            : "hover:bg-slate-50 text-slate-700"
+                            ? "border border-blue-200 bg-blue-50 dark:bg-blue-900/20 text-slate-800 dark:text-slate-200 shadow-sm"
+                            : "hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-300"
                         } disabled:cursor-not-allowed disabled:opacity-60`}
                       >
                         <div
@@ -470,7 +470,7 @@ export default function ModelSelector({
                           </div>
                           <div
                             className={`truncate text-[11px] ${
-                              isSelected ? "text-slate-600" : "text-slate-500"
+                              isSelected ? "text-slate-600 dark:text-slate-400" : "text-slate-500 dark:text-slate-400"
                             }`}
                           >
                             {option.description}
@@ -497,12 +497,12 @@ export default function ModelSelector({
               ) : null}
             </div>
 
-            <div className="px-2 pb-1 pt-3 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+            <div className="px-2 pb-1 pt-3 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
               已配置模型
             </div>
 
             {modelProvidersLoading && configuredProviders.length === 0 ? (
-              <div className="flex items-center gap-2 px-3 py-4 text-xs text-slate-400">
+              <div className="flex items-center gap-2 px-3 py-4 text-xs text-slate-400 dark:text-slate-500">
                 <Loader2 size={12} className="animate-spin" />
                 正在加载可切换模型...
               </div>
@@ -527,7 +527,7 @@ export default function ModelSelector({
                       type="button"
                       onClick={() => handleToggleProvider(provider.id)}
                       className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors ${
-                        isExpanded ? "bg-slate-50" : "hover:bg-slate-50"
+                        isExpanded ? "bg-slate-50 dark:bg-slate-700/50" : "hover:bg-slate-50 dark:hover:bg-slate-700/50"
                       }`}
                     >
                       <div
@@ -541,27 +541,27 @@ export default function ModelSelector({
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-medium text-slate-800">
+                          <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">
                             {provider.name}
                           </span>
                           {provider.id === activeProvider?.id ? (
-                            <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">
+                            <span className="rounded-full bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-400">
                               默认
                             </span>
                           ) : null}
                           {selectedInProvider ? (
-                            <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">
+                            <span className="rounded-full bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 text-[10px] text-blue-700 dark:text-blue-400">
                               当前对话
                             </span>
                           ) : null}
                         </div>
-                        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500">
+                        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                           <span className="truncate">
                             {selectedInProvider
                               ? selectedModel || provider.current_model || "请选择模型"
                               : provider.current_model || "展开后选择模型"}
                           </span>
-                          <span className="text-slate-300">·</span>
+                          <span className="text-slate-300 dark:text-slate-600">·</span>
                           <span className="whitespace-nowrap">
                             {loadedState?.loading
                               ? "加载中"
@@ -571,16 +571,16 @@ export default function ModelSelector({
                       </div>
                       <ChevronDown
                         size={14}
-                        className={`flex-shrink-0 text-slate-400 transition-transform ${
+                        className={`flex-shrink-0 text-slate-400 dark:text-slate-500 transition-transform ${
                           isExpanded ? "rotate-180" : ""
                         }`}
                       />
                     </button>
 
                     {isExpanded ? (
-                      <div className="border-t border-slate-100 bg-white px-2 py-2">
+                      <div className="border-t border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-2">
                         {loadedState?.loading ? (
-                          <div className="flex items-center gap-2 px-3 py-3 text-xs text-slate-400">
+                          <div className="flex items-center gap-2 px-3 py-3 text-xs text-slate-400 dark:text-slate-500">
                             <Loader2 size={12} className="animate-spin" />
                             正在获取 {provider.name} 的模型列表...
                           </div>
@@ -603,15 +603,15 @@ export default function ModelSelector({
                                     disabled={switchingKey !== null}
                                     className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
                                       isSelected
-                                        ? "border border-blue-200 bg-blue-50 text-slate-800 shadow-sm"
-                                        : "hover:bg-slate-50 text-slate-700"
+                                        ? "border border-blue-200 bg-blue-50 dark:bg-blue-900/20 text-slate-800 dark:text-slate-200 shadow-sm"
+                                        : "hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-300"
                                     } disabled:cursor-not-allowed disabled:opacity-60`}
                                   >
                                     <div
                                       className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${
                                         isSelected
-                                          ? "bg-blue-100 text-blue-700"
-                                          : "bg-slate-100 text-slate-500"
+                                          ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400"
+                                          : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
                                       }`}
                                     >
                                       {switchingKey === optionKey ? (
@@ -631,8 +631,8 @@ export default function ModelSelector({
                                       <div
                                         className={`truncate text-[11px] ${
                                           isSelected
-                                            ? "text-slate-600"
-                                            : "text-slate-500"
+                                            ? "text-slate-600 dark:text-slate-400"
+                                            : "text-slate-500 dark:text-slate-400"
                                         }`}
                                       >
                                         {provider.name}
@@ -650,7 +650,7 @@ export default function ModelSelector({
                             ) : null}
                           </>
                         ) : (
-                          <div className="px-3 py-3 text-xs text-slate-500">
+                          <div className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400">
                             暂未获取到可选模型，请到 AI 设置里检查该供应商配置。
                           </div>
                         )}
@@ -660,26 +660,26 @@ export default function ModelSelector({
                 );
               })
             ) : (
-              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500">
+              <div className="rounded-xl border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-3 text-xs text-slate-500 dark:text-slate-400">
                 当前还没有可快速切换的已配置模型。
               </div>
             )}
           </div>
 
-          <div className="border-t border-slate-100 bg-slate-50/80 p-2">
+          <div className="border-t border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/80 p-2">
             <button
               type="button"
               onClick={() => {
                 setMenuOpen(false);
                 onOpenSettings?.();
               }}
-              className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 transition-colors hover:bg-white"
+              className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm text-slate-600 dark:text-slate-400 transition-colors hover:bg-white dark:hover:bg-slate-700"
             >
               <span className="flex items-center gap-2">
-                <Settings2 size={14} className="text-slate-400" />
+                <Settings2 size={14} className="text-slate-400 dark:text-slate-500" />
                 管理 AI 设置
               </span>
-              <ChevronDown size={14} className="-rotate-90 text-slate-400" />
+              <ChevronDown size={14} className="-rotate-90 text-slate-400 dark:text-slate-500" />
             </button>
           </div>
         </div>

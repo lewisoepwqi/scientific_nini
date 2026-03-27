@@ -3,12 +3,14 @@
  */
 import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useStore } from "./store";
+import { useIsDesktop } from "./hooks";
 import ChatPanel from "./components/ChatPanel";
 import SessionList from "./components/SessionList";
 import AuthGate from "./components/AuthGate";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { getWsStatusMeta } from "./store/websocket-status";
 import { AUTH_INVALID_EVENT } from "./store/auth";
+import { initTheme, getStoredTheme, setTheme, type ThemeMode } from "./theme";
 import {
   BookOpen,
   Loader2,
@@ -24,6 +26,8 @@ import {
   FileText,
   Coins,
   Library,
+  Sun,
+  Moon,
 } from "lucide-react";
 
 const ModelConfigPanel = lazy(() => import("./components/ModelConfigPanel"));
@@ -70,6 +74,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workspacePanelWidth, setWorkspacePanelWidth] = useState(420);
   const [resizingWorkspace, setResizingWorkspace] = useState(false);
+  const isDesktop = useIsDesktop();
+  const [themeMode, setThemeMode] = useState<ThemeMode>(getStoredTheme());
   const sessionId = useStore((s) => s.sessionId);
   const pendingAskUserQuestionsBySession = useStore(
     (s) => s.pendingAskUserQuestionsBySession,
@@ -82,6 +88,20 @@ export default function App() {
   useEffect(() => {
     void bootstrapApp();
   }, [bootstrapApp]);
+
+  // 暗色模式初始化
+  useEffect(() => {
+    return initTheme();
+  }, []);
+
+  const handleToggleTheme = useCallback(() => {
+    const modes: ThemeMode[] = ['light', 'dark', 'system'];
+    const current = getStoredTheme();
+    const nextIndex = (modes.indexOf(current) + 1) % modes.length;
+    const next = modes[nextIndex];
+    setTheme(next);
+    setThemeMode(next);
+  }, []);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -205,8 +225,8 @@ export default function App() {
   }, [resizingWorkspace]);
 
   const workspacePanelFallback = (
-    <div className="flex h-full items-center justify-center bg-white/80">
-      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-500 shadow-sm">
+    <div className="flex h-full items-center justify-center bg-white/80 dark:bg-slate-900/80">
+      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-500 dark:text-slate-400 shadow-sm">
         <Loader2 size={12} className="animate-spin" />
         正在打开工作区...
       </div>
@@ -215,7 +235,7 @@ export default function App() {
 
   const dialogFallback = (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/10 backdrop-blur-[2px]">
-      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-500 shadow-lg">
+      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-500 dark:text-slate-400 shadow-lg">
         <Loader2 size={12} className="animate-spin" />
         正在加载面板...
       </div>
@@ -224,14 +244,14 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="flex h-screen bg-white">
+      <div className="flex h-screen bg-white dark:bg-slate-900">
         {apiKeyRequired && !authReady && !appBootstrapping && (
           <AuthGate error={authError} loading={appBootstrapping} onSubmit={submitApiKey} />
         )}
         {/* 桌面端侧边栏 */}
-        <div className="w-64 border-r bg-gray-50 flex-shrink-0 hidden md:flex flex-col">
+        <nav aria-label="会话列表" className="w-64 border-r border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 flex-shrink-0 hidden md:flex flex-col">
           <SessionList />
-        </div>
+        </nav>
 
         {/* 移动端侧边栏（覆盖式） */}
         {sidebarOpen && (
@@ -240,90 +260,107 @@ export default function App() {
               className="fixed inset-0 z-40 bg-black/30 md:hidden"
               onClick={() => setSidebarOpen(false)}
             />
-            <div className="fixed inset-y-0 left-0 z-50 w-72 bg-gray-50 shadow-xl md:hidden flex flex-col">
+            <div className="fixed inset-y-0 left-0 z-50 w-72 bg-gray-50 dark:bg-slate-800 shadow-xl md:hidden flex flex-col">
               <SessionList onClose={() => setSidebarOpen(false)} />
             </div>
           </>
         )}
 
         {/* 主面板 */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <main className="flex-1 flex flex-col min-w-0">
           {/* 顶栏 */}
-          <div className="h-12 border-b flex items-center justify-between px-4 bg-white flex-shrink-0">
+          <header className="h-12 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between px-4 bg-white dark:bg-slate-900 flex-shrink-0">
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors md:hidden"
-                title="会话列表"
+                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400 transition-colors md:hidden focus-visible:ring-2 focus-visible:ring-blue-500"
+                aria-label="打开会话列表"
               >
                 <Menu size={18} />
               </button>
-              <span className="text-sm font-medium text-gray-600">对话</span>
+              <span className="text-sm font-medium text-gray-600 dark:text-slate-300">对话</span>
             </div>
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setActivePanel("capabilities")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-purple-600 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-purple-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                aria-label="分析能力"
                 title="分析能力"
               >
                 <Sparkles size={16} />
               </button>
               <button
                 onClick={() => setActivePanel("report")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-emerald-600 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-emerald-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                aria-label="生成文章初稿"
                 title="生成文章初稿"
               >
                 <FileText size={16} />
               </button>
               <button
                 onClick={() => setActivePanel("cost")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-amber-600 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-amber-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                aria-label="成本统计"
                 title="成本统计"
               >
                 <Coins size={16} />
               </button>
               <button
                 onClick={() => setActivePanel("profile")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-sky-600 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-sky-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                aria-label="研究画像"
                 title="研究画像"
               >
                 <User size={16} />
               </button>
               <button
                 onClick={() => setActivePanel("tools")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                aria-label="工具清单"
                 title="工具清单"
               >
                 <Wrench size={16} />
               </button>
               <button
                 onClick={() => setActivePanel("knowledge")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-indigo-600 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-indigo-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                aria-label="知识库"
                 title="知识库"
               >
                 <Library size={16} />
               </button>
               <button
                 onClick={() => setActivePanel("skills")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                aria-label="技能管理"
                 title="技能管理"
               >
                 <BookOpen size={16} />
               </button>
               <button
                 onClick={() => setActivePanel("settings")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                aria-label="模型配置"
                 title="模型配置"
               >
                 <Settings size={16} />
               </button>
               <button
+                onClick={handleToggleTheme}
+                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                aria-label={`切换主题（当前：${themeMode === 'system' ? '跟随系统' : themeMode === 'dark' ? '深色' : '浅色'}）`}
+                title={`主题：${themeMode === 'system' ? '跟随系统' : themeMode === 'dark' ? '深色' : '浅色'}`}
+              >
+                {themeMode === 'dark' ? <Moon size={16} /> : <Sun size={16} />}
+              </button>
+              <button
                 onClick={toggleWorkspacePanel}
-                className={`p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${
+                className={`p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
                   workspacePanelOpen
-                    ? "text-blue-600 bg-blue-50"
-                    : "text-gray-500"
+                    ? "text-blue-600 bg-blue-50 dark:bg-blue-900/30 dark:text-blue-400"
+                    : "text-gray-500 dark:text-slate-400"
                 }`}
+                aria-label={workspacePanelOpen ? "关闭工作区" : "打开工作区"}
                 title={workspacePanelOpen ? "关闭工作区" : "打开工作区"}
               >
                 {workspacePanelOpen ? (
@@ -332,7 +369,7 @@ export default function App() {
                   <PanelRightOpen size={16} />
                 )}
               </button>
-              <div className="flex items-center gap-1.5 text-xs">
+              <div className="flex items-center gap-1.5 text-xs" aria-live="polite">
                 {wsStatusMeta.tone === "success" && (
                   <>
                     <Wifi size={12} className="text-emerald-500" />
@@ -375,7 +412,7 @@ export default function App() {
                 )}
               </div>
             </div>
-          </div>
+          </header>
 
           {/* 多 Agent 执行状态面板（WorkflowTopology 在 ≥2 个 Agent 时自动渲染） */}
           {(Object.keys(activeAgents).length > 0 || completedAgents.length > 0) && (
@@ -400,12 +437,13 @@ export default function App() {
 
           {/* 对话面板 */}
           <ChatPanel />
-        </div>
+        </main>
 
-        {/* 桌面端工作区面板 */}
-        {workspacePanelOpen && (
-          <div
-            className="border-l flex-shrink-0 hidden md:flex flex-col relative"
+        {/* 工作区面板 —— 仅渲染一个实例，避免重复挂载 */}
+        {workspacePanelOpen && isDesktop && (
+          <aside
+            aria-label="工作区"
+            className="border-l border-gray-200 dark:border-slate-700 flex-shrink-0 flex flex-col relative bg-white dark:bg-slate-900"
             style={{ width: `${workspacePanelWidth}px` }}
           >
             <div
@@ -421,17 +459,17 @@ export default function App() {
             <Suspense fallback={null}>
               <MemoryPanel />
             </Suspense>
-          </div>
+          </aside>
         )}
 
         {/* 移动端工作区面板（覆盖式抽屉） */}
-        {workspacePanelOpen && (
+        {workspacePanelOpen && !isDesktop && (
           <>
             <div
-              className="fixed inset-0 z-40 bg-black/30 md:hidden"
+              className="fixed inset-0 z-40 bg-black/30"
               onClick={toggleWorkspacePanel}
             />
-            <div className="fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-xl md:hidden flex flex-col">
+            <div className="fixed inset-y-0 right-0 z-50 w-80 bg-white dark:bg-slate-900 shadow-xl flex flex-col">
               <div className="flex-1 min-h-0">
                 <Suspense fallback={workspacePanelFallback}>
                   <WorkspaceSidebar />
@@ -444,43 +482,38 @@ export default function App() {
           </>
         )}
 
-        {/* 模型配置弹窗 */}
+        {/* 弹窗面板 — 按需挂载，仅渲染当前激活的面板 */}
         {activePanel !== null && (
           <Suspense fallback={dialogFallback}>
-            <ModelConfigPanel
-              open={activePanel === "settings"}
-              onClose={closePanel}
-            />
-            <SkillCatalogPanel
-              open={activePanel === "tools"}
-              onClose={closePanel}
-            />
-            <CapabilityPanel
-              open={activePanel === "capabilities"}
-              onClose={closePanel}
-            />
-            <MarkdownSkillManagerPanel
-              open={activePanel === "skills"}
-              onClose={closePanel}
-            />
-            <ResearchProfilePanel
-              isOpen={activePanel === "profile"}
-              onClose={closePanel}
-            />
-            <ArticleDraftPanel
-              isOpen={activePanel === "report"}
-              onClose={closePanel}
-              sessionId={sessionId}
-              onStartDraftDialog={handleStartDraftDialog}
-            />
-            <CostPanel
-              isOpen={activePanel === "cost"}
-              onClose={closePanel}
-            />
-            <KnowledgePanel
-              isOpen={activePanel === "knowledge"}
-              onClose={closePanel}
-            />
+            {activePanel === "settings" && (
+              <ModelConfigPanel open={true} onClose={closePanel} />
+            )}
+            {activePanel === "tools" && (
+              <SkillCatalogPanel open={true} onClose={closePanel} />
+            )}
+            {activePanel === "capabilities" && (
+              <CapabilityPanel open={true} onClose={closePanel} />
+            )}
+            {activePanel === "skills" && (
+              <MarkdownSkillManagerPanel open={true} onClose={closePanel} />
+            )}
+            {activePanel === "profile" && (
+              <ResearchProfilePanel isOpen={true} onClose={closePanel} />
+            )}
+            {activePanel === "report" && (
+              <ArticleDraftPanel
+                isOpen={true}
+                onClose={closePanel}
+                sessionId={sessionId}
+                onStartDraftDialog={handleStartDraftDialog}
+              />
+            )}
+            {activePanel === "cost" && (
+              <CostPanel isOpen={true} onClose={closePanel} />
+            )}
+            {activePanel === "knowledge" && (
+              <KnowledgePanel isOpen={true} onClose={closePanel} />
+            )}
           </Suspense>
         )}
       </div>

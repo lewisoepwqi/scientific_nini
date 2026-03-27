@@ -41,8 +41,8 @@ export default function FileUpload() {
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={isUploading}
-        className="h-8 rounded-2xl border border-gray-200 px-2.5 text-xs text-gray-600
-                   inline-flex items-center gap-1.5 hover:bg-gray-50 transition-colors
+        className="h-8 rounded-2xl border border-gray-200 dark:border-slate-700 px-2.5 text-xs text-gray-600 dark:text-slate-300
+                   inline-flex items-center gap-1.5 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors
                    disabled:cursor-not-allowed disabled:opacity-60"
         title="上传数据文件"
       >
@@ -59,7 +59,7 @@ export default function FileUpload() {
         disabled={isUploading}
       />
 
-      <span className="hidden md:inline text-[11px] text-gray-400 whitespace-nowrap">
+      <span className="hidden md:inline text-[11px] text-gray-400 dark:text-slate-500 whitespace-nowrap">
         支持 CSV / Excel / TSV / TXT
       </span>
 

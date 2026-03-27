@@ -6,6 +6,31 @@
   box-sizing: border-box;
 }
 
+/* 全局焦点可见样式 —— 确保键盘用户能看到焦点位置 (WCAG 2.4.7) */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 屏幕阅读器专用隐藏文字 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
 html, body, #root {
   height: 100%;
 }
@@ -30,6 +55,12 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
 }
 
 /* 隐藏滚动条但保留滚动能力（用于横向 Tab 条） */
@@ -59,6 +90,10 @@ body {
   padding: 0.15rem 0.3rem;
   border-radius: 0.25rem;
   font-size: 0.875em;
+}
+
+.dark .markdown-body code {
+  background: #334155;
 }
 
 .markdown-body pre code {
@@ -109,6 +144,11 @@ body {
   background: #ffffff;
 }
 
+.dark .markdown-body .markdown-table-wrap {
+  border-color: #334155;
+  background: #0f172a;
+}
+
 .markdown-body .markdown-table-wrap table {
   width: max-content;
   min-width: 100%;
@@ -127,6 +167,12 @@ body {
   white-space: pre-wrap;
 }
 
+.dark .markdown-body .markdown-table-wrap th,
+.dark .markdown-body .markdown-table-wrap td {
+  border-right-color: #334155;
+  border-bottom-color: #334155;
+}
+
 .markdown-body .markdown-table-wrap th:last-child,
 .markdown-body .markdown-table-wrap td:last-child {
   border-right: none;
@@ -141,6 +187,10 @@ body {
   font-weight: 600;
 }
 
+.dark .markdown-body .markdown-table-wrap th {
+  background: #1e293b;
+}
+
 .markdown-body blockquote {
   margin: 0.6rem 0;
   padding: 0.4rem 0.8rem;
@@ -149,10 +199,20 @@ body {
   color: #475569;
 }
 
+.dark .markdown-body blockquote {
+  border-left-color: #475569;
+  background: #1e293b;
+  color: #94a3b8;
+}
+
 .markdown-body hr {
   margin: 0.9rem 0;
   border: none;
   border-top: 1px solid #e2e8f0;
+}
+
+.dark .markdown-body hr {
+  border-top-color: #334155;
 }
 
 .markdown-body a {
@@ -164,6 +224,14 @@ body {
 
 .markdown-body a:hover {
   color: #1d4ed8;
+}
+
+.dark .markdown-body a {
+  color: #60a5fa;
+}
+
+.dark .markdown-body a:hover {
+  color: #818cf8;
 }
 
 .markdown-body strong {

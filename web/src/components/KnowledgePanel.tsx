@@ -185,7 +185,7 @@ export default function KnowledgePanel({ isOpen = true, onClose }: KnowledgePane
             {documents.length}
           </span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <button
             onClick={handleRebuildIndex}
             disabled={rebuilding}
@@ -279,7 +279,7 @@ export default function KnowledgePanel({ isOpen = true, onClose }: KnowledgePane
                   </div>
                   <button
                     onClick={() => handleDelete(doc.id)}
-                    className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-500 transition-colors"
+                    className="p-2 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-500 transition-colors"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>

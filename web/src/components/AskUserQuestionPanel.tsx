@@ -158,12 +158,12 @@ export default function AskUserQuestionPanel({
     if (completionMap[index]) {
       return "border-emerald-200 bg-emerald-50 text-emerald-700";
     }
-    return "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50";
+    return "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:border-gray-300 dark:hover:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700";
   }
 
   return (
-    <div className="border-t border-blue-100 bg-blue-50/60 px-4 py-3">
-      <div className="mx-auto max-w-3xl rounded-2xl border border-blue-200 bg-white p-4 shadow-sm">
+    <div className="border-t border-blue-100 dark:border-blue-900/30 bg-blue-50/60 dark:bg-blue-900/15 px-4 py-3">
+      <div className="mx-auto max-w-3xl rounded-2xl border border-blue-200 dark:border-blue-800 bg-white dark:bg-slate-800 p-4 shadow-sm">
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm font-semibold text-blue-700">
             需要你补充 {questionCount} 个信息点，回答后继续执行
@@ -224,12 +224,12 @@ export default function AskUserQuestionPanel({
                 </div>
               )}
               {activeQuestion.context && (
-                <div className="mb-1 text-xs text-gray-500">{activeQuestion.context}</div>
+                <div className="mb-1 text-xs text-gray-500 dark:text-slate-400">{activeQuestion.context}</div>
               )}
               {activeQuestion.header && (
-                <div className="text-xs font-medium text-gray-500">{activeQuestion.header}</div>
+                <div className="text-xs font-medium text-gray-500 dark:text-slate-400">{activeQuestion.header}</div>
               )}
-              <div className="text-sm font-medium text-gray-900">{activeQuestion.question}</div>
+              <div className="text-sm font-medium text-gray-900 dark:text-slate-100">{activeQuestion.question}</div>
             </div>
 
             {isActiveSkipped && (
@@ -258,8 +258,8 @@ export default function AskUserQuestionPanel({
                       className="mt-1"
                     />
                     <span>
-                      <span className="block text-sm text-gray-800">{option.label}</span>
-                      <span className="block text-xs text-gray-500">{option.description}</span>
+                      <span className="block text-sm text-gray-800 dark:text-slate-200">{option.label}</span>
+                      <span className="block text-xs text-gray-500 dark:text-slate-400">{option.description}</span>
                     </span>
                   </label>
                 );
@@ -272,7 +272,7 @@ export default function AskUserQuestionPanel({
                   value={textMap[activeIndex] || ""}
                   onChange={(event) => setTextAnswer(activeIndex, event.target.value)}
                   placeholder="或输入自定义回答"
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                  className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 px-3 py-2 text-sm outline-none focus:border-blue-400"
                 />
               </div>
             )}
@@ -289,7 +289,7 @@ export default function AskUserQuestionPanel({
               type="button"
               onClick={() => setActiveIndex((prev) => Math.max(0, prev - 1))}
               disabled={activeIndex === 0}
-              className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl border border-gray-200 dark:border-slate-700 px-3 py-2 text-sm font-medium text-gray-600 dark:text-slate-300 transition-colors hover:bg-gray-50 dark:hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               上一题
             </button>
@@ -297,7 +297,7 @@ export default function AskUserQuestionPanel({
               type="button"
               onClick={() => setActiveIndex((prev) => Math.min(questionCount - 1, prev + 1))}
               disabled={activeIndex === questionCount - 1}
-              className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl border border-gray-200 dark:border-slate-700 px-3 py-2 text-sm font-medium text-gray-600 dark:text-slate-300 transition-colors hover:bg-gray-50 dark:hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               下一题
             </button>
@@ -305,7 +305,7 @@ export default function AskUserQuestionPanel({
               <button
                 type="button"
                 onClick={skipCurrentQuestion}
-                className="rounded-lg px-2 py-1 text-xs font-medium text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600"
+                className="rounded-lg px-2 py-1 text-xs font-medium text-gray-400 dark:text-slate-500 transition-colors hover:bg-gray-50 dark:hover:bg-slate-700 hover:text-gray-600 dark:hover:text-slate-300"
               >
                 跳过此题
               </button>
@@ -321,7 +321,7 @@ export default function AskUserQuestionPanel({
               提交回答并继续
             </button>
             {!isAllCompleted && (
-              <div className="text-[11px] text-gray-400">
+              <div className="text-[11px] text-gray-400 dark:text-slate-500">
                 还需完成 {questionCount - completedCount} 题后才可提交
               </div>
             )}

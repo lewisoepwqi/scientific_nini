@@ -44,7 +44,7 @@ export default function RecipeCenter() {
 
   if (!recipesLoaded) {
     return (
-      <div className="rounded-[28px] border border-slate-200/80 bg-white/85 p-6 text-sm text-slate-500 shadow-sm">
+      <div className="rounded-[28px] border border-slate-200/80 dark:border-slate-700 bg-white/85 dark:bg-slate-800 p-6 text-sm text-slate-500 dark:text-slate-400 shadow-sm">
         正在加载 Recipe Center...
       </div>
     );
@@ -55,14 +55,14 @@ export default function RecipeCenter() {
   }
 
   return (
-    <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-5 shadow-[0_18px_45px_-32px_rgba(15,23,42,0.45)]">
+    <div className="rounded-[28px] border border-slate-200/80 dark:border-slate-700 bg-white/90 dark:bg-slate-900 p-5 shadow-[0_18px_45px_-32px_rgba(15,23,42,0.45)]">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">
             Recipe Center
           </div>
-          <h2 className="mt-2 text-xl font-semibold text-slate-900">从高频科研任务直接开始</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+          <h2 className="mt-2 text-xl font-semibold text-slate-900 dark:text-slate-100">从高频科研任务直接开始</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-400">
             先用模板收敛问题，再进入自由对话。MVP 阶段提供 3 个稳定入口。
           </p>
         </div>
@@ -81,13 +81,13 @@ export default function RecipeCenter() {
               onClick={() => setSelectedRecipeId(recipe.recipe_id)}
               className={`rounded-3xl border px-4 py-4 text-left transition ${
                 selected
-                  ? "border-emerald-500 bg-emerald-50/80 shadow-sm"
-                  : "border-slate-200 bg-slate-50/70 hover:border-slate-300 hover:bg-white"
+                  ? "border-emerald-500 bg-emerald-50/80 dark:bg-emerald-900/20 shadow-sm"
+                  : "border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-white dark:hover:bg-slate-700"
               }`}
             >
-              <div className="text-sm font-semibold text-slate-900">{recipe.name}</div>
-              <p className="mt-2 text-xs leading-5 text-slate-600">{recipe.summary}</p>
-              <div className="mt-3 text-[11px] text-slate-500">
+              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{recipe.name}</div>
+              <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-400">{recipe.summary}</p>
+              <div className="mt-3 text-[11px] text-slate-500 dark:text-slate-400">
                 输出：
                 {recipe.default_outputs.map((output) => output.label).join(" / ")}
               </div>
@@ -96,14 +96,14 @@ export default function RecipeCenter() {
         })}
       </div>
 
-      <div className="mt-5 grid gap-5 rounded-3xl border border-slate-200 bg-slate-50/70 p-4 md:grid-cols-[1.2fr_0.8fr]">
+      <div className="mt-5 grid gap-5 rounded-3xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 p-4 md:grid-cols-[1.2fr_0.8fr]">
         <div>
-          <div className="text-sm font-semibold text-slate-900">{selectedRecipe.name}</div>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{selectedRecipe.scenario}</p>
+          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{selectedRecipe.name}</div>
+          <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-400">{selectedRecipe.scenario}</p>
           <div className="mt-4 space-y-3">
             {selectedRecipe.input_fields.map((field) => (
               <label key={field.key} className="block">
-                <div className="mb-1 text-xs font-medium text-slate-700">
+                <div className="mb-1 text-xs font-medium text-slate-700 dark:text-slate-300">
                   {field.label}
                   {field.required ? " *" : ""}
                 </div>
@@ -113,7 +113,7 @@ export default function RecipeCenter() {
                     setInputs((prev) => ({ ...prev, [field.key]: event.target.value }))
                   }
                   placeholder={field.placeholder || field.example}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  className="w-full rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                 />
               </label>
             ))}
@@ -140,22 +140,22 @@ export default function RecipeCenter() {
             >
               以模板启动
             </button>
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs leading-5 text-slate-500">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
               示例：{selectedRecipe.example_input}
             </div>
           </div>
         </div>
 
-        <div className="rounded-3xl bg-white p-4">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+        <div className="rounded-3xl bg-white dark:bg-slate-800 p-4">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
             执行步骤
           </div>
           <div className="mt-3 space-y-3">
             {selectedRecipe.steps.map((step, index) => (
-              <div key={step.id} className="rounded-2xl border border-slate-200 px-3 py-3">
-                <div className="text-xs font-semibold text-emerald-700">Step {index + 1}</div>
-                <div className="mt-1 text-sm font-medium text-slate-900">{step.title}</div>
-                <div className="mt-1 text-xs leading-5 text-slate-500">{step.description}</div>
+              <div key={step.id} className="rounded-2xl border border-slate-200 dark:border-slate-700 px-3 py-3">
+                <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Step {index + 1}</div>
+                <div className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">{step.title}</div>
+                <div className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{step.description}</div>
               </div>
             ))}
           </div>

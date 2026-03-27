@@ -16,8 +16,8 @@ export default function PendingQuestionBanner({
   onEnableNotifications,
 }: PendingQuestionBannerProps) {
   return (
-    <div className="border-b border-amber-200 bg-amber-50/80 px-4 py-3">
-      <div className="mx-auto flex max-w-3xl flex-col gap-3 rounded-2xl border border-amber-200 bg-white px-4 py-3 shadow-sm md:flex-row md:items-center md:justify-between">
+    <div className="border-b border-amber-200 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-900/15 px-4 py-3">
+      <div className="mx-auto flex max-w-3xl flex-col gap-3 rounded-2xl border border-amber-200 dark:border-amber-800 bg-white dark:bg-slate-800 px-4 py-3 shadow-sm md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-amber-800">
             会话“{pending.sessionTitle}”正在等待你的回答

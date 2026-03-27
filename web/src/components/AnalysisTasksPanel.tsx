@@ -84,25 +84,25 @@ function HarnessDiagnostics({
   if (!runContext && !completionCheck && !blockedState) return null;
 
   return (
-    <div className="px-3 py-3 border-b bg-white space-y-2">
+    <div className="px-3 py-3 border-b dark:border-slate-700 bg-white dark:bg-slate-800 space-y-2">
       {runContext && (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-          <div className="flex items-center gap-2 text-xs font-medium text-slate-700">
+        <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2">
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
             <FileStack size={13} />
             <span>运行上下文</span>
           </div>
           {runContext.datasets.length > 0 && (
-            <p className="mt-1 text-[11px] text-slate-600">
+            <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
               数据集：{runContext.datasets.map((item) => `${item.name}${item.rows != null ? `（${item.rows}×${item.columns ?? "?"}）` : ""}`).join("、")}
             </p>
           )}
           {runContext.toolHints.length > 0 && (
-            <p className="mt-1 text-[11px] text-slate-600">
+            <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
               工具提示：{runContext.toolHints.join("、")}
             </p>
           )}
           {runContext.constraints.length > 0 && (
-            <p className="mt-1 text-[11px] text-slate-600">
+            <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
               关键约束：{runContext.constraints.join("；")}
             </p>
           )}
@@ -112,14 +112,14 @@ function HarnessDiagnostics({
       {completionCheck && (
         <div className={`rounded-lg border px-3 py-2 ${completionCheck.passed ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
           <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="font-medium text-slate-800">完成校验</span>
+            <span className="font-medium text-slate-800 dark:text-slate-200">完成校验</span>
             <span className={completionCheck.passed ? "text-emerald-700" : "text-amber-800"}>
               第 {completionCheck.attempt} 次
             </span>
           </div>
           <div className="mt-2 space-y-1">
             {completionCheck.items.map((item) => (
-              <div key={item.key} className="flex items-start gap-2 text-[11px] text-slate-700">
+              <div key={item.key} className="flex items-start gap-2 text-[11px] text-slate-700 dark:text-slate-300">
                 {item.passed ? (
                   <CheckCircle2 size={12} className="mt-0.5 text-emerald-600" />
                 ) : (
@@ -127,7 +127,7 @@ function HarnessDiagnostics({
                 )}
                 <div className="min-w-0">
                   <p>{item.label}</p>
-                  {item.detail && <p className="text-slate-500">{truncateText(item.detail, 120)}</p>}
+                  {item.detail && <p className="text-slate-500 dark:text-slate-400">{truncateText(item.detail, 120)}</p>}
                 </div>
               </div>
             ))}
@@ -179,13 +179,13 @@ function AnalysisPlanContent({
   return (
     <div className="h-full flex flex-col">
       {/* 头部信息 */}
-      <div className="px-3 py-3 border-b bg-gradient-to-b from-slate-50 to-white">
+      <div className="px-3 py-3 border-b dark:border-slate-700 bg-gradient-to-b from-slate-50 dark:from-slate-800 to-white dark:to-slate-900">
         <div className="flex items-center gap-2 text-sm">
-          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700">
+          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
             <Sparkles size={13} />
           </span>
-          <span className="font-semibold text-slate-900">分析进度</span>
-          <span className="text-xs text-slate-500">
+          <span className="font-semibold text-slate-900 dark:text-slate-100">分析进度</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">
             Step {safeCurrentIndex}/{plan.total_steps}
           </span>
           <span
@@ -194,8 +194,8 @@ function AnalysisPlanContent({
             {statusLabel(plan.step_status)}
           </span>
         </div>
-        <p className="mt-2 text-sm font-medium text-slate-900">{currentTitle}</p>
-        {nextHint && <p className="mt-1 text-xs text-slate-600">{nextHint}</p>}
+        <p className="mt-2 text-sm font-medium text-slate-900 dark:text-slate-100">{currentTitle}</p>
+        {nextHint && <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{nextHint}</p>}
         {blockReason && (
           <p className="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
             {blockReason}
@@ -211,7 +211,7 @@ function AnalysisPlanContent({
 
       {/* 步骤列表 */}
       <div className="flex-1 overflow-y-auto px-3 py-3">
-        <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
+        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-2">
           <span>
             已完成 {completedCount} / {plan.total_steps}
           </span>
@@ -262,17 +262,17 @@ function HistoryTasksContent({ tasks }: { tasks: AnalysisTaskItem[] }) {
   return (
     <div className="h-full flex flex-col">
       {/* 头部信息 */}
-      <div className="px-3 py-3 border-b bg-gradient-to-b from-slate-50 to-white">
+      <div className="px-3 py-3 border-b dark:border-slate-700 bg-gradient-to-b from-slate-50 dark:from-slate-800 to-white dark:to-slate-900">
         <div className="flex items-center gap-2 text-sm">
-          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 text-slate-600">
+          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
             <History size={13} />
           </span>
-          <span className="font-semibold text-slate-700">历史任务</span>
-          <span className="text-xs text-slate-500">
+          <span className="font-semibold text-slate-700 dark:text-slate-300">历史任务</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">
             共 {tasks.length} 个任务
           </span>
         </div>
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
           已完成 {completedCount} / {tasks.length} 个任务
         </p>
       </div>
@@ -304,7 +304,7 @@ function HistoryTasksContent({ tasks }: { tasks: AnalysisTaskItem[] }) {
                     {index + 1}. {truncateText(task.title, 88)}
                   </span>
                   {task.current_activity && (
-                    <p className="text-[10px] text-slate-500 mt-0.5 truncate">
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
                       {task.current_activity}
                     </p>
                   )}
@@ -356,7 +356,7 @@ export default function AnalysisTasksPanel() {
 
   // 没有任何任务时显示空状态
   return (
-    <div className="h-full flex flex-col items-center justify-center text-gray-400 text-xs px-4">
+    <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-slate-500 text-xs px-4">
       <Circle size={20} className="mb-2 opacity-50" />
       <p>暂无分析任务</p>
       <p className="text-[10px] mt-1">生成分析计划后会在这里展示任务进度</p>

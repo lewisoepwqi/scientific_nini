@@ -34,15 +34,15 @@ function statusLabel(status: PlanStepStatus): string {
 function statusBadgeClass(status: PlanStepStatus): string {
   switch (status) {
     case 'in_progress':
-      return 'bg-blue-100 text-blue-700 border-blue-200'
+      return 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800'
     case 'done':
-      return 'bg-emerald-100 text-emerald-700 border-emerald-200'
+      return 'bg-emerald-100 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
     case 'blocked':
-      return 'bg-amber-100 text-amber-800 border-amber-200'
+      return 'bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-400 border-amber-200 dark:border-amber-800'
     case 'failed':
-      return 'bg-red-100 text-red-700 border-red-200'
+      return 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800'
     default:
-      return 'bg-slate-100 text-slate-700 border-slate-200'
+      return 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
   }
 }
 
@@ -118,19 +118,19 @@ export default function AnalysisPlanHeader({ plan }: Props) {
 
   return (
     <div
-      className="border-b bg-gradient-to-b from-slate-50 to-white px-4 py-3"
+      className="border-b dark:border-slate-700 bg-gradient-to-b from-slate-50 to-white dark:from-slate-900 dark:to-slate-900 px-4 py-3"
       data-testid="analysis-plan-header"
     >
       <div className="max-w-3xl mx-auto">
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
           <div className="flex items-start justify-between gap-3 px-4 py-3">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 text-sm">
-                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700">
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400">
                   <Sparkles size={13} />
                 </span>
-                <span className="font-semibold text-slate-900">分析进度</span>
-                <span className="text-xs text-slate-500" data-testid="analysis-plan-step-index">
+                <span className="font-semibold text-slate-900 dark:text-slate-100">分析进度</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400" data-testid="analysis-plan-step-index">
                   Step {safeCurrentIndex}/{plan.total_steps}
                 </span>
                 <span
@@ -139,16 +139,16 @@ export default function AnalysisPlanHeader({ plan }: Props) {
                   {statusLabel(plan.step_status)}
                 </span>
               </div>
-              <p className="mt-2 text-sm font-medium text-slate-900" data-testid="analysis-plan-current-title">
+              <p className="mt-2 text-sm font-medium text-slate-900 dark:text-slate-100" data-testid="analysis-plan-current-title">
                 {currentTitle}
               </p>
               {nextHint && (
-                <p className="mt-1 text-xs text-slate-600" data-testid="analysis-plan-next-hint">
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-300" data-testid="analysis-plan-next-hint">
                   {nextHint}
                 </p>
               )}
               {blockReason && (
-                <p className="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded px-2 py-1">
                   {blockReason}
                 </p>
               )}
@@ -156,7 +156,7 @@ export default function AnalysisPlanHeader({ plan }: Props) {
 
             <button
               data-testid="analysis-plan-toggle"
-              className="md:hidden inline-flex items-center gap-1 text-xs text-slate-600 px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50"
+              className="md:hidden inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700"
               onClick={() => {
                 const next = !mobileExpanded
                 setMobileExpanded(next)
@@ -174,10 +174,10 @@ export default function AnalysisPlanHeader({ plan }: Props) {
           </div>
 
           <div
-            className={`border-t border-slate-100 px-4 py-3 ${mobileExpanded ? 'block' : 'hidden md:block'}`}
+            className={`border-t border-slate-100 dark:border-slate-700 px-4 py-3 ${mobileExpanded ? 'block' : 'hidden md:block'}`}
             data-testid="analysis-plan-step-list"
           >
-            <div className="flex items-center justify-between text-xs text-slate-500">
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
               <span>已完成 {completedCount} / {plan.total_steps}</span>
               <span>当前步骤高亮显示</span>
             </div>
@@ -185,14 +185,14 @@ export default function AnalysisPlanHeader({ plan }: Props) {
               {plan.steps.map((step) => {
                 const isCurrent = step.id === safeCurrentIndex
                 const itemClass = isCurrent
-                  ? 'border-blue-200 bg-blue-50/70 text-blue-900'
+                  ? 'border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-900/20 text-blue-900 dark:text-blue-300'
                   : step.status === 'done'
-                    ? 'border-emerald-200 bg-emerald-50/60 text-emerald-900'
+                    ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-900/20 text-emerald-900 dark:text-emerald-300'
                     : step.status === 'failed'
-                      ? 'border-red-200 bg-red-50/60 text-red-900'
+                      ? 'border-red-200 dark:border-red-800 bg-red-50/60 dark:bg-red-900/20 text-red-900 dark:text-red-300'
                       : step.status === 'blocked'
-                        ? 'border-amber-200 bg-amber-50/60 text-amber-900'
-                        : 'border-slate-200 bg-slate-50 text-slate-700'
+                        ? 'border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/20 text-amber-900 dark:text-amber-300'
+                        : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
 
                 return (
                   <li

@@ -212,7 +212,7 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white dark:bg-slate-800 shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-slate-900 to-slate-800 px-6 py-4">
           <div className="flex items-center gap-3">
@@ -234,9 +234,9 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
 
         <div className="grid h-[calc(90vh-80px)] grid-cols-[1fr,320px] overflow-hidden">
           {/* Left Panel - Template Selection */}
-          <div className="h-full overflow-y-auto border-r border-slate-200 p-6">
+          <div className="h-full overflow-y-auto border-r border-slate-200 dark:border-slate-700 p-6">
             <div className="mb-6">
-              <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-800">
+              <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
                 <BookOpen size={16} className="text-sky-600" />
                 选择期刊风格
               </h3>
@@ -247,8 +247,8 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
                     onClick={() => setSelectedTemplate(t.id)}
                     className={`relative rounded-xl border p-4 text-left transition-all ${
                       selectedTemplate === t.id
-                        ? "border-sky-500 bg-sky-50 ring-1 ring-sky-500"
-                        : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                        ? "border-sky-500 bg-sky-50 dark:bg-sky-900/20 ring-1 ring-sky-500"
+                        : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700/50"
                     }`}
                   >
                     <div className="flex items-start justify-between">
@@ -261,8 +261,8 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
                         <CheckCircle2 size={16} className="text-sky-600" />
                       )}
                     </div>
-                    <div className="mt-2 font-medium text-slate-800">{t.name}</div>
-                    <div className="text-xs text-slate-500">{t.description}</div>
+                    <div className="mt-2 font-medium text-slate-800 dark:text-slate-200">{t.name}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">{t.description}</div>
                   </button>
                 ))}
               </div>
@@ -270,11 +270,11 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
 
             {/* Selected Template Features */}
             {template && (
-              <div className="mb-6 rounded-xl bg-slate-50 p-4">
-                <div className="text-sm font-medium text-slate-800">{template.name} 风格特点</div>
+              <div className="mb-6 rounded-xl bg-slate-50 dark:bg-slate-700/50 p-4">
+                <div className="text-sm font-medium text-slate-800 dark:text-slate-200">{template.name} 风格特点</div>
                 <ul className="mt-2 space-y-1">
                   {template.features.map((feature, idx) => (
-                    <li key={idx} className="flex items-center gap-2 text-xs text-slate-600">
+                    <li key={idx} className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
                       <span className="h-1 w-1 rounded-full bg-sky-500" />
                       {feature}
                     </li>
@@ -285,7 +285,7 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
 
             {/* Detail Level */}
             <div className="mb-6">
-              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
                 <Settings size={16} className="text-sky-600" />
                 详细程度
               </h3>
@@ -300,12 +300,12 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
                     onClick={() => setDetailLevel(level.value)}
                     className={`flex-1 rounded-xl border p-3 text-center transition-all ${
                       detailLevel === level.value
-                        ? "border-sky-500 bg-sky-50"
-                        : "border-slate-200 hover:border-slate-300"
+                        ? "border-sky-500 bg-sky-50 dark:bg-sky-900/20"
+                        : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600"
                     }`}
                   >
                     <div className="text-sm font-medium">{level.label}</div>
-                    <div className="text-[10px] text-slate-500">{level.desc}</div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400">{level.desc}</div>
                   </button>
                 ))}
               </div>
@@ -323,9 +323,9 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
           </div>
 
           {/* Right Panel - Section Selection */}
-          <div className="h-full overflow-y-auto bg-slate-50/50 p-6">
+          <div className="h-full overflow-y-auto bg-slate-50/50 dark:bg-slate-900/50 p-6">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-800">文章章节</h3>
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">文章章节</h3>
               <button
                 onClick={selectAllSections}
                 className="text-xs text-sky-600 hover:text-sky-700"
@@ -340,8 +340,8 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
                   key={section.id}
                   className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-all ${
                     section.selected
-                      ? "border-sky-200 bg-sky-50/50"
-                      : "border-slate-200 bg-white"
+                      ? "border-sky-200 bg-sky-50/50 dark:bg-sky-900/20"
+                      : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
                   }`}
                 >
                   <input
@@ -353,25 +353,25 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-slate-700">
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
                         {section.title}
                       </span>
                       {section.required && (
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
+                        <span className="rounded bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 text-[10px] text-slate-500 dark:text-slate-400">
                           必需
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-slate-500">{section.description}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">{section.description}</div>
                   </div>
                 </label>
               ))}
             </div>
 
             <div className="mt-6 space-y-3">
-              <h3 className="text-sm font-semibold text-slate-800">包含内容</h3>
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">包含内容</h3>
 
-              <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
+              <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3">
                 <input
                   type="checkbox"
                   checked={includeFigures}
@@ -379,12 +379,12 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
                   className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
                 />
                 <div>
-                  <div className="text-sm font-medium text-slate-700">包含图表</div>
-                  <div className="text-xs text-slate-500">自动嵌入生成的图表</div>
+                  <div className="text-sm font-medium text-slate-700 dark:text-slate-300">包含图表</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">自动嵌入生成的图表</div>
                 </div>
               </label>
 
-              <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
+              <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3">
                 <input
                   type="checkbox"
                   checked={includeTables}
@@ -392,15 +392,15 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
                   className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
                 />
                 <div>
-                  <div className="text-sm font-medium text-slate-700">包含数据表</div>
-                  <div className="text-xs text-slate-500">关键统计结果表格</div>
+                  <div className="text-sm font-medium text-slate-700 dark:text-slate-300">包含数据表</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">关键统计结果表格</div>
                 </div>
               </label>
             </div>
 
             {/* Export Options */}
             <div className="mt-6">
-              <h3 className="mb-3 text-sm font-semibold text-slate-800">导出格式</h3>
+              <h3 className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-200">导出格式</h3>
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { format: "md" as const, label: "Markdown", ext: ".md" },
@@ -410,18 +410,18 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
                   <button
                     key={format}
                     onClick={() => downloadDraft(format)}
-                    className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 bg-white p-3 transition-colors hover:border-sky-300 hover:bg-sky-50"
+                    className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 transition-colors hover:border-sky-300 dark:hover:border-sky-600 hover:bg-sky-50 dark:hover:bg-sky-900/20"
                   >
-                    <Download size={16} className="text-slate-600" />
+                    <Download size={16} className="text-slate-600 dark:text-slate-400" />
                     <span className="text-xs font-medium">{label}</span>
-                    <span className="text-[10px] text-slate-400">{ext}</span>
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500">{ext}</span>
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="mt-6 rounded-xl bg-slate-100 p-3 text-xs text-slate-600">
-              <div className="font-medium text-slate-700">已选择</div>
+            <div className="mt-6 rounded-xl bg-slate-100 dark:bg-slate-700 p-3 text-xs text-slate-600 dark:text-slate-400">
+              <div className="font-medium text-slate-700 dark:text-slate-300">已选择</div>
               <div className="mt-1">
                 {selectedCount} 个章节 · {template?.name} 风格 · {" "}
                 {detailLevel === "brief" ? "简洁" : detailLevel === "standard" ? "标准" : "详细"}版本
@@ -429,7 +429,7 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
             </div>
 
             {/* Info hint */}
-            <div className="mt-4 rounded-xl bg-blue-50 p-3 text-xs text-blue-700">
+            <div className="mt-4 rounded-xl bg-blue-50 dark:bg-blue-900/20 p-3 text-xs text-blue-700 dark:text-blue-400">
               <div className="font-medium">提示</div>
               <p className="mt-1">
                 点击"开始对话生成"后，将进入对话模式。AI 会分析您的对话历史，

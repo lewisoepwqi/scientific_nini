@@ -58,16 +58,16 @@ export default function DataViewer({ preview }: Props) {
   const totalRows = typeof preview.total_rows === 'number' ? preview.total_rows : rows.length
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white mt-2 overflow-hidden">
-      <div className="px-3 py-2 text-xs text-gray-500 border-b bg-gray-50">
+    <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 mt-2 overflow-hidden">
+      <div className="px-3 py-2 text-xs text-gray-500 dark:text-slate-400 border-b dark:border-slate-700 bg-gray-50 dark:bg-slate-800/80">
         预览 {previewRows} / {totalRows} 行
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs">
-          <thead className="bg-gray-50 text-gray-600">
+          <thead className="bg-gray-50 dark:bg-slate-800/80 text-gray-600 dark:text-slate-300">
             <tr>
               {columns.map((column) => (
-                <th key={column} className="px-3 py-2 text-left font-semibold border-b whitespace-nowrap">
+                <th key={column} className="px-3 py-2 text-left font-semibold border-b dark:border-slate-700 whitespace-nowrap">
                   {column}
                 </th>
               ))}
@@ -75,9 +75,9 @@ export default function DataViewer({ preview }: Props) {
           </thead>
           <tbody>
             {visibleRows.map((row, idx) => (
-              <tr key={`row-${idx}`} className="odd:bg-white even:bg-gray-50">
+              <tr key={`row-${idx}`} className="odd:bg-white dark:odd:bg-slate-800 even:bg-gray-50 dark:even:bg-slate-800/80">
                 {columns.map((column) => (
-                  <td key={`${idx}-${column}`} className="px-3 py-2 border-b align-top whitespace-nowrap">
+                  <td key={`${idx}-${column}`} className="px-3 py-2 border-b dark:border-slate-700 align-top whitespace-nowrap">
                     {formatCell(row[column])}
                   </td>
                 ))}

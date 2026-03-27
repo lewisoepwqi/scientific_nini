@@ -49,30 +49,30 @@ export default function AgentExecutionPanel() {
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+    <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-700 flex items-center gap-2">
         <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-        <span className="text-sm font-medium text-gray-700">并行 Agent 执行</span>
+        <span className="text-sm font-medium text-gray-700 dark:text-slate-300">并行 Agent 执行</span>
         {activeList.length > 0 && (
-          <span className="ml-auto text-xs text-gray-500">
+          <span className="ml-auto text-xs text-gray-500 dark:text-slate-400">
             {activeList.length} 个运行中
           </span>
         )}
       </div>
 
       {activeList.length > 0 && (
-        <div className="divide-y divide-gray-50">
+        <div className="divide-y divide-gray-50 dark:divide-slate-700">
           {activeList.map((agent) => (
             <div key={agent.agentId} className="px-4 py-3 flex items-start gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-medium text-gray-800 truncate">
+                  <span className="text-sm font-medium text-gray-800 dark:text-slate-200 truncate">
                     {agent.agentName}
                   </span>
                   <AgentStatusBadge status={agent.status} />
                   <ElapsedTime startTime={agent.startTime} />
                 </div>
-                <p className="text-xs text-gray-500 truncate">{agent.task}</p>
+                <p className="text-xs text-gray-500 dark:text-slate-400 truncate">{agent.task}</p>
               </div>
             </div>
           ))}
@@ -80,19 +80,19 @@ export default function AgentExecutionPanel() {
       )}
 
       {completedList.length > 0 && (
-        <div className="border-t border-gray-100">
-          <div className="px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">
+        <div className="border-t border-gray-100 dark:border-slate-700">
+          <div className="px-4 py-2 text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wide">
             已完成
           </div>
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-gray-50 dark:divide-slate-700">
             {completedList.slice(-5).map((agent, idx) => (
               <div key={`${agent.agentId}-${idx}`} className="px-4 py-3">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-medium text-gray-700">{agent.agentName}</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-slate-300">{agent.agentName}</span>
                   <AgentStatusBadge status={agent.status} />
                 </div>
                 {agent.summary && (
-                  <p className="text-xs text-gray-500 line-clamp-2">{agent.summary}</p>
+                  <p className="text-xs text-gray-500 dark:text-slate-400 line-clamp-2">{agent.summary}</p>
                 )}
               </div>
             ))}

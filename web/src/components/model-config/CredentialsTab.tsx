@@ -249,7 +249,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
 
   if (modelProvidersLoading && modelProviders.length === 0) {
     return (
-      <div className="flex items-center justify-center py-16 text-gray-400">
+      <div className="flex items-center justify-center py-16 text-gray-400 dark:text-slate-500">
         <Loader2 size={20} className="animate-spin mr-2" />
         加载中...
       </div>
@@ -271,34 +271,34 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
   return (
     <div className="space-y-4">
       {/* 搜索与过滤 */}
-      <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+      <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-3">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
           <div className="relative md:col-span-3">
             <Search
               size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500"
             />
             <input
               value={providerQuery}
               onChange={(e) => setProviderQuery(e.target.value)}
               placeholder="搜索提供商名称、ID 或模型..."
-              className="w-full pl-8 pr-3 py-2 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className="w-full pl-8 pr-3 py-2 text-sm border rounded-lg bg-white dark:bg-slate-900 dark:border-slate-600 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
             />
           </div>
           <div className="relative md:col-span-1" ref={filterRef}>
             <button
               type="button"
               onClick={() => setFilterDropdownOpen(!filterDropdownOpen)}
-              className="w-full h-10 px-3 pr-8 text-sm text-left border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className="w-full h-10 px-3 pr-8 text-sm text-left border rounded-lg bg-white dark:bg-slate-900 dark:border-slate-600 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
             >
               {FILTER_OPTIONS.find((o) => o.value === providerFilter)?.label}
             </button>
             <ChevronDown
               size={14}
-              className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none transition-transform ${filterDropdownOpen ? "rotate-180" : ""}`}
+              className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 pointer-events-none transition-transform ${filterDropdownOpen ? "rotate-180" : ""}`}
             />
             {filterDropdownOpen && (
-              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+              <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg overflow-hidden">
                 {FILTER_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
@@ -307,10 +307,10 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                       setProviderFilter(opt.value);
                       setFilterDropdownOpen(false);
                     }}
-                    className={`w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 transition-colors ${
+                    className={`w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors ${
                       opt.value === providerFilter
-                        ? "bg-blue-50 text-blue-700 font-medium"
-                        : "text-gray-700"
+                        ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400 font-medium"
+                        : "text-gray-700 dark:text-slate-300"
                     }`}
                   >
                     {opt.label}
@@ -320,14 +320,14 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
             )}
           </div>
         </div>
-        <div className="text-[11px] text-gray-500 mt-2">
+        <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-2">
           显示 {visibleProviders.length} / {modelProviders.length} 个提供商
         </div>
       </div>
 
       {/* 提供商列表 */}
       {visibleProviders.length === 0 ? (
-        <div className="text-center py-16 text-sm text-gray-400">
+        <div className="text-center py-16 text-sm text-gray-400 dark:text-slate-500">
           没有匹配的提供商
         </div>
       ) : (
@@ -343,8 +343,8 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
               key={p.id}
               className={`rounded-xl border p-4 transition-colors ${
                 p.configured
-                  ? "border-emerald-200 bg-emerald-50/40"
-                  : "border-gray-200 bg-gray-50/60"
+                  ? "border-emerald-200 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-900/20"
+                  : "border-gray-200 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/60"
               }`}
             >
               <div
@@ -355,34 +355,34 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                   {p.configured ? (
                     <CheckCircle
                       size={18}
-                      className="text-emerald-500 flex-shrink-0"
+                      className="text-emerald-500 dark:text-emerald-400 flex-shrink-0"
                     />
                   ) : (
                     <XCircle
                       size={18}
-                      className="text-gray-300 flex-shrink-0"
+                      className="text-gray-400 dark:text-slate-600 flex-shrink-0"
                     />
                   )}
                   <div className="min-w-0">
-                    <div className="font-medium text-gray-800 truncate">
+                    <div className="font-medium text-gray-800 dark:text-slate-200 truncate">
                       {p.name}
                     </div>
-                    <div className="text-xs text-gray-500 mt-0.5 truncate">
+                    <div className="text-xs text-gray-500 dark:text-slate-400 mt-0.5 truncate">
                       {p.api_key_hint ? `Key: ${p.api_key_hint}` : "未配置密钥"}
                     </div>
                     <div className="flex items-center gap-1.5 mt-1">
-                      <span className="px-1.5 py-0.5 rounded bg-white/80 border text-[10px] text-gray-500">
+                      <span className="px-1.5 py-0.5 rounded bg-white/80 dark:bg-slate-800/80 border dark:border-slate-600 text-[10px] text-gray-500 dark:text-slate-400">
                         {sourceLabel(p.config_source)}
                       </span>
                       {p.api_mode && (
-                        <span className="px-1.5 py-0.5 rounded bg-white/80 border text-[10px] text-gray-500">
+                        <span className="px-1.5 py-0.5 rounded bg-white/80 dark:bg-slate-800/80 border dark:border-slate-600 text-[10px] text-gray-500 dark:text-slate-400">
                           {apiModeLabel(p.api_mode)}
                         </span>
                       )}
                     </div>
                   </div>
                 </div>
-                <div className="text-gray-400">
+                <div className="text-gray-400 dark:text-slate-500">
                   {isExpanded ? (
                     <span className="text-xs">▲</span>
                   ) : (
@@ -392,7 +392,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
               </div>
 
               {isExpanded && (
-                <div className="mt-3 pt-3 border-t border-gray-200 space-y-3">
+                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-slate-700 space-y-3">
                   {isEditing ? (
                     <div className="space-y-2">
                       {/* 防 autocomplete 的隐藏字段 */}
@@ -417,7 +417,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
 
                       {p.id !== "ollama" && (
                         <div>
-                          <label className="text-xs text-gray-500 mb-1 block">
+                          <label className="text-xs text-gray-500 dark:text-slate-400 mb-1 block">
                             API Key
                           </label>
                           <input
@@ -436,12 +436,12 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                                 ? `当前: ${p.api_key_hint}（留空保持不变）`
                                 : "输入 API Key"
                             }
-                            className="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300"
+                            className="w-full px-3 py-2 text-sm border dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300"
                           />
                         </div>
                       )}
                       <div>
-                        <label className="text-xs text-gray-500 mb-1 block">
+                        <label className="text-xs text-gray-500 dark:text-slate-400 mb-1 block">
                           Base URL（可选）
                         </label>
                         <input
@@ -456,7 +456,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                             })
                           }
                           placeholder="留空使用默认端点"
-                          className="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300"
+                          className="w-full px-3 py-2 text-sm border dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300"
                         />
                       </div>
                       <div className="flex items-center gap-2 pt-1">
@@ -474,7 +474,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                         </button>
                         <button
                           onClick={cancelEdit}
-                          className="px-4 py-1.5 text-xs rounded-lg border hover:bg-gray-100 transition-colors"
+                          className="px-4 py-1.5 text-xs rounded-lg border dark:border-slate-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
                         >
                           取消
                         </button>
@@ -482,19 +482,19 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                     </div>
                   ) : lockedConfig ? (
                     <>
-                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+                      <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-xs text-amber-700 dark:text-amber-400">
                         当前配置已锁定，如需修改模式或密钥，请先移除后重新配置。
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                        <div className="rounded-lg border border-gray-200 bg-white p-2">
-                          <div className="text-gray-400">Base URL</div>
-                          <div className="text-gray-700 mt-1 break-all">
+                        <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2">
+                          <div className="text-gray-400 dark:text-slate-500">Base URL</div>
+                          <div className="text-gray-700 dark:text-slate-300 mt-1 break-all">
                             {p.base_url || "默认端点"}
                           </div>
                         </div>
-                        <div className="rounded-lg border border-gray-200 bg-white p-2">
-                          <div className="text-gray-400">当前模式</div>
-                          <div className="text-gray-700 mt-1">
+                        <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2">
+                          <div className="text-gray-400 dark:text-slate-500">当前模式</div>
+                          <div className="text-gray-700 dark:text-slate-300 mt-1">
                             {apiModeLabel(p.api_mode)}
                           </div>
                         </div>
@@ -503,7 +503,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                         <button
                           onClick={() => handleTest(p.id)}
                           disabled={!p.configured || test?.loading}
-                          className="px-3 py-1.5 text-xs rounded-lg border disabled:opacity-40 disabled:cursor-not-allowed hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                          className="px-3 py-1.5 text-xs rounded-lg border dark:border-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
                         >
                           {test?.loading ? (
                             <span className="inline-flex items-center gap-1">
@@ -517,7 +517,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                         <button
                           onClick={() => void handleDelete(p.id)}
                           disabled={removingId === p.id || p.can_delete_config === false}
-                          className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                         >
                           {removingId === p.id ? (
                             <Loader2 size={12} className="animate-spin" />
@@ -531,17 +531,17 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                   ) : (
                     <>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                        <div className="rounded-lg border border-gray-200 bg-white p-2">
-                          <div className="text-gray-400">Base URL</div>
-                          <div className="text-gray-700 mt-1 break-all">
+                        <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2">
+                          <div className="text-gray-400 dark:text-slate-500">Base URL</div>
+                          <div className="text-gray-700 dark:text-slate-300 mt-1 break-all">
                             {p.base_url || "默认端点"}
                           </div>
                         </div>
-                        <div className="rounded-lg border border-gray-200 bg-white p-2">
-                          <div className="text-gray-400">可选模型</div>
-                          <div className="text-gray-700 mt-1">
+                        <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2">
+                          <div className="text-gray-400 dark:text-slate-500">可选模型</div>
+                          <div className="text-gray-700 dark:text-slate-300 mt-1">
                             {dynamicModelCounts[p.id]?.loading ? (
-                              <span className="inline-flex items-center gap-1 text-gray-400">
+                              <span className="inline-flex items-center gap-1 text-gray-400 dark:text-slate-500">
                                 <Loader2 size={10} className="animate-spin" />
                                 获取中
                               </span>
@@ -554,7 +554,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           onClick={() => startEdit(p)}
-                          className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border dark:border-slate-600 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
                         >
                           <Edit3 size={12} />
                           编辑凭证
@@ -562,7 +562,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                         <button
                           onClick={() => handleTest(p.id)}
                           disabled={!p.configured || test?.loading}
-                          className="px-3 py-1.5 text-xs rounded-lg border disabled:opacity-40 disabled:cursor-not-allowed hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                          className="px-3 py-1.5 text-xs rounded-lg border dark:border-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
                         >
                           {test?.loading ? (
                             <span className="inline-flex items-center gap-1">
@@ -579,14 +579,14 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
 
                   {save && !save.loading && (
                     <div
-                      className={`text-xs px-3 py-1.5 rounded-lg ${save.success ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}
+                      className={`text-xs px-3 py-1.5 rounded-lg ${save.success ? "bg-emerald-100 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400" : "bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400"}`}
                     >
                       {save.message}
                     </div>
                   )}
                   {test && !test.loading && (
                     <div
-                      className={`text-xs px-3 py-1.5 rounded-lg ${test.success ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}
+                      className={`text-xs px-3 py-1.5 rounded-lg ${test.success ? "bg-emerald-100 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400" : "bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400"}`}
                     >
                       {test.message}
                     </div>

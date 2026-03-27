@@ -3,7 +3,7 @@
  */
 import { useEffect, useState, useCallback, useRef, type KeyboardEvent } from 'react'
 import { useStore } from '../store'
-import { Loader2, MessageSquarePlus, Pencil, Trash2, X } from 'lucide-react'
+import { Loader2, MessageSquarePlus, MoreHorizontal, Pencil, Trash2, X } from 'lucide-react'
 import * as api from '../store/api-actions'
 import type { SessionItem } from '../store/types'
 import { onSessionsChanged } from '../store/session-lifecycle'
@@ -39,6 +39,7 @@ export default function SessionList({ onClose }: Props) {
   const [hiddenSessionIds, setHiddenSessionIds] = useState<Record<string, true>>({})
   const [creatingSession, setCreatingSession] = useState(false)
   const [firstPageResolved, setFirstPageResolved] = useState(false)
+  const [openActionsId, setOpenActionsId] = useState<string | null>(null)
   const editRef = useRef<HTMLInputElement>(null)
   const deleteTimerRef = useRef<number | null>(null)
   const offsetRef = useRef(0)
@@ -102,7 +103,7 @@ export default function SessionList({ onClose }: Props) {
   }, [debouncedQuery, loadPage])
 
   useEffect(() => {
-    // 当前会话变化后清空“焦点高亮”，避免误认为选中跳转
+    // 当前会话变化后清空"焦点高亮"，避免误认为选中跳转
     setFocusedIndex(-1)
   }, [sessionId])
 
@@ -337,24 +338,24 @@ export default function SessionList({ onClose }: Props) {
   const showSessionRows = firstPageResolved && !appBootstrapping
 
   return (
-    <div className="flex flex-col h-full bg-gradient-to-b from-slate-50/80 to-white">
-      <div className="p-4 border-b border-slate-200/70 flex items-center justify-between">
+    <div className="flex flex-col h-full bg-gradient-to-b from-slate-50/80 to-white dark:from-slate-800 dark:to-slate-900">
+      <div className="p-4 border-b border-slate-200/70 dark:border-slate-700 flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight text-slate-800">Nini</h1>
-          <p className="text-xs text-slate-500 mt-0.5">科研数据分析 AI Agent</p>
+          <h1 className="text-lg font-semibold tracking-tight text-slate-800 dark:text-slate-100">Nini</h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">科研数据分析 AI Agent</p>
         </div>
         {onClose && (
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 text-slate-500 md:hidden">
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 md:hidden">
             <X size={18} />
           </button>
         )}
       </div>
 
-      <div className="p-3 border-b border-slate-200/70 space-y-2">
+      <div className="p-3 border-b border-slate-200/70 dark:border-slate-700 space-y-2">
         <button
           onClick={() => { void handleCreateSession() }}
           disabled={creatingSession}
-          className="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white
+          className="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800
                      px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
         >
           {creatingSession ? <Loader2 size={14} className="animate-spin" /> : <MessageSquarePlus size={14} />}
@@ -364,7 +365,7 @@ export default function SessionList({ onClose }: Props) {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="搜索会话标题或 ID"
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700
+          className="w-full rounded-xl border border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 px-3 py-2 text-sm text-slate-700
                      placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-200 shadow-sm"
         />
       </div>
@@ -387,12 +388,12 @@ export default function SessionList({ onClose }: Props) {
           {showListSkeleton && Array.from({ length: 7 }).map((_, index) => (
             <div
               key={`session-skeleton-${index}`}
-              className="rounded-xl border border-slate-200/70 bg-white/80 px-3 py-3 shadow-[0_1px_0_rgba(15,23,42,0.03)]"
+              className="rounded-xl border border-slate-200/70 bg-white/80 dark:border-slate-700 dark:bg-slate-800 px-3 py-3 shadow-[0_1px_0_rgba(15,23,42,0.03)]"
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div
-                    className={`h-3 rounded-full bg-slate-200/80 animate-pulse ${
+                    className={`h-3 rounded-full bg-slate-200/80 dark:bg-slate-600 animate-pulse ${
                       index % 3 === 0 ? 'w-2/3' : index % 3 === 1 ? 'w-3/4' : 'w-1/2'
                     }`}
                   />
@@ -409,9 +410,11 @@ export default function SessionList({ onClose }: Props) {
           }`}
         >
           {showEmptyState && (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-white/80 px-4 py-6 text-center">
-              <p className="text-xs text-slate-400">暂无会话记录</p>
-              <p className="text-[11px] text-slate-300 mt-1">点击上方“新建会话”开始</p>
+            <div className="rounded-xl border border-dashed border-slate-200 dark:border-slate-600 bg-white/80 dark:bg-slate-800 px-4 py-6 text-center">
+              <p className="text-xs text-slate-400">{"暂无会话记录"}</p>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+                {"点击上方\u201c新建会话\u201d开始"}
+              </p>
             </div>
           )}
           {showSessionRows && visibleSessions.map((s, idx) => {
@@ -431,7 +434,7 @@ export default function SessionList({ onClose }: Props) {
                       if (e.key === 'Enter') handleRenameSubmit(s.id)
                       if (e.key === 'Escape') setEditingId(null)
                     }}
-                    className="flex-1 rounded-lg px-3 py-2 text-sm border border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    className="flex-1 rounded-lg px-3 py-2 text-sm border border-blue-400 dark:bg-slate-800 dark:text-slate-200 dark:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-300"
                     placeholder="输入会话名称"
                   />
                 </div>
@@ -446,16 +449,16 @@ export default function SessionList({ onClose }: Props) {
                 key={s.id}
                 className={`group flex items-center gap-2 overflow-hidden rounded-xl px-2.5 border ${
                   isActive
-                    ? 'bg-sky-50/80 border-sky-200/80 shadow-[0_1px_0_rgba(14,165,233,0.08)]'
+                    ? 'bg-sky-50/80 border-sky-200/80 dark:bg-sky-900/20 dark:border-sky-800/50 shadow-[0_1px_0_rgba(14,165,233,0.08)]'
                     : isFocused
-                      ? 'bg-white border-slate-300/90 ring-1 ring-slate-200'
-                      : 'bg-white/90 border-slate-200/80 hover:bg-slate-50/90'
+                      ? 'bg-white dark:bg-slate-800 border-slate-300/90 ring-1 ring-slate-200'
+                      : 'bg-white/90 dark:bg-slate-800 dark:border-slate-700 border-slate-200/80 hover:bg-slate-50/90'
                 }`}
               >
                 <button
                   type="button"
                   className={`flex-1 min-w-0 px-1 py-2.5 text-sm cursor-pointer transition-colors text-left ${
-                    isActive ? 'text-slate-900' : 'text-slate-700'
+                    isActive ? 'text-slate-900 dark:text-slate-100' : 'text-slate-700 dark:text-slate-300'
                   }`}
                   onClick={() => handleClick(s.id)}
                   onDoubleClick={() => handleDoubleClick(s.id, s.title)}
@@ -477,22 +480,49 @@ export default function SessionList({ onClose }: Props) {
                     <Loader2 size={13} className="animate-spin text-sky-400 flex-shrink-0" />
                   ) : (
                     <>
-                      <span className="text-[11px] text-slate-400 text-right group-hover:hidden">
+                      <span className={`text-[11px] text-slate-400 dark:text-slate-500 text-right ${
+                        openActionsId === s.id ? 'hidden' : 'group-hover:hidden'
+                      }`}>
                         {formatRelativeTime(s.created_at || s.updated_at || s.last_message_at)}
                       </span>
-                      <div className="hidden group-hover:flex items-center justify-end gap-1">
+                      {/* 更多操作按钮：始终可见，点击展开操作菜单；桌面端 hover 时隐藏（由下方操作按钮替代） */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setOpenActionsId((prev) => prev === s.id ? null : s.id)
+                        }}
+                        className={`p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 transition-all w-8 h-8 items-center justify-center ${
+                          openActionsId === s.id ? 'hidden flex' : 'flex group-hover:hidden'
+                        }`}
+                        title="更多操作"
+                      >
+                        <MoreHorizontal size={13} />
+                      </button>
+                      {/* 重命名/删除按钮：点击更多按钮展开，或桌面端 hover 显示 */}
+                      <div className={`items-center justify-end gap-1 ${
+                        openActionsId === s.id ? 'flex' : 'hidden group-hover:flex'
+                      }`}>
                         <button
                           type="button"
-                          onClick={() => handleDoubleClick(s.id, s.title)}
-                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all w-7 h-7 flex items-center justify-center"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setOpenActionsId(null)
+                            handleDoubleClick(s.id, s.title)
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 transition-all w-8 h-8 flex items-center justify-center"
                           title="重命名会话"
                         >
                           <Pencil size={13} />
                         </button>
                         <button
                           type="button"
-                          onClick={() => queueDelete(s.id, displayTitle)}
-                          className="p-1.5 rounded-lg hover:bg-rose-100 text-slate-400 hover:text-rose-500 transition-all w-7 h-7 flex items-center justify-center"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setOpenActionsId(null)
+                            queueDelete(s.id, displayTitle)
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-rose-100 text-slate-400 hover:text-rose-500 transition-all w-8 h-8 flex items-center justify-center"
                           title="删除会话"
                           disabled={pendingDelete?.id === s.id}
                         >
@@ -509,26 +539,26 @@ export default function SessionList({ onClose }: Props) {
       </div>
 
       {pendingDelete && (
-        <div className="m-3 rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-amber-100/70 px-3 py-2.5 text-xs text-amber-900 shadow-sm">
+        <div className="m-3 rounded-xl border border-amber-200 dark:border-amber-700 bg-gradient-to-r from-amber-50 to-amber-100/70 dark:from-amber-900/30 dark:to-amber-800/30 px-3 py-2.5 text-xs text-amber-900 dark:text-amber-200 shadow-sm">
           已标记删除「{pendingDelete.title}」，5 秒内可撤销
           <button
             type="button"
             onClick={undoDelete}
-            className="ml-2 inline-flex items-center rounded-md border border-amber-300/80 bg-white/80 px-2 py-0.5 font-medium text-amber-800 hover:bg-white"
+            className="ml-2 inline-flex items-center rounded-md border border-amber-300/80 dark:border-amber-600 bg-white/80 dark:bg-slate-800 px-2 py-0.5 font-medium text-amber-800 dark:text-amber-300 hover:bg-white dark:hover:bg-slate-700"
           >
             撤销
           </button>
           <button
             type="button"
             onClick={confirmDeleteNow}
-            className="ml-1 inline-flex items-center rounded-md border border-rose-300/80 bg-rose-50 px-2 py-0.5 font-medium text-rose-700 hover:bg-rose-100"
+            className="ml-1 inline-flex items-center rounded-md border border-rose-300/80 dark:border-rose-700 bg-rose-50 dark:bg-rose-900/30 px-2 py-0.5 font-medium text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-800/40"
           >
             立即删除
           </button>
         </div>
       )}
 
-      <div className="px-3 pb-3 text-[11px] text-slate-400">
+      <div className="px-3 pb-3 text-[11px] text-slate-400 dark:text-slate-500">
         {firstPageResolved && !appBootstrapping ? `共 ${filteredSessions.length} 条会话` : '正在恢复会话...'}
       </div>
     </div>

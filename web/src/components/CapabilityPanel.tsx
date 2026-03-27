@@ -9,6 +9,7 @@
 import { useEffect, useMemo } from 'react'
 import { useStore, type CapabilityItem } from '../store'
 import { X, Sparkles, RefreshCw, Zap } from 'lucide-react'
+import BaseModal from './BaseModal'
 
 interface Props {
   open: boolean
@@ -69,28 +70,26 @@ export default function CapabilityPanel({ open, onClose }: Props) {
     fetchCapabilities()
   }, [open, fetchCapabilities])
 
-  if (!open) return null
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[82vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b">
+    <BaseModal open={open} onClose={onClose} title="分析能力" maxWidthClass="max-w-2xl">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[82vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-slate-700">
           <div className="flex items-center gap-2">
             <Sparkles size={18} className="text-purple-600" />
-            <h2 className="text-base font-semibold text-gray-800">分析能力</h2>
-            <span className="text-xs text-gray-400">{capabilities.length} 个能力</span>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-slate-200">分析能力</h2>
+            <span className="text-xs text-gray-400 dark:text-slate-500">{capabilities.length} 个能力</span>
           </div>
           <div className="flex items-center gap-1">
             <button
               onClick={fetchCapabilities}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
+              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 dark:text-slate-500 transition-colors"
               title="刷新"
             >
               <RefreshCw size={14} />
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
+              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 dark:text-slate-500 transition-colors"
               title="关闭"
             >
               <X size={16} />
@@ -98,7 +97,7 @@ export default function CapabilityPanel({ open, onClose }: Props) {
           </div>
         </div>
 
-        <div className="px-5 py-2 text-[11px] text-gray-500 border-b bg-gray-50">
+        <div className="px-5 py-2 text-[11px] text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800">
           Capabilities 是用户层面的"能力"，帮助您快速开始常见分析任务。
         </div>
 
@@ -108,41 +107,41 @@ export default function CapabilityPanel({ open, onClose }: Props) {
               const label = CATEGORY_LABELS[cat] || cat
               return (
                 <div key={cat}>
-                  <h3 className="text-xs font-medium text-gray-500 mb-2 px-1">{label}</h3>
+                  <h3 className="text-xs font-medium text-gray-500 dark:text-slate-400 mb-2 px-1">{label}</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {items.map((cap) => (
                       <div
                         key={cap.name}
-                        className="p-3 border border-gray-200 rounded-lg transition-colors group"
+                        className="p-3 border border-gray-200 dark:border-slate-700 rounded-lg transition-colors group"
                       >
                         <div className="flex items-start gap-2">
                           <span className="text-lg">{getCategoryIcon(cap.icon)}</span>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <div className="font-medium text-sm text-gray-800">
+                              <div className="font-medium text-sm text-gray-800 dark:text-slate-200">
                                 {cap.display_name}
                               </div>
                               <span
                                 className={`rounded-full px-1.5 py-0.5 text-[10px] ${
                                   cap.is_executable
-                                    ? 'bg-emerald-50 text-emerald-700'
-                                    : 'bg-amber-50 text-amber-700'
+                                    ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+                                    : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'
                                 }`}
                               >
                                 {cap.is_executable ? '可执行' : '规划中'}
                               </span>
                             </div>
-                            <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">
+                            <div className="text-xs text-gray-500 dark:text-slate-400 mt-0.5 line-clamp-2">
                               {cap.description}
                             </div>
                             <div className="flex items-center gap-1 mt-1.5">
                               <Zap size={10} className="text-amber-500" />
-                              <span className="text-[10px] text-gray-400">
+                              <span className="text-[10px] text-gray-400 dark:text-slate-500">
                                 {cap.required_tools.length} 个工具
                               </span>
                             </div>
                             {!cap.is_executable && cap.execution_message && (
-                              <div className="mt-1.5 text-[10px] text-amber-700">
+                              <div className="mt-1.5 text-[10px] text-amber-700 dark:text-amber-400">
                                 {cap.execution_message}
                               </div>
                             )}
@@ -155,15 +154,15 @@ export default function CapabilityPanel({ open, onClose }: Props) {
               )
             })}
             {grouped.length === 0 && (
-              <div className="text-xs text-gray-400 text-center py-6">暂无可用的分析能力</div>
+              <div className="text-xs text-gray-400 dark:text-slate-500 text-center py-6">暂无可用的分析能力</div>
             )}
           </div>
         </div>
 
-        <div className="px-5 py-3 border-t bg-gray-50 text-[11px] text-gray-400">
+        <div className="px-5 py-3 border-t border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-[11px] text-gray-400 dark:text-slate-500">
           当前面板用于展示能力目录；仅标记为“可执行”的能力才支持直接接入执行流程。
         </div>
       </div>
-    </div>
+    </BaseModal>
   )
 }

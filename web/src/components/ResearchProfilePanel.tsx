@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { useStore, type ResearchProfile } from "../store";
+import BaseModal from "./BaseModal";
 
 interface Props {
   isOpen: boolean;
@@ -100,13 +101,13 @@ function ToggleSwitch({
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
         checked ? "bg-amber-500" : "bg-stone-200"
       }`}
     >
       <span
-        className={`pointer-events-none inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${
-          checked ? "translate-x-4" : "translate-x-0.5"
+        className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
+          checked ? "translate-x-5" : "translate-x-0.5"
         }`}
       />
     </button>
@@ -197,15 +198,13 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+    <BaseModal open={isOpen} onClose={onClose} title="研究画像" maxWidthClass="max-w-xl">
       <div
-        className="flex max-h-[92vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl shadow-2xl"
-        style={{ background: "#FEFCF5", border: "1px solid #E5DDD0" }}
+        className="flex max-h-[92vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl shadow-2xl bg-amber-50/80 border border-amber-200/60"
       >
         {/* ---- 标题栏 ---- */}
         <div
-          className="relative flex flex-shrink-0 items-center gap-4 px-6 py-4"
-          style={{ background: "linear-gradient(135deg, #1C1714 0%, #2D2420 100%)" }}
+          className="relative flex flex-shrink-0 items-center gap-4 px-6 py-4 bg-gradient-to-br from-stone-900 to-stone-800"
         >
           {/* 右上角关闭 */}
           <button
@@ -216,14 +215,13 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
           </button>
 
           <div
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl"
-            style={{ background: "rgba(217, 119, 6, 0.20)" }}
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-600/20"
           >
             <FlaskConical size={20} className="text-amber-400" />
           </div>
           <div>
             <h2 className="text-base font-semibold text-white tracking-tight">研究画像</h2>
-            <p className="text-xs" style={{ color: "#A8A09A" }}>
+            <p className="text-xs text-stone-400">
               科研偏好 · 输出规范 · 分析日志
             </p>
           </div>
@@ -239,8 +237,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
 
         {/* ---- Tab 导航 ---- */}
         <div
-          className="flex flex-shrink-0 border-b"
-          style={{ borderColor: "#E5DDD0", background: "#FAF7EF" }}
+          className="flex flex-shrink-0 border-b border-amber-200/60 bg-amber-50/50"
         >
           {TABS.map((tab) => (
             <button
@@ -248,12 +245,9 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
               onClick={() => setActiveTab(tab.id)}
               className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-all ${
                 activeTab === tab.id
-                  ? "border-b-2 border-amber-500 text-amber-700"
+                  ? "border-b-2 border-amber-500 text-amber-700 bg-amber-50/80"
                   : "text-stone-500 hover:text-stone-800"
               }`}
-              style={{
-                background: activeTab === tab.id ? "#FFFBF0" : "transparent",
-              }}
             >
               <tab.icon size={14} />
               {tab.label}
@@ -271,7 +265,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
           )}
 
           {error && (
-            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            <div className="mb-4 rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-600 dark:text-red-400">
               {error}
             </div>
           )}
@@ -292,8 +286,8 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                           onClick={() => updateField("domain", d.value)}
                           className={`flex flex-col items-center gap-1 rounded-xl border p-2.5 text-center text-xs font-medium transition-all ${
                             draft.domain === d.value
-                              ? "border-amber-400 bg-amber-50 text-amber-800 shadow-sm"
-                              : "border-stone-200 bg-white text-stone-600 hover:border-stone-300 hover:bg-stone-50"
+                              ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 shadow-sm"
+                              : "border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-stone-600 dark:text-slate-400 hover:border-stone-300 dark:hover:border-slate-600 hover:bg-stone-50 dark:hover:bg-slate-700/50"
                           }`}
                         >
                           <span className="text-base leading-none">{d.icon}</span>
@@ -311,7 +305,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                       value={draft.research_interest}
                       onChange={(e) => updateField("research_interest", e.target.value)}
                       placeholder="例：植物根系发育的分子机制…"
-                      className="w-full rounded-xl border border-stone-200 bg-white px-3.5 py-2.5 text-sm text-stone-700 placeholder-stone-300 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+                      className="w-full rounded-xl border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm text-stone-700 dark:text-slate-300 placeholder-stone-300 dark:placeholder-slate-600 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
                       rows={3}
                     />
                   </div>
@@ -325,7 +319,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                       value={draft.typical_sample_size}
                       onChange={(e) => updateField("typical_sample_size", e.target.value)}
                       placeholder="例：每组 30–50 个样本"
-                      className="w-full rounded-xl border border-stone-200 bg-white px-3.5 py-2.5 text-sm text-stone-700 placeholder-stone-300 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+                      className="w-full rounded-xl border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm text-stone-700 dark:text-slate-300 placeholder-stone-300 dark:placeholder-slate-600 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
                     />
                   </div>
 
@@ -337,7 +331,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                       value={draft.research_notes}
                       onChange={(e) => updateField("research_notes", e.target.value)}
                       placeholder="其他偏好或约束条件…"
-                      className="w-full rounded-xl border border-stone-200 bg-white px-3.5 py-2.5 text-sm text-stone-700 placeholder-stone-300 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+                      className="w-full rounded-xl border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm text-stone-700 dark:text-slate-300 placeholder-stone-300 dark:placeholder-slate-600 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
                       rows={2}
                     />
                   </div>
@@ -357,7 +351,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                         onChange={(e) =>
                           updateField("significance_level", parseFloat(e.target.value))
                         }
-                        className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm text-stone-700 focus:border-amber-400 focus:outline-none"
+                        className="w-full rounded-xl border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2.5 text-sm text-stone-700 dark:text-slate-300 focus:border-amber-400 focus:outline-none"
                       >
                         <option value={0.01}>0.01（更严格）</option>
                         <option value={0.05}>0.05（标准）</option>
@@ -373,7 +367,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                         onChange={(e) =>
                           updateField("confidence_interval", parseFloat(e.target.value))
                         }
-                        className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm text-stone-700 focus:border-amber-400 focus:outline-none"
+                        className="w-full rounded-xl border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2.5 text-sm text-stone-700 dark:text-slate-300 focus:border-amber-400 focus:outline-none"
                       >
                         <option value={0.9}>90%</option>
                         <option value={0.95}>95%</option>
@@ -389,7 +383,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                     <select
                       value={draft.preferred_correction}
                       onChange={(e) => updateField("preferred_correction", e.target.value)}
-                      className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm text-stone-700 focus:border-amber-400 focus:outline-none"
+                      className="w-full rounded-xl border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2.5 text-sm text-stone-700 dark:text-slate-300 focus:border-amber-400 focus:outline-none"
                     >
                       <option value="bonferroni">Bonferroni（保守）</option>
                       <option value="fdr">FDR（较宽松）</option>
@@ -425,15 +419,15 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                     ].map((item) => (
                       <div
                         key={item.key}
-                        className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white p-3"
+                        className="flex items-center gap-3 rounded-xl border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3"
                       >
                         <ToggleSwitch
                           checked={draft[item.key]}
                           onChange={(v) => updateField(item.key, v)}
                         />
                         <div className="flex-1">
-                          <p className="text-sm font-medium text-stone-700">{item.label}</p>
-                          <p className="text-xs text-stone-400">{item.desc}</p>
+                          <p className="text-sm font-medium text-stone-700 dark:text-slate-300">{item.label}</p>
+                          <p className="text-xs text-stone-400 dark:text-slate-500">{item.desc}</p>
                         </div>
                       </div>
                     ))}
@@ -454,8 +448,8 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                           key={style.value}
                           className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-all ${
                             draft.journal_style === style.value
-                              ? "border-amber-400 bg-amber-50"
-                              : "border-stone-200 bg-white hover:border-stone-300 hover:bg-stone-50"
+                              ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20"
+                              : "border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-stone-300 dark:hover:border-slate-600 hover:bg-stone-50 dark:hover:bg-slate-700/50"
                           }`}
                         >
                           <input
@@ -488,8 +482,8 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                           onClick={() => updateField("report_detail_level", level.value)}
                           className={`rounded-xl border px-3 py-3 text-center transition-all ${
                             draft.report_detail_level === level.value
-                              ? "border-amber-400 bg-amber-50 text-amber-800"
-                              : "border-stone-200 bg-white text-stone-600 hover:border-stone-300"
+                              ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200"
+                              : "border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-stone-600 dark:text-slate-400 hover:border-stone-300 dark:hover:border-slate-600"
                           }`}
                         >
                           <p className="text-sm font-semibold">{level.label}</p>
@@ -521,7 +515,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                           onChange={(e) =>
                             updateField(f.key, parseInt(e.target.value) as ResearchProfile[typeof f.key])
                           }
-                          className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm font-mono text-stone-700 focus:border-amber-400 focus:outline-none"
+                          className="w-full rounded-xl border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2.5 text-sm font-mono text-stone-700 dark:text-slate-300 focus:border-amber-400 focus:outline-none"
                         />
                       </div>
                     ))}
@@ -541,8 +535,8 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                           onClick={() => updateField("output_language", lang.value)}
                           className={`rounded-xl border px-5 py-2 text-sm font-medium transition-all ${
                             draft.output_language === lang.value
-                              ? "border-amber-400 bg-amber-50 text-amber-800"
-                              : "border-stone-200 bg-white text-stone-600 hover:border-stone-300"
+                              ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200"
+                              : "border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-stone-600 dark:text-slate-400 hover:border-stone-300 dark:hover:border-slate-600"
                           }`}
                         >
                           {lang.label}
@@ -565,10 +559,9 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
 
                   {!narrativeLoading && !narrative && (
                     <div
-                      className="rounded-2xl border-2 border-dashed p-10 text-center"
-                      style={{ borderColor: "#D5C8B8", background: "#FEFCF5" }}
+                      className="rounded-2xl border-2 border-dashed p-10 text-center border-amber-300/50 bg-amber-50/80"
                     >
-                      <BookOpen size={32} className="mx-auto mb-3 text-stone-300" />
+                      <BookOpen size={32} className="mx-auto mb-3 text-stone-400 dark:text-stone-500" />
                       <p className="text-sm font-medium text-stone-500">研究日志尚未生成</p>
                       <p className="mt-1 text-xs text-stone-400">
                         保存研究画像后自动生成，Agent 分析时会追加观察
@@ -668,8 +661,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
 
         {/* ---- 底部操作栏 ---- */}
         <div
-          className="flex flex-shrink-0 items-center justify-between border-t px-6 py-3"
-          style={{ borderColor: "#E5DDD0", background: "#FAF7EF" }}
+          className="flex flex-shrink-0 items-center justify-between border-t border-amber-200/60 bg-amber-50/50 px-6 py-3"
         >
           <button
             onClick={() => {
@@ -680,7 +672,8 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
               }
             }}
             disabled={loading || narrativeLoading}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-stone-500 dark:text-slate-400 transition-colors hover:bg-stone-100 hover:text-stone-700 disabled:opacity-40"
+
           >
             <RefreshCw
               size={12}
@@ -692,7 +685,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="rounded-lg px-4 py-1.5 text-sm text-stone-500 transition-colors hover:bg-stone-100"
+              className="rounded-lg px-4 py-1.5 text-sm text-stone-500 dark:text-slate-400 transition-colors hover:bg-stone-100 dark:hover:bg-slate-700"
             >
               关闭
             </button>
@@ -700,16 +693,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
               <button
                 onClick={saveHandler}
                 disabled={saving || !draft}
-                className="flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-semibold text-white transition-colors disabled:opacity-50"
-                style={{
-                  background: saving ? "#D97706" : "#B45309",
-                }}
-                onMouseEnter={(e) => {
-                  if (!saving) (e.target as HTMLElement).style.background = "#92400E";
-                }}
-                onMouseLeave={(e) => {
-                  if (!saving) (e.target as HTMLElement).style.background = "#B45309";
-                }}
+                className="flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-semibold text-white transition-colors bg-amber-700 hover:bg-amber-800 disabled:bg-amber-600 disabled:opacity-50"
               >
                 {saving ? (
                   <Loader2 size={13} className="animate-spin" />
@@ -722,6 +706,6 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
           </div>
         </div>
       </div>
-    </div>
+    </BaseModal>
   );
 }

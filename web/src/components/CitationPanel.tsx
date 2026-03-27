@@ -42,17 +42,17 @@ export const CitationPanel: React.FC<CitationPanelProps> = ({
     : undefined;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-96 bg-white shadow-xl border-l border-gray-200 z-50 flex flex-col">
+    <div className="fixed inset-y-0 right-0 w-96 bg-white dark:bg-slate-900 shadow-xl border-l border-gray-200 dark:border-slate-700 z-50 flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800">
         <div className="flex items-center gap-2">
           <BookOpen size={18} className="text-blue-600" />
-          <span className="font-semibold text-gray-900">知识引用</span>
-          <span className="text-sm text-gray-500">({citations.length})</span>
+          <span className="font-semibold text-gray-900 dark:text-slate-100">知识引用</span>
+          <span className="text-sm text-gray-500 dark:text-slate-400">({citations.length})</span>
         </div>
         <button
           onClick={onClose}
-          className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-500 transition-colors"
+          className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-500 dark:text-slate-400 transition-colors"
         >
           <X size={18} />
         </button>
@@ -60,7 +60,7 @@ export const CitationPanel: React.FC<CitationPanelProps> = ({
 
       <div className="flex-1 overflow-hidden flex">
         {/* Citation List */}
-        <div className={`${selectedCitation ? "w-1/3" : "w-full"} border-r border-gray-200 overflow-y-auto`}>
+        <div className={`${selectedCitation ? "w-1/3" : "w-full"} border-r border-gray-200 dark:border-slate-700 overflow-y-auto`}>
           <div className="p-2 space-y-1">
             {citations.map((citation) => (
               <button
@@ -69,8 +69,8 @@ export const CitationPanel: React.FC<CitationPanelProps> = ({
                 className={`
                   w-full text-left p-2 rounded-lg transition-colors
                   ${selectedIndex === citation.index
-                    ? "bg-blue-50 border border-blue-200"
-                    : "hover:bg-gray-50 border border-transparent"
+                    ? "bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800"
+                    : "hover:bg-gray-50 dark:hover:bg-slate-800 border border-transparent"
                   }
                 `}
               >
@@ -79,18 +79,18 @@ export const CitationPanel: React.FC<CitationPanelProps> = ({
                     flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium
                     ${selectedIndex === citation.index
                       ? "bg-blue-600 text-white"
-                      : "bg-gray-200 text-gray-600"
+                      : "bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-slate-300"
                     }
                   `}>
                     {citation.index}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">
+                    <div className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">
                       {citation.documentTitle}
                     </div>
                     <div className="flex items-center gap-1 mt-1">
-                      <BarChart3 size={10} className="text-gray-400" />
-                      <span className="text-xs text-gray-500">
+                      <BarChart3 size={10} className="text-gray-400 dark:text-slate-500" />
+                      <span className="text-xs text-gray-500 dark:text-slate-400">
                         {citation.relevanceScore.toFixed(2)}
                       </span>
                     </div>
@@ -107,23 +107,23 @@ export const CitationPanel: React.FC<CitationPanelProps> = ({
             <div className="space-y-4">
               {/* Document Title */}
               <div>
-                <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
+                <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400 mb-1">
                   <FileText size={14} />
                   <span>文档</span>
                 </div>
-                <h3 className="font-semibold text-gray-900">
+                <h3 className="font-semibold text-gray-900 dark:text-slate-100">
                   {selectedCitation.documentTitle}
                 </h3>
               </div>
 
               {/* Relevance Score */}
               <div>
-                <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
+                <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400 mb-1">
                   <BarChart3 size={14} />
                   <span>相关度</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="flex-1 h-2 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
                     <div
                       className={`h-full rounded-full ${
                         selectedCitation.relevanceScore >= 0.8
@@ -135,7 +135,7 @@ export const CitationPanel: React.FC<CitationPanelProps> = ({
                       style={{ width: `${selectedCitation.relevanceScore * 100}%` }}
                     />
                   </div>
-                  <span className="text-sm font-medium text-gray-700">
+                  <span className="text-sm font-medium text-gray-700 dark:text-slate-300">
                     {(selectedCitation.relevanceScore * 100).toFixed(0)}%
                   </span>
                 </div>
@@ -143,18 +143,18 @@ export const CitationPanel: React.FC<CitationPanelProps> = ({
 
               {/* Excerpt */}
               <div>
-                <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
+                <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400 mb-1">
                   <Tag size={14} />
                   <span>引用内容</span>
                 </div>
-                <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 leading-relaxed border border-gray-200">
+                <div className="bg-gray-50 dark:bg-slate-800 rounded-lg p-3 text-sm text-gray-700 dark:text-slate-300 leading-relaxed border border-gray-200 dark:border-slate-700">
                   {selectedCitation.excerpt}
                 </div>
               </div>
 
               {/* Document ID */}
-              <div className="pt-2 border-t border-gray-200">
-                <div className="text-xs text-gray-400">
+              <div className="pt-2 border-t border-gray-200 dark:border-slate-700">
+                <div className="text-xs text-gray-400 dark:text-slate-500">
                   文档 ID: {selectedCitation.documentId}
                 </div>
               </div>
@@ -165,7 +165,7 @@ export const CitationPanel: React.FC<CitationPanelProps> = ({
                   href={selectedCitation.sourceUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700"
+                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
                 >
                   <ExternalLink size={14} />
                   <span>查看来源</span>

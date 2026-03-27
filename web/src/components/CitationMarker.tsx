@@ -4,7 +4,7 @@
  * 在 AI 回答中展示 [1], [2] 样式的引用标注
  * 支持悬停和点击交互
  */
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { BookOpen, X } from "lucide-react";
 import type { RetrievalItem } from "../store";
 
@@ -19,7 +19,7 @@ interface CitationMarkerProps {
   compact?: boolean;
 }
 
-export default function CitationMarker({
+export default React.memo(function CitationMarker({
   index,
   retrieval,
   onClick,
@@ -166,7 +166,7 @@ export default function CitationMarker({
       )}
     </span>
   );
-}
+});
 
 // 辅助函数：计算可信度标签
 export function getCredibilityLabel(score?: number): { text: string; color: string } | null {

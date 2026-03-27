@@ -123,13 +123,13 @@ export default function FilePreviewPane() {
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="flex items-center justify-between px-3 py-2 border-b flex-shrink-0">
+      <div className="flex items-center justify-between px-3 py-2 border-b dark:border-slate-700 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <h3 className="text-xs font-medium text-gray-700 truncate">
+          <h3 className="text-xs font-medium text-gray-700 dark:text-slate-300 truncate">
             {preview?.name || fileInfo?.name || '文件预览'}
           </h3>
           {preview?.ext && (
-            <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
+            <span className="text-[10px] bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
               .{preview.ext}
             </span>
           )}
@@ -138,7 +138,7 @@ export default function FilePreviewPane() {
           {resolvedDownloadUrl && (
             <button
               onClick={handleDownload}
-              className="p-1 rounded hover:bg-gray-100 text-gray-500"
+              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400"
               title="下载"
             >
               <Download size={13} />
@@ -146,7 +146,7 @@ export default function FilePreviewPane() {
           )}
           <button
             onClick={handleClose}
-            className="p-1 rounded hover:bg-gray-100 text-gray-500"
+            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400"
             title="关闭预览"
           >
             <X size={13} />
@@ -187,9 +187,9 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
       )
     case 'image_too_large':
       return (
-        <div className="text-center text-gray-500 py-12">
+        <div className="text-center text-gray-500 dark:text-slate-400 py-12">
           <p className="text-sm">图片过大，无法预览</p>
-          <p className="text-xs mt-1 text-gray-400">
+          <p className="text-xs mt-1 text-gray-400 dark:text-slate-500">
             文件大小: {preview.size ? `${(preview.size / 1024 / 1024).toFixed(1)} MB` : '未知'}
           </p>
         </div>
@@ -198,7 +198,7 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
       if (preview.download_url) {
         return <PlotlyFromUrl url={preview.download_url} alt={preview.name} />
       }
-      return <div className="text-center text-gray-500 py-12 text-sm">图表地址不可用</div>
+      return <div className="text-center text-gray-500 dark:text-slate-400 py-12 text-sm">图表地址不可用</div>
     case 'text': {
       const isMarkdown = preview.ext === 'md' || preview.ext === 'markdown'
       return (
@@ -208,12 +208,12 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
               <LazyMarkdownContent content={preview.content || ''} />
             </div>
           ) : (
-            <pre className="text-xs font-mono bg-gray-50 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words">
+            <pre className="text-xs font-mono bg-gray-50 dark:bg-slate-800 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words">
               {preview.content}
             </pre>
           )}
           {preview.total_lines && preview.preview_lines && preview.total_lines > preview.preview_lines && (
-            <div className="mt-2 text-[10px] text-gray-400 text-center">
+            <div className="mt-2 text-[10px] text-gray-400 dark:text-slate-500 text-center">
               显示前 {preview.preview_lines} 行 / 共 {preview.total_lines} 行
             </div>
           )}
@@ -240,13 +240,13 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
         )
       }
       return (
-        <div className="text-center text-gray-500 py-12 text-sm">PDF 预览地址不可用</div>
+        <div className="text-center text-gray-500 dark:text-slate-400 py-12 text-sm">PDF 预览地址不可用</div>
       )
     case 'unsupported':
       return (
-        <div className="text-center text-gray-500 py-12">
+        <div className="text-center text-gray-500 dark:text-slate-400 py-12">
           <p className="text-sm">不支持预览此类型文件</p>
-          <p className="text-xs mt-1 text-gray-400">
+          <p className="text-xs mt-1 text-gray-400 dark:text-slate-500">
             类型: {preview.ext || '未知'} · 大小: {preview.size ? `${(preview.size / 1024).toFixed(1)} KB` : '未知'}
           </p>
         </div>
@@ -254,13 +254,13 @@ function PreviewContent({ preview }: { preview: PreviewData }) {
     case 'unavailable':
     case 'error':
       return (
-        <div className="text-center text-gray-500 py-12 text-sm">
+        <div className="text-center text-gray-500 dark:text-slate-400 py-12 text-sm">
           {preview.message || '无法预览'}
         </div>
       )
     default:
       return (
-        <div className="text-center text-gray-400 py-12 text-sm">
+        <div className="text-center text-gray-400 dark:text-slate-500 py-12 text-sm">
           未知预览类型
         </div>
       )

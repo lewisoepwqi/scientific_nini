@@ -127,7 +127,7 @@ function ThumbnailIcon({ file }: { file: WorkspaceFile }) {
   if (['csv', 'xlsx', 'xls', 'tsv', 'json'].includes(ext)) {
     return <FileText size={28} className="text-emerald-400" />
   }
-  return <File size={28} className="text-gray-400" />
+  return <File size={28} className="text-gray-400 dark:text-slate-500" />
 }
 
 export default function ArtifactGallery() {
@@ -221,7 +221,7 @@ export default function ArtifactGallery() {
 
   if (artifacts.length === 0) {
     return (
-        <div className="flex flex-col items-center justify-center py-12 text-gray-400 text-xs">
+        <div className="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-slate-500 text-xs">
           <Image size={24} className="mb-2 opacity-50" />
           <p>暂无结果</p>
         </div>
@@ -232,15 +232,15 @@ export default function ArtifactGallery() {
     <div className="flex flex-col h-full">
       {/* 筛选栏 */}
       <div className="flex items-center gap-1.5 px-2 py-2 flex-shrink-0">
-        <Filter size={12} className="text-gray-400 flex-shrink-0" />
+        <Filter size={12} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
         {(['all', 'chart', 'report', 'data', 'script', 'transform'] as FilterType[]).map((type) => (
           <button
             key={type}
             onClick={() => setFilter(type)}
-            className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors ${
+            className={`px-2 py-1.5 rounded-full text-[10px] font-medium transition-colors ${
               filter === type
-                ? 'bg-blue-100 text-blue-700'
-                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
+                : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-600'
             }`}
           >
             {getFilterLabel(type)}
@@ -248,8 +248,8 @@ export default function ArtifactGallery() {
         ))}
         <button
           onClick={() => setShowInternal(!showInternal)}
-          className={`ml-auto p-1 rounded transition-colors ${
-            showInternal ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-600'
+          className={`ml-auto p-2 rounded transition-colors ${
+            showInternal ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20' : 'text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300'
           }`}
           title={showInternal ? '隐藏内部产物' : '显示内部产物'}
         >
@@ -266,7 +266,7 @@ export default function ArtifactGallery() {
               <div
                 key={file.id}
                 className={`relative rounded-lg border overflow-hidden cursor-pointer transition-all ${
-                  isSelected ? 'border-blue-500 ring-1 ring-blue-300' : 'border-gray-200 hover:border-gray-300'
+                  isSelected ? 'border-blue-500 ring-1 ring-blue-300' : 'border-gray-200 dark:border-slate-700 hover:border-gray-300 dark:hover:border-slate-600'
                 }`}
               >
                 {/* 选择复选框 */}
@@ -275,10 +275,10 @@ export default function ArtifactGallery() {
                     e.stopPropagation()
                     toggleSelect(file.id)
                   }}
-                  className={`absolute top-1.5 left-1.5 z-10 w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+                  className={`absolute top-1.5 left-1.5 z-10 w-5 h-5 rounded border flex items-center justify-center transition-colors ${
                     isSelected
                       ? 'bg-blue-500 border-blue-500 text-white'
-                      : 'bg-white/80 border-gray-300 hover:border-blue-400'
+                      : 'bg-white/80 dark:bg-slate-900/80 border-gray-300 dark:border-slate-600 hover:border-blue-400'
                   }`}
                 >
                   {isSelected && <Check size={10} />}
@@ -286,15 +286,15 @@ export default function ArtifactGallery() {
 
                 {/* 缩略图 */}
                 <div
-                  className="aspect-square bg-gray-50 flex items-center justify-center overflow-hidden"
+                  className="aspect-square bg-gray-50 dark:bg-slate-800 flex items-center justify-center overflow-hidden"
                   onClick={() => openPreview(file.id)}
                 >
                   <ThumbnailIcon file={file} />
                 </div>
 
                 {/* 文件名 */}
-                <div className="px-1.5 py-1 border-t bg-white">
-                  <div className="text-[10px] text-gray-700 truncate" title={file.name}>
+                <div className="px-1.5 py-1 border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+                  <div className="text-[10px] text-gray-700 dark:text-slate-300 truncate" title={file.name}>
                     {file.name}
                   </div>
                   {(() => {
@@ -303,7 +303,7 @@ export default function ArtifactGallery() {
                     const format = typeof meta?.format === 'string' ? meta.format : null
                     if (version === null && !format) return null
                     return (
-                      <div className="mt-0.5 flex items-center gap-1 text-[9px] text-gray-400">
+                      <div className="mt-0.5 flex items-center gap-1 text-[9px] text-gray-400 dark:text-slate-500">
                         {version !== null && <span>v{version}</span>}
                         {format && <span className="uppercase">{format}</span>}
                       </div>
@@ -318,9 +318,9 @@ export default function ArtifactGallery() {
 
       {/* 批量操作栏 */}
       {selectedIds.size > 0 && (
-        <div className="px-2 py-2 border-t bg-blue-50 flex-shrink-0">
+        <div className="px-2 py-2 border-t border-gray-200 dark:border-slate-700 bg-blue-50 dark:bg-blue-900/20 flex-shrink-0">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-blue-700">
+            <span className="text-xs text-blue-700 dark:text-blue-400">
               已选 {selectedIds.size} 个
             </span>
             <button

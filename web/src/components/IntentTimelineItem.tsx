@@ -65,8 +65,8 @@ export default function IntentTimelineItem({
     <div
       className={`my-2 rounded-xl border transition-all ${
         isActive
-          ? "border-sky-200 bg-sky-50/50"
-          : "border-slate-200 bg-slate-50/30"
+          ? "border-sky-200 dark:border-sky-800 bg-sky-50/50 dark:bg-sky-900/20"
+          : "border-slate-200 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-800/50"
       }`}
     >
       <button
@@ -76,12 +76,12 @@ export default function IntentTimelineItem({
         <div className="flex items-center gap-2 min-w-0">
           <div
             className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
-              isActive ? "bg-sky-100 text-sky-600" : "bg-slate-200 text-slate-600"
+              isActive ? "bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-400" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"
             }`}
           >
             <BrainCircuit size={12} />
           </div>
-          <span className="text-xs text-slate-600 truncate">{summary}</span>
+          <span className="text-xs text-slate-600 dark:text-slate-400 truncate">{summary}</span>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {hasClarification && (
@@ -99,15 +99,15 @@ export default function IntentTimelineItem({
 
       {/* 展开内容 */}
       {expanded && (
-        <div className="border-t border-slate-200/50 px-3 pb-3">
+        <div className="border-t border-slate-200/50 dark:border-slate-700/50 px-3 pb-3">
           <div className="mt-2 space-y-2">
             {/* 主要意图确认 */}
             {topCapability && (
-              <div className="flex items-center gap-2 rounded-lg bg-white/60 p-2">
+              <div className="flex items-center gap-2 rounded-lg bg-white/60 dark:bg-slate-800/60 p-2">
                 <Target size={12} className="text-sky-600" />
                 <div className="min-w-0">
-                  <div className="text-[11px] text-slate-500">分析类型</div>
-                  <div className="text-sm font-medium text-slate-700">
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">分析类型</div>
+                  <div className="text-sm font-medium text-slate-700 dark:text-slate-300">
                     {(topCapability.payload?.display_name as string) ||
                       topCapability.name}
                   </div>
@@ -117,10 +117,10 @@ export default function IntentTimelineItem({
 
             {/* 推荐工具 */}
             {analysis.tool_hints.length > 0 && (
-              <div className="flex items-center gap-2 rounded-lg bg-white/60 p-2">
+              <div className="flex items-center gap-2 rounded-lg bg-white/60 dark:bg-slate-800/60 p-2">
                 <Wrench size={12} className="text-emerald-600" />
                 <div className="min-w-0 flex-1">
-                  <div className="text-[11px] text-slate-500 mb-1">
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">
                     将使用以下工具
                   </div>
                   <div className="flex flex-wrap gap-1">
@@ -139,17 +139,17 @@ export default function IntentTimelineItem({
 
             {/* 激活技能 */}
             {analysis.active_skills.length > 0 && (
-              <div className="flex items-center gap-2 rounded-lg bg-white/60 p-2">
+              <div className="flex items-center gap-2 rounded-lg bg-white/60 dark:bg-slate-800/60 p-2">
                 <Sparkles size={12} className="text-purple-600" />
                 <div className="min-w-0 flex-1">
-                  <div className="text-[11px] text-slate-500 mb-1">
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">
                     已激活智能技能
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {analysis.active_skills.map((skill) => (
                       <span
                         key={skill.name}
-                        className="inline-flex rounded border border-purple-200 bg-white px-1.5 py-0.5 text-[11px] text-purple-700"
+                        className="inline-flex rounded border border-purple-200 dark:border-purple-800 bg-white dark:bg-slate-800 px-1.5 py-0.5 text-[11px] text-purple-700 dark:text-purple-400"
                       >
                         {skill.name}
                       </span>
@@ -177,7 +177,7 @@ export default function IntentTimelineItem({
                         onClick={() =>
                           onApplySuggestion(`我想做${option.label}`)
                         }
-                        className="inline-flex rounded-full border border-amber-300 bg-white px-2 py-0.5 text-[11px] text-amber-800 hover:bg-amber-100 transition-colors"
+                        className="inline-flex rounded-full border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 px-2 py-0.5 text-[11px] text-amber-800 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors"
                       >
                         {option.label}
                       </button>
@@ -200,7 +200,7 @@ export default function IntentTimelineItem({
               analysis.tool_hints.length === 0 &&
               analysis.active_skills.length === 0 &&
               !hasClarification && (
-                <div className="flex items-center gap-2 text-xs text-slate-400 italic">
+                <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500 italic">
                   <Lightbulb size={12} />
                   <span>暂无具体推荐，系统将基于您的描述进行分析</span>
                 </div>

@@ -88,17 +88,17 @@ export default function SkillProgressPanel() {
   const isFinished = skillExecution.activeSkill === null && skillExecution.overallStatus !== null;
 
   return (
-    <section className="mb-5 rounded-[24px] border border-slate-200/80 bg-white/90 shadow-[0_20px_60px_-42px_rgba(15,23,42,0.5)]">
-      <div className="border-b border-slate-200/80 bg-[linear-gradient(135deg,rgba(240,249,255,0.95),rgba(248,250,252,0.95))] px-4 py-4">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+    <section className="mb-5 rounded-[24px] border border-slate-200/80 dark:border-slate-700 bg-white/90 dark:bg-slate-900 shadow-[0_20px_60px_-42px_rgba(15,23,42,0.5)]">
+      <div className="border-b border-slate-200/80 dark:border-slate-700 bg-[linear-gradient(135deg,rgba(240,249,255,0.95),rgba(248,250,252,0.95))] dark:from-slate-800 dark:to-slate-800 px-4 py-4">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
             <Sparkles size={15} />
           </span>
-          <span className="font-semibold text-slate-900">
+          <span className="font-semibold text-slate-900 dark:text-slate-100">
             {skillExecution.skillName ?? skillExecution.activeSkill ?? "Skill 执行"}
           </span>
           {skillExecution.overallStatus && (
-            <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600">
+            <span className="rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-slate-400">
               {skillExecution.overallStatus === "completed"
                 ? "已完成"
                 : skillExecution.overallStatus === "partial"
@@ -108,7 +108,7 @@ export default function SkillProgressPanel() {
           )}
         </div>
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-600">
+          <span className="rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 text-slate-600 dark:text-slate-400">
             步骤 {skillExecution.completedSteps + skillExecution.skippedSteps + skillExecution.failedSteps}/{skillExecution.totalSteps ?? skillExecution.steps.length}
           </span>
           {skillExecution.trustCeiling && (
@@ -123,7 +123,7 @@ export default function SkillProgressPanel() {
             </span>
           )}
           {skillExecution.totalDurationMs != null && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-600">
+            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-slate-600 dark:text-slate-400">
               <Clock3 size={12} />
               总耗时 {formatDuration(skillExecution.totalDurationMs)}
             </span>
@@ -147,11 +147,11 @@ export default function SkillProgressPanel() {
                   <div className="flex items-center gap-2 text-sm font-medium">
                     {meta.icon}
                     <span className="truncate">{step.stepName}</span>
-                    <span className="rounded-full border border-black/5 bg-white/70 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                    <span className="rounded-full border border-black/5 dark:border-white/10 bg-white/70 dark:bg-slate-800/70 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
                       {meta.label}
                     </span>
                   </div>
-                  <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                  <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                     <span>{step.stepId}</span>
                     {step.trustLevel && <span>信任 {step.trustLevel.toUpperCase()}</span>}
                     {step.durationMs != null && <span>耗时 {formatDuration(step.durationMs)}</span>}
@@ -162,10 +162,10 @@ export default function SkillProgressPanel() {
                     )}
                   </div>
                   {step.outputSummary && (
-                    <p className="mt-2 text-xs leading-5 text-slate-600">{step.outputSummary}</p>
+                    <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-400">{step.outputSummary}</p>
                   )}
                   {step.errorMessage && (
-                    <p className="mt-2 rounded-xl border border-rose-200 bg-white/80 px-2.5 py-2 text-xs text-rose-700">
+                    <p className="mt-2 rounded-xl border border-rose-200 dark:border-rose-800 bg-white/80 dark:bg-slate-800/80 px-2.5 py-2 text-xs text-rose-700 dark:text-rose-400">
                       {step.errorMessage}
                     </p>
                   )}
@@ -184,7 +184,7 @@ export default function SkillProgressPanel() {
                       type="button"
                       onClick={() => submitSkillReviewDecision(step.stepId, "cancel")}
                       disabled={waitingDecision}
-                      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 transition hover:bg-slate-50 dark:hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       取消
                     </button>
@@ -197,7 +197,7 @@ export default function SkillProgressPanel() {
       </div>
 
       {isFinished && (
-        <div className="border-t border-slate-200/80 px-4 py-3 text-xs text-slate-500">
+        <div className="border-t border-slate-200/80 dark:border-slate-700 px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
           本次 Skill 执行已结束，后续新步骤会自动覆盖当前面板。
         </div>
       )}

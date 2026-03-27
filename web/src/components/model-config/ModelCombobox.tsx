@@ -96,14 +96,14 @@ export default function ModelCombobox({
 
   const compact = size === 'sm'
   const inputClassName = compact
-    ? 'w-full h-8 pl-7 pr-7 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300'
-    : 'w-full pl-8 pr-8 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300'
+    ? 'w-full h-8 pl-7 pr-7 text-xs border rounded-lg dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-300'
+    : 'w-full pl-8 pr-8 py-2 text-sm border rounded-lg dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-300'
   const iconSize = compact ? 12 : 14
 
   return (
     <div className="relative" ref={wrapperRef}>
       <div className="relative">
-        <Search size={iconSize} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+        <Search size={iconSize} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500" />
         <input
           ref={inputRef}
           type="text"
@@ -118,26 +118,26 @@ export default function ModelCombobox({
         <button
           type="button"
           onClick={() => setDropdownOpen(!dropdownOpen)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300"
         >
           <ChevronDown size={iconSize} className={`transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
         </button>
       </div>
 
       {dropdownOpen && (
-        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+        <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg max-h-48 overflow-y-auto">
           {remote.loading ? (
-            <div className="flex items-center gap-2 px-3 py-3 text-xs text-gray-400">
+            <div className="flex items-center gap-2 px-3 py-3 text-xs text-gray-400 dark:text-slate-500">
               <Loader2 size={12} className="animate-spin" />
               正在获取模型列表...
             </div>
           ) : filtered.length === 0 ? (
-            <div className="px-3 py-3 text-xs text-gray-400">
+            <div className="px-3 py-3 text-xs text-gray-400 dark:text-slate-500">
               {query ? (
                 <span>
                   无匹配结果，按 Enter 使用自定义模型：
                   <button
-                    className="ml-1 text-blue-500 hover:underline"
+                    className="ml-1 text-blue-500 dark:text-blue-400 hover:underline"
                     onClick={() => handleSelect(query)}
                   >
                     {query}
@@ -148,7 +148,7 @@ export default function ModelCombobox({
           ) : (
             <>
               {remote.source === 'remote' && (
-                <div className="px-3 py-1.5 text-[10px] text-emerald-600 bg-emerald-50 border-b">
+                <div className="px-3 py-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border-b dark:border-slate-700">
                   远程获取 · {allModels.length} 个模型
                 </div>
               )}
@@ -157,8 +157,8 @@ export default function ModelCombobox({
                   key={m}
                   type="button"
                   onClick={() => handleSelect(m)}
-                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 transition-colors ${
-                    m === value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
+                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors ${
+                    m === value ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-slate-300'
                   }`}
                 >
                   {m}

@@ -239,8 +239,8 @@ function MessageBubble({
           <div className="flex-1 min-w-0">
             <Suspense
               fallback={
-                <div className="rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-xs text-slate-500">
-                  正在加载推理面板...
+                <div className="rounded-xl border border-slate-200 bg-slate-100 dark:bg-slate-800 h-[100px] animate-pulse flex items-center justify-center text-xs text-slate-400">
+                  正在加载推理面板…
                 </div>
               }
             >
@@ -276,6 +276,7 @@ function MessageBubble({
               <button
                 type="button"
                 onClick={() => setReasoningExpanded(false)}
+                aria-expanded="true"
                 className="flex items-center gap-2 h-7 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
               >
                 <span className={`font-medium ${thinkingLabelClass}`}>Thinking</span>
@@ -299,6 +300,7 @@ function MessageBubble({
             <button
               type="button"
               onClick={() => setReasoningExpanded(true)}
+              aria-expanded="false"
               className="flex items-center gap-1.5 h-7 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
             >
               <span className={`font-medium ${thinkingLabelClass}`}>Thinking</span>
@@ -330,29 +332,29 @@ function MessageBubble({
     const themeColors = isError
       ? {
           icon: "text-red-600",
-          bg: "bg-red-50/50",
-          border: "border-red-200",
-          headerBg: "hover:bg-red-100/50",
-          title: "text-red-900",
-          resultHeader: "text-red-700",
-          resultBg: "bg-red-50/50",
-          resultBorder: "border-red-200",
-          resultText: "text-red-900",
+          bg: "bg-red-50/50 dark:bg-red-900/10",
+          border: "border-red-200 dark:border-red-800/50",
+          headerBg: "hover:bg-red-100/50 dark:hover:bg-red-900/20",
+          title: "text-red-900 dark:text-red-300",
+          resultHeader: "text-red-700 dark:text-red-400",
+          resultBg: "bg-red-50/50 dark:bg-red-900/10",
+          resultBorder: "border-red-200 dark:border-red-800/50",
+          resultText: "text-red-900 dark:text-red-300",
           statusText: "text-red-600",
-          badge: "bg-red-100 text-red-700",
+          badge: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
         }
       : {
           icon: "text-amber-600",
-          bg: "bg-amber-50/50",
-          border: "border-amber-200",
-          headerBg: "hover:bg-amber-100/50",
-          title: "text-amber-900",
-          resultHeader: "text-green-700",
-          resultBg: "bg-green-50/50",
-          resultBorder: "border-green-200",
-          resultText: "text-green-900",
+          bg: "bg-amber-50/50 dark:bg-amber-900/10",
+          border: "border-amber-200 dark:border-amber-800/50",
+          headerBg: "hover:bg-amber-100/50 dark:hover:bg-amber-900/20",
+          title: "text-amber-900 dark:text-amber-300",
+          resultHeader: "text-green-700 dark:text-green-400",
+          resultBg: "bg-green-50/50 dark:bg-green-900/10",
+          resultBorder: "border-green-200 dark:border-green-800/50",
+          resultText: "text-green-900 dark:text-green-300",
           statusText: "text-green-600",
-          badge: "bg-amber-100 text-amber-700",
+          badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
         };
 
     // dispatch_agents 工具：展示参与执行的子 Agent 来源标签
@@ -375,7 +377,7 @@ function MessageBubble({
               {sourceAgents.map((agent) => (
                 <span
                   key={agent.agentId}
-                  className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 ring-1 ring-inset ring-indigo-200"
+                  className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 ring-1 ring-inset ring-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-400 dark:ring-indigo-800"
                   title={agent.task}
                 >
                   [{agent.agentName}]
@@ -389,6 +391,7 @@ function MessageBubble({
             {/* 标题栏 - 可点击展开/折叠 */}
             <button
               onClick={() => setToolExpanded(!toolExpanded)}
+              aria-expanded={toolExpanded}
               className={`w-full flex items-center justify-between px-3 py-2 text-sm ${themeColors.headerBg} transition-colors`}
             >
               <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -408,7 +411,7 @@ function MessageBubble({
                 </span>
                 {statusLabel && (
                   <span
-                    className={`min-w-0 flex-1 text-left ${isError ? "text-red-700" : "text-green-600"}`}
+                    className={`min-w-0 flex-1 text-left ${isError ? "text-red-700 dark:text-red-400" : "text-green-600"}`}
                     title={message.toolResult || statusLabel}
                   >
                     <span className="block w-full truncate whitespace-nowrap text-left text-xs leading-none">
@@ -444,7 +447,7 @@ function MessageBubble({
                       调用参数：
                     </div>
                     <pre
-                      className={`text-xs bg-white/70 border ${themeColors.border} rounded px-2 py-1.5 overflow-x-auto ${themeColors.title}`}
+                      className={`text-xs bg-white/70 dark:bg-slate-800 border ${themeColors.border} rounded px-2 py-1.5 overflow-x-auto ${themeColors.title}`}
                     >
                       <code>{JSON.stringify(message.toolInput, null, 2)}</code>
                     </pre>
@@ -460,7 +463,7 @@ function MessageBubble({
                       {isError ? "错误信息：" : "执行结果："}
                     </div>
                     <div
-                      className={`text-xs ${themeColors.resultBg} border ${themeColors.resultBorder} rounded px-2 py-1.5 ${themeColors.resultText} markdown-body prose prose-sm max-w-none`}
+                      className={`text-xs ${themeColors.resultBg} dark:bg-slate-900/50 border ${themeColors.resultBorder} rounded px-2 py-1.5 ${themeColors.resultText} markdown-body prose prose-sm max-w-none`}
                     >
                       <LazyMarkdownContent content={message.toolResult!} />
                     </div>
@@ -520,7 +523,7 @@ function MessageBubble({
           } rounded-2xl px-4 py-2.5 ${
             isUser
               ? "bg-blue-600 text-white rounded-tr-md"
-              : "bg-gray-100 text-gray-900 rounded-tl-md"
+              : "bg-gray-100 text-gray-900 rounded-tl-md dark:bg-slate-700 dark:text-slate-100"
           }`}
         >
           {isUser ? (
@@ -529,21 +532,21 @@ function MessageBubble({
             <>
               <div className="markdown-body prose prose-sm max-w-none">
                 {message.isError && (
-                  <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                  <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
                     <div className="font-medium">
                       {message.errorHint || "模型调用异常，可重试上一轮。"}
                     </div>
                     {message.errorCode && (
-                      <div className="mt-1 text-[11px] text-red-700">
+                      <div className="mt-1 text-[11px] text-red-700 dark:text-red-400">
                         错误码：{message.errorCode}
                       </div>
                     )}
                     {message.errorDetail && (
                       <details className="mt-1">
-                        <summary className="cursor-pointer text-[11px] text-red-700 hover:text-red-800">
+                        <summary className="cursor-pointer text-[11px] text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300">
                           查看详细错误
                         </summary>
-                        <div className="mt-1 whitespace-pre-wrap text-[11px] text-red-700">
+                        <div className="mt-1 whitespace-pre-wrap text-[11px] text-red-700 dark:text-red-400">
                           {message.errorDetail}
                         </div>
                       </details>
@@ -554,7 +557,7 @@ function MessageBubble({
               </div>
               {/* 新的引用列表展示 */}
               {message.retrievals && message.retrievals.length > 0 && (
-                <Suspense fallback={null}>
+                <Suspense fallback={<div className="h-6" />}>
                   <CitationList retrievals={message.retrievals} />
                 </Suspense>
               )}
@@ -562,8 +565,8 @@ function MessageBubble({
                 plotlyUrl ? (
                   <Suspense
                     fallback={
-                      <div className="text-xs text-gray-500 mt-2">
-                        图表组件加载中...
+                      <div className="w-full h-[420px] rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse flex items-center justify-center text-sm text-slate-400">
+                        图表加载中…
                       </div>
                     }
                   >
@@ -572,8 +575,8 @@ function MessageBubble({
                 ) : (
                   <Suspense
                     fallback={
-                      <div className="text-xs text-gray-500 mt-2">
-                        图表组件加载中...
+                      <div className="w-full h-[420px] rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse flex items-center justify-center text-sm text-slate-400">
+                        图表加载中…
                       </div>
                     }
                   >
@@ -593,7 +596,7 @@ function MessageBubble({
                   {message.images.map((url, idx) => (
                     <div
                       key={idx}
-                      className="rounded-lg overflow-hidden border border-gray-200 bg-white"
+                      className="rounded-lg overflow-hidden border border-gray-200 bg-white dark:border-slate-600 dark:bg-slate-800"
                     >
                       <img
                         src={url}
@@ -623,12 +626,12 @@ function MessageBubble({
             onClick={onRetry}
             disabled={retryDisabled}
             title={isUser ? "重试上一轮" : "重试本次请求"}
-            className={`w-7 h-7 rounded-full border
+            className={`w-8 h-8 rounded-full border
                        flex items-center justify-center
                        ${
                          message.isError
-                           ? "border-red-200 text-red-500 hover:bg-red-50 hover:text-red-700"
-                           : "border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                           ? "border-red-200 text-red-500 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:hover:bg-red-900/20"
+                           : "border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                        }
                        disabled:opacity-40 disabled:cursor-not-allowed
                        transition-colors mb-0.5`}
