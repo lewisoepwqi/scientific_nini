@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from nini.agent.events import EventType
 from nini.agent.runner import AgentRunner
-from nini.agent.session import Session
+from nini.agent.session import Session, session_manager
+from nini.config import settings
+from nini.models.database import init_db
 from nini.models.skill_contract import SkillContract, SkillStep
 
 
@@ -171,8 +174,23 @@ class _EmptyKnowledgeLoader:
         return "", []
 
 
+@pytest.fixture
+async def isolated_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    monkeypatch.setattr(settings, "api_key", "")
+    settings.ensure_dirs()
+    session_manager._sessions.clear()
+    await init_db()
+
+
 @pytest.mark.asyncio
-async def test_agent_runner_executes_explicit_contract_skill_with_review_gate() -> None:
+async def test_agent_runner_executes_explicit_contract_skill_with_review_gate(
+    isolated_runtime,
+) -> None:
+    del isolated_runtime
     session = Session()
     runner = AgentRunner(
         tool_registry=_ContractRegistry(),
