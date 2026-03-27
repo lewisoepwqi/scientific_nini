@@ -1,14 +1,8 @@
 /**
- * Plotly 图表渲染组件 —— 使用 createPlotlyComponent + index-cartesian 按需子包，
- * 将图表 chunk 从 ~1MB 缩减至 ~300KB。
+ * Plotly 图表渲染组件。
  */
-import createPlotlyComponent from 'react-plotly.js/factory'
-// @ts-expect-error — index-cartesian 是 plotly.js 的运行时子包，无独立类型声明
-import PlotlyCartesian from 'plotly.js/lib/index-cartesian'
-import type * as PlotlyTypes from 'plotly.js'
-
-// 使用 index-cartesian 子包创建 Plot 组件，比完整引入小 ~70%
-const Plot = createPlotlyComponent(PlotlyCartesian)
+import Plot from 'react-plotly.js'
+import type * as Plotly from 'plotly.js'
 
 import { isRecord } from '../store/utils'
 
@@ -44,8 +38,8 @@ function isDarkMode(): boolean {
   return document.documentElement.classList.contains('dark')
 }
 
-function buildAxis(axis: unknown): Partial<PlotlyTypes.LayoutAxis> {
-  const base = isRecord(axis) ? (axis as Partial<PlotlyTypes.LayoutAxis>) : {}
+function buildAxis(axis: unknown): Partial<Plotly.LayoutAxis> {
+  const base = isRecord(axis) ? (axis as Partial<Plotly.LayoutAxis>) : {}
   return {
     showline: true,
     linecolor: isDarkMode() ? '#475569' : '#9CA3AF',
@@ -81,17 +75,17 @@ export default function ChartViewer({ chartData }: Props) {
     return <div className="text-xs text-red-500">图表数据格式无效</div>
   }
 
-  const data = Array.isArray(normalized.data) ? (normalized.data as PlotlyTypes.Data[]) : []
-  const baseLayout = isRecord(normalized.layout) ? (normalized.layout as Partial<PlotlyTypes.Layout>) : {}
-  const baseConfig = isRecord(normalized.config) ? (normalized.config as Partial<PlotlyTypes.Config>) : {}
+  const data = Array.isArray(normalized.data) ? (normalized.data as Plotly.Data[]) : []
+  const baseLayout = isRecord(normalized.layout) ? (normalized.layout as Partial<Plotly.Layout>) : {}
+  const baseConfig = isRecord(normalized.config) ? (normalized.config as Partial<Plotly.Config>) : {}
 
   if (data.length === 0) {
     return <div className="text-xs text-red-500">图表数据为空</div>
   }
 
-  const baseFont = isRecord(baseLayout.font) ? (baseLayout.font as Partial<PlotlyTypes.Font>) : {}
+  const baseFont = isRecord(baseLayout.font) ? (baseLayout.font as Partial<Plotly.Font>) : {}
 
-  const layout: Partial<PlotlyTypes.Layout> = {
+  const layout: Partial<Plotly.Layout> = {
     ...baseLayout,
     autosize: true,
     height: typeof baseLayout.height === 'number' ? baseLayout.height : 420,
@@ -107,13 +101,13 @@ export default function ChartViewer({ chartData }: Props) {
       color: typeof baseFont.color === 'string' ? baseFont.color : (isDarkMode() ? '#e2e8f0' : '#111827'),
     },
     margin: isRecord(baseLayout.margin)
-      ? ({ l: 56, r: 24, t: 56, b: 48, ...(baseLayout.margin as Partial<PlotlyTypes.Margin>) })
+      ? ({ l: 56, r: 24, t: 56, b: 48, ...(baseLayout.margin as Partial<Plotly.Margin>) })
       : { l: 56, r: 24, t: 56, b: 48 },
     xaxis: buildAxis(baseLayout.xaxis),
     yaxis: buildAxis(baseLayout.yaxis),
   }
 
-  const config: Partial<PlotlyTypes.Config> = {
+  const config: Partial<Plotly.Config> = {
     responsive: true,
     displaylogo: false,
     ...baseConfig,
