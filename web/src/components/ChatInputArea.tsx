@@ -33,6 +33,11 @@ interface SlashContext {
  query: string;
 }
 
+interface DismissedSlashState {
+ text: string;
+ caret: number;
+}
+
 function resolveSlashContext(text: string, caretPos: number): SlashContext | null {
  const caret = Math.max(0, Math.min(caretPos, text.length));
  const beforeCaret = text.slice(0, caret);
@@ -127,6 +132,11 @@ function computeRemainingRatio(
  return clamp01(1 - (totalTokens - targetTokens) / windowSize);
 }
 
+export function computeUsageRatio(totalTokens: number, thresholdTokens: number): number {
+ if (thresholdTokens <= 0) return 0;
+ return clamp01(totalTokens / thresholdTokens);
+}
+
 export default function ChatInputArea() {
  const confirm = useConfirm();
  const sessionId = useStore((s) => s.sessionId);
@@ -152,11 +162,14 @@ export default function ChatInputArea() {
  const [isCompressing, setIsCompressing] = useState(false);
  const [contextRemainingRatio, setContextRemainingRatio] = useState(1);
  const [contextTokens, setContextTokens] = useState<number | null>(null);
+ const [compressThresholdTokens, setCompressThresholdTokens] = useState<number | null>(null);
  const [slashContext, setSlashContext] = useState<SlashContext | null>(null);
  const [slashActiveIndex, setSlashActiveIndex] = useState(0);
  const [dismissedRecipeId, setDismissedRecipeId] = useState<string | null>(null);
  const [isFocused, setIsFocused] = useState(false);
  const textareaRef = useRef<HTMLTextAreaElement>(null);
+ const slashOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+ const dismissedSlashRef = useRef<DismissedSlashState | null>(null);
  const dragDepthRef = useRef(0);
 
  const availableSlashSkills = skills.filter(
@@ -204,14 +217,34 @@ export default function ChatInputArea() {
  }
  }, [filteredSlashSkills.length, slashActiveIndex]);
 
+ useEffect(() => {
+ if (!slashMenuOpen) return;
+ slashOptionRefs.current[slashActiveIndex]?.scrollIntoView({ block: "nearest" });
+ }, [slashActiveIndex, slashMenuOpen]);
+
  const syncSlashContext = useCallback((value: string, caretPos: number) => {
- setSlashContext(resolveSlashContext(value, caretPos));
+ const nextContext = resolveSlashContext(value, caretPos);
+ const dismissed = dismissedSlashRef.current;
+ if (
+ dismissed &&
+ dismissed.text === value &&
+ dismissed.caret === caretPos &&
+ nextContext
+ ) {
+ setSlashContext(null);
+ return;
+ }
+ if (!dismissed || dismissed.text !== value || dismissed.caret !== caretPos) {
+ dismissedSlashRef.current = null;
+ }
+ setSlashContext(nextContext);
  }, []);
 
  const refreshContextBudget = useCallback(async () => {
  if (!sessionId) {
  setContextRemainingRatio(1);
  setContextTokens(null);
+ setCompressThresholdTokens(null);
  return;
  }
  try {
@@ -232,6 +265,7 @@ export default function ChatInputArea() {
  ? data.compress_target_tokens
  : 15000;
  setContextTokens(totalTokens);
+ setCompressThresholdTokens(thresholdTokens);
  setContextRemainingRatio(
  computeRemainingRatio(totalTokens, thresholdTokens, targetTokens),
  );
@@ -249,6 +283,7 @@ export default function ChatInputArea() {
  useEffect(() => {
  setContextRemainingRatio(1);
  setContextTokens(null);
+ setCompressThresholdTokens(null);
  }, [sessionId]);
 
  // 压缩后刷新
@@ -294,6 +329,7 @@ export default function ChatInputArea() {
  setComposerDraft("");
  setSlashContext(null);
  setSlashActiveIndex(0);
+ dismissedSlashRef.current = null;
  });
  
  if (textareaRef.current) {
@@ -333,6 +369,7 @@ export default function ChatInputArea() {
  setComposerDraft(nextInput);
  setSlashContext(null);
  setSlashActiveIndex(0);
+ dismissedSlashRef.current = null;
 
  requestAnimationFrame(() => {
  const el = textareaRef.current;
@@ -374,6 +411,11 @@ export default function ChatInputArea() {
  }
  if (e.key === "Escape") {
  e.preventDefault();
+ const caret = textareaRef.current?.selectionStart ?? input.length;
+ dismissedSlashRef.current = {
+ text: input,
+ caret,
+ };
  setSlashContext(null);
  setSlashActiveIndex(0);
  return;
@@ -391,6 +433,9 @@ export default function ChatInputArea() {
  const handleInputChange = useCallback(
  (e: React.ChangeEvent<HTMLTextAreaElement>) => {
  const nextValue = e.target.value;
+ if (dismissedSlashRef.current && dismissedSlashRef.current.text !== nextValue) {
+ dismissedSlashRef.current = null;
+ }
  setInput(nextValue);
  setComposerDraft(nextValue);
  syncSlashContext(nextValue, e.target.selectionStart ?? nextValue.length);
@@ -540,8 +585,11 @@ export default function ChatInputArea() {
  : compressLevel === "warning"
  ? "text-[var(--warning)]"
  : "text-[var(--error)]";
- const contextUsageRatio = clamp01(1 - contextRemainingRatio);
- const usagePercent = Math.round(contextUsageRatio * 100);
+ const usageThresholdTokens = compressThresholdTokens ?? 30000;
+ const contextUsageRatio =
+ contextTokens === null ? 0 : computeUsageRatio(contextTokens, usageThresholdTokens);
+ const usagePercent =
+ contextUsageRatio <= 0 ? 0 : Math.max(1, Math.round(contextUsageRatio * 100));
 
  return (
     <div className="flex-shrink-0 px-4 py-3 pb-6">
@@ -631,9 +679,13 @@ export default function ChatInputArea() {
  filteredSlashSkills.map((skill, idx) => (
  <button
  key={skill.name}
+ ref={(node) => {
+ slashOptionRefs.current[idx] = node;
+ }}
  type="button"
  onMouseDown={(event) => event.preventDefault()}
  onClick={() => applySlashSkill(skill)}
+ onMouseEnter={() => setSlashActiveIndex(idx)}
  className={`w-full rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-[var(--bg-hover)] ${
  idx === slashActiveIndex ? "bg-[var(--accent-subtle)]" : ""
  }`}
@@ -687,7 +739,7 @@ export default function ChatInputArea() {
  title={
  contextTokens === null
  ? "压缩会话"
- : `压缩会话（占用 ${usagePercent}% · 当前 ${contextTokens.toLocaleString()} tok）`
+ : `压缩会话（占用 ${usagePercent}% · 当前 ${contextTokens.toLocaleString()} / ${usageThresholdTokens.toLocaleString()} tok）`
  }
  >
  <span
@@ -708,24 +760,24 @@ export default function ChatInputArea() {
  {isStreaming ? (
  <button
  onClick={handleStop}
- className="flex-shrink-0 w-10 h-10 rounded-md bg-[var(--error)] text-white
+ className="flex-shrink-0 w-8 h-8 rounded-md bg-[var(--error)] text-white
  flex items-center justify-center hover:opacity-90 transition-colors"
  title="停止生成"
  aria-label="停止生成"
  >
- <Square size={14} />
+ <Square size={12} />
  </button>
  ) : (
  <button
  onClick={handleSend}
  disabled={!input.trim() || Boolean(pendingAskUserQuestion)}
- className="flex-shrink-0 w-10 h-10 rounded-md bg-[var(--accent)] text-white
+ className="flex-shrink-0 w-8 h-8 rounded-md bg-[var(--accent)] text-white
  flex items-center justify-center
  hover:bg-[var(--accent-hover)] disabled:bg-slate-300 dark:disabled:bg-slate-600 disabled:cursor-not-allowed
  transition-colors"
  aria-label="发送消息"
  >
- <Send size={16} />
+ <Send size={14} />
  </button>
  )}
  </div>

@@ -2,6 +2,108 @@
 @tailwind components;
 @tailwind utilities;
 
+/* === Color Tokens v1.2.0（来源：.impeccable.md Color System）=== */
+
+:root {
+  /* === 亮色模式（Light Mode）—"Deep Ocean Intelligence" === */
+
+  /* 背景层级 */
+  --bg-app:      #EDF2FA;
+  --bg-base:     #FFFFFF;
+  --bg-elevated: #F5F9FF;
+  --bg-overlay:  #E0E8F4;
+  --bg-hover:    rgba(13, 148, 136, 0.08);
+
+  /* 边框 */
+  --border-subtle:  #C8D8EE;
+  --border-default: #A8C0DE;
+  --border-strong:  #8AAAC8;
+
+  /* 文字 */
+  --text-primary:   #0B1830;
+  --text-secondary: #3D5878;
+  --text-muted:     #7B90AC;
+  --text-disabled:  #A8B8CC;
+
+  /* 强调色 — Nini Teal */
+  --accent:        #0D9488;
+  --accent-hover:  #0F766E;
+  --accent-subtle: rgba(13, 148, 136, 0.08);
+
+  /* 卡片层级 */
+  --card:        #F5F9FF;
+
+  /* 功能色（亮色模式加深以保证对比度） */
+  --success: #2D7A52;
+  --success-subtle: rgba(45, 122, 82, 0.08);
+  --warning: #A06030;
+  --warning-subtle: rgba(160, 96, 48, 0.08);
+  --error:   #A03838;
+  --error-subtle: rgba(160, 56, 56, 0.08);
+
+  /* 功能域色标 */
+  --domain-analysis:  #6D28D9;
+  --domain-report:    #047857;
+  --domain-cost:      #B45309;
+  --domain-profile:   #0369A1;
+  --domain-workspace: #1D4ED8;
+  --domain-knowledge: #4338CA;
+
+  /* 滚动条 */
+  --scrollbar-thumb: #C8D8EE;
+  --scrollbar-thumb-hover: #A8C0DE;
+}
+
+.dark {
+  /* === 暗色模式（Dark Mode）— Pure Black 色系 === */
+
+  /* 背景层级 */
+  --bg-app:      #000000;
+  --bg-base:     #000000;
+  --bg-elevated: #0A0A0A;
+  --bg-overlay:  #121212;
+  --bg-hover:    #18181B;
+
+  /* 卡片层级 */
+  --card:        #0A0A0A;
+
+  /* 边框 */
+  --border-subtle:  #18181B;
+  --border-default: #27272A;
+  --border-strong:  #3F3F46;
+
+  /* 文字 */
+  --text-primary:   #FAFAFA;
+  --text-secondary: #A3A3A3;
+  --text-muted:     #71717A;
+  --text-disabled:  #52525B;
+
+  /* 强调色 — Nini Teal */
+  --accent:        #0DBCAA;
+  --accent-hover:  #10D4BA;
+  --accent-subtle: rgba(13, 188, 170, 0.10);
+
+  /* 功能色 */
+  --success: #4D9A6A;
+  --success-subtle: rgba(77, 154, 106, 0.15);
+  --warning: #C4874A;
+  --warning-subtle: rgba(196, 135, 74, 0.15);
+  --error:   #C45A5A;
+  --error-subtle: rgba(196, 90, 90, 0.15);
+
+  /* 功能域色标 */
+  --domain-analysis:  #7C3AED;
+  --domain-report:    #059669;
+  --domain-cost:      #D97706;
+  --domain-profile:   #0284C7;
+  --domain-workspace: #2563EB;
+  --domain-knowledge: #4F46E5;
+
+  /* 滚动条 */
+  --scrollbar-thumb: #27272A;
+  --scrollbar-thumb-hover: #3F3F46;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
 }
@@ -13,7 +115,7 @@ input:focus-visible,
 textarea:focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -35,32 +137,61 @@ html, body, #root {
   height: 100%;
 }
 
+html {
+  background: var(--bg-app);
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--bg-app);
+  color: var(--text-primary);
+}
+
+#root {
+  background: var(--bg-app);
+}
+
+.skeleton-surface {
+  border: 1px solid color-mix(in srgb, var(--border-default) 55%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 84%, var(--bg-base));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--bg-base) 30%, transparent);
+}
+
+.skeleton-line {
+  background: color-mix(in srgb, var(--bg-overlay) 88%, var(--bg-base));
+}
+
+.skeleton-line-soft {
+  background: color-mix(in srgb, var(--bg-elevated) 92%, var(--bg-base));
+}
+
+.dark .skeleton-surface {
+  border-color: color-mix(in srgb, var(--border-default) 70%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--bg-overlay) 36%, transparent);
 }
 
 /* 滚动条美化 */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
-}
-.dark ::-webkit-scrollbar-thumb {
-  background: #475569;
-}
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* 隐藏滚动条但保留滚动能力（用于横向 Tab 条） */
@@ -75,10 +206,11 @@ body {
   display: none;
 }
 
-/* Markdown 内容样式 */
+/* === Markdown 内容样式（全部通过 token 响应双模式）=== */
+
 .markdown-body pre {
-  background: #1e293b;
-  color: #e2e8f0;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
   padding: 1rem;
   border-radius: 0.5rem;
   overflow-x: auto;
@@ -86,14 +218,10 @@ body {
 }
 
 .markdown-body code {
-  background: #f1f5f9;
+  background: var(--bg-elevated);
   padding: 0.15rem 0.3rem;
   border-radius: 0.25rem;
   font-size: 0.875em;
-}
-
-.dark .markdown-body code {
-  background: #334155;
 }
 
 .markdown-body pre code {
@@ -138,15 +266,10 @@ body {
 
 .markdown-body .markdown-table-wrap {
   margin: 0.65rem 0;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-subtle);
   border-radius: 0.6rem;
   overflow-x: auto;
-  background: #ffffff;
-}
-
-.dark .markdown-body .markdown-table-wrap {
-  border-color: #334155;
-  background: #0f172a;
+  background: var(--bg-base);
 }
 
 .markdown-body .markdown-table-wrap table {
@@ -159,18 +282,12 @@ body {
 
 .markdown-body .markdown-table-wrap th,
 .markdown-body .markdown-table-wrap td {
-  border-right: 1px solid #e2e8f0;
-  border-bottom: 1px solid #e2e8f0;
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
   padding: 0.5rem 0.65rem;
   text-align: left;
   vertical-align: top;
   white-space: pre-wrap;
-}
-
-.dark .markdown-body .markdown-table-wrap th,
-.dark .markdown-body .markdown-table-wrap td {
-  border-right-color: #334155;
-  border-bottom-color: #334155;
 }
 
 .markdown-body .markdown-table-wrap th:last-child,
@@ -183,55 +300,33 @@ body {
 }
 
 .markdown-body .markdown-table-wrap th {
-  background: #f8fafc;
+  background: var(--bg-elevated);
   font-weight: 600;
-}
-
-.dark .markdown-body .markdown-table-wrap th {
-  background: #1e293b;
 }
 
 .markdown-body blockquote {
   margin: 0.6rem 0;
   padding: 0.4rem 0.8rem;
-  border-left: 3px solid #cbd5e1;
-  background: #f8fafc;
-  color: #475569;
-}
-
-.dark .markdown-body blockquote {
-  border-left-color: #475569;
-  background: #1e293b;
-  color: #94a3b8;
+  border-left: 3px solid var(--border-default);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
 }
 
 .markdown-body hr {
   margin: 0.9rem 0;
   border: none;
-  border-top: 1px solid #e2e8f0;
-}
-
-.dark .markdown-body hr {
-  border-top-color: #334155;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .markdown-body a {
-  color: #2563eb;
+  color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
   word-break: break-all;
 }
 
 .markdown-body a:hover {
-  color: #1d4ed8;
-}
-
-.dark .markdown-body a {
-  color: #60a5fa;
-}
-
-.dark .markdown-body a:hover {
-  color: #818cf8;
+  color: var(--accent-hover);
 }
 
 .markdown-body strong {
@@ -239,7 +334,7 @@ body {
 }
 
 .markdown-body del {
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .markdown-body input[type="checkbox"] {
@@ -259,119 +354,72 @@ body {
   padding-left: 0.2rem;
 }
 
-/* 思考过程气泡专用样式 - 与 Thinking 标签颜色一致 (slate-500) */
+/* 思考过程气泡专用样式 */
 .reasoning-markdown {
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .reasoning-markdown p,
 .reasoning-markdown li,
 .reasoning-markdown ol {
-  color: #64748b;
-}
-
-.dark .reasoning-markdown {
-  color: #94a3b8;
-}
-
-.dark .reasoning-markdown p,
-.dark .reasoning-markdown li,
-.dark .reasoning-markdown ol {
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .reasoning-markdown pre {
-  background: #1e293b;
-  color: #f1f5f9;
-  border: 1px solid #334155;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
 }
 
 .reasoning-markdown code {
-  background: #e2e8f0;
-  color: #334155;
-}
-
-.dark .reasoning-markdown code {
-  background: #334155;
-  color: #e2e8f0;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
 }
 
 .reasoning-markdown h1,
 .reasoning-markdown h2,
 .reasoning-markdown h3,
 .reasoning-markdown h4 {
-  color: #475569;
-}
-
-.dark .reasoning-markdown h1,
-.dark .reasoning-markdown h2,
-.dark .reasoning-markdown h3,
-.dark .reasoning-markdown h4 {
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .reasoning-markdown .markdown-table-wrap {
-  border-color: #e2e8f0;
-  background: #ffffff;
-}
-
-.dark .reasoning-markdown .markdown-table-wrap {
-  border-color: #334155;
-  background: #0f172a;
+  border-color: var(--border-subtle);
+  background: var(--bg-base);
 }
 
 .reasoning-markdown .markdown-table-wrap th,
 .reasoning-markdown .markdown-table-wrap td {
-  border-color: #e2e8f0;
-  color: #334155;
-}
-
-.dark .reasoning-markdown .markdown-table-wrap th,
-.dark .reasoning-markdown .markdown-table-wrap td {
-  border-color: #334155;
-  color: #e2e8f0;
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
 }
 
 .reasoning-markdown .markdown-table-wrap th {
-  background: #f8fafc;
-}
-
-.dark .reasoning-markdown .markdown-table-wrap th {
-  background: #1e293b;
+  background: var(--bg-elevated);
 }
 
 .reasoning-markdown blockquote {
-  border-left-color: #94a3b8;
-  background: #f8fafc;
-  color: #475569;
-}
-
-.dark .reasoning-markdown blockquote {
-  border-left-color: #475569;
-  background: #1e293b;
-  color: #94a3b8;
+  border-left-color: var(--text-secondary);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
 }
 
 .reasoning-markdown hr {
-  border-top-color: #e2e8f0;
-}
-
-.dark .reasoning-markdown hr {
-  border-top-color: #334155;
+  border-top-color: var(--border-subtle);
 }
 
 .reasoning-markdown a {
-  color: #6366f1;
+  color: var(--accent);
 }
 
 .reasoning-markdown a:hover {
-  color: #4f46e5;
+  color: var(--accent-hover);
 }
 
 .nini-thinking-shimmer {
   position: relative;
   display: inline-block;
-  color: #64748b;
+  color: var(--text-muted);
   background-image: linear-gradient(
     90deg,
     currentColor 0%,
@@ -388,15 +436,41 @@ body {
   animation: nini-thinking-shimmer 1.6s linear infinite;
 }
 
-.dark .nini-thinking-shimmer {
-  color: #94a3b8;
-}
-
 @keyframes nini-thinking-shimmer {
   from {
     background-position: 120% 0;
   }
   to {
     background-position: -120% 0;
+  }
+}
+
+/* === 弹窗动画（来源：.impeccable.md Interaction Patterns）=== */
+
+@keyframes confirmDialogIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 尊重 prefers-reduced-motion：禁用所有动画 */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes confirmDialogIn {
+    from { opacity: 1; transform: none; }
+    to   { opacity: 1; transform: none; }
+  }
+
+  .animate-spin,
+  .animate-pulse {
+    animation: none !important;
+  }
+
+  .nini-thinking-shimmer {
+    animation: none !important;
   }
 }

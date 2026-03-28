@@ -164,7 +164,7 @@ export default function ModelSelector({
  activeModel?.model || activeProvider?.current_model || null;
 
  const triggerClass = compact
- ? "h-8 px-2.5 text-xs"
+ ? "!h-8 px-2.5 text-xs"
  : "px-2.5 py-1 text-xs";
  const menuWidthClass = compact ? "w-[300px]" : "w-[340px]";
 
@@ -376,15 +376,14 @@ export default function ModelSelector({
  <div
  className={`mt-1 overflow-hidden rounded-xl border transition-colors ${
  selectedProviderId === BUILTIN_PROVIDER_ID
- ? "border-[var(--accent-subtle)] bg-[var(--accent-subtle)]/70 shadow-sm"
- : "border-[var(--border-default)] bg-[var(--bg-base)]"
+ ? "border-[var(--border-default)] bg-[var(--accent-subtle)]/70 shadow-sm ring-1 ring-[var(--accent)]/10"
+ : "border-[var(--border-subtle)] bg-[var(--bg-base)]"
  }`}
  >
- <Button
- variant="ghost"
+ <button
  type="button"
  onClick={() => handleToggleProvider(BUILTIN_PROVIDER_ID)}
- className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors ${
+ className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-hover)] ${
  expandedProviderId === BUILTIN_PROVIDER_ID ? "bg-[var(--bg-elevated)] dark:bg-[var(--bg-overlay)]/50" : ""
  }`}
  >
@@ -392,7 +391,7 @@ export default function ModelSelector({
  className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl ${
  selectedProviderId === BUILTIN_PROVIDER_ID
  ? "bg-[var(--accent-subtle)] text-[var(--accent)] dark:text-[var(--accent)]"
- : "bg-[var(--accent-subtle)] text-[var(--domain-profile)] dark:text-[var(--domain-profile)]"
+ : "bg-[var(--bg-elevated)] text-[var(--text-muted)] dark:bg-[var(--bg-overlay)]"
  }`}
  >
  <Sparkles size={14} />
@@ -424,7 +423,7 @@ export default function ModelSelector({
  expandedProviderId === BUILTIN_PROVIDER_ID ? "rotate-180" : ""
  }`}
  />
- </Button>
+ </button>
 
  {expandedProviderId === BUILTIN_PROVIDER_ID ? (
  <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-2">
@@ -453,15 +452,14 @@ export default function ModelSelector({
  const isLow = remaining !== null && remaining > 0 && remaining <= Math.ceil((limit ?? 0) * 0.2);
 
  return (
- <Button
+ <button
  key={optionKey}
- variant="ghost"
  type="button"
  onClick={() =>
  void handleSelectRoute(BUILTIN_PROVIDER_ID, option.id)
  }
  disabled={switchingKey !== null}
- className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
+ className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[var(--bg-hover)] ${
  isSelected
  ? "border border-[var(--accent-subtle)] bg-[var(--accent-subtle)] text-[var(--text-primary)] shadow-sm"
  : ""
@@ -508,7 +506,7 @@ export default function ModelSelector({
  </span>
  )}
  {isSelected && remaining === null ? <Check size={14} /> : null}
- </Button>
+ </button>
  );
  })}
  </div>
@@ -537,23 +535,22 @@ export default function ModelSelector({
  key={provider.id}
  className={`mt-1 overflow-hidden rounded-xl border transition-colors ${
  selectedInProvider
- ? "border-[var(--accent-subtle)] bg-[var(--accent-subtle)]/70 shadow-sm"
- : "border-[var(--border-default)] bg-[var(--bg-base)]"
+ ? "border-[var(--border-default)] bg-[var(--accent-subtle)]/70 shadow-sm ring-1 ring-[var(--accent)]/10"
+ : "border-[var(--border-subtle)] bg-[var(--bg-base)]"
  }`}
  >
- <Button
- variant="ghost"
+ <button
  type="button"
  onClick={() => handleToggleProvider(provider.id)}
- className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors ${
+ className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-hover)] ${
  isExpanded ? "bg-[var(--bg-elevated)] dark:bg-[var(--bg-overlay)]/50" : ""
  }`}
  >
  <div
  className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl ${
  selectedInProvider
- ? "bg-[var(--accent-subtle)] text-[var(--accent)]"
- : "bg-[var(--accent-subtle)] text-[var(--accent)]"
+ ? "bg-[var(--accent-subtle)] text-[var(--accent)] dark:text-[var(--accent)]"
+ : "bg-[var(--bg-elevated)] text-[var(--text-muted)] dark:bg-[var(--bg-overlay)] dark:text-[var(--text-muted)]"
  }`}
  >
  <Bot size={14} />
@@ -594,7 +591,7 @@ export default function ModelSelector({
  isExpanded ? "rotate-180" : ""
  }`}
  />
- </Button>
+ </button>
 
  {isExpanded ? (
  <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-2">
@@ -613,15 +610,14 @@ export default function ModelSelector({
  model === selectedModel;
 
  return (
- <Button
+ <button
  key={optionKey}
- variant="ghost"
  type="button"
  onClick={() =>
  void handleSelectRoute(provider.id, model)
  }
  disabled={switchingKey !== null}
- className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
+ className={`mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-[var(--bg-hover)] ${
  isSelected
  ? "border border-[var(--accent-subtle)] bg-[var(--accent-subtle)] text-[var(--text-primary)] shadow-sm"
  : ""
@@ -659,7 +655,7 @@ export default function ModelSelector({
  </div>
  </div>
  {isSelected ? <Check size={14} /> : null}
- </Button>
+ </button>
  );
  })}
  </div>
@@ -687,21 +683,20 @@ export default function ModelSelector({
  </div>
 
  <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-elevated)]/80 dark:bg-[var(--bg-elevated)]/80 p-2">
- <Button
- variant="ghost"
+ <button
  type="button"
  onClick={() => {
  setMenuOpen(false);
  onOpenSettings?.();
  }}
- className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm"
+ className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-[var(--bg-hover)]"
  >
  <span className="flex items-center gap-2">
  <Settings2 size={14} className="text-[var(--text-muted)]" />
  管理 AI 设置
  </span>
  <ChevronDown size={14} className="-rotate-90 text-[var(--text-muted)]" />
- </Button>
+ </button>
  </div>
  </div>
  ) : null}

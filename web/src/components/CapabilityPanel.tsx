@@ -1,6 +1,8 @@
 /**
  * 能力面板 —— 展示用户层面的 Capabilities（区别于底层的 Tools）。
  *
+ * 使用 DetailPanel 基础组件（推入式面板，无遮罩）。
+ *
  * 三层架构说明：
  * - Capabilities: 用户可理解的能力（如"差异分析"、"相关性分析"）
  * - Tools: 模型可调用的原子函数（如 t_test, anova）
@@ -8,163 +10,148 @@
  */
 import { useEffect, useMemo } from 'react'
 import { useStore, type CapabilityItem } from '../store'
-import { X, Sparkles, RefreshCw, Zap } from 'lucide-react'
-import BaseModal from './BaseModal'
+import { RefreshCw, Zap } from 'lucide-react'
+import { DetailPanel } from './ui'
+import Button from './ui/Button'
 
 interface Props {
-  open: boolean
-  onClose: () => void
+ open: boolean
+ onClose: () => void
 }
 
 function getCategoryIcon(icon?: string) {
-  return icon || '✨'
+ return icon || '✨'
 }
 
 function getCapabilityCategory(cap: CapabilityItem): string {
-  const name = cap.name
-  if (name.includes('analysis') || name.includes('分析')) return 'analysis'
-  if (name.includes('exploration') || name.includes('exploration')) return 'exploration'
-  if (name.includes('cleaning') || name.includes('清洗')) return 'cleaning'
-  if (name.includes('visualization') || name.includes('可视化')) return 'visualization'
-  if (name.includes('report') || name.includes('报告')) return 'report'
-  return 'other'
+ const name = cap.name
+ if (name.includes('analysis') || name.includes('分析')) return 'analysis'
+ if (name.includes('exploration') || name.includes('exploration')) return 'exploration'
+ if (name.includes('cleaning') || name.includes('清洗')) return 'cleaning'
+ if (name.includes('visualization') || name.includes('可视化')) return 'visualization'
+ if (name.includes('report') || name.includes('报告')) return 'report'
+ return 'other'
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  analysis: '统计分析',
-  exploration: '数据探索',
-  cleaning: '数据清洗',
-  visualization: '可视化',
-  report: '报告生成',
-  other: '其他',
+ analysis: '统计分析',
+ exploration: '数据探索',
+ cleaning: '数据清洗',
+ visualization: '可视化',
+ report: '报告生成',
+ other: '其他',
 }
 
 function groupCapabilities(caps: CapabilityItem[]): Array<[string, CapabilityItem[]]> {
-  const map = new Map<string, CapabilityItem[]>()
-  for (const cap of caps) {
-    const category = getCapabilityCategory(cap)
-    if (!map.has(category)) map.set(category, [])
-    map.get(category)!.push(cap)
-  }
+ const map = new Map<string, CapabilityItem[]>()
+ for (const cap of caps) {
+ const category = getCapabilityCategory(cap)
+ if (!map.has(category)) map.set(category, [])
+ map.get(category)!.push(cap)
+ }
 
-  const order = ['analysis', 'exploration', 'cleaning', 'visualization', 'report', 'other']
-  const grouped: Array<[string, CapabilityItem[]]> = []
-  for (const key of order) {
-    const items = map.get(key)
-    if (items && items.length > 0) grouped.push([key, items])
-  }
-  for (const [key, items] of map) {
-    if (!order.includes(key)) grouped.push([key, items])
-  }
-  return grouped
+ const order = ['analysis', 'exploration', 'cleaning', 'visualization', 'report', 'other']
+ const grouped: Array<[string, CapabilityItem[]]> = []
+ for (const key of order) {
+ const items = map.get(key)
+ if (items && items.length > 0) grouped.push([key, items])
+ }
+ for (const [key, items] of map) {
+ if (!order.includes(key)) grouped.push([key, items])
+ }
+ return grouped
 }
 
 export default function CapabilityPanel({ open, onClose }: Props) {
-  const capabilities = useStore((s) => s.capabilities)
-  const fetchCapabilities = useStore((s) => s.fetchCapabilities)
+ const capabilities = useStore((s) => s.capabilities)
+ const fetchCapabilities = useStore((s) => s.fetchCapabilities)
 
-  const grouped = useMemo(() => groupCapabilities(capabilities), [capabilities])
+ const grouped = useMemo(() => groupCapabilities(capabilities), [capabilities])
 
-  useEffect(() => {
-    if (!open) return
-    fetchCapabilities()
-  }, [open, fetchCapabilities])
+ useEffect(() => {
+ if (!open) return
+ fetchCapabilities()
+ }, [open, fetchCapabilities])
 
-  return (
-    <BaseModal open={open} onClose={onClose} title="分析能力" maxWidthClass="max-w-2xl">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[82vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
-          <div className="flex items-center gap-2">
-            <Sparkles size={18} className="text-purple-600" />
-            <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200">分析能力</h2>
-            <span className="text-xs text-slate-400 dark:text-slate-500">{capabilities.length} 个能力</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={fetchCapabilities}
-              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 dark:text-slate-500 transition-colors"
-              title="刷新"
-              aria-label="刷新能力列表"
-            >
-              <RefreshCw size={14} />
-            </button>
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 dark:text-slate-500 transition-colors"
-              title="关闭"
-              aria-label="关闭"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </div>
+ return (
+ <DetailPanel isOpen={open} onClose={onClose} title="分析能力">
+ {/* 工具栏 */}
+ <div
+ className="flex items-center justify-between px-4 py-2"
+ style={{ borderBottom: '1px solid var(--border-subtle)' }}
+ >
+ <span className="text-[11px] text-[var(--text-muted)]">
+ {capabilities.length} 个能力 · 用户层面的分析能力目录
+ </span>
+ <Button
+ variant="ghost"
+ onClick={fetchCapabilities}
+ className="h-[24px] w-[24px] p-0"
+ title="刷新"
+ aria-label="刷新能力列表"
+ >
+ <RefreshCw size={13} />
+ </Button>
+ </div>
 
-        <div className="px-5 py-2 text-[11px] text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
-          Capabilities 是用户层面的"能力"，帮助您快速开始常见分析任务。
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-5 py-3">
-          <div className="space-y-4">
-            {grouped.map(([cat, items]) => {
-              const label = CATEGORY_LABELS[cat] || cat
-              return (
-                <div key={cat}>
-                  <h3 className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2 px-1">{label}</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {items.map((cap) => (
-                      <div
-                        key={cap.name}
-                        className="p-3 border border-slate-200 dark:border-slate-700 rounded-lg transition-colors group"
-                      >
-                        <div className="flex items-start gap-2">
-                          <span className="text-lg">{getCategoryIcon(cap.icon)}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <div className="font-medium text-sm text-slate-800 dark:text-slate-200">
-                                {cap.display_name}
-                              </div>
-                              <span
-                                className={`rounded-full px-1.5 py-0.5 text-[10px] ${
-                                  cap.is_executable
-                                    ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
-                                    : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'
-                                }`}
-                              >
-                                {cap.is_executable ? '可执行' : '规划中'}
-                              </span>
-                            </div>
-                            <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
-                              {cap.description}
-                            </div>
-                            <div className="flex items-center gap-1 mt-1.5">
-                              <Zap size={10} className="text-amber-500" />
-                              <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                                {cap.required_tools.length} 个工具
-                              </span>
-                            </div>
-                            {!cap.is_executable && cap.execution_message && (
-                              <div className="mt-1.5 text-[10px] text-amber-700 dark:text-amber-400">
-                                {cap.execution_message}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
-            {grouped.length === 0 && (
-              <div className="text-xs text-slate-400 dark:text-slate-500 text-center py-6">暂无可用的分析能力</div>
-            )}
-          </div>
-        </div>
-
-        <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-[11px] text-slate-400 dark:text-slate-500">
-          当前面板用于展示能力目录；仅标记为“可执行”的能力才支持直接接入执行流程。
-        </div>
-      </div>
-    </BaseModal>
-  )
+ {/* 能力列表 */}
+ <div className="flex-1 overflow-y-auto px-4 py-3">
+ <div className="space-y-4">
+ {grouped.map(([cat, items]) => {
+ const label = CATEGORY_LABELS[cat] || cat
+ return (
+ <div key={cat}>
+ <h3 className="text-[11px] font-medium text-[var(--text-muted)] mb-2 px-1">{label}</h3>
+ <div className="space-y-2">
+ {items.map((cap) => (
+ <div
+ key={cap.name}
+ className="p-3 border border-[var(--border-subtle)] rounded-lg"
+ >
+ <div className="flex items-start gap-2">
+ <span className="text-base">{getCategoryIcon(cap.icon)}</span>
+ <div className="flex-1 min-w-0">
+ <div className="flex items-center gap-2">
+ <div className="font-medium text-[13px] text-[var(--text-primary)]">
+ {cap.display_name}
+ </div>
+ <span
+ className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+ cap.is_executable
+ ? 'bg-[var(--accent-subtle)] text-[var(--accent)]'
+ : 'bg-[var(--bg-overlay)] text-[var(--text-muted)]'
+ }`}
+ >
+ {cap.is_executable ? '可执行' : '规划中'}
+ </span>
+ </div>
+ <div className="text-[12px] text-[var(--text-secondary)] mt-0.5 line-clamp-2">
+ {cap.description}
+ </div>
+ <div className="flex items-center gap-1 mt-1.5">
+ <Zap size={10} className="text-[var(--warning)]" />
+ <span className="text-[10px] text-[var(--text-muted)]">
+ {cap.required_tools.length} 个工具
+ </span>
+ </div>
+ {!cap.is_executable && cap.execution_message && (
+ <div className="mt-1.5 text-[10px] text-[var(--warning)]">
+ {cap.execution_message}
+ </div>
+ )}
+ </div>
+ </div>
+ </div>
+ ))}
+ </div>
+ </div>
+ )
+ })}
+ {grouped.length === 0 && (
+ <div className="text-[12px] text-[var(--text-muted)] text-center py-6">暂无可用的分析能力</div>
+ )}
+ </div>
+ </div>
+ </DetailPanel>
+ )
 }
