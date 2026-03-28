@@ -1,7 +1,7 @@
 /**
  * 会话列表（侧边栏）—— 支持多会话管理、切换、重命名与删除。
  */
-import { useEffect, useState, useCallback, useRef, type KeyboardEvent } from 'react'
+import { useEffect, useState, useCallback, useRef, startTransition, type KeyboardEvent } from 'react'
 import { useStore } from '../store'
 import { Loader2, MessageSquarePlus, MoreHorizontal, Pencil, Trash2, X } from 'lucide-react'
 import * as api from '../store/api-actions'
@@ -167,8 +167,10 @@ export default function SessionList({ onClose }: Props) {
  }, [editTitle, pagedSessions, updateSessionTitle])
 
  const handleClick = useCallback((id: string) => {
- switchSession(id)
+ startTransition(() => {
+ void switchSession(id)
  onClose?.()
+ })
  }, [switchSession, onClose])
 
  const filteredSessions = pagedSessions.filter((s) => {
@@ -235,7 +237,9 @@ export default function SessionList({ onClose }: Props) {
  item.id !== pendingDelete?.id
  ))
  if (nextSession) {
+ startTransition(() => {
  void switchSession(nextSession.id)
+ })
  } else {
  clearMessages()
  }

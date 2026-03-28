@@ -172,7 +172,7 @@ test.beforeEach(async ({ page }) => {
   await page.waitForLoadState('networkidle')
 
   // 等待 WebSocket 连接建立（使用更通用的指示器）
-  await expect(page.locator('.text-emerald-500')).toBeVisible({ timeout: 10000 })
+  await expect(page.getByRole('status', { name: '已连接' })).toBeVisible({ timeout: 10000 })
   // 额外等待确保应用完全初始化
   await page.waitForTimeout(300)
 

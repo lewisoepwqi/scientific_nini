@@ -15,3 +15,6 @@ export type { CommandSheetProps } from './CommandSheet'
 
 export { default as ConfirmDialog } from './ConfirmDialog'
 export type { ConfirmDialogProps } from './ConfirmDialog'
+
+export { ConnectionBadge, default as ConnectionBadgeDefault } from './ConnectionBadge'
+export type { ConnectionBadgeProps } from './ConnectionBadge'

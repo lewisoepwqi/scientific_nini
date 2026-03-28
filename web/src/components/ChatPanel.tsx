@@ -240,7 +240,9 @@ export default function ChatPanel() {
  additionalCount={Math.max(0, backgroundPendingQuestions.length - 1)}
  canEnableNotifications={canEnableNotifications}
  onSwitch={() => {
+ startTransition(() => {
  void switchSession(backgroundPendingQuestion.sessionId)
+ })
  }}
  onEnableNotifications={() => {
  void handleEnableNotifications()

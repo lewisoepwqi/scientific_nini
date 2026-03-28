@@ -12,6 +12,7 @@ import ConfirmDialog from "./components/ConfirmDialog";
 import { AUTH_INVALID_EVENT } from "./store/auth";
 import { initTheme, getStoredTheme, setTheme, getResolvedTheme, type ThemeMode } from "./theme";
 import GlobalNav, { NiniLogo } from "./components/GlobalNav";
+import { ConnectionBadge } from "./components/ui";
 import {
   Loader2,
   Menu,
@@ -307,10 +308,7 @@ export default function App() {
                 <h2 className="font-semibold text-[15px] text-[var(--text-primary)] whitespace-nowrap m-0 leading-none">
                   Nini
                 </h2>
-                <span className="text-[10px] px-1.5 h-[18px] rounded font-medium inline-flex items-center justify-center gap-1 bg-[var(--accent-subtle)] text-[var(--success)] leading-none mt-px">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--success)] inline-block" />
-                  已连接
-                </span>
+                <ConnectionBadge className="mt-px" />
               </div>
             </div>
 
