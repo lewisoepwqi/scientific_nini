@@ -6,6 +6,7 @@
  */
 
 import { create } from "zustand";
+import { startTransition } from "react";
 import type { WsConnectionStatus } from "./store/websocket-status";
 import { resolveWsClosedStatus } from "./store/websocket-status";
 import {
@@ -1394,83 +1395,85 @@ export const useStore = create<AppState>((set, get) => ({
       return;
     }
 
-    set((s) => ({
-      sessionId: targetSessionId,
-      ...SESSION_RESET_STATE,
-      // 若目标会话有后台任务在运行，切换后 isStreaming 应保持 true
-      isStreaming: s.runningSessions.has(targetSessionId),
-      pendingAskUserQuestion: resolveCurrentPendingAskUserQuestion(
-        targetSessionId,
-        s.pendingAskUserQuestionsBySession,
-      ),
-      messages: restoredMessages,
-      analysisTasks: restoredAnalysisTasks,
-      analysisPlanProgress: restoredPlanProgress,
-      harnessRunContext:
-        cachedSessionUi && shouldUseCachedUi
-          ? cachedSessionUi.harnessRunContext
-          : null,
-      completionCheck:
-        cachedSessionUi && shouldUseCachedUi
-          ? cachedSessionUi.completionCheck
-          : null,
-      blockedState:
-        cachedSessionUi && shouldUseCachedUi
-          ? cachedSessionUi.blockedState
-          : null,
-      skillExecution:
-        cachedSessionUi && shouldUseCachedUi
-          ? cloneSkillExecution(cachedSessionUi.skillExecution)
-          : null,
-      activeRecipeId:
-        typeof sessionDetail?.recipe_id === "string" && sessionDetail.recipe_id
-          ? sessionDetail.recipe_id
-          : null,
-      deepTaskState: sessionDetail?.deep_task_state ?? null,
-      currentIntentAnalysis:
-        cachedSessionUi && shouldUseCachedUi
-          ? cachedSessionUi.currentIntentAnalysis
-          : null,
-      workspacePanelTab:
-        cachedSessionUi && shouldUseCachedUi
-          ? cachedSessionUi.workspacePanelTab
-          : restoredPlanProgress || restoredAnalysisTasks.length > 0
-            ? "tasks"
-            : "files",
-      _currentTurnId:
-        cachedSessionUi && shouldUseCachedUi
-          ? cachedSessionUi.currentTurnId
-          : null,
-      _streamingText:
-        cachedSessionUi && shouldUseCachedUi
-          ? cachedSessionUi.streamingText
-          : "",
-      _lastHandledSeq:
-        cachedSessionUi && shouldUseCachedUi
-          ? cachedSessionUi.lastHandledSeq
-          : undefined,
-      _activePlanMsgId:
-        cachedSessionUi && shouldUseCachedUi
-          ? cachedSessionUi.activePlanMsgId
-          : null,
-      _analysisPlanOrder:
-        cachedSessionUi && shouldUseCachedUi
-          ? cachedSessionUi.analysisPlanOrder
-          : 0,
-      _activePlanTaskIds:
-        cachedSessionUi && shouldUseCachedUi
-          ? [...cachedSessionUi.activePlanTaskIds]
-          : [],
-      _planActionTaskMap:
-        cachedSessionUi && shouldUseCachedUi
-          ? { ...cachedSessionUi.planActionTaskMap }
-          : {},
-      _streamingMetrics: restoredStreamingMetrics,
-      tokenUsage:
-        cachedSessionUi && shouldUseCachedUi
-          ? cloneTokenUsage(cachedSessionUi.tokenUsage)
-          : null,
-    }));
+    startTransition(() => {
+      set((s) => ({
+        sessionId: targetSessionId,
+        ...SESSION_RESET_STATE,
+        // 若目标会话有后台任务在运行，切换后 isStreaming 应保持 true
+        isStreaming: s.runningSessions.has(targetSessionId),
+        pendingAskUserQuestion: resolveCurrentPendingAskUserQuestion(
+          targetSessionId,
+          s.pendingAskUserQuestionsBySession,
+        ),
+        messages: restoredMessages,
+        analysisTasks: restoredAnalysisTasks,
+        analysisPlanProgress: restoredPlanProgress,
+        harnessRunContext:
+          cachedSessionUi && shouldUseCachedUi
+            ? cachedSessionUi.harnessRunContext
+            : null,
+        completionCheck:
+          cachedSessionUi && shouldUseCachedUi
+            ? cachedSessionUi.completionCheck
+            : null,
+        blockedState:
+          cachedSessionUi && shouldUseCachedUi
+            ? cachedSessionUi.blockedState
+            : null,
+        skillExecution:
+          cachedSessionUi && shouldUseCachedUi
+            ? cloneSkillExecution(cachedSessionUi.skillExecution)
+            : null,
+        activeRecipeId:
+          typeof sessionDetail?.recipe_id === "string" && sessionDetail.recipe_id
+            ? sessionDetail.recipe_id
+            : null,
+        deepTaskState: sessionDetail?.deep_task_state ?? null,
+        currentIntentAnalysis:
+          cachedSessionUi && shouldUseCachedUi
+            ? cachedSessionUi.currentIntentAnalysis
+            : null,
+        workspacePanelTab:
+          cachedSessionUi && shouldUseCachedUi
+            ? cachedSessionUi.workspacePanelTab
+            : restoredPlanProgress || restoredAnalysisTasks.length > 0
+              ? "tasks"
+              : "files",
+        _currentTurnId:
+          cachedSessionUi && shouldUseCachedUi
+            ? cachedSessionUi.currentTurnId
+            : null,
+        _streamingText:
+          cachedSessionUi && shouldUseCachedUi
+            ? cachedSessionUi.streamingText
+            : "",
+        _lastHandledSeq:
+          cachedSessionUi && shouldUseCachedUi
+            ? cachedSessionUi.lastHandledSeq
+            : undefined,
+        _activePlanMsgId:
+          cachedSessionUi && shouldUseCachedUi
+            ? cachedSessionUi.activePlanMsgId
+            : null,
+        _analysisPlanOrder:
+          cachedSessionUi && shouldUseCachedUi
+            ? cachedSessionUi.analysisPlanOrder
+            : 0,
+        _activePlanTaskIds:
+          cachedSessionUi && shouldUseCachedUi
+            ? [...cachedSessionUi.activePlanTaskIds]
+            : [],
+        _planActionTaskMap:
+          cachedSessionUi && shouldUseCachedUi
+            ? { ...cachedSessionUi.planActionTaskMap }
+            : {},
+        _streamingMetrics: restoredStreamingMetrics,
+        tokenUsage:
+          cachedSessionUi && shouldUseCachedUi
+            ? cloneTokenUsage(cachedSessionUi.tokenUsage)
+            : null,
+      }));
+    });
     localStorage.setItem("nini_last_session_id", targetSessionId);
 
     await Promise.all([

@@ -301,7 +301,7 @@ test.beforeEach(async ({ page }) => {
   await page.waitForLoadState("networkidle");
 
   // 等待 WebSocket 连接建立（使用更通用的指示器）
-  await expect(page.locator('.text-emerald-500')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole('status', { name: '已连接' })).toBeVisible({ timeout: 10000 });
 
   // 如果没有会话，创建一个
   await page.getByText('新建会话').click()

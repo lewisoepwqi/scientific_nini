@@ -1,7 +1,7 @@
 /**
  * 应用根组件 —— 三栏布局（会话列表 + 对话面板 + 工作区面板），支持移动端响应式。
  */
-import { Suspense, lazy, useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState, startTransition } from "react";
 import { useStore } from "./store";
 import { useIsDesktop } from "./hooks";
 import ChatPanel from "./components/ChatPanel";
@@ -9,27 +9,15 @@ import SessionList from "./components/SessionList";
 import AuthGate from "./components/AuthGate";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ConfirmDialog from "./components/ConfirmDialog";
-import { useOnboardStore } from "./store/onboard-store";
-import { getWsStatusMeta } from "./store/websocket-status";
 import { AUTH_INVALID_EVENT } from "./store/auth";
-import { initTheme, getStoredTheme, setTheme, type ThemeMode } from "./theme";
+import { initTheme, getStoredTheme, setTheme, getResolvedTheme, type ThemeMode } from "./theme";
+import GlobalNav, { NiniLogo } from "./components/GlobalNav";
+import { ConnectionBadge } from "./components/ui";
 import {
-  BookOpen,
   Loader2,
-  Wifi,
-  WifiOff,
-  Settings,
   Menu,
-  Wrench,
   PanelRightOpen,
   PanelRightClose,
-  Sparkles,
-  User,
-  FileText,
-  Coins,
-  Library,
-  Sun,
-  Moon,
 } from "lucide-react";
 
 const ModelConfigPanel = lazy(() => import("./components/ModelConfigPanel"));
@@ -55,7 +43,6 @@ export default function App() {
   const bootstrapApp = useStore((s) => s.bootstrapApp);
   const submitApiKey = useStore((s) => s.submitApiKey);
   const clearAuthState = useStore((s) => s.clearAuthState);
-  const wsStatus = useStore((s) => s.wsStatus);
   const apiKeyRequired = useStore((s) => s.apiKeyRequired);
   const authReady = useStore((s) => s.authReady);
   const authError = useStore((s) => s.authError);
@@ -73,8 +60,33 @@ export default function App() {
     | "knowledge";
   const [activePanel, setActivePanel] = useState<PanelType | null>(null);
   const closePanel = useCallback(() => setActivePanel(null), []);
-  const toolbarHintsSeen = useOnboardStore((s) => s.seenIds.has("toolbar_hints"));
-  const markOnboardSeen = useOnboardStore((s) => s.markSeen);
+
+  // 全局导航活跃状态
+  const activeNav =
+    activePanel === "knowledge"
+      ? "knowledge"
+      : activePanel === "skills"
+        ? "skills"
+        : activePanel === "capabilities"
+          ? "capabilities"
+          : activePanel === "report"
+            ? "report"
+            : activePanel === "cost"
+              ? "cost"
+              : activePanel === "tools"
+                ? "tools"
+                : activePanel === "profile"
+                  ? "profile"
+                  : activePanel === "settings"
+                    ? "settings"
+                    : "chat";
+  const handleNavNavigate = useCallback((id: string) => {
+    if (id === "chat") {
+      setActivePanel(null);
+    } else {
+      setActivePanel(id as PanelType);
+    }
+  }, []);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workspacePanelWidth, setWorkspacePanelWidth] = useState(420);
   const [resizingWorkspace, setResizingWorkspace] = useState(false);
@@ -99,10 +111,8 @@ export default function App() {
   }, []);
 
   const handleToggleTheme = useCallback(() => {
-    const modes: ThemeMode[] = ['light', 'dark', 'system'];
-    const current = getStoredTheme();
-    const nextIndex = (modes.indexOf(current) + 1) % modes.length;
-    const next = modes[nextIndex];
+    const currentResolved = getResolvedTheme();
+    const next = currentResolved === 'dark' ? 'light' : 'dark';
     setTheme(next);
     setThemeMode(next);
   }, []);
@@ -152,8 +162,6 @@ export default function App() {
     document.title = pendingCount > 0 ? `(${pendingCount}) ${baseTitle}` : baseTitle;
   }, [pendingAskUserQuestionsBySession]);
 
-  const wsStatusMeta = getWsStatusMeta(wsStatus);
-
   const handleWorkspaceResizeStart = useCallback(() => {
     setResizingWorkspace(true);
   }, []);
@@ -190,7 +198,6 @@ export default function App() {
       };
 
       const prompt = `/article_draft
-
 请为我生成科研文章初稿。
 
 配置要求：
@@ -202,7 +209,9 @@ export default function App() {
 
 请根据会话中的数据分析结果，按照上述配置生成结构完整的科研论文初稿。`;
 
-      sendMessage(prompt);
+      startTransition(() => {
+        sendMessage(prompt);
+      });
     },
     [sendMessage],
   );
@@ -229,8 +238,8 @@ export default function App() {
   }, [resizingWorkspace]);
 
   const workspacePanelFallback = (
-    <div className="flex h-full items-center justify-center bg-white/80 dark:bg-slate-900/80">
-      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-500 dark:text-slate-400 shadow-sm">
+    <div className="flex h-full items-center justify-center bg-[var(--bg-base)]/80 backdrop-blur-[2px]">
+      <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-1.5 text-xs text-[var(--text-secondary)] shadow-sm">
         <Loader2 size={12} className="animate-spin" />
         正在打开工作区...
       </div>
@@ -238,8 +247,8 @@ export default function App() {
   );
 
   const dialogFallback = (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/10 backdrop-blur-[2px]">
-      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-500 dark:text-slate-400 shadow-lg">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[var(--bg-app)]/40 backdrop-blur-[2px]">
+      <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-1.5 text-xs text-[var(--text-secondary)] shadow-lg">
         <Loader2 size={12} className="animate-spin" />
         正在加载面板...
       </div>
@@ -248,12 +257,19 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="flex h-screen bg-white dark:bg-slate-900">
+      <div className="flex h-screen bg-[var(--bg-app)] p-2 gap-2">
         {apiKeyRequired && !authReady && !appBootstrapping && (
           <AuthGate error={authError} loading={appBootstrapping} onSubmit={submitApiKey} />
         )}
+        {/* 全局导航 */}
+        <GlobalNav
+          themeMode={themeMode}
+          onToggleTheme={handleToggleTheme}
+          onNavigate={handleNavNavigate}
+          activeNav={activeNav}
+        />
         {/* 桌面端侧边栏 */}
-        <nav aria-label="会话列表" className="w-64 border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex-shrink-0 hidden md:flex flex-col">
+        <nav aria-label="会话列表" className="w-64 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-base)] flex-shrink-0 hidden md:flex flex-col overflow-hidden">
           <SessionList />
         </nav>
 
@@ -264,177 +280,57 @@ export default function App() {
               className="fixed inset-0 z-40 bg-black/30 md:hidden"
               onClick={() => setSidebarOpen(false)}
             />
-            <div className="fixed inset-y-0 left-0 z-50 w-72 bg-slate-50 dark:bg-slate-800 shadow-xl md:hidden flex flex-col">
+            <div className="fixed inset-y-0 left-0 z-50 w-72 bg-[var(--bg-base)] shadow-xl md:hidden flex flex-col rounded-r-lg">
               <SessionList onClose={() => setSidebarOpen(false)} />
             </div>
           </>
         )}
 
         {/* 主面板 */}
-        <main className="flex-1 flex flex-col min-w-0">
-          {/* 顶栏 */}
-          <header className="h-12 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 bg-white dark:bg-slate-900 flex-shrink-0">
-            <div className="flex items-center gap-2">
+        <main className="flex-1 flex flex-col min-w-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-base)] overflow-hidden">
+          {/* Toolbar — 三栏布局：左侧移动菜单 + 中间 Logo/标题/连接状态 + 右侧工作区开关 */}
+          <header className="h-12 border-b border-[var(--border-subtle)] flex items-center px-4 bg-[var(--bg-base)] flex-shrink-0">
+            {/* 左侧：移动端菜单（桌面端空占位） */}
+            <div className="flex-1 flex items-center">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors md:hidden focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors md:hidden"
                 aria-label="打开会话列表"
               >
                 <Menu size={18} />
               </button>
-              <span className="text-sm font-medium text-slate-600 dark:text-slate-300">对话</span>
             </div>
-            <div className="flex items-center gap-3">
-              {/* 首次访问工具栏引导 */}
-              {!toolbarHintsSeen && (
-                <div className="absolute right-4 top-full mt-1.5 z-50 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-lg dark:border-slate-600 dark:bg-slate-800 animate-in fade-in duration-300">
-                  <div className="text-xs font-medium text-slate-900 dark:text-slate-100">
-                    发现顶栏功能
-                  </div>
-                  <div className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-slate-400">
-                    点击图标查看分析能力、生成报告、管理知识库等
-                  </div>
-                  <div className="mt-1.5 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => markOnboardSeen("toolbar_hints")}
-                      className="rounded-md px-2 py-0.5 text-[11px] font-medium text-blue-600 hover:bg-slate-100 dark:text-blue-400 dark:hover:bg-slate-700 transition-colors"
-                    >
-                      知道了
-                    </button>
-                  </div>
-                </div>
-              )}
-              <button
-                onClick={() => setActivePanel("capabilities")}
-                className="p-1.5 rounded-lg hover:bg-slate-100 text-purple-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
-                aria-label="分析能力"
-                title="分析能力"
-              >
-                <Sparkles size={16} />
-              </button>
-              <button
-                onClick={() => setActivePanel("report")}
-                className="p-1.5 rounded-lg hover:bg-slate-100 text-emerald-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
-                aria-label="生成文章初稿"
-                title="生成文章初稿"
-              >
-                <FileText size={16} />
-              </button>
-              <button
-                onClick={() => setActivePanel("cost")}
-                className="p-1.5 rounded-lg hover:bg-slate-100 text-amber-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
-                aria-label="成本统计"
-                title="成本统计"
-              >
-                <Coins size={16} />
-              </button>
-              <button
-                onClick={() => setActivePanel("profile")}
-                className="p-1.5 rounded-lg hover:bg-slate-100 text-sky-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
-                aria-label="研究画像"
-                title="研究画像"
-              >
-                <User size={16} />
-              </button>
-              <button
-                onClick={() => setActivePanel("tools")}
-                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
-                aria-label="工具清单"
-                title="工具清单"
-              >
-                <Wrench size={16} />
-              </button>
-              <button
-                onClick={() => setActivePanel("knowledge")}
-                className="p-1.5 rounded-lg hover:bg-slate-100 text-indigo-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
-                aria-label="知识库"
-                title="知识库"
-              >
-                <Library size={16} />
-              </button>
-              <button
-                onClick={() => setActivePanel("skills")}
-                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
-                aria-label="技能管理"
-                title="技能管理"
-              >
-                <BookOpen size={16} />
-              </button>
-              <button
-                onClick={() => setActivePanel("settings")}
-                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
-                aria-label="模型配置"
-                title="模型配置"
-              >
-                <Settings size={16} />
-              </button>
-              <button
-                onClick={handleToggleTheme}
-                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
-                aria-label={`切换主题（当前：${themeMode === 'system' ? '跟随系统' : themeMode === 'dark' ? '深色' : '浅色'}）`}
-                title={`主题：${themeMode === 'system' ? '跟随系统' : themeMode === 'dark' ? '深色' : '浅色'}`}
-              >
-                {themeMode === 'dark' ? <Moon size={16} /> : <Sun size={16} />}
-              </button>
+
+            {/* 中间：Logo + 标题 + 连接状态 */}
+            <div className="flex items-center gap-2 shrink-0 h-full py-2">
+              <NiniLogo size={20} />
+              <div className="flex items-center gap-2">
+                <h2 className="font-semibold text-[15px] text-[var(--text-primary)] whitespace-nowrap m-0 leading-none">
+                  Nini
+                </h2>
+                <ConnectionBadge className="mt-px" />
+              </div>
+            </div>
+
+            {/* 右侧：工作区开关 */}
+            <div className="flex-1 flex justify-end">
               <button
                 onClick={toggleWorkspacePanel}
-                className={`p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
+                className={`appearance-none flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-[background-color,color,border-color] border ${
                   workspacePanelOpen
-                    ? "text-blue-600 bg-blue-50 dark:bg-blue-900/30 dark:text-blue-400"
-                    : "text-slate-500 dark:text-slate-400"
+                    ? "border-[color-mix(in_srgb,var(--accent)_25%,transparent)] bg-[var(--accent-subtle)] text-[var(--accent)] dark:border-transparent"
+                    : "border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)] dark:border-transparent"
                 }`}
                 aria-label={workspacePanelOpen ? "关闭工作区" : "打开工作区"}
                 title={workspacePanelOpen ? "关闭工作区" : "打开工作区"}
               >
                 {workspacePanelOpen ? (
-                  <PanelRightClose size={16} />
+                  <PanelRightClose size={14} />
                 ) : (
-                  <PanelRightOpen size={16} />
+                  <PanelRightOpen size={14} />
                 )}
+                <span className="hidden sm:inline">工作区</span>
               </button>
-              <div className="flex items-center gap-1.5 text-xs" aria-live="polite">
-                {wsStatusMeta.tone === "success" && (
-                  <>
-                    <Wifi size={12} className="text-emerald-500" />
-                    <span className="text-emerald-600 hidden sm:inline">
-                      {wsStatusMeta.label}
-                    </span>
-                  </>
-                )}
-                {wsStatusMeta.tone === "progress" && (
-                  <>
-                    <Loader2 size={12} className="animate-spin text-sky-500" />
-                    <span className="text-sky-600 hidden sm:inline">
-                      {wsStatusMeta.label}
-                    </span>
-                  </>
-                )}
-                {wsStatusMeta.tone === "warning" && (
-                  <>
-                    <Loader2 size={12} className="animate-spin text-amber-500" />
-                    <span className="text-amber-600 hidden sm:inline">
-                      {wsStatusMeta.label}
-                    </span>
-                  </>
-                )}
-                {wsStatusMeta.tone === "danger" && (
-                  <>
-                    <WifiOff size={12} className="text-red-400" />
-                    <span className="text-red-500 hidden sm:inline">
-                      {wsStatusMeta.label}
-                    </span>
-                  </>
-                )}
-                {wsStatusMeta.tone === "muted" && (
-                  <>
-                    <WifiOff size={12} className="text-slate-400" />
-                    <span className="text-slate-500 hidden sm:inline">
-                      {wsStatusMeta.label}
-                    </span>
-                  </>
-                )}
-              </div>
             </div>
           </header>
 
@@ -467,12 +363,12 @@ export default function App() {
         {workspacePanelOpen && isDesktop && (
           <aside
             aria-label="工作区"
-            className="border-l border-slate-200 dark:border-slate-700 flex-shrink-0 flex flex-col relative bg-white dark:bg-slate-900"
+            className="rounded-lg border border-[var(--border-subtle)] flex-shrink-0 flex flex-col relative bg-[var(--bg-base)] overflow-hidden"
             style={{ width: `${workspacePanelWidth}px` }}
           >
             <div
               onMouseDown={handleWorkspaceResizeStart}
-              className="absolute left-0 top-0 h-full w-1.5 -translate-x-1/2 cursor-col-resize z-20 bg-transparent hover:bg-blue-200/40 active:bg-blue-300/60"
+              className="absolute left-0 top-0 h-full w-1.5 -translate-x-1/2 cursor-col-resize z-20 bg-transparent hover:bg-[var(--accent-subtle)] active:bg-[var(--accent)]"
               title="拖拽调整宽度"
             />
             <div className="flex-1 min-h-0">
@@ -493,7 +389,7 @@ export default function App() {
               className="fixed inset-0 z-40 bg-black/30"
               onClick={toggleWorkspacePanel}
             />
-            <div className="fixed inset-y-0 right-0 z-50 w-80 bg-white dark:bg-slate-900 shadow-xl flex flex-col">
+            <div className="fixed inset-y-0 right-0 z-50 w-80 bg-[var(--bg-base)] shadow-xl flex flex-col rounded-l-lg">
               <div className="flex-1 min-h-0">
                 <Suspense fallback={workspacePanelFallback}>
                   <WorkspaceSidebar />

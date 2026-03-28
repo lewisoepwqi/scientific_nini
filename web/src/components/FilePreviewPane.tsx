@@ -8,263 +8,266 @@ import { apiFetch } from '../store/auth'
 import LazyMarkdownContent from './LazyMarkdownContent'
 import PlotlyFromUrl from './PlotlyFromUrl'
 import { downloadFileFromUrl, resolveDownloadUrl } from './downloadUtils'
+import Button from './ui/Button'
 
 interface PreviewData {
-  id: string
-  kind: string
-  preview_type: string
-  name?: string
-  mime_type?: string
-  data?: string
-  content?: string
-  ext?: string
-  total_lines?: number
-  preview_lines?: number
-  size?: number
-  download_url?: string
-  message?: string
+ id: string
+ kind: string
+ preview_type: string
+ name?: string
+ mime_type?: string
+ data?: string
+ content?: string
+ ext?: string
+ total_lines?: number
+ preview_lines?: number
+ size?: number
+ download_url?: string
+ message?: string
 }
 
 function toInlinePreviewUrl(url: string): string {
-  const hashIndex = url.indexOf('#')
-  const hash = hashIndex >= 0 ? url.slice(hashIndex) : ''
-  const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url
-  if (/(?:\?|&)inline=/.test(base)) {
-    return url
-  }
-  const sep = base.includes('?') ? '&' : '?'
-  return `${base}${sep}inline=1${hash}`
+ const hashIndex = url.indexOf('#')
+ const hash = hashIndex >= 0 ? url.slice(hashIndex) : ''
+ const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url
+ if (/(?:\?|&)inline=/.test(base)) {
+ return url
+ }
+ const sep = base.includes('?') ? '&' : '?'
+ return `${base}${sep}inline=1${hash}`
 }
 
 export default function FilePreviewPane() {
-  const sessionId = useStore((s) => s.sessionId)
-  const previewFileId = useStore((s) => s.previewFileId)
-  const previewTabs = useStore((s) => s.previewTabs)
-  const closePreview = useStore((s) => s.closePreview)
-  const workspaceFiles = useStore((s) => s.workspaceFiles)
-  const [cache, setCache] = useState<Record<string, PreviewData>>({})
-  const [loadingId, setLoadingId] = useState<string | null>(null)
-  const [errors, setErrors] = useState<Record<string, string>>({})
+ const sessionId = useStore((s) => s.sessionId)
+ const previewFileId = useStore((s) => s.previewFileId)
+ const previewTabs = useStore((s) => s.previewTabs)
+ const closePreview = useStore((s) => s.closePreview)
+ const workspaceFiles = useStore((s) => s.workspaceFiles)
+ const [cache, setCache] = useState<Record<string, PreviewData>>({})
+ const [loadingId, setLoadingId] = useState<string | null>(null)
+ const [errors, setErrors] = useState<Record<string, string>>({})
 
-  const fileInfo = useMemo(
-    () => workspaceFiles.find((f) => f.id === previewFileId),
-    [workspaceFiles, previewFileId],
-  )
+ const fileInfo = useMemo(
+ () => workspaceFiles.find((f) => f.id === previewFileId),
+ [workspaceFiles, previewFileId],
+ )
 
-  useEffect(() => {
-    setCache((prev) => {
-      const next: Record<string, PreviewData> = {}
-      for (const id of previewTabs) {
-        if (prev[id]) next[id] = prev[id]
-      }
-      return next
-    })
-    setErrors((prev) => {
-      const next: Record<string, string> = {}
-      for (const id of previewTabs) {
-        if (prev[id]) next[id] = prev[id]
-      }
-      return next
-    })
-  }, [previewTabs])
+ useEffect(() => {
+ setCache((prev) => {
+ const next: Record<string, PreviewData> = {}
+ for (const id of previewTabs) {
+ if (prev[id]) next[id] = prev[id]
+ }
+ return next
+ })
+ setErrors((prev) => {
+ const next: Record<string, string> = {}
+ for (const id of previewTabs) {
+ if (prev[id]) next[id] = prev[id]
+ }
+ return next
+ })
+ }, [previewTabs])
 
-  useEffect(() => {
-    if (!sessionId || !previewFileId) return
-    if (!fileInfo?.path) return
-    if (cache[previewFileId] || errors[previewFileId]) return
+ useEffect(() => {
+ if (!sessionId || !previewFileId) return
+ if (!fileInfo?.path) return
+ if (cache[previewFileId] || errors[previewFileId]) return
 
-    let cancelled = false
-    setLoadingId(previewFileId)
-    apiFetch(`/api/workspace/${sessionId}/files/${fileInfo.path}/preview`)
-      .then((resp) => resp.json())
-      .then((payload) => {
-        if (cancelled) return
-        if (payload.success && payload.data) {
-          setCache((prev) => ({ ...prev, [previewFileId]: payload.data as PreviewData }))
-          return
-        }
-        const err = typeof payload.error === 'string' ? payload.error : '无法加载预览'
-        setErrors((prev) => ({ ...prev, [previewFileId]: err }))
-      })
-      .catch(() => {
-        if (cancelled) return
-        setErrors((prev) => ({ ...prev, [previewFileId]: '网络错误' }))
-      })
-      .finally(() => {
-        if (cancelled) return
-        setLoadingId((curr) => (curr === previewFileId ? null : curr))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [sessionId, previewFileId, fileInfo?.path, cache, errors])
+ let cancelled = false
+ setLoadingId(previewFileId)
+ apiFetch(`/api/workspace/${sessionId}/files/${fileInfo.path}/preview`)
+ .then((resp) => resp.json())
+ .then((payload) => {
+ if (cancelled) return
+ if (payload.success && payload.data) {
+ setCache((prev) => ({ ...prev, [previewFileId]: payload.data as PreviewData }))
+ return
+ }
+ const err = typeof payload.error === 'string' ? payload.error : '无法加载预览'
+ setErrors((prev) => ({ ...prev, [previewFileId]: err }))
+ })
+ .catch(() => {
+ if (cancelled) return
+ setErrors((prev) => ({ ...prev, [previewFileId]: '网络错误' }))
+ })
+ .finally(() => {
+ if (cancelled) return
+ setLoadingId((curr) => (curr === previewFileId ? null : curr))
+ })
+ return () => {
+ cancelled = true
+ }
+ }, [sessionId, previewFileId, fileInfo?.path, cache, errors])
 
-  const handleClose = useCallback(() => {
-    if (!previewFileId) return
-    closePreview(previewFileId)
-  }, [closePreview, previewFileId])
+ const handleClose = useCallback(() => {
+ if (!previewFileId) return
+ closePreview(previewFileId)
+ }, [closePreview, previewFileId])
 
-  if (!previewFileId) return null
+ if (!previewFileId) return null
 
-  const preview = cache[previewFileId]
-  const error = errors[previewFileId]
-  const isLoading = loadingId === previewFileId && !preview && !error
-  const resolvedDownloadUrl = resolveDownloadUrl(
-    fileInfo?.download_url,
-    preview?.name || fileInfo?.name,
-  )
-  const handleDownload = useCallback(async () => {
-    try {
-      await downloadFileFromUrl(resolvedDownloadUrl, preview?.name || fileInfo?.name)
-    } catch (error) {
-      console.error('预览文件下载失败:', error)
-    }
-  }, [fileInfo?.name, preview?.name, resolvedDownloadUrl])
+ const preview = cache[previewFileId]
+ const error = errors[previewFileId]
+ const isLoading = loadingId === previewFileId && !preview && !error
+ const resolvedDownloadUrl = resolveDownloadUrl(
+ fileInfo?.download_url,
+ preview?.name || fileInfo?.name,
+ )
+ const handleDownload = useCallback(async () => {
+ try {
+ await downloadFileFromUrl(resolvedDownloadUrl, preview?.name || fileInfo?.name)
+ } catch (error) {
+ console.error('预览文件下载失败:', error)
+ }
+ }, [fileInfo?.name, preview?.name, resolvedDownloadUrl])
 
-  return (
-    <div className="flex flex-col h-full min-h-0">
-      <div className="flex items-center justify-between px-3 py-2 border-b dark:border-slate-700 flex-shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <h3 className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">
-            {preview?.name || fileInfo?.name || '文件预览'}
-          </h3>
-          {preview?.ext && (
-            <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
-              .{preview.ext}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {resolvedDownloadUrl && (
-            <button
-              onClick={handleDownload}
-              className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
-              title="下载"
-              aria-label="下载文件"
-            >
-              <Download size={13} />
-            </button>
-          )}
-          <button
-            onClick={handleClose}
-            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
-            title="关闭预览"
-            aria-label="关闭预览"
-          >
-            <X size={13} />
-          </button>
-        </div>
-      </div>
+ return (
+ <div className="flex flex-col h-full min-h-0">
+ <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-default)] flex-shrink-0">
+ <div className="flex items-center gap-2 min-w-0">
+ <h3 className="text-xs font-medium text-[var(--text-secondary)] truncate">
+ {preview?.name || fileInfo?.name || '文件预览'}
+ </h3>
+ {preview?.ext && (
+ <span className="text-[10px] bg-[var(--bg-elevated)] dark:bg-[var(--bg-overlay)] text-[var(--text-secondary)] px-1.5 py-0.5 rounded">
+ .{preview.ext}
+ </span>
+ )}
+ </div>
+ <div className="flex items-center gap-1.5 flex-shrink-0">
+ {resolvedDownloadUrl && (
+ <Button
+ variant="ghost"
+ onClick={handleDownload}
+ className="p-1 rounded"
+ title="下载"
+ aria-label="下载文件"
+ >
+ <Download size={13} />
+ </Button>
+ )}
+ <Button
+ variant="ghost"
+ onClick={handleClose}
+ className="p-1 rounded"
+ title="关闭预览"
+ aria-label="关闭预览"
+ >
+ <X size={13} />
+ </Button>
+ </div>
+ </div>
 
-      <div className="flex-1 min-h-0 overflow-auto p-3">
-        {isLoading && (
-          <div className="flex items-center justify-center h-full">
-            <Loader2 size={20} className="animate-spin text-blue-500" />
-          </div>
-        )}
-        {!isLoading && error && (
-          <div className="flex items-center justify-center h-full text-red-500 text-sm">
-            {error}
-          </div>
-        )}
-        {!isLoading && !error && preview && (
-          <PreviewContent preview={preview} />
-        )}
-      </div>
-    </div>
-  )
+ <div className="flex-1 min-h-0 overflow-auto p-3">
+ {isLoading && (
+ <div className="flex items-center justify-center h-full">
+ <Loader2 size={20} className="animate-spin text-[var(--accent)]" />
+ </div>
+ )}
+ {!isLoading && error && (
+ <div className="flex items-center justify-center h-full text-[var(--error)] text-sm">
+ {error}
+ </div>
+ )}
+ {!isLoading && !error && preview && (
+ <PreviewContent preview={preview} />
+ )}
+ </div>
+ </div>
+ )
 }
 
 function PreviewContent({ preview }: { preview: PreviewData }) {
-  switch (preview.preview_type) {
-    case 'image':
-      return (
-        <div className="flex items-center justify-center">
-          <img
-            src={preview.data}
-            alt={preview.name}
-            className="max-w-full max-h-[72vh] object-contain rounded"
-          />
-        </div>
-      )
-    case 'image_too_large':
-      return (
-        <div className="text-center text-slate-500 dark:text-slate-400 py-12">
-          <p className="text-sm">图片过大，无法预览</p>
-          <p className="text-xs mt-1 text-slate-400 dark:text-slate-500">
-            文件大小: {preview.size ? `${(preview.size / 1024 / 1024).toFixed(1)} MB` : '未知'}
-          </p>
-        </div>
-      )
-    case 'plotly_chart':
-      if (preview.download_url) {
-        return <PlotlyFromUrl url={preview.download_url} alt={preview.name} />
-      }
-      return <div className="text-center text-slate-500 dark:text-slate-400 py-12 text-sm">图表地址不可用</div>
-    case 'text': {
-      const isMarkdown = preview.ext === 'md' || preview.ext === 'markdown'
-      return (
-        <div>
-          {isMarkdown ? (
-            <div className="markdown-body prose prose-sm max-w-none">
-              <LazyMarkdownContent content={preview.content || ''} />
-            </div>
-          ) : (
-            <pre className="text-xs font-mono bg-slate-50 dark:bg-slate-800 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words">
-              {preview.content}
-            </pre>
-          )}
-          {preview.total_lines && preview.preview_lines && preview.total_lines > preview.preview_lines && (
-            <div className="mt-2 text-[10px] text-slate-400 dark:text-slate-500 text-center">
-              显示前 {preview.preview_lines} 行 / 共 {preview.total_lines} 行
-            </div>
-          )}
-        </div>
-      )
-    }
-    case 'html':
-      return (
-        <iframe
-          srcDoc={preview.content}
-          className="w-full h-[72vh] border rounded-lg"
-          sandbox="allow-scripts"
-          title={preview.name}
-        />
-      )
-    case 'pdf':
-      if (preview.download_url) {
-        return (
-          <iframe
-            src={toInlinePreviewUrl(preview.download_url)}
-            className="w-full h-[72vh] border rounded-lg"
-            title={preview.name}
-          />
-        )
-      }
-      return (
-        <div className="text-center text-slate-500 dark:text-slate-400 py-12 text-sm">PDF 预览地址不可用</div>
-      )
-    case 'unsupported':
-      return (
-        <div className="text-center text-slate-500 dark:text-slate-400 py-12">
-          <p className="text-sm">不支持预览此类型文件</p>
-          <p className="text-xs mt-1 text-slate-400 dark:text-slate-500">
-            类型: {preview.ext || '未知'} · 大小: {preview.size ? `${(preview.size / 1024).toFixed(1)} KB` : '未知'}
-          </p>
-        </div>
-      )
-    case 'unavailable':
-    case 'error':
-      return (
-        <div className="text-center text-slate-500 dark:text-slate-400 py-12 text-sm">
-          {preview.message || '无法预览'}
-        </div>
-      )
-    default:
-      return (
-        <div className="text-center text-slate-400 dark:text-slate-500 py-12 text-sm">
-          未知预览类型
-        </div>
-      )
-  }
+ switch (preview.preview_type) {
+ case 'image':
+ return (
+ <div className="flex items-center justify-center">
+ <img
+ src={preview.data}
+ alt={preview.name}
+ className="max-w-full max-h-[72vh] object-contain rounded"
+ />
+ </div>
+ )
+ case 'image_too_large':
+ return (
+ <div className="text-center text-[var(--text-secondary)] py-12">
+ <p className="text-sm">图片过大，无法预览</p>
+ <p className="text-xs mt-1 text-[var(--text-muted)]">
+ 文件大小: {preview.size ? `${(preview.size / 1024 / 1024).toFixed(1)} MB` : '未知'}
+ </p>
+ </div>
+ )
+ case 'plotly_chart':
+ if (preview.download_url) {
+ return <PlotlyFromUrl url={preview.download_url} alt={preview.name} />
+ }
+ return <div className="text-center text-[var(--text-secondary)] py-12 text-sm">图表地址不可用</div>
+ case 'text': {
+ const isMarkdown = preview.ext === 'md' || preview.ext === 'markdown'
+ return (
+ <div>
+ {isMarkdown ? (
+ <div className="markdown-body prose prose-sm max-w-none">
+ <LazyMarkdownContent content={preview.content || ''} />
+ </div>
+ ) : (
+ <pre className="text-xs font-mono bg-[var(--bg-elevated)] rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words">
+ {preview.content}
+ </pre>
+ )}
+ {preview.total_lines && preview.preview_lines && preview.total_lines > preview.preview_lines && (
+ <div className="mt-2 text-[10px] text-[var(--text-muted)] text-center">
+ 显示前 {preview.preview_lines} 行 / 共 {preview.total_lines} 行
+ </div>
+ )}
+ </div>
+ )
+ }
+ case 'html':
+ return (
+ <iframe
+ srcDoc={preview.content}
+ className="w-full h-[72vh] border rounded-lg"
+ sandbox="allow-scripts"
+ title={preview.name}
+ />
+ )
+ case 'pdf':
+ if (preview.download_url) {
+ return (
+ <iframe
+ src={toInlinePreviewUrl(preview.download_url)}
+ className="w-full h-[72vh] border rounded-lg"
+ title={preview.name}
+ />
+ )
+ }
+ return (
+ <div className="text-center text-[var(--text-secondary)] py-12 text-sm">PDF 预览地址不可用</div>
+ )
+ case 'unsupported':
+ return (
+ <div className="text-center text-[var(--text-secondary)] py-12">
+ <p className="text-sm">不支持预览此类型文件</p>
+ <p className="text-xs mt-1 text-[var(--text-muted)]">
+ 类型: {preview.ext || '未知'} · 大小: {preview.size ? `${(preview.size / 1024).toFixed(1)} KB` : '未知'}
+ </p>
+ </div>
+ )
+ case 'unavailable':
+ case 'error':
+ return (
+ <div className="text-center text-[var(--text-secondary)] py-12 text-sm">
+ {preview.message || '无法预览'}
+ </div>
+ )
+ default:
+ return (
+ <div className="text-center text-[var(--text-muted)] py-12 text-sm">
+ 未知预览类型
+ </div>
+ )
+ }
 }

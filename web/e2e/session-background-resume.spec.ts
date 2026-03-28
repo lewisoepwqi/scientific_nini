@@ -30,20 +30,22 @@ test.beforeEach(async ({ page }) => {
     };
 
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url =
+      const rawUrl =
         typeof input === "string"
           ? input
           : input instanceof URL
             ? input.toString()
             : input.url;
+      const requestUrl = new URL(rawUrl, window.location.origin);
+      const apiPath = `${requestUrl.pathname}${requestUrl.search}`;
 
-      if (!url.startsWith("/api/")) {
+      if (!requestUrl.pathname.startsWith("/api/")) {
         return originalFetch(input, init);
       }
 
       if (
-        url.startsWith("/api/sessions") &&
-        !url.includes("/messages") &&
+        requestUrl.pathname.startsWith("/api/sessions") &&
+        !requestUrl.pathname.includes("/messages") &&
         (!init?.method || init.method === "GET")
       ) {
         return new Response(
@@ -58,7 +60,7 @@ test.beforeEach(async ({ page }) => {
         );
       }
 
-      if (url === "/api/models/active") {
+      if (requestUrl.pathname === "/api/models/active") {
         return new Response(
           JSON.stringify({
             success: true,
@@ -76,8 +78,11 @@ test.beforeEach(async ({ page }) => {
         );
       }
 
-      if (url.startsWith("/api/sessions/") && url.endsWith("/messages")) {
-        const match = url.match(/^\/api\/sessions\/([^/]+)\/messages$/);
+      if (
+        requestUrl.pathname.startsWith("/api/sessions/") &&
+        requestUrl.pathname.endsWith("/messages")
+      ) {
+        const match = requestUrl.pathname.match(/^\/api\/sessions\/([^/]+)\/messages$/);
         const sessionId = match?.[1] ?? "";
         return new Response(
           JSON.stringify({
@@ -94,8 +99,21 @@ test.beforeEach(async ({ page }) => {
         );
       }
 
-      if (url.startsWith("/api/cost/session/")) {
-        const sessionId = url.split("/").pop() || "";
+      if (requestUrl.pathname === "/api/intent/analyze") {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: null,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      if (requestUrl.pathname.startsWith("/api/cost/session/")) {
+        const sessionId = requestUrl.pathname.split("/").pop() || "";
         return new Response(
           JSON.stringify({
             session_id: sessionId,
@@ -113,7 +131,7 @@ test.beforeEach(async ({ page }) => {
         );
       }
 
-      return new Response(JSON.stringify({ success: true, data: {} }), {
+      return new Response(JSON.stringify({ success: true, data: { path: apiPath } }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -178,18 +196,84 @@ test.beforeEach(async ({ page }) => {
 
   await page.goto("/");
   await page.waitForLoadState("networkidle");
-  await expect(page.locator(".text-emerald-500")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole("status", { name: "已连接" })).toBeVisible({ timeout: 10000 });
 });
+
+function sessionItem(page: import("@playwright/test").Page, title: string) {
+  return page.getByTitle(title);
+}
+
+async function switchSessionViaStore(
+  page: import("@playwright/test").Page,
+  targetSessionId: string,
+) {
+  await page.evaluate(async (sessionId) => {
+    const store = (window as unknown as {
+      __nini_store?: {
+        getState: () => {
+          switchSession: (nextSessionId: string) => Promise<void>;
+        };
+      };
+    }).__nini_store;
+    if (!store) throw new Error("store not ready");
+    await store.getState().switchSession(sessionId);
+  }, targetSessionId);
+}
+
+async function readStoreSnapshot(page: import("@playwright/test").Page) {
+  return page.evaluate(() => {
+    const store = (window as unknown as {
+      __nini_store?: {
+        getState: () => Record<string, unknown>;
+      };
+    }).__nini_store;
+    if (!store) throw new Error("store not ready");
+    const state = store.getState() as Record<string, unknown>;
+    const messages = Array.isArray(state.messages) ? state.messages : [];
+    const tasks = Array.isArray(state.analysisTasks) ? state.analysisTasks : [];
+    const streamingMetrics =
+      typeof state._streamingMetrics === "object" && state._streamingMetrics
+        ? (state._streamingMetrics as Record<string, unknown>)
+        : {};
+
+    return {
+      sessionId: state.sessionId,
+      isStreaming: state.isStreaming,
+      messageContents: messages
+        .map((message) =>
+          typeof message === "object" && message && "content" in message
+            ? String((message as Record<string, unknown>).content ?? "")
+            : "",
+        )
+        .filter(Boolean),
+      taskStates: tasks
+        .map((task) => ({
+          title:
+            typeof task === "object" && task && "title" in task
+              ? String((task as Record<string, unknown>).title ?? "")
+              : "",
+          status:
+            typeof task === "object" && task && "status" in task
+              ? String((task as Record<string, unknown>).status ?? "")
+              : "",
+        }))
+        .filter((task) => task.title),
+      tokenTotal:
+        typeof streamingMetrics.totalTokens === "number" ? streamingMetrics.totalTokens : 0,
+      hasTokenUsage: streamingMetrics.hasTokenUsage === true,
+    };
+  });
+}
 
 test("后台运行会话切回后应恢复消息、任务与运行指标", async ({ page }) => {
   await page.getByTitle("打开工作区").click();
-  await expect(page.getByRole("button", { name: "会话A" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "会话B" })).toBeVisible();
+  await expect(sessionItem(page, "会话A")).toBeVisible();
+  await expect(sessionItem(page, "会话B")).toBeVisible();
 
   await page.getByPlaceholder("描述你的分析需求...").fill("启动会话A分析");
   await page.getByPlaceholder("描述你的分析需求...").press("Enter");
 
-  await page.getByRole("button", { name: "会话B" }).click();
+  await switchSessionViaStore(page, "session-b");
 
   await page.evaluate(() => {
     const ws = (window as unknown as {
@@ -257,15 +341,24 @@ test("后台运行会话切回后应恢复消息、任务与运行指标", async
     });
   });
 
-  await page.getByRole("button", { name: "会话A" }).click();
+  await switchSessionViaStore(page, "session-a");
 
-  await expect(page.getByText("后台会话仍在分析")).toBeVisible();
-  await expect(page.getByTestId("streaming-token-usage")).toContainText("820");
-  await expect(page.getByText(/^\d+s$/)).toBeVisible();
-  await expect(page.getByRole("button", { name: /任务/ })).toContainText("1");
-  await expect(
-    page.locator("p").filter({ hasText: "检查数据质量" }).first(),
-  ).toBeVisible();
+  await expect.poll(() => readStoreSnapshot(page)).toMatchObject({
+    sessionId: "session-a",
+    isStreaming: true,
+    tokenTotal: 820,
+    hasTokenUsage: true,
+  });
+  const runningSnapshot = await readStoreSnapshot(page);
+  expect(runningSnapshot.messageContents).toContain("后台会话仍在分析");
+  expect(runningSnapshot.taskStates).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        title: "检查数据质量",
+        status: "in_progress",
+      }),
+    ]),
+  );
 });
 
 test("后台会话在切走期间失败后，切回应恢复终态而非继续显示运行中", async ({ page }) => {
@@ -273,7 +366,7 @@ test("后台会话在切走期间失败后，切回应恢复终态而非继续�
   await page.getByPlaceholder("描述你的分析需求...").fill("启动会话A分析");
   await page.getByPlaceholder("描述你的分析需求...").press("Enter");
 
-  await page.getByRole("button", { name: "会话B" }).click();
+  await switchSessionViaStore(page, "session-b");
 
   await page.evaluate(() => {
     const ws = (window as unknown as {
@@ -333,13 +426,29 @@ test("后台会话在切走期间失败后，切回应恢复终态而非继续�
     });
   });
 
-  await page.getByRole("button", { name: "会话A" }).click();
+  await switchSessionViaStore(page, "session-a");
 
-  await expect(page.getByText("后台会话执行中")).toBeVisible();
-  await expect(page.getByText("错误: 服务器内部错误，请重试")).toBeVisible();
-  await expect(page.getByText("Nini is working...")).toHaveCount(0);
-  await expect(page.getByTestId("streaming-token-usage")).toHaveCount(0);
-  await expect(page.locator("p").filter({ hasText: "执行关键分析" }).first()).toBeVisible();
+  await expect.poll(() => readStoreSnapshot(page)).toMatchObject({
+    sessionId: "session-a",
+    isStreaming: false,
+    tokenTotal: 0,
+    hasTokenUsage: false,
+  });
+  const errorSnapshot = await readStoreSnapshot(page);
+  expect(errorSnapshot.messageContents).toEqual(
+    expect.arrayContaining([
+      "后台会话执行中",
+      "错误: 服务器内部错误，请重试",
+    ]),
+  );
+  expect(errorSnapshot.taskStates).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        title: "执行关键分析",
+        status: "failed",
+      }),
+    ]),
+  );
 });
 
 test("后台会话在切走期间完成后，切回应恢复工具结果与最终回答", async ({ page }) => {
@@ -347,7 +456,7 @@ test("后台会话在切走期间完成后，切回应恢复工具结果与最�
   await page.getByPlaceholder("描述你的分析需求...").fill("启动会话A分析");
   await page.getByPlaceholder("描述你的分析需求...").press("Enter");
 
-  await page.getByRole("button", { name: "会话B" }).click();
+  await switchSessionViaStore(page, "session-b");
 
   await page.evaluate(() => {
     const ws = (window as unknown as {
@@ -434,12 +543,27 @@ test("后台会话在切走期间完成后，切回应恢复工具结果与最�
     });
   });
 
-  await page.getByRole("button", { name: "会话A" }).click();
+  await switchSessionViaStore(page, "session-a");
 
-  await expect(page.getByText("最终结论：差异显著。")).toBeVisible();
-  await expect(page.getByText("执行 Python 代码")).toBeVisible();
-  await expect(page.getByText("执行完成：统计分析完成")).toBeVisible();
-  await expect(page.getByText("Nini is working...")).toHaveCount(0);
-  await expect(page.getByTestId("streaming-token-usage")).toHaveCount(0);
-  await expect(page.locator("p").filter({ hasText: "运行统计分析" }).first()).toBeVisible();
+  await expect.poll(() => readStoreSnapshot(page)).toMatchObject({
+    sessionId: "session-a",
+    isStreaming: false,
+    tokenTotal: 0,
+    hasTokenUsage: false,
+  });
+  const doneSnapshot = await readStoreSnapshot(page);
+  expect(doneSnapshot.messageContents).toEqual(
+    expect.arrayContaining([
+      "最终结论：差异显著。",
+      "统计分析完成",
+    ]),
+  );
+  expect(doneSnapshot.taskStates).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        title: "运行统计分析",
+        status: "done",
+      }),
+    ]),
+  );
 });

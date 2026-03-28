@@ -9,65 +9,65 @@ import { useStore } from "../store";
 import type { AgentInfo } from "../store/types";
 
 const STATUS_STYLES: Record<AgentInfo["status"], string> = {
-  running: "bg-blue-50 border-blue-400 text-blue-800",
-  completed: "bg-green-50 border-green-400 text-green-800",
-  error: "bg-red-50 border-red-400 text-red-800",
+ running: "bg-[var(--accent-subtle)] border-[var(--accent)] text-[var(--accent)]",
+ completed: "bg-[var(--accent-subtle)] border-[var(--success)] text-[var(--success)]",
+ error: "bg-[var(--accent-subtle)] border-[var(--error)] text-[var(--error)]",
 };
 
 const STATUS_LABEL: Record<AgentInfo["status"], string> = {
-  running: "运行中",
-  completed: "完成",
-  error: "失败",
+ running: "运行中",
+ completed: "完成",
+ error: "失败",
 };
 
 const STATUS_DOT: Record<AgentInfo["status"], string> = {
-  running: "bg-blue-400 animate-pulse",
-  completed: "bg-green-500",
-  error: "bg-red-500",
+ running: "bg-[var(--accent)] animate-pulse",
+ completed: "bg-[var(--success)]",
+ error: "bg-[var(--error)]",
 };
 
 interface AgentNodeProps {
-  agent: AgentInfo;
+ agent: AgentInfo;
 }
 
 function AgentNode({ agent }: AgentNodeProps) {
-  return (
-    <div
-      className={`flex items-start gap-2 rounded-lg border px-3 py-2 min-w-[140px] max-w-[200px] ${STATUS_STYLES[agent.status]}`}
-      title={agent.task}
-    >
-      <span
-        className={`mt-1 flex-shrink-0 h-2 w-2 rounded-full ${STATUS_DOT[agent.status]}`}
-        aria-hidden="true"
-      />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium leading-tight">{agent.agentName}</p>
-        <p className="text-[11px] opacity-70">{STATUS_LABEL[agent.status]}</p>
-      </div>
-    </div>
-  );
+ return (
+ <div
+ className={`flex items-start gap-2 rounded-lg border px-3 py-2 min-w-[140px] max-w-[200px] ${STATUS_STYLES[agent.status]}`}
+ title={agent.task}
+ >
+ <span
+ className={`mt-1 flex-shrink-0 h-2 w-2 rounded-full ${STATUS_DOT[agent.status]}`}
+ aria-hidden="true"
+ />
+ <div className="min-w-0 flex-1">
+ <p className="truncate text-xs font-medium leading-tight">{agent.agentName}</p>
+ <p className="text-[11px] opacity-70">{STATUS_LABEL[agent.status]}</p>
+ </div>
+ </div>
+ );
 }
 
 export default function WorkflowTopology() {
-  const activeAgents = useStore((s) => s.activeAgents);
-  const completedAgents = useStore((s) => s.completedAgents);
+ const activeAgents = useStore((s) => s.activeAgents);
+ const completedAgents = useStore((s) => s.completedAgents);
 
-  const activeList = Object.values(activeAgents);
-  const allAgents = [...activeList, ...completedAgents];
+ const activeList = Object.values(activeAgents);
+ const allAgents = [...activeList, ...completedAgents];
 
-  // 少于 2 个 Agent 时不渲染
-  if (allAgents.length < 2) {
-    return null;
-  }
+ // 少于 2 个 Agent 时不渲染
+ if (allAgents.length < 2) {
+ return null;
+ }
 
-  return (
-    <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-4 py-3">
-      <p className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">并行执行中</p>
-      <div className="flex flex-wrap gap-2">
-        {allAgents.map((agent) => (
-          <AgentNode key={agent.agentId} agent={agent} />
-        ))}
-      </div>
-    </div>
-  );
+ return (
+ <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-4 py-3">
+ <p className="mb-2 text-xs font-medium text-[var(--text-secondary)]">并行执行中</p>
+ <div className="flex flex-wrap gap-2">
+ {allAgents.map((agent) => (
+ <AgentNode key={agent.agentId} agent={agent} />
+ ))}
+ </div>
+ </div>
+ );
 }

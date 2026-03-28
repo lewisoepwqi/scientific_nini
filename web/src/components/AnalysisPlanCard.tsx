@@ -3,114 +3,115 @@
  */
 import { useState } from "react";
 import {
-  Lightbulb,
-  ChevronDown,
-  ChevronRight,
-  Circle,
-  Loader2,
-  CheckCircle2,
-  SkipForward,
-  XCircle,
+ Lightbulb,
+ ChevronDown,
+ ChevronRight,
+ Circle,
+ Loader2,
+ CheckCircle2,
+ SkipForward,
+ XCircle,
 } from "lucide-react";
 import type { AnalysisPlanData } from "../store";
 import LazyMarkdownContent from "./LazyMarkdownContent";
 
 interface Props {
-  content: string;
-  analysisPlan?: AnalysisPlanData;
+ content: string;
+ analysisPlan?: AnalysisPlanData;
 }
 
 function StepIcon({ status }: { status: string }) {
-  switch (status) {
-    case "in_progress":
-      return <Loader2 size={16} className="text-blue-500 animate-spin" />;
-    case "done":
-      return <CheckCircle2 size={16} className="text-green-500" />;
-    case "failed":
-    case "blocked":
-      return <XCircle size={16} className="text-red-500" />;
-    case "skipped":
-      return <SkipForward size={16} className="text-slate-400" />;
-    default:
-      return <Circle size={16} className="text-slate-400 dark:text-slate-500" />;
-  }
+ switch (status) {
+ case "in_progress":
+ return <Loader2 size={16} className="text-[var(--accent)] animate-spin" />;
+ case "done":
+ return <CheckCircle2 size={16} className="text-[var(--success)]" />;
+ case "failed":
+ case "blocked":
+ return <XCircle size={16} className="text-[var(--error)]" />;
+ case "skipped":
+ return <SkipForward size={16} className="text-[var(--text-muted)]" />;
+ default:
+ return <Circle size={16} className="text-[var(--text-muted)]" />;
+ }
 }
 
 export default function AnalysisPlanCard({ content, analysisPlan }: Props) {
-  const [expanded, setExpanded] = useState(true);
+ const [expanded, setExpanded] = useState(true);
 
-  const steps = analysisPlan?.steps;
-  const completedCount = steps?.filter((s) => s.status === "done").length ?? 0;
-  const totalCount = steps?.length ?? 0;
+ const steps = analysisPlan?.steps;
+ const completedCount = steps?.filter((s) => s.status === "done").length ?? 0;
+ const totalCount = steps?.length ?? 0;
 
-  return (
-    <div className="flex gap-3 mb-4">
-      <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
-        <Lightbulb size={16} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-900/20 overflow-hidden">
-          {/* 标题栏 */}
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-indigo-100/50 dark:hover:bg-indigo-900/30 transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              <Lightbulb size={14} className="text-indigo-600 dark:text-indigo-400" />
-              <span className="font-medium text-indigo-900 dark:text-indigo-200">
-                {steps
-                  ? `分析计划 (${completedCount}/${totalCount})`
-                  : "分析思路"}
-              </span>
-            </div>
-            {expanded ? (
-              <ChevronDown size={14} className="text-indigo-600 dark:text-indigo-400" />
-            ) : (
-              <ChevronRight size={14} className="text-indigo-600 dark:text-indigo-400" />
-            )}
-          </button>
+ return (
+ <div className="flex gap-3 mb-4">
+ <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-[var(--accent-subtle)] text-[var(--domain-knowledge)]">
+ <Lightbulb size={16} />
+ </div>
+ <div className="flex-1 min-w-0">
+ <div className="rounded-lg border border-[var(--domain-knowledge)] bg-[var(--accent-subtle)]/50 overflow-hidden">
+ {/* 标题栏 */}
+ <button
+ type="button"
+ onClick={() => setExpanded(!expanded)}
+ className="w-full flex items-center justify-between px-3 py-2 text-sm bg-transparent border-none cursor-pointer focus:outline-none"
+ >
+ <div className="flex items-center gap-2">
+ <Lightbulb size={14} className="text-[var(--domain-knowledge)]" />
+ <span className="font-medium text-[var(--domain-knowledge)]">
+ {steps
+ ? `分析计划 (${completedCount}/${totalCount})`
+ : "分析思路"}
+ </span>
+ </div>
+ {expanded ? (
+ <ChevronDown size={14} className="text-[var(--domain-knowledge)]" />
+ ) : (
+ <ChevronRight size={14} className="text-[var(--domain-knowledge)]" />
+ )}
+ </button>
 
-          {/* 内容区 */}
-          {expanded && (
-            <div className="px-4 pb-3 border-t border-indigo-200/50 dark:border-indigo-800/50">
-              {steps ? (
-                <ul className="mt-2 space-y-1.5">
-                  {steps.map((step) => (
-                    <li
-                      key={step.id}
-                      className="flex items-start gap-2 text-sm"
-                    >
-                      <span className="flex-shrink-0 mt-0.5">
-                        <StepIcon status={step.status} />
-                      </span>
-                      <span
-                        className={
-                          step.status === "done"
-                            ? "text-slate-500 dark:text-slate-400 line-through"
-                            : step.status === "failed" ||
-                                step.status === "blocked"
-                              ? "text-red-700 dark:text-red-400"
-                              : step.status === "skipped"
-                                ? "text-slate-400 dark:text-slate-500 line-through"
-                                : step.status === "in_progress"
-                                  ? "text-indigo-900 dark:text-indigo-200 font-medium"
-                                  : "text-indigo-900 dark:text-indigo-200"
-                        }
-                      >
-                        {step.title}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="mt-2 text-sm text-indigo-900 dark:text-indigo-200 markdown-body prose prose-sm max-w-none prose-headings:text-indigo-900 dark:prose-headings:text-indigo-200 prose-strong:text-indigo-900 dark:prose-strong:text-indigo-200">
-                  <LazyMarkdownContent content={content} />
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+ {/* 内容区 */}
+ {expanded && (
+ <div className="px-4 pb-3 border-t border-[var(--domain-knowledge)]">
+ {steps ? (
+ <ul className="mt-2 space-y-1.5">
+ {steps.map((step) => (
+ <li
+ key={step.id}
+ className="flex items-start gap-2 text-sm"
+ >
+ <span className="flex-shrink-0 mt-0.5">
+ <StepIcon status={step.status} />
+ </span>
+ <span
+ className={
+ step.status === "done"
+ ? "text-[var(--text-secondary)] line-through"
+ : step.status === "failed" ||
+ step.status === "blocked"
+ ? "text-[var(--error)]"
+ : step.status === "skipped"
+ ? "text-[var(--text-muted)] line-through"
+ : step.status === "in_progress"
+ ? "text-[var(--domain-knowledge)] font-medium"
+ : "text-[var(--domain-knowledge)]"
+ }
+ >
+ {step.title}
+ </span>
+ </li>
+ ))}
+ </ul>
+ ) : (
+ <div className="mt-2 text-sm text-[var(--domain-knowledge)] markdown-body prose prose-sm max-w-none prose-headings:text-[var(--domain-knowledge)] prose-strong:text-[var(--domain-knowledge)]">
+ <LazyMarkdownContent content={content} />
+ </div>
+ )}
+ </div>
+ )}
+ </div>
+ </div>
+ </div>
+ );
 }

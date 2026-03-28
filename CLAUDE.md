@@ -1,188 +1,85 @@
-
-
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> 适用对象：Claude Code
-> 目标：让 Claude Code 严格遵循本仓库的提交与 PR 规范，避免 `main` 被污染。
-
 ## 项目概述
 
-Nini 是一个本地优先的科研全流程 AI 研究伙伴。用户通过对话上传并分析数据，Agent 自动调用统计、作图、清洗、代码执行与报告生成技能，同时提供文献调研、实验设计、论文写作等科研全阶段的框架性引导，核心优势在数据分析阶段。单进程同时提供 HTTP API、WebSocket Agent 交互和前端静态文件。
+Nini 是本地优先的科研 AI 研究伙伴。单进程同时提供 HTTP API（`/api`）、WebSocket Agent 交互（`/ws`）和前端静态文件服务。前端通过 WebSocket 接收流式事件，不用轮询。
 
 ## 常用命令
 
-### 安装与启动
 ```bash
-pip install -e .[dev]          # 安装后端及开发依赖
+# 安装
+pip install -e .[dev]          # 后端及开发依赖
+
+# 启动
 nini init                      # 生成 .env 配置文件
 nini doctor                    # 检查运行环境
-nini start --reload            # 开发模式启动（热重载），等价于 python -m nini start --reload
-cd web && npm run dev                   # 前端开发服务器（端口 3000，代理 /api 和 /ws 到后端 8000）
-cd web && npm install && npm run build  # 构建前端（生产）
-```
+nini start --reload            # 开发模式（热重载）
+cd web && npm run dev          # 前端开发服务器（端口 3000，代理 /api /ws → 8000）
 
-### 格式化 / 类型检查 / 测试 / 构建（按顺序）
-```bash
-black --check src tests        # 代码格式检查（行宽 100）
-black src tests                # 自动格式化
+# 格式化 / 类型检查（按顺序）
+black src tests                # 自动格式化（行宽 100）
+black --check src tests        # 格式检查
 mypy src/nini                  # 类型检查（Python 3.12）
+
+# 测试
+python scripts/check_event_schema_consistency.py  # 必须先通过，CI 在 pytest 前运行此脚本
 pytest -q                      # 运行全部后端测试
-pytest tests/test_phase3_run_code.py -q           # 运行单个测试文件
-pytest tests/test_phase3_run_code.py::test_name -q  # 运行单个测试
+pytest tests/test_phase3_run_code.py::test_name -q  # 单个测试
+
+# 构建
 cd web && npm run build        # 前端 TypeScript 检查 + Vite 构建
-cd web && npm run test:e2e     # Playwright E2E 测试（前端交互改动时）
+cd web && npm run test:e2e:critical  # 关键 E2E 测试（前端改动时必须通过）
+python -m build                # 打包 wheel
 ```
 
-### 发布
-```bash
-python -m build                # 打包到 dist/
-```
+## 非显而易见的约束
 
-## 架构
+- **测试环境**：部分 pytest 测试需要 NINI_* 环境变量（真实 API key）；多数测试有 mock，可在无 .env 下运行。不要假设全部测试都能在干净环境下通过。
+- **前端无 lint**：项目未配置 ESLint 或 Prettier。前端代码质量由 TypeScript 编译器（`npm run build`）保障。不要为前端添加 lint 配置，除非用户明确要求。
+- **CI 顺序**：CI 在 `pytest` 前运行 `python scripts/check_event_schema_consistency.py`；若事件 schema 不一致，pytest 不会执行。
+- **新增 Tool**：继承 `tools/base.py:Tool`，实现 `execute(session, **kwargs) -> ToolResult`，然后在 `tools/registry.py:create_default_tool_registry()` 中注册，否则 LLM 无法调用。
+- **沙箱白名单**：修改 `run_code` 允许的 Python 导入时，改 `sandbox/policy.py` 的 `ALLOWED_IMPORT_ROOTS`；R 代码对应 `sandbox/r_policy.py`。
+- **废弃目录**：`frontend/`、`scientific_data_analysis_backend/`、`ai_service/` 已废弃，不要修改。
+- **大型变更**：`openspec/` 管理变更提案流程，大型特性需经 proposal → design → tasks 流程。
 
-### 后端 (`src/nini/`)
+## 工程约束
 
-**请求入口**：`app.py` 工厂函数 `create_app()` 创建 FastAPI 实例，注册 HTTP 路由（`api/routes.py`，前缀 `/api`）和 WebSocket 端点（`api/websocket.py`，路径 `/ws`）。前端构建产物通过 StaticFiles 挂载 + SPA fallback 中间件提供服务。
-
-**Agent 核心循环**：`agent/runner.py` 中的 `AgentRunner` 实现 ReAct 循环：接收用户消息 → 构建上下文（system prompt + 会话历史 + 知识库检索） → 调用 LLM → 解析 tool_calls → 执行对应 Tool → 循环直到无 tool_call。所有事件通过 callback 推送（WebSocket 端点消费这些事件流式发送给客户端）。
-
-**多模型路由**：`agent/model_resolver.py` 中 `ModelResolver` 管理多 LLM 客户端（OpenAI、Anthropic、Ollama、Moonshot、Kimi Coding、智谱、DeepSeek、阿里百炼），统一为 `BaseLLMClient.chat()` 异步流式接口。按优先级尝试，失败自动降级到下一个可用提供商。
-
-**三层架构 - Tools / Skills / Capabilities**：
-
-1. **Tools**（`tools/` 目录）：原子函数层，模型可直接调用的工具
-   - 继承 `tools/base.py:Tool` 基类
-   - 实现 `execute(session, **kwargs) -> ToolResult` 接口
-   - 由 `tools/registry.py:ToolRegistry` 管理并暴露给 LLM
-   - 工具分类：
-     - 统计：`t_test`、`anova`、`correlation`、`regression`、`mann_whitney`、`kruskal_wallis`、`multiple_comparison`
-     - 可视化：`create_chart`、`export_chart`
-     - 数据操作：`load_dataset`、`preview_data`、`data_summary`、`clean_data`、`data_quality`、`diagnostics`
-     - 代码执行：`run_code`（sandbox 进程隔离）、`run_r_code`
-     - 网络/多模态：`fetch_url`、`image_analysis`、`interpretation`
-     - 任务规划：`task_write`
-     - 产物：`generate_report`、`export_report`、`organize_workspace`
-     - 复合模板：`tools/templates/` 中预定义多步分析流程
-
-2. **Skills**（`skills/` 目录）：完整工作流项目（预留扩展）
-   - Markdown + 脚本 + 参考文档的完整工作流
-   - 当前目录预留，用于后续存放复杂工作流技能
-
-3. **Capabilities**（`capabilities/` 目录）：用户层面能力元数据
-   - 用户可理解的能力描述（如"差异分析"、"相关性分析"）
-   - 区别于底层的 Tools 和完整工作流的 Skills
-
-**会话管理**：`agent/session.py` 管理会话状态（消息历史、已加载 DataFrame、产物列表）。会话持久化到 `data/sessions/{session_id}/`。
-
-**沙箱执行**：`sandbox/executor.py` 通过 `multiprocessing` 进程隔离执行用户代码，`sandbox/policy.py` 做静态代码审查（禁止危险导入/操作），`sandbox/capture.py` 捕获 stdout/stderr。R 代码执行由 `sandbox/r_executor.py` + `sandbox/r_policy.py` 提供，需本地安装 R 环境。
-
-**配置**：`config.py` 基于 `pydantic-settings`，环境变量前缀 `NINI_`，自动读取项目根 `.env` 文件。全局单例 `settings`。
-
-**知识库**：`knowledge/` 提供 RAG 向量检索，`memory/` 管理对话历史压缩与存储。
-
-**工作区**：`workspace/manager.py` 管理会话文件（数据集、产物、笔记），支持文件夹组织。
-
-**任务规划系统**：`agent/planner.py` 解析用户意图生成执行计划，`agent/plan_parser.py` 解析 LLM 输出，`agent/task_manager.py` 管理任务状态，配合 `tools/task_write.py` 向客户端推送任务事件。
-
-**图表渲染**：`charts/` 提供可扩展的渲染器架构（`charts/renderers/`）和风格契约（`charts/style_contract.py`），独立于可视化技能层。
-
-**数据模型**：`models/` 存放数据结构定义：`database.py`（数据库）、`execution_plan.py`（执行计划）、`schemas.py`（API Schema）、`user_profile.py`（用户画像）。
-
-### 前端 (`web/`)
-
-React 18 + Vite + TypeScript + Tailwind CSS。状态管理使用 Zustand 单一 store（`store.ts`）。通过 WebSocket 与后端 Agent 交互，接收流式事件（text/chart/data/tool_call/done 等）。
-
-关键组件：`ChatPanel`（对话主界面）、`MessageBubble`/`AgentTurnGroup`（消息渲染）、`MarkdownContent`（Markdown + 代码高亮）、`ChartViewer`/`PlotlyFromUrl`（Plotly 图表）、`DataViewer`（表格预览）、`WorkspacePanel`/`WorkspaceSidebar`（文件管理）、`FileUpload`（数据上传）、`AnalysisPlanCard`/`AnalysisTasksPanel`（任务规划展示）、`ArtifactGallery`（产物展示）、`CodeExecutionPanel`（代码执行结果）、`MemoryPanel`（记忆管理）、`ModelConfigPanel`/`ModelSelector`（模型配置）、`SkillCatalogPanel`（工具清单）。
-
-### 数据流
-
-```
-用户消息 → WebSocket /ws → AgentRunner.run()
-  → ModelResolver.chat() (流式 LLM)
-  → 解析 tool_calls → ToolRegistry.invoke()
-  → Tool.execute() → ToolResult
-  → callback 推送事件 → WebSocket 发送 JSON 到前端
-  → Zustand store 更新 → React 渲染
-```
-
-## 仓库现状（以当前代码为准）
-- 当前仓库为单架构：`src/nini/`（后端与 Agent Runtime）+ `web/`（前端）+ `tests/`（测试）+ `docs/`（文档）+ `data/`（运行时数据）。
-- 旧目录 `frontend/`、`scientific_data_analysis_backend/`、`ai_service/` 已废弃，不作为开发目标。
-- `openspec/` 管理变更提案流程，大型变更需通过 proposal → design → tasks 流程。
-
-## 项目语言要求
-- **所有代码注释必须使用中文编写**，包括函数文档字符串、行内注释、TODO 等。
-- **所有问题回答必须使用中文**，包括代码审查反馈、技术解释、设计讨论等。
-- 文档、注释、用户交互默认使用中文；专业术语首次出现可保留英文并附中文解释。
-- 提交信息必须遵循 Conventional Commits；`subject` 可中文或英文，但同一仓库应保持风格一致。
-
-## 1) 不可违反的规则（强制）
-- 禁止在 `main` 分支直接开发或提交。
-- 必须使用：分支开发 → PR → 合并到 `main`。
-- 禁止 `git push --force`（除非用户明确要求）。
-- 禁止提交任何敏感信息（token、密码、私钥、证书等）。
-
-## 2) 标准开发流程（强制）
-1. 同步本地 `main`：
-   - `git checkout main && git pull --ff-only`
-2. 从 `main` 新建分支（按类型命名）：
-   - `feature/<topic>` / `fix/<topic>` / `chore/<topic>` / `docs/<topic>`
-3. 在分支上小步提交：
-   - 每次提交只做一件事，避免混合无关修改
-4. 推送分支并创建 PR：
-   - base 必须是 `main`
-5. 合并策略：
-   - 推荐使用 Squash merge 合并到 `main`
-
-## 3) Commit 规范（Conventional Commits，强制）
-- 格式：`type(scope): subject`
-- `type`：`feat` `fix` `docs` `refactor` `perf` `test` `build` `ci` `chore`
-- 示例：
-  - `feat(ui): add status badge`
-  - `fix(api): prevent null crash`
-  - `chore(deps): bump dependencies`
-- 要求：
-  - `subject` 必须具体、可读、可追溯
-  - 禁止 `update`、`fix bug`、`try` 这类无信息量描述
-
-## 4) PR 规范（强制）
-### PR 描述必须包含
-- 变更内容：做了什么
-- 验证方式：如何验证（命令/步骤/截图）
-- 风险与回滚：可能影响与回滚方法（如有）
-
-### 合并前自检（必须完成）
-- ✅ tests 通过（若存在）
-- ✅ lint/format 通过（若存在）
-- ✅ 构建/运行验证通过（若适用）
-- ✅ 文档/注释已更新（若影响使用方式）
-
-## 5) Claude Code 工作方式（强制）
-- 开始前先给出 3～7 条计划（明确将修改/新增哪些文件）。
-- 坚持最小改动：避免无关重构、避免全仓格式化。
-- 除非用户明确要求，否则不要引入新依赖；若必须引入，需说明原因与替代方案。
-- 任何可能破坏性的操作（批量删除、重写历史、清理数据）必须先请求人工确认。
-- 修改完成后必须提供：
-  - 变更摘要（按文件列出）
-  - 验证结果（运行了哪些命令、是否通过）
-  - 建议的 PR 标题与描述（按本规范）
-
-## 6) 完成标准（强制）
-仅当满足以下条件才算完成：
-- 变更已按规范提交在分支上
-- PR 已创建或已准备好创建（含标题与描述）
-- 自检全部通过，或明确列出未通过项及原因
-
-## 工程约束补充
-- Python >= 3.12，构建系统 hatchling。
+- Python >= 3.12，构建系统 hatchling；Black 行宽 100，target py312。
 - 使用 `datetime.now(timezone.utc)` 代替 `datetime.utcnow()`。
-- Pydantic v2 使用 `model_validate()` / `model_dump()`。
-- 新能力优先补测试，再接入 WebSocket 事件流。
-- 添加新 Tool：继承 `tools/base.py:Tool`，在 `tools/registry.py:create_default_tool_registry()` 中注册。
-- 沙箱安全策略三重防护：AST 静态分析（`sandbox/policy.py`）+ 受限 builtins（`sandbox/executor.py`）+ 进程隔离（multiprocessing spawn）。修改白名单在 `sandbox/policy.py` 的 `ALLOWED_IMPORT_ROOTS`。R 代码对应 `sandbox/r_policy.py`。
-- 会话数据存储在 `data/sessions/{session_id}/`，包含 `meta.json`（标题）、`memory.jsonl`（对话历史，可能很大需分段读取）、`workspace/`（上传文件和产物）。
-- Black 行宽 100，目标版本 py312。
+- Pydantic v2：用 `model_validate()` / `model_dump()`，不用 `parse_obj()` / `dict()`。
+- FastAPI 路由、WebSocket handler、Tool.execute 全部 `async`；不写同步阻塞代码。
 - 测试使用 pytest + pytest-asyncio（`asyncio_mode = "auto"`），测试路径 `tests/`。
-- 前端环境变量或 API 代理配置在 `web/vite.config.ts`。
+- 会话数据在 `data/sessions/{session_id}/`：`meta.json`、`memory.jsonl`（可能很大，分段读取）、`workspace/`。
+
+## 语言要求
+
+- **所有代码注释、文档字符串、TODO 必须用中文**。
+- **所有问题回答、代码审查反馈、技术解释必须用中文**。
+- 专业术语首次出现可保留英文并附中文解释。
+- Commit subject 可中英文，但同一仓库保持风格一致。
+
+## 不可违反的规则
+
+- 禁止直接向 `main` 提交或开发；必须走 `feature/<topic>` / `fix/<topic>` / `chore/<topic>` / `docs/<topic>` → PR → Squash merge。
+- 禁止 `git push --force`（用户明确要求除外）。
+- 禁止提交敏感信息（token、密码、私钥）。
+- 禁止未经确认的批量删除、重写历史、清理数据等破坏性操作。
+
+## Commit 规范（Conventional Commits）
+
+格式：`type(scope): subject`
+类型：`feat` `fix` `docs` `refactor` `perf` `test` `build` `ci` `chore`
+禁止：`update`、`fix bug`、`try` 等无信息量描述。
+
+## PR 规范
+
+PR 描述必须包含：变更内容、验证方式（命令/截图）、风险与回滚方案。
+合并前自检：格式通过、类型检查通过、测试通过、构建通过。
+
+## Claude Code 工作方式
+
+- 开始前给出 3～7 条计划（明确将改动哪些文件）。
+- 坚持最小改动：不做无关重构，不全仓格式化。
+- 不引入新依赖，除非用户明确要求并说明理由。
