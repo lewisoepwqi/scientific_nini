@@ -93,25 +93,25 @@ export default function SkillCatalogPanel({ open, onClose }: Props) {
   return (
     <BaseModal open={open} onClose={onClose} title="工具清单" maxWidthClass="max-w-2xl">
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[82vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-slate-700">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
           <div className="flex items-center gap-2">
             <Wrench size={18} className="text-blue-600" />
-            <h2 className="text-base font-semibold text-gray-800 dark:text-slate-200">工具清单（Function Tools）</h2>
-            <span className="text-xs text-gray-400 dark:text-slate-500">
+            <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200">工具清单（Function Tools）</h2>
+            <span className="text-xs text-slate-400 dark:text-slate-500">
               {availableToolCount} 个可调用 / {functionTools.length} 个工具
             </span>
           </div>
           <div className="flex items-center gap-1">
             <button
               onClick={fetchSkills}
-              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 dark:text-slate-500 transition-colors"
+              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 dark:text-slate-500 transition-colors"
               title="刷新"
             >
               <RefreshCw size={14} />
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 dark:text-slate-500 transition-colors"
+              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 dark:text-slate-500 transition-colors"
               title="关闭"
             >
               <X size={16} />
@@ -119,7 +119,7 @@ export default function SkillCatalogPanel({ open, onClose }: Props) {
           </div>
         </div>
 
-        <div className="px-5 py-2 text-[11px] text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 space-y-1">
+        <div className="px-5 py-2 text-[11px] text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 space-y-1">
           <p>这里仅显示模型可直接调用的工具；Markdown 技能请在技能管理中维护。</p>
           <p className="text-blue-600 dark:text-blue-400">
             标记为基础的是新工具基础层（9个核心工具）：task_state、dataset_catalog、dataset_transform、
@@ -134,29 +134,29 @@ export default function SkillCatalogPanel({ open, onClose }: Props) {
               const label = CATEGORY_LABELS[cat] || cat
               const visibleCount = items.filter((s) => s.enabled && s.expose_to_llm !== false).length
               return (
-                <div key={cat} className="border border-gray-200 dark:border-slate-700 rounded-lg">
+                <div key={cat} className="border border-slate-200 dark:border-slate-700 rounded-lg">
                   <button
                     onClick={() => toggleCat(cat)}
-                    className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+                    className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                   >
                     {isOpen ? (
-                      <ChevronDown size={14} className="text-gray-400 dark:text-slate-500" />
+                      <ChevronDown size={14} className="text-slate-400 dark:text-slate-500" />
                     ) : (
-                      <ChevronRight size={14} className="text-gray-400 dark:text-slate-500" />
+                      <ChevronRight size={14} className="text-slate-400 dark:text-slate-500" />
                     )}
-                    <span className="text-sm font-medium text-gray-700 dark:text-slate-300">{label}</span>
-                    <span className="ml-auto text-xs text-gray-400 dark:text-slate-500">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span>
+                    <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">
                       {visibleCount < items.length ? `${visibleCount}/${items.length}` : items.length}
                     </span>
                   </button>
                   {isOpen && (
-                    <div className="border-t border-gray-200 dark:border-slate-700 px-3 py-2 space-y-1.5">
+                    <div className="border-t border-slate-200 dark:border-slate-700 px-3 py-2 space-y-1.5">
                       {items.map((tool) => (
                         <div key={tool.name} className="text-xs flex items-start gap-2">
-                          <span className={`font-mono flex-shrink-0 ${tool.enabled ? 'text-gray-700 dark:text-slate-300' : 'text-gray-400 dark:text-slate-500 line-through'} ${NEW_BASE_TOOLS.has(tool.name) ? 'text-blue-600 dark:text-blue-400 font-medium' : ''}`}>
+                          <span className={`font-mono flex-shrink-0 ${tool.enabled ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500 line-through'} ${NEW_BASE_TOOLS.has(tool.name) ? 'text-blue-600 dark:text-blue-400 font-medium' : ''}`}>
                             {tool.name}
                           </span>
-                          <span className="text-gray-400 dark:text-slate-500 flex-1">{tool.description}</span>
+                          <span className="text-slate-400 dark:text-slate-500 flex-1">{tool.description}</span>
                           {tool.expose_to_llm === false && (
                             <span className="text-[10px] text-amber-500 dark:text-amber-400 flex-shrink-0 bg-amber-50 dark:bg-amber-900/20 px-1 rounded">仅内部</span>
                           )}
@@ -171,7 +171,7 @@ export default function SkillCatalogPanel({ open, onClose }: Props) {
               )
             })}
             {groupedTools.length === 0 && (
-              <div className="text-xs text-gray-400 dark:text-slate-500 text-center py-6">暂无可调用工具</div>
+              <div className="text-xs text-slate-400 dark:text-slate-500 text-center py-6">暂无可调用工具</div>
             )}
           </div>
         </div>

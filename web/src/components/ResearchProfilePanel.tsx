@@ -237,11 +237,17 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
 
         {/* ---- Tab 导航 ---- */}
         <div
+          role="tablist"
+          aria-label="研究画像设置"
           className="flex flex-shrink-0 border-b border-amber-200/60 bg-amber-50/50"
         >
           {TABS.map((tab) => (
             <button
               key={tab.id}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              aria-controls={`profile-panel-${tab.id}`}
+              id={`profile-tab-${tab.id}`}
               onClick={() => setActiveTab(tab.id)}
               className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-all ${
                 activeTab === tab.id
@@ -256,7 +262,12 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
         </div>
 
         {/* ---- 内容区 ---- */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        <div
+          role="tabpanel"
+          aria-labelledby={`profile-tab-${activeTab}`}
+          id={`profile-panel-${activeTab}`}
+          className="min-h-0 flex-1 overflow-y-auto px-6 py-5"
+        >
           {loading && (
             <div className="flex items-center justify-center py-16">
               <Loader2 size={22} className="animate-spin text-amber-400" />
@@ -279,7 +290,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
                     <p className="mb-2.5 text-xs font-semibold uppercase tracking-widest text-stone-400">
                       主研究领域
                     </p>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       {DOMAINS.map((d) => (
                         <button
                           key={d.value}

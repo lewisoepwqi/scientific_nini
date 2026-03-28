@@ -127,7 +127,7 @@ export default function IntentTimelineItem({
                     {analysis.tool_hints.slice(0, 4).map((tool) => (
                       <span
                         key={tool}
-                        className="inline-flex rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-700"
+                        className="inline-flex rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400"
                       >
                         {tool}
                       </span>

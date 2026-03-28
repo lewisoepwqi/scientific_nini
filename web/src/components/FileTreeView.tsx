@@ -20,20 +20,20 @@ function FolderNode({ group }: { group: FolderGroup }) {
     <div>
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-md transition-colors"
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-md transition-colors"
       >
         {expanded ? (
-          <ChevronDown size={12} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
+          <ChevronDown size={12} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
         ) : (
-          <ChevronRight size={12} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
+          <ChevronRight size={12} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
         )}
         {group.icon}
-        <span className="text-xs font-medium text-gray-600 dark:text-slate-300">{group.label}</span>
-        <span className="text-[10px] text-gray-400 dark:text-slate-500 ml-auto">{group.files.length}</span>
+        <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{group.label}</span>
+        <span className="text-[10px] text-slate-400 dark:text-slate-500 ml-auto">{group.files.length}</span>
       </button>
 
       {expanded && group.files.length > 0 && (
-        <div className="ml-3 border-l border-gray-100 dark:border-slate-700 pl-1">
+        <div className="ml-3 border-l border-slate-100 dark:border-slate-700 pl-1">
           {group.files.map((file) => (
             <FileListItem key={file.id} file={file} />
           ))}
@@ -41,7 +41,7 @@ function FolderNode({ group }: { group: FolderGroup }) {
       )}
 
       {expanded && group.files.length === 0 && (
-        <div className="ml-8 text-[10px] text-gray-400 dark:text-slate-500 py-1">无文件</div>
+        <div className="ml-8 text-[10px] text-slate-400 dark:text-slate-500 py-1">无文件</div>
       )}
     </div>
   )
@@ -107,7 +107,7 @@ export default function FileTreeView() {
 
   if (filteredFiles.length === 0 && workspaceFolders.length === 0) {
     return (
-      <div className="text-center text-xs text-gray-400 dark:text-slate-500 py-8">
+      <div className="text-center text-xs text-slate-400 dark:text-slate-500 py-8">
         {fileSearchQuery ? '没有匹配的文件' : '暂无文件'}
       </div>
     )
@@ -120,7 +120,7 @@ export default function FileTreeView() {
       ))}
 
       {customGroups.length > 0 && (
-        <div className="pt-1 border-t border-gray-100 dark:border-slate-700 mt-1">
+        <div className="pt-1 border-t border-slate-100 dark:border-slate-700 mt-1">
           {customGroups.map((group) => (
             <FolderNode key={group.kind} group={group} />
           ))}
@@ -139,7 +139,7 @@ export default function FileTreeView() {
                 if (e.key === 'Escape') { setShowNewFolder(false); setNewFolderName('') }
               }}
               placeholder="文件夹名称"
-              className="flex-1 px-2 py-1 text-xs border border-gray-200 dark:border-slate-600 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+              className="flex-1 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
               autoFocus
             />
             <button
@@ -152,7 +152,7 @@ export default function FileTreeView() {
         ) : (
           <button
             onClick={() => setShowNewFolder(true)}
-            className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-md transition-colors w-full"
+            className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-md transition-colors w-full"
           >
             <FolderPlus size={12} />
             新建文件夹

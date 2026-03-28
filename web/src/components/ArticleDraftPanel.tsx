@@ -10,10 +10,10 @@ import {
   CheckCircle2,
   Download,
   Settings,
-  X,
   PenTool,
 } from "lucide-react";
 import { apiFetch } from "../store/auth";
+import BaseModal from "./BaseModal";
 
 interface DraftConfig {
   template: string;
@@ -211,8 +211,7 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
   const template = JOURNAL_TEMPLATES.find((t) => t.id === selectedTemplate);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white dark:bg-slate-800 shadow-2xl">
+    <BaseModal open={isOpen} onClose={onClose} title="生成文章初稿" maxWidthClass="max-w-3xl" contentClass="max-h-[90vh] p-0 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-slate-900 to-slate-800 px-6 py-4">
           <div className="flex items-center gap-3">
@@ -224,15 +223,9 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
               <p className="text-xs text-slate-400">基于对话内容智能生成完整文章</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            <X size={20} />
-          </button>
         </div>
 
-        <div className="grid h-[calc(90vh-80px)] grid-cols-[1fr,320px] overflow-hidden">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr,320px] overflow-hidden max-h-[calc(90vh-80px)]">
           {/* Left Panel - Template Selection */}
           <div className="h-full overflow-y-auto border-r border-slate-200 dark:border-slate-700 p-6">
             <div className="mb-6">
@@ -438,7 +431,6 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </BaseModal>
   );
 }

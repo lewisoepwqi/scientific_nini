@@ -8,13 +8,16 @@
 import { useEffect, useRef, useMemo, useCallback, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '../store'
+import { useConfirm } from '../store/confirm-store'
+import { useOnboardStore } from '../store/onboard-store'
+import OnboardHint from './OnboardHint'
 import MessageBubble from './MessageBubble'
-import ChatInputArea from './ChatInputArea'
-import AskUserQuestionPanel from './AskUserQuestionPanel'
-import PendingQuestionBanner from './PendingQuestionBanner'
-import IntentTimelineItem from './IntentTimelineItem'
 import { Loader2 } from 'lucide-react'
 import RecipeCenter from './RecipeCenter'
+import PendingQuestionBanner from './PendingQuestionBanner'
+import IntentTimelineItem from './IntentTimelineItem'
+import AskUserQuestionPanel from './AskUserQuestionPanel'
+import ChatInputArea from './ChatInputArea'
 import DeepTaskProgressCard from './DeepTaskProgressCard'
 import SkillProgressPanel from './SkillProgressPanel'
 
@@ -24,7 +27,25 @@ const compactTokenFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 1,
 })
 
+/** 首次访问欢迎提示 */
+function WelcomeHint() {
+  const isSeen = useOnboardStore((s) => s.isSeen);
+  const markSeen = useOnboardStore((s) => s.markSeen);
+  if (isSeen("welcome")) return null;
+  return (
+    <OnboardHint
+      title="欢迎使用 Nini"
+      autoDismissMs={6000}
+      onDismiss={() => markSeen("welcome")}
+    >
+      从模板快速开始科研分析，或直接在下方输入你的需求。
+      试试输入 <code className="rounded bg-slate-100 px-1 text-slate-700 dark:bg-slate-700 dark:text-slate-300">/</code> 发现更多分析技能。
+    </OnboardHint>
+  );
+}
+
 export default function ChatPanel() {
+  const confirm = useConfirm()
   // 数据 selector 合并，使用 useShallow 减少重渲染
   const {
     sessionId,
@@ -170,9 +191,14 @@ export default function ChatPanel() {
     return () => window.clearInterval(timer)
   }, [isStreaming, streamingMetrics.hasTokenUsage, streamingMetrics.totalTokens])
 
-  const handleRetry = useCallback(() => {
+  const handleRetry = useCallback(async () => {
     if (isStreaming || !canRetry) return
-    const confirmed = window.confirm('重试后将清空上一轮智能体已输出内容，是否继续？')
+    const confirmed = await confirm({
+      title: '确认重试',
+      message: '重试后将清空上一轮智能体已输出内容，是否继续？',
+      confirmText: '重试',
+      destructive: true,
+    })
     if (!confirmed) return
     retryLastTurn()
   }, [isStreaming, canRetry, retryLastTurn])
@@ -265,7 +291,8 @@ export default function ChatPanel() {
             }`}
           >
           {showConversationContent && messages.length === 0 && !isNoSession && (
-            <div className="min-h-[60vh] py-6">
+            <div className="min-h-[60vh] py-6 space-y-3">
+              <WelcomeHint />
               <RecipeCenter />
             </div>
           )}
@@ -273,8 +300,8 @@ export default function ChatPanel() {
           {showConversationContent && isNoSession && (
             <div className="min-h-[60vh] py-6 space-y-5">
               <RecipeCenter />
-              <div className="flex flex-col items-center justify-center text-gray-400 dark:text-slate-500">
-                <h2 className="text-xl font-semibold text-gray-600 dark:text-slate-300 mb-2">或先开一个自由会话</h2>
+              <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500">
+                <h2 className="text-xl font-semibold text-slate-600 dark:text-slate-300 mb-2">或先开一个自由会话</h2>
                 <p className="text-sm text-center max-w-md">
                   你也可以直接进入普通对话，上传数据后自然语言描述分析需求。
                 </p>
@@ -323,17 +350,17 @@ export default function ChatPanel() {
           </div>
 
           {isStreaming && (
-            <div className="flex items-center gap-2 text-gray-400 dark:text-slate-500 text-sm ml-11">
+            <div className="flex items-center gap-2 text-slate-400 dark:text-slate-500 text-sm ml-11">
               <Loader2 size={14} className="animate-spin" />
               <span>Nini is working...</span>
-              <span className="text-gray-400/90 dark:text-slate-500/90">{elapsedSeconds}s</span>
+              <span className="text-slate-400/90 dark:text-slate-500/90">{elapsedSeconds}s</span>
               {compactTokenText && (
-                <span className="text-gray-400/90 dark:text-slate-500/90">·</span>
+                <span className="text-slate-400/90 dark:text-slate-500/90">·</span>
               )}
               {compactTokenText && (
                 <span
                   data-testid="streaming-token-usage"
-                  className="inline-flex items-center tabular-nums text-gray-400/90 dark:text-slate-500/90"
+                  className="inline-flex items-center tabular-nums text-slate-400/90 dark:text-slate-500/90"
                 >
                   ↓ {compactTokenText} tokens
                 </span>

@@ -130,7 +130,7 @@ export default function AskUserQuestionPanel({
     if (questionType === "risk_confirmation") {
       return "rounded-xl border border-red-300 bg-red-50/40 p-3";
     }
-    return "rounded-xl border border-gray-200 p-3";
+    return "rounded-xl border border-slate-200 p-3";
   }
 
   // 根据 question_type 计算选项按钮样式
@@ -142,23 +142,23 @@ export default function AskUserQuestionPanel({
         ? "flex cursor-pointer items-start gap-2 rounded-lg border border-blue-400 bg-blue-50 px-2.5 py-2"
         : "flex cursor-pointer items-start gap-2 rounded-lg border border-blue-200 px-2.5 py-2 hover:bg-blue-50";
     }
-    return "flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 px-2.5 py-2 hover:bg-gray-50";
+    return "flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 px-2.5 py-2 hover:bg-slate-50";
   }
 
   function getTabStyle(index: number): string {
     if (errors[index]) {
-      return "border-red-200 bg-red-50 text-red-700";
+      return "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400";
     }
     if (index === activeIndex) {
-      return "border-blue-400 bg-blue-50 text-blue-700 shadow-sm";
+      return "border-blue-400 bg-blue-50 text-blue-700 shadow-sm dark:border-blue-600 dark:bg-blue-900/20 dark:text-blue-400";
     }
     if (skippedMap[index]) {
-      return "border-amber-200 bg-amber-50 text-amber-700";
+      return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-400";
     }
     if (completionMap[index]) {
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+      return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400";
     }
-    return "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:border-gray-300 dark:hover:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700";
+    return "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700";
   }
 
   return (
@@ -224,12 +224,12 @@ export default function AskUserQuestionPanel({
                 </div>
               )}
               {activeQuestion.context && (
-                <div className="mb-1 text-xs text-gray-500 dark:text-slate-400">{activeQuestion.context}</div>
+                <div className="mb-1 text-xs text-slate-500 dark:text-slate-400">{activeQuestion.context}</div>
               )}
               {activeQuestion.header && (
-                <div className="text-xs font-medium text-gray-500 dark:text-slate-400">{activeQuestion.header}</div>
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400">{activeQuestion.header}</div>
               )}
-              <div className="text-sm font-medium text-gray-900 dark:text-slate-100">{activeQuestion.question}</div>
+              <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{activeQuestion.question}</div>
             </div>
 
             {isActiveSkipped && (
@@ -258,8 +258,8 @@ export default function AskUserQuestionPanel({
                       className="mt-1"
                     />
                     <span>
-                      <span className="block text-sm text-gray-800 dark:text-slate-200">{option.label}</span>
-                      <span className="block text-xs text-gray-500 dark:text-slate-400">{option.description}</span>
+                      <span className="block text-sm text-slate-800 dark:text-slate-200">{option.label}</span>
+                      <span className="block text-xs text-slate-500 dark:text-slate-400">{option.description}</span>
                     </span>
                   </label>
                 );
@@ -272,7 +272,7 @@ export default function AskUserQuestionPanel({
                   value={textMap[activeIndex] || ""}
                   onChange={(event) => setTextAnswer(activeIndex, event.target.value)}
                   placeholder="或输入自定义回答"
-                  className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                  className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm outline-none focus:border-blue-400"
                 />
               </div>
             )}
@@ -289,7 +289,7 @@ export default function AskUserQuestionPanel({
               type="button"
               onClick={() => setActiveIndex((prev) => Math.max(0, prev - 1))}
               disabled={activeIndex === 0}
-              className="rounded-xl border border-gray-200 dark:border-slate-700 px-3 py-2 text-sm font-medium text-gray-600 dark:text-slate-300 transition-colors hover:bg-gray-50 dark:hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               上一题
             </button>
@@ -297,7 +297,7 @@ export default function AskUserQuestionPanel({
               type="button"
               onClick={() => setActiveIndex((prev) => Math.min(questionCount - 1, prev + 1))}
               disabled={activeIndex === questionCount - 1}
-              className="rounded-xl border border-gray-200 dark:border-slate-700 px-3 py-2 text-sm font-medium text-gray-600 dark:text-slate-300 transition-colors hover:bg-gray-50 dark:hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               下一题
             </button>
@@ -305,7 +305,7 @@ export default function AskUserQuestionPanel({
               <button
                 type="button"
                 onClick={skipCurrentQuestion}
-                className="rounded-lg px-2 py-1 text-xs font-medium text-gray-400 dark:text-slate-500 transition-colors hover:bg-gray-50 dark:hover:bg-slate-700 hover:text-gray-600 dark:hover:text-slate-300"
+                className="rounded-lg px-2 py-1 text-xs font-medium text-slate-400 dark:text-slate-500 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-300"
               >
                 跳过此题
               </button>
@@ -316,12 +316,12 @@ export default function AskUserQuestionPanel({
               type="button"
               onClick={handleSubmit}
               disabled={!isAllCompleted}
-              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               提交回答并继续
             </button>
             {!isAllCompleted && (
-              <div className="text-[11px] text-gray-400 dark:text-slate-500">
+              <div className="text-[11px] text-slate-400 dark:text-slate-500">
                 还需完成 {questionCount - completedCount} 题后才可提交
               </div>
             )}

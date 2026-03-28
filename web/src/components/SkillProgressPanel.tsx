@@ -26,37 +26,37 @@ function statusMeta(status: SkillExecutionStep["status"]) {
       return {
         label: "已完成",
         icon: <CheckCircle2 size={14} className="text-emerald-600" />,
-        itemClass: "border-emerald-200 bg-emerald-50/70 text-emerald-950",
+        itemClass: "border-emerald-200 bg-emerald-50/70 text-emerald-950 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-100",
       };
     case "started":
       return {
         label: "执行中",
         icon: <Loader2 size={14} className="animate-spin text-sky-600" />,
-        itemClass: "border-sky-200 bg-sky-50/80 text-sky-950",
+        itemClass: "border-sky-200 bg-sky-50/80 text-sky-950 dark:border-sky-800 dark:bg-sky-900/20 dark:text-sky-100",
       };
     case "review_required":
       return {
         label: "待确认",
         icon: <AlertTriangle size={14} className="text-amber-600" />,
-        itemClass: "border-amber-200 bg-amber-50/80 text-amber-950",
+        itemClass: "border-amber-200 bg-amber-50/80 text-amber-950 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100",
       };
     case "failed":
       return {
         label: "失败",
         icon: <XCircle size={14} className="text-rose-600" />,
-        itemClass: "border-rose-200 bg-rose-50/80 text-rose-950",
+        itemClass: "border-rose-200 bg-rose-50/80 text-rose-950 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-100",
       };
     case "skipped":
       return {
         label: "跳过",
         icon: <SkipForward size={14} className="text-slate-500" />,
-        itemClass: "border-slate-200 bg-slate-50/80 text-slate-700",
+        itemClass: "border-slate-200 bg-slate-50/80 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
       };
     default:
       return {
         label: "等待中",
         icon: <CircleDashed size={14} className="text-slate-400" />,
-        itemClass: "border-slate-200 bg-white text-slate-700",
+        itemClass: "border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
       };
   }
 }
@@ -64,13 +64,13 @@ function statusMeta(status: SkillExecutionStep["status"]) {
 function outputLevelMeta(outputLevel: OutputLevel | null) {
   switch (outputLevel) {
     case "o1":
-      return { label: "建议级", className: "bg-slate-100 text-slate-700 border-slate-200" };
+      return { label: "建议级", className: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600" };
     case "o2":
-      return { label: "草稿级", className: "bg-sky-100 text-sky-700 border-sky-200" };
+      return { label: "草稿级", className: "bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-900/30 dark:text-sky-400 dark:border-sky-800" };
     case "o3":
-      return { label: "可审阅级", className: "bg-emerald-100 text-emerald-700 border-emerald-200" };
+      return { label: "可审阅级", className: "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800" };
     case "o4":
-      return { label: "可导出级", className: "bg-violet-100 text-violet-700 border-violet-200" };
+      return { label: "可导出级", className: "bg-violet-100 text-violet-700 border-violet-200 dark:bg-violet-900/30 dark:text-violet-400 dark:border-violet-800" };
     default:
       return null;
   }
@@ -112,7 +112,7 @@ export default function SkillProgressPanel() {
             步骤 {skillExecution.completedSteps + skillExecution.skippedSteps + skillExecution.failedSteps}/{skillExecution.totalSteps ?? skillExecution.steps.length}
           </span>
           {skillExecution.trustCeiling && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-700">
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400">
               <ShieldCheck size={12} />
               信任上限 {skillExecution.trustCeiling.toUpperCase()}
             </span>

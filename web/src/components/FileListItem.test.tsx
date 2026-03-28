@@ -17,6 +17,11 @@ vi.mock('../store', () => ({
 
 vi.mock('./downloadUtils', () => ({
   resolveDownloadUrl: (url: string) => url,
+  downloadFileFromUrl: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../store/confirm-store', () => ({
+  useConfirm: () => () => Promise.resolve(true),
 }))
 
 describe('FileListItem', () => {
@@ -33,7 +38,6 @@ describe('FileListItem', () => {
     mockDeleteWorkspaceFile.mockReset()
     mockRenameWorkspaceFile.mockReset()
     mockOpenPreview.mockReset()
-    vi.stubGlobal('confirm', vi.fn(() => true))
   })
 
   it('重命名时应使用文件路径而不是文件 id', async () => {
@@ -82,8 +86,8 @@ describe('FileListItem', () => {
     }
     render(<FileListItem file={pdfFile} />)
 
-    // 点击包含图标的区域（通过 title 属性定位可点击区域）
-    const clickableArea = screen.getByTitle('点击预览')
+    // 点击包含图标的区域（通过 aria-label 定位可点击按钮）
+    const clickableArea = screen.getByLabelText('预览 report.pdf')
     await act(async () => {
       fireEvent.click(clickableArea)
     })

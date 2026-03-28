@@ -8,6 +8,8 @@ import ChatPanel from "./components/ChatPanel";
 import SessionList from "./components/SessionList";
 import AuthGate from "./components/AuthGate";
 import ErrorBoundary from "./components/ErrorBoundary";
+import ConfirmDialog from "./components/ConfirmDialog";
+import { useOnboardStore } from "./store/onboard-store";
 import { getWsStatusMeta } from "./store/websocket-status";
 import { AUTH_INVALID_EVENT } from "./store/auth";
 import { initTheme, getStoredTheme, setTheme, type ThemeMode } from "./theme";
@@ -71,6 +73,8 @@ export default function App() {
     | "knowledge";
   const [activePanel, setActivePanel] = useState<PanelType | null>(null);
   const closePanel = useCallback(() => setActivePanel(null), []);
+  const toolbarHintsSeen = useOnboardStore((s) => s.seenIds.has("toolbar_hints"));
+  const markOnboardSeen = useOnboardStore((s) => s.markSeen);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workspacePanelWidth, setWorkspacePanelWidth] = useState(420);
   const [resizingWorkspace, setResizingWorkspace] = useState(false);
@@ -249,7 +253,7 @@ export default function App() {
           <AuthGate error={authError} loading={appBootstrapping} onSubmit={submitApiKey} />
         )}
         {/* 桌面端侧边栏 */}
-        <nav aria-label="会话列表" className="w-64 border-r border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 flex-shrink-0 hidden md:flex flex-col">
+        <nav aria-label="会话列表" className="w-64 border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex-shrink-0 hidden md:flex flex-col">
           <SessionList />
         </nav>
 
@@ -260,7 +264,7 @@ export default function App() {
               className="fixed inset-0 z-40 bg-black/30 md:hidden"
               onClick={() => setSidebarOpen(false)}
             />
-            <div className="fixed inset-y-0 left-0 z-50 w-72 bg-gray-50 dark:bg-slate-800 shadow-xl md:hidden flex flex-col">
+            <div className="fixed inset-y-0 left-0 z-50 w-72 bg-slate-50 dark:bg-slate-800 shadow-xl md:hidden flex flex-col">
               <SessionList onClose={() => setSidebarOpen(false)} />
             </div>
           </>
@@ -269,21 +273,41 @@ export default function App() {
         {/* 主面板 */}
         <main className="flex-1 flex flex-col min-w-0">
           {/* 顶栏 */}
-          <header className="h-12 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between px-4 bg-white dark:bg-slate-900 flex-shrink-0">
+          <header className="h-12 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 bg-white dark:bg-slate-900 flex-shrink-0">
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400 transition-colors md:hidden focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors md:hidden focus-visible:ring-2 focus-visible:ring-blue-500"
                 aria-label="打开会话列表"
               >
                 <Menu size={18} />
               </button>
-              <span className="text-sm font-medium text-gray-600 dark:text-slate-300">对话</span>
+              <span className="text-sm font-medium text-slate-600 dark:text-slate-300">对话</span>
             </div>
             <div className="flex items-center gap-3">
+              {/* 首次访问工具栏引导 */}
+              {!toolbarHintsSeen && (
+                <div className="absolute right-4 top-full mt-1.5 z-50 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-lg dark:border-slate-600 dark:bg-slate-800 animate-in fade-in duration-300">
+                  <div className="text-xs font-medium text-slate-900 dark:text-slate-100">
+                    发现顶栏功能
+                  </div>
+                  <div className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-slate-400">
+                    点击图标查看分析能力、生成报告、管理知识库等
+                  </div>
+                  <div className="mt-1.5 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => markOnboardSeen("toolbar_hints")}
+                      className="rounded-md px-2 py-0.5 text-[11px] font-medium text-blue-600 hover:bg-slate-100 dark:text-blue-400 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      知道了
+                    </button>
+                  </div>
+                </div>
+              )}
               <button
                 onClick={() => setActivePanel("capabilities")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-purple-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-purple-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
                 aria-label="分析能力"
                 title="分析能力"
               >
@@ -291,7 +315,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setActivePanel("report")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-emerald-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-emerald-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
                 aria-label="生成文章初稿"
                 title="生成文章初稿"
               >
@@ -299,7 +323,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setActivePanel("cost")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-amber-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-amber-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
                 aria-label="成本统计"
                 title="成本统计"
               >
@@ -307,7 +331,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setActivePanel("profile")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-sky-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-sky-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
                 aria-label="研究画像"
                 title="研究画像"
               >
@@ -315,7 +339,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setActivePanel("tools")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
                 aria-label="工具清单"
                 title="工具清单"
               >
@@ -323,7 +347,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setActivePanel("knowledge")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-indigo-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-indigo-600 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
                 aria-label="知识库"
                 title="知识库"
               >
@@ -331,7 +355,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setActivePanel("skills")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
                 aria-label="技能管理"
                 title="技能管理"
               >
@@ -339,7 +363,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setActivePanel("settings")}
-                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
                 aria-label="模型配置"
                 title="模型配置"
               >
@@ -347,7 +371,7 @@ export default function App() {
               </button>
               <button
                 onClick={handleToggleTheme}
-                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
                 aria-label={`切换主题（当前：${themeMode === 'system' ? '跟随系统' : themeMode === 'dark' ? '深色' : '浅色'}）`}
                 title={`主题：${themeMode === 'system' ? '跟随系统' : themeMode === 'dark' ? '深色' : '浅色'}`}
               >
@@ -355,10 +379,10 @@ export default function App() {
               </button>
               <button
                 onClick={toggleWorkspacePanel}
-                className={`p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
+                className={`p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
                   workspacePanelOpen
                     ? "text-blue-600 bg-blue-50 dark:bg-blue-900/30 dark:text-blue-400"
-                    : "text-gray-500 dark:text-slate-400"
+                    : "text-slate-500 dark:text-slate-400"
                 }`}
                 aria-label={workspacePanelOpen ? "关闭工作区" : "打开工作区"}
                 title={workspacePanelOpen ? "关闭工作区" : "打开工作区"}
@@ -404,8 +428,8 @@ export default function App() {
                 )}
                 {wsStatusMeta.tone === "muted" && (
                   <>
-                    <WifiOff size={12} className="text-gray-400" />
-                    <span className="text-gray-500 hidden sm:inline">
+                    <WifiOff size={12} className="text-slate-400" />
+                    <span className="text-slate-500 hidden sm:inline">
                       {wsStatusMeta.label}
                     </span>
                   </>
@@ -443,7 +467,7 @@ export default function App() {
         {workspacePanelOpen && isDesktop && (
           <aside
             aria-label="工作区"
-            className="border-l border-gray-200 dark:border-slate-700 flex-shrink-0 flex flex-col relative bg-white dark:bg-slate-900"
+            className="border-l border-slate-200 dark:border-slate-700 flex-shrink-0 flex flex-col relative bg-white dark:bg-slate-900"
             style={{ width: `${workspacePanelWidth}px` }}
           >
             <div
@@ -517,6 +541,8 @@ export default function App() {
           </Suspense>
         )}
       </div>
+      {/* 全局确认对话框 */}
+      <ConfirmDialog />
     </ErrorBoundary>
   );
 }

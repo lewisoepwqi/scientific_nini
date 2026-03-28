@@ -7,6 +7,7 @@
  */
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useStore, type MemoryFile } from "../store";
+import { useConfirm } from "../store/confirm-store";
 import * as api from "../store/api-actions";
 import {
   Brain,
@@ -39,23 +40,23 @@ const MEMORY_TYPE_CONFIG: Record<
 > = {
   finding: {
     label: "发现",
-    badge: "bg-emerald-100 text-emerald-700 border-emerald-200",
-    dot: "bg-emerald-400",
+    badge: "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800",
+    dot: "bg-emerald-400 dark:bg-emerald-500",
   },
   statistic: {
     label: "统计",
-    badge: "bg-sky-100 text-sky-700 border-sky-200",
-    dot: "bg-sky-400",
+    badge: "bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-900/30 dark:text-sky-400 dark:border-sky-800",
+    dot: "bg-sky-400 dark:bg-sky-500",
   },
   decision: {
     label: "决策",
-    badge: "bg-violet-100 text-violet-700 border-violet-200",
-    dot: "bg-violet-400",
+    badge: "bg-violet-100 text-violet-700 border-violet-200 dark:bg-violet-900/30 dark:text-violet-400 dark:border-violet-800",
+    dot: "bg-violet-400 dark:bg-violet-500",
   },
   insight: {
     label: "洞察",
-    badge: "bg-amber-100 text-amber-700 border-amber-200",
-    dot: "bg-amber-400",
+    badge: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800",
+    dot: "bg-amber-400 dark:bg-amber-500",
   },
 };
 
@@ -110,7 +111,7 @@ function FileIcon({ type }: { type: MemoryFile["type"] }) {
     case "archive":
       return <Archive size={11} className="text-amber-400" />;
     default:
-      return <FileText size={11} className="text-gray-400 dark:text-slate-500" />;
+      return <FileText size={11} className="text-slate-400 dark:text-slate-500" />;
   }
 }
 
@@ -213,29 +214,29 @@ function MemoryFileItem({
   }, [refreshVersion, expanded, loadContent]);
 
   return (
-    <div className="border-b border-gray-100 dark:border-slate-700/50 last:border-b-0">
+    <div className="border-b border-slate-100 dark:border-slate-700/50 last:border-b-0">
       <button
         onClick={handleExpand}
         className="flex w-full items-center gap-1.5 px-2.5 py-2 text-[11px] transition-colors hover:bg-stone-50 dark:hover:bg-slate-700/50"
       >
         {expanded ? (
-          <ChevronDown size={10} className="flex-shrink-0 text-gray-400 dark:text-slate-500" />
+          <ChevronDown size={10} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
         ) : (
-          <ChevronRight size={10} className="flex-shrink-0 text-gray-400 dark:text-slate-500" />
+          <ChevronRight size={10} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
         )}
         <FileIcon type={file.type} />
-        <span className="flex-1 truncate text-left text-gray-700 dark:text-slate-300">{file.name}</span>
-        <span className="flex-shrink-0 text-[10px] text-gray-400 dark:text-slate-500">{formatBytes(file.size)}</span>
+        <span className="flex-1 truncate text-left text-slate-700 dark:text-slate-300">{file.name}</span>
+        <span className="flex-shrink-0 text-[10px] text-slate-400 dark:text-slate-500">{formatBytes(file.size)}</span>
       </button>
       {expanded && (
         <div className="px-2.5 pb-2">
-          <div className="mb-1 text-[10px] text-gray-400 dark:text-slate-500">{formatTime(file.modified_at)}</div>
+          <div className="mb-1 text-[10px] text-slate-400 dark:text-slate-500">{formatTime(file.modified_at)}</div>
           {loading ? (
-            <div className="animate-pulse text-[10px] text-gray-400 dark:text-slate-500">加载中…</div>
+            <div className="animate-pulse text-[10px] text-slate-400 dark:text-slate-500">加载中…</div>
           ) : content !== null ? (
             <>
               <pre
-                className="overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-stone-50 dark:bg-slate-800 p-2 font-mono text-[10px] text-gray-600 dark:text-slate-400"
+                className="overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-stone-50 dark:bg-slate-800 p-2 font-mono text-[10px] text-slate-600 dark:text-slate-400"
                 style={{ height: `${contentHeight}px` }}
               >
                 {content}
@@ -245,7 +246,7 @@ function MemoryFileItem({
                 className="group flex h-3 cursor-ns-resize items-center justify-center rounded-b transition-colors hover:bg-amber-50 dark:hover:bg-amber-900/20"
                 title="拖动调整内容区高度"
               >
-                <div className="h-0.5 w-6 rounded-full bg-gray-200 dark:bg-slate-600 transition-colors group-hover:bg-amber-400" />
+                <div className="h-0.5 w-6 rounded-full bg-slate-200 dark:bg-slate-600 transition-colors group-hover:bg-amber-400" />
               </div>
             </>
           ) : null}
@@ -265,18 +266,26 @@ function LtmCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const confirm = useConfirm();
   const cfg = MEMORY_TYPE_CONFIG[entry.memory_type] ?? {
     label: entry.memory_type,
-    badge: "bg-gray-100 text-gray-600 border-gray-200",
-    dot: "bg-gray-400",
+    badge: "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600",
+    dot: "bg-slate-400 dark:bg-slate-500",
+
   };
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm("确认删除此条长期记忆？")) return;
+    const ok = await confirm({
+      title: "删除长期记忆",
+      message: "确认删除此条长期记忆？此操作不可撤销。",
+      confirmText: "删除",
+      destructive: true,
+    });
+    if (!ok) return;
     setDeleting(true);
-    const ok = await api.deleteLongTermMemory(entry.id);
-    if (ok) {
+    const deleted = await api.deleteLongTermMemory(entry.id);
+    if (deleted) {
       onDelete(entry.id);
     } else {
       setDeleting(false);
@@ -291,11 +300,11 @@ function LtmCard({
         ? "bg-amber-400"
         : entry.importance_score >= 0.4
           ? "bg-sky-400"
-          : "bg-gray-300";
+          : "bg-slate-300";
 
   return (
     <div
-      className="group rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 transition-shadow hover:shadow-sm"
+      className="group rounded-xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 transition-shadow hover:shadow-sm"
       style={{ borderLeft: "3px solid transparent", borderLeftColor: undefined }}
     >
       <button
@@ -309,20 +318,20 @@ function LtmCard({
           >
             {cfg.label}
           </span>
-          <p className="flex-1 text-[11px] font-medium leading-snug text-gray-700 dark:text-slate-300">
+          <p className="flex-1 text-[11px] font-medium leading-snug text-slate-700 dark:text-slate-300">
             {entry.summary}
           </p>
         </div>
 
         <div className="flex items-center gap-2.5">
           {/* 重要性条 */}
-          <div className="h-1 w-16 overflow-hidden rounded-full bg-gray-100 dark:bg-slate-700">
+          <div className="h-1 w-16 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
             <div
               className={`h-full rounded-full transition-all ${importanceColor}`}
               style={{ width: `${Math.round(entry.importance_score * 100)}%` }}
             />
           </div>
-          <span className="font-mono text-[10px] text-gray-400 dark:text-slate-500">
+          <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">
             {Math.round(entry.importance_score * 100)}%
           </span>
 
@@ -334,7 +343,7 @@ function LtmCard({
           )}
 
           {/* 时间 */}
-          <span className="ml-auto flex-shrink-0 text-[10px] text-gray-400 dark:text-slate-500">
+          <span className="ml-auto flex-shrink-0 text-[10px] text-slate-400 dark:text-slate-500">
             {formatRelativeTime(entry.created_at)}
           </span>
         </div>
@@ -342,8 +351,8 @@ function LtmCard({
 
       {/* 展开详情 */}
       {expanded && (
-        <div className="border-t border-gray-100 dark:border-slate-700 px-3 py-2.5">
-          <p className="mb-2 whitespace-pre-wrap text-[11px] leading-relaxed text-gray-600 dark:text-slate-400">
+        <div className="border-t border-slate-100 dark:border-slate-700 px-3 py-2.5">
+          <p className="mb-2 whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
             {entry.content}
           </p>
           <div className="flex items-center justify-between">
@@ -435,7 +444,7 @@ function LongTermMemoryView({ visible }: { visible: boolean }) {
     <div className="flex flex-col gap-2">
       {/* 统计摘要 */}
       {stats && (
-        <div className="flex items-center gap-3 rounded-xl border border-gray-100 dark:border-slate-700 bg-stone-50 dark:bg-slate-800 px-3 py-2">
+        <div className="flex items-center gap-3 rounded-xl border border-slate-100 dark:border-slate-700 bg-stone-50 dark:bg-slate-800 px-3 py-2">
           <Sparkles size={12} className="flex-shrink-0 text-amber-400" />
           <span className="text-[10px] text-stone-500 dark:text-slate-400">
             共 <span className="font-semibold text-stone-700 dark:text-slate-300">{stats.total_memories}</span> 条长期记忆
@@ -455,15 +464,16 @@ function LongTermMemoryView({ visible }: { visible: boolean }) {
       )}
 
       {/* 搜索框 */}
-      <div className="flex items-center gap-1.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5">
-        <Search size={11} className="flex-shrink-0 text-gray-400 dark:text-slate-500" />
+      <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5">
+        <Search size={11} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
         <input
           type="text"
           placeholder="搜索记忆内容…"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-          className="flex-1 bg-transparent text-[11px] text-gray-700 dark:text-slate-300 placeholder-gray-300 dark:placeholder-slate-600 focus:outline-none"
+          aria-label="搜索记忆"
+          className="flex-1 bg-transparent text-[11px] text-slate-700 dark:text-slate-300 placeholder-slate-300 dark:placeholder-slate-600 focus:outline-none"
         />
         {searchInput && (
           <button
@@ -471,7 +481,8 @@ function LongTermMemoryView({ visible }: { visible: boolean }) {
               setSearchInput("");
               setSearchQuery("");
             }}
-            className="text-gray-300 dark:text-slate-600 hover:text-gray-500 dark:hover:text-slate-400"
+            className="text-slate-300 dark:text-slate-600 hover:text-slate-500 dark:hover:text-slate-400"
+            aria-label="清除搜索"
           >
             ×
           </button>
@@ -480,7 +491,7 @@ function LongTermMemoryView({ visible }: { visible: boolean }) {
 
       {/* 类型筛选 */}
       <div className="flex gap-1 overflow-x-auto pb-0.5">
-        <Filter size={11} className="mt-1 flex-shrink-0 text-gray-400 dark:text-slate-500" />
+        <Filter size={11} className="mt-1 flex-shrink-0 text-slate-400 dark:text-slate-500" />
         {TYPES.map((t) => {
           const cfg = MEMORY_TYPE_CONFIG[t];
           return (
@@ -490,7 +501,7 @@ function LongTermMemoryView({ visible }: { visible: boolean }) {
               className={`flex-shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-all ${
                 filterType === t
                   ? (cfg?.badge ?? "bg-stone-200 text-stone-600 border-stone-300")
-                  : "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 hover:border-gray-300 dark:hover:border-slate-600"
+                  : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-600"
               }`}
             >
               {cfg?.label ?? "全部"}
@@ -503,13 +514,13 @@ function LongTermMemoryView({ visible }: { visible: boolean }) {
       {loading ? (
         <div className="flex items-center justify-center py-6">
           <RefreshCw size={14} className="animate-spin text-amber-400" />
-          <span className="ml-2 text-[11px] text-gray-400 dark:text-slate-500">加载中…</span>
+          <span className="ml-2 text-[11px] text-slate-400 dark:text-slate-500">加载中…</span>
         </div>
       ) : entries.length === 0 ? (
-        <div className="py-6 text-center text-[11px] text-gray-400 dark:text-slate-500">
+        <div className="py-6 text-center text-[11px] text-slate-400 dark:text-slate-500">
           {searchQuery ? "未找到匹配的记忆" : "暂无长期记忆"}
           {!searchQuery && (
-            <p className="mt-1 text-[10px] text-gray-300 dark:text-slate-600">完成分析后系统将自动提取关键发现</p>
+            <p className="mt-1 text-[10px] text-slate-300 dark:text-slate-600">完成分析后系统将自动提取关键发现</p>
           )}
         </div>
       ) : (
@@ -526,7 +537,7 @@ function LongTermMemoryView({ visible }: { visible: boolean }) {
           loadedRef.current = false;
           void load(searchQuery);
         }}
-        className="mx-auto flex items-center gap-1 text-[10px] text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300"
+        className="mx-auto flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
       >
         <RefreshCw size={10} />
         刷新
@@ -673,10 +684,10 @@ export default function MemoryPanel() {
       ? "text-red-500"
       : contextTokens !== null && contextTokens > 40000
         ? "text-amber-500"
-        : "text-gray-400 dark:text-slate-500";
+        : "text-slate-400 dark:text-slate-500";
 
   return (
-    <div className="flex flex-shrink-0 flex-col border-t border-gray-200 dark:border-slate-700">
+    <div className="flex flex-shrink-0 flex-col border-t border-slate-200 dark:border-slate-700">
       {/* 上沿拖动条 */}
       {!collapsed && (
         <div
@@ -684,14 +695,14 @@ export default function MemoryPanel() {
           className="group flex h-1.5 flex-shrink-0 cursor-ns-resize items-center justify-center transition-colors hover:bg-amber-50 dark:hover:bg-amber-900/20"
           title="拖动调整记忆面板高度"
         >
-          <div className="h-0.5 w-8 rounded-full bg-gray-300 dark:bg-slate-600 transition-colors group-hover:bg-amber-400" />
+          <div className="h-0.5 w-8 rounded-full bg-slate-300 dark:bg-slate-600 transition-colors group-hover:bg-amber-400" />
         </div>
       )}
 
       {/* 标题栏 */}
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="flex w-full flex-shrink-0 items-center gap-2 px-4 py-2 text-xs font-medium text-gray-500 dark:text-slate-400 transition-colors hover:bg-gray-50 dark:hover:bg-slate-800"
+        className="flex w-full flex-shrink-0 items-center gap-2 px-4 py-2 text-xs font-medium text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800"
       >
         <Brain size={13} className="text-violet-400" />
         <span>记忆状态</span>
@@ -715,13 +726,13 @@ export default function MemoryPanel() {
           style={{ height: `${panelHeight}px` }}
         >
           {/* Tab 导航 */}
-          <div className="flex flex-shrink-0 border-b border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800">
+          <div className="flex flex-shrink-0 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
             <button
               onClick={() => setActiveTab("session")}
               className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-colors ${
                 activeTab === "session"
                   ? "border-b-2 border-violet-400 text-violet-600 bg-white dark:bg-slate-900"
-                  : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
               }`}
             >
               <Database size={11} />
@@ -732,7 +743,7 @@ export default function MemoryPanel() {
               className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-colors ${
                 activeTab === "longterm"
                   ? "border-b-2 border-amber-400 text-amber-600 bg-white dark:bg-slate-900"
-                  : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
               }`}
             >
               <Sparkles size={11} />
@@ -746,17 +757,18 @@ export default function MemoryPanel() {
               <div className="flex flex-shrink-0 items-center justify-end py-1">
                 <button
                   onClick={() => void handleRefresh()}
-                  className="rounded p-2 text-gray-400 dark:text-slate-500 hover:bg-gray-100 dark:hover:bg-slate-700"
+                  className="rounded p-2 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
                   title="刷新"
+                  aria-label="刷新记忆"
                 >
                   <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
                 </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto">
                 {memoryFiles.length === 0 ? (
-                  <div className="py-4 text-center text-[10px] text-gray-400 dark:text-slate-500">暂无记忆文件</div>
+                  <div className="py-4 text-center text-[10px] text-slate-400 dark:text-slate-500">暂无记忆文件</div>
                 ) : (
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-900">
+                  <div className="rounded-xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-900">
                     {memoryFiles.map((file) => (
                       <MemoryFileItem
                         key={file.name}

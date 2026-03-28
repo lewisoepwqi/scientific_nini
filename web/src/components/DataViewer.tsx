@@ -1,6 +1,7 @@
 /**
  * 数据表预览组件。
  */
+import React from 'react'
 import type { DataPreviewPayload } from '../store/types'
 import { isRecord } from '../store/utils'
 
@@ -37,7 +38,7 @@ function formatCell(value: unknown): string {
   return JSON.stringify(value)
 }
 
-export default function DataViewer({ preview }: Props) {
+const DataViewer = React.memo(function DataViewer({ preview }: Props) {
   if (!isRecord(preview)) {
     return <div className="text-xs text-red-500 mt-2">数据预览格式无效</div>
   }
@@ -52,19 +53,19 @@ export default function DataViewer({ preview }: Props) {
   const columns = getColumns(preview, visibleRows)
 
   if (visibleRows.length === 0 || columns.length === 0) {
-    return <div className="text-xs text-gray-500 mt-2">没有可展示的数据行</div>
+    return <div className="text-xs text-slate-600 dark:text-slate-400 mt-2">没有可展示的数据行</div>
   }
 
   const totalRows = typeof preview.total_rows === 'number' ? preview.total_rows : rows.length
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 mt-2 overflow-hidden">
-      <div className="px-3 py-2 text-xs text-gray-500 dark:text-slate-400 border-b dark:border-slate-700 bg-gray-50 dark:bg-slate-800/80">
+    <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 mt-2 overflow-hidden">
+      <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400 border-b dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80">
         预览 {previewRows} / {totalRows} 行
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs">
-          <thead className="bg-gray-50 dark:bg-slate-800/80 text-gray-600 dark:text-slate-300">
+          <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300">
             <tr>
               {columns.map((column) => (
                 <th key={column} className="px-3 py-2 text-left font-semibold border-b dark:border-slate-700 whitespace-nowrap">
@@ -75,7 +76,7 @@ export default function DataViewer({ preview }: Props) {
           </thead>
           <tbody>
             {visibleRows.map((row, idx) => (
-              <tr key={`row-${idx}`} className="odd:bg-white dark:odd:bg-slate-800 even:bg-gray-50 dark:even:bg-slate-800/80">
+              <tr key={`row-${idx}`} className="odd:bg-white dark:odd:bg-slate-800 even:bg-slate-50 dark:even:bg-slate-800/80">
                 {columns.map((column) => (
                   <td key={`${idx}-${column}`} className="px-3 py-2 border-b dark:border-slate-700 align-top whitespace-nowrap">
                     {formatCell(row[column])}
@@ -88,4 +89,6 @@ export default function DataViewer({ preview }: Props) {
       </div>
     </div>
   )
-}
+})
+
+export default DataViewer

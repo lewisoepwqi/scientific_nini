@@ -39,15 +39,15 @@ function statusLabel(status: PlanStepStatus): string {
 function statusBadgeClass(status: PlanStepStatus): string {
   switch (status) {
     case "in_progress":
-      return "bg-blue-100 text-blue-700 border-blue-200";
+      return "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800";
     case "done":
-      return "bg-emerald-100 text-emerald-700 border-emerald-200";
+      return "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800";
     case "blocked":
-      return "bg-amber-100 text-amber-800 border-amber-200";
+      return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800";
     case "failed":
-      return "bg-red-100 text-red-700 border-red-200";
+      return "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800";
     default:
-      return "bg-slate-100 text-slate-700 border-slate-200";
+      return "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600";
   }
 }
 
@@ -179,7 +179,7 @@ function AnalysisPlanContent({
   return (
     <div className="h-full flex flex-col">
       {/* 头部信息 */}
-      <div className="px-3 py-3 border-b dark:border-slate-700 bg-gradient-to-b from-slate-50 dark:from-slate-800 to-white dark:to-slate-900">
+      <header className="px-3 py-3 border-b dark:border-slate-700 bg-gradient-to-b from-slate-50 dark:from-slate-800 to-white dark:to-slate-900">
         <div className="flex items-center gap-2 text-sm">
           <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
             <Sparkles size={13} />
@@ -201,7 +201,7 @@ function AnalysisPlanContent({
             {blockReason}
           </p>
         )}
-      </div>
+      </header>
 
       <HarnessDiagnostics
         runContext={runContext}
@@ -217,18 +217,18 @@ function AnalysisPlanContent({
           </span>
           <span>当前步骤高亮显示</span>
         </div>
-        <ul className="space-y-1.5">
+        <ul className="space-y-1.5" role="list" aria-live="polite">
           {plan.steps.map((step) => {
             const isCurrent = step.id === safeCurrentIndex;
             const itemClass = isCurrent
               ? "border-blue-200 bg-blue-50/70 text-blue-900"
               : step.status === "done"
-                ? "border-emerald-200 bg-emerald-50/60 text-emerald-900"
+                ? "border-red-200 bg-red-50/60 text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200"
                 : step.status === "failed"
-                  ? "border-red-200 bg-red-50/60 text-red-900"
+                  ? "border-red-200 bg-red-50/60 text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"
                   : step.status === "blocked"
-                    ? "border-amber-200 bg-amber-50/60 text-amber-900"
-                    : "border-slate-200 bg-slate-50 text-slate-700";
+                    ? "border-amber-200 bg-amber-50/60 text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+                    : "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300";
 
             return (
               <li
@@ -262,7 +262,7 @@ function HistoryTasksContent({ tasks }: { tasks: AnalysisTaskItem[] }) {
   return (
     <div className="h-full flex flex-col">
       {/* 头部信息 */}
-      <div className="px-3 py-3 border-b dark:border-slate-700 bg-gradient-to-b from-slate-50 dark:from-slate-800 to-white dark:to-slate-900">
+      <header className="px-3 py-3 border-b dark:border-slate-700 bg-gradient-to-b from-slate-50 dark:from-slate-800 to-white dark:to-slate-900">
         <div className="flex items-center gap-2 text-sm">
           <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
             <History size={13} />
@@ -275,9 +275,7 @@ function HistoryTasksContent({ tasks }: { tasks: AnalysisTaskItem[] }) {
         <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
           已完成 {completedCount} / {tasks.length} 个任务
         </p>
-      </div>
-
-      {/* 任务列表 */}
+      </header>
       <div className="flex-1 overflow-y-auto px-3 py-3">
         <ul className="space-y-1.5">
           {tasks.map((task, index) => {
@@ -356,7 +354,7 @@ export default function AnalysisTasksPanel() {
 
   // 没有任何任务时显示空状态
   return (
-    <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-slate-500 text-xs px-4">
+    <div className="h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 text-xs px-4">
       <Circle size={20} className="mb-2 opacity-50" />
       <p>暂无分析任务</p>
       <p className="text-[10px] mt-1">生成分析计划后会在这里展示任务进度</p>

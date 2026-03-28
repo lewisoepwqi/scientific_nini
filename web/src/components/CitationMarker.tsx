@@ -53,19 +53,19 @@ export default React.memo(function CitationMarker({
   // 计算可信度标签
   const credibilityLabel = (() => {
     if (!retrieval?.score) return null;
-    if (retrieval.score >= 0.8) return { text: "高可信度", color: "text-emerald-600 bg-emerald-50" };
-    if (retrieval.score >= 0.6) return { text: "一般参考", color: "text-amber-600 bg-amber-50" };
-    return { text: "参考", color: "text-slate-500 bg-slate-100" };
+    if (retrieval.score >= 0.8) return { text: "高可信度", color: "text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-900/20" };
+    if (retrieval.score >= 0.6) return { text: "一般参考", color: "text-amber-600 bg-amber-50 dark:text-amber-400 dark:bg-amber-900/20" };
+    return { text: "参考", color: "text-slate-500 bg-slate-100 dark:text-slate-400 dark:bg-slate-800" };
   })();
   const verificationLabel = (() => {
     if (!retrieval?.verificationStatus) return null;
     if (retrieval.verificationStatus === "verified") {
-      return { text: "已验证", color: "text-emerald-700 bg-emerald-50" };
+      return { text: "已验证", color: "text-emerald-700 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-900/20" };
     }
     if (retrieval.verificationStatus === "conflicted") {
-      return { text: "证据冲突", color: "text-rose-700 bg-rose-50" };
+      return { text: "证据冲突", color: "text-rose-700 bg-rose-50 dark:text-rose-400 dark:bg-rose-900/20" };
     }
-    return { text: "待验证", color: "text-amber-700 bg-amber-50" };
+    return { text: "待验证", color: "text-amber-700 bg-amber-50 dark:text-amber-400 dark:bg-amber-900/20" };
   })();
 
   return (
@@ -171,7 +171,7 @@ export default React.memo(function CitationMarker({
 // 辅助函数：计算可信度标签
 export function getCredibilityLabel(score?: number): { text: string; color: string } | null {
   if (score === undefined || score === null) return null;
-  if (score >= 0.8) return { text: "高可信度", color: "text-emerald-600 bg-emerald-50 border-emerald-200" };
-  if (score >= 0.6) return { text: "一般参考", color: "text-amber-600 bg-amber-50 border-amber-200" };
-  return { text: "参考", color: "text-slate-500 bg-slate-100 border-slate-200" };
+  if (score >= 0.8) return { text: "高可信度", color: "text-emerald-600 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-900/20 dark:border-emerald-800" };
+  if (score >= 0.6) return { text: "一般参考", color: "text-amber-600 bg-amber-50 border-amber-200 dark:text-amber-400 dark:bg-amber-900/20 dark:border-amber-800" };
+  return { text: "参考", color: "text-slate-500 bg-slate-100 border-slate-200 dark:text-slate-400 dark:bg-slate-800 dark:border-slate-600" };
 }

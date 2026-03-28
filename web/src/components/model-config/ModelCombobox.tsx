@@ -103,7 +103,7 @@ export default function ModelCombobox({
   return (
     <div className="relative" ref={wrapperRef}>
       <div className="relative">
-        <Search size={iconSize} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500" />
+        <Search size={iconSize} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
         <input
           ref={inputRef}
           type="text"
@@ -118,21 +118,21 @@ export default function ModelCombobox({
         <button
           type="button"
           onClick={() => setDropdownOpen(!dropdownOpen)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
         >
           <ChevronDown size={iconSize} className={`transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
         </button>
       </div>
 
       {dropdownOpen && (
-        <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+        <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-48 overflow-y-auto">
           {remote.loading ? (
-            <div className="flex items-center gap-2 px-3 py-3 text-xs text-gray-400 dark:text-slate-500">
+            <div className="flex items-center gap-2 px-3 py-3 text-xs text-slate-400 dark:text-slate-500">
               <Loader2 size={12} className="animate-spin" />
               正在获取模型列表...
             </div>
           ) : filtered.length === 0 ? (
-            <div className="px-3 py-3 text-xs text-gray-400 dark:text-slate-500">
+            <div className="px-3 py-3 text-xs text-slate-400 dark:text-slate-500">
               {query ? (
                 <span>
                   无匹配结果，按 Enter 使用自定义模型：
@@ -158,7 +158,7 @@ export default function ModelCombobox({
                   type="button"
                   onClick={() => handleSelect(m)}
                   className={`w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors ${
-                    m === value ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-slate-300'
+                    m === value ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300'
                   }`}
                 >
                   {m}

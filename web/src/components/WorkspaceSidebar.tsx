@@ -130,7 +130,7 @@ export default function WorkspaceSidebar() {
 
   if (!sessionId) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-slate-500 text-xs px-4">
+      <div className="h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 text-xs px-4">
         <FolderOpen size={24} className="mb-2 opacity-50" />
         <p>请先选择或创建会话</p>
       </div>
@@ -140,14 +140,15 @@ export default function WorkspaceSidebar() {
   return (
     <div className="h-full flex flex-col bg-white dark:bg-slate-900" onDragOver={handleDragOver} onDrop={handleDrop}>
       {/* 头部 */}
-      <div className="flex items-center justify-between px-3 py-2 border-b dark:border-slate-700 flex-shrink-0">
-        <span className="text-xs font-medium text-gray-600 dark:text-slate-300">工作区</span>
+      <header className="flex items-center justify-between px-3 py-2 border-b dark:border-slate-700 flex-shrink-0">
+        <span className="text-xs font-medium text-slate-600 dark:text-slate-300">工作区</span>
         <div className="flex items-center gap-2">
           <button
             onClick={handleDownloadAllFiles}
             disabled={downloadingAll || workspaceFiles.length === 0}
-            className="p-2 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 dark:text-slate-500"
+            className="p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 dark:text-slate-500"
             title="下载全部文件"
+            aria-label="下载全部文件"
           >
             {downloadingAll ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
           </button>
@@ -156,22 +157,22 @@ export default function WorkspaceSidebar() {
               fetchWorkspaceFiles()
               fetchDatasets()
             }}
-            className="p-2 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 dark:text-slate-500"
+            className="p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 dark:text-slate-500"
             title="刷新"
+            aria-label="刷新工作区"
           >
             <RefreshCw size={12} />
           </button>
           <button
             onClick={toggleWorkspacePanel}
-            className="p-2 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 dark:text-slate-500 md:hidden"
+            className="p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 dark:text-slate-500 md:hidden"
             title="关闭面板"
+            aria-label="关闭面板"
           >
             <X size={14} />
           </button>
         </div>
-      </div>
-
-      {/* 上传进度 */}
+      </header>
       {isUploading && (
         <div className="px-3 py-2 border-b dark:border-slate-700 bg-emerald-50 dark:bg-emerald-900/20 flex-shrink-0">
           <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-400 mb-1">
@@ -212,7 +213,7 @@ export default function WorkspaceSidebar() {
           } items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
             workspacePanelTab === 'files' && !previewFileId
               ? 'text-blue-600 border-b-2 border-blue-600'
-              : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
           }`}
         >
           <FolderOpen size={13} />
@@ -228,7 +229,7 @@ export default function WorkspaceSidebar() {
           } items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
             workspacePanelTab === 'executions' && !previewFileId
               ? 'text-blue-600 border-b-2 border-blue-600'
-              : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
           }`}
         >
           <Terminal size={13} />
@@ -244,7 +245,7 @@ export default function WorkspaceSidebar() {
           } items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
             workspacePanelTab === 'tasks' && !previewFileId
               ? 'text-blue-600 border-b-2 border-blue-600'
-              : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
           }`}
         >
           <ListChecks size={13} />
@@ -262,7 +263,7 @@ export default function WorkspaceSidebar() {
             className={`inline-flex shrink-0 items-center gap-1 px-2 py-2 text-xs border-l dark:border-slate-700 whitespace-nowrap transition-colors ${
               previewFileId === id
                 ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/20 border-b-2 border-blue-600'
-                : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
             }`}
           >
             <span className="max-w-[120px] truncate" title={previewTabNames[id] || id}>
@@ -282,7 +283,7 @@ export default function WorkspaceSidebar() {
                   closePreview(id)
                 }
               }}
-              className="shrink-0 p-1 rounded hover:bg-gray-200 dark:hover:bg-slate-600"
+              className="shrink-0 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600"
               title="关闭标签"
             >
               <X size={14} />
@@ -302,19 +303,19 @@ export default function WorkspaceSidebar() {
             {/* 搜索框 + 视图切换 */}
             <div className="px-2 py-2 flex-shrink-0 flex items-center gap-1.5">
               <div className="relative flex-1">
-                <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500" />
+                <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
                 <input
                   name="workspace-file-search"
                   autoComplete="off"
                   value={fileSearchQuery}
                   onChange={(e) => setFileSearchQuery(e.target.value)}
                   placeholder="搜索文件..."
-                  className="w-full pl-7 pr-7 py-1.5 text-xs rounded-md border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400"
+                  className="w-full pl-7 pr-7 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400"
                 />
                 {fileSearchQuery && (
                   <button
                     onClick={() => setFileSearchQuery('')}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
                   >
                     <X size={12} />
                   </button>
@@ -326,8 +327,8 @@ export default function WorkspaceSidebar() {
                   const idx = modes.indexOf(viewMode)
                   setViewMode(modes[(idx + 1) % modes.length])
                 }}
-                className={`p-2 rounded hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors ${
-                  viewMode !== 'list' ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/20' : 'text-gray-400 dark:text-slate-500'
+                className={`p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors ${
+                  viewMode !== 'list' ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/20' : 'text-slate-400 dark:text-slate-500'
                 }`}
                 title={
                   viewMode === 'list' ? '切换到目录树视图' :
@@ -343,7 +344,7 @@ export default function WorkspaceSidebar() {
             <div className="flex-1 overflow-y-auto px-1">
               {viewMode === 'list' ? (
                 filteredFiles.length === 0 ? (
-                  <div className="text-center text-xs text-gray-400 dark:text-slate-500 py-8">
+                  <div className="text-center text-xs text-slate-400 dark:text-slate-500 py-8">
                     {fileSearchQuery ? '没有匹配的文件' : '暂无文件'}
                   </div>
                 ) : (
@@ -361,7 +362,7 @@ export default function WorkspaceSidebar() {
             </div>
 
             {/* 文件统计 */}
-            <div className="px-3 py-1.5 border-t dark:border-slate-700 text-[10px] text-gray-400 dark:text-slate-500 flex-shrink-0">
+            <div className="px-3 py-1.5 border-t dark:border-slate-700 text-[10px] text-slate-400 dark:text-slate-500 flex-shrink-0">
               共 {workspaceFiles.length} 个文件
               {fileSearchQuery && ` · 显示 ${filteredFiles.length} 个`}
             </div>

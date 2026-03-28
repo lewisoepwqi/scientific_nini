@@ -71,7 +71,7 @@ export default function ProviderCombobox({
       <div className="relative">
         <Search
           size={12}
-          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500"
+          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"
         />
         <input
           type="text"
@@ -100,7 +100,7 @@ export default function ProviderCombobox({
         <button
           type="button"
           onClick={() => !disabled && setDropdownOpen(!dropdownOpen)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 disabled:opacity-50"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 disabled:opacity-50"
           disabled={disabled}
         >
           <ChevronDown
@@ -111,18 +111,18 @@ export default function ProviderCombobox({
       </div>
 
       {dropdownOpen && (
-        <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+        <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-48 overflow-y-auto">
           <button
             type="button"
             onClick={() => pickProvider("")}
             className={`w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors ${
-              !value ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 font-medium" : "text-gray-700 dark:text-slate-300"
+              !value ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 font-medium" : "text-slate-700 dark:text-slate-300"
             }`}
           >
             自动（按优先级）
           </button>
           {filtered.length === 0 ? (
-            <div className="px-3 py-3 text-xs text-gray-400 dark:text-slate-500">无匹配提供商</div>
+            <div className="px-3 py-3 text-xs text-slate-400 dark:text-slate-500">无匹配提供商</div>
           ) : (
             filtered.map((item) => (
               <button
@@ -132,7 +132,7 @@ export default function ProviderCombobox({
                 className={`w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors ${
                   item.id === value
                     ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 font-medium"
-                    : "text-gray-700 dark:text-slate-300"
+                    : "text-slate-700 dark:text-slate-300"
                 }`}
               >
                 {item.name}

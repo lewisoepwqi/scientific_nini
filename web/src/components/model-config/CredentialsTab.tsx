@@ -249,7 +249,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
 
   if (modelProvidersLoading && modelProviders.length === 0) {
     return (
-      <div className="flex items-center justify-center py-16 text-gray-400 dark:text-slate-500">
+      <div className="flex items-center justify-center py-16 text-slate-400 dark:text-slate-500">
         <Loader2 size={20} className="animate-spin mr-2" />
         加载中...
       </div>
@@ -271,12 +271,12 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
   return (
     <div className="space-y-4">
       {/* 搜索与过滤 */}
-      <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-3">
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
           <div className="relative md:col-span-3">
             <Search
               size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"
             />
             <input
               value={providerQuery}
@@ -295,10 +295,10 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
             </button>
             <ChevronDown
               size={14}
-              className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 pointer-events-none transition-transform ${filterDropdownOpen ? "rotate-180" : ""}`}
+              className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none transition-transform ${filterDropdownOpen ? "rotate-180" : ""}`}
             />
             {filterDropdownOpen && (
-              <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg overflow-hidden">
+              <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg overflow-hidden">
                 {FILTER_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
@@ -310,7 +310,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                     className={`w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors ${
                       opt.value === providerFilter
                         ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400 font-medium"
-                        : "text-gray-700 dark:text-slate-300"
+                        : "text-slate-700 dark:text-slate-300"
                     }`}
                   >
                     {opt.label}
@@ -320,14 +320,14 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
             )}
           </div>
         </div>
-        <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-2">
+        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-2">
           显示 {visibleProviders.length} / {modelProviders.length} 个提供商
         </div>
       </div>
 
       {/* 提供商列表 */}
       {visibleProviders.length === 0 ? (
-        <div className="text-center py-16 text-sm text-gray-400 dark:text-slate-500">
+        <div className="text-center py-16 text-sm text-slate-400 dark:text-slate-500">
           没有匹配的提供商
         </div>
       ) : (
@@ -344,7 +344,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
               className={`rounded-xl border p-4 transition-colors ${
                 p.configured
                   ? "border-emerald-200 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-900/20"
-                  : "border-gray-200 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/60"
+                  : "border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/60"
               }`}
             >
               <div
@@ -360,29 +360,29 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                   ) : (
                     <XCircle
                       size={18}
-                      className="text-gray-400 dark:text-slate-600 flex-shrink-0"
+                      className="text-slate-400 dark:text-slate-600 flex-shrink-0"
                     />
                   )}
                   <div className="min-w-0">
-                    <div className="font-medium text-gray-800 dark:text-slate-200 truncate">
+                    <div className="font-medium text-slate-800 dark:text-slate-200 truncate">
                       {p.name}
                     </div>
-                    <div className="text-xs text-gray-500 dark:text-slate-400 mt-0.5 truncate">
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
                       {p.api_key_hint ? `Key: ${p.api_key_hint}` : "未配置密钥"}
                     </div>
                     <div className="flex items-center gap-1.5 mt-1">
-                      <span className="px-1.5 py-0.5 rounded bg-white/80 dark:bg-slate-800/80 border dark:border-slate-600 text-[10px] text-gray-500 dark:text-slate-400">
+                      <span className="px-1.5 py-0.5 rounded bg-white/80 dark:bg-slate-800/80 border dark:border-slate-600 text-[10px] text-slate-500 dark:text-slate-400">
                         {sourceLabel(p.config_source)}
                       </span>
                       {p.api_mode && (
-                        <span className="px-1.5 py-0.5 rounded bg-white/80 dark:bg-slate-800/80 border dark:border-slate-600 text-[10px] text-gray-500 dark:text-slate-400">
+                        <span className="px-1.5 py-0.5 rounded bg-white/80 dark:bg-slate-800/80 border dark:border-slate-600 text-[10px] text-slate-500 dark:text-slate-400">
                           {apiModeLabel(p.api_mode)}
                         </span>
                       )}
                     </div>
                   </div>
                 </div>
-                <div className="text-gray-400 dark:text-slate-500">
+                <div className="text-slate-400 dark:text-slate-500">
                   {isExpanded ? (
                     <span className="text-xs">▲</span>
                   ) : (
@@ -392,7 +392,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
               </div>
 
               {isExpanded && (
-                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-slate-700 space-y-3">
+                <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700 space-y-3">
                   {isEditing ? (
                     <div className="space-y-2">
                       {/* 防 autocomplete 的隐藏字段 */}
@@ -417,7 +417,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
 
                       {p.id !== "ollama" && (
                         <div>
-                          <label className="text-xs text-gray-500 dark:text-slate-400 mb-1 block">
+                          <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">
                             API Key
                           </label>
                           <input
@@ -441,7 +441,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                         </div>
                       )}
                       <div>
-                        <label className="text-xs text-gray-500 dark:text-slate-400 mb-1 block">
+                        <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">
                           Base URL（可选）
                         </label>
                         <input
@@ -474,7 +474,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                         </button>
                         <button
                           onClick={cancelEdit}
-                          className="px-4 py-1.5 text-xs rounded-lg border dark:border-slate-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                          className="px-4 py-1.5 text-xs rounded-lg border dark:border-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
                         >
                           取消
                         </button>
@@ -486,15 +486,15 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                         当前配置已锁定，如需修改模式或密钥，请先移除后重新配置。
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                        <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2">
-                          <div className="text-gray-400 dark:text-slate-500">Base URL</div>
-                          <div className="text-gray-700 dark:text-slate-300 mt-1 break-all">
+                        <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2">
+                          <div className="text-slate-400 dark:text-slate-500">Base URL</div>
+                          <div className="text-slate-700 dark:text-slate-300 mt-1 break-all">
                             {p.base_url || "默认端点"}
                           </div>
                         </div>
-                        <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2">
-                          <div className="text-gray-400 dark:text-slate-500">当前模式</div>
-                          <div className="text-gray-700 dark:text-slate-300 mt-1">
+                        <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2">
+                          <div className="text-slate-400 dark:text-slate-500">当前模式</div>
+                          <div className="text-slate-700 dark:text-slate-300 mt-1">
                             {apiModeLabel(p.api_mode)}
                           </div>
                         </div>
@@ -531,17 +531,17 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
                   ) : (
                     <>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                        <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2">
-                          <div className="text-gray-400 dark:text-slate-500">Base URL</div>
-                          <div className="text-gray-700 dark:text-slate-300 mt-1 break-all">
+                        <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2">
+                          <div className="text-slate-400 dark:text-slate-500">Base URL</div>
+                          <div className="text-slate-700 dark:text-slate-300 mt-1 break-all">
                             {p.base_url || "默认端点"}
                           </div>
                         </div>
-                        <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2">
-                          <div className="text-gray-400 dark:text-slate-500">可选模型</div>
-                          <div className="text-gray-700 dark:text-slate-300 mt-1">
+                        <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2">
+                          <div className="text-slate-400 dark:text-slate-500">可选模型</div>
+                          <div className="text-slate-700 dark:text-slate-300 mt-1">
                             {dynamicModelCounts[p.id]?.loading ? (
-                              <span className="inline-flex items-center gap-1 text-gray-400 dark:text-slate-500">
+                              <span className="inline-flex items-center gap-1 text-slate-400 dark:text-slate-500">
                                 <Loader2 size={10} className="animate-spin" />
                                 获取中
                               </span>

@@ -159,13 +159,14 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
                     screen === "configure" ? "select-provider" : "status"
                   )
                 }
-                className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400 mr-1"
+                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 mr-1"
+                aria-label="返回"
               >
                 <ArrowLeft size={16} />
               </button>
             )}
             <Bot size={18} className="text-blue-600" />
-            <h2 className="text-base font-semibold text-gray-800 dark:text-slate-200">
+            <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200">
               {screen === "status" && "AI 设置"}
               {screen === "select-provider" && "选择服务商"}
               {screen === "configure" &&
@@ -174,7 +175,8 @@ export default function ModelConfigPanel({ open, onClose }: Props) {
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400"
+            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
+            aria-label="关闭"
           >
             <X size={18} />
           </button>
@@ -225,7 +227,7 @@ function UsageBar({
   return (
     <div className="space-y-0.5">
       <div className="flex justify-between text-[11px]">
-        <span className={isExhausted ? "text-red-500 font-medium" : "text-gray-500 dark:text-slate-400"}>
+        <span className={isExhausted ? "text-red-500 font-medium" : "text-slate-500 dark:text-slate-400"}>
           {label}
         </span>
         <span
@@ -234,13 +236,13 @@ function UsageBar({
               ? "text-red-500 font-medium"
               : isWarning
               ? "text-amber-600"
-              : "text-gray-400 dark:text-slate-500"
+              : "text-slate-400 dark:text-slate-500"
           }
         >
           {used} / {limit}
         </span>
       </div>
-      <div className="h-1.5 rounded-full bg-gray-200 dark:bg-slate-700 overflow-hidden">
+      <div className="h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
         <div
           className={`h-full rounded-full transition-all ${
             isExhausted
@@ -293,19 +295,19 @@ function StatusScreen({
               size={16}
               className={anyExhausted ? "text-amber-500" : "text-blue-500"}
             />
-            <span className="text-sm font-medium text-gray-800 dark:text-slate-200">系统内置</span>
+            <span className="text-sm font-medium text-slate-800 dark:text-slate-200">系统内置</span>
             <span
               className={`text-[10px] px-1.5 py-0.5 rounded-full ${
                 anyExhausted
-                  ? "bg-amber-100 text-amber-700"
-                  : "bg-blue-100 text-blue-700"
+                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                  : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
               }`}
             >
               当前使用
             </span>
           </div>
-          <div className="text-xs text-gray-500 dark:text-slate-400 mb-3">
-            模式：<span className="text-gray-700 dark:text-slate-300">{activeModel?.model ?? "快速"}</span>
+          <div className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+            模式：<span className="text-slate-700 dark:text-slate-300">{activeModel?.model ?? "快速"}</span>
           </div>
           {builtinUsage && (
             <div className="space-y-2">
@@ -329,12 +331,12 @@ function StatusScreen({
         </div>
         <button
           onClick={onSwitch}
-          className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl border hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors text-sm text-gray-600 dark:text-slate-400"
+          className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl border hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-sm text-slate-600 dark:text-slate-400"
         >
           配置自己的密钥 / 切换服务商
-          <ChevronRight size={16} className="text-gray-400 dark:text-slate-500" />
+          <ChevronRight size={16} className="text-slate-400 dark:text-slate-500" />
         </button>
-        <div className="text-xs text-gray-400 dark:text-slate-500 text-center">
+        <div className="text-xs text-slate-400 dark:text-slate-500 text-center">
           {providers.filter((p) => p.configured).length > 0
             ? `共 ${providers.filter((p) => p.configured).length} 个自有供应商已配置`
             : "支持 DeepSeek · 智谱 GLM · 通义千问 · 本地 Ollama"}
@@ -350,29 +352,29 @@ function StatusScreen({
         <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
           <div className="flex items-center gap-2 mb-3">
             <CheckCircle2 size={16} className="text-emerald-500" />
-            <span className="text-sm font-medium text-gray-800 dark:text-slate-200">
+            <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
               {activeProvider.name}
             </span>
           </div>
-          <div className="text-xs text-gray-500 dark:text-slate-400 space-y-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 space-y-1">
             {activeProvider.id !== "ollama" ? (
               <div>
                 密钥：
-                <span className="font-mono text-gray-700 dark:text-slate-300">
+                <span className="font-mono text-slate-700 dark:text-slate-300">
                   {activeProvider.api_key_hint || "已配置"}
                 </span>
               </div>
             ) : (
               <div>
                 服务地址：
-                <span className="font-mono text-gray-700 dark:text-slate-300">
+                <span className="font-mono text-slate-700 dark:text-slate-300">
                   {activeProvider.base_url || "http://localhost:11434"}
                 </span>
               </div>
             )}
             <div>
               当前模型：
-              <span className="text-gray-700 dark:text-slate-300">
+              <span className="text-slate-700 dark:text-slate-300">
                 {activeProvider.id !== "ollama"
                   ? getModelDisplayName(
                       activeProvider.id,
@@ -384,7 +386,7 @@ function StatusScreen({
             {activeProvider.api_mode && (
               <div>
                 接口模式：
-                <span className="text-gray-700 dark:text-slate-300">
+                <span className="text-slate-700 dark:text-slate-300">
                   {getApiModeLabel(activeProvider.api_mode)}
                 </span>
               </div>
@@ -394,13 +396,13 @@ function StatusScreen({
 
         <button
           onClick={onSwitch}
-          className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl border hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors text-sm text-gray-600 dark:text-slate-400"
+          className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl border hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-sm text-slate-600 dark:text-slate-400"
         >
           切换服务商
-          <ChevronRight size={16} className="text-gray-400 dark:text-slate-500" />
+          <ChevronRight size={16} className="text-slate-400 dark:text-slate-500" />
         </button>
 
-        <div className="text-xs text-gray-400 dark:text-slate-500 text-center">
+        <div className="text-xs text-slate-400 dark:text-slate-500 text-center">
           共 {providers.filter((p) => p.configured).length} 个供应商已配置
         </div>
       </div>
@@ -410,20 +412,20 @@ function StatusScreen({
   // 试用模式
   return (
     <div className="px-5 py-6 space-y-4">
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
         <div className="font-medium mb-1">当前使用试用模式</div>
-        <div className="text-xs text-amber-600">
+        <div className="text-xs text-amber-600 dark:text-amber-400">
           配置自己的密钥，不消耗试用额度，可无限使用
         </div>
       </div>
       <button
         onClick={onSwitch}
-        className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-sm font-medium"
+        className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors text-sm font-medium"
       >
         配置自己的密钥
         <ChevronRight size={16} />
       </button>
-      <div className="text-xs text-gray-400 dark:text-slate-500 text-center">
+      <div className="text-xs text-slate-400 dark:text-slate-500 text-center">
         支持 DeepSeek · 智谱 GLM · 通义千问 · 本地 Ollama
       </div>
     </div>
@@ -441,7 +443,7 @@ function SelectProviderScreen({
 }) {
   return (
     <div className="px-5 py-5 space-y-3">
-      <p className="text-xs text-gray-500 dark:text-slate-400">
+      <p className="text-xs text-slate-500 dark:text-slate-400">
         选择服务商后填写密钥，密钥获取链接在下一页提供
       </p>
       <div className="grid grid-cols-2 gap-3">
@@ -452,16 +454,16 @@ function SelectProviderScreen({
             className={`flex flex-col items-start p-4 rounded-xl border text-left hover:border-blue-300 hover:bg-blue-50/50 dark:hover:bg-blue-900/20 transition-colors ${
               p.configured
                 ? "border-emerald-200 bg-emerald-50/40 dark:bg-emerald-900/20"
-                : "border-gray-200 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800"
+                : "border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800"
             }`}
           >
             <div className="flex items-center justify-between w-full mb-1">
-              <span className="text-sm font-medium text-gray-800 dark:text-slate-200">{p.name}</span>
+              <span className="text-sm font-medium text-slate-800 dark:text-slate-200">{p.name}</span>
               {p.configured && (
                 <CheckCircle2 size={13} className="text-emerald-500" />
               )}
             </div>
-            <span className="text-[11px] text-gray-400 dark:text-slate-500">
+            <span className="text-[11px] text-slate-400 dark:text-slate-500">
               {p.configured && p.api_mode
                 ? `${getApiModeLabel(p.api_mode)} · ${p.current_model || p.description}`
                 : p.configured && p.current_model
@@ -593,30 +595,30 @@ function ConfigureScreen({
               如需修改模式、密钥、模型或端点，请先移除当前配置后重新配置。
             </div>
           </div>
-          <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50/70 dark:bg-slate-800 p-4 space-y-3 text-sm">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800 p-4 space-y-3 text-sm">
             <div>
-              <div className="text-xs text-gray-400 dark:text-slate-500">接口模式</div>
-              <div className="mt-1 text-gray-700 dark:text-slate-300">
+              <div className="text-xs text-slate-400 dark:text-slate-500">接口模式</div>
+              <div className="mt-1 text-slate-700 dark:text-slate-300">
                 {getApiModeLabel(provider.api_mode)}
               </div>
             </div>
             {!isOllama && (
               <div>
-                <div className="text-xs text-gray-400 dark:text-slate-500">API Key</div>
-                <div className="mt-1 font-mono text-gray-700 dark:text-slate-300">
+                <div className="text-xs text-slate-400 dark:text-slate-500">API Key</div>
+                <div className="mt-1 font-mono text-slate-700 dark:text-slate-300">
                   {provider.api_key_hint || "已配置"}
                 </div>
               </div>
             )}
             <div>
-              <div className="text-xs text-gray-400 dark:text-slate-500">Base URL</div>
-              <div className="mt-1 break-all text-gray-700 dark:text-slate-300">
+              <div className="text-xs text-slate-400 dark:text-slate-500">Base URL</div>
+              <div className="mt-1 break-all text-slate-700 dark:text-slate-300">
                 {provider.base_url || "默认端点"}
               </div>
             </div>
             <div>
-              <div className="text-xs text-gray-400 dark:text-slate-500">当前模型</div>
-              <div className="mt-1 text-gray-700 dark:text-slate-300">
+              <div className="text-xs text-slate-400 dark:text-slate-500">当前模型</div>
+              <div className="mt-1 text-slate-700 dark:text-slate-300">
                 {provider.current_model || "未选择"}
               </div>
             </div>
@@ -650,7 +652,7 @@ function ConfigureScreen({
 
       {supportsApiMode && (
         <div>
-          <label className="text-xs text-gray-500 dark:text-slate-400 mb-1.5 block">
+          <label className="text-xs text-slate-500 dark:text-slate-400 mb-1.5 block">
             接口模式
           </label>
           <div className="grid grid-cols-2 gap-2">
@@ -662,14 +664,14 @@ function ConfigureScreen({
                 className={`rounded-xl border px-3 py-2.5 text-sm transition-colors ${
                   selectedApiMode === mode
                     ? "border-blue-300 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400"
-                    : "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700"
+                    : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
                 }`}
               >
                 {getApiModeLabel(mode)}
               </button>
             ))}
           </div>
-          <div className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">
+          <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
             必须先选择模式，保存后如需变更请删除配置后重配
           </div>
         </div>
@@ -678,7 +680,7 @@ function ConfigureScreen({
       {/* 密钥输入（非 Ollama） */}
       {!isOllama && (
         <div>
-          <label className="text-xs text-gray-500 dark:text-slate-400 mb-1 block">密钥</label>
+          <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">密钥</label>
           <input
             type="password"
             autoComplete="new-password"
@@ -697,7 +699,7 @@ function ConfigureScreen({
       {/* Ollama 服务地址 */}
       {isOllama && (
         <div>
-          <label className="text-xs text-gray-500 dark:text-slate-400 mb-1 block">
+          <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">
             服务器地址
           </label>
           <input
@@ -744,8 +746,8 @@ function ConfigureScreen({
         <div
           className={`text-xs px-3 py-2 rounded-lg border ${
             testResult.success
-              ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-              : "bg-red-50 border-red-200 text-red-700"
+              ? "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-400"
+              : "bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400"
           }`}
         >
           {testResult.message}
@@ -753,7 +755,7 @@ function ConfigureScreen({
       )}
 
       {(provider.configured || lockedConfig) && (
-        <div className="pt-2 border-t border-gray-100 dark:border-slate-700">
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
           <button
             onClick={() => setConfirmRemoveOpen(true)}
             disabled={removing || saving || provider.can_delete_config === false}
@@ -779,15 +781,15 @@ function ConfigureScreen({
                 <AlertTriangle size={16} />
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                   确认移除配置
                 </div>
-                <div className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                <div className="mt-1 text-sm text-slate-600 dark:text-slate-400">
                   确认移除「{provider.name}
                   {provider.api_mode ? ` · ${getApiModeLabel(provider.api_mode)}` : ""}
                   」配置？
                 </div>
-                <div className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                   移除后将删除当前 API 配置；如需切换普通模式或 Coding Plan，需要重新配置。
                 </div>
               </div>
@@ -797,7 +799,7 @@ function ConfigureScreen({
                 type="button"
                 onClick={() => setConfirmRemoveOpen(false)}
                 disabled={removing}
-                className="rounded-xl border border-gray-200 dark:border-slate-700 px-4 py-2 text-sm text-gray-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50"
+                className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
               >
                 取消
               </button>

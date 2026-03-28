@@ -38,7 +38,7 @@ import type {
 } from "./types";
 import { apiFetch } from "./auth";
 
-import { isRecord, nextId, makePlanProgressFromSteps } from "./utils";
+import { isRecord, nextId, makePlanProgressFromSteps, logError } from "./utils";
 import {
   looksLikeToolCallReasoningPollution,
   normalizePlanStepStatus,
@@ -94,7 +94,7 @@ export async function fetchSessions(options?: SessionQueryOptions): Promise<Sess
     }
     return [];
   } catch (e) {
-    console.error("获取会话列表失败:", e);
+    logError("获取会话列表失败:", e);
     return [];
   }
 }
@@ -110,7 +110,7 @@ export async function createNewSession(): Promise<string | null> {
     }
     return null;
   } catch (e) {
-    console.error("创建新会话失败:", e);
+    logError("创建新会话失败:", e);
     return null;
   }
 }
@@ -135,7 +135,7 @@ export async function fetchSessionDetail(
     if (!payload.success || !isRecord(payload.data)) return null;
     return payload.data as SessionDetail;
   } catch (e) {
-    console.error("获取会话详情失败:", e);
+    logError("获取会话详情失败:", e);
     return null;
   }
 }
@@ -148,7 +148,7 @@ export async function fetchRecipes(): Promise<RecipeCard[]> {
     const recipes = data && Array.isArray(data.recipes) ? data.recipes : [];
     return recipes as RecipeCard[];
   } catch (e) {
-    console.error("获取 Recipe 列表失败:", e);
+    logError("获取 Recipe 列表失败:", e);
     return [];
   }
 }
@@ -170,7 +170,7 @@ export async function switchSession(
       isRecord(data) && Array.isArray(data.messages) ? data.messages : [];
     return { success: true, messages: rawMessages as unknown[], detail };
   } catch (e) {
-    console.error("切换会话失败:", e);
+    logError("切换会话失败:", e);
     return { success: false };
   }
 }
@@ -184,7 +184,7 @@ export async function deleteSession(targetSessionId: string): Promise<boolean> {
     const payload = await resp.json();
     return payload?.success === true;
   } catch (e) {
-    console.error("删除会话失败:", e);
+    logError("删除会话失败:", e);
     return false;
   }
 }
@@ -201,7 +201,7 @@ export async function updateSessionTitle(
     });
     return true;
   } catch (e) {
-    console.error("更新会话标题失败:", e);
+    logError("更新会话标题失败:", e);
     return false;
   }
 }
@@ -238,7 +238,7 @@ export async function compressCurrentSession(
     const message = `会话压缩完成：归档 ${archivedCount} 条，剩余 ${remainingCount} 条`;
     return { success: true, message, archivedCount, remainingCount };
   } catch (e) {
-    console.error("压缩会话失败:", e);
+    logError("压缩会话失败:", e);
     return { success: false, message: "压缩会话失败，请稍后重试" };
   }
 }
@@ -257,7 +257,7 @@ export async function fetchDatasets(sessionId: string): Promise<DatasetItem[]> {
       data && Array.isArray(data.datasets) ? data.datasets : [];
     return datasets as DatasetItem[];
   } catch (e) {
-    console.error("获取数据集列表失败:", e);
+    logError("获取数据集列表失败:", e);
     return [];
   }
 }
@@ -273,7 +273,7 @@ export async function loadDataset(
     });
     return true;
   } catch (e) {
-    console.error("加载数据集失败:", e);
+    logError("加载数据集失败:", e);
     return false;
   }
 }
@@ -293,7 +293,7 @@ export async function fetchWorkspaceFiles(
     const files = data && Array.isArray(data.files) ? data.files : [];
     return files as WorkspaceFile[];
   } catch (e) {
-    console.error("获取工作空间文件失败:", e);
+    logError("获取工作空间文件失败:", e);
     return [];
   }
 }
@@ -313,7 +313,7 @@ export async function deleteWorkspaceFile(
     const payload = await resp.json();
     return payload.success === true;
   } catch (e) {
-    console.error("删除文件失败:", e);
+    logError("删除文件失败:", e);
     return false;
   }
 }
@@ -336,7 +336,7 @@ export async function renameWorkspaceFile(
     const payload = await resp.json();
     return payload.success === true;
   } catch (e) {
-    console.error("重命名文件失败:", e);
+    logError("重命名文件失败:", e);
     return false;
   }
 }
@@ -356,7 +356,7 @@ export async function createWorkspaceFile(
     });
     return true;
   } catch (e) {
-    console.error("创建文件失败:", e);
+    logError("创建文件失败:", e);
     return false;
   }
 }
@@ -376,7 +376,7 @@ export async function fetchFolders(
     const folders = data && Array.isArray(data.folders) ? data.folders : [];
     return folders as WorkspaceFolder[];
   } catch (e) {
-    console.error("获取文件夹失败:", e);
+    logError("获取文件夹失败:", e);
     return [];
   }
 }
@@ -395,7 +395,7 @@ export async function createFolder(
     });
     return true;
   } catch (e) {
-    console.error("创建文件夹失败:", e);
+    logError("创建文件夹失败:", e);
     return false;
   }
 }
@@ -414,7 +414,7 @@ export async function moveFileToFolder(
     });
     return true;
   } catch (e) {
-    console.error("移动文件失败:", e);
+    logError("移动文件失败:", e);
     return false;
   }
 }
@@ -435,7 +435,7 @@ export async function fetchCodeExecutions(
       data && Array.isArray(data.executions) ? data.executions : [];
     return executions as CodeExecution[];
   } catch (e) {
-    console.error("获取执行历史失败:", e);
+    logError("获取执行历史失败:", e);
     return [];
   }
 }
@@ -468,7 +468,7 @@ export async function fetchSkills(): Promise<SkillItem[]> {
       ...(markdownSkills as SkillItem[]),
     ];
   } catch (e) {
-    console.error("获取技能列表失败:", e);
+    logError("获取技能列表失败:", e);
     return [];
   }
 }
@@ -494,7 +494,7 @@ export async function uploadSkillFile(
     return { success: true, message: "上传成功" };
   } catch (e) {
     const message = e instanceof Error ? e.message : "上传失败";
-    console.error("上传技能失败:", e);
+    logError("上传技能失败:", e);
     return { success: false, message };
   }
 }
@@ -527,7 +527,7 @@ export async function getSkillDetail(
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : "获取技能详情失败";
-    console.error("获取技能详情失败:", e);
+    logError("获取技能详情失败:", e);
     return { success: false, message };
   }
 }
@@ -556,7 +556,7 @@ export async function updateSkill(
     return { success: true, message: "保存成功" };
   } catch (e) {
     const message = e instanceof Error ? e.message : "保存失败";
-    console.error("更新技能失败:", e);
+    logError("更新技能失败:", e);
     return { success: false, message };
   }
 }
@@ -585,7 +585,7 @@ export async function toggleSkillEnabled(
     return { success: true, message: "更新成功" };
   } catch (e) {
     const message = e instanceof Error ? e.message : "更新启用状态失败";
-    console.error("更新启用状态失败:", e);
+    logError("更新启用状态失败:", e);
     return { success: false, message };
   }
 }
@@ -611,7 +611,7 @@ export async function deleteSkill(
     return { success: true, message: "删除成功" };
   } catch (e) {
     const message = e instanceof Error ? e.message : "删除技能失败";
-    console.error("删除技能失败:", e);
+    logError("删除技能失败:", e);
     return { success: false, message };
   }
 }
@@ -640,7 +640,7 @@ export async function listSkillFiles(
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : "获取技能文件失败";
-    console.error("获取技能文件失败:", e);
+    logError("获取技能文件失败:", e);
     return { success: false, message };
   }
 }
@@ -672,7 +672,7 @@ export async function getSkillFileContent(
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : "读取技能文件失败";
-    console.error("读取技能文件失败:", e);
+    logError("读取技能文件失败:", e);
     return { success: false, message };
   }
 }
@@ -702,7 +702,7 @@ export async function saveSkillFileContent(
     return { success: true, message: "保存成功" };
   } catch (e) {
     const message = e instanceof Error ? e.message : "保存技能文件失败";
-    console.error("保存技能文件失败:", e);
+    logError("保存技能文件失败:", e);
     return { success: false, message };
   }
 }
@@ -737,7 +737,7 @@ export async function uploadSkillAttachment(
     return { success: true, message: "上传成功" };
   } catch (e) {
     const message = e instanceof Error ? e.message : "上传附件失败";
-    console.error("上传技能附件失败:", e);
+    logError("上传技能附件失败:", e);
     return { success: false, message };
   }
 }
@@ -766,7 +766,7 @@ export async function createSkillDir(
     return { success: true, message: "创建成功" };
   } catch (e) {
     const message = e instanceof Error ? e.message : "创建目录失败";
-    console.error("创建技能目录失败:", e);
+    logError("创建技能目录失败:", e);
     return { success: false, message };
   }
 }
@@ -795,7 +795,7 @@ export async function deleteSkillPath(
     return { success: true, message: "删除成功" };
   } catch (e) {
     const message = e instanceof Error ? e.message : "删除路径失败";
-    console.error("删除技能路径失败:", e);
+    logError("删除技能路径失败:", e);
     return { success: false, message };
   }
 }
@@ -817,7 +817,7 @@ export async function downloadSkillBundle(
     return { success: true, message: "下载成功", filename, blob };
   } catch (e) {
     const message = e instanceof Error ? e.message : "下载技能包失败";
-    console.error("下载技能包失败:", e);
+    logError("下载技能包失败:", e);
     return { success: false, message };
   }
 }
@@ -836,7 +836,7 @@ export async function fetchCapabilities(): Promise<CapabilityItem[]> {
       data && Array.isArray(data.capabilities) ? data.capabilities : [];
     return caps as CapabilityItem[];
   } catch (e) {
-    console.error("获取能力列表失败:", e);
+    logError("获取能力列表失败:", e);
     return [];
   }
 }
@@ -862,7 +862,7 @@ export async function analyzeIntent(
     const data = isRecord(payload.data) ? payload.data : null;
     return data as unknown as IntentAnalysisView;
   } catch (e) {
-    console.error("获取意图分析失败:", e);
+    logError("获取意图分析失败:", e);
     return null;
   }
 }
@@ -917,7 +917,7 @@ export async function fetchMemoryFiles(
     }
     return [];
   } catch (e) {
-    console.error("获取记忆文件失败:", e);
+    logError("获取记忆文件失败:", e);
     return [];
   }
 }
@@ -933,7 +933,7 @@ export async function fetchActiveModel(): Promise<ActiveModelInfo | null> {
     }
     return null;
   } catch (e) {
-    console.error("获取活跃模型失败:", e);
+    logError("获取活跃模型失败:", e);
     return null;
   }
 }
@@ -953,7 +953,7 @@ export async function setPreferredProvider(
     }
     return null;
   } catch (e) {
-    console.error("设置首选模型失败:", e);
+    logError("设置首选模型失败:", e);
     return null;
   }
 }
@@ -1009,11 +1009,11 @@ export async function setChatRoute(
     });
     const payload = await resp.json();
     if (!payload.success) {
-      console.error("设置 chat 路由失败:", payload.error);
+      logError("设置 chat 路由失败:", payload.error);
     }
     return payload.success === true;
   } catch (e) {
-    console.error("设置 chat 路由失败:", e);
+    logError("设置 chat 路由失败:", e);
     return false;
   }
 }
@@ -1025,11 +1025,11 @@ export async function deleteProviderConfig(providerId: string): Promise<boolean>
     });
     const payload = await resp.json();
     if (!payload.success) {
-      console.error("删除供应商配置失败:", payload.error);
+      logError("删除供应商配置失败:", payload.error);
     }
     return payload.success === true;
   } catch (e) {
-    console.error("删除供应商配置失败:", e);
+    logError("删除供应商配置失败:", e);
     return false;
   }
 }
@@ -1043,7 +1043,7 @@ export async function fetchModelProviders(): Promise<ModelProviderInfo[]> {
     }
     return [];
   } catch (e) {
-    console.error("获取模型提供商列表失败:", e);
+    logError("获取模型提供商列表失败:", e);
     return [];
   }
 }
@@ -1059,7 +1059,7 @@ export async function fetchResearchProfile(): Promise<ResearchProfile | null> {
     }
     return null;
   } catch (e) {
-    console.error("获取研究画像失败:", e);
+    logError("获取研究画像失败:", e);
     return null;
   }
 }
@@ -1079,7 +1079,7 @@ export async function updateResearchProfile(
     }
     return null;
   } catch (e) {
-    console.error("更新研究画像失败:", e);
+    logError("更新研究画像失败:", e);
     return null;
   }
 }
@@ -1109,7 +1109,7 @@ export async function fetchResearchProfileNarrative(
     }
     return null;
   } catch (e) {
-    console.error("获取画像叙述层失败:", e);
+    logError("获取画像叙述层失败:", e);
     return null;
   }
 }
@@ -1200,7 +1200,7 @@ export async function fetchTokenUsage(
     const data = await resp.json();
     return data as TokenUsage;
   } catch (e) {
-    console.error("获取 Token 使用统计失败:", e);
+    logError("获取 Token 使用统计失败:", e);
     return null;
   }
 }
@@ -1218,7 +1218,7 @@ export async function fetchCostHistory(): Promise<{
       aggregate: (data.aggregate as AggregateCostSummary) || null,
     };
   } catch (e) {
-    console.error("获取成本历史失败:", e);
+    logError("获取成本历史失败:", e);
     return { sessions: [], aggregate: null };
   }
 }
@@ -1230,7 +1230,7 @@ export async function fetchPricingConfig(): Promise<PricingConfig | null> {
     const data = await resp.json();
     return data as PricingConfig;
   } catch (e) {
-    console.error("获取定价配置失败:", e);
+    logError("获取定价配置失败:", e);
     return null;
   }
 }

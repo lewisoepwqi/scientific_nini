@@ -30,9 +30,9 @@ function StepIcon({ status }: { status: string }) {
     case "blocked":
       return <XCircle size={16} className="text-red-500" />;
     case "skipped":
-      return <SkipForward size={16} className="text-gray-400" />;
+      return <SkipForward size={16} className="text-slate-400" />;
     default:
-      return <Circle size={16} className="text-gray-400 dark:text-slate-500" />;
+      return <Circle size={16} className="text-slate-400 dark:text-slate-500" />;
   }
 }
 
@@ -86,12 +86,12 @@ export default function AnalysisPlanCard({ content, analysisPlan }: Props) {
                       <span
                         className={
                           step.status === "done"
-                            ? "text-gray-500 dark:text-slate-400 line-through"
+                            ? "text-slate-500 dark:text-slate-400 line-through"
                             : step.status === "failed" ||
                                 step.status === "blocked"
                               ? "text-red-700 dark:text-red-400"
                               : step.status === "skipped"
-                                ? "text-gray-400 dark:text-slate-500 line-through"
+                                ? "text-slate-400 dark:text-slate-500 line-through"
                                 : step.status === "in_progress"
                                   ? "text-indigo-900 dark:text-indigo-200 font-medium"
                                   : "text-indigo-900 dark:text-indigo-200"
