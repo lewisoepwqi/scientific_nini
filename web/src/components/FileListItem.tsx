@@ -3,6 +3,7 @@
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useStore, type WorkspaceFile } from '../store'
+import { useConfirm } from '../store/confirm-store'
 import { downloadFileFromUrl, resolveDownloadUrl } from './downloadUtils'
 import {
   FileSpreadsheet,
@@ -45,7 +46,7 @@ function getFileIcon(file: WorkspaceFile) {
   if (ext === 'pdf') {
     return <FileText size={14} className="text-red-500 flex-shrink-0" />
   }
-  return <File size={14} className="text-gray-400 flex-shrink-0" />
+  return <File size={14} className="text-slate-500 dark:text-slate-400 flex-shrink-0" />
 }
 
 const kindLabels: Record<string, string> = {
@@ -59,6 +60,7 @@ interface Props {
 }
 
 export default React.memo(function FileListItem({ file }: Props) {
+  const confirm = useConfirm()
   const deleteWorkspaceFile = useStore((s) => s.deleteWorkspaceFile)
   const renameWorkspaceFile = useStore((s) => s.renameWorkspaceFile)
   const openPreview = useStore((s) => s.openPreview)
@@ -82,10 +84,16 @@ export default React.memo(function FileListItem({ file }: Props) {
   }, [renameValue, file.name, file.path, renameWorkspaceFile])
 
   const handleDelete = useCallback(async () => {
-    if (!window.confirm(`确定删除文件「${file.name}」？此操作不可撤销。`)) return
+    const ok = await confirm({
+      title: "删除文件",
+      message: `确定删除文件「${file.name}」？此操作不可撤销。`,
+      confirmText: "删除",
+      destructive: true,
+    })
+    if (!ok) return
     if (!file.path) return
     await deleteWorkspaceFile(file.path)
-  }, [file.name, file.path, deleteWorkspaceFile])
+  }, [file.name, file.path, deleteWorkspaceFile, confirm])
   const downloadUrl = resolveDownloadUrl(file.download_url, file.name) || file.download_url
   const handleDownload = useCallback(
     async (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -100,7 +108,7 @@ export default React.memo(function FileListItem({ file }: Props) {
   )
 
   return (
-    <div className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors">
+    <div className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
       {/* 可点击区域：图标 + 文件名信息 */}
       {isRenaming ? (
         <>
@@ -120,7 +128,7 @@ export default React.memo(function FileListItem({ file }: Props) {
                 }}
                 className="flex-1 min-w-0 text-xs rounded border border-blue-300 dark:border-blue-600 px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
               />
-              <button onClick={handleRename} className="p-2 text-emerald-600 hover:text-emerald-700">
+              <button onClick={handleRename} className="p-2 text-emerald-600 hover:text-emerald-700" aria-label="确认重命名">
                 <Check size={12} />
               </button>
               <button
@@ -128,7 +136,8 @@ export default React.memo(function FileListItem({ file }: Props) {
                   setRenameValue(file.name)
                   setIsRenaming(false)
                 }}
-                className="p-2 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300"
+                className="p-2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
+                aria-label="取消重命名"
               >
                 <X size={12} />
               </button>
@@ -136,19 +145,19 @@ export default React.memo(function FileListItem({ file }: Props) {
           </div>
         </>
       ) : (
-        <div
-          className="flex flex-1 items-center gap-2 cursor-pointer min-w-0"
+        <button
+          className="flex flex-1 items-center gap-2 cursor-pointer min-w-0 text-left bg-transparent border-none p-0 focus-visible:outline-2 focus-visible:outline-blue-500 focus-visible:outline-offset-1 rounded"
           onClick={() => openPreview(file.id)}
-          title="点击预览"
+          aria-label={`预览 ${file.name}`}
         >
           {getFileIcon(file)}
           <div className="flex-1 min-w-0">
-            <div className="text-xs text-gray-700 dark:text-slate-300 truncate hover:text-blue-600 transition-colors">{file.name}</div>
-            <div className="text-[10px] text-gray-400 dark:text-slate-500">
+            <div className="text-xs text-slate-700 dark:text-slate-300 truncate hover:text-blue-600 transition-colors">{file.name}</div>
+            <div className="text-[10px] text-slate-400 dark:text-slate-500">
               {kindLabels[file.kind] || file.kind} · {formatSize(file.size)}
             </div>
           </div>
-        </div>
+        </button>
       )}
 
       {/* 操作按钮：始终可见（触屏可点击），桌面端 hover 时更突出 */}
@@ -156,8 +165,9 @@ export default React.memo(function FileListItem({ file }: Props) {
         <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
           <button
             onClick={handleDownload}
-            className="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-500 dark:text-slate-400"
+            className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-500 dark:text-slate-400"
             title="下载"
+            aria-label="下载文件"
           >
             <Download size={12} />
           </button>
@@ -167,8 +177,9 @@ export default React.memo(function FileListItem({ file }: Props) {
               setRenameValue(file.name)
               setIsRenaming(true)
             }}
-            className="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-500 dark:text-slate-400"
+            className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-500 dark:text-slate-400"
             title="重命名"
+            aria-label="重命名文件"
           >
             <Pencil size={12} />
           </button>
@@ -177,8 +188,9 @@ export default React.memo(function FileListItem({ file }: Props) {
               e.stopPropagation()
               handleDelete()
             }}
-            className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-gray-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400"
+            className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400"
             title="删除"
+            aria-label="删除文件"
           >
             <Trash2 size={12} />
           </button>

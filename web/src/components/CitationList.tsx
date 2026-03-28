@@ -13,12 +13,12 @@ function getVerificationLabel(status?: RetrievalItem["verificationStatus"]): {
 } | null {
   if (!status) return null;
   if (status === "verified") {
-    return { text: "已验证", color: "text-emerald-700 bg-emerald-50 border-emerald-200" };
+    return { text: "已验证", color: "text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-900/20 dark:border-emerald-800" };
   }
   if (status === "conflicted") {
-    return { text: "证据冲突", color: "text-rose-700 bg-rose-50 border-rose-200" };
+    return { text: "证据冲突", color: "text-rose-700 bg-rose-50 border-rose-200 dark:text-rose-400 dark:bg-rose-900/20 dark:border-rose-800" };
   }
-  return { text: "待验证", color: "text-amber-700 bg-amber-50 border-amber-200" };
+  return { text: "待验证", color: "text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-400 dark:bg-amber-900/20 dark:border-amber-800" };
 }
 
 interface CitationListProps {

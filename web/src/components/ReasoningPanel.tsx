@@ -161,6 +161,7 @@ export default function ReasoningPanel({
             }}
             className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
             title="复制分析思路"
+            aria-label="复制分析思路"
           >
             {copied ? (
               <Check className="w-3.5 h-3.5" />
@@ -175,6 +176,7 @@ export default function ReasoningPanel({
             }}
             className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
             title="导出到报告"
+            aria-label="导出到报告"
           >
             {exported ? (
               <Check className="w-3.5 h-3.5" />

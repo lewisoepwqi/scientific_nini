@@ -3,6 +3,7 @@
  */
 import Plot from 'react-plotly.js'
 import type * as Plotly from 'plotly.js'
+import React from 'react'
 
 import { isRecord } from '../store/utils'
 
@@ -69,7 +70,7 @@ function normalizeChartData(chartData: unknown): Record<string, unknown> | null 
   return chartData
 }
 
-export default function ChartViewer({ chartData }: Props) {
+const ChartViewer = React.memo(function ChartViewer({ chartData }: Props) {
   const normalized = normalizeChartData(chartData)
   if (!normalized) {
     return <div className="text-xs text-red-500">图表数据格式无效</div>
@@ -115,7 +116,7 @@ export default function ChartViewer({ chartData }: Props) {
 
   return (
     <div 
-      className="rounded-xl border border-gray-200 bg-white p-2 mt-2"
+      className="rounded-xl border border-slate-200 bg-white p-2 mt-2"
       style={{ minHeight: '420px' }}
     >
       <Plot
@@ -127,4 +128,6 @@ export default function ChartViewer({ chartData }: Props) {
       />
     </div>
   )
-}
+})
+
+export default ChartViewer

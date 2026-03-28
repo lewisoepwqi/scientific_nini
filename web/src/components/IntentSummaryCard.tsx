@@ -108,7 +108,7 @@ export default function IntentSummaryCard({
           <div className="flex items-center gap-1 shrink-0">
             {/* 低置信度指示 */}
             {autoExpandClarification && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px]">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px]">
                 <HelpCircle size={10} />
                 需确认
               </span>
@@ -153,7 +153,7 @@ export default function IntentSummaryCard({
                       <button
                         key={c.name}
                         onClick={() => onApplySuggestion(`请帮我做${name}`)}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 text-xs hover:bg-sky-100 transition-colors"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-400 text-xs hover:bg-sky-100 dark:hover:bg-sky-900/30 transition-colors"
                       >
                         {name}
                       </button>
@@ -176,7 +176,7 @@ export default function IntentSummaryCard({
                   {analysis.tool_hints.slice(0, 4).map((tool) => (
                     <span
                       key={tool}
-                      className="inline-flex px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[11px]"
+                      className="inline-flex px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[11px] dark:bg-emerald-900/20 dark:text-emerald-400"
                     >
                       {tool}
                     </span>
@@ -216,7 +216,7 @@ export default function IntentSummaryCard({
                           onClick={() =>
                             onApplySuggestion(`我想做${option.label}`)
                           }
-                          className="inline-flex items-center px-2 py-1 rounded-full border border-amber-300 bg-white text-amber-800 text-[11px] hover:bg-amber-100 transition-colors"
+                          className="inline-flex items-center px-2 py-1 rounded-full border border-amber-300 bg-white text-amber-800 text-[11px] hover:bg-amber-100 transition-colors dark:border-amber-700 dark:bg-slate-800 dark:text-amber-400 dark:hover:bg-amber-900/30"
                         >
                           {option.label}
                         </button>

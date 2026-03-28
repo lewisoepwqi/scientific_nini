@@ -89,35 +89,34 @@ th {
   overflow: hidden;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --color-significant: #5eead4;
-    --color-marginal: #fbbf24;
-    --color-not-significant: #94a3b8;
-    --color-positive-effect: #60a5fa;
-    --color-negative-effect: #fb7185;
-    --color-surface: #020617;
-    --color-surface-muted: #0f172a;
-    --color-text: #e2e8f0;
-    --color-border: rgba(148, 163, 184, 0.2);
-    --color-accent: #67e8f9;
-  }
+/* 使用 .dark class 策略，与主应用 theme.ts 保持同步 */
+.dark {
+  color-scheme: dark;
+  --color-significant: #5eead4;
+  --color-marginal: #fbbf24;
+  --color-not-significant: #94a3b8;
+  --color-positive-effect: #60a5fa;
+  --color-negative-effect: #fb7185;
+  --color-surface: #020617;
+  --color-surface-muted: #0f172a;
+  --color-text: #e2e8f0;
+  --color-border: rgba(148, 163, 184, 0.2);
+  --color-accent: #67e8f9;
+}
 
-  html,
-  body {
-    background:
-      radial-gradient(circle at top right, rgba(34, 211, 238, 0.15), transparent 38%),
-      linear-gradient(180deg, #020617 0%, var(--color-surface) 100%);
-  }
+.dark html,
+.dark body {
+  background:
+    radial-gradient(circle at top right, rgba(34, 211, 238, 0.15), transparent 38%),
+    linear-gradient(180deg, #020617 0%, var(--color-surface) 100%);
+}
 
-  button {
-    background: rgba(15, 23, 42, 0.88);
-  }
+.dark button {
+  background: rgba(15, 23, 42, 0.88);
+}
 
-  table,
-  .widget-shell {
-    background: rgba(15, 23, 42, 0.86);
-  }
+.dark table,
+.dark .widget-shell {
+  background: rgba(15, 23, 42, 0.86);
 }
 `.trim();

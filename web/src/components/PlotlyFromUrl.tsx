@@ -119,7 +119,7 @@ export default function PlotlyFromUrl({ url, alt }: Props) {
   }, [isValidUrl, url])
 
   if (loading) {
-    return <div className="text-xs text-gray-500 mt-2">图表加载中...</div>
+    return <div className="text-xs text-slate-600 dark:text-slate-400 mt-2">图表加载中...</div>
   }
 
   if (error) {
@@ -132,7 +132,7 @@ export default function PlotlyFromUrl({ url, alt }: Props) {
   }
 
   return (
-    <Suspense fallback={<div className="text-xs text-gray-500 mt-2">图表组件加载中...</div>}>
+    <Suspense fallback={<div className="text-xs text-slate-600 dark:text-slate-400 mt-2">图表组件加载中...</div>}>
       <ChartViewer chartData={chartData} />
     </Suspense>
   )

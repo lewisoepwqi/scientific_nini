@@ -615,3 +615,13 @@ export function hasMessageBuffer(
 ): boolean {
   return messageId in buffer;
 }
+
+/**
+ * 仅在开发环境输出错误日志
+ * 生产环境下静默处理，避免向控制台泄露内部信息
+ */
+export function logError(message: string, ...args: unknown[]): void {
+  if (import.meta.env.DEV) {
+    console.error(message, ...args);
+  }
+}

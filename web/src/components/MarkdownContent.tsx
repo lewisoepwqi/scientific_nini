@@ -198,7 +198,7 @@ function createMarkdownComponents(sessionId: string | null): Components {
           src={resolvedSrc}
           alt={alt || ''}
           loading="lazy"
-          className="rounded-lg border border-gray-200 bg-white"
+          className="rounded-lg border border-slate-200 bg-white"
         />
       )
     },

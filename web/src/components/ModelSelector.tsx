@@ -312,7 +312,7 @@ export default function ModelSelector({
     <div className="relative" ref={wrapperRef}>
       <button
         onClick={handleToggleMenu}
-        className={`flex items-center gap-1.5 rounded-2xl hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-400 ${triggerClass}`}
+        className={`flex items-center gap-1.5 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 ${triggerClass}`}
         title={`快速切换模型，当前 ${displayText}`}
         aria-label="快速切换模型"
         aria-haspopup="menu"
@@ -322,7 +322,7 @@ export default function ModelSelector({
         <span className="truncate max-w-[120px]">{displayText}</span>
         <ChevronDown
           size={12}
-          className={`text-gray-400 dark:text-slate-500 transition-transform ${menuOpen ? "rotate-180" : ""}`}
+          className={`text-slate-400 dark:text-slate-500 transition-transform ${menuOpen ? "rotate-180" : ""}`}
         />
       </button>
 
@@ -377,8 +377,8 @@ export default function ModelSelector({
                 <div
                   className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl ${
                     selectedProviderId === BUILTIN_PROVIDER_ID
-                      ? "bg-blue-100 text-blue-700"
-                      : "bg-sky-50 text-sky-600"
+                      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                      : "bg-sky-50 text-sky-600 dark:bg-sky-900/20 dark:text-sky-400"
                   }`}
                 >
                   <Sparkles size={14} />
@@ -452,8 +452,8 @@ export default function ModelSelector({
                         <div
                           className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${
                             isSelected
-                              ? "bg-blue-100 text-blue-700"
-                              : "bg-slate-100 text-slate-500"
+                              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                              : "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400"
                           }`}
                         >
                           {switchingKey === optionKey ? (

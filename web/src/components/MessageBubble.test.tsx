@@ -133,7 +133,7 @@ describe("MessageBubble reasoning", () => {
     expect(screen.getByText(/执行完成：已生成月度分析报告/u)).toBeInTheDocument();
     expect(screen.queryByText(fullResult)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /generate_report/u }));
+    fireEvent.click(screen.getByRole("button", { name: /生成分析报告/u }));
 
     expect(screen.getByText(fullResult)).toBeInTheDocument();
   });

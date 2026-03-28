@@ -4,6 +4,8 @@
  */
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useStore, type Message, type SkillItem } from "../store";
+import { useConfirm } from "../store/confirm-store";
+import { useOnboardStore } from "../store/onboard-store";
 import FileUpload from "./FileUpload";
 import ModelSelector from "./ModelSelector";
 import { Send, Square, Archive } from "lucide-react";
@@ -125,6 +127,7 @@ function computeRemainingRatio(
 }
 
 export default function ChatInputArea() {
+  const confirm = useConfirm();
   const sessionId = useStore((s) => s.sessionId);
   const messageCount = useStore((s) => s.messages.length);
   const contextCompressionTick = useStore((s) => s.contextCompressionTick);
@@ -141,6 +144,7 @@ export default function ChatInputArea() {
   const fetchSkills = useStore((s) => s.fetchSkills);
   const modelFallback = useStore((s) => s.modelFallback);
   const recipes = useStore((s) => s.recipes);
+  const slashHintSeen = useOnboardStore((s) => s.isSeen("slash_commands"));
 
   const [input, setInput] = useState("");
   const [isDragActive, setIsDragActive] = useState(false);
@@ -150,6 +154,7 @@ export default function ChatInputArea() {
   const [slashContext, setSlashContext] = useState<SlashContext | null>(null);
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
   const [dismissedRecipeId, setDismissedRecipeId] = useState<string | null>(null);
+  const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dragDepthRef = useRef(0);
 
@@ -384,8 +389,12 @@ export default function ChatInputArea() {
       setInput(nextValue);
       setComposerDraft(nextValue);
       syncSlashContext(nextValue, e.target.selectionStart ?? nextValue.length);
+      // 首次输入 / 时标记斜杠命令引导为已看
+      if (!slashHintSeen && nextValue.includes("/")) {
+        useOnboardStore.getState().markSeen("slash_commands");
+      }
     },
-    [setComposerDraft, syncSlashContext],
+    [setComposerDraft, syncSlashContext, slashHintSeen],
   );
 
   const handleCaretUpdate = useCallback(
@@ -397,6 +406,7 @@ export default function ChatInputArea() {
   );
 
   const handleInputFocus = useCallback(() => {
+    setIsFocused(true);
     if (skills.length === 0) {
       void fetchSkills();
     }
@@ -406,6 +416,7 @@ export default function ChatInputArea() {
   }, [skills.length, fetchSkills, syncSlashContext]);
 
   const handleInputBlur = useCallback(() => {
+    setIsFocused(false);
     setSlashContext(null);
     setSlashActiveIndex(0);
   }, []);
@@ -417,9 +428,11 @@ export default function ChatInputArea() {
 
   const handleCompress = useCallback(async () => {
     if (isStreaming || isCompressing) return;
-    const confirmed = window.confirm(
-      "将压缩当前会话的早期消息并归档，是否继续？",
-    );
+    const confirmed = await confirm({
+      title: "压缩会话",
+      message: "将压缩当前会话的早期消息并归档，是否继续？",
+      confirmText: "压缩",
+    });
     if (!confirmed) return;
     setIsCompressing(true);
     const result = await compressCurrentSession();
@@ -566,13 +579,22 @@ export default function ChatInputArea() {
           </div>
         )}
         <div
-          className="relative rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-slate-600 dark:bg-slate-800"
+          className="relative rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-600 dark:bg-slate-800"
           onDragEnter={handleComposerDragEnter}
           onDragLeave={handleComposerDragLeave}
           onDragOver={handleComposerDragOver}
           onDrop={handleComposerDrop}
         >
+          {/* 斜杠命令首次发现提示 */}
+          {!slashHintSeen && isFocused && input.trim() === "" && (
+            <div className="pointer-events-none absolute left-0 right-0 top-0 flex items-center px-4 py-2.5">
+              <span className="animate-in fade-in duration-500 text-sm text-slate-400 dark:text-slate-500">
+                输入 <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-400">/</kbd> 快速调用分析技能
+              </span>
+            </div>
+          )}
           <textarea
+            id="chat-input"
             ref={textareaRef}
             value={input}
             onChange={handleInputChange}
@@ -583,17 +605,18 @@ export default function ChatInputArea() {
             onFocus={handleInputFocus}
             onBlur={handleInputBlur}
             placeholder="描述你的分析需求..."
+            aria-label="输入消息"
             rows={1}
             className="w-full resize-none border-0 bg-transparent px-1 py-1.5 text-sm
-                       focus:outline-none placeholder:text-gray-400 dark:placeholder:text-slate-500"
+                       focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
             style={{ minHeight: "42px" }}
           />
 
           {slashMenuOpen && (
-            <div className="absolute left-3 right-3 bottom-[calc(100%+18px)] z-20 rounded-xl border border-gray-200 bg-white shadow-lg dark:border-slate-600 dark:bg-slate-800">
+            <div className="absolute left-3 right-3 bottom-[calc(100%+18px)] z-20 rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-600 dark:bg-slate-800">
               <div className="max-h-56 overflow-y-auto p-1.5">
                 {filteredSlashSkills.length === 0 ? (
-                  <div className="px-2.5 py-2 text-xs text-gray-400 dark:text-slate-500">
+                  <div className="px-2.5 py-2 text-xs text-slate-400 dark:text-slate-500">
                     未找到匹配技能
                   </div>
                 ) : (
@@ -603,20 +626,20 @@ export default function ChatInputArea() {
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => applySlashSkill(skill)}
                       className={`w-full rounded-lg px-2.5 py-2 text-left transition-colors ${
-                        idx === slashActiveIndex ? "bg-blue-50 dark:bg-blue-900/20" : "hover:bg-gray-50 dark:hover:bg-slate-700"
+                        idx === slashActiveIndex ? "bg-blue-50 dark:bg-blue-900/20" : "hover:bg-slate-50 dark:hover:bg-slate-700"
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-xs text-blue-700 dark:text-blue-400">/{skill.name}</span>
                         {skill.category && (
-                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500 dark:bg-slate-700 dark:text-slate-400">
+                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-slate-700 dark:text-slate-400">
                             {skill.category}
                           </span>
                         )}
                       </div>
-                      <div className="mt-0.5 text-[11px] text-gray-500">{skill.description}</div>
+                      <div className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">{skill.description}</div>
                       {getSkillAliases(skill).length > 0 && (
-                        <div className="mt-0.5 text-[10px] text-gray-400">
+                        <div className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
                           别名：{getSkillAliases(skill).slice(0, 3).join(" / ")}
                         </div>
                       )}
@@ -624,7 +647,7 @@ export default function ChatInputArea() {
                   ))
                 )}
               </div>
-              <div className="border-t px-2.5 py-1.5 text-[10px] text-gray-400 dark:border-slate-700">
+              <div className="border-t px-2.5 py-1.5 text-[10px] text-slate-400 dark:border-slate-700">
                 ↑↓ 选择，Enter/Tab 插入，Esc 关闭
               </div>
             </div>
@@ -679,6 +702,7 @@ export default function ChatInputArea() {
                   className="flex-shrink-0 w-10 h-10 rounded-2xl bg-red-500 text-white
                              flex items-center justify-center hover:bg-red-600 transition-colors"
                   title="停止生成"
+                  aria-label="停止生成"
                 >
                   <Square size={14} />
                 </button>
@@ -688,8 +712,9 @@ export default function ChatInputArea() {
                   disabled={!input.trim() || Boolean(pendingAskUserQuestion)}
                   className="flex-shrink-0 w-10 h-10 rounded-2xl bg-blue-600 text-white
                              flex items-center justify-center
-                             hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-slate-600 disabled:cursor-not-allowed
+                             hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-600 disabled:cursor-not-allowed
                              transition-colors"
+                  aria-label="发送消息"
                 >
                   <Send size={16} />
                 </button>
@@ -711,8 +736,14 @@ export default function ChatInputArea() {
           </div>
         ) : null}
 
-        <div className="mt-1 px-1 text-[11px] text-gray-400 dark:text-slate-500">
-          Enter 发送，Shift + Enter 换行，输入 / 快速插入技能，可直接拖拽文件到输入框
+        <div className="mt-1 px-1 text-[11px] text-slate-400 dark:text-slate-500">
+          Enter 发送，Shift + Enter 换行，可直接拖拽文件到输入框
+          {!slashHintSeen && (
+            <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-blue-50 px-1.5 py-0.5 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400">
+              <kbd className="font-mono text-[10px]">/</kbd>
+              <span>快速调用分析技能</span>
+            </span>
+          )}
         </div>
       </div>
     </div>

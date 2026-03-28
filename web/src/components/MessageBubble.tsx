@@ -3,6 +3,8 @@
  */
 import React, { Suspense, lazy, useEffect, useState } from "react";
 import { type Message, type RetrievalItem, useStore } from "../store";
+import { useOnboardStore } from "../store/onboard-store";
+import OutputLevelExplainer from "./OutputLevelExplainer";
 import {
   Bot,
   User,
@@ -34,16 +36,116 @@ const CitationList = lazy(() => import("./CitationList"));
 const WidgetRenderer = lazy(() => import("./WidgetRenderer"));
 const TOOL_RESULT_PREVIEW_LIMIT = 72;
 
+/** 工具标识符 → 中文友好名称映射 */
+const TOOL_DISPLAY_NAMES: Record<string, string> = {
+  // 统计分析
+  t_test: "T 检验",
+  mann_whitney: "Mann-Whitney U 检验",
+  anova: "方差分析 (ANOVA)",
+  kruskal_wallis: "Kruskal-Wallis H 检验",
+  multiple_comparison_correction: "多重比较校正",
+  stat_test: "统计检验",
+  correlation: "相关分析",
+  regression: "回归分析",
+  stat_model: "统计建模",
+  stat_interpret: "结果解读",
+  sample_size: "样本量计算",
+  interpret_statistical_result: "统计结果解读",
+
+  // 可视化
+  create_chart: "创建图表",
+  export_chart: "导出图表",
+  chart_session: "图表会话",
+  generate_widget: "内嵌组件",
+
+  // 数据操作
+  load_dataset: "加载数据集",
+  preview_data: "预览数据",
+  data_summary: "数据摘要",
+  clean_data: "数据清洗",
+  recommend_cleaning_strategy: "清洗策略推荐",
+  evaluate_data_quality: "数据质量评估",
+  generate_quality_report: "数据质量报告",
+  dataset_catalog: "数据集目录",
+  dataset_transform: "数据变换",
+
+  // 代码执行
+  run_code: "执行 Python 代码",
+  run_r_code: "执行 R 代码",
+  code_session: "代码会话",
+
+  // 报告与导出
+  generate_report: "生成分析报告",
+  export_report: "导出报告",
+  export_document: "导出文档",
+  report_session: "报告会话",
+  collect_artifacts: "收集分析素材",
+
+  // 工作区
+  organize_workspace: "整理工作区",
+  edit_file: "编辑文件",
+  workspace_session: "工作区管理",
+  list_workspace_files: "工作区文件列表",
+
+  // 网络与多模态
+  fetch_url: "获取网页内容",
+  image_analysis: "图片分析",
+  search_literature: "文献检索",
+
+  // 任务与规划
+  task_write: "任务管理",
+  task_state: "任务状态",
+
+  // 多 Agent
+  dispatch_agents: "派发子 Agent",
+
+  // 复合模板
+  complete_comparison: "完整两组比较分析",
+  complete_anova: "完整多组比较分析",
+  correlation_analysis: "完整相关分析",
+  regression_analysis: "完整回归分析",
+
+  // 记忆与画像
+  analysis_memory: "分析记忆查询",
+  search_memory_archive: "历史记忆搜索",
+  update_profile_notes: "更新研究画像",
+  query_evidence: "证据链查询",
+
+  // 工具发现
+  search_tools: "工具发现",
+
+  // 工作流
+  save_workflow: "保存工作流",
+  list_workflows: "工作流列表",
+  apply_workflow: "应用工作流",
+
+  // 阶段检测
+  detect_phase: "研究阶段检测",
+};
+
+/** 输出等级含义说明 */
+const OUTPUT_LEVEL_DESCRIPTIONS: Record<string, string> = {
+  o1: "建议级：仅供参考的初步思路，未经验证",
+  o2: "草稿级：初步分析结果，可能需要修正",
+  o3: "可审阅级：经过验证的分析结果，建议人工审阅后使用",
+  o4: "可导出级：最终成果，可直接用于报告或论文",
+};
+
+function getToolDisplayName(toolName?: string | null): string {
+  if (!toolName) return "工具调用";
+  return TOOL_DISPLAY_NAMES[toolName] || toolName;
+}
+
 function getOutputLevelMeta(outputLevel?: "o1" | "o2" | "o3" | "o4" | null) {
   switch (outputLevel) {
     case "o1":
-      return { label: "建议级", className: "border-slate-200 bg-slate-50 text-slate-600" };
+      return { label: "建议级", className: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400" };
     case "o2":
-      return { label: "草稿级", className: "border-sky-200 bg-sky-50 text-sky-700" };
+      return { label: "草稿级", className: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-900/20 dark:text-sky-400" };
     case "o3":
-      return { label: "可审阅级", className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
+      return { label: "可审阅级", className: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400" };
     case "o4":
-      return { label: "可导出级", className: "border-violet-200 bg-violet-50 text-violet-700" };
+      return { label: "可导出级", className: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-900/20 dark:text-violet-400" };
     default:
       return null;
   }
@@ -407,7 +509,7 @@ function MessageBubble({
                 <span
                   className={`inline-flex items-center leading-none font-medium ${themeColors.title} shrink-0`}
                 >
-                  {message.toolName || "工具调用"}
+                  {getToolDisplayName(message.toolName)}
                 </span>
                 {statusLabel && (
                   <span
@@ -502,7 +604,7 @@ function MessageBubble({
       {/* 头像 */}
       <div
         className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-          isUser ? "bg-blue-600 text-white" : "bg-emerald-100 text-emerald-700"
+          isUser ? "bg-blue-600 text-white" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
         }`}
       >
         {isUser ? <User size={16} /> : <Bot size={16} />}
@@ -523,7 +625,7 @@ function MessageBubble({
           } rounded-2xl px-4 py-2.5 ${
             isUser
               ? "bg-blue-600 text-white rounded-tr-md"
-              : "bg-gray-100 text-gray-900 rounded-tl-md dark:bg-slate-700 dark:text-slate-100"
+              : "bg-slate-100 text-slate-900 rounded-tl-md dark:bg-slate-700 dark:text-slate-100"
           }`}
         >
           {isUser ? (
@@ -596,7 +698,7 @@ function MessageBubble({
                   {message.images.map((url, idx) => (
                     <div
                       key={idx}
-                      className="rounded-lg overflow-hidden border border-gray-200 bg-white dark:border-slate-600 dark:bg-slate-800"
+                      className="rounded-lg overflow-hidden border border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800"
                     >
                       <img
                         src={url}
@@ -611,10 +713,15 @@ function MessageBubble({
               {outputLevelMeta && (
                 <div className="mt-3">
                   <span
-                    className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium ${outputLevelMeta.className}`}
+                    title={OUTPUT_LEVEL_DESCRIPTIONS[message.outputLevel ?? ""] ?? ""}
+                    className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium cursor-help ${outputLevelMeta.className}`}
                   >
                     输出等级 {message.outputLevel?.toUpperCase()} · {outputLevelMeta.label}
                   </span>
+                  {/* 首次出现输出等级时展示解释卡片 */}
+                  {!useOnboardStore((s) => s.isSeen("output_level")) && (
+                    <OutputLevelExplainer />
+                  )}
                 </div>
               )}
             </>
@@ -631,7 +738,7 @@ function MessageBubble({
                        ${
                          message.isError
                            ? "border-red-200 text-red-500 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:hover:bg-red-900/20"
-                           : "border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                           : "border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-300"
                        }
                        disabled:opacity-40 disabled:cursor-not-allowed
                        transition-colors mb-0.5`}

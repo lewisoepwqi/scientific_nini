@@ -1,7 +1,7 @@
 /**
  * 决策标签组件 - 高亮显示决策关键词
  */
-import React from "react";
+import React, { useMemo } from "react";
 import { Target, CheckCircle2, AlertCircle, Lightbulb, ArrowRight } from "lucide-react";
 
 export interface Decision {
@@ -25,9 +25,9 @@ const typeConfig = {
     label: "主要决策",
   },
   secondary: {
-    bgColor: "bg-gray-100 dark:bg-slate-700",
-    textColor: "text-gray-700 dark:text-slate-300",
-    borderColor: "border-gray-300 dark:border-slate-600",
+    bgColor: "bg-slate-100 dark:bg-slate-700",
+    textColor: "text-slate-700 dark:text-slate-300",
+    borderColor: "border-slate-300 dark:border-slate-600",
     label: "次要决策",
   },
   fallback: {
@@ -61,7 +61,7 @@ export const DecisionTag: React.FC<DecisionTagProps> = ({
   return (
     <div className={`space-y-2 ${className}`}>
       {!compact && (
-        <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-slate-400 mb-2">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">
           <ArrowRight size={12} />
           <span>关键决策</span>
         </div>
@@ -143,11 +143,13 @@ export const DecisionHighlighter: React.FC<DecisionHighlighterProps> = ({
   keywords = defaultDecisionKeywords,
   className = "",
 }) => {
-  // 创建正则表达式来匹配关键词
-  const pattern = keywords
-    .map((kw) => kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("|");
-  const regex = new RegExp(`(${pattern})`, "gi");
+  // 缓存正则表达式，仅在 keywords 变化时重建
+  const regex = useMemo(() => {
+    const pattern = keywords
+      .map((kw) => kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|");
+    return new RegExp(`(${pattern})`, "gi");
+  }, [keywords]);
 
   // 分割文本并高亮关键词
   const parts = text.split(regex);

@@ -41,8 +41,8 @@ export default function FileUpload() {
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={isUploading}
-        className="h-8 rounded-2xl border border-gray-200 dark:border-slate-700 px-2.5 text-xs text-gray-600 dark:text-slate-300
-                   inline-flex items-center gap-1.5 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors
+        className="h-8 rounded-2xl border border-slate-200 dark:border-slate-700 px-2.5 text-xs text-slate-600 dark:text-slate-300
+                   inline-flex items-center gap-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors
                    disabled:cursor-not-allowed disabled:opacity-60"
         title="上传数据文件"
       >
@@ -59,12 +59,12 @@ export default function FileUpload() {
         disabled={isUploading}
       />
 
-      <span className="hidden md:inline text-[11px] text-gray-400 dark:text-slate-500 whitespace-nowrap">
+      <span className="hidden md:inline text-[11px] text-slate-400 dark:text-slate-500 whitespace-nowrap">
         支持 CSV / Excel / TSV / TXT
       </span>
 
       {(isUploading || pendingCount > 0) && (
-        <div className="min-w-0 rounded-md bg-emerald-50 px-2 py-1 text-[11px] text-emerald-700">
+        <div className="min-w-0 rounded-md bg-emerald-50 px-2 py-1 text-[11px] text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
           <div className="flex items-center gap-1.5">
             <Loader2 size={12} className="animate-spin flex-shrink-0" />
             <span className="truncate">

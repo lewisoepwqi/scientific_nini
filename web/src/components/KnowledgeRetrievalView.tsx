@@ -49,7 +49,7 @@ export default function KnowledgeRetrievalView({
           </div>
         );
       default:
-        return <BookOpen className="w-3 h-3 text-gray-500" />;
+        return <BookOpen className="w-3 h-3 text-slate-500" />;
     }
   };
 
@@ -69,13 +69,13 @@ export default function KnowledgeRetrievalView({
   const getRelevanceColor = (score: number) => {
     if (score >= 0.8) return "bg-green-500";
     if (score >= 0.6) return "bg-yellow-500";
-    return "bg-gray-400";
+    return "bg-slate-400";
   };
 
   if (!results || results.length === 0) {
     return (
-      <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-        <div className="flex items-center gap-2 text-gray-500">
+      <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+        <div className="flex items-center gap-2 text-slate-500">
           <BookOpen className="w-4 h-4" />
           <span className="text-sm">未找到相关知识</span>
         </div>
@@ -150,16 +150,16 @@ export default function KnowledgeRetrievalView({
               {/* 内容 */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <h4 className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                  <h4 className="font-medium text-slate-900 dark:text-slate-100 truncate">
                     {result.title}
                   </h4>
-                  <div className="flex items-center gap-1 text-xs text-gray-500">
+                  <div className="flex items-center gap-1 text-xs text-slate-500">
                     {getSourceIcon(result.source_method)}
                     <span>{getSourceLabel(result.source_method)}</span>
                   </div>
                 </div>
 
-                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400 line-clamp-2">
                   {result.excerpt}
                 </p>
 
@@ -179,12 +179,12 @@ export default function KnowledgeRetrievalView({
 
                 {/* 展开/收起 */}
                 {expandedId === result.id && (
-                  <div className="mt-3 p-3 bg-white dark:bg-gray-800 rounded border border-blue-200 dark:border-blue-700">
-                    <p className="text-sm text-gray-700 dark:text-gray-300">
+                  <div className="mt-3 p-3 bg-white dark:bg-slate-800 rounded border border-blue-200 dark:border-blue-700">
+                    <p className="text-sm text-slate-700 dark:text-slate-300">
                       {result.excerpt}
                     </p>
                     {result.metadata?.domain && (
-                      <div className="mt-2 text-xs text-gray-500">
+                      <div className="mt-2 text-xs text-slate-500">
                         领域: {result.metadata.domain}
                       </div>
                     )}
@@ -193,7 +193,7 @@ export default function KnowledgeRetrievalView({
               </div>
 
               {/* 展开图标 */}
-              <div className="flex-shrink-0 text-gray-400">
+              <div className="flex-shrink-0 text-slate-400">
                 {expandedId === result.id ? (
                   <ChevronUp className="w-4 h-4" />
                 ) : (
