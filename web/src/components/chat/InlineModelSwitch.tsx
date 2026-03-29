@@ -127,7 +127,7 @@ export default function InlineModelSwitch({ onOpenSettings }: InlineModelSwitchP
       <Button
         variant="secondary"
         onClick={handleToggleMenu}
-        className="flex items-center gap-[6px] transition-colors"
+        className="flex items-center gap-1.5 transition-colors"
         aria-label="快速切换模型"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
@@ -145,7 +145,7 @@ export default function InlineModelSwitch({ onOpenSettings }: InlineModelSwitchP
       {/* 下拉菜单 */}
       {menuOpen && (
         <div
-          className="absolute bottom-[calc(100%+6px)] right-0 z-30 w-[200px] rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] shadow-[0_12px_40px_rgba(15,23,42,0.14)] overflow-hidden"
+          className="absolute bottom-[calc(100%+6px)] right-0 z-30 w-[min(200px,calc(100vw-2rem))] rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] shadow-md overflow-hidden"
           role="menu"
         >
           {/* 标题 */}

@@ -62,7 +62,7 @@ export default function OnboardHint({
  role="status"
  >
  <div className="absolute left-0 right-0 top-0 h-1 -translate-y-full" />
- <div className="relative rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] px-4 py-3 shadow-lg dark:border-[var(--border-default)] dark:bg-[var(--bg-elevated)]">
+ <div className="relative rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] px-4 py-3 shadow-lg dark:bg-[var(--bg-elevated)]">
  <div className={arrowClass} />
  <div className="flex items-start justify-between gap-3">
  <div className="min-w-0">

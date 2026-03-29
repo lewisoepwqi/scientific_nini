@@ -40,6 +40,8 @@ class CodeSessionTool(Tool):
         return (
             "创建、读取和执行持久化脚本会话，统一管理 Python/R 脚本与执行历史。"
             "当传入 dataset_name 时，沙箱会自动注入 DataFrame 变量 df。"
+            "沙箱已预注入 pd/np/plt/sns/go/px/datetime/re/json 等，无需 import。"
+            "图表在代码执行后自动收集导出，不要手动调用 plt.savefig()。"
             "禁止通过 import __main__ 或系统级 I/O 探测数据路径。"
         )
 
@@ -78,7 +80,10 @@ class CodeSessionTool(Tool):
                 },
                 "dataset_name": {"type": "string"},
                 "persist_df": {"type": "boolean", "default": False},
-                "save_as": {"type": "string"},
+                "save_as": {
+                    "type": "string",
+                    "description": "将 DataFrame 结果保存为持久化数据集的名称。仅影响 DataFrame 保存，与图表导出无关。图表会自动收集导出。",
+                },
                 "resource_name": {"type": "string"},
                 "resource_id": {"type": "string"},
                 "artifact_resource_id": {"type": "string"},
@@ -88,6 +93,7 @@ class CodeSessionTool(Tool):
                     "type": "string",
                     "enum": ["exploration", "visualization", "export", "transformation"],
                     "default": "exploration",
+                    "description": "脚本用途。绘图时必须设为 'visualization' 并提供 label，以便图表正确命名和导出。",
                 },
                 "label": {"type": "string"},
                 "intent": {"type": "string"},
@@ -737,12 +743,46 @@ class CodeSessionTool(Tool):
                 return {"line": int(matched.group(1))}
         return None
 
+    # 沙箱拦截常见模块的替代方案映射
+    _SANDBOX_DENY_HINTS: dict[str, str] = {
+        "pathlib": "pathlib 无需导入（如需操作文件使用 workspace_session 工具）。直接删除该 import 行即可。",
+        "os": "os 被禁止。文件操作使用 workspace_session 工具；路径操作使用字符串拼接。",
+        "sys": "sys 被禁止。通常无需使用，直接删除该 import 即可。",
+        "shutil": "shutil 被禁止。文件复制/移动使用 workspace_session 工具。",
+        "subprocess": "subprocess 被禁止。沙箱不允许执行系统命令。",
+        "socket": "socket 被禁止。沙箱不允许网络操作。",
+        "requests": "requests 被禁止。沙箱不允许网络请求。",
+        "urllib": "urllib 被禁止。沙箱不允许网络请求。",
+        "http": "http/httpx 被禁止。沙箱不允许网络请求。",
+        "httpx": "httpx 被禁止。沙箱不允许网络请求。",
+        "io": "io 被禁止。数据读写使用 pd.read_csv / df.to_csv 等 pandas 方法。",
+        "tempfile": "tempfile 被禁止。沙箱已提供临时工作目录。",
+        "pickle": "pickle 被禁止。使用 json（已预注入）进行序列化。",
+        "asyncio": "asyncio 被禁止。沙箱不支持异步操作。",
+        "threading": "threading 被禁止。沙箱不支持多线程。",
+        "multiprocessing": "multiprocessing 被禁止。沙箱不支持多进程。",
+        "importlib": "importlib 被禁止。不允许动态导入。",
+        "inspect": "inspect 被禁止。不允许代码内省。",
+        "ctypes": "ctypes 被禁止。不允许 FFI 调用。",
+        "shlex": "shlex 被禁止。不允许 shell 解析。",
+        "signal": "signal 被禁止。不允许信号处理。",
+        "fcntl": "fcntl 被禁止。不允许文件锁。",
+        "builtins": "builtins 无需导入。已预注入沙箱环境。",
+    }
+
+    # 沙箱已预注入的模块列表（用于通用 fallback 提示）
+    _PRE_INJECTED_MODULES = (
+        "pd (pandas), np (numpy), plt (matplotlib.pyplot), sns (seaborn), "
+        "go/px (plotly), datetime/dt/timedelta, re, json, "
+        "Counter/defaultdict/deque, combinations/permutations/product, reduce/partial"
+    )
+
     def _build_recovery_hint(self, result: ToolResult) -> str | None:
         if result.success:
             return None
         message = result.message
         if "策略拦截" in message:
-            return "移除受限导入或危险调用后重跑脚本"
+            return self._build_sandbox_recovery_hint(message)
         if "禁止再通过文件路径读取数据" in message:
             return "删除文件读取语句并直接使用注入的 df 后，用 patch_script 或 rerun 重试"
         if "数据集" in message and "不存在" in message:
@@ -752,3 +792,27 @@ class CodeSessionTool(Tool):
         if "执行失败" in message:
             return "修复报错行附近代码后使用 patch_script 或 rerun 重试"
         return "检查 traceback 后修复脚本并重新执行"
+
+    def _build_sandbox_recovery_hint(self, message: str) -> str:
+        """为沙箱策略拦截构建具体的恢复提示。"""
+        # 提取被拦截的模块名
+        module_match = re.search(r"不允许导入模块:\s*(\S+)", message)
+        if module_match:
+            blocked = module_match.group(1).rstrip("）")
+            # 去掉"（高风险模块）"等后缀
+            blocked = re.sub(r"[（(].*", "", blocked).strip()
+            specific = self._SANDBOX_DENY_HINTS.get(blocked)
+            if specific:
+                return f"{specific} 修正后使用 patch_script 或 rerun 重试。"
+
+        # 提取被拦截的函数调用
+        call_match = re.search(r"不允许调用[:：]\s*(\S+)", message)
+        if call_match:
+            func_name = call_match.group(1)
+            return f"{func_name} 被沙箱禁止。删除该调用后使用 patch_script 或 rerun 重试。"
+
+        return (
+            "移除受限导入或危险调用后重跑脚本。"
+            f"以下已预注入无需 import: {self._PRE_INJECTED_MODULES}。"
+            "图表会自动收集导出，不要手动 plt.savefig()。"
+        )

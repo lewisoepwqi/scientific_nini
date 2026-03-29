@@ -54,7 +54,7 @@ export default function AnalysisPlanCard({ content, analysisPlan }: Props) {
  <button
  type="button"
  onClick={() => setExpanded(!expanded)}
- className="w-full flex items-center justify-between px-3 py-2 text-sm bg-transparent border-none cursor-pointer focus:outline-none"
+ className="w-full flex items-center justify-between px-3 py-2 text-sm bg-transparent border-none cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
  >
  <div className="flex items-center gap-2">
  <Lightbulb size={14} className="text-[var(--domain-knowledge)]" />

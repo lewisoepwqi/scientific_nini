@@ -341,6 +341,20 @@ class HarnessRunner:
                     tool_failure_messages=tool_failure_messages,
                     blocked_state=blocked_state,
                 )
+                blocked_message = self._build_blocked_final_message(
+                    session=session,
+                    blocked_state=blocked_state,
+                    completion=trace.completion_checks[-1] if trace.completion_checks else None,
+                )
+                if blocked_message:
+                    session.add_message("assistant", blocked_message, turn_id=turn_id)
+                    blocked_text_event = eb.build_text_event(
+                        blocked_message,
+                        turn_id=turn_id,
+                        source="harness_blocked",
+                    )
+                    self._record_event(trace, blocked_text_event)
+                    yield blocked_text_event
                 yield eb.build_blocked_event(
                     turn_id=turn_id,
                     reason_code=blocked_state.reason_code,
@@ -536,6 +550,32 @@ class HarnessRunner:
             "如果已有工具失败，请明确处理或解释；如果缺少产物，请先生成；"
             "如果只是描述下一步，请立即执行对应动作。"
         )
+
+    @staticmethod
+    def _build_blocked_final_message(
+        *,
+        session: Session,
+        blocked_state: BlockedState,
+        completion: CompletionCheckResult | None,
+    ) -> str:
+        lines = [f"当前轮分析已暂停：{blocked_state.message}"]
+
+        if completion and completion.missing_actions:
+            lines.append(f"未满足的完成条件：{'；'.join(completion.missing_actions)}。")
+
+        remaining_tasks = [
+            task.title
+            for task in session.task_manager.tasks
+            if task.status in {"pending", "in_progress"}
+        ]
+        if remaining_tasks:
+            lines.append("仍未完成的任务：")
+            lines.extend(f"- {title}" for title in remaining_tasks)
+
+        if blocked_state.suggested_action:
+            lines.append(f"建议下一步：{blocked_state.suggested_action}")
+
+        return "\n".join(lines).strip()
 
     @staticmethod
     def _handle_tool_result(

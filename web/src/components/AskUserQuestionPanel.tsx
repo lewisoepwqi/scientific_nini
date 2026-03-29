@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, startTransition } from "react";
 import type { PendingAskUserQuestion, QuestionType } from "../store";
+import { AlertTriangle } from "lucide-react";
 import Button from "./ui/Button";
 
 const SKIPPED_ANSWER_VALUE = "已跳过";
@@ -150,23 +151,23 @@ export default function AskUserQuestionPanel({
 
  function getTabStyle(index: number): string {
  if (errors[index]) {
- return "border-[var(--error)] bg-[var(--error-subtle)] text-[var(--error)] dark:text-[var(--error)]";
+ return "border-[var(--error)] bg-[var(--error-subtle)] text-[var(--error)]";
  }
  if (index === activeIndex) {
- return "border-[var(--accent)] bg-[var(--accent-subtle)] text-[var(--accent)] shadow-sm dark:text-[var(--accent)]";
+ return "border-[var(--accent)] bg-[var(--accent-subtle)] text-[var(--accent)] shadow-sm";
  }
  if (skippedMap[index]) {
- return "border-[var(--warning)] bg-[var(--accent-subtle)] text-[var(--warning)] dark:text-[var(--warning)]";
+ return "border-[var(--warning)] bg-[var(--accent-subtle)] text-[var(--warning)]";
  }
  if (completionMap[index]) {
- return "border-[var(--success)] bg-[var(--accent-subtle)] text-[var(--success)] dark:text-[var(--success)]";
+ return "border-[var(--success)] bg-[var(--accent-subtle)] text-[var(--success)]";
  }
  return "border-[var(--border-default)] bg-[var(--bg-base)] text-[var(--text-secondary)] hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)]";
  }
 
  return (
  <div className="border-t border-[var(--accent-subtle)] bg-[var(--accent-subtle)]/60 px-4 py-3">
- <div className="mx-auto max-w-3xl rounded-2xl border border-[var(--accent-subtle)] bg-[var(--bg-base)] p-4 shadow-sm">
+ <div className="mx-auto max-w-3xl rounded-lg border border-[var(--accent-subtle)] bg-[var(--bg-base)] p-4 shadow-sm">
  <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
  <div className="text-sm font-semibold text-[var(--accent)]">
  需要你补充 {questionCount} 个信息点，回答后继续执行
@@ -223,7 +224,7 @@ export default function AskUserQuestionPanel({
  <div className="mb-2">
  {activeQuestion.question_type === "risk_confirmation" && (
  <div className="mb-1 flex items-center gap-1 text-xs font-semibold text-[var(--error)]">
- <span>⚠️</span>
+ <AlertTriangle size={14} />
  <span>此操作不可逆，请谨慎确认</span>
  </div>
  )}

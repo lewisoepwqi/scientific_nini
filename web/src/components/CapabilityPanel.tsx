@@ -10,7 +10,7 @@
  */
 import { useEffect, useMemo } from 'react'
 import { useStore, type CapabilityItem } from '../store'
-import { RefreshCw, Zap } from 'lucide-react'
+import { RefreshCw, Sparkles, Zap } from 'lucide-react'
 import { DetailPanel } from './ui'
 import Button from './ui/Button'
 
@@ -20,7 +20,7 @@ interface Props {
 }
 
 function getCategoryIcon(icon?: string) {
- return icon || '✨'
+ return icon || <Sparkles size={16} className="text-[var(--accent)]" />
 }
 
 function getCapabilityCategory(cap: CapabilityItem): string {
@@ -86,7 +86,7 @@ export default function CapabilityPanel({ open, onClose }: Props) {
  <Button
  variant="ghost"
  onClick={fetchCapabilities}
- className="h-[24px] w-[24px] p-0"
+ className="h-8 w-8 p-0"
  title="刷新"
  aria-label="刷新能力列表"
  >
@@ -109,7 +109,7 @@ export default function CapabilityPanel({ open, onClose }: Props) {
  className="p-3 border border-[var(--border-subtle)] rounded-lg"
  >
  <div className="flex items-start gap-2">
- <span className="text-base">{getCategoryIcon(cap.icon)}</span>
+ <span className="text-base flex items-center">{getCategoryIcon(cap.icon)}</span>
  <div className="flex-1 min-w-0">
  <div className="flex items-center gap-2">
  <div className="font-medium text-[13px] text-[var(--text-primary)]">

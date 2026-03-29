@@ -87,7 +87,7 @@ export default function TaskTree({ plan, tasks }: TaskTreeProps) {
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex h-9 items-center gap-2 w-full px-2 transition-colors bg-transparent border-none cursor-pointer focus:outline-none"
+        className="flex h-9 items-center gap-2 w-full px-2 transition-colors bg-transparent border-none cursor-pointer rounded hover:bg-[var(--bg-hover)]"
       >
  {/* 当前步骤状态图标 */}
  <StepIcon status={activePlan?.step_status ?? "not_started"} />

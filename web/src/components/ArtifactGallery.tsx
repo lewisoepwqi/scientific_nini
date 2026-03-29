@@ -114,13 +114,13 @@ function ThumbnailIcon({ file }: { file: WorkspaceFile }) {
  }
  // 数据转换记录
  if (file.resource_type === 'transform') {
- return <FileCode size={28} className="text-cyan-400" />
+ return <FileCode size={28} className="text-[var(--domain-analysis)]" />
  }
  if (name.endsWith('.plotly.json')) {
- return <FileCode size={28} className="text-orange-400" />
+ return <FileCode size={28} className="text-[var(--warning)]" />
  }
  if (['html', 'htm'].includes(ext)) {
- return <FileCode size={28} className="text-orange-400" />
+ return <FileCode size={28} className="text-[var(--warning)]" />
  }
  if (['md', 'txt', 'pdf', 'docx', 'pptx', 'tex'].includes(ext)) {
  return <FileText size={28} className="text-[var(--accent)]" />
@@ -232,7 +232,7 @@ export default function ArtifactGallery() {
  return (
  <div className="flex flex-col h-full">
  {/* 筛选栏 */}
- <div className="flex items-center gap-1.5 px-2 py-2 flex-shrink-0">
+ <div className="flex flex-wrap items-center gap-1.5 px-2 py-2 flex-shrink-0 min-w-0">
  <Filter size={12} className="text-[var(--text-muted)] flex-shrink-0" />
  {(['all', 'chart', 'report', 'data', 'script', 'transform'] as FilterType[]).map((type) => (
  <Button
@@ -240,7 +240,7 @@ export default function ArtifactGallery() {
  variant="ghost"
  type="button"
  onClick={() => setFilter(type)}
- className={`px-2 py-1.5 rounded-full text-[10px] font-medium ${
+ className={`px-2 py-1.5 rounded-full text-[11px] font-medium ${
  filter === type
  ? 'bg-[var(--accent-subtle)] text-[var(--accent)]'
  : ''
@@ -265,7 +265,7 @@ export default function ArtifactGallery() {
 
  {/* 网格 */}
  <div className="flex-1 overflow-y-auto px-2 pb-2">
- <ul className="grid grid-cols-2 gap-2 list-none p-0 m-0">
+ <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 list-none p-0 m-0">
  {filteredArtifacts.map((file) => {
  const isSelected = selectedIds.has(file.id)
  return (
@@ -306,7 +306,7 @@ export default function ArtifactGallery() {
 
  {/* 文件名 */}
  <div className="px-1.5 py-1 border-t border-[var(--border-default)] bg-[var(--bg-base)]">
- <div className="text-[10px] text-[var(--text-secondary)] truncate" title={file.name}>
+ <div className="text-[11px] text-[var(--text-secondary)] truncate" title={file.name}>
  {file.name}
  </div>
  {(() => {

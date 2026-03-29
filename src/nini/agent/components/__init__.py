@@ -13,6 +13,7 @@ from nini.agent.components.context_builder import (
     sanitize_for_system_context,
     sanitize_reference_text,
 )
+from nini.agent.components.context_utils import naturalize_internal_status_text
 from nini.agent.components.context_compressor import (
     compress_session_context,
     force_auto_compress,
@@ -39,6 +40,7 @@ __all__ = [
     # Context Builder
     "ContextBuilder",
     "get_last_user_message",
+    "naturalize_internal_status_text",
     "sanitize_for_system_context",
     "sanitize_reference_text",
     "filter_valid_messages",

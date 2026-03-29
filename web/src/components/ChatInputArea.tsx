@@ -12,9 +12,9 @@ import Button from "./ui/Button";
 import { Send, Square, Archive } from "lucide-react";
 
 /** 上下文安全等级进度条颜色 */
-const CONTEXT_SAFE_COLOR = 'rgba(16, 185, 129, 0.28)'
-const CONTEXT_WARNING_COLOR = 'rgba(249, 115, 22, 0.26)'
-const CONTEXT_DANGER_COLOR = 'rgba(239, 68, 68, 0.26)'
+const CONTEXT_SAFE_COLOR = 'color-mix(in srgb, var(--success) 28%, transparent)'
+const CONTEXT_WARNING_COLOR = 'color-mix(in srgb, var(--warning) 26%, transparent)'
+const CONTEXT_DANGER_COLOR = 'color-mix(in srgb, var(--error) 26%, transparent)'
 
 function clamp01(value: number): number {
  if (!Number.isFinite(value)) return 0;
@@ -295,10 +295,12 @@ export default function ChatInputArea() {
 
  // 输入框自适应高度
   const adjustHeight = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 120) + "px";
+    });
   }, []);
 
  useEffect(() => {
@@ -646,7 +648,7 @@ export default function ChatInputArea() {
         {!slashHintSeen && isFocused && input.trim() === "" && (
           <div className="pointer-events-none absolute left-0 right-0 top-0 flex items-start px-[18px] py-[14px]">
             <span className="animate-in fade-in duration-500 text-sm text-[var(--text-muted)]">
-              输入 <kbd className="rounded border border-[var(--border-default)] bg-[var(--bg-elevated)] px-1.5 py-0.5 font-mono text-xs text-[var(--text-secondary)] dark:border-[var(--border-default)] dark:bg-[var(--bg-overlay)] dark:text-[var(--text-muted)]">/</kbd> 快速调用分析技能
+              输入 <kbd className="rounded border border-[var(--border-default)] bg-[var(--bg-elevated)] px-1.5 py-0.5 font-mono text-xs text-[var(--text-secondary)] dark:bg-[var(--bg-overlay)] dark:text-[var(--text-muted)]">/</kbd> 快速调用分析技能
             </span>
           </div>
         )}
@@ -669,7 +671,7 @@ export default function ChatInputArea() {
  />
 
  {slashMenuOpen && (
- <div className="absolute left-3 right-3 bottom-[calc(100%+18px)] z-20 rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] shadow-lg dark:border-[var(--border-default)] dark:bg-[var(--bg-elevated)]">
+ <div className="absolute left-3 right-3 bottom-[calc(100%+18px)] z-20 rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] shadow-lg dark:bg-[var(--bg-elevated)]">
  <div className="max-h-56 overflow-y-auto p-1.5">
  {filteredSlashSkills.length === 0 ? (
  <div className="px-2.5 py-2 text-xs text-[var(--text-muted)]">
@@ -693,7 +695,7 @@ export default function ChatInputArea() {
  <div className="flex items-center gap-2">
  <span className="font-mono text-xs text-[var(--accent)]">/{skill.name}</span>
  {skill.category && (
- <span className="rounded bg-[var(--bg-elevated)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] dark:bg-[var(--bg-overlay)] dark:text-[var(--text-muted)]">
+ <span className="rounded bg-[var(--bg-elevated)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] dark:bg-[var(--bg-overlay)]">
  {skill.category}
  </span>
  )}
@@ -731,10 +733,10 @@ export default function ChatInputArea() {
  compressTextColor
  } ${
  compressLevel === "safe"
- ? "border-emerald-200 hover:bg-emerald-50/60 dark:border-emerald-800 dark:hover:bg-emerald-900/20"
+ ? "border-[color-mix(in_srgb,var(--success)_35%,transparent)] hover:bg-[var(--success-subtle)]"
  : compressLevel === "warning"
- ? "border-orange-200 hover:bg-orange-50/60 dark:border-orange-800 dark:hover:bg-orange-900/20"
- : "border-red-200 hover:bg-red-50/60 dark:border-red-800 dark:hover:bg-red-900/20"
+ ? "border-[color-mix(in_srgb,var(--warning)_35%,transparent)] hover:bg-[var(--warning-subtle)]"
+ : "border-[color-mix(in_srgb,var(--error)_35%,transparent)] hover:bg-[var(--error-subtle)]"
  }`}
  title={
  contextTokens === null

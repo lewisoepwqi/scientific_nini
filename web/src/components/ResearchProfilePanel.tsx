@@ -15,6 +15,13 @@ import {
  RefreshCw,
  CheckCircle2,
  BookOpen,
+ FlaskConical,
+ Dna,
+ Stethoscope,
+ Brain,
+ TrendingUp,
+ Users,
+ Cog,
 } from "lucide-react";
 import { useStore, type ResearchProfile } from "../store";
 import { CommandSheet } from "./ui";
@@ -44,13 +51,13 @@ const REPORT_DETAIL_LEVELS = [
 ];
 
 const DOMAINS = [
- { value: "general", label: "通用", icon: "⚗️" },
- { value: "biology", label: "生物学", icon: "🧬" },
- { value: "medicine", label: "医学", icon: "🏥" },
- { value: "psychology", label: "心理学", icon: "🧠" },
- { value: "economics", label: "经济学", icon: "📈" },
- { value: "sociology", label: "社会学", icon: "👥" },
- { value: "engineering", label: "工程学", icon: "⚙️" },
+ { value: "general", label: "通用", icon: FlaskConical },
+ { value: "biology", label: "生物学", icon: Dna },
+ { value: "medicine", label: "医学", icon: Stethoscope },
+ { value: "psychology", label: "心理学", icon: Brain },
+ { value: "economics", label: "经济学", icon: TrendingUp },
+ { value: "sociology", label: "社会学", icon: Users },
+ { value: "engineering", label: "工程学", icon: Cog },
 ];
 
 /* ---- 段落颜色标记 ---- */
@@ -63,7 +70,7 @@ const SECTION_COLORS: Record<string, { bg: string; border: string; variant: Badg
  },
  user: {
  bg: "bg-[var(--accent-subtle)]",
- border: "border-l-amber-400",
+ border: "border-l-[var(--warning)]",
  variant: "warning",
  },
 };
@@ -97,7 +104,7 @@ function ToggleSwitch({
  role="switch"
  aria-checked={checked}
  onClick={() => onChange(!checked)}
- className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+ className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 ${
  checked ? "bg-[var(--warning)]" : "bg-[var(--bg-overlay)]"
  }`}
  >
@@ -200,7 +207,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
  <div
  className="flex items-center gap-1.5 px-4 py-2 text-[11px] border-b text-[var(--success)]"
  style={{
- backgroundColor: 'rgba(16, 185, 129, 0.08)',
+ backgroundColor: 'color-mix(in srgb, var(--success) 8%, transparent)',
  borderColor: 'var(--border-subtle)',
  }}
  >
@@ -227,7 +234,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
  onClick={() => setActiveTab(tab.id)}
  className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-[12px] font-medium ${
  activeTab === tab.id
- ? "border-b-2 border-amber-500 text-[var(--warning)] bg-[var(--accent-subtle)]/80"
+ ? "border-b-2 border-[var(--warning)] text-[var(--warning)] bg-[var(--accent-subtle)]/80"
  : "text-[var(--text-secondary)]"
  }`}
  >
@@ -278,7 +285,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
  : "border-[var(--border-subtle)] bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
  }`}
  >
- <span className="text-base leading-none">{d.icon}</span>
+ <d.icon size={16} className="shrink-0" />
  <span className="leading-tight">{d.label}</span>
  </button>
  ))}
@@ -415,7 +422,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
  />
  <div className="flex-1">
  <p className="text-sm font-medium text-[var(--text-secondary)]">{item.label}</p>
- <p className="text-xs text-[var(--text-muted)] dark:text-[var(--text-muted)]">{item.desc}</p>
+ <p className="text-xs text-[var(--text-muted)]">{item.desc}</p>
  </div>
  </div>
  ))}
@@ -446,7 +453,7 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
  value={style.value}
  checked={draft.journal_style === style.value}
  onChange={(e) => updateField("journal_style", e.target.value)}
- className="h-3.5 w-3.5 border-[var(--border-strong)] text-[var(--warning)] focus:ring-amber-400"
+ className="h-3.5 w-3.5 border-[var(--border-strong)] text-[var(--warning)] focus:ring-[var(--accent)]"
  />
  <div className="flex flex-1 items-center justify-between">
  <span className="text-sm font-semibold text-[var(--text-secondary)]">
@@ -549,9 +556,9 @@ export default function ResearchProfilePanel({ isOpen, onClose }: Props) {
 
  {!narrativeLoading && !narrative && (
  <div
- className="rounded-2xl border-2 border-dashed p-10 text-center border-[var(--warning)]/50 bg-[var(--accent-subtle)]/80"
+ className="rounded-lg border-2 border-dashed p-10 text-center border-[var(--warning)]/50 bg-[var(--accent-subtle)]/80"
  >
- <BookOpen size={32} className="mx-auto mb-3 text-[var(--text-muted)] dark:text-[var(--text-muted)]" />
+ <BookOpen size={32} className="mx-auto mb-3 text-[var(--text-muted)]" />
  <p className="text-sm font-medium text-[var(--text-muted)]">研究日志尚未生成</p>
  <p className="mt-1 text-xs text-[var(--text-muted)]">
  保存研究画像后自动生成，Agent 分析时会追加观察

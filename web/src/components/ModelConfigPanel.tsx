@@ -244,7 +244,7 @@ function UsageBar({
  {used} / {limit}
  </span>
  </div>
- <div className="h-1.5 rounded-full bg-[var(--bg-overlay)] dark:bg-[var(--bg-overlay)] overflow-hidden">
+ <div className="h-1.5 rounded-full bg-[var(--bg-overlay)] overflow-hidden">
  <div
  className={`h-full rounded-full transition-all ${
  isExhausted
@@ -301,8 +301,8 @@ function StatusScreen({
  <span
  className={`text-[10px] px-1.5 py-0.5 rounded-full ${
  anyExhausted
- ? "bg-[var(--warning-subtle)] text-[var(--warning)] dark:text-[var(--warning)]"
- : "bg-[var(--accent-subtle)] text-[var(--accent)] dark:text-[var(--accent)]"
+ ? "bg-[var(--warning-subtle)] text-[var(--warning)]"
+ : "bg-[var(--accent-subtle)] text-[var(--accent)]"
  }`}
  >
  当前使用
@@ -340,9 +340,7 @@ function StatusScreen({
  <ChevronRight size={16} className="text-[var(--text-muted)]" />
  </Button>
  <div className="text-xs text-[var(--text-muted)] text-center">
- {providers.filter((p) => p.configured).length > 0
- ? `共 ${providers.filter((p) => p.configured).length} 个自有供应商已配置`
- : "支持 DeepSeek · 智谱 GLM · 通义千问 · 本地 Ollama"}
+ {(() => { const n = providers.filter((p) => p.configured).length; return n > 0 ? `共 ${n} 个自有供应商已配置` : "支持 DeepSeek · 智谱 GLM · 通义千问 · 本地 Ollama"; })()}
  </div>
  </div>
  );
@@ -754,8 +752,8 @@ function ConfigureScreen({
  <div
  className={`text-xs px-3 py-2 rounded-lg border ${
  testResult.success
- ? "bg-[var(--accent-subtle)] border-[var(--success)] text-[var(--success)] dark:text-[var(--success)]"
- : "bg-[var(--accent-subtle)] border-[var(--error)] text-[var(--error)] dark:text-[var(--error)]"
+ ? "bg-[var(--accent-subtle)] border-[var(--success)] text-[var(--success)]"
+ : "bg-[var(--accent-subtle)] border-[var(--error)] text-[var(--error)]"
  }`}
  >
  {testResult.message}

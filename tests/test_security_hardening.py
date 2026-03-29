@@ -217,30 +217,35 @@ class TestBackgroundTaskTracking:
 
 
 # ---------------------------------------------------------------------------
-# 4. Agent 循环 Wall-Clock 超时
+# 4. Agent 分层超时
 # ---------------------------------------------------------------------------
 
 
 class TestAgentTimeoutConfig:
-    """验证超时配置项存在且默认值正确。"""
+    """验证 Agent 分层超时配置与行为。"""
 
     def test_config_has_timeout_field(self):
-        """Settings 类应包含 agent_max_timeout_seconds 字段。"""
+        """Settings 类应包含 Agent 分层超时配置字段。"""
         from nini.config import Settings
 
         # 验证字段存在于模型定义中
+        assert "agent_active_execution_timeout_seconds" in Settings.model_fields
+        assert "agent_run_wall_clock_timeout_seconds" in Settings.model_fields
         assert "agent_max_timeout_seconds" in Settings.model_fields
 
     def test_default_timeout_value(self):
-        """默认超时为 300 秒。"""
+        """默认主动执行超时回退为 300 秒，wall-clock 兜底默认不限。"""
         from nini.config import Settings
 
-        default = Settings.model_fields["agent_max_timeout_seconds"].default
-        assert default == 300
+        assert Settings.model_fields["agent_active_execution_timeout_seconds"].default is None
+        assert Settings.model_fields["agent_run_wall_clock_timeout_seconds"].default == 0
+        assert Settings.model_fields["agent_max_timeout_seconds"].default == 300
 
     @pytest.mark.asyncio
-    async def test_runner_stops_on_wall_clock_timeout_and_emits_error_event(self, monkeypatch):
-        """超时触发后应返回 error 事件并保留已写入的会话消息。"""
+    async def test_runner_stops_on_active_execution_timeout_and_emits_error_event(
+        self, monkeypatch
+    ):
+        """主动执行超时触发后应返回 error 事件并保留已写入的会话消息。"""
 
         class _Resolver:
             def __init__(self) -> None:
@@ -258,7 +263,8 @@ class TestAgentTimeoutConfig:
             resolver=resolver, tool_registry=MagicMock(), knowledge_loader=MagicMock()
         )
 
-        monkeypatch.setattr("nini.agent.runner.settings.agent_max_timeout_seconds", 1)
+        monkeypatch.setattr("nini.agent.runner.settings.agent_active_execution_timeout_seconds", 1)
+        monkeypatch.setattr("nini.agent.runner.settings.agent_run_wall_clock_timeout_seconds", 0)
 
         with (
             patch(
@@ -285,7 +291,166 @@ class TestAgentTimeoutConfig:
         assert any(
             event.type == EventType.ERROR
             and isinstance(event.data, dict)
+            and "主动执行超时" in str(event.data.get("message", ""))
+            for event in events
+        )
+
+    @pytest.mark.asyncio
+    async def test_runner_excludes_ask_user_question_wait_from_timeout(
+        self,
+        monkeypatch,
+    ):
+        """等待用户回答的时长不应计入 Agent 超时预算。"""
+
+        class _Chunk:
+            def __init__(self, *, text: str = "", tool_calls: list[dict] | None = None):
+                self.text = text
+                self.reasoning = ""
+                self.raw_text = text
+                self.tool_calls = tool_calls or []
+                self.usage = None
+
+        class _Resolver:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    yield _Chunk(
+                        tool_calls=[
+                            {
+                                "id": "call_ask_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "ask_user_question",
+                                    "arguments": json.dumps(
+                                        {
+                                            "questions": [
+                                                {
+                                                    "question": "请选择输出格式",
+                                                    "header": "输出格式",
+                                                    "options": [
+                                                        {
+                                                            "label": "交互式图表",
+                                                            "description": "Plotly",
+                                                        },
+                                                        {
+                                                            "label": "静态图片",
+                                                            "description": "PNG",
+                                                        },
+                                                    ],
+                                                }
+                                            ]
+                                        },
+                                        ensure_ascii=False,
+                                    ),
+                                },
+                            }
+                        ]
+                    )
+                    return
+
+                yield _Chunk(text="已根据用户选择继续执行。")
+
+        async def _ask_handler(session: Session, tool_call_id: str, payload: dict[str, object]):
+            await asyncio.sleep(1.1)
+            return {"请选择输出格式": "交互式图表"}
+
+        class _KnowledgeLoader:
+            def select_with_hits(self, *args, **kwargs):
+                return "", []
+
+        resolver = _Resolver()
+        runner = AgentRunner(
+            resolver=resolver,
+            tool_registry=MagicMock(),
+            knowledge_loader=_KnowledgeLoader(),
+            ask_user_question_handler=_ask_handler,
+        )
+        session = Session()
+
+        monkeypatch.setattr("nini.agent.runner.settings.agent_active_execution_timeout_seconds", 1)
+        monkeypatch.setattr("nini.agent.runner.settings.agent_run_wall_clock_timeout_seconds", 0)
+
+        with (
+            patch("nini.config_manager.get_active_provider_id", new=AsyncMock(return_value="test")),
+            patch(
+                "nini.config_manager.list_user_configured_provider_ids",
+                new=AsyncMock(return_value=["test"]),
+            ),
+        ):
+            events = [
+                event
+                async for event in runner.run(
+                    session,
+                    "请继续分析并在必要时询问我",
+                    stage_override="security-test",
+                )
+            ]
+
+        assert resolver.calls == 2
+        assert not any(
+            event.type == EventType.ERROR
+            and isinstance(event.data, dict)
             and "运行超时" in str(event.data.get("message", ""))
+            for event in events
+        )
+        assert any(
+            event.type == EventType.TEXT
+            and isinstance(event.data, dict)
+            and "已根据用户选择继续执行" in str(event.data.get("content", ""))
+            for event in events
+        )
+
+    @pytest.mark.asyncio
+    async def test_runner_stops_on_wall_clock_timeout_when_configured(self, monkeypatch):
+        """当配置 wall-clock 兜底时，应按整轮总时长终止。"""
+
+        class _Resolver:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+                self.calls += 1
+                if False:
+                    yield None
+                raise AssertionError("timeout 前不应调用 resolver")
+
+        resolver = _Resolver()
+        session = Session()
+        runner = AgentRunner(
+            resolver=resolver, tool_registry=MagicMock(), knowledge_loader=MagicMock()
+        )
+
+        monkeypatch.setattr("nini.agent.runner.settings.agent_active_execution_timeout_seconds", 0)
+        monkeypatch.setattr("nini.agent.runner.settings.agent_run_wall_clock_timeout_seconds", 1)
+
+        with (
+            patch(
+                "nini.agent.runner.time.monotonic",
+                side_effect=[100.0, 102.5, 102.5, 102.5],
+            ),
+            patch("nini.config_manager.get_active_provider_id", new=AsyncMock(return_value="test")),
+            patch(
+                "nini.config_manager.list_user_configured_provider_ids",
+                new=AsyncMock(return_value=["test"]),
+            ),
+        ):
+            events = [
+                event
+                async for event in runner.run(
+                    session,
+                    "请继续分析",
+                    stage_override="security-test",
+                )
+            ]
+
+        assert resolver.calls == 0
+        assert any(
+            event.type == EventType.ERROR
+            and isinstance(event.data, dict)
+            and "运行总时长超时" in str(event.data.get("message", ""))
             for event in events
         )
 

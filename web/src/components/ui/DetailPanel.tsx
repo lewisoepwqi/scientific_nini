@@ -93,7 +93,7 @@ export default function DetailPanel({
  type="button"
  onClick={onClose}
  aria-label="关闭面板"
- className="h-[28px] w-[28px] p-0"
+ className="h-8 w-8 p-0"
  >
  <X size={16} />
  </Button>

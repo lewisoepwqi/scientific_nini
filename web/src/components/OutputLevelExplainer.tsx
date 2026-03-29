@@ -22,7 +22,7 @@ const OUTPUT_LEVELS = [
  {
  level: "o3",
  label: "可审阅级",
- color: "bg-[var(--accent-subtle)] text-[var(--success)] dark:text-[var(--success)]",
+ color: "bg-[var(--accent-subtle)] text-[var(--success)]",
  desc: "经过验证的分析结果，建议人工审阅后使用",
  },
  {
@@ -37,7 +37,7 @@ export default function OutputLevelExplainer() {
  const markSeen = useOnboardStore((s) => s.markSeen);
 
  return (
- <div className="mt-3 rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] p-3 dark:border-[var(--border-default)] dark:bg-[var(--bg-elevated)]">
+ <div className="mt-3 rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] p-3 dark:bg-[var(--bg-elevated)]">
  <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--text-secondary)] mb-2">
  <Lightbulb size={12} />
  <span>输出等级说明</span>

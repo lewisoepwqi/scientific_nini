@@ -88,7 +88,7 @@ export default function ReasoningPanel({
 
  const getTypeColor = (type?: string) => {
  const colors: Record<string, string> = {
- analysis: "bg-[var(--bg-elevated)] text-[var(--text-secondary)] dark:bg-[var(--bg-elevated)]/50 dark:text-[var(--text-muted)]",
+ analysis: "bg-[var(--bg-elevated)] text-[var(--text-secondary)]/50 dark:text-[var(--text-muted)]",
  decision: "bg-[var(--accent-subtle)] text-[var(--domain-knowledge)]",
  planning: "bg-[var(--accent-subtle)] text-[var(--success)]",
  reflection: "bg-[var(--accent-subtle)] text-[var(--domain-analysis)]",
@@ -134,7 +134,7 @@ export default function ReasoningPanel({
  <button
  type="button"
  onClick={() => setExpanded(!expanded)}
- className="w-full flex items-center justify-between py-1 bg-transparent border-none cursor-pointer focus:outline-none"
+ className="w-full flex items-center justify-between py-1 bg-transparent border-none cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
  >
  <div className="flex items-center gap-2">
  <span className="text-sm font-medium">

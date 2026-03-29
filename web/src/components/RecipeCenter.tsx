@@ -16,7 +16,7 @@ function buildRecipePrompt(
 
 /** 焦点环 — 统一 focus-visible 样式 */
 const focusRing =
- "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 dark:focus-visible:ring-slate-500";
+ "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]";
 
 export default function RecipeCenter() {
  const recipes = useStore((s) => s.recipes);
@@ -113,13 +113,13 @@ export default function RecipeCenter() {
  {/* Skip-nav：跳过 Recipe Center 直达聊天输入 */}
  <a
  href="#chat-input"
- className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-10 focus:rounded-lg focus:bg-[var(--bg-elevated)] focus:px-3 focus:py-1.5 focus:text-sm focus:text-white focus:shadow-md"
+ className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-10 focus:rounded-lg focus:bg-[var(--accent)] focus:px-3 focus:py-1.5 focus:text-sm focus:text-white focus:shadow-md"
  >
  跳过模板选择，直达输入框
  </a>
 
  <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)]/90 dark:bg-[var(--bg-elevated)] p-5 shadow-sm">
- <div className="flex items-start justify-between gap-4">
+ <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
  <div>
  <div className="text-xs font-medium uppercase tracking-[0.18em] text-[var(--text-muted)]">
  Recipe Center
@@ -134,7 +134,7 @@ export default function RecipeCenter() {
  </div>
  </div>
 
- <div role="tablist" aria-label="选择模板" className="mt-4 grid gap-2 md:grid-cols-3">
+ <div role="tablist" aria-label="选择模板" className="mt-4 grid gap-2 sm:grid-cols-2 md:grid-cols-3">
  {recipes.map((recipe, index) => {
  const selected = recipe.recipe_id === selectedRecipe.recipe_id;
  return (
@@ -146,7 +146,7 @@ export default function RecipeCenter() {
           aria-selected={selected}
           onClick={() => setSelectedRecipeId(recipe.recipe_id)}
           onKeyDown={(e) => handleCardKeyDown(e, index)}
-          className={`flex flex-col rounded-xl border px-3.5 py-3.5 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--accent)] ${
+          className={`flex flex-col rounded-xl border px-3.5 py-3.5 text-left transition-colors ${focusRing} ${
             selected
               ? "border-[var(--domain-profile)] bg-[var(--accent-subtle)] ring-1 ring-[var(--domain-profile)]"
               : "border-[var(--border-default)] bg-[var(--bg-base)] hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)]"
@@ -167,7 +167,7 @@ export default function RecipeCenter() {
  role="tabpanel"
  aria-label={`${selectedRecipe.name} 详情`}
  onKeyDown={handleFormKeyDown}
- className="mt-4 grid gap-5 rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)]/40/40 p-4 md:grid-cols-[1.2fr_0.8fr]"
+ className="mt-4 grid gap-5 rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)]/40 p-4 md:grid-cols-[1.2fr_0.8fr]"
  >
  <div>
  <div className="text-sm font-medium text-[var(--text-primary)]">{selectedRecipe.name}</div>
@@ -178,7 +178,7 @@ export default function RecipeCenter() {
  <div className="mb-1 text-xs font-medium text-[var(--text-secondary)]">
  {field.label}
  {field.required ? (
- <span aria-label="必填" className="text-[var(--error)] dark:text-[var(--error)]"> *</span>
+ <span aria-label="必填" className="text-[var(--error)]"> *</span>
  ) : null}
  </div>
  <input
@@ -218,7 +218,7 @@ export default function RecipeCenter() {
  >
  以模板启动
  </Button>
- <div className="rounded-lg border border-[var(--border-default)]/60 bg-[var(--bg-base)] px-4 py-2 text-xs leading-5 text-[var(--text-muted)]">
+ <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/50 px-4 py-2 text-xs leading-5 text-[var(--text-muted)]">
  示例：{selectedRecipe.example_input}
  </div>
  </div>

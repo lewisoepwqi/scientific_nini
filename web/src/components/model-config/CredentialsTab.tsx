@@ -312,7 +312,7 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
  }}
  className={`w-full text-left px-3 py-1.5 text-sm ${
  opt.value === providerFilter
- ? "bg-[var(--accent-subtle)] text-[var(--accent)] dark:text-[var(--accent)] font-medium"
+ ? "bg-[var(--accent-subtle)] text-[var(--accent)] font-medium"
  : ""
  }`}
  >
@@ -347,18 +347,22 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
  className={`rounded-xl border p-4 transition-colors ${
  p.configured
  ? "border-[var(--success)] bg-[var(--accent-subtle)]/40"
- : "border-[var(--border-default)] bg-[var(--bg-elevated)]/60 dark:bg-[var(--bg-elevated)]/60"
+ : "border-[var(--border-default)] bg-[var(--bg-elevated)]/60"
  }`}
  >
  <div
- className="flex items-center justify-between cursor-pointer"
+ role="button"
+ tabIndex={0}
+ aria-expanded={isExpanded}
+ className="flex items-center justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded px-2 -mx-2"
  onClick={() => handleExpand(p.id, isExpanded)}
+ onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleExpand(p.id, isExpanded) } }}
  >
  <div className="flex items-center gap-3 min-w-0 flex-1">
  {p.configured ? (
  <CheckCircle
  size={18}
- className="text-[var(--success)] dark:text-[var(--success)] flex-shrink-0"
+ className="text-[var(--success)] flex-shrink-0"
  />
  ) : (
  <XCircle
@@ -374,11 +378,11 @@ export default function CredentialsTab({ onConfigSaved }: CredentialsTabProps) {
  {p.api_key_hint ? `Key: ${p.api_key_hint}` : "未配置密钥"}
  </div>
  <div className="flex items-center gap-1.5 mt-1">
- <span className="px-1.5 py-0.5 rounded bg-[var(--bg-base)]/80/80 border border-[var(--border-default)] text-[10px] text-[var(--text-secondary)]">
+ <span className="px-1.5 py-0.5 rounded bg-[var(--bg-base)]/80 border border-[var(--border-default)] text-[10px] text-[var(--text-secondary)]">
  {sourceLabel(p.config_source)}
  </span>
  {p.api_mode && (
- <span className="px-1.5 py-0.5 rounded bg-[var(--bg-base)]/80/80 border border-[var(--border-default)] text-[10px] text-[var(--text-secondary)]">
+ <span className="px-1.5 py-0.5 rounded bg-[var(--bg-base)]/80 border border-[var(--border-default)] text-[10px] text-[var(--text-secondary)]">
  {apiModeLabel(p.api_mode)}
  </span>
  )}

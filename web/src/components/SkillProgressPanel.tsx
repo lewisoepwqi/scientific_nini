@@ -51,13 +51,13 @@ function statusMeta(status: SkillExecutionStep["status"]) {
  return {
  label: "跳过",
  icon: <SkipForward size={14} className="text-[var(--text-muted)]" />,
- itemClass: "border-[var(--border-default)] bg-[var(--bg-elevated)]/80 text-[var(--text-secondary)] dark:border-[var(--border-default)] dark:bg-[var(--bg-elevated)] dark:text-[var(--text-muted)]",
+ itemClass: "border-[var(--border-default)] bg-[var(--bg-elevated)]/80 text-[var(--text-secondary)] dark:text-[var(--text-muted)]",
  };
  default:
  return {
  label: "等待中",
  icon: <CircleDashed size={14} className="text-[var(--text-muted)]" />,
- itemClass: "border-[var(--border-default)] bg-[var(--bg-base)] text-[var(--text-secondary)] dark:border-[var(--border-default)] dark:bg-[var(--bg-elevated)] dark:text-[var(--text-muted)]",
+ itemClass: "border-[var(--border-default)] bg-[var(--bg-base)] text-[var(--text-secondary)] dark:bg-[var(--bg-elevated)] dark:text-[var(--text-muted)]",
  };
  }
 }
@@ -65,11 +65,11 @@ function statusMeta(status: SkillExecutionStep["status"]) {
 function outputLevelMeta(outputLevel: OutputLevel | null) {
  switch (outputLevel) {
  case "o1":
- return { label: "建议级", className: "bg-[var(--bg-elevated)] text-[var(--text-secondary)] border-[var(--border-default)] dark:bg-[var(--bg-elevated)] dark:text-[var(--text-muted)] dark:border-[var(--border-default)]" };
+ return { label: "建议级", className: "bg-[var(--bg-elevated)] text-[var(--text-secondary)] border-[var(--border-default)] dark:text-[var(--text-muted)]" };
  case "o2":
  return { label: "草稿级", className: "bg-[var(--accent-subtle)] text-[var(--domain-profile)] border-[var(--domain-profile)]" };
  case "o3":
- return { label: "可审阅级", className: "bg-[var(--accent-subtle)] text-[var(--success)] border-[var(--success)] dark:text-[var(--success)]" };
+ return { label: "可审阅级", className: "bg-[var(--accent-subtle)] text-[var(--success)] border-[var(--success)]" };
  case "o4":
  return { label: "可导出级", className: "bg-[var(--accent-subtle)] text-[var(--domain-analysis)] border-[var(--domain-analysis)]" };
  default:
@@ -89,10 +89,10 @@ export default function SkillProgressPanel() {
  const isFinished = skillExecution.activeSkill === null && skillExecution.overallStatus !== null;
 
  return (
- <section className="mb-5 rounded-[24px] border border-[var(--border-default)] bg-[var(--bg-base)]/90 dark:bg-[var(--bg-elevated)] shadow-[0_20px_60px_-42px_rgba(15,23,42,0.5)]">
- <div className="border-b border-[var(--border-default)] bg-[linear-gradient(135deg,rgba(240,249,255,0.95),rgba(248,250,252,0.95))] dark:from-slate-800 dark:to-slate-800 px-4 py-4">
+ <section className="mb-5 rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)]/90 dark:bg-[var(--bg-elevated)] shadow-md">
+ <div className="border-b border-[var(--border-default)] bg-[var(--bg-elevated)] px-4 py-4">
  <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--text-secondary)]">
- <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl bg-[var(--accent-subtle)] text-[var(--domain-profile)]">
+ <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent-subtle)] text-[var(--domain-profile)]">
  <Sparkles size={15} />
  </span>
  <span className="font-semibold text-[var(--text-primary)]">
@@ -113,7 +113,7 @@ export default function SkillProgressPanel() {
  步骤 {skillExecution.completedSteps + skillExecution.skippedSteps + skillExecution.failedSteps}/{skillExecution.totalSteps ?? skillExecution.steps.length}
  </span>
  {skillExecution.trustCeiling && (
- <span className="inline-flex items-center gap-1 rounded-full border border-[var(--success)] bg-[var(--accent-subtle)] px-2.5 py-1 text-[var(--success)] dark:text-[var(--success)]">
+ <span className="inline-flex items-center gap-1 rounded-full border border-[var(--success)] bg-[var(--accent-subtle)] px-2.5 py-1 text-[var(--success)]">
  <ShieldCheck size={12} />
  信任上限 {skillExecution.trustCeiling.toUpperCase()}
  </span>
@@ -141,7 +141,7 @@ export default function SkillProgressPanel() {
  return (
  <article
  key={step.stepId}
- className={`rounded-2xl border px-3 py-3 transition-colors ${meta.itemClass}`}
+ className={`rounded-lg border px-3 py-3 transition-colors ${meta.itemClass}`}
  >
  <div className="flex items-start justify-between gap-3">
  <div className="min-w-0 flex-1">
@@ -166,7 +166,7 @@ export default function SkillProgressPanel() {
  <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">{step.outputSummary}</p>
  )}
  {step.errorMessage && (
- <p className="mt-2 rounded-xl border border-[var(--error)] bg-[var(--bg-base)]/80/80 px-2.5 py-2 text-xs text-[var(--error)]">
+ <p className="mt-2 rounded-xl border border-[var(--error)] bg-[var(--bg-base)]/80 px-2.5 py-2 text-xs text-[var(--error)]">
  {step.errorMessage}
  </p>
  )}

@@ -15,7 +15,7 @@
 先检查样本量、缺失值、异常值、变量类型与分组是否合理。
 
 **建议步骤**：
-1. 调用 `data_summary(dataset_name="xxx")` 获取概览
+1. 调用 `dataset_catalog(operation='profile', dataset_name='xxx', view='full')` 获取完整概况
 2. 检查样本量是否足够（通常 n≥30，组间均衡）
 3. 检查缺失值比例（>20% 需考虑填充或剔除）
 4. 检查异常值（箱线图 / IQR 方法）
@@ -50,6 +50,11 @@
 ### 5. 执行分析
 按步骤调用工具，关键参数透明可复现。
 
+数据集 profile 调用约束（必须遵循）：
+- 同一数据集在当前回合一旦已经成功获得 profile 结果，不得重复调用相同或更低信息量的 profile 视图。
+- 若已经拿到完整 profile（`view='full'`），除非用户明确要求刷新、数据已经变化，或必须补充完整 profile 未包含的新信息，否则不要再次调用 `basic` / `preview` / `summary` / `quality` / `full`。
+- 拿到 profile 后，下一步应进入任务规划、统计分析、清洗转换或结果汇总，不要反复停留在“继续查看数据预览/摘要”。
+
 ### 6. 结果报告
 至少包含统计量、p 值、效应量、置信区间（若可得）与实际意义解释。
 
@@ -68,18 +73,23 @@
 
 任务规划（多步分析时必须遵循）：
 
-1. 在开始执行分析之前，第一个工具调用必须是 task_write（mode='init'），声明完整任务列表。
-   示例：task_write(mode='init', tasks=[
-     {"id": 1, "title": "检查数据质量与摘要", "status": "pending", "tool_hint": "data_summary"},
+1. 在开始执行分析之前，第一个工具调用必须是 `task_state(operation='init')`，声明完整任务列表。
+   示例：task_state(operation='init', tasks=[
+     {"id": 1, "title": "检查数据质量与摘要", "status": "pending", "tool_hint": "dataset_catalog"},
      {"id": 2, "title": "执行正态性检验", "status": "pending", "tool_hint": "run_code"},
      {"id": 3, "title": "执行 t 检验", "status": "pending", "tool_hint": "t_test"},
      {"id": 4, "title": "绘制结果图表", "status": "pending", "tool_hint": "create_chart"},
      {"id": 5, "title": "汇总结论", "status": "pending"}
    ])
-2. 开始每个任务前：调用 task_write(mode='update') 将该任务改为 in_progress。
-3. 完成每个任务后：调用 task_write(mode='update') 将该任务改为 completed。
+2. 开始每个任务前：调用 `task_state(operation='update')` 将该任务改为 `in_progress`。
+3. 完成每个任务后：调用 `task_state(operation='update')` 将该任务改为 `completed`。
 4. 所有任务到达终态（completed/failed/skipped）后：直接输出最终分析总结，不要再调用任何工具。
-5. 简单问答（无需多步分析，如仅解释概念或单步查询）可跳过 task_write 直接回答。
+5. 简单问答（无需多步分析，如仅解释概念或单步查询）可跳过 `task_state` 直接回答。
+
+任务范围收敛规则（必须遵循）：
+- 当用户选择“描述性统计”“全面描述统计”“汇总报告”等基础分析目标时，默认任务应保持精简：数据清洗/核验、描述性统计、必要时的分组统计、结果汇总。
+- 只有当用户明确要求图表、研究问题确实需要可视化支撑，或你已准备立即生成图表产物时，才把可视化加入任务列表；不要把“可选图表”默认扩成必做任务。
+- 若图表只是补充材料而非回答问题所必需，不要先承诺绘图任务再在未完成时结束当前轮。
 
 任务状态说明：
 - **pending**：待执行
@@ -101,6 +111,36 @@
 - 正确做法：在同一段代码中定义函数并使用它。
 - 若需跨调用保留 DataFrame 变更，使用 `persist_df=true` 参数。
 - 若需保存新 DataFrame 为数据集，使用 `save_as` 参数。
+
+### 沙箱预注入变量（无需 import）
+
+以下模块和变量已在沙箱环境中预注入，直接使用即可，**不要 import**：
+
+| 预注入变量 | 对应模块 | 用途 |
+|-----------|---------|------|
+| `pd` | pandas | 数据框架 |
+| `np` / `numpy` | numpy | 数值计算 |
+| `plt` / `matplotlib` | matplotlib.pyplot | 静态绘图 |
+| `sns` | seaborn | 统计可视化 |
+| `go` / `px` | plotly | 交互式图表 |
+| `datetime` / `dt` / `timedelta` | datetime | 日期时间 |
+| `re` | re | 正则表达式 |
+| `json` | json | JSON 处理 |
+| `Counter` / `defaultdict` / `deque` | collections | 数据结构 |
+| `combinations` / `permutations` / `product` | itertools | 迭代器工具 |
+| `reduce` / `partial` | functools | 函数式工具 |
+
+### 图表自动导出机制（重要）
+
+- **不要手动调用 `plt.savefig()` 或 `fig.write_image()`**。沙箱执行完毕后会自动检测所有 Figure 对象并导出为多种格式。
+- 只需在代码中创建图表即可，系统会自动收集。例如：`fig, ax = plt.subplots(); ax.plot(...)` 即可。
+- 如需指定图表用途标签，在工具调用时传 `purpose="visualization"` 和 `label="图表描述"`。
+
+### `save_as` 参数说明
+
+- `save_as` 参数用于将 DataFrame 结果保存为**持久化数据集**，不是图表导出。
+- 当代码返回 DataFrame 且希望保存为可复用数据集时，传 `save_as="数据集名称"`。
+- 图表导出是自动的，无需通过 save_as 控制。
 
 可视化选择决策树：
 

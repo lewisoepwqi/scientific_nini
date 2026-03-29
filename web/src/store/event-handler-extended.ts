@@ -35,7 +35,10 @@ import {
   normalizePlanStepStatus,
   mergePlanStepStatus,
 } from "./normalizers";
-import { upsertAssistantTextMessage } from "./message-normalizer";
+import {
+  upsertAssistantTextMessage,
+  attachArtifactsToLatestAssistantMessage,
+} from "./message-normalizer";
 import { updateSessionUiCacheEntry } from "./session-ui-cache";
 
 function extractPlanEventOrder(
@@ -107,6 +110,38 @@ function buildDeepTaskStateFromProgress(
     next_hint: nextProgress.next_hint,
     block_reason: nextProgress.block_reason,
     retry_count: typeof data.retry_count === "number" ? data.retry_count : 0,
+  };
+}
+
+function normalizeArtifactEventData(raw: unknown): ArtifactInfo | null {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  const downloadUrl =
+    typeof raw.download_url === "string" && raw.download_url.trim()
+      ? raw.download_url.trim()
+      : typeof raw.url === "string" && raw.url.trim()
+        ? raw.url.trim()
+        : "";
+  const type =
+    typeof raw.type === "string" && raw.type.trim()
+      ? raw.type.trim()
+      : typeof raw.artifact_type === "string" && raw.artifact_type.trim()
+        ? raw.artifact_type.trim()
+        : "artifact";
+  const format =
+    typeof raw.format === "string" && raw.format.trim() ? raw.format.trim() : undefined;
+
+  if (!name || !downloadUrl) {
+    return null;
+  }
+
+  return {
+    name,
+    type,
+    format,
+    download_url: downloadUrl,
   };
 }
 
@@ -781,42 +816,64 @@ export function handleExtendedEvent(
     }
 
     case "artifact": {
-      const artifact = evt.data as ArtifactInfo;
-      if (artifact && artifact.download_url) {
-        const turnId = evt.turn_id || get()._currentTurnId || undefined;
-        const messageId = evt.metadata?.message_id as string | undefined;
-        const backgroundSessionId =
-          typeof evt.session_id === "string" && evt.session_id !== get().sessionId
-            ? evt.session_id
-            : null;
-        if (backgroundSessionId) {
-          updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
-            ...entry,
-            messages: upsertAssistantTextMessage(entry.messages, {
-              content: "产物已生成",
+      const artifact = normalizeArtifactEventData(evt.data);
+      if (!artifact) return true;
+      const turnId = evt.turn_id || get()._currentTurnId || undefined;
+      const messageId = evt.metadata?.message_id as string | undefined;
+      const timestamp = Date.now();
+      const backgroundSessionId =
+        typeof evt.session_id === "string" && evt.session_id !== get().sessionId
+          ? evt.session_id
+          : null;
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => {
+          const nextMessages = [...entry.messages];
+          const attached =
+            !messageId &&
+            attachArtifactsToLatestAssistantMessage(nextMessages, {
               artifacts: [artifact],
-              messageId,
               turnId: evt.turn_id || entry.currentTurnId || undefined,
-              operation: "replace",
-              timestamp: Date.now(),
-            }),
-          }));
-          return true;
-        }
-        if (!isActiveSessionEvent(evt, get)) return true;
-        set((s) => {
+              timestamp,
+            });
           return {
-            messages: upsertAssistantTextMessage(s.messages, {
-              content: "产物已生成",
-              artifacts: [artifact],
-              messageId,
-              turnId,
-              operation: "replace",
-              timestamp: Date.now(),
-            }),
+            ...entry,
+            messages: attached
+              ? nextMessages
+              : upsertAssistantTextMessage(entry.messages, {
+                  content: "产物已生成",
+                  artifacts: [artifact],
+                  messageId,
+                  turnId: evt.turn_id || entry.currentTurnId || undefined,
+                  operation: "replace",
+                  timestamp,
+                }),
           };
         });
+        return true;
       }
+      if (!isActiveSessionEvent(evt, get)) return true;
+      set((s) => {
+        const nextMessages = [...s.messages];
+        const attached =
+          !messageId &&
+          attachArtifactsToLatestAssistantMessage(nextMessages, {
+            artifacts: [artifact],
+            turnId,
+            timestamp,
+          });
+        return {
+          messages: attached
+            ? nextMessages
+            : upsertAssistantTextMessage(s.messages, {
+                content: "产物已生成",
+                artifacts: [artifact],
+                messageId,
+                turnId,
+                operation: "replace",
+                timestamp,
+              }),
+        };
+      });
       return true;
     }
 

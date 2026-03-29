@@ -585,7 +585,7 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
  type="button"
  variant="ghost"
  onClick={fetchSkills}
- className="h-[28px] w-[28px] p-0"
+ className="h-8 w-8 p-0"
  title="刷新"
  aria-label="刷新技能列表"
  >
@@ -595,7 +595,7 @@ export default function MarkdownSkillManagerPanel({ open, onClose }: Props) {
  </div>
 
  {(notice || error) && (
- <div className={`px-4 py-2 text-[11px] border-b ${error ? 'bg-[var(--accent-subtle)] text-[var(--error)] border-red-100' : 'bg-[var(--accent-subtle)] text-[var(--success)] border-emerald-100'}`}>
+ <div className={`px-4 py-2 text-[11px] border-b ${error ? 'bg-[var(--error-subtle)] text-[var(--error)] border-[color-mix(in_srgb,var(--error)_20%,transparent)]' : 'bg-[var(--accent-subtle)] text-[var(--success)] border-[color-mix(in_srgb,var(--success)_20%,transparent)]'}`}>
  {error || notice}
  </div>
  )}

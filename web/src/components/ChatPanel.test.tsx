@@ -28,10 +28,6 @@ vi.mock('./RecipeCenter', () => ({
  default: () => <div>recipe-center</div>,
 }))
 
-vi.mock('./DeepTaskProgressCard', () => ({
- default: () => <div>deep-task-progress</div>,
-}))
-
 describe('ChatPanel', () => {
  beforeEach(() => {
  vi.useFakeTimers()

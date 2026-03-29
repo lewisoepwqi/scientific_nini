@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import shutil
+import sqlite3
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -482,9 +483,7 @@ class SessionManager:
             raw_recipe_inputs = meta.get("recipe_inputs")
             if isinstance(raw_recipe_inputs, dict):
                 recipe_inputs = {
-                    str(key): value
-                    for key, value in raw_recipe_inputs.items()
-                    if str(key).strip()
+                    str(key): value for key, value in raw_recipe_inputs.items() if str(key).strip()
                 }
             raw_deep_task_state = meta.get("deep_task_state")
             if isinstance(raw_deep_task_state, dict):
@@ -603,7 +602,7 @@ class SessionManager:
             sessions[sid] = {
                 "id": sid,
                 "title": session.title,
-                "message_count": len(session.messages),
+                "message_count": self.get_total_message_count(sid, session=session),
                 "source": "memory",
                 "created_at": created_at,
                 "updated_at": updated_at,
@@ -614,7 +613,7 @@ class SessionManager:
             if sid in sessions:
                 continue
             meta = self._load_session_meta(sid)
-            message_count = self._load_cached_message_count(sid, meta)
+            message_count = self.get_total_message_count(sid, meta=meta)
             title = str(meta.get("title", "新会话") or "新会话")
             updated_at = self._derive_session_updated_at_iso(sid, meta)
             created_at = self._derive_session_created_at_iso(sid, meta, updated_at)
@@ -633,6 +632,23 @@ class SessionManager:
             key=lambda item: (str(item.get("updated_at") or ""), str(item["id"])),
             reverse=True,
         )
+
+    def get_total_message_count(
+        self,
+        session_id: str,
+        *,
+        session: Session | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> int:
+        """返回会话总消息数（活动消息 + 已归档消息）。"""
+        next_meta = meta if meta is not None else self._load_session_meta(session_id)
+        active_count = (
+            len(session.messages)
+            if session is not None
+            else self._load_cached_message_count(session_id, next_meta)
+        )
+        archived_count = self._load_archived_message_count(session_id)
+        return active_count + archived_count
 
     def _get_session_updated_at_in_memory(self, session: Session) -> str:
         for message in reversed(session.messages):
@@ -683,6 +699,44 @@ class SessionManager:
                         count += 1
         except Exception:
             return 0
+        return count
+
+    def _load_archived_message_count(self, session_id: str) -> int:
+        """统计已压缩归档的消息条数。优先读取 SQLite，回退 archive 文件。"""
+        session_dir = settings.sessions_dir / session_id
+
+        try:
+            from nini.memory.db import get_session_db
+
+            conn = get_session_db(session_dir, create=False)
+            if conn is not None:
+                try:
+                    row = conn.execute("SELECT COUNT(*) FROM archived_messages").fetchone()
+                    if row is not None:
+                        return int(row[0] or 0)
+                except sqlite3.OperationalError:
+                    pass
+                finally:
+                    conn.close()
+        except Exception:
+            pass
+
+        archive_dir = session_dir / "archive"
+        if not archive_dir.exists():
+            return 0
+
+        count = 0
+        for archive_file in sorted(archive_dir.glob("compressed_*.json")):
+            try:
+                raw = json.loads(archive_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            archive_messages = raw if isinstance(raw, list) else raw.get("messages", [])
+            if not isinstance(archive_messages, list):
+                continue
+            count += sum(
+                1 for entry in archive_messages if isinstance(entry, dict) and "role" in entry
+            )
         return count
 
     def _derive_session_updated_at_iso(self, session_id: str, meta: dict[str, Any]) -> str:

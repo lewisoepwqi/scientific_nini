@@ -13,12 +13,12 @@ function getVerificationLabel(status?: RetrievalItem["verificationStatus"]): {
 } | null {
  if (!status) return null;
  if (status === "verified") {
- return { text: "已验证", color: "text-[var(--success)] bg-[var(--accent-subtle)] border-[var(--success)] dark:text-[var(--success)]" };
+ return { text: "已验证", color: "text-[var(--success)] bg-[var(--accent-subtle)] border-[var(--success)]" };
  }
  if (status === "conflicted") {
- return { text: "证据冲突", color: "text-[var(--error)] bg-[var(--accent-subtle)] border-[var(--error)] dark:text-[var(--error)]" };
+ return { text: "证据冲突", color: "text-[var(--error)] bg-[var(--accent-subtle)] border-[var(--error)]" };
  }
- return { text: "待验证", color: "text-[var(--warning)] bg-[var(--accent-subtle)] border-[var(--warning)] dark:text-[var(--warning)]" };
+ return { text: "待验证", color: "text-[var(--warning)] bg-[var(--accent-subtle)] border-[var(--warning)]" };
 }
 
 interface CitationListProps {
@@ -93,7 +93,7 @@ export default function CitationList({
  {(retrieval.sourceType || retrieval.acquisitionMethod || retrieval.sourceId) && (
  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
  {retrieval.sourceType && (
- <span className="rounded border border-[var(--border-default)] px-1 py-0 dark:border-[var(--border-default)]">
+ <span className="rounded border border-[var(--border-default)] px-1 py-0">
  {retrieval.sourceType}
  </span>
  )}

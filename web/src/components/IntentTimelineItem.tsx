@@ -73,12 +73,12 @@ export default function IntentTimelineItem({
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center justify-between px-3 py-2.5 bg-transparent border-none cursor-pointer focus:outline-none"
+        className="flex w-full items-center justify-between px-3 py-2.5 bg-transparent border-none cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
       >
  <div className="flex items-center gap-2 min-w-0">
  <div
  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
- isActive ? "bg-[var(--accent-subtle)] text-[var(--domain-profile)]" : "bg-[var(--bg-overlay)] dark:bg-[var(--bg-overlay)] text-[var(--text-secondary)]"
+ isActive ? "bg-[var(--accent-subtle)] text-[var(--domain-profile)]" : "bg-[var(--bg-overlay)] text-[var(--text-secondary)]"
  }`}
  >
  <BrainCircuit size={12} />
@@ -101,7 +101,7 @@ export default function IntentTimelineItem({
 
  {/* 展开内容 */}
  {expanded && (
- <div className="border-t border-[var(--border-default)]/50 dark:border-[var(--border-default)]/50 px-3 pb-3">
+ <div className="border-t border-[var(--border-default)] px-3 pb-3">
  <div className="mt-2 space-y-2">
  {/* 主要意图确认 */}
  {topCapability && (
@@ -129,7 +129,7 @@ export default function IntentTimelineItem({
  {analysis.tool_hints.slice(0, 4).map((tool) => (
  <span
  key={tool}
- className="inline-flex rounded bg-[var(--accent-subtle)] px-1.5 py-0.5 text-[11px] text-[var(--success)] dark:text-[var(--success)]"
+ className="inline-flex rounded bg-[var(--accent-subtle)] px-1.5 py-0.5 text-[11px] text-[var(--success)]"
  >
  {tool}
  </span>
@@ -180,7 +180,7 @@ export default function IntentTimelineItem({
  onClick={() =>
  onApplySuggestion(`我想做${option.label}`)
  }
- className="inline-flex rounded-full border border-[var(--warning)] px-2 py-0.5 text-[11px] text-[var(--warning)] dark:text-[var(--warning)] hover:bg-[var(--accent-subtle)]"
+ className="inline-flex rounded-full border border-[var(--warning)] px-2 py-0.5 text-[11px] text-[var(--warning)] hover:bg-[var(--accent-subtle)]"
  >
  {option.label}
  </Button>

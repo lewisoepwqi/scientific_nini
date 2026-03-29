@@ -41,8 +41,9 @@ export default function CostPanel({ isOpen, onClose }: CostPanelProps) {
  return () => clearInterval(interval);
  }, [isOpen, sessionId, fetchTokenUsage, fetchCostHistory]);
 
- const formatNumber = (num: number) => new Intl.NumberFormat("zh-CN").format(num);
+const numberFormatter = new Intl.NumberFormat("zh-CN");
 
+const formatNumber = (num: number) => numberFormatter.format(num);
  const formatCost = (cost: number) => {
  if (cost === 0) return "0.00";
  if (cost < 0.0001) return "< 0.0001";

@@ -221,7 +221,7 @@ function MemoryFileItem({
       <button
         type="button"
         onClick={handleExpand}
-        className="w-full flex items-center gap-1.5 px-2.5 py-2 text-[11px] text-left bg-transparent border-none cursor-pointer focus:outline-none"
+        className="w-full flex items-center gap-1.5 px-2.5 py-2 text-[11px] text-left bg-transparent border-none cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
       >
         {expanded ? (
           <ChevronDown size={10} className="flex-shrink-0 text-[var(--text-muted)]" />
@@ -252,7 +252,7 @@ function MemoryFileItem({
  className="group flex h-3 cursor-ns-resize items-center justify-center rounded-b transition-colors hover:bg-[var(--accent-subtle)]"
  title="拖动调整内容区高度"
  >
- <div className="h-0.5 w-6 rounded-full bg-[var(--bg-overlay)] dark:bg-[var(--bg-overlay)] transition-colors group-hover:bg-[var(--warning)]" />
+ <div className="h-0.5 w-6 rounded-full bg-[var(--bg-overlay)] transition-colors group-hover:bg-[var(--warning)]" />
  </div>
  </>
  ) : null}
@@ -709,7 +709,7 @@ export default function MemoryPanel() {
  className="group flex h-1.5 flex-shrink-0 cursor-ns-resize items-center justify-center transition-colors hover:bg-[var(--accent-subtle)]"
  title="拖动调整记忆面板高度"
  >
- <div className="h-0.5 w-8 rounded-full bg-[var(--bg-overlay)] dark:bg-[var(--bg-overlay)] transition-colors group-hover:bg-[var(--warning)]" />
+ <div className="h-0.5 w-8 rounded-full bg-[var(--bg-overlay)] transition-colors group-hover:bg-[var(--warning)]" />
  </div>
  )}
 
@@ -717,7 +717,7 @@ export default function MemoryPanel() {
  <button
         type="button"
         onClick={() => setCollapsed(!collapsed)}
-        className="flex w-full flex-shrink-0 items-center gap-2 px-4 py-2 text-xs font-medium text-left bg-transparent border-none cursor-pointer focus:outline-none"
+        className="flex w-full flex-shrink-0 items-center gap-2 px-4 py-2 text-xs font-medium text-left bg-transparent border-none cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
       >
         <Brain size={13} className="text-[var(--domain-analysis)]" />
         <span className="text-[var(--text-secondary)]">记忆状态</span>

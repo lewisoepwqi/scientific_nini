@@ -84,6 +84,33 @@ HARD_DENY_IMPORT_ROOTS: set[str] = {
     "urllib",
 }
 
+# 高风险模块拦截时的替代方案提示
+_HARD_DENY_ALTERNATIVES: dict[str, list[str]] = {
+    "os": ["文件操作使用 workspace_session 工具，路径操作使用字符串拼接"],
+    "sys": ["通常无需使用，直接删除该 import 即可"],
+    "pathlib": ["无需导入，如需拼接路径用字符串操作；文件操作用 workspace_session 工具"],
+    "shutil": ["文件操作使用 workspace_session 工具"],
+    "subprocess": ["沙箱不允许执行系统命令"],
+    "socket": ["沙箱不允许网络操作"],
+    "requests": ["沙箱不允许网络请求"],
+    "urllib": ["沙箱不允许网络请求"],
+    "http": ["沙箱不允许网络请求"],
+    "httpx": ["沙箱不允许网络请求"],
+    "io": ["数据读写使用 pd.read_csv / df.to_csv 等 pandas 方法"],
+    "tempfile": ["沙箱已提供临时工作目录"],
+    "pickle": ["使用 json（已预注入）序列化"],
+    "asyncio": ["沙箱不支持异步操作"],
+    "threading": ["沙箱不支持多线程"],
+    "multiprocessing": ["沙箱不支持多进程"],
+    "importlib": ["不允许动态导入"],
+    "inspect": ["不允许代码内省"],
+    "ctypes": ["不允许 FFI 调用"],
+    "shlex": ["不允许 shell 解析"],
+    "signal": ["不允许信号处理"],
+    "fcntl": ["不允许文件锁"],
+    "builtins": ["已预注入沙箱环境，无需导入"],
+}
+
 # 合并自动允许白名单
 ALLOWED_IMPORT_ROOTS: set[str] = _TIER1_SAFE_MODULES | _TIER2_STDLIB_UTILS | _TIER3_SCIENTIFIC
 
@@ -114,6 +141,7 @@ class PolicyViolation:
     module: str | None = None
     root: str | None = None
     risk_level: str | None = None
+    alternatives: list[str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"message": self.message}
@@ -125,6 +153,8 @@ class PolicyViolation:
             payload["root"] = self.root
         if self.risk_level:
             payload["risk_level"] = self.risk_level
+        if self.alternatives:
+            payload["alternatives"] = self.alternatives
         return payload
 
 
@@ -274,6 +304,7 @@ def validate_code(code: str, *, extra_allowed_imports: Iterable[str] | None = No
                             module=module_name,
                             root=root,
                             risk_level="hard_deny" if root in HARD_DENY_IMPORT_ROOTS else "deny",
+                            alternatives=_HARD_DENY_ALTERNATIVES.get(root),
                         )
                     )
 
@@ -317,6 +348,7 @@ def validate_code(code: str, *, extra_allowed_imports: Iterable[str] | None = No
                         module=module,
                         root=root,
                         risk_level="hard_deny" if root in HARD_DENY_IMPORT_ROOTS else "deny",
+                        alternatives=_HARD_DENY_ALTERNATIVES.get(root),
                     )
                 )
 

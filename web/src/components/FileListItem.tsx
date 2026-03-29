@@ -127,7 +127,8 @@ export default React.memo(function FileListItem({ file }: Props) {
  setIsRenaming(false)
  }
  }}
- className="flex-1 min-w-0 text-xs rounded border border-[var(--accent)] px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+ aria-label={`重命名 ${file.name}`}
+                 className="flex-1 min-w-0 text-xs rounded border border-[var(--accent)] px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
  />
  <Button variant="ghost" onClick={handleRename} className="p-2 text-[var(--success)] hover:text-[var(--success)]" aria-label="确认重命名">
  <Check size={12} />

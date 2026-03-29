@@ -458,19 +458,19 @@ body {
   }
 }
 
-/* 尊重 prefers-reduced-motion：禁用所有动画 */
+/* 尊重 prefers-reduced-motion：禁用所有动画与过渡 */
 @media (prefers-reduced-motion: reduce) {
-  @keyframes confirmDialogIn {
-    from { opacity: 1; transform: none; }
-    to   { opacity: 1; transform: none; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 
-  .animate-spin,
-  .animate-pulse {
-    animation: none !important;
-  }
-
-  .nini-thinking-shimmer {
-    animation: none !important;
+  /* 关键 loading 指示器保留（用户需要反馈） */
+  .animate-spin {
+    animation: spin 1s linear infinite !important;
   }
 }

@@ -362,6 +362,90 @@ class _EchoSkillRegistry:
         return await self.execute(tool_name, session=session, **kwargs)
 
 
+class _RepeatedDataPreviewResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+
+        class _Chunk:
+            def __init__(self, *, text: str, tool_calls: list[dict[str, object]]):
+                self.text = text
+                self.tool_calls = tool_calls
+                self.usage = None
+
+        if self.calls in {1, 2}:
+            yield _Chunk(
+                text="",
+                tool_calls=[
+                    {
+                        "id": f"call_dataset_{self.calls}",
+                        "type": "function",
+                        "function": {
+                            "name": "dataset_catalog",
+                            "arguments": json.dumps(
+                                {
+                                    "operation": "profile",
+                                    "dataset_name": "demo.csv",
+                                    "view": "full",
+                                    "n_rows": 5,
+                                },
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+            )
+            return
+
+        yield _Chunk(text="已完成分析", tool_calls=[])
+
+
+class _DataPreviewRegistry:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def get_tool_definitions(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "dataset_catalog",
+                    "description": "返回数据集概况",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
+    async def execute(self, tool_name: str, session: Session, **kwargs):
+        if tool_name != "dataset_catalog":
+            return {"error": f"unknown skill: {tool_name}"}
+        self.calls += 1
+        return {
+            "success": True,
+            "message": "已生成数据集概况",
+            "has_dataframe": True,
+            "dataframe_preview": {
+                "name": "demo.csv",
+                "total_rows": 2,
+                "preview_rows": 2,
+                "preview_strategy": "head",
+                "columns": [{"name": "x", "dtype": "int64"}],
+                "data": [{"x": 1}, {"x": 2}],
+            },
+            "data_summary": {
+                "dataset_name": "demo.csv",
+                "rows": 2,
+                "columns": 1,
+                "column_names": ["x"],
+            },
+        }
+
+    async def execute_with_fallback(self, tool_name: str, session: Session, **kwargs):
+        return await self.execute(tool_name, session=session, **kwargs)
+
+
 class _ChartToolResolver:
     def __init__(self) -> None:
         self.calls = 0
@@ -1372,6 +1456,58 @@ async def test_runner_retries_when_model_outputs_transitional_text_without_tool_
         for msg in session.messages
         if msg.get("role") == "assistant"
     )
+
+
+@pytest.mark.asyncio
+async def test_runner_deduplicates_repeated_data_preview_events_in_same_turn(monkeypatch) -> None:
+    async def _fake_consolidate_session_memories(session_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "nini.memory.long_term_memory.consolidate_session_memories",
+        _fake_consolidate_session_memories,
+    )
+    monkeypatch.setattr(
+        "nini.agent.runner.asyncio.create_task",
+        lambda coro: coro.close(),
+    )
+
+    session = Session()
+    resolver = _RepeatedDataPreviewResolver()
+    registry = _DataPreviewRegistry()
+    runner = AgentRunner(
+        resolver=resolver,
+        tool_registry=registry,
+        knowledge_loader=_DummyKnowledgeLoader(),
+    )
+
+    events = []
+    async for event in runner.run(session, "分析数据"):
+        events.append(event)
+        if event.type == EventType.DONE:
+            break
+
+    data_events = [event for event in events if event.type == EventType.DATA]
+    tool_result_events = [event for event in events if event.type == EventType.TOOL_RESULT]
+    duplicate_block_events = [
+        event
+        for event in tool_result_events
+        if isinstance(event.data, dict)
+        and isinstance(event.data.get("data"), dict)
+        and isinstance(event.data["data"].get("result"), dict)
+        and event.data["data"]["result"].get("error_code") == "DUPLICATE_DATASET_PROFILE_CALL"
+    ]
+    persisted_data_events = [
+        msg for msg in session.messages if msg.get("role") == "assistant" and msg.get("event_type") == "data"
+    ]
+
+    assert resolver.calls == 3
+    assert registry.calls == 1
+    assert len(tool_result_events) == 2
+    assert len(duplicate_block_events) == 1
+    assert len(data_events) == 1
+    assert len(persisted_data_events) == 1
+    assert persisted_data_events[0]["data_preview"]["data"] == [{"x": 1}, {"x": 2}]
 
 
 @pytest.mark.asyncio

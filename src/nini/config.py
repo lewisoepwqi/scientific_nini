@@ -235,7 +235,14 @@ class Settings(BaseSettings):
     # ---- Agent ----
     # <= 0 表示不限制迭代次数（仅受用户中止/模型与工具自然收敛约束）
     agent_max_iterations: int = 0
-    # Wall-clock 超时（秒），0 表示不限制。防止 Agent 循环无限运行耗尽 API 配额。
+    # Agent 主动执行超时（秒），不计 ask_user_question 等待等人工阻塞时间。
+    # 为 None 时回退到兼容字段 agent_max_timeout_seconds。
+    agent_active_execution_timeout_seconds: int | None = None
+    # Agent 整轮 wall-clock 超时（秒），包含人工等待；0 表示不限制。
+    # 该字段用于极端兜底，避免会话永久悬挂。
+    agent_run_wall_clock_timeout_seconds: int = 0
+    # 兼容旧配置：历史上该字段表示单一 Agent 总超时。
+    # 现仅作为 agent_active_execution_timeout_seconds 未显式配置时的回退值。
     agent_max_timeout_seconds: int = 300
     tool_argument_normalization_enabled: bool = True
     tool_circuit_breaker_threshold: int = 2

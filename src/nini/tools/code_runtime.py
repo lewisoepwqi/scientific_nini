@@ -424,7 +424,18 @@ async def execute_python_code(
     except SandboxReviewRequired as exc:
         return _build_sandbox_review_result(exc=exc, metadata=metadata)
     except SandboxPolicyError as exc:
-        return ToolResult(success=False, message=f"沙箱策略拦截: {exc}")
+        return ToolResult(
+            success=False,
+            message=f"沙箱策略拦截: {exc}",
+            data={
+                "pre_injected_modules": [
+                    "pd (pandas)", "np (numpy)", "plt (matplotlib.pyplot)",
+                    "sns (seaborn)", "go/px (plotly)", "datetime/dt/timedelta",
+                    "re", "json", "Counter/defaultdict/deque",
+                    "combinations/permutations/product", "reduce/partial",
+                ],
+            },
+        )
 
     if not payload.get("success"):
         err = payload.get("error") or "代码执行失败"

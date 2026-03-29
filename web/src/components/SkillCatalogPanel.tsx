@@ -105,7 +105,7 @@ export default function SkillCatalogPanel({ open, onClose }: Props) {
  type="button"
  variant="ghost"
  onClick={fetchSkills}
- className="h-[24px] w-[24px] p-0"
+ className="h-8 w-8 p-0"
  title="刷新"
  >
  <RefreshCw size={13} />

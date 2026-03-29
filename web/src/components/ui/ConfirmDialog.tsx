@@ -100,8 +100,7 @@ export default function ConfirmDialog({
  <>
  {/* 半透明遮罩 — 点击不关闭（防误操作） */}
  <div
- className="fixed inset-0 z-50"
- style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)' }}
+ className="fixed inset-0 z-50 bg-black/40"
  aria-hidden="true"
  />
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useIsDesktop } from '../hooks'
 import {
  AlertTriangle,
  CheckCircle2,
@@ -68,8 +69,14 @@ function truncateText(text: string, max = 96): string {
 }
 
 export default function AnalysisPlanHeader({ plan }: Props) {
+ const isDesktop = useIsDesktop()
  const [mobileExpanded, setMobileExpanded] = useState(false)
  const previousStepRef = useRef<number | null>(null)
+
+ // 桌面端始终展开，切换时重置移动端折叠状态
+ useEffect(() => {
+ if (isDesktop) setMobileExpanded(false)
+ }, [isDesktop])
  const blockedEmittedRef = useRef(false)
 
  const safeCurrentIndex = Math.max(1, Math.min(plan.current_step_index, plan.total_steps || 1))
@@ -118,7 +125,7 @@ export default function AnalysisPlanHeader({ plan }: Props) {
 
  return (
  <div
- className="border-b border-[var(--border-default)] bg-gradient-to-b from-[var(--bg-elevated)] to-[var(--bg-base)] px-4 py-3"
+ className="border-b border-[var(--border-default)] bg-[var(--bg-elevated)] px-4 py-3"
  data-testid="analysis-plan-header"
  >
  <div className="max-w-3xl mx-auto">
