@@ -433,11 +433,38 @@ def _build_exec_globals(
     if plt is not None:
         globals_dict["plt"] = plt
         globals_dict["matplotlib"] = matplotlib
+        # monkey-patch plt.savefig：输出提示而非静默忽略，防止产物丢失
+        _original_savefig = plt.savefig
+        _warn_msg = (
+            "\n[沙箱提示] plt.savefig() 调用已拦截。"
+            "图表会在代码执行完毕后自动收集导出为多种格式，无需手动保存。\n"
+        )
+
+        def _patched_savefig(*args: Any, **kwargs: Any) -> None:
+            import sys as _sys
+
+            _sys.stdout.write(_warn_msg)
+
+        plt.savefig = _patched_savefig
     if sns is not None:
         globals_dict["sns"] = sns
     if go is not None:
         globals_dict["go"] = go
         globals_dict["px"] = px
+        # monkey-patch plotly Figure.write_image：同上安全网
+        _original_write_image = getattr(go.Figure, "write_image", None)
+        if _original_write_image is not None:
+            _plotly_warn = (
+                "\n[沙箱提示] fig.write_image() 调用已拦截。"
+                "图表会在代码执行完毕后自动收集导出，无需手动保存。\n"
+            )
+
+            def _patched_write_image(self_fig: Any, *args: Any, **kwargs: Any) -> None:
+                import sys as _sys
+
+                _sys.stdout.write(_plotly_warn)
+
+            go.Figure.write_image = _patched_write_image
 
     return globals_dict
 

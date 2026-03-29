@@ -46,42 +46,42 @@ const JOURNAL_TEMPLATES = [
  name: "Nature",
  description: "强调创新性和广泛影响",
  features: ["简短精炼摘要", "突出主要发现", "强调广泛意义"],
- color: "from-emerald-500 to-teal-600",
+ color: "bg-[var(--domain-report)]",
  },
  {
  id: "science",
  name: "Science",
  description: "跨学科综合期刊风格",
  features: ["清晰的问题陈述", "简洁的方法描述", "突出科学意义"],
- color: "from-blue-500 to-indigo-600",
+ color: "bg-[var(--domain-profile)]",
  },
  {
  id: "cell",
  name: "Cell",
  description: "生命科学领域权威",
  features: ["详细实验设计", "完整结果展示", "机制探讨"],
- color: "from-purple-500 to-pink-600",
+ color: "bg-[var(--domain-knowledge)]",
  },
  {
  id: "nejm",
  name: "NEJM",
  description: "临床医学顶刊风格",
  features: ["患者特征描述", "严格的统计分析", "临床意义突出"],
- color: "from-red-500 to-rose-600",
+ color: "bg-[var(--error)]",
  },
  {
  id: "lancet",
  name: "Lancet",
  description: "全球健康视角",
  features: ["公共卫生影响", "全球适用性", "政策建议"],
- color: "from-amber-500 to-orange-600",
+ color: "bg-[var(--domain-cost)]",
  },
  {
  id: "apa",
  name: "APA",
  description: "心理学标准格式",
  features: ["假设驱动", "详细方法", "统计严谨"],
- color: "from-sky-500 to-cyan-600",
+ color: "bg-[var(--domain-analysis)]",
  },
 ];
 
@@ -214,13 +214,13 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
  return (
  <CommandSheet isOpen={isOpen} onClose={onClose} title="生成文章初稿">
  {/* Header */}
- <div className="flex items-center justify-between border-b border-[var(--border-default)] bg-gradient-to-r from-[var(--bg-elevated)] to-[var(--bg-elevated)] px-6 py-4">
+ <div className="flex items-center justify-between border-b border-[var(--border-default)] bg-[var(--bg-elevated)] px-6 py-4">
  <div className="flex items-center gap-3">
- <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--bg-base)]/10 text-white">
+ <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent-subtle)] text-[var(--accent)]">
  <PenTool size={20} />
  </div>
  <div>
- <h2 className="text-lg font-semibold text-white">生成文章初稿</h2>
+ <h2 className="text-lg font-semibold text-[var(--text-primary)]">生成文章初稿</h2>
  <p className="text-xs text-[var(--text-muted)]">基于对话内容智能生成完整文章</p>
  </div>
  </div>
@@ -249,7 +249,7 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
  >
  <div className="flex items-start justify-between">
  <div
- className={`h-8 w-8 rounded-lg bg-gradient-to-br ${t.color} text-white flex items-center justify-center text-xs font-bold`}
+ className={`h-8 w-8 rounded-lg ${t.color} text-white flex items-center justify-center text-xs font-bold`}
  >
  {t.name[0]}
  </div>
@@ -323,7 +323,7 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
  </div>
 
  {/* Right Panel - Section Selection */}
- <div className="h-full overflow-y-auto bg-[var(--bg-elevated)]/50 dark:bg-[var(--bg-elevated)]/50 p-6">
+ <div className="h-full overflow-y-auto bg-[var(--bg-elevated)]/50 p-6">
  <div className="mb-4 flex items-center justify-between">
  <h3 className="text-sm font-semibold text-[var(--text-primary)]">文章章节</h3>
  <Button
@@ -351,7 +351,7 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
  checked={section.selected}
  onChange={() => toggleSection(section.id)}
  disabled={section.required}
- className="mt-0.5 h-4 w-4 rounded border-[var(--border-strong)] text-[var(--domain-profile)] focus:ring-sky-500 disabled:opacity-50"
+ className="mt-0.5 h-4 w-4 rounded border-[var(--border-strong)] text-[var(--domain-profile)] focus:ring-[var(--accent)] disabled:opacity-50"
  />
  <div className="min-w-0 flex-1">
  <div className="flex items-center gap-2">
@@ -378,7 +378,7 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
  type="checkbox"
  checked={includeFigures}
  onChange={(e) => setIncludeFigures(e.target.checked)}
- className="h-4 w-4 rounded border-[var(--border-strong)] text-[var(--domain-profile)] focus:ring-sky-500"
+ className="h-4 w-4 rounded border-[var(--border-strong)] text-[var(--domain-profile)] focus:ring-[var(--accent)]"
  />
  <div>
  <div className="text-sm font-medium text-[var(--text-secondary)]">包含图表</div>
@@ -391,7 +391,7 @@ export default function ArticleDraftPanel({ isOpen, onClose, sessionId, onStartD
  type="checkbox"
  checked={includeTables}
  onChange={(e) => setIncludeTables(e.target.checked)}
- className="h-4 w-4 rounded border-[var(--border-strong)] text-[var(--domain-profile)] focus:ring-sky-500"
+ className="h-4 w-4 rounded border-[var(--border-strong)] text-[var(--domain-profile)] focus:ring-[var(--accent)]"
  />
  <div>
  <div className="text-sm font-medium text-[var(--text-secondary)]">包含数据表</div>

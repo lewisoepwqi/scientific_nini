@@ -196,7 +196,7 @@ export default function ModelCombobox({
  无匹配结果，按 Enter 使用自定义模型：
  <Button
  variant="ghost"
- className="ml-1 text-[var(--accent)] dark:text-[var(--accent)] hover:underline"
+ className="ml-1 text-[var(--accent)] hover:underline"
  onClick={() => handleSelect(query)}
  >
  {query}

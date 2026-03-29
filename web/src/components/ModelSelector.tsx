@@ -166,7 +166,7 @@ export default function ModelSelector({
  const triggerClass = compact
  ? "!h-8 px-2.5 text-xs"
  : "px-2.5 py-1 text-xs";
- const menuWidthClass = compact ? "w-[300px]" : "w-[340px]";
+ const menuWidthClass = compact ? "w-[min(300px,calc(100vw-2rem))]" : "w-[min(340px,calc(100vw-2rem))]";
 
  const buildFallbackModels = useCallback(
  (providerId: string) => {
@@ -341,9 +341,9 @@ export default function ModelSelector({
 
  {menuOpen ? (
  <div
- className={`absolute bottom-[calc(100%+10px)] right-0 z-30 flex max-h-[min(34rem,calc(100vh-8rem))] flex-col overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-base)] shadow-[0_18px_50px_rgba(15,23,42,0.16)] ${menuWidthClass}`}
+ className={`absolute bottom-[calc(100%+10px)] right-0 z-30 flex max-h-[min(34rem,calc(100vh-8rem))] flex-col overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] shadow-lg ${menuWidthClass}`}
  >
- <div className="border-b border-[var(--border-subtle)] bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.14),_transparent_55%),linear-gradient(180deg,_rgba(248,250,252,0.96),_rgba(255,255,255,1))] dark:bg-[var(--bg-elevated)] px-4 py-3">
+ <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-4 py-3">
  <div className="flex items-start justify-between gap-3">
  <div className="min-w-0">
  <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--text-muted)]">
@@ -390,7 +390,7 @@ export default function ModelSelector({
  <div
  className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl ${
  selectedProviderId === BUILTIN_PROVIDER_ID
- ? "bg-[var(--accent-subtle)] text-[var(--accent)] dark:text-[var(--accent)]"
+ ? "bg-[var(--accent-subtle)] text-[var(--accent)]"
  : "bg-[var(--bg-elevated)] text-[var(--text-muted)] dark:bg-[var(--bg-overlay)]"
  }`}
  >
@@ -468,8 +468,8 @@ export default function ModelSelector({
  <div
  className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${
  isSelected
- ? "bg-[var(--accent-subtle)] text-[var(--accent)] dark:text-[var(--accent)]"
- : "bg-[var(--bg-elevated)] text-[var(--text-muted)] dark:bg-[var(--bg-overlay)] dark:text-[var(--text-muted)]"
+ ? "bg-[var(--accent-subtle)] text-[var(--accent)]"
+ : "bg-[var(--bg-elevated)] text-[var(--text-muted)] dark:bg-[var(--bg-overlay)]"
  }`}
  >
  {switchingKey === optionKey ? (
@@ -549,8 +549,8 @@ export default function ModelSelector({
  <div
  className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl ${
  selectedInProvider
- ? "bg-[var(--accent-subtle)] text-[var(--accent)] dark:text-[var(--accent)]"
- : "bg-[var(--bg-elevated)] text-[var(--text-muted)] dark:bg-[var(--bg-overlay)] dark:text-[var(--text-muted)]"
+ ? "bg-[var(--accent-subtle)] text-[var(--accent)]"
+ : "bg-[var(--bg-elevated)] text-[var(--text-muted)] dark:bg-[var(--bg-overlay)]"
  }`}
  >
  <Bot size={14} />
@@ -682,7 +682,7 @@ export default function ModelSelector({
  )}
  </div>
 
- <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-elevated)]/80 dark:bg-[var(--bg-elevated)]/80 p-2">
+ <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-elevated)]/80 p-2">
  <button
  type="button"
  onClick={() => {

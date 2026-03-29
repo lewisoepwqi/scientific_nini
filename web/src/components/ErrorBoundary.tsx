@@ -46,7 +46,7 @@ export default class ErrorBoundary extends Component<
  if (error) {
  return (
  <div className="flex min-h-screen items-center justify-center bg-[var(--bg-elevated)] px-6 py-10">
- <div className="w-full max-w-lg rounded-3xl border border-[var(--border-default)] bg-[var(--bg-base)] p-8 shadow-xl shadow-[var(--border-default)]/70">
+ <div className="w-full max-w-lg rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] p-8 shadow-md">
  <div className="mb-4 inline-flex rounded-full border border-[var(--warning)] bg-[var(--accent-subtle)] px-3 py-1 text-xs font-medium text-[var(--warning)]">
  应用保护已生效
  </div>
@@ -54,7 +54,7 @@ export default class ErrorBoundary extends Component<
  <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
  渲染过程中捕获到未处理异常。你可以先重试当前界面，或直接重新加载应用。
  </p>
- <div className="mt-5 rounded-2xl bg-[var(--bg-elevated)] dark:bg-[var(--bg-elevated)] px-4 py-3 text-sm text-[var(--text-disabled)] dark:text-[var(--text-disabled)]">
+ <div className="mt-5 rounded-lg bg-[var(--bg-elevated)] px-4 py-3 text-sm text-[var(--text-disabled)]">
  <div className="mb-1 text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">
  error
  </div>

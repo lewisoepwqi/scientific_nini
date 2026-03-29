@@ -61,7 +61,7 @@ export default function AgentExecutionPanel() {
  </div>
 
  {activeList.length > 0 && (
- <div className="divide-y divide-slate-50 dark:divide-slate-700">
+ <div className="divide-y divide-[var(--border-subtle)]">
  {activeList.map((agent) => (
  <div key={agent.agentId} className="px-4 py-3 flex items-start gap-3">
  <div className="flex-1 min-w-0">
@@ -84,7 +84,7 @@ export default function AgentExecutionPanel() {
  <div className="px-4 py-2 text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">
  已完成
  </div>
- <div className="divide-y divide-slate-50 dark:divide-slate-700">
+ <div className="divide-y divide-[var(--border-subtle)]">
  {completedList.slice(-5).map((agent, idx) => (
  <div key={`${agent.agentId}-${idx}`} className="px-4 py-3">
  <div className="flex items-center gap-2 mb-1">

@@ -92,8 +92,8 @@ export default function WidgetRenderer({ title, html, description }: Props) {
  }, [sendMessage]);
 
  return (
- <div className="mt-3 overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-base)]/90 shadow-sm">
- <div className="border-b border-[var(--border-subtle)] bg-gradient-to-r from-[var(--bg-elevated)] via-[var(--bg-base)] to-[var(--bg-elevated)] px-4 py-3">
+ <div className="mt-3 overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-base)]/90 shadow-sm">
+ <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-4 py-3">
  <div className="text-sm font-semibold text-[var(--text-primary)]">{title}</div>
  {description && (
  <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{description}</p>

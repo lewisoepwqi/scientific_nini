@@ -67,15 +67,45 @@ Nini 支持多种模型提供商，按优先级自动路由，失败自动降级
 | `NINI_LLM_TEMPERATURE` | `0.3` | 采样温度 |
 | `NINI_LLM_MAX_TOKENS` | `4096` | 单次最大输出 token |
 | `NINI_LLM_MAX_RETRIES` | `3` | 模型重试次数 |
+| `NINI_LLM_TIMEOUT` | `120` | 单次模型 HTTP 请求超时（秒） |
+| `NINI_LLM_TRUST_ENV_PROXY` | `false` | 是否信任 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量 |
 
 ## Agent 与沙箱
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `NINI_AGENT_MAX_ITERATIONS` | `0` | 单轮对话最大 ReAct 迭代次数；`<=0` 表示不限制 |
-| `NINI_SANDBOX_TIMEOUT` | `30` | `run_code` 超时时间（秒） |
+| `NINI_AGENT_ACTIVE_EXECUTION_TIMEOUT_SECONDS` | `null` | Agent 主动执行预算（秒），不计 `ask_user_question` 等人工等待；未配置时回退到 `NINI_AGENT_MAX_TIMEOUT_SECONDS` |
+| `NINI_AGENT_RUN_WALL_CLOCK_TIMEOUT_SECONDS` | `0` | Agent 整轮 wall-clock 兜底超时（秒），包含人工等待；`0` 表示不限制 |
+| `NINI_AGENT_MAX_TIMEOUT_SECONDS` | `300` | 兼容旧字段；现仅作为主动执行预算的回退值 |
+| `NINI_SANDBOX_TIMEOUT` | `60` | `run_code` 超时时间（秒），含代码执行与 DataFrame 序列化时间 |
 | `NINI_SANDBOX_MAX_MEMORY_MB` | `512` | `run_code` 内存上限（MB） |
 | `NINI_SANDBOX_IMAGE_EXPORT_TIMEOUT` | `60` | 图片导出（kaleido）专用超时（秒） |
+
+### Agent 超时分层建议
+
+- `NINI_LLM_TIMEOUT`：单次模型 HTTP 请求超时。建议保持 `60~180` 秒。
+- `NINI_SANDBOX_TIMEOUT` / 其它工具级超时：单次工具执行上限。建议按工具类型分别设置，不要与 Agent 总预算混用。
+- `NINI_AGENT_ACTIVE_EXECUTION_TIMEOUT_SECONDS`：限制 Agent 实际推理、工具编排、模型调用所消耗的时间，不包含等待用户回答。
+- `NINI_AGENT_RUN_WALL_CLOCK_TIMEOUT_SECONDS`：可选兜底，用于防止会话在人工等待、前端离线或异常挂起时永久占用运行态。
+
+推荐默认策略：
+
+- 前台交互型部署：`NINI_AGENT_ACTIVE_EXECUTION_TIMEOUT_SECONDS=300`
+- 含多步分析/导出任务：`NINI_AGENT_ACTIVE_EXECUTION_TIMEOUT_SECONDS=600` 或 `900`
+- `NINI_AGENT_RUN_WALL_CLOCK_TIMEOUT_SECONDS` 默认保持 `0`
+
+若需要强制回收长时间挂起的会话，可单独配置 wall-clock 兜底，例如：
+
+```env
+NINI_AGENT_ACTIVE_EXECUTION_TIMEOUT_SECONDS=600
+NINI_AGENT_RUN_WALL_CLOCK_TIMEOUT_SECONDS=7200
+```
+
+上述配置表示：
+
+- Agent 实际执行累计超过 10 分钟时终止
+- 无论是否在等待用户输入，整轮会话总时长超过 2 小时时终止
 
 ## 上传配置
 

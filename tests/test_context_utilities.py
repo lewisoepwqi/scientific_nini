@@ -12,6 +12,7 @@ from nini.agent.components.context_utils import (
     compact_tool_content_for_preparation,
     filter_valid_messages,
     get_last_user_message,
+    naturalize_internal_status_text,
     prepare_messages_for_llm,
     replace_arguments,
     sanitize_reference_text,
@@ -136,6 +137,20 @@ def test_compact_tool_content_for_preparation_keeps_artifact_download_urls() -> 
     assert "/api/artifacts/sess-1/chart.plotly.json" in compacted
 
 
+def test_naturalize_internal_status_text_humanizes_report_section_key() -> None:
+    """内部状态 JSON 应转换为自然语言章节提示。"""
+    payload = json.dumps(
+        {
+            "success": True,
+            "message": "报告章节已更新：conclusions",
+            "data_summary": {"keys": ["keys"]},
+        },
+        ensure_ascii=False,
+    )
+
+    assert naturalize_internal_status_text(payload) == "报告结论章节已更新。"
+
+
 def test_prepare_messages_for_llm_strips_frontend_fields_and_compacts_tool_content() -> None:
     """消息预处理应去掉前端字段，并压缩工具消息内容。"""
     tool_payload = json.dumps({"success": True, "message": "ok", "chart_data": {"x": [1]}})
@@ -167,6 +182,43 @@ def test_prepare_messages_for_llm_strips_frontend_fields_and_compacts_tool_conte
     assert "execution_id" not in tool_message
     assert "chart_data" not in tool_message
     assert '"message": "ok"' in tool_message["content"]
+
+
+def test_prepare_messages_for_llm_naturalizes_internal_status_tool_results() -> None:
+    """task/report 内部状态消息回灌给模型前应去 JSON 化。"""
+    messages = [
+        {
+            "role": "tool",
+            "tool_name": "task_state",
+            "tool_call_id": "call-1",
+            "content": json.dumps(
+                {
+                    "success": True,
+                    "message": "任务状态已更新，还有 4 个任务待完成。",
+                    "data_summary": {"keys": ["mode", "updated_ids"]},
+                },
+                ensure_ascii=False,
+            ),
+        },
+        {
+            "role": "tool",
+            "tool_name": "report_session",
+            "tool_call_id": "call-2",
+            "content": json.dumps(
+                {
+                    "success": True,
+                    "message": "报告章节已更新：summary",
+                    "data_summary": {"keys": ["report_id", "resource_id"]},
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+
+    prepared = prepare_messages_for_llm(messages)
+
+    assert prepared[0]["content"] == "任务状态已更新，还有 4 个任务待完成。"
+    assert prepared[1]["content"] == "报告摘要章节已更新。"
 
 
 def test_prepare_messages_for_llm_normalizes_null_assistant_tool_content() -> None:

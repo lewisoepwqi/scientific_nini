@@ -98,8 +98,7 @@ export default function CommandSheet({
  <>
  {/* 半透明遮罩 */}
  <div
- className="fixed inset-0 z-50"
- style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)' }}
+ className="fixed inset-0 z-50 bg-black/40"
  onClick={onClose}
  aria-hidden="true"
  />
@@ -112,10 +111,8 @@ export default function CommandSheet({
  aria-labelledby={titleId}
  tabIndex={-1}
  onKeyDown={handleKeyDown}
- className="fixed inset-y-0 right-0 z-50 flex flex-col outline-none"
+ className="fixed inset-y-0 right-0 z-50 flex flex-col outline-none w-full md:w-[40vw] md:min-w-[480px]"
  style={{
- width: '40vw',
- minWidth: '480px',
  backgroundColor: 'var(--bg-base)',
  borderLeft: '1px solid var(--border-subtle)',
  transform: 'translateX(0)',

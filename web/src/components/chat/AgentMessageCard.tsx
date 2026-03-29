@@ -45,21 +45,21 @@ export default function AgentMessageCard({ message }: AgentMessageCardProps) {
  <div className="flex items-center gap-1">
  <button
  type="button"
- className="w-7 h-7 p-0 flex items-center justify-center bg-transparent border-none cursor-pointer focus:outline-none"
+ className="w-8 h-8 p-0 flex items-center justify-center bg-transparent border-none cursor-pointer rounded hover:bg-[var(--bg-hover)] transition-colors"
  aria-label="在新窗口打开"
  >
  <ExternalLink size={14} style={{ color: "var(--text-muted)" }} />
  </button>
  <button
  type="button"
- className="w-7 h-7 p-0 flex items-center justify-center bg-transparent border-none cursor-pointer focus:outline-none"
+ className="w-8 h-8 p-0 flex items-center justify-center bg-transparent border-none cursor-pointer rounded hover:bg-[var(--bg-hover)] transition-colors"
  aria-label="重新执行"
  >
  <RotateCw size={14} style={{ color: "var(--text-muted)" }} />
  </button>
  <button
  type="button"
- className="w-7 h-7 p-0 flex items-center justify-center bg-transparent border-none cursor-pointer focus:outline-none"
+ className="w-8 h-8 p-0 flex items-center justify-center bg-transparent border-none cursor-pointer rounded hover:bg-[var(--bg-hover)] transition-colors"
  aria-label="展开"
  >
  <Maximize2 size={14} style={{ color: "var(--text-muted)" }} />

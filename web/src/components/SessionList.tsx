@@ -375,7 +375,7 @@ export default function SessionList({ onClose }: Props) {
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="搜索会话标题或 ID"
           aria-label="搜索会话"
-          className="w-full h-[32px] rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-base)] dark:border-[var(--border-default)] dark:bg-[var(--bg-elevated)] dark:text-[var(--text-disabled)] px-3 text-[13px] text-[var(--text-secondary)]
+          className="w-full h-[32px] rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-base)] dark:bg-[var(--bg-elevated)] dark:text-[var(--text-disabled)] px-3 text-[13px] text-[var(--text-secondary)]
           placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-subtle)] shadow-sm"
         />
  </div>
@@ -462,10 +462,10 @@ export default function SessionList({ onClose }: Props) {
  key={s.id}
  className={`group flex items-center gap-2 overflow-hidden rounded-[6px] px-2.5 transition-colors cursor-pointer ${
  isActive
- ? 'bg-[var(--accent-subtle)] outline-none ring-0'
+ ? 'bg-[var(--accent-subtle)]'
  : isFocused
- ? 'bg-[var(--bg-base)] outline-none ring-0'
- : 'bg-transparent hover:bg-[var(--bg-hover)] outline-none ring-0'
+ ? 'bg-[var(--bg-base)]'
+ : 'bg-transparent hover:bg-[var(--bg-hover)]'
  }`}
  onClick={() => handleClick(s.id)}
  onDoubleClick={() => handleDoubleClick(s.id, s.title)}

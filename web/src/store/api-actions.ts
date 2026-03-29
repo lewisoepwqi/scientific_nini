@@ -49,6 +49,7 @@ import {
   upsertReasoningMessage,
   upsertToolCallMessage,
   upsertToolResultMessage,
+  attachArtifactsToLatestAssistantMessage,
 } from "./message-normalizer";
 import { normalizeToolResult } from "./tool-result";
 
@@ -1525,60 +1526,6 @@ export function buildMessagesFromHistory(rawMessages: RawSessionMessage[]): Mess
   }
 
   return messages;
-}
-
-function mergeArtifactLists(
-  existing: Message["artifacts"],
-  incoming: Message["artifacts"],
-): Message["artifacts"] {
-  const merged = [...(existing ?? [])];
-  for (const artifact of incoming ?? []) {
-    const duplicate = merged.some(
-      (item) =>
-        item.name === artifact.name &&
-        item.download_url === artifact.download_url &&
-        item.type === artifact.type,
-    );
-    if (!duplicate) {
-      merged.push(artifact);
-    }
-  }
-  return merged;
-}
-
-function attachArtifactsToLatestAssistantMessage(
-  messages: Message[],
-  options: {
-    artifacts: Message["artifacts"];
-    turnId?: string;
-    timestamp: number;
-  },
-): boolean {
-  const { artifacts, turnId, timestamp } = options;
-  if (!artifacts || artifacts.length === 0) {
-    return false;
-  }
-
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message.role !== "assistant" || message.isReasoning) {
-      continue;
-    }
-    if (turnId && message.turnId !== turnId) {
-      continue;
-    }
-    if (message.content === "产物已生成" && message.artifacts?.length) {
-      continue;
-    }
-    messages[index] = {
-      ...message,
-      artifacts: mergeArtifactLists(message.artifacts, artifacts),
-      timestamp: Math.max(message.timestamp, timestamp),
-    };
-    return true;
-  }
-
-  return false;
 }
 
 function taskActivityByStatus(status: AnalysisTaskItem["status"]): string | null {

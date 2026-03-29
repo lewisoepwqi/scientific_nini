@@ -63,7 +63,7 @@ export default function FileUpload() {
  </span>
 
  {(isUploading || pendingCount > 0) && (
- <div className="min-w-0 rounded-md bg-[var(--accent-subtle)] px-2 py-1 text-[11px] text-[var(--success)] dark:text-[var(--success)]">
+ <div className="min-w-0 rounded-md bg-[var(--accent-subtle)] px-2 py-1 text-[11px] text-[var(--success)]">
  <div className="flex items-center gap-1.5">
  <Loader2 size={12} className="animate-spin flex-shrink-0" />
  <span className="truncate">
@@ -73,7 +73,7 @@ export default function FileUpload() {
  <span className="text-[var(--success)]">{uploadProgress}%</span>
  </div>
  <div className="h-1 bg-[var(--accent-subtle)] rounded-full mt-1 overflow-hidden">
- <div className="h-full bg-[var(--success)] transition-all" style={{ width: `${uploadProgress}%` }} />
+ <div className="h-full bg-[var(--success)] transition-transform origin-left" style={{ transform: `scaleX(${uploadProgress / 100})` }} />
  </div>
  </div>
  )}

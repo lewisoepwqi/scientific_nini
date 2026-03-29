@@ -5,7 +5,7 @@ import { Loader2 } from 'lucide-react'
  * Button 组件 — 统一规范
  *
  * 四种 variant: primary / secondary / ghost / danger
- * 高度 28px (sm: 24px), 字号 12px, 圆角 6px, 字重 500
+ * 高度 36px (sm: 28px), 字号 12px, 圆角 6px, 字重 500
  * 所有颜色使用 CSS token，禁止硬编码
  */
 
@@ -31,11 +31,11 @@ const variantClasses: Record<ButtonVariant, string> = {
 }
 
 const sizeClasses: Record<ButtonSize, string> = {
- default: 'h-[28px] px-3',
- sm: 'h-[24px] px-2',
+ default: 'h-9 px-3',
+ sm: 'h-8 px-2.5',
  'icon-sm': 'h-8 w-8 p-0 rounded-lg',
  'icon-md': 'h-9 w-9 p-0 rounded-xl',
- 'icon-lg': 'h-10 w-10 p-0 rounded-2xl',
+ 'icon-lg': 'h-10 w-10 p-0 rounded-xl',
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -62,8 +62,9 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
  /* 基础样式 */
  'inline-flex items-center justify-center gap-1',
  'rounded-[6px] text-[12px] font-medium',
- 'appearance-none border border-transparent',
+ 'appearance-none border border-transparent outline-none',
  'transition-[background-color,color,border-color,box-shadow] duration-100 ease-linear',
+ 'focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
  'select-none whitespace-nowrap',
  /* 禁用态 */
  isDisabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer',

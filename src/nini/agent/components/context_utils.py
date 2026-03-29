@@ -20,6 +20,80 @@ from nini.agent.components.tool_executor import summarize_tool_result_dict
 
 logger = logging.getLogger(__name__)
 
+_INTERNAL_STATUS_ALLOWED_KEYS = frozenset(
+    {"success", "message", "error", "status", "error_code", "recovery_hint", "data_summary"}
+)
+_INTERNAL_STATUS_MESSAGE_PATTERNS = (
+    "任务状态已更新",
+    "还有 ",
+    "所有任务已完成",
+    "复盘检查",
+    "报告章节已更新",
+    "报告会话已创建",
+    "脚本会话已创建",
+    "图表会话已创建",
+    "工作区会话已创建",
+)
+_REPORT_SECTION_LABELS = {
+    "methods": "方法",
+    "summary": "摘要",
+    "conclusions": "结论",
+}
+
+
+def _parse_internal_status_payload(raw_text: Any) -> dict[str, Any] | None:
+    """识别内部状态 JSON，避免模型把工具状态对象直接复述给用户。"""
+    if not isinstance(raw_text, str):
+        return None
+    text = raw_text.strip()
+    if not text.startswith("{") or not text.endswith("}"):
+        return None
+    try:
+        parsed = _json.loads(text)
+    except _json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    if "message" not in parsed or not isinstance(parsed.get("message"), str):
+        return None
+    if any(key not in _INTERNAL_STATUS_ALLOWED_KEYS for key in parsed):
+        return None
+    message = str(parsed.get("message") or "").strip()
+    if not message:
+        return None
+    has_internal_pattern = any(pattern in message for pattern in _INTERNAL_STATUS_MESSAGE_PATTERNS)
+    data_summary = parsed.get("data_summary")
+    summary_keys: list[str] = []
+    if isinstance(data_summary, dict):
+        raw_keys = data_summary.get("keys")
+        if isinstance(raw_keys, list):
+            summary_keys = [str(item) for item in raw_keys if isinstance(item, str)]
+    has_internal_summary = any(
+        key in {"keys", "mode", "updated_ids", "auto_completed_ids", "report_id", "resource_id"}
+        for key in summary_keys
+    )
+    if not has_internal_pattern and not has_internal_summary:
+        return None
+    return parsed
+
+
+def naturalize_internal_status_text(raw_text: Any) -> str | None:
+    """将内部状态 JSON 转为自然语言；非匹配内容返回 None。"""
+    parsed = _parse_internal_status_payload(raw_text)
+    if parsed is None:
+        return None
+    message = str(parsed.get("message") or "").strip()
+    section_prefix = "报告章节已更新："
+    if message.startswith(section_prefix):
+        section_key = message[len(section_prefix) :].strip()
+        section_label = _REPORT_SECTION_LABELS.get(section_key, section_key)
+        if section_label:
+            return f"报告{section_label}章节已更新。"
+        return "报告章节已更新。"
+    if message == "报告章节已更新":
+        return "报告章节已更新。"
+    return message
+
 
 def _resolve_ask_user_question_answer_summary(
     question_item: dict[str, Any],
@@ -97,6 +171,16 @@ def _format_ask_user_question_tool_result_for_llm(content: Any, *, max_chars: in
     if len(summary) > max_chars:
         return summary[:max_chars] + "...(截断)"
     return summary or compact_tool_content_for_preparation(content, max_chars=max_chars)
+
+
+def _format_internal_status_tool_result_for_llm(content: Any, *, max_chars: int) -> str | None:
+    """将内部状态类工具结果压缩为简短自然语言，减少模型学舌 JSON。"""
+    normalized = naturalize_internal_status_text(content)
+    if normalized is None:
+        return None
+    if len(normalized) > max_chars:
+        return normalized[:max_chars] + "...(截断)"
+    return normalized
 
 
 def get_last_user_message(session: Session) -> str:
@@ -247,9 +331,12 @@ def _prepare_single_message_for_llm(
         max_chars = (
             FETCH_URL_TOOL_CONTEXT_MAX_CHARS if tool_name == "fetch_url" else adaptive_max_chars
         )
-        cleaned = {
-            "role": "tool",
-            "content": (
+        compact_content = _format_internal_status_tool_result_for_llm(
+            msg.get("content"),
+            max_chars=max_chars,
+        )
+        if compact_content is None:
+            compact_content = (
                 _format_ask_user_question_tool_result_for_llm(
                     msg.get("content"),
                     max_chars=max_chars,
@@ -259,7 +346,10 @@ def _prepare_single_message_for_llm(
                     msg.get("content"),
                     max_chars=max_chars,
                 )
-            ),
+            )
+        cleaned = {
+            "role": "tool",
+            "content": compact_content,
         }
         tool_call_id = msg.get("tool_call_id")
         if tool_call_id:

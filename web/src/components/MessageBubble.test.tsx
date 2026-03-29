@@ -138,7 +138,7 @@ describe("MessageBubble reasoning", () => {
  expect(screen.getByText(fullResult)).toBeInTheDocument();
  });
 
- it("chart 事件仅包含 plotly.json URL 时应走 URL 渲染分支", async () => {
+  it("chart 事件仅包含 plotly.json URL 时应走 URL 渲染分支", async () => {
  render(
  <MessageBubble
  message={{
@@ -160,7 +160,31 @@ describe("MessageBubble reasoning", () => {
  expect(
  await screen.findByTestId("plotly-from-url"),
  ).toBeInTheDocument();
- expect(screen.getByText("/api/artifacts/sess-1/demo.plotly.json")).toBeInTheDocument();
+  expect(screen.getByText("/api/artifacts/sess-1/demo.plotly.json")).toBeInTheDocument();
+ });
+
+ it("analysis plan 消息不应在聊天中渲染额外卡片", () => {
+ render(
+ <MessageBubble
+ message={{
+ id: "analysis-plan-1",
+ role: "assistant",
+ content: "已生成分析计划",
+ isReasoning: true,
+ analysisPlan: {
+ raw_text: "1. 检查数据质量\n2. 执行建模",
+ steps: [
+    { id: 1, title: "检查数据质量", status: "done", tool_hint: null },
+    { id: 2, title: "执行建模", status: "in_progress", tool_hint: null },
+ ],
+ },
+ timestamp: Date.now(),
+ }}
+ />,
+ );
+
+ expect(screen.queryByText("分析计划与执行")).not.toBeInTheDocument();
+ expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
  });
 
  it("generate_widget 工具结果应渲染内嵌组件", async () => {
@@ -190,7 +214,7 @@ describe("MessageBubble reasoning", () => {
  });
 
  it("assistant 消息应展示输出等级标签", () => {
- render(
+  render(
  <MessageBubble
  message={{
  id: "assistant-output-1",
@@ -203,5 +227,35 @@ describe("MessageBubble reasoning", () => {
  );
 
  expect(screen.getByText(/输出等级 O3 · 可审阅级/u)).toBeInTheDocument();
+ });
+
+ it("同一条 assistant 消息补充 artifacts 后应立即重渲染下载区", () => {
+ const baseMessage = {
+ id: "assistant-artifact-1",
+ role: "assistant" as const,
+ content: "让我开始绘制：",
+ timestamp: Date.now(),
+ };
+
+ const { rerender } = render(<MessageBubble message={baseMessage} />);
+
+ expect(screen.queryByText("chart.png")).not.toBeInTheDocument();
+
+ rerender(
+ <MessageBubble
+ message={{
+ ...baseMessage,
+ artifacts: [
+ {
+ name: "chart.png",
+ type: "chart",
+ download_url: "/api/artifacts/sess/chart.png",
+ },
+ ],
+ }}
+ />,
+ );
+
+ expect(screen.getByText("chart.png")).toBeInTheDocument();
  });
 });

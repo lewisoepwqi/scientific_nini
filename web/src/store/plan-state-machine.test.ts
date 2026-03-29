@@ -11,6 +11,7 @@ import {
   getLatestAttempt,
   createDefaultPlanSteps,
 } from './plan-state-machine'
+import { applyPlanStepUpdateToProgress, makePlanProgressFromSteps } from './utils'
 import type { AnalysisStep, AnalysisTaskItem, AnalysisTaskAttempt } from './types'
 
 describe('plan-state-machine', () => {
@@ -79,6 +80,30 @@ describe('plan-state-machine', () => {
       const steps = createDefaultPlanSteps(3)
       const progress = createPlanProgress(steps, 2, 'blocked')
       expect(progress.block_reason).toBe('步骤被阻塞')
+    })
+
+    it('should keep current step on in-progress task when a later pending step is updated', () => {
+      const steps: AnalysisStep[] = [
+        { id: 1, title: '步骤 1', tool_hint: null, status: 'done' },
+        { id: 2, title: '步骤 2', tool_hint: null, status: 'done' },
+        { id: 3, title: '步骤 3', tool_hint: null, status: 'done' },
+        { id: 4, title: '步骤 4', tool_hint: null, status: 'done' },
+        { id: 5, title: '结果可视化', tool_hint: null, status: 'not_started' },
+        { id: 6, title: '生成分析报告', tool_hint: null, status: 'not_started' },
+      ]
+      const initial = makePlanProgressFromSteps(steps, '')
+      expect(initial).not.toBeNull()
+
+      const afterStepFive = applyPlanStepUpdateToProgress(initial, 5, 'in_progress')
+      expect(afterStepFive?.current_step_index).toBe(5)
+      expect(afterStepFive?.step_status).toBe('in_progress')
+      expect(afterStepFive?.step_title).toBe('结果可视化')
+
+      const afterStepSixPending = applyPlanStepUpdateToProgress(afterStepFive, 6, 'pending')
+      expect(afterStepSixPending?.current_step_index).toBe(5)
+      expect(afterStepSixPending?.step_status).toBe('in_progress')
+      expect(afterStepSixPending?.step_title).toBe('结果可视化')
+      expect(afterStepSixPending?.steps[5]?.status).toBe('not_started')
     })
   })
 

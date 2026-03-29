@@ -3,7 +3,7 @@
  * 输入区提取为 ChatInputArea，避免每次击键触发消息列表重渲染。
  * 所有消息按原始顺序展示，保持思考-行动-回答的连贯性。
  *
- * 注意：分析计划仍只在工作区的“任务”Tab 中展示，Skill 进度面板会在对话区顶部显示
+ * 注意：任务进度统一在工作区展示，Skill 进度面板会在对话区顶部显示
  */
 import { useEffect, useRef, useMemo, useCallback, useState, startTransition } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -18,7 +18,6 @@ import PendingQuestionBanner from './PendingQuestionBanner'
 import IntentTimelineItem from './IntentTimelineItem'
 import AskUserQuestionPanel from './AskUserQuestionPanel'
 import ChatInputArea from './ChatInputArea'
-import DeepTaskProgressCard from './DeepTaskProgressCard'
 import SkillProgressPanel from './SkillProgressPanel'
 import Button from './ui/Button'
 
@@ -88,7 +87,7 @@ export default function ChatPanel() {
  const displayedTokenCountRef = useRef(
  streamingMetrics.hasTokenUsage ? streamingMetrics.totalTokens : 0,
  )
- const [now, setNow] = useState(() => Date.now())
+ const [elapsedSeconds, setElapsedSeconds] = useState(0)
 
  // 找到最后一条用户消息用于重试逻辑
  const lastUserIndex = useMemo(() => {
@@ -130,26 +129,26 @@ export default function ChatPanel() {
  return typeof window !== 'undefined' && 'Notification' in window
  }, [askUserQuestionNotificationPreference])
 
- // 自动滚动到底部
+ // 自动滚动到底部（100ms 防抖，避免 streaming 时频繁触发重排）
  useEffect(() => {
- bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+ const id = setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+ return () => clearTimeout(id)
  }, [messages])
 
  useEffect(() => {
- if (!isStreaming || !streamingMetrics.startedAt) return
+ if (!isStreaming || !streamingMetrics.startedAt) {
+   setElapsedSeconds(0)
+   return
+ }
 
- setNow(Date.now())
- const timer = window.setInterval(() => {
- setNow(Date.now())
- }, 1000)
-
+ const startedAt = streamingMetrics.startedAt
+ const tick = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)))
+ tick()
+ const timer = window.setInterval(tick, 1000)
  return () => window.clearInterval(timer)
  }, [isStreaming, streamingMetrics.startedAt])
 
- const elapsedSeconds = useMemo(() => {
- if (!isStreaming || !streamingMetrics.startedAt) return 0
- return Math.max(0, Math.floor((now - streamingMetrics.startedAt) / 1000))
- }, [isStreaming, now, streamingMetrics.startedAt])
+
 
  const compactTokenText = useMemo(() => {
  if (!streamingMetrics.hasTokenUsage) return null
@@ -173,23 +172,22 @@ export default function ChatPanel() {
  const startCount = displayedTokenCountRef.current
  const startAt = Date.now()
  const durationMs = 360
- const timer = window.setInterval(() => {
+ let rafId: number
+ const tick = () => {
  const elapsed = Date.now() - startAt
  const progress = Math.min(elapsed / durationMs, 1)
  const easedProgress = 1 - Math.pow(1 - progress, 3)
  const nextCount = Math.round(
  startCount + (targetCount - startCount) * easedProgress,
  )
-
  displayedTokenCountRef.current = nextCount
  setDisplayedTokenCount(nextCount)
-
- if (progress >= 1) {
- window.clearInterval(timer)
+ if (progress < 1) {
+ rafId = requestAnimationFrame(tick)
  }
- }, 16)
-
- return () => window.clearInterval(timer)
+ }
+ rafId = requestAnimationFrame(tick)
+ return () => cancelAnimationFrame(rafId)
  }, [isStreaming, streamingMetrics.hasTokenUsage, streamingMetrics.totalTokens])
 
  const handleRetry = useCallback(async () => {
@@ -262,25 +260,25 @@ export default function ChatPanel() {
 {showBootstrapState && (
 <div className="min-h-[60vh] px-1 py-4">
 <div className="mx-auto max-w-2xl">
- <div className="skeleton-surface rounded-[28px] p-6 shadow-[0_18px_45px_-32px_rgba(15,23,42,0.45)]">
+ <div className="skeleton-surface rounded-xl p-6 shadow-md">
 <div className="flex items-center gap-4">
- <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-sky-100 to-teal-50 dark:from-sky-900/40 dark:to-teal-900/40" />
+ <div className="h-14 w-14 rounded-lg bg-[var(--bg-elevated)] dark:bg-[var(--bg-overlay)]" />
  <div className="flex-1 space-y-2">
  <div className="skeleton-line h-4 w-40 rounded-full animate-pulse" />
  <div className="skeleton-line-soft h-3 w-72 max-w-full rounded-full animate-pulse" />
  </div>
  </div>
  <div className="mt-8 space-y-4">
- <div className="ml-auto max-w-[62%] rounded-3xl rounded-br-xl bg-[color-mix(in_srgb,var(--bg-elevated)_92%,var(--bg-base))] px-5 py-4">
+ <div className="ml-auto max-w-[62%] rounded-xl rounded-br-xl bg-[color-mix(in_srgb,var(--bg-elevated)_92%,var(--bg-base))] px-5 py-4">
  <div className="skeleton-line h-3 w-28 rounded-full animate-pulse" />
  </div>
- <div className="skeleton-surface max-w-[72%] rounded-3xl rounded-bl-xl px-5 py-4">
+ <div className="skeleton-surface max-w-[72%] rounded-xl rounded-bl-xl px-5 py-4">
  <div className="space-y-2">
  <div className="skeleton-line h-3 w-5/6 rounded-full animate-pulse" />
  <div className="skeleton-line-soft h-3 w-2/3 rounded-full animate-pulse" />
  </div>
  </div>
- <div className="ml-auto max-w-[54%] rounded-3xl rounded-br-xl bg-[color-mix(in_srgb,var(--bg-elevated)_92%,var(--bg-base))] px-5 py-4">
+ <div className="ml-auto max-w-[54%] rounded-xl rounded-br-xl bg-[color-mix(in_srgb,var(--bg-elevated)_92%,var(--bg-base))] px-5 py-4">
  <div className="skeleton-line h-3 w-24 rounded-full animate-pulse" />
  </div>
  </div>
@@ -323,7 +321,6 @@ export default function ChatPanel() {
  </div>
  </div>
  )}
- {showConversationContent && <DeepTaskProgressCard />}
  {showConversationContent && <SkillProgressPanel />}
  {/* 所有消息按原始顺序展示 */}
  {showConversationContent && messages.map((msg) => {
@@ -360,14 +357,14 @@ export default function ChatPanel() {
  <div className="flex items-center gap-2 text-[var(--text-muted)] text-sm ml-11">
  <Loader2 size={14} className="animate-spin" />
  <span>Nini is working...</span>
- <span className="text-[var(--text-muted)]/90 dark:text-[var(--text-muted)]/90">{elapsedSeconds}s</span>
+ <span className="text-[var(--text-muted)]/90">{elapsedSeconds}s</span>
  {compactTokenText && (
- <span className="text-[var(--text-muted)]/90 dark:text-[var(--text-muted)]/90">·</span>
+ <span className="text-[var(--text-muted)]/90">·</span>
  )}
  {compactTokenText && (
  <span
  data-testid="streaming-token-usage"
- className="inline-flex items-center tabular-nums text-[var(--text-muted)]/90 dark:text-[var(--text-muted)]/90"
+ className="inline-flex items-center tabular-nums text-[var(--text-muted)]/90"
  >
  ↓ {compactTokenText} tokens
  </span>

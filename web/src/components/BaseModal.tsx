@@ -122,7 +122,7 @@ export default function BaseModal({
  aria-labelledby={titleId}
  tabIndex={-1}
  onKeyDown={handleKeyDown}
- className={`bg-[var(--bg-base)] rounded-2xl shadow-2xl w-full ${maxWidthClass} flex flex-col max-h-[92vh] outline-none ${contentClass}`}
+ className={`bg-[var(--bg-base)] rounded-lg shadow-2xl w-full ${maxWidthClass} flex flex-col max-h-[92vh] outline-none ${contentClass}`}
  >
  {/* 隐藏的标题，供 aria-labelledby 引用 */}
  <h2 id={titleId} className="sr-only">

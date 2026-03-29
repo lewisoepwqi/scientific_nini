@@ -87,11 +87,11 @@ export default function IntentSummaryCard({
  const hasClarification = analysis?.clarification_needed ?? false;
 
  return (
- <div className="overflow-hidden rounded-xl border border-[var(--border-default)] bg-gradient-to-br from-[var(--bg-elevated)] via-[var(--bg-base)] to-[var(--accent-subtle)]/50 shadow-sm">
+ <div className="overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-sm">
  {/* 头部：一句话概括 + 操作按钮 */}
  <div className="flex items-center justify-between px-3 py-2.5">
  <div className="flex items-center gap-2 min-w-0">
- <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[var(--bg-elevated)] text-white">
+ <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-subtle)] text-[var(--accent)]">
  <BrainCircuit size={14} />
  </div>
  {loading ? (
@@ -109,7 +109,7 @@ export default function IntentSummaryCard({
  <div className="flex items-center gap-1 shrink-0">
  {/* 低置信度指示 */}
  {autoExpandClarification && (
- <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--warning-subtle)] text-[var(--warning)] dark:text-[var(--warning)] text-[10px]">
+ <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--warning-subtle)] text-[var(--warning)] text-[10px]">
  <HelpCircle size={10} />
  需确认
  </span>
@@ -118,7 +118,7 @@ export default function IntentSummaryCard({
  <button
  type="button"
  onClick={() => setDetailsExpanded(!detailsExpanded)}
- className="flex items-center gap-0.5 px-2 py-1 text-[11px] rounded-md text-[var(--text-secondary)] bg-transparent border-none cursor-pointer focus:outline-none"
+ className="flex items-center gap-0.5 px-2 py-1 text-[11px] rounded-md text-[var(--text-secondary)] bg-transparent border-none cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
  >
  {detailsExpanded ? (
  <>
@@ -179,7 +179,7 @@ export default function IntentSummaryCard({
  {analysis.tool_hints.slice(0, 4).map((tool) => (
  <span
  key={tool}
- className="inline-flex px-1.5 py-0.5 rounded bg-[var(--success-subtle)] text-[var(--success)] text-[11px] dark:text-[var(--success)]"
+ className="inline-flex px-1.5 py-0.5 rounded bg-[var(--success-subtle)] text-[var(--success)] text-[11px]"
  >
  {tool}
  </span>
@@ -195,7 +195,7 @@ export default function IntentSummaryCard({
             <button
               type="button"
               onClick={() => setClarificationExpanded(!clarificationExpanded)}
-              className="w-full flex items-center justify-between px-2.5 py-2 text-left bg-transparent border-none cursor-pointer focus:outline-none"
+              className="w-full flex items-center justify-between px-2.5 py-2 text-left bg-transparent border-none cursor-pointer hover:opacity-80 transition-opacity"
             >
  <div className="flex items-center gap-1.5 text-[var(--warning)] text-xs">
  <HelpCircle size={12} />
@@ -221,7 +221,7 @@ export default function IntentSummaryCard({
  onClick={() =>
  onApplySuggestion(`我想做${option.label}`)
  }
- className="inline-flex items-center px-2 py-1 rounded-full border border-[var(--warning)] bg-[var(--bg-base)] text-[var(--warning)] text-[11px] dark:text-[var(--warning)]"
+ className="inline-flex items-center px-2 py-1 rounded-full border border-[var(--warning)] bg-[var(--bg-base)] text-[var(--warning)] text-[11px]"
  >
  {option.label}
  </Button>

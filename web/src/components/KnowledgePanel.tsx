@@ -201,7 +201,7 @@ export default function KnowledgePanel({ isOpen = true, onClose }: KnowledgePane
  type="button"
  onClick={handleRebuildIndex}
  disabled={rebuilding}
- className="h-[28px] w-[28px] p-0"
+ className="h-8 w-8 p-0"
  title="重建索引"
  aria-label="重建索引"
  >
@@ -211,7 +211,7 @@ export default function KnowledgePanel({ isOpen = true, onClose }: KnowledgePane
  variant="ghost"
  type="button"
  onClick={() => setShowUploadDialog(true)}
- className="h-[28px] w-[28px] p-0"
+ className="h-8 w-8 p-0"
  title="上传文档"
  aria-label="上传文档"
  >

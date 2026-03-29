@@ -357,13 +357,70 @@ class ConversationMemory:
                         logger.warning("跳过损坏的 JSONL 行: %s", line[:100])
         return entries
 
-    def load_messages(self, *, resolve_refs: bool = False) -> list[dict[str, Any]]:
+    def _load_archived_entries(self, *, resolve_refs: bool = False) -> list[dict[str, Any]]:
+        """加载归档消息。优先从 SQLite 读取，回退到 archive/*.json。"""
+        try:
+            from nini.memory.db import get_session_db, load_archived_messages_from_db
+
+            conn = get_session_db(self._dir, create=False)
+            if conn is not None:
+                try:
+                    db_entries = load_archived_messages_from_db(conn)
+                    if db_entries:
+                        if resolve_refs:
+                            db_entries = [self._resolve_references(e) for e in db_entries]
+                        return [e for e in db_entries if "role" in e]
+                except Exception as exc:
+                    logger.debug("[Memory] SQLite 读取归档消息失败，回退 archive 文件: %s", exc)
+                finally:
+                    conn.close()
+        except Exception:
+            pass
+
+        archive_dir = self._dir / "archive"
+        if not archive_dir.exists():
+            return []
+
+        entries: list[dict[str, Any]] = []
+        for archive_file in sorted(archive_dir.glob("compressed_*.json")):
+            try:
+                raw = json.loads(archive_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning("[Memory] 读取归档文件失败 %s: %s", archive_file.name, exc)
+                continue
+
+            archive_messages = raw if isinstance(raw, list) else raw.get("messages", [])
+            if not isinstance(archive_messages, list):
+                continue
+
+            for entry in archive_messages:
+                if not isinstance(entry, dict) or "role" not in entry:
+                    continue
+                if resolve_refs:
+                    entry = self._resolve_references(entry)
+                entries.append(entry)
+        return entries
+
+    def load_archived_messages(self, *, resolve_refs: bool = False) -> list[dict[str, Any]]:
+        """加载归档消息并补齐 canonical 字段。"""
+        return canonicalize_message_entries(self._load_archived_entries(resolve_refs=resolve_refs))
+
+    def load_messages(
+        self,
+        *,
+        resolve_refs: bool = False,
+        include_archived: bool = False,
+    ) -> list[dict[str, Any]]:
         """加载所有消息（过滤出 role 字段的记录）。
 
         Args:
             resolve_refs: 是否解析引用加载完整数据（默认不解析）
+            include_archived: 是否包含已压缩归档的历史消息
         """
-        messages = [e for e in self.load_all(resolve_refs=resolve_refs) if "role" in e]
+        messages: list[dict[str, Any]] = []
+        if include_archived:
+            messages.extend(self._load_archived_entries(resolve_refs=resolve_refs))
+        messages.extend([e for e in self.load_all(resolve_refs=resolve_refs) if "role" in e])
         return canonicalize_message_entries(messages)
 
     def clear(self) -> None:

@@ -10,14 +10,20 @@ import AuthGate from "./components/AuthGate";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ConfirmDialog from "./components/ConfirmDialog";
 import { AUTH_INVALID_EVENT } from "./store/auth";
+import { runDeferredUiUpdate } from "./app-transitions";
 import { initTheme, getStoredTheme, setTheme, getResolvedTheme, type ThemeMode } from "./theme";
-import GlobalNav, { NiniLogo } from "./components/GlobalNav";
+import GlobalNav, { NiniLogo, NAV_GROUPS } from "./components/GlobalNav";
 import { ConnectionBadge } from "./components/ui";
 import {
   Loader2,
   Menu,
   PanelRightOpen,
   PanelRightClose,
+  Compass,
+  X,
+  Sun,
+  Moon,
+  Settings,
 } from "lucide-react";
 
 const ModelConfigPanel = lazy(() => import("./components/ModelConfigPanel"));
@@ -38,6 +44,38 @@ const AgentExecutionPanel = lazy(() => import("./components/AgentExecutionPanel"
 const WorkflowTopology = lazy(() => import("./components/WorkflowTopology"));
 const HypothesisTracker = lazy(() => import("./components/HypothesisTracker"));
 
+type PanelType =
+  | "settings"
+  | "tools"
+  | "capabilities"
+  | "skills"
+  | "profile"
+  | "report"
+  | "cost"
+  | "knowledge";
+
+const PANEL_PRELOADERS: Record<PanelType, () => Promise<unknown>> = {
+  settings: () => import("./components/ModelConfigPanel"),
+  tools: () => import("./components/SkillCatalogPanel"),
+  capabilities: () => import("./components/CapabilityPanel"),
+  skills: () => import("./components/MarkdownSkillManagerPanel"),
+  profile: () => import("./components/ResearchProfilePanel"),
+  report: () => import("./components/ArticleDraftPanel"),
+  cost: () => import("./components/CostPanel"),
+  knowledge: () => import("./components/KnowledgePanel"),
+};
+
+function preloadPanel(panel: PanelType): Promise<unknown> {
+  return PANEL_PRELOADERS[panel]();
+}
+
+function preloadWorkspacePanels(): Promise<unknown[]> {
+  return Promise.all([
+    import("./components/WorkspaceSidebar"),
+    import("./components/MemoryPanel"),
+  ]);
+}
+
 export default function App() {
   const connect = useStore((s) => s.connect);
   const bootstrapApp = useStore((s) => s.bootstrapApp);
@@ -49,17 +87,22 @@ export default function App() {
   const appBootstrapping = useStore((s) => s.appBootstrapping);
   const workspacePanelOpen = useStore((s) => s.workspacePanelOpen);
   const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel);
-  type PanelType =
-    | "settings"
-    | "tools"
-    | "capabilities"
-    | "skills"
-    | "profile"
-    | "report"
-    | "cost"
-    | "knowledge";
   const [activePanel, setActivePanel] = useState<PanelType | null>(null);
-  const closePanel = useCallback(() => setActivePanel(null), []);
+  const closePanel = useCallback(() => {
+    runDeferredUiUpdate(() => {
+      setActivePanel(null);
+    });
+  }, []);
+  const openPanel = useCallback((panel: PanelType) => {
+    runDeferredUiUpdate(() => {
+      setActivePanel(panel);
+    }, () => preloadPanel(panel));
+  }, []);
+  const handleWorkspacePanelToggle = useCallback(() => {
+    runDeferredUiUpdate(() => {
+      toggleWorkspacePanel();
+    }, workspacePanelOpen ? null : preloadWorkspacePanels);
+  }, [toggleWorkspacePanel, workspacePanelOpen]);
 
   // 全局导航活跃状态
   const activeNav =
@@ -82,12 +125,13 @@ export default function App() {
                     : "chat";
   const handleNavNavigate = useCallback((id: string) => {
     if (id === "chat") {
-      setActivePanel(null);
+      closePanel();
     } else {
-      setActivePanel(id as PanelType);
+      openPanel(id as PanelType);
     }
-  }, []);
+  }, [closePanel, openPanel]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [workspacePanelWidth, setWorkspacePanelWidth] = useState(420);
   const [resizingWorkspace, setResizingWorkspace] = useState(false);
   const isDesktop = useIsDesktop();
@@ -132,14 +176,14 @@ export default function App() {
 
   // 监听试用到期 / ModelSelector 点击事件，自动弹出 AI 设置面板
   useEffect(() => {
-    const handler = () => setActivePanel("settings");
+    const handler = () => openPanel("settings");
     window.addEventListener("nini:trial-expired", handler);
     window.addEventListener("nini:open-settings", handler);
     return () => {
       window.removeEventListener("nini:trial-expired", handler);
       window.removeEventListener("nini:open-settings", handler);
     };
-  }, []);
+  }, [openPanel]);
 
   useEffect(() => {
     const reconnectIfVisible = () => {
@@ -291,13 +335,20 @@ export default function App() {
           {/* Toolbar — 三栏布局：左侧移动菜单 + 中间 Logo/标题/连接状态 + 右侧工作区开关 */}
           <header className="h-12 border-b border-[var(--border-subtle)] flex items-center px-4 bg-[var(--bg-base)] flex-shrink-0">
             {/* 左侧：移动端菜单（桌面端空占位） */}
-            <div className="flex-1 flex items-center">
+            <div className="flex-1 flex items-center gap-1">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors md:hidden"
+                className="p-2.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors md:hidden"
                 aria-label="打开会话列表"
               >
                 <Menu size={18} />
+              </button>
+              <button
+                onClick={() => setMobileNavOpen(true)}
+                className="p-2.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors md:hidden"
+                aria-label="打开导航菜单"
+              >
+                <Compass size={18} />
               </button>
             </div>
 
@@ -315,7 +366,7 @@ export default function App() {
             {/* 右侧：工作区开关 */}
             <div className="flex-1 flex justify-end">
               <button
-                onClick={toggleWorkspacePanel}
+                onClick={handleWorkspacePanelToggle}
                 className={`appearance-none flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-[background-color,color,border-color] border ${
                   workspacePanelOpen
                     ? "border-[color-mix(in_srgb,var(--accent)_25%,transparent)] bg-[var(--accent-subtle)] text-[var(--accent)] dark:border-transparent"
@@ -363,15 +414,15 @@ export default function App() {
         {workspacePanelOpen && isDesktop && (
           <aside
             aria-label="工作区"
-            className="rounded-lg border border-[var(--border-subtle)] flex-shrink-0 flex flex-col relative bg-[var(--bg-base)] overflow-hidden"
+            className="rounded-lg border border-[var(--border-subtle)] flex-shrink-0 flex flex-col relative bg-[var(--bg-base)]"
             style={{ width: `${workspacePanelWidth}px` }}
           >
             <div
               onMouseDown={handleWorkspaceResizeStart}
-              className="absolute left-0 top-0 h-full w-1.5 -translate-x-1/2 cursor-col-resize z-20 bg-transparent hover:bg-[var(--accent-subtle)] active:bg-[var(--accent)]"
+              className="absolute left-0 top-0 h-full w-2.5 -translate-x-1/2 cursor-col-resize z-20 bg-transparent hover:bg-[var(--accent-subtle)] active:bg-[var(--accent)]"
               title="拖拽调整宽度"
             />
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 overflow-hidden">
               <Suspense fallback={workspacePanelFallback}>
                 <WorkspaceSidebar />
               </Suspense>
@@ -387,7 +438,7 @@ export default function App() {
           <>
             <div
               className="fixed inset-0 z-40 bg-black/30"
-              onClick={toggleWorkspacePanel}
+              onClick={handleWorkspacePanelToggle}
             />
             <div className="fixed inset-y-0 right-0 z-50 w-80 bg-[var(--bg-base)] shadow-xl flex flex-col rounded-l-lg">
               <div className="flex-1 min-h-0">
@@ -400,6 +451,76 @@ export default function App() {
               </Suspense>
             </div>
           </>
+        )}
+
+        {/* 移动端全屏导航覆盖层 */}
+        {mobileNavOpen && (
+          <div className="fixed inset-0 z-50 md:hidden flex flex-col bg-[var(--bg-base)]">
+            <div className="flex items-center justify-between px-4 h-14 border-b border-[var(--border-subtle)] shrink-0">
+              <span className="text-base font-semibold text-[var(--text-primary)]">导航</span>
+              <button
+                onClick={() => setMobileNavOpen(false)}
+                className="p-2 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
+                aria-label="关闭导航菜单"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <nav className="flex-1 overflow-y-auto">
+              <div className="p-4 space-y-1">
+                {NAV_GROUPS.map((group, gi) => (
+                  <div key={group.key}>
+                    {gi > 0 && (
+                      <div className="h-px my-2" style={{ background: "var(--border-subtle)" }} />
+                    )}
+                    {group.items.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = activeNav === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => { handleNavNavigate(item.id); setMobileNavOpen(false); }}
+                          className={`flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left transition-colors ${
+                            isActive
+                              ? "bg-[var(--accent-subtle)] text-[var(--accent)]"
+                              : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                          }`}
+                        >
+                          <Icon size={20} />
+                          <span className="text-sm font-medium">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </nav>
+            <div className="border-t border-[var(--border-subtle)] p-4 space-y-1">
+              <button
+                onClick={handleToggleTheme}
+                className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
+              >
+                {getResolvedTheme() === "dark" ? <Moon size={20} /> : <Sun size={20} />}
+                <span className="text-sm font-medium">
+                  {themeMode === "system" ? "跟随系统" : themeMode === "dark" ? "深色模式" : "浅色模式"}
+                </span>
+              </button>
+              <button
+                onClick={() => {
+                  handleNavNavigate("settings");
+                  setMobileNavOpen(false);
+                }}
+                className={`flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left transition-colors ${
+                  activeNav === "settings"
+                    ? "bg-[var(--accent-subtle)] text-[var(--accent)]"
+                    : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                }`}
+              >
+                <Settings size={20} />
+                <span className="text-sm font-medium">设置</span>
+              </button>
+            </div>
+          </div>
         )}
 
         {/* 弹窗面板 — 按需挂载，仅渲染当前激活的面板 */}

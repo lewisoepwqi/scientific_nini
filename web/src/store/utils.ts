@@ -365,18 +365,25 @@ export function applyPlanStepUpdateToProgress(
 
   const currentStep = steps[stepId - 1];
   const currentStatus = currentStep?.status || incomingStatus;
+  const inferredStepIndexRaw = inferCurrentStepIndex(steps);
+  const effectiveStepIndex = clampStepIndex(
+    inferredStepIndexRaw > 0 ? inferredStepIndexRaw : stepId,
+    steps.length,
+  );
+  const effectiveStep = steps[effectiveStepIndex - 1] ?? currentStep;
+  const effectiveStatus = effectiveStep?.status || currentStatus;
   return {
     ...progress,
     steps,
-    current_step_index: stepId,
+    current_step_index: effectiveStepIndex,
     total_steps: steps.length,
-    step_title: currentStep?.title || progress.step_title,
-    step_status: currentStatus,
-    next_hint:
-      progress.next_hint && progress.next_hint.trim()
-        ? progress.next_hint
-        : deriveNextHint(steps, stepId, currentStatus),
-    block_reason: currentStatus === "failed" ? progress.block_reason : null,
+    step_title: effectiveStep?.title || progress.step_title,
+    step_status: effectiveStatus,
+    next_hint: deriveNextHint(steps, effectiveStepIndex, effectiveStatus),
+    block_reason:
+      effectiveStatus === "failed" || effectiveStatus === "blocked"
+        ? progress.block_reason
+        : null,
   };
 }
 

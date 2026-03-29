@@ -260,7 +260,7 @@ function AnalysisPlanContent({
  ? "border-[var(--error)] text-[var(--error)]"
  : step.status === "blocked"
  ? "border-[var(--warning)] text-[var(--warning)]"
- : "border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] dark:border-[var(--border-default)] dark:bg-[var(--bg-elevated)] dark:text-[var(--text-muted)]";
+ : "border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] dark:text-[var(--text-muted)]";
  const itemStyle = isCurrent
  ? toneSurfaceStyle("accent", 12)
  : step.status === "done"

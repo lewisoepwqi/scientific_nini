@@ -84,6 +84,40 @@ class _LoopRunner:
         yield eb.build_done_event(turn_id=turn_id)
 
 
+class _IncompleteTaskRunner:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def run(
+        self,
+        session: Session,
+        user_message: str,
+        *,
+        append_user_message: bool = True,
+        stop_event=None,
+        turn_id: str | None = None,
+        stage_override: str | None = None,
+    ):
+        _ = user_message, stop_event, stage_override
+        self.calls += 1
+        assert turn_id is not None
+        if append_user_message:
+            session.add_message("user", "开始分析", turn_id=turn_id)
+        if not session.task_manager.initialized:
+            session.task_manager = session.task_manager.init_tasks(
+                [
+                    {"id": 1, "title": "数据清洗", "status": "completed"},
+                    {"id": 2, "title": "描述性统计", "status": "completed"},
+                    {"id": 3, "title": "生成图表", "status": "pending"},
+                    {"id": 4, "title": "生成汇总报告", "status": "pending"},
+                ]
+            )
+        yield eb.build_iteration_start_event(iteration=self.calls - 1, turn_id=turn_id)
+        session.add_message("assistant", "描述性统计完成，接下来准备生成图表。", turn_id=turn_id)
+        yield eb.build_text_event("描述性统计完成，接下来准备生成图表。", turn_id=turn_id)
+        yield eb.build_done_event(turn_id=turn_id)
+
+
 class _ErrorRunner:
     async def run(
         self,
@@ -249,6 +283,31 @@ async def test_harness_runner_blocks_after_repeated_loop_recovery() -> None:
 
     assert "blocked" in event_types
     assert event_types[-1] == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_harness_runner_persists_blocked_summary_for_incomplete_tasks() -> None:
+    runner = HarnessRunner(agent_runner=_IncompleteTaskRunner())
+    session = Session()
+
+    events = [event async for event in runner.run(session, "开始分析")]
+    text_events = [event for event in events if event.type.value == "text"]
+
+    assert any(event.type.value == "blocked" for event in events)
+    assert any(
+        isinstance(event.data, dict)
+        and "当前轮分析已暂停" in str(event.data.get("content", ""))
+        and "生成图表" in str(event.data.get("content", ""))
+        and "生成汇总报告" in str(event.data.get("content", ""))
+        for event in text_events
+    )
+    assistant_messages = [
+        msg
+        for msg in session.messages
+        if msg.get("role") == "assistant" and msg.get("event_type") == "text"
+    ]
+    assert "当前轮分析已暂停" in str(assistant_messages[-1].get("content", ""))
+    assert "未满足的完成条件：所有任务已完成。" in str(assistant_messages[-1].get("content", ""))
 
 
 @pytest.mark.asyncio

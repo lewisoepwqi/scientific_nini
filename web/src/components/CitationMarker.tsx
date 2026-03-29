@@ -54,19 +54,19 @@ export default React.memo(function CitationMarker({
  // 计算可信度标签
  const credibilityLabel = (() => {
  if (!retrieval?.score) return null;
- if (retrieval.score >= 0.8) return { text: "高可信度", color: "text-[var(--success)] bg-[var(--accent-subtle)] dark:text-[var(--success)]" };
+ if (retrieval.score >= 0.8) return { text: "高可信度", color: "text-[var(--success)] bg-[var(--accent-subtle)]" };
  if (retrieval.score >= 0.6) return { text: "一般参考", color: "text-[var(--warning)] bg-[var(--accent-subtle)]" };
- return { text: "参考", color: "text-[var(--text-muted)] bg-[var(--bg-elevated)] dark:text-[var(--text-muted)] dark:bg-[var(--bg-elevated)]" };
+ return { text: "参考", color: "text-[var(--text-muted)] bg-[var(--bg-elevated)]" };
  })();
  const verificationLabel = (() => {
  if (!retrieval?.verificationStatus) return null;
  if (retrieval.verificationStatus === "verified") {
- return { text: "已验证", color: "text-[var(--success)] bg-[var(--accent-subtle)] dark:text-[var(--success)]" };
+ return { text: "已验证", color: "text-[var(--success)] bg-[var(--accent-subtle)]" };
  }
  if (retrieval.verificationStatus === "conflicted") {
  return { text: "证据冲突", color: "text-[var(--error)] bg-[var(--accent-subtle)]" };
  }
- return { text: "待验证", color: "text-[var(--warning)] bg-[var(--accent-subtle)] dark:text-[var(--warning)]" };
+ return { text: "待验证", color: "text-[var(--warning)] bg-[var(--accent-subtle)]" };
  })();
 
  return (
@@ -176,7 +176,7 @@ export default React.memo(function CitationMarker({
 // 辅助函数：计算可信度标签
 export function getCredibilityLabel(score?: number): { text: string; color: string } | null {
  if (score === undefined || score === null) return null;
- if (score >= 0.8) return { text: "高可信度", color: "text-[var(--success)] bg-[var(--accent-subtle)] border-[var(--success)] dark:text-[var(--success)]" };
- if (score >= 0.6) return { text: "一般参考", color: "text-[var(--warning)] bg-[var(--accent-subtle)] border-[var(--warning)] dark:text-[var(--warning)]" };
- return { text: "参考", color: "text-[var(--text-muted)] bg-[var(--bg-elevated)] border-[var(--border-default)] dark:text-[var(--text-muted)] dark:bg-[var(--bg-elevated)] dark:border-[var(--border-default)]" };
+ if (score >= 0.8) return { text: "高可信度", color: "text-[var(--success)] bg-[var(--accent-subtle)] border-[var(--success)]" };
+ if (score >= 0.6) return { text: "一般参考", color: "text-[var(--warning)] bg-[var(--accent-subtle)] border-[var(--warning)]" };
+ return { text: "参考", color: "text-[var(--text-muted)] bg-[var(--bg-elevated)] border-[var(--border-default)]" };
 }

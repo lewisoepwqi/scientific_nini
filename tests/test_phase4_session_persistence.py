@@ -272,6 +272,31 @@ def test_list_sessions_includes_disk_sessions() -> None:
     assert found["message_count"] >= 1
 
 
+def test_list_sessions_message_count_includes_archived_history() -> None:
+    """会话列表中的消息数应包含已压缩归档的历史。"""
+    from nini.memory.compression import compress_session_history
+
+    session = session_manager.create_session()
+    session.add_message("user", "开始分析")
+    session.add_message("assistant", "步骤一")
+    session.add_message("assistant", "步骤二")
+    session.add_message("assistant", "步骤三")
+    session.add_message("user", "继续")
+    session.add_message("assistant", "步骤四")
+    total_before = len(session.messages)
+    sid = session.id
+
+    result = compress_session_history(session, ratio=0.5, min_messages=4)
+    assert result["success"] is True
+    assert len(session.messages) < total_before
+
+    session_manager._sessions.clear()
+    sessions = session_manager.list_sessions()
+
+    found = next(item for item in sessions if item["id"] == sid)
+    assert found["message_count"] == total_before
+
+
 def test_list_sessions_sorts_by_updated_at_desc() -> None:
     older = session_manager.create_session()
     older.add_message("user", "old")
@@ -364,6 +389,35 @@ def test_list_sessions_supports_query_and_pagination(client: LocalASGIClient) ->
     assert "updated_at" in data[0]
 
 
+def test_get_session_detail_message_count_includes_archived_history(
+    client: LocalASGIClient,
+) -> None:
+    """会话详情中的消息数应包含已压缩归档的历史。"""
+    from nini.memory.compression import compress_session_history
+
+    resp = client.post("/api/sessions")
+    session_id = resp.json()["data"]["session_id"]
+
+    session = session_manager.get_session(session_id)
+    assert session is not None
+    session.add_message("user", "开始分析")
+    session.add_message("assistant", "步骤一")
+    session.add_message("assistant", "步骤二")
+    session.add_message("assistant", "步骤三")
+    session.add_message("user", "继续")
+    session.add_message("assistant", "步骤四")
+    total_before = len(session.messages)
+
+    result = compress_session_history(session, ratio=0.5, min_messages=4)
+    assert result["success"] is True
+    assert len(session.messages) < total_before
+
+    detail_resp = client.get(f"/api/sessions/{session_id}")
+    assert detail_resp.status_code == 200
+    payload = detail_resp.json()
+    assert payload["data"]["message_count"] == total_before
+
+
 # ---- GET /api/sessions/{session_id}/messages 端点测试 ----
 
 
@@ -426,6 +480,58 @@ def test_get_session_messages_from_disk(client: LocalASGIClient) -> None:
     assert len(messages) == 2
     assert messages[0]["content"] == "持久化测试"
     assert messages[1]["content"] == "消息已保存"
+
+
+def test_get_session_messages_include_archived_history(client: LocalASGIClient) -> None:
+    """历史接口应同时返回已压缩归档和当前活跃的消息。"""
+    from nini.memory.compression import compress_session_history
+
+    resp = client.post("/api/sessions")
+    session_id = resp.json()["data"]["session_id"]
+
+    session = session_manager.get_session(session_id)
+    assert session is not None
+    session.add_message("user", "开始分析", turn_id="turn-1")
+    session.add_tool_call(
+        "call_task_init",
+        "task_write",
+        json.dumps(
+            {
+                "mode": "init",
+                "tasks": [
+                    {"id": 1, "title": "检查数据质量", "status": "done"},
+                    {"id": 2, "title": "生成报告", "status": "in_progress"},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        turn_id="turn-1",
+    )
+    session.add_tool_result(
+        "call_task_init",
+        '{"success": true, "message": "任务已初始化"}',
+        tool_name="task_write",
+        status="success",
+        turn_id="turn-1",
+    )
+    session.add_message("assistant", "继续执行剩余任务。", turn_id="turn-1")
+    session.add_message("user", "继续", turn_id="turn-2")
+    session.add_message("assistant", "正在生成报告。", turn_id="turn-2")
+
+    result = compress_session_history(session, ratio=0.5, min_messages=4)
+    assert result["success"] is True
+    assert result["archived_count"] >= 1
+
+    resp = client.get(f"/api/sessions/{session_id}/messages")
+    assert resp.status_code == 200
+    messages = resp.json()["data"]["messages"]
+
+    assert [msg["content"] for msg in messages if msg["role"] == "user"] == ["开始分析", "继续"]
+    task_write_message = next(
+        msg for msg in messages if msg["role"] == "assistant" and (msg.get("tool_calls") or [])
+    )
+    assert task_write_message["tool_calls"][0]["function"]["name"] == "task_write"
+    assert messages[-1]["content"] == "正在生成报告。"
 
 
 def test_get_session_messages_404_for_nonexistent(client: LocalASGIClient) -> None:

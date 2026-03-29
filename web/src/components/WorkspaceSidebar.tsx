@@ -205,10 +205,8 @@ export default function WorkspaceSidebar() {
 
  {/* Tab 切换 */}
  <div
- className={`flex flex-shrink-0 relative ${
- hasPreviewTabs
- ? 'no-scrollbar overflow-x-auto overflow-y-hidden border-b border-[var(--border-default)]'
- : 'overflow-x-hidden border-b border-[var(--border-default)]'
+ className={`flex flex-shrink-0 relative overflow-x-auto overflow-y-hidden border-b border-[var(--border-default)] scroll-smooth ${
+ hasPreviewTabs ? '' : 'overflow-x-hidden'
  }`}
  >
  <Button

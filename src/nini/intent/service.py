@@ -256,6 +256,7 @@ class IntentAnalyzer:
         capabilities: list[dict[str, Any]] | None = None,
         semantic_skills: list[dict[str, Any]] | None = None,
         skill_limit: int = 3,
+        has_datasets: bool = False,
     ) -> IntentAnalysis:
         """同时分析 capability 候选与 skill 候选。"""
         analysis = IntentAnalysis(query=user_message)

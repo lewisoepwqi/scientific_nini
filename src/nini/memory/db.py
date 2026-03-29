@@ -313,6 +313,20 @@ def load_messages_from_db(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return entries
 
 
+def load_archived_messages_from_db(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """从 archived_messages 表加载所有归档消息，按归档写入顺序排列。"""
+    rows = conn.execute("SELECT raw_json FROM archived_messages ORDER BY id ASC").fetchall()
+    entries: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            entry = json.loads(row[0])
+            if isinstance(entry, dict):
+                entries.append(entry)
+        except json.JSONDecodeError:
+            pass
+    return entries
+
+
 def upsert_meta_fields(conn: sqlite3.Connection, fields: dict[str, Any]) -> None:
     """将 fields 字典中的字段 upsert 到 session_meta 表。"""
     rows = [(str(k), json.dumps(v, ensure_ascii=False)) for k, v in fields.items()]

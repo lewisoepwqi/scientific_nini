@@ -102,19 +102,23 @@ export default function KnowledgeRetrievalView({
  </div>
  </div>
  {query && (
- <div className="mt-2 text-sm text-[var(--accent)] dark:text-[var(--accent)]">
+ <div className="mt-2 text-sm text-[var(--accent)]">
  查询: <span className="font-medium">{query}</span>
  </div>
  )}
  </div>
 
  {/* 结果列表 */}
- <div className="divide-y divide-blue-200 dark:divide-blue-800">
+ <div className="divide-y divide-[var(--border-subtle)]">
  {results.map((result) => (
  <div
  key={result.id}
- className="p-4 hover:bg-[var(--accent-subtle)]/50 transition-colors cursor-pointer"
+ role="button"
+ tabIndex={0}
+ aria-expanded={expandedId === result.id}
+ className="p-4 hover:bg-[var(--accent-subtle)]/50 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
  onClick={() => setExpandedId(expandedId === result.id ? null : result.id)}
+ onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedId(expandedId === result.id ? null : result.id) } }}
  >
  <div className="flex items-start gap-3">
  {/* 相关性分数 */}
@@ -169,7 +173,7 @@ export default function KnowledgeRetrievalView({
  {result.metadata.tags.map((tag) => (
  <span
  key={tag}
- className="text-xs px-2 py-0.5 rounded bg-[var(--accent-subtle)] text-[var(--accent)] dark:text-[var(--accent)]"
+ className="text-xs px-2 py-0.5 rounded bg-[var(--accent-subtle)] text-[var(--accent)]"
  >
  {tag}
  </span>

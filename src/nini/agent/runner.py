@@ -13,15 +13,11 @@ import re
 import time
 import uuid
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from enum import Enum
-from pathlib import Path
 from typing import Any, AsyncGenerator, Awaitable, Callable
 
 from nini.agent.model_resolver import (
-    LLMChunk,
-    ModelResolver,
     model_resolver,
 )
 from nini.agent.prompt_policy import AGENTS_MD_MAX_CHARS
@@ -45,11 +41,11 @@ from nini.workspace import WorkspaceManager
 
 # 导入事件模块
 from nini.agent.events import EventType, AgentEvent, create_reasoning_event
-from nini.agent.plan_parser import AnalysisPlan, AnalysisStep, parse_analysis_plan
+from nini.agent.plan_parser import AnalysisPlan, parse_analysis_plan
 
 # 导入类型安全的事件构造器（逐步迁移中）
 from nini.agent import event_builders as eb
-from nini.agent.task_manager import TaskManager
+
 from nini.agent.loop_guard import LoopGuard, LoopGuardDecision
 from nini.capabilities import create_default_capabilities
 from nini.models.risk import OutputLevel, TRUST_CEILING_MAP, TrustLevel
@@ -59,18 +55,14 @@ from nini.skills.contract_executor import ContractSkillExecutor
 # 导入组件模块
 from nini.agent.components import (
     ContextBuilder,
-    maybe_auto_compress,
-    force_auto_compress,
-    compress_session_context,
-    sliding_window_trim,
     ReasoningChainTracker,
     detect_reasoning_type,
     detect_key_decisions,
     calculate_confidence_score,
     execute_tool,
+    naturalize_internal_status_text,
     parse_tool_arguments,
     serialize_tool_result_for_memory,
-    compact_tool_content,
     sanitize_for_system_context,
     get_last_user_message,
     replace_arguments,
@@ -272,6 +264,14 @@ def _tool_result_message(result: Any, *, is_error: bool) -> str:
     return "工具执行失败" if is_error else "工具执行完成"
 
 
+def _normalize_assistant_text_output(raw_text: str) -> tuple[str, bool]:
+    """将误输出的内部状态 JSON 收敛为自然语言。"""
+    normalized = naturalize_internal_status_text(raw_text)
+    if normalized is None:
+        return raw_text, False
+    return normalized, normalized != raw_text
+
+
 def _looks_like_reasoning_pollution(text: str) -> bool:
     """识别被工具调用包装片段污染的 reasoning。"""
     normalized = str(text or "").strip()
@@ -330,6 +330,38 @@ def _enrich_chart_payload_from_artifacts(
     return enriched
 
 
+def _build_data_preview_signature(data_preview: dict[str, Any]) -> str:
+    """构造数据预览签名，用于同一轮内的重复事件去重。"""
+    if not isinstance(data_preview, dict):
+        return ""
+
+    normalized = {
+        "id": data_preview.get("id"),
+        "name": data_preview.get("name"),
+        "url": data_preview.get("url"),
+        "total_rows": data_preview.get("total_rows"),
+        "preview_rows": data_preview.get("preview_rows"),
+        "preview_strategy": data_preview.get("preview_strategy"),
+        "columns": data_preview.get("columns"),
+        "data": data_preview.get("data"),
+    }
+    return json.dumps(normalized, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _parse_dataset_profile_request(arguments: str) -> tuple[str, str] | None:
+    """解析 dataset_catalog(profile) 调用，返回 (dataset_name, view)。"""
+    parsed_args = parse_tool_arguments(arguments)
+    if not parsed_args:
+        return None
+    if str(parsed_args.get("operation", "")).strip().lower() != "profile":
+        return None
+    dataset_name = str(parsed_args.get("dataset_name", "")).strip()
+    if not dataset_name:
+        return None
+    view = str(parsed_args.get("view", "basic")).strip().lower() or "basic"
+    return dataset_name, view
+
+
 # ---- Agent Runner ----
 
 
@@ -365,6 +397,25 @@ class AgentRunner:
         self._context_ratio: float = 0.0
         # 循环检测守卫
         self._loop_guard = LoopGuard()
+        # 累计需要从 Agent 超时预算中扣除的人工等待时长
+        self._timeout_excluded_seconds: float = 0.0
+
+    async def _await_user_question_answers(
+        self,
+        session: Session,
+        tool_call_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, str]:
+        """等待 ask_user_question 回答，并将人工等待时间从超时预算中扣除。"""
+        if self._ask_user_question_handler is None:
+            raise RuntimeError("当前未配置 ask_user_question_handler")
+
+        wait_started_at = time.monotonic()
+        try:
+            return await self._ask_user_question_handler(session, tool_call_id, payload)
+        finally:
+            waited = max(0.0, time.monotonic() - wait_started_at)
+            self._timeout_excluded_seconds += waited
 
     async def run(
         self,
@@ -454,8 +505,14 @@ class AgentRunner:
             return
 
         max_iter = settings.agent_max_iterations
-        timeout_seconds = settings.agent_max_timeout_seconds
+        active_timeout_seconds = (
+            int(settings.agent_active_execution_timeout_seconds)
+            if settings.agent_active_execution_timeout_seconds is not None
+            else int(settings.agent_max_timeout_seconds)
+        )
+        wall_clock_timeout_seconds = int(settings.agent_run_wall_clock_timeout_seconds)
         loop_start_time = time.monotonic()
+        self._timeout_excluded_seconds = 0.0
         should_stop = stop_event.is_set if stop_event else (lambda: False)
         report_markdown_for_turn: str | None = None
         active_plan: AnalysisPlan | None = None
@@ -477,6 +534,9 @@ class AgentRunner:
         pending_followup_prompt: str | None = None
         # 循环检测警告消息，在下一轮 LLM 请求时注入为 system 消息
         pending_loop_warn_message: str | None = None
+        emitted_data_preview_signatures: set[str] = set()
+        successful_dataset_profile_signatures: set[str] = set()
+        dataset_profile_max_view_by_name: dict[str, str] = {}
 
         # 仅在初始轮（非 recovery pass）触发意图澄清，避免 HarnessRunner 重试时重复发问
         if stage_override is None:
@@ -657,16 +717,42 @@ class AgentRunner:
                 return
 
             # Wall-clock 超时检查
-            if timeout_seconds > 0 and (time.monotonic() - loop_start_time) > timeout_seconds:
+            total_elapsed = max(0.0, time.monotonic() - loop_start_time)
+            effective_elapsed = max(
+                0.0,
+                total_elapsed - self._timeout_excluded_seconds,
+            )
+            if wall_clock_timeout_seconds > 0 and total_elapsed > wall_clock_timeout_seconds:
                 logger.warning(
-                    "Agent 循环超时: session=%s, elapsed=%.1fs, limit=%ds",
+                    "Agent 整轮超时: session=%s, total_elapsed=%.1fs, effective_elapsed=%.1fs, excluded_wait=%.1fs, limit=%ds",
                     session.id,
-                    time.monotonic() - loop_start_time,
-                    timeout_seconds,
+                    total_elapsed,
+                    effective_elapsed,
+                    self._timeout_excluded_seconds,
+                    wall_clock_timeout_seconds,
                 )
                 yield eb.build_error_event(
-                    message=f"Agent 运行超时（已运行 {int(time.monotonic() - loop_start_time)} 秒，"
-                    f"限制 {timeout_seconds} 秒）",
+                    message=(
+                        f"Agent 运行总时长超时（已运行 {int(total_elapsed)} 秒，"
+                        f"限制 {wall_clock_timeout_seconds} 秒）"
+                    ),
+                    turn_id=turn_id,
+                )
+                return
+            if active_timeout_seconds > 0 and effective_elapsed > active_timeout_seconds:
+                logger.warning(
+                    "Agent 主动执行超时: session=%s, effective_elapsed=%.1fs, total_elapsed=%.1fs, excluded_wait=%.1fs, limit=%ds",
+                    session.id,
+                    effective_elapsed,
+                    total_elapsed,
+                    self._timeout_excluded_seconds,
+                    active_timeout_seconds,
+                )
+                yield eb.build_error_event(
+                    message=(
+                        f"Agent 主动执行超时（已运行 {int(effective_elapsed)} 秒，"
+                        f"限制 {active_timeout_seconds} 秒）"
+                    ),
                     turn_id=turn_id,
                 )
                 return
@@ -988,6 +1074,9 @@ class AgentRunner:
             # 如果没有 tool_calls → 纯文本回复，结束循环
             if not tool_calls:
                 final_text = full_text or raw_full_text
+                final_text, normalized_internal_status = _normalize_assistant_text_output(
+                    final_text
+                )
                 if self._should_retry_transitional_text(
                     final_text,
                     active_plan=active_plan,
@@ -1041,7 +1130,7 @@ class AgentRunner:
                     )
 
                     try:
-                        raw_answers = await self._ask_user_question_handler(
+                        raw_answers = await self._await_user_question_answers(
                             session,
                             tool_call_id,
                             confirmation_payload,
@@ -1116,6 +1205,16 @@ class AgentRunner:
                     operation="complete",
                     **final_message_extra,
                 )
+                if current_message_id and normalized_internal_status:
+                    yield eb.build_text_event(
+                        content=final_text,
+                        turn_id=turn_id,
+                        metadata={
+                            "message_id": final_message_id,
+                            "operation": "replace",
+                            "source": "internal_status_normalized",
+                        },
+                    )
                 # must_haves 对照检查（不阻断，仅日志 + validation_warning 事件）
                 if active_plan is not None and active_plan.must_haves:
                     for mh in active_plan.must_haves:
@@ -1568,7 +1667,7 @@ class AgentRunner:
                             tool_name=func_name,
                         )
                         try:
-                            raw_answers = await self._ask_user_question_handler(
+                            raw_answers = await self._await_user_question_answers(
                                 session,
                                 tc_id,
                                 {"questions": questions},
@@ -1664,6 +1763,98 @@ class AgentRunner:
                         for signature in list(tool_failure_chains.keys()):
                             if signature.startswith("code_session::"):
                                 tool_failure_chains.pop(signature, None)
+
+                profile_request = (
+                    _parse_dataset_profile_request(func_args)
+                    if func_name == "dataset_catalog"
+                    else None
+                )
+                if profile_request is not None:
+                    dataset_name, requested_view = profile_request
+                    max_view = dataset_profile_max_view_by_name.get(dataset_name)
+                    duplicate_profile_reason: str | None = None
+                    recovery_hint = (
+                        "你已经获得过该数据集的概况，请直接基于现有结果进入任务规划、统计分析或最终结论。"
+                    )
+                    if tool_args_signature in successful_dataset_profile_signatures:
+                        duplicate_profile_reason = (
+                            f"同一轮中已成功调用过相同的 dataset_catalog(profile): {dataset_name}"
+                        )
+                    elif max_view == "full":
+                        duplicate_profile_reason = (
+                            f"同一轮中已成功获得数据集 '{dataset_name}' 的完整概况(full)，"
+                            f"无需再次请求 {requested_view} 视图"
+                        )
+
+                    if duplicate_profile_reason is not None:
+                        result = {
+                            "success": False,
+                            "message": duplicate_profile_reason,
+                            "error_code": "DUPLICATE_DATASET_PROFILE_CALL",
+                            "recovery_hint": recovery_hint,
+                            "data": {
+                                "dataset_name": dataset_name,
+                                "requested_view": requested_view,
+                                "max_completed_view": max_view or requested_view,
+                                "recovery_hint": recovery_hint,
+                            },
+                            "metadata": {
+                                "duplicate_profile_blocked": True,
+                                "action_id": matched_action_id,
+                                "retry_count": 0,
+                                "max_retries": max_retries,
+                            },
+                        }
+                        has_error = True
+                        status = "error"
+                        result_str = serialize_tool_result_for_memory(result)
+                        session.add_tool_result(
+                            tc_id,
+                            result_str,
+                            tool_name=func_name,
+                            status=status,
+                            intent=tool_call_metadata.get("intent"),
+                            turn_id=turn_id,
+                            message_id=f"tool-result-{tc_id}",
+                        )
+                        yield _new_task_attempt_event(
+                            step_id=matched_step_id,
+                            action_id=matched_action_id,
+                            tool_name=func_name,
+                            attempt=1,
+                            max_attempts=1,
+                            status="failed",
+                            error=duplicate_profile_reason,
+                            note="重复的数据集概况调用已在执行前拦截",
+                        )
+                        raw_result_metadata = result.get("metadata")
+                        event_metadata = (
+                            raw_result_metadata if isinstance(raw_result_metadata, dict) else None
+                        )
+                        yield eb.build_tool_result_event(
+                            tool_call_id=tc_id,
+                            name=func_name,
+                            status=status,
+                            message=duplicate_profile_reason,
+                            data={"result": result},
+                            turn_id=turn_id,
+                            metadata=event_metadata,
+                        )
+                        existing_chain = tool_failure_chains.get(tool_args_signature)
+                        if isinstance(existing_chain, dict) and str(
+                            existing_chain.get("error_code", "")
+                        ) == "DUPLICATE_DATASET_PROFILE_CALL":
+                            existing_chain["count"] = int(existing_chain.get("count", 0)) + 1
+                            existing_chain["message"] = duplicate_profile_reason
+                            existing_chain["recovery_hint"] = recovery_hint
+                        else:
+                            tool_failure_chains[tool_args_signature] = {
+                                "count": 1,
+                                "error_code": "DUPLICATE_DATASET_PROFILE_CALL",
+                                "message": duplicate_profile_reason,
+                                "recovery_hint": recovery_hint,
+                            }
+                        continue
 
                 chain_state = tool_failure_chains.get(tool_args_signature)
                 if (
@@ -1819,7 +2010,7 @@ class AgentRunner:
                                 )
 
                                 try:
-                                    raw_answers = await self._ask_user_question_handler(
+                                    raw_answers = await self._await_user_question_answers(
                                         session,
                                         approval_call_id,
                                         approval_payload,
@@ -1948,6 +2139,15 @@ class AgentRunner:
                         error_code = "TOOL_EXECUTION_ERROR"
 
                     if not has_error:
+                        if profile_request is not None:
+                            dataset_name, completed_view = profile_request
+                            successful_dataset_profile_signatures.add(tool_args_signature)
+                            if completed_view == "full":
+                                dataset_profile_max_view_by_name[dataset_name] = "full"
+                            else:
+                                dataset_profile_max_view_by_name.setdefault(
+                                    dataset_name, completed_view
+                                )
                         tool_failure_chains.pop(tool_args_signature, None)
                         yield _new_task_attempt_event(
                             step_id=matched_step_id,
@@ -2149,26 +2349,37 @@ class AgentRunner:
                         data_preview: dict[str, Any] = (
                             raw_data_preview if isinstance(raw_data_preview, dict) else {}
                         )
-                        session.add_assistant_event(
-                            "data",
-                            "数据预览如下",
-                            turn_id=turn_id,
-                            data_preview=data_preview,
-                        )
-                        # 传递完整的数据预览内容，供前端 DataViewer 组件渲染
-                        yield eb.build_data_event(
-                            data_id=data_preview.get("id", ""),
-                            name=data_preview.get("name", ""),
-                            url=data_preview.get("url", ""),
-                            row_count=data_preview.get("total_rows"),
-                            column_count=len(data_preview.get("columns", [])),
-                            data=data_preview.get("data", []),
-                            columns=data_preview.get("columns", []),
-                            total_rows=data_preview.get("total_rows"),
-                            preview_rows=data_preview.get("preview_rows"),
-                            preview_strategy=data_preview.get("preview_strategy"),
-                            turn_id=turn_id,
-                        )
+                        preview_signature = _build_data_preview_signature(data_preview)
+                        if preview_signature and preview_signature in emitted_data_preview_signatures:
+                            logger.info(
+                                "跳过重复数据预览事件: session=%s turn=%s tool=%s",
+                                session.id,
+                                turn_id,
+                                func_name,
+                            )
+                        else:
+                            if preview_signature:
+                                emitted_data_preview_signatures.add(preview_signature)
+                            session.add_assistant_event(
+                                "data",
+                                "数据预览如下",
+                                turn_id=turn_id,
+                                data_preview=data_preview,
+                            )
+                            # 传递完整的数据预览内容，供前端 DataViewer 组件渲染
+                            yield eb.build_data_event(
+                                data_id=data_preview.get("id", ""),
+                                name=data_preview.get("name", ""),
+                                url=data_preview.get("url", ""),
+                                row_count=data_preview.get("total_rows"),
+                                column_count=len(data_preview.get("columns", [])),
+                                data=data_preview.get("data", []),
+                                columns=data_preview.get("columns", []),
+                                total_rows=data_preview.get("total_rows"),
+                                preview_rows=data_preview.get("preview_rows"),
+                                preview_strategy=data_preview.get("preview_strategy"),
+                                turn_id=turn_id,
+                            )
 
                     # 检查是否有产物（可下载文件）
                     if isinstance(result, dict) and result.get("artifacts"):
@@ -2380,7 +2591,7 @@ class AgentRunner:
         )
 
         try:
-            raw_answers = await self._ask_user_question_handler(
+            raw_answers = await self._await_user_question_answers(
                 session,
                 tool_call_id,
                 payload,
@@ -3247,7 +3458,7 @@ class AgentRunner:
         ]
 
         try:
-            raw_answers = await self._ask_user_question_handler(
+            raw_answers = await self._await_user_question_answers(
                 session, tool_call_id, approval_payload
             )
             normalized_answers = self._normalize_ask_user_question_answers(raw_answers)
@@ -3444,7 +3655,7 @@ class AgentRunner:
         ]
 
         try:
-            raw_answers = await self._ask_user_question_handler(
+            raw_answers = await self._await_user_question_answers(
                 session,
                 approval_call_id,
                 approval_payload,

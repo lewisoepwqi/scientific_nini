@@ -515,7 +515,7 @@ describe("handleEvent 文本去重", () => {
     });
   });
 
-  it("artifact 事件应生成独立的 canonical assistant 消息", async () => {
+  it("artifact 事件应并入同轮 assistant 消息，并兼容 url 字段", async () => {
     const harness = createHarness({
       sessionId: "session-current",
       messages: [
@@ -535,20 +535,20 @@ describe("handleEvent 文本去重", () => {
       session_id: "session-current",
       data: {
         name: "report.md",
-        type: "report",
-        download_url: "/api/artifacts/demo/report.md",
+        artifact_type: "report",
+        url: "/api/artifacts/demo/report.md",
       },
       turn_id: "turn-1",
     });
 
     const state = harness.getState();
-    expect(state.messages).toHaveLength(2);
-    expect(state.messages[1]).toMatchObject({
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]).toMatchObject({
       role: "assistant",
-      content: "产物已生成",
+      content: "分析已完成",
       turnId: "turn-1",
     });
-    expect(state.messages[1]?.artifacts).toEqual([
+    expect(state.messages[0]?.artifacts).toEqual([
       {
         name: "report.md",
         type: "report",

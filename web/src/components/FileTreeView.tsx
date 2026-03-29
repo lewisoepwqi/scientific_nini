@@ -22,7 +22,7 @@ function FolderNode({ group }: { group: FolderGroup }) {
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-transparent border-none cursor-pointer focus:outline-none"
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-transparent border-none cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
       >
         {expanded ? (
           <ChevronDown size={12} className="text-[var(--text-muted)] flex-shrink-0" />
@@ -140,7 +140,8 @@ export default function FileTreeView() {
  if (e.key === 'Enter') handleCreateFolder()
  if (e.key === 'Escape') { setShowNewFolder(false); setNewFolderName('') }
  }}
- placeholder="文件夹名称"
+ aria-label="新建文件夹名称"
+                 placeholder="文件夹名称"
  className="flex-1 px-2 py-1 text-xs border border-[var(--border-default)] rounded focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
  autoFocus
  />

@@ -1,9 +1,12 @@
 /**
  * Plotly 图表渲染组件。
  */
-import Plot from 'react-plotly.js'
+import PlotlyBasic from 'plotly.js/lib/index-basic'
+import createPlotlyComponent from 'react-plotly.js/factory'
 import type * as Plotly from 'plotly.js'
 import React from 'react'
+
+const Plot = createPlotlyComponent(PlotlyBasic)
 
 import { isRecord } from '../store/utils'
 import { CHART_COLORS, getPlotlyLayout } from '../utils/plotlyTheme'

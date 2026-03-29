@@ -100,7 +100,7 @@ export default React.memo(function CitationTooltip({
  variant="ghost"
  type="button"
  onClick={() => setVisible(false)}
- className="text-[var(--text-muted)] h-5 w-5 p-0"
+ className="text-[var(--text-muted)] h-7 w-7 p-0"
  >
  <X size={12} />
  </Button>

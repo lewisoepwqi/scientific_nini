@@ -66,7 +66,7 @@ async def get_session(session_id: str) -> APIResponse:
         data={
             "id": session.id,
             "title": session.title,
-            "message_count": len(session.messages),
+            "message_count": session_manager.get_total_message_count(session_id, session=session),
             "task_kind": session.task_kind,
             "recipe_id": session.recipe_id,
             "recipe_inputs": session.recipe_inputs,

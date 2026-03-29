@@ -18,7 +18,7 @@ export default function PendingQuestionBanner({
 }: PendingQuestionBannerProps) {
  return (
  <div className="border-b border-[var(--warning)] bg-[var(--accent-subtle)]/80 px-4 py-3">
- <div className="mx-auto flex max-w-3xl flex-col gap-3 rounded-2xl border border-[var(--warning)] bg-[var(--bg-base)] px-4 py-3 shadow-sm md:flex-row md:items-center md:justify-between">
+ <div className="mx-auto flex max-w-3xl flex-col gap-3 rounded-lg border border-[var(--warning)] bg-[var(--bg-base)] px-4 py-3 shadow-sm md:flex-row md:items-center md:justify-between">
  <div className="min-w-0">
  <div className="text-sm font-semibold text-[var(--warning)]">
  会话“{pending.sessionTitle}”正在等待你的回答

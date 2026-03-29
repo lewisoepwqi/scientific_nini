@@ -32,7 +32,6 @@ const ChartViewer = lazy(() => import("./ChartViewer"));
 const PlotlyFromUrl = lazy(() => import("./PlotlyFromUrl"));
 const ReasoningPanel = lazy(() => import("./ReasoningPanel"));
 const CitationTooltip = lazy(() => import("./chat/CitationTooltip"));
-const AgentMessageCard = lazy(() => import("./chat/AgentMessageCard"));
 const CitationList = lazy(() => import("./CitationList"));
 const WidgetRenderer = lazy(() => import("./WidgetRenderer"));
 const TOOL_RESULT_PREVIEW_LIMIT = 72;
@@ -140,11 +139,11 @@ function getToolDisplayName(toolName?: string | null): string {
 function getOutputLevelMeta(outputLevel?: "o1" | "o2" | "o3" | "o4" | null) {
  switch (outputLevel) {
  case "o1":
- return { label: "建议级", className: "border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] dark:border-[var(--border-default)] dark:bg-[var(--bg-elevated)] dark:text-[var(--text-muted)]" };
+ return { label: "建议级", className: "border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] dark:text-[var(--text-muted)]" };
  case "o2":
  return { label: "草稿级", className: "border-[var(--domain-profile)] bg-[var(--accent-subtle)] text-[var(--domain-profile)]" };
  case "o3":
- return { label: "可审阅级", className: "border-[var(--success)] bg-[var(--accent-subtle)] text-[var(--success)] dark:text-[var(--success)]" };
+ return { label: "可审阅级", className: "border-[var(--success)] bg-[var(--accent-subtle)] text-[var(--success)]" };
  case "o4":
  return { label: "可导出级", className: "border-[var(--domain-analysis)] bg-[var(--accent-subtle)] text-[var(--domain-analysis)]" };
  default:
@@ -333,18 +332,18 @@ function MessageBubble({
  return;
  }
 
- // 逐字动画
+ // 逐字动画 - 使用 RAF 替代 setTimeout(16ms)，同步到浏览器渲染周期
  if (reasoningDisplay.length < message.content.length) {
  const remain = message.content.length - reasoningDisplay.length;
  const step = remain > 30 ? 4 : remain > 12 ? 2 : 1;
- const timer = window.setTimeout(() => {
+ const rafId = requestAnimationFrame(() => {
  const nextLen = Math.min(
  message.content.length,
  reasoningDisplay.length + step,
  );
  setReasoningDisplay(message.content.slice(0, nextLen));
- }, 16);
- return () => window.clearTimeout(timer);
+ });
+ return () => cancelAnimationFrame(rafId);
  }
  } else {
  // 最终阶段：直接显示完整内容（避免闪烁）
@@ -359,20 +358,8 @@ function MessageBubble({
 
  // 思考过程消息使用独立气泡样式，区别于正式回复
  if (isReasoning) {
- // 结构化分析计划渲染为 AgentMessageCard 卡片
  if (message.analysisPlan) {
- return (
- <div className="my-2 max-w-[95%] lg:max-w-4xl xl:max-w-5xl">
- <div className="flex gap-3">
- <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-[var(--success)] bg-[var(--success)]/10">
- <Lightbulb size={16} />
- </div>
- <div className="flex-1 min-w-0">
- <AgentMessageCard message={message} />
- </div>
- </div>
- </div>
- );
+ return null;
  }
 
  // 尝试解析结构化推理数据
@@ -426,7 +413,7 @@ function MessageBubble({
  type="button"
  onClick={() => setReasoningExpanded(false)}
  aria-expanded="true"
- className="flex items-center gap-2 h-7 px-2 text-xs text-[var(--text-secondary)] bg-transparent border-none cursor-pointer focus:outline-none"
+ className="flex items-center gap-2 h-7 px-2 text-xs text-[var(--text-secondary)] bg-transparent border-none cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
  >
  <span className={`font-medium ${thinkingLabelClass}`}>Thinking</span>
  <ChevronDown size={14} />
@@ -450,7 +437,7 @@ function MessageBubble({
             type="button"
             onClick={() => setReasoningExpanded(true)}
             aria-expanded="false"
-            className="flex items-center gap-1.5 h-7 px-2 text-xs text-[var(--text-secondary)] bg-transparent border-none cursor-pointer focus:outline-none"
+            className="flex items-center gap-1.5 h-7 px-2 text-xs text-[var(--text-secondary)] bg-transparent border-none cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
           >
             <span className={`font-medium ${thinkingLabelClass}`}>Thinking</span>
             <ChevronRight size={14} />
@@ -540,7 +527,7 @@ function MessageBubble({
  type="button"
  onClick={() => setToolExpanded(!toolExpanded)}
  aria-expanded={toolExpanded}
- className="w-full flex items-center justify-between px-3 py-2 text-sm bg-transparent border-none cursor-pointer focus:outline-none"
+ className="w-full flex items-center justify-between px-3 py-2 text-sm bg-transparent border-none cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
  >
  <div className="flex items-center gap-2 min-w-0 flex-1">
  {hasResult ? (
@@ -670,10 +657,10 @@ function MessageBubble({
  hasWideContent
  ? "w-full max-w-[95%] lg:max-w-4xl xl:max-w-5xl"
  : "max-w-[80%] lg:max-w-2xl"
- } rounded-2xl px-4 py-3 ${
+ } rounded-lg px-4 py-3 ${
  isUser
  ? "bg-[var(--accent)] text-white rounded-tr-md dark:bg-[var(--accent-subtle)] dark:text-[var(--text-primary)]"
- : "bg-[var(--bg-elevated)] text-[var(--text-primary)] rounded-tl-md dark:bg-[var(--bg-overlay)] dark:border dark:border-[var(--border-default)] dark:text-[var(--text-primary)]"
+ : "bg-[var(--bg-elevated)] text-[var(--text-primary)] rounded-tl-md dark:bg-[var(--bg-overlay)] dark:border dark:border-[var(--border-default)]"
  }`}
  >
  {isUser ? (
@@ -693,7 +680,7 @@ function MessageBubble({
  )}
  {message.errorDetail && (
  <details className="mt-1">
- <summary className="cursor-pointer text-[11px] text-[var(--error)] hover:text-[var(--error)] dark:text-[var(--error)]">
+ <summary className="cursor-pointer text-[11px] text-[var(--error)] hover:text-[var(--error)]">
  查看详细错误
  </summary>
  <div className="mt-1 whitespace-pre-wrap text-[11px] text-[var(--error)]">
@@ -746,7 +733,7 @@ function MessageBubble({
  {message.images.map((url, idx) => (
  <div
  key={idx}
- className="rounded-lg overflow-hidden border border-[var(--border-default)] bg-[var(--bg-base)] dark:border-[var(--border-default)] dark:bg-[var(--bg-elevated)]"
+ className="rounded-lg overflow-hidden border border-[var(--border-default)] bg-[var(--bg-base)] dark:bg-[var(--bg-elevated)]"
  >
  <img
  src={url}
@@ -873,6 +860,9 @@ export default React.memo(MessageBubble, (prevProps, nextProps) => {
  if (prev.isReasoning !== next.isReasoning) return false;
  if (prev.reasoningLive !== next.reasoningLive) return false;
  if (prev.chartData !== next.chartData) return false;
+ if (prev.dataPreview !== next.dataPreview) return false;
+ if (prev.artifacts !== next.artifacts) return false;
+ if (prev.images !== next.images) return false;
  if (prev.retrievals !== next.retrievals) return false;
  if (prev.outputLevel !== next.outputLevel) return false;
 

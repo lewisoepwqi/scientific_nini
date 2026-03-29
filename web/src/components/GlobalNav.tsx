@@ -22,7 +22,7 @@ import {
 import { getResolvedTheme, type ThemeMode } from "../theme";
 
 /** 导航分组 */
-const NAV_GROUPS = [
+export const NAV_GROUPS = [
 	{
 		key: "core",
 		items: [
