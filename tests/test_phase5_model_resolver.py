@@ -883,7 +883,7 @@ def test_zhipu_client_flattens_tool_role_to_assistant_context() -> None:
     assert normalized == [
         {
             "role": "assistant",
-            "content": '[历史工具结果]\n{"ok": true, "message": "done"}',
+            "content": '{"ok": true, "message": "done"}',
         }
     ]
 

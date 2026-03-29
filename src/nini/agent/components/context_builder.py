@@ -253,6 +253,16 @@ class ContextBuilder:
                 "是否需要可交互图表（可缩放/悬停）还是静态图片（PNG/SVG，适合发表/报告）。"
             )
 
+        # 注入任务进度上下文（防止压缩后 LLM 丢失任务状态）
+        if session.task_manager.has_tasks():
+            tasks = session.task_manager.tasks
+            remaining = session.task_manager.remaining_count()
+            task_lines = [f"  - [{t.status}] {t.title}" for t in tasks]
+            task_body = f"共 {len(tasks)} 个任务，还剩 {remaining} 个待完成。\n" + "\n".join(
+                task_lines
+            )
+            context_parts.append(format_untrusted_context_block("task_progress", task_body))
+
         messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         if context_parts:
             # 预算控制：按优先级裁剪，Skill 辅助资料不挤占对话历史

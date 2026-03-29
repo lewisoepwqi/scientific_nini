@@ -151,8 +151,8 @@ class ZhipuClient(OpenAICompatibleClient):
             content = "" if message.get("content") is None else str(message.get("content"))
 
             if role == "assistant" and message.get("tool_calls"):
-                # 不注入历史工具调用文本摘要：注入 "[历史工具调用]" 格式会导致
-                # GLM-5 通过上下文模仿学习到该格式，下一轮用纯文本输出"工具调用"
+                # 不注入历史工具调用/结果文本标签：注入 "[历史工具调用]" 或 "[历史工具结果]"
+                # 格式会导致 GLM-5 通过上下文模仿学习到该格式，下一轮用纯文本输出"工具调用/结果"
                 # 而非真正的 function call，从而使 ReAct 循环提前退出。
                 # 工具的执行结果已通过后续 tool_result 消息提供，模型无需再看调用指令。
                 stripped = content.strip()
@@ -209,7 +209,7 @@ class ZhipuClient(OpenAICompatibleClient):
         compact = content.strip()
         if len(compact) > 1200:
             compact = compact[:1200] + "...(截断)"
-        return "[历史工具结果]\n" + compact if compact else "[历史工具结果]"
+        return compact  # 不加 [历史工具结果] 前缀，防止 GLM-5 模仿学习
 
 
 class DeepSeekClient(OpenAICompatibleClient):
