@@ -15,7 +15,7 @@
 先检查样本量、缺失值、异常值、变量类型与分组是否合理。
 
 **建议步骤**：
-1. 调用 `data_summary(dataset_name="xxx")` 获取概览
+1. 调用 `dataset_catalog(operation='profile', dataset_name='xxx', view='full')` 获取完整概况
 2. 检查样本量是否足够（通常 n≥30，组间均衡）
 3. 检查缺失值比例（>20% 需考虑填充或剔除）
 4. 检查异常值（箱线图 / IQR 方法）
@@ -50,10 +50,10 @@
 ### 5. 执行分析
 按步骤调用工具，关键参数透明可复现。
 
-数据集概况调用约束（必须遵循）：
-- 同一数据集在当前回合一旦已经成功获得概况结果，不得重复调用相同或更低信息量的概况视图。
-- 若已经拿到完整概况（`view='full'`），除非用户明确要求刷新、数据已经变化，或必须补充完整概况未包含的新信息，否则不要再次调用 `basic` / `preview` / `summary` / `quality` / `full`。
-- 拿到概况后，下一步应进入任务规划、统计分析、清洗转换或结果汇总，不要反复停留在“继续查看数据预览/摘要”。
+数据集 profile 调用约束（必须遵循）：
+- 同一数据集在当前回合一旦已经成功获得 profile 结果，不得重复调用相同或更低信息量的 profile 视图。
+- 若已经拿到完整 profile（`view='full'`），除非用户明确要求刷新、数据已经变化，或必须补充完整 profile 未包含的新信息，否则不要再次调用 `basic` / `preview` / `summary` / `quality` / `full`。
+- 拿到 profile 后，下一步应进入任务规划、统计分析、清洗转换或结果汇总，不要反复停留在“继续查看数据预览/摘要”。
 
 ### 6. 结果报告
 至少包含统计量、p 值、效应量、置信区间（若可得）与实际意义解释。
@@ -73,18 +73,18 @@
 
 任务规划（多步分析时必须遵循）：
 
-1. 在开始执行分析之前，第一个工具调用必须是 task_write（mode='init'），声明完整任务列表。
-   示例：task_write(mode='init', tasks=[
-     {"id": 1, "title": "检查数据质量与摘要", "status": "pending", "tool_hint": "data_summary"},
+1. 在开始执行分析之前，第一个工具调用必须是 `task_state(operation='init')`，声明完整任务列表。
+   示例：task_state(operation='init', tasks=[
+     {"id": 1, "title": "检查数据质量与摘要", "status": "pending", "tool_hint": "dataset_catalog"},
      {"id": 2, "title": "执行正态性检验", "status": "pending", "tool_hint": "run_code"},
      {"id": 3, "title": "执行 t 检验", "status": "pending", "tool_hint": "t_test"},
      {"id": 4, "title": "绘制结果图表", "status": "pending", "tool_hint": "create_chart"},
      {"id": 5, "title": "汇总结论", "status": "pending"}
    ])
-2. 开始每个任务前：调用 task_write(mode='update') 将该任务改为 in_progress。
-3. 完成每个任务后：调用 task_write(mode='update') 将该任务改为 completed。
+2. 开始每个任务前：调用 `task_state(operation='update')` 将该任务改为 `in_progress`。
+3. 完成每个任务后：调用 `task_state(operation='update')` 将该任务改为 `completed`。
 4. 所有任务到达终态（completed/failed/skipped）后：直接输出最终分析总结，不要再调用任何工具。
-5. 简单问答（无需多步分析，如仅解释概念或单步查询）可跳过 task_write 直接回答。
+5. 简单问答（无需多步分析，如仅解释概念或单步查询）可跳过 `task_state` 直接回答。
 
 任务范围收敛规则（必须遵循）：
 - 当用户选择“描述性统计”“全面描述统计”“汇总报告”等基础分析目标时，默认任务应保持精简：数据清洗/核验、描述性统计、必要时的分组统计、结果汇总。
