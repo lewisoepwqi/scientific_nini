@@ -144,6 +144,7 @@ RUNTIME_CONTEXT_BLOCK_PRIORITY: Final[dict[str, int]] = {
     "intent_analysis": 70,  # 再裁：意图提示
     "harness_summary": 75,  # 运行时护栏摘要
     "dataset_metadata": 80,  # 最后才裁：数据集元信息（核心上下文）
+    "task_progress": 82,  # 最后裁：任务进度（核心上下文）
 }
 
 # 全局 runtime context 预算上限（字符数）

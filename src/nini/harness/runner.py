@@ -321,7 +321,10 @@ class HarnessRunner:
                 )
                 self._record_event(trace, reasoning_event)
                 yield reasoning_event
-                pending_prompt = self._build_completion_recovery_prompt(completion)
+                pending_prompt = self._build_completion_recovery_prompt(
+                    completion,
+                    remaining_tasks=session.task_manager.remaining_count(),
+                )
                 append_flag = False
                 combined_stop_event = asyncio.Event()
                 if stop_event is not None:
@@ -499,6 +502,14 @@ class HarnessRunner:
                 passed=not bool(_TRANSITIONAL_TEXT_RE.search(final_text)),
                 detail="不能只说下一步计划而未真正完成。",
             ),
+            CompletionCheckItem(
+                key="all_tasks_completed",
+                label="所有任务已完成",
+                passed=(
+                    not session.task_manager.has_tasks() or session.task_manager.all_completed()
+                ),
+                detail="若存在未完成任务，需先完成或明确说明无法完成的原因。",
+            ),
         ]
         missing_actions = [item.label for item in items if not item.passed]
         return CompletionCheckResult(
@@ -510,10 +521,17 @@ class HarnessRunner:
         )
 
     @staticmethod
-    def _build_completion_recovery_prompt(completion: CompletionCheckResult) -> str:
+    def _build_completion_recovery_prompt(
+        completion: CompletionCheckResult,
+        *,
+        remaining_tasks: int = 0,
+    ) -> str:
         missing = "；".join(completion.missing_actions) or "补齐完成条件"
+        prefix = ""
+        if remaining_tasks > 0:
+            prefix = f"还有 {remaining_tasks} 个任务尚未完成，请继续执行。"
         return (
-            "请不要结束当前任务。你刚才的结果未通过完成校验，"
+            f"{prefix}请不要结束当前任务。你刚才的结果未通过完成校验，"
             f"需要优先补齐以下缺口：{missing}。"
             "如果已有工具失败，请明确处理或解释；如果缺少产物，请先生成；"
             "如果只是描述下一步，请立即执行对应动作。"

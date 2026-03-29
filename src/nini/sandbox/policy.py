@@ -36,6 +36,7 @@ _TIER2_STDLIB_UTILS = {
     "string",  # 字符串常量和工具
     "textwrap",  # 文本包装
     "unicodedata",  # Unicode 数据库
+    "warnings",  # 警告过滤器（纯工具，无副作用）
 }
 
 # Tier 3: 科学计算栈（自动允许）
