@@ -1,14 +1,19 @@
 # Nini 三层架构概念说明
 
-本文档澄清 Nini 项目中 **Tools**、**Capabilities** 和 **Skills** 三个核心概念的区别与联系。
+本文档澄清 Nini 项目中 **Tools**、**Capabilities** 和 **Skills** 三个核心概念的区别与联系，并介绍能力成熟度模型、风险分级与阶段归属。
+
+> 相关纲领文档：`docs/nini-vision-charter.md`
+> Skill 执行契约详细规范：`docs/skill-contract-spec.md`
 
 ## 概览
 
 | 层级 | 定位 | 技术形态 | 目标用户 |
 |------|------|----------|----------|
 | **Tools** | 原子函数 | Python 类（继承 `Tool` 基类） | AI 模型 |
-| **Capabilities** | 能力封装 | 元数据（`Capability` dataclass） | 终端用户 |
-| **Skills** | 工作流项目 | 目录（Markdown + 脚本 + 资源） | 开发者/高级用户 |
+| **Capabilities** | 领域能力编排 | 元数据（`Capability` dataclass） | 终端用户 |
+| **Skills** | 工作流模板 | 目录（Markdown + 脚本 + 资源），含步骤 DAG、降级策略与人工复核门 | 开发者/高级用户 |
+
+三层架构不加新层——Skill 层吸收 Recipe 理念，演进为契约驱动的工作流模板层。
 
 ## 工具基础层（Tool Foundation）
 
@@ -176,6 +181,20 @@ user-invocable: true
 - 例如：Capability 是"差异分析"这个概念，Skill 是"植物根长分析"这个具体实现
 - 一个 Capability 可以对应多个 Skills（不同领域的实现）
 
+**Skill 执行契约**：
+
+现有 Markdown Skills 已具备元数据和自然语言工作流描述，通过提示词注入引导 LLM 执行。Skill 执行契约在此基础上增量演进，新增以下能力：
+
+- **步骤 DAG**：结构化步骤定义（`tool` / `capability` / `review_gate`），替代纯提示词驱动
+- **风险等级**：`low` / `medium` / `high` / `critical`
+- **可信度天花板**：`trust_ceiling`（T1 / T2 / T3），运行时输出不得超过此上限
+- **降级策略**：插件不可用或步骤失败时的备选行为，降级后必须同步降低可信度并提示用户
+- **人工复核门**：高风险输出进入可审阅或可导出前必须由人工确认
+
+纯提示词驱动的低风险 Skill 可以继续按现有方式运行，无需强制升级。
+
+> 完整规范见 `docs/skill-contract-spec.md`
+
 **API 访问**：
 - `GET /api/skills` - 列出所有 Skills
 - `GET /api/skills/markdown/{name}` - 获取 Skill 详情
@@ -183,20 +202,78 @@ user-invocable: true
 
 ---
 
-## 4. 对比总结
+## 4. 能力成熟度与风险分级
+
+### 4.1 自动化等级（Lx）
+
+| 等级 | 名称 | 定义 | Agent 行为特征 |
+|------|------|------|----------------|
+| **L1** | 智能对话 | 给出专业建议，不直接操作数据/文件 | 基于知识库和推理提供建议 |
+| **L2** | 辅助编排 | 通过代码执行 + 提示词引导完成任务 | 调用代码执行、生成结构化文档、调用插件 |
+| **L3** | 深度原生 | 有专用工具链，端到端可执行并产出标准化产物 | 专用 Tool 链、标准化输出模板 |
+
+### 4.2 可信度等级（Tx）
+
+| 等级 | 名称 | 定义 | 对应输出等级 |
+|------|------|------|-------------|
+| **T1** | 草稿级 | 本地知识或通用推理生成，仅供参考 | O1 建议级、O2 草稿级 |
+| **T2** | 可审阅级 | 有来源支撑、结构较完整，适合人工审阅 | O3 可审阅级 |
+| **T3** | 可复核级 | 过程可审计、证据较完整、可用于标准化导出 | O4 可导出级 |
+
+### 4.3 输出等级
+
+| 等级 | 名称 | 定义 | 用户预期 |
+|------|------|------|----------|
+| **O1** | 建议级 | 方向性意见，仅供参考 | 需要用户独立判断 |
+| **O2** | 草稿级 | 可编辑初稿，结构较完整 | 需要用户修改和补充 |
+| **O3** | 可审阅级 | 方法与来源信息较完整，适合人工审阅 | 需要专业人员复核 |
+| **O4** | 可导出级 | 结构化产物达到导出标准 | 仍需人工终审 |
+
+### 4.4 风险等级
+
+能力按对研究结果、合规或用户决策的潜在影响分为四级：
+
+| 风险等级 | 定义 | 默认可信度上限 |
+|----------|------|----------------|
+| **低** | 错误主要影响表达和效率，不直接影响研究判断 | T2 |
+| **中** | 错误会影响草稿质量或资料完整性 | T2 |
+| **高** | 错误会影响研究方法、统计判断或投稿策略 | T2 |
+| **极高** | 错误可能影响患者安全、伦理合规或重大研究结论 | T1 或 T2 |
+
+> Skill 的输出可信度不得超过其声明的 `trust_ceiling`。
+
+### 4.5 八大研究阶段
+
+Nini 的能力覆盖从选题到传播的完整科研闭环：
+
+| 阶段 | 代号 | V1 成熟度 | 风险等级 |
+|------|------|-----------|----------|
+| ① 选题立项 | `topic_selection` | L1 / T1 | 低 |
+| ② 文献调研 | `literature_review` | L2 / T2 | 中 |
+| ③ 实验设计 | `experiment_design` | L2 / T2 | 高 |
+| ④ 数据采集 | `data_collection` | L1 / T1 | 低 |
+| ⑤ 数据分析 | `data_analysis` | L3 / T3 | 高 |
+| ⑥ 论文写作 | `paper_writing` | L2 / T2 | 中 |
+| ⑦ 投稿修回 | `submission` | L1 / T1 | 高 |
+| ⑧ 学术传播 | `dissemination` | L1 / T1 | 低 |
+
+## 5. 对比总结
 
 | 维度 | Tools | Capabilities | Skills |
 |------|-------|--------------|--------|
-| **粒度** | 原子操作 | 业务场景 | 完整项目 |
+| **粒度** | 原子操作 | 领域能力编排 | 工作流模板 |
 | **用户** | AI 模型 | 终端用户 | 开发者/高级用户 |
 | **代码** | Python 类 | 元数据定义 | Markdown + 脚本 |
 | **存储** | `tools/` 目录 | `capabilities/` 模块 | `skills/` 目录 |
 | **注册** | ToolRegistry | CapabilityRegistry | 文件系统扫描 |
 | **调用** | WebSocket tool_call | HTTP API / Agent 编排 | 人工触发/Agent 识别 |
+| **阶段归属** | 不限定 | `phase` 字段标注 | `phase` 字段标注 |
+| **风险等级** | 不标注 | `risk_level` 字段 | `risk_level` 字段 |
+| **工作流类型** | 不适用 | `workflow_type` 字段 | 步骤 DAG |
 
 ---
 
-## 5. 使用场景
+## 6. 使用场景
 
 ### 场景 1：用户说"帮我分析两组数据的差异"
 
@@ -215,7 +292,7 @@ user-invocable: true
 
 ---
 
-## 6. 前端界面映射
+## 7. 前端界面映射
 
 | 界面元素 | 对应概念 | 图标 |
 |----------|----------|------|
@@ -225,17 +302,52 @@ user-invocable: true
 
 ---
 
-## 7. 迁移历史
+## 8. 迁移历史
 
-### Phase 1（已完成）
+### Phase 1：三层架构确立（已完成）
 
 - ✅ `SkillRegistry` → `ToolRegistry`（重命名，保持兼容）
 - ✅ `skills/` 目录含义明确为"工作流项目"
 - ✅ 新建 `capabilities/` 模块
 - ✅ 差异分析 Capability 完整实现
 
-### 后续规划
+### Phase 2：工具层收敛与能力扩展（已完成）
 
-- 更多 Capability 实现（相关性分析、回归分析等）
-- Skill 与 Capability 的关联机制
-- Capability 的参数自动生成（基于所需 Tools 的参数聚合）
+- ✅ 工具层从分散的独立工具收敛为 9 个基础工具 + 内部编排层（`dataset_catalog`、`stat_test`、`stat_model`、`chart_session`、`code_session` 等）
+- ✅ 统一资源标识（`resource_id` + `resource_type`）
+- ✅ 脚本会话生命周期管理（`code_session`：create → run → patch → rerun → promote）
+- ✅ Capability 从 1 个扩展到 11 个（数据分析 6 个 + 全流程扩展 5 个），其中 5 个可直接执行
+- ✅ 工作流类 Tool（`complete_comparison`、`complete_anova`、`correlation_analysis`、`regression_analysis`）
+- ✅ 新增 `article_draft`、`citation_management`、`peer_review`、`research_planning` 等全流程 Capability
+
+### Phase 3：Markdown Skill 体系与科研全流程扩展（已完成）
+
+- ✅ Markdown Skill 扫描/注册/触发/启停管理机制
+- ✅ YAML frontmatter 元数据（name、description、category、tags、allowed-tools）
+- ✅ 7 个实际 Skill：`root-analysis`、`article-draft`、`publication_figure`、`writing-guide`、`experiment-design-helper`、`literature-review`、`literature_chart_driven_analysis`
+- ✅ Recipe Center 模板（实验设计、文献综述、结果解读）
+- ✅ 9 个 Specialist Agent（文献检索/精读、数据清洗、统计分析、可视化、写作、引用管理、研究规划、评审辅助）
+- ✅ 分析阶段识别（`detect_phase`）
+- ✅ 多 Agent 并行调度（`dispatch_agents`）
+- ✅ 学术文献检索（`search_literature`，Semantic Scholar + CrossRef 降级）
+
+### Phase 4：可信度与治理基础设施（已完成）
+
+- ✅ 证据链系统（`query_evidence`、结论到证据的映射查询）
+- ✅ 研究画像（研究领域、常用方法、输出语言、样本量偏好）
+- ✅ 成本透明（Token 跟踪、USD/CNY 换算、模型分项、成本预警）
+- ✅ 推理可解释性（思考过程、决策理由、推理类型、置信度展示）
+- ✅ 插件系统框架（`plugins/base.py`、`plugins/registry.py`、`plugins/network.py`）
+- ✅ 知识库（文档上传、混合检索、层次化索引）
+- ✅ 长期记忆（跨会话提取、去重、重要性评分、向量搜索）
+- ✅ 风险模型（研究阶段、风险等级、输出等级建模）
+- ✅ 可信输出与人工复核交互规范（`docs/trust-output-and-human-review-interaction-spec.md`）
+
+### 当前方向：契约驱动与 V1 能力落地
+
+根据 `docs/nini-vision-charter.md` 第七章路线图：
+
+- Capability 新增 `phase`（阶段归属）、`workflow_type`（工作流类型）、`risk_level`（风险等级）字段
+- Skill 层演进为契约驱动的工作流模板层（步骤 DAG、降级策略、人工复核门、可观测事件流）
+- 高风险能力三维评审流程落地（方法/边界/安全合规）
+- 重点推进实验设计（L2/T2）、文献调研（L2/T2）、论文写作（L2/T2）三个首发场景

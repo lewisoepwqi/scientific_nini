@@ -1,11 +1,14 @@
-# Nini：本地优先的科研数据分析 AI Agent
+# Nini：本地优先的科研全流程 AI 伙伴
 
 [![CI](https://github.com/lewisoepwqi/scientific_nini/actions/workflows/ci.yml/badge.svg)](https://github.com/lewisoepwqi/scientific_nini/actions/workflows/ci.yml)
 
-Nini 是一个面向科研数据分析场景的本地优先（local-first）AI Agent 平台。
-它提供 Web UI、HTTP/WebSocket API、Agent Runtime、工具系统、会话持久化与受限代码执行环境，目标是让用户通过对话完成数据导入、清洗、统计分析、可视化、知识检索与报告导出。
+Nini 是一个本地优先（local-first）的科研全流程 AI 伙伴，覆盖从选题立项到学术传播的 8 个研究阶段。核心优势在数据分析，并向文献调研、实验设计、论文写作等阶段持续延伸。
 
-当前仓库已经完成从旧三服务结构到单仓单架构的收敛，开发重点集中在：
+它提供 Web UI、HTTP/WebSocket API、Agent Runtime、工具系统、会话持久化与受限代码执行环境，目标是让用户通过对话完成数据导入、清洗、统计分析、可视化、知识检索、报告导出、文献综述草稿、实验方案设计等科研任务。
+
+> 从选题到发表，让每位研究者都有一位懂方法、守规范、数据安全的 AI 科研伙伴。
+
+当前仓库已完成从旧三服务结构到单仓单架构的收敛，开发重点集中在：
 
 - `src/nini/`：后端、Agent Runtime、工具、存储与 API
 - `web/`：React + TypeScript 前端
@@ -14,13 +17,30 @@ Nini 是一个面向科研数据分析场景的本地优先（local-first）AI A
 
 ## 当前能力
 
+### 核心优势：数据分析（L3/T3）
+
 - 对话式分析：通过聊天驱动数据预览、清洗、统计检验、图表生成与报告整理
+- 6 个核心数据分析 Capability：差异分析、相关性分析、回归分析、数据探索、数据清洗、可视化（5 个可直接执行）
+- 证据链与可信输出：结论可追溯到具体分析步骤和统计依据
+
+### 科研全流程扩展
+
+- **实验设计（L2/T2）**：样本量估计、功效分析、实验方案模板
+- **文献调研（L2/T2）**：文献检索（Semantic Scholar / CrossRef）、综述结构草稿、引用管理
+- **论文写作（L2/T2）**：论文结构生成、结果段落草稿、引用格式转换、图表排版
+- **基线阶段（L1/T1）**：选题建议、数据采集工具建议、投稿与学术传播方向性意见
+
+> 能力成熟度采用 **Lx（自动化等级）/ Tx（可信度等级）** 双轴模型，详见 [产品愿景与架构演进纲领](docs/nini-vision-charter.md)。
+
+### 平台能力
+
 - 多模型路由：支持 OpenAI、Anthropic、Ollama、Moonshot、Kimi Coding、智谱、DeepSeek、阿里百炼、MiniMax
-- 工具系统：同时支持 Function Tools 与 Markdown Skills，并提供 CLI 管理与导出能力
+- 三层工具架构：Tools（原子工具）→ Capabilities（领域能力）→ Skills（工作流模板），Skill 支持步骤 DAG、降级策略与人工复核门
 - 安全执行：`run_code` 使用 AST 检查、导入白名单、超时与资源限制；`run_r_code` 支持可选 R 环境
 - 持久化与工作区：默认使用 `SQLite + 本地文件系统`，会话、上传文件、产物和记忆默认落在 `data/`
 - API 与流式事件：提供 HTTP 接口、WebSocket 事件流，以及面向集成场景的 MCP Server
 - 可观测与回放：内置 harness trace 存储、回放与评测聚合命令，便于回归分析
+- 插件系统：联网能力作为可选插件增强，离线可运行、联网可降级
 
 ## 架构概览
 
@@ -184,14 +204,23 @@ nini start
 
 ## 文档导航
 
+### 产品与架构
+
+- [产品愿景与架构演进纲领](docs/nini-vision-charter.md) — 产品方向、能力矩阵、风险分级与实施路线图
+- [Skill 执行契约规范](docs/skill-contract-spec.md) — Skill DAG、降级策略、人工复核门详细规范
+- [高风险能力评审规范](docs/high-risk-capability-review.md) — 高风险能力三维评审流程
+
+### 使用与开发
+
 - [快速开始](docs/nini_quickstart.md)
 - [配置说明](docs/configuration.md)
 - [CLI 参考](docs/cli_reference.md)
 - [API 与 WebSocket 参考](docs/api_reference.md)
 - [开发与发布指南](docs/development.md)
-- [架构概念](docs/architecture-concepts.md)
+- [架构概念](docs/architecture-concepts.md) — Tools / Capabilities / Skills 三层架构说明
 - [能力开发指南](docs/capability-development-guide.md)
 - [添加 Skills](docs/adding-skills.md)
+- [功能模块清单](docs/feature-module-inventory.md)
 
 ## 常见问题
 
