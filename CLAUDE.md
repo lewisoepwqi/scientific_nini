@@ -27,6 +27,7 @@ mypy src/nini                  # 类型检查（Python 3.12）
 python scripts/check_event_schema_consistency.py  # 必须先通过，CI 在 pytest 前运行此脚本
 pytest -q                      # 运行全部后端测试
 pytest tests/test_phase3_run_code.py::test_name -q  # 单个测试
+cd web && npm test             # 前端单元测试（Vitest）
 
 # 构建
 cd web && npm run build        # 前端 TypeScript 检查 + Vite 构建
@@ -43,6 +44,7 @@ python -m build                # 打包 wheel
 - **沙箱白名单**：修改 `run_code` 允许的 Python 导入时，改 `sandbox/policy.py` 的 `ALLOWED_IMPORT_ROOTS`；R 代码对应 `sandbox/r_policy.py`。
 - **废弃目录**：`frontend/`、`scientific_data_analysis_backend/`、`ai_service/` 已废弃，不要修改。
 - **大型变更**：`openspec/` 管理变更提案流程，大型特性需经 proposal → design → tasks 流程。
+- **能力治理**：新增 Capability 必须声明 `phase`（研究阶段）、`risk_level`（风险等级）、`trust_ceiling`（可信度上限）；高风险能力需通过三维评审。详见 `@docs/nini-vision-charter.md` 第五章。
 
 ## 工程约束
 
