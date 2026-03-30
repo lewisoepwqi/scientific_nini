@@ -2,10 +2,14 @@
 
 本文档指导开发者如何在 Nini 中创建新的 Capability。
 
+> 相关纲领文档：`docs/nini-vision-charter.md`
+> 架构概念：`docs/architecture-concepts.md`
+
 ## 前置条件
 
 - 熟悉 Python 3.12+
 - 理解 Nini 三层架构（Tools/Capabilities/Skills）
+- 理解能力成熟度模型（Lx/Tx）和风险分级
 - 阅读 `architecture-concepts.md`
 
 ---
@@ -35,8 +39,32 @@ Capability(
         "correlation",
         "create_chart",
     ],
+    # 阶段与治理字段
+    phase="data_analysis",                 # 所属研究阶段
+    workflow_type="tool_orchestration",    # 工作流类型
+    risk_level="high",                     # 风险等级：low / medium / high / critical
 )
 ```
+
+#### 新增治理字段说明
+
+| 字段 | 必填 | 说明 | 可选值 |
+|------|------|------|--------|
+| `phase` | 是 | 所属研究阶段 | `topic_selection` / `literature_review` / `experiment_design` / `data_collection` / `data_analysis` / `paper_writing` / `submission` / `dissemination` |
+| `workflow_type` | 是 | 工作流类型 | `tool_orchestration` / `search_synthesis` / `reasoning_template` / `generative_iterate` / `hybrid` |
+| `risk_level` | 是 | 风险等级 | `low` / `medium` / `high` / `critical` |
+
+#### 工作流类型说明
+
+| 类型 | 模式 | 适用阶段 | 代表能力 |
+|------|------|----------|----------|
+| `tool_orchestration` | 多工具顺序/并行编排 | ⑤ 数据分析 | 差异分析、回归 |
+| `search_synthesis` | 检索 → 过滤 → 综合 | ② 文献调研 | 文献综述、知识图谱 |
+| `reasoning_template` | 推理 → 计算 → 文档生成 | ③ 实验设计 | 样本量估计 |
+| `generative_iterate` | 生成 → 评审 → 修订循环 | ⑥⑦ 写作/投稿 | 论文初稿、审稿回复 |
+| `hybrid` | 以上多种混合 | 跨阶段 | 跨阶段复合工作流 |
+
+> 高风险（`high`）和极高风险（`critical`）能力合并前需通过三维评审，详见 `docs/high-risk-capability-review.md`。
 
 ### 步骤 2：实现 Capability 执行类（可选）
 
@@ -350,6 +378,19 @@ def _generate_interpretation(self, result: MyResult) -> str:
     # ... 根据结果生成解释
     return "\n".join(parts)
 ```
+
+### 6. 风险分级与可信度
+
+新增 Capability 必须声明风险等级，且输出可信度不得超过该等级对应的上限：
+
+| 风险等级 | 可信度上限 | 人工复核 |
+|----------|------------|----------|
+| 低 | T2 | 不强制 |
+| 中 | T2 | 视证据完整性而定 |
+| 高 | T2 | 默认强制 |
+| 极高 | T1 或 T2 | 强制 |
+
+高风险能力不得将草稿级输出伪装成已验证结论，输出中必须标注可信度等级和适用边界。
 
 ---
 
