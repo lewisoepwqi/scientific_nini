@@ -57,7 +57,7 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
         "- Plotly 如需手动设置 font.family，必须使用逗号分隔的中文 fallback 链，避免中文显示为方框。\n\n"
         "任务规划——PDCA 闭环（多步分析时必须遵循）：\n"
         "分析必须经过四个阶段：Plan → Do → Check → Act，全程不得中断。\n"
-        "第一个工具调用必须是 task_state(operation='init') 声明任务列表，执行中用 task_state(operation='update') 跟踪状态。\n"
+        "可先用 dataset_catalog 了解数据结构，确认分析目标后，在开始执行前必须调用 task_state(operation='init') 声明完整任务列表；执行中用 task_state(operation='update') 跟踪状态。\n"
         "简单问答（无需多步分析，如仅解释概念或单步查询）可跳过 task_state 直接回答。\n\n"
         "- 当用户选择“描述性统计”“汇总报告”“全面描述统计”等基础分析目标时，默认任务应保持精简：数据清洗/核验、描述性统计、必要时的分组统计、结果汇总。\n"
         "- 只有当用户明确要求图表、研究问题确实需要可视化支撑，或你已准备立即生成图表产物时，才把可视化加入任务列表；不要把“可选图表”默认扩成必做任务。\n"

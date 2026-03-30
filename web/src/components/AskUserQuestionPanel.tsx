@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, startTransition } from "react";
 import type { PendingAskUserQuestion, QuestionType } from "../store";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import Button from "./ui/Button";
 
 const SKIPPED_ANSWER_VALUE = "已跳过";
@@ -151,18 +151,58 @@ export default function AskUserQuestionPanel({
 
  function getTabStyle(index: number): string {
  if (errors[index]) {
+ return "border-[var(--error)] bg-[var(--error-subtle)] text-[var(--error)] shadow-sm";
+ }
+ if (index === activeIndex) {
+ return "border-[var(--accent)] bg-[var(--bg-base)] text-[var(--text-primary)] shadow-[0_10px_24px_rgba(13,148,136,0.14)] ring-1 ring-[color-mix(in_srgb,var(--accent)_18%,transparent)]";
+ }
+ if (skippedMap[index]) {
+ return "border-[var(--warning)] bg-[var(--warning-subtle)] text-[var(--warning)]";
+ }
+ if (completionMap[index]) {
+ return "border-[var(--success)] bg-[var(--success-subtle)] text-[var(--success)]";
+ }
+ return "border-[var(--border-default)] bg-[var(--bg-elevated)]/70 text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-base)]";
+ }
+
+ function getTabNumberStyle(index: number): string {
+ if (errors[index]) {
+ return "bg-[var(--error-subtle)] text-[var(--error)]";
+ }
+ if (index === activeIndex) {
+ return "bg-[var(--accent)] text-white shadow-sm";
+ }
+ if (skippedMap[index]) {
+ return "bg-[var(--warning-subtle)] text-[var(--warning)]";
+ }
+ if (completionMap[index]) {
+ return "bg-[var(--success-subtle)] text-[var(--success)]";
+ }
+ return "bg-[var(--bg-base)] text-[var(--text-secondary)]";
+ }
+
+ function getTabStatus(index: number): string {
+ if (errors[index]) return "待完成";
+ if (index === activeIndex) return "当前";
+ if (skippedMap[index]) return "已跳过";
+ if (completionMap[index]) return "已答";
+ return "待答";
+ }
+
+ function getTabStatusStyle(index: number): string {
+ if (errors[index]) {
  return "border-[var(--error)] bg-[var(--error-subtle)] text-[var(--error)]";
  }
  if (index === activeIndex) {
- return "border-[var(--accent)] bg-[var(--accent-subtle)] text-[var(--accent)] shadow-sm";
+ return "border-[var(--accent)] bg-[var(--accent-subtle)] text-[var(--accent)]";
  }
  if (skippedMap[index]) {
- return "border-[var(--warning)] bg-[var(--accent-subtle)] text-[var(--warning)]";
+ return "border-[var(--warning)] bg-[var(--warning-subtle)] text-[var(--warning)]";
  }
  if (completionMap[index]) {
- return "border-[var(--success)] bg-[var(--accent-subtle)] text-[var(--success)]";
+ return "border-[var(--success)] bg-[var(--success-subtle)] text-[var(--success)]";
  }
- return "border-[var(--border-default)] bg-[var(--bg-base)] text-[var(--text-secondary)] hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)]";
+ return "border-[var(--border-default)] bg-[var(--bg-base)] text-[var(--text-muted)]";
  }
 
  return (
@@ -178,8 +218,9 @@ export default function AskUserQuestionPanel({
  </div>
 
  {questionCount > 1 && (
+ <div className="mb-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/70 p-2">
  <div
- className="mb-4 flex flex-wrap gap-2"
+ className="flex flex-wrap gap-2"
  role="tablist"
  aria-label="待回答问题列表"
  >
@@ -191,26 +232,42 @@ export default function AskUserQuestionPanel({
  id={`ask-user-question-tab-${index}`}
  role="tab"
  aria-selected={index === activeIndex}
+ aria-current={index === activeIndex ? "step" : undefined}
  aria-controls={`ask-user-question-panel-${index}`}
  onClick={() => setActiveIndex(index)}
- className={`inline-flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs font-medium ${getTabStyle(index)}`}
+ className={`group inline-flex min-w-0 flex-1 items-start gap-3 rounded-2xl border px-3 py-3 text-left text-xs font-medium transition-all duration-150 sm:min-w-[11rem] ${getTabStyle(index)}`}
  >
- <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--bg-base)]/80 text-[11px] font-semibold">
- {index + 1}
+ <span
+ className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold transition-colors ${getTabNumberStyle(index)}`}
+ >
+ {completionMap[index] && !skippedMap[index] && index !== activeIndex ? (
+ <CheckCircle2 size={14} aria-hidden="true" />
+ ) : (
+ index + 1
+ )}
  </span>
- <span className="min-w-0 truncate">
+ <span className="min-w-0 flex-1">
+ <span className="block truncate text-sm font-semibold text-inherit">
  {question.header || question.question}
  </span>
- {completionMap[index] && (
- <span className="shrink-0 text-[11px] font-semibold">
- {skippedMap[index] ? "已跳过" : "已答"}
+ <span className="mt-1 block truncate text-[11px] text-[var(--text-secondary)]">
+ {index === activeIndex ? "正在处理这个问题" : question.question}
  </span>
- )}
- {errors[index] && (
- <span className="shrink-0 text-[11px] font-semibold">未完成</span>
- )}
+ </span>
+ <span
+ className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTabStatusStyle(index)}`}
+ >
+ {getTabStatus(index)}
+ </span>
  </Button>
  ))}
+ </div>
+ <div className="mt-2 flex items-center justify-between px-1 text-[11px] text-[var(--text-secondary)]">
+ <span>
+ 当前处理：{activeQuestion.header || activeQuestion.question}
+ </span>
+ <span>点击任意问题可切换</span>
+ </div>
  </div>
  )}
 
@@ -222,6 +279,14 @@ export default function AskUserQuestionPanel({
  className={getSectionStyle(activeQuestion.question_type)}
  >
  <div className="mb-2">
+ {questionCount > 1 && (
+ <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[var(--accent-subtle)] bg-[var(--accent-subtle)] px-2.5 py-1 text-[11px] font-semibold text-[var(--accent)]">
+ <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--bg-base)] px-1.5 text-[10px]">
+ 第 {activeIndex + 1} 题
+ </span>
+ <span>当前问题</span>
+ </div>
+ )}
  {activeQuestion.question_type === "risk_confirmation" && (
  <div className="mb-1 flex items-center gap-1 text-xs font-semibold text-[var(--error)]">
  <AlertTriangle size={14} />

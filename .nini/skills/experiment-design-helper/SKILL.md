@@ -22,7 +22,7 @@ aliases:
 allowed-tools:
   - sample_size
   - stat_test
-  - task_write
+  - task_state
 user-invocable: true
 disable-model-invocation: false
 contract:
@@ -32,7 +32,7 @@ contract:
     - id: define_problem
       name: 问题定义
       description: 引导用户明确研究假设、自变量/因变量、比较目标和研究背景
-      tool_hint: task_write
+      tool_hint: task_state
       depends_on: []
       trust_level: t1
       review_gate: false

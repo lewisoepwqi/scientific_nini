@@ -234,12 +234,12 @@ class TestAgentTimeoutConfig:
         assert "agent_max_timeout_seconds" in Settings.model_fields
 
     def test_default_timeout_value(self):
-        """默认主动执行超时回退为 300 秒，wall-clock 兜底默认不限。"""
+        """默认主动执行超时回退为 600 秒（支持 PDCA 多步分析），wall-clock 兜底默认不限。"""
         from nini.config import Settings
 
         assert Settings.model_fields["agent_active_execution_timeout_seconds"].default is None
         assert Settings.model_fields["agent_run_wall_clock_timeout_seconds"].default == 0
-        assert Settings.model_fields["agent_max_timeout_seconds"].default == 300
+        assert Settings.model_fields["agent_max_timeout_seconds"].default == 600
 
     @pytest.mark.asyncio
     async def test_runner_stops_on_active_execution_timeout_and_emits_error_event(

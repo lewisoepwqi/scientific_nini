@@ -739,19 +739,26 @@ class AgentRunner:
                     turn_id=turn_id,
                 )
                 return
-            if active_timeout_seconds > 0 and effective_elapsed > active_timeout_seconds:
+            # 动态超时扩展——PDCA 任务数已知时，用任务数计算超时下限，
+            # 避免多步骤分析在任务初始化后因静态超时过早终止。
+            if session.task_manager.initialized and session.task_manager.has_tasks():
+                dynamic_floor = 120 + len(session.task_manager.tasks) * 90
+                effective_active_timeout = max(active_timeout_seconds, dynamic_floor)
+            else:
+                effective_active_timeout = active_timeout_seconds
+            if effective_active_timeout > 0 and effective_elapsed > effective_active_timeout:
                 logger.warning(
                     "Agent 主动执行超时: session=%s, effective_elapsed=%.1fs, total_elapsed=%.1fs, excluded_wait=%.1fs, limit=%ds",
                     session.id,
                     effective_elapsed,
                     total_elapsed,
                     self._timeout_excluded_seconds,
-                    active_timeout_seconds,
+                    effective_active_timeout,
                 )
                 yield eb.build_error_event(
                     message=(
                         f"Agent 主动执行超时（已运行 {int(effective_elapsed)} 秒，"
-                        f"限制 {active_timeout_seconds} 秒）"
+                        f"限制 {effective_active_timeout} 秒）"
                     ),
                     turn_id=turn_id,
                 )

@@ -1,6 +1,6 @@
 """任务管理器 —— 支持 LLM 自驱动任务生命周期。
 
-LLM 通过 task_write 工具声明并更新任务列表，TaskManager 管理其状态机。
+LLM 通过 task_state 工具声明并更新任务列表（内部由 TaskWriteTool 处理），TaskManager 管理其状态机。
 immutable 风格：所有变更操作返回新对象，不修改原对象。
 """
 

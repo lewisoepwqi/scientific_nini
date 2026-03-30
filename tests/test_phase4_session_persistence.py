@@ -494,10 +494,10 @@ def test_get_session_messages_include_archived_history(client: LocalASGIClient) 
     session.add_message("user", "开始分析", turn_id="turn-1")
     session.add_tool_call(
         "call_task_init",
-        "task_write",
+        "task_state",
         json.dumps(
             {
-                "mode": "init",
+                "operation": "init",
                 "tasks": [
                     {"id": 1, "title": "检查数据质量", "status": "done"},
                     {"id": 2, "title": "生成报告", "status": "in_progress"},
@@ -510,7 +510,7 @@ def test_get_session_messages_include_archived_history(client: LocalASGIClient) 
     session.add_tool_result(
         "call_task_init",
         '{"success": true, "message": "任务已初始化"}',
-        tool_name="task_write",
+        tool_name="task_state",
         status="success",
         turn_id="turn-1",
     )
@@ -527,10 +527,10 @@ def test_get_session_messages_include_archived_history(client: LocalASGIClient) 
     messages = resp.json()["data"]["messages"]
 
     assert [msg["content"] for msg in messages if msg["role"] == "user"] == ["开始分析", "继续"]
-    task_write_message = next(
+    task_state_message = next(
         msg for msg in messages if msg["role"] == "assistant" and (msg.get("tool_calls") or [])
     )
-    assert task_write_message["tool_calls"][0]["function"]["name"] == "task_write"
+    assert task_state_message["tool_calls"][0]["function"]["name"] == "task_state"
     assert messages[-1]["content"] == "正在生成报告。"
 
 

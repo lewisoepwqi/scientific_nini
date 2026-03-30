@@ -243,7 +243,8 @@ class Settings(BaseSettings):
     agent_run_wall_clock_timeout_seconds: int = 0
     # 兼容旧配置：历史上该字段表示单一 Agent 总超时。
     # 现仅作为 agent_active_execution_timeout_seconds 未显式配置时的回退值。
-    agent_max_timeout_seconds: int = 300
+    # 600s 为多步骤 PDCA 分析的基础保障；单步快速问答实际不会用满。
+    agent_max_timeout_seconds: int = 600
     tool_argument_normalization_enabled: bool = True
     tool_circuit_breaker_threshold: int = 2
 
