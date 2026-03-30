@@ -121,21 +121,42 @@ class TaskWriteTool(Tool):
 
     def _handle_init(self, session: Session, raw_tasks: list[dict[str, Any]]) -> ToolResult:
         """初始化任务列表。"""
+        # Fix 3: 已有进行中任务时拒绝重置，避免 LLM 丢失执行进度
+        if session.task_manager.initialized:
+            in_progress = session.task_manager.current_in_progress()
+            if in_progress:
+                return ToolResult(
+                    success=False,
+                    message=(
+                        f"任务列表已初始化且「{in_progress.title}」正在执行中，无法重新初始化。"
+                        f"请继续执行当前任务，完成后调用 "
+                        f"task_state(operation='update', tasks=[{{id:{in_progress.id}, status:'completed'}}]) "
+                        f"推进到下一步。"
+                    ),
+                )
+
         new_manager = session.task_manager.init_tasks(raw_tasks)
         session.task_manager = new_manager
 
         task_count = len(new_manager.tasks)
+        first_task = new_manager.tasks[0] if new_manager.tasks else None
         logger.info(
             "task_write init: session=%s 声明了 %d 个任务",
             session.id,
             task_count,
         )
 
+        # Fix 1: 使用正确的工具名 task_state(operation='update')，并给出具体调用示例
+        first_hint = (
+            f"task_state(operation='update', tasks=[{{\"id\":{first_task.id}, \"status\":\"in_progress\"}}])"
+            if first_task
+            else "task_state(operation='update')"
+        )
         return ToolResult(
             success=True,
             message=(
                 f"已声明 {task_count} 个分析任务。"
-                "请立即调用 task_write(mode='update') 开始第一个任务，不要输出文本。"
+                f"请立即调用 {first_hint} 开始第一个任务，不要输出文本。"
             ),
             data={
                 "mode": "init",
@@ -162,7 +183,8 @@ class TaskWriteTool(Tool):
         updated_ids = [t.get("id") for t in raw_tasks if "id" in t]
         all_ids = updated_ids + result.auto_completed_ids
         all_done = result.manager.all_completed()
-        remaining = result.manager.remaining_count()
+        # Fix 2: 用 pending_count() 代替 remaining_count()，in_progress 不计入"待开始"
+        pending = result.manager.pending_count()
 
         if result.auto_completed_ids:
             logger.info(
@@ -180,20 +202,28 @@ class TaskWriteTool(Tool):
                 all_done,
             )
 
+        # Fix 2: 消息中明确说明当前进行中任务，避免 LLM 误判更新未生效
+        current_in_progress = result.manager.current_in_progress()
         if all_done:
             message = (
                 "所有任务已完成。请输出最终分析总结，不要再调用任何工具。"
                 "注意：总结应基于复盘后的最终结论，确保结果准确无误。"
             )
-        elif remaining == 1:
-            # 只剩最后一个任务（通常是"复盘与检查"）
+        elif current_in_progress and pending == 0:
+            # 只剩当前执行中任务（通常是"复盘与检查"）
             message = (
-                f"还有 {remaining} 个任务待完成。"
+                f"任务{current_in_progress.id}「{current_in_progress.title}」执行中。"
                 "请开始最后的复盘检查：回顾前面所有步骤的结果，"
                 "检查方法选择、统计结果、图表和结论是否正确，发现问题立即修正。"
             )
+        elif current_in_progress:
+            message = (
+                f"任务{current_in_progress.id}「{current_in_progress.title}」已标记为进行中。"
+                f"请立即调用对应工具执行该任务，完成后再调用 task_state(operation='update') 推进下一步。"
+                f"（还有 {pending} 个任务待开始）"
+            )
         else:
-            message = f"任务状态已更新，还有 {remaining} 个任务待完成。"
+            message = f"任务状态已更新，还有 {pending} 个任务待开始。"
 
         return ToolResult(
             success=True,
@@ -203,7 +233,7 @@ class TaskWriteTool(Tool):
                 "updated_ids": all_ids,
                 "auto_completed_ids": result.auto_completed_ids,
                 "all_completed": all_done,
-                "pending_count": remaining,
+                "pending_count": pending,
                 "tasks": [t.to_dict() for t in result.manager.tasks],
             },
             metadata={"is_task_write": True},

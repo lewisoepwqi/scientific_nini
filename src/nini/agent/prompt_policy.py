@@ -62,7 +62,7 @@ PDCA_DETAIL_BLOCK: Final[str] = (
     "优先 stat_test(method='mann_whitney') 或先用 dataset_transform 清洗后再进行敏感性分析。\n\n"
     "PDCA 详细阶段指南：\n\n"
     "【Plan 规划】\n"
-    "第一个工具调用必须是 task_state(operation='init')，声明完整任务列表。\n"
+    "了解数据结构、明确分析目标后（可先用 dataset_catalog），调用 task_state(operation='init') 声明完整任务列表。\n"
     "最后一个任务必须是「复盘与检查」。\n"
     "示例：task_state(operation='init', tasks=[\n"
     '  {"id": 1, "title": "检查数据质量与摘要", "status": "pending", "tool_hint": "dataset_catalog"},\n'
@@ -72,11 +72,9 @@ PDCA_DETAIL_BLOCK: Final[str] = (
     '  {"id": 5, "title": "复盘与检查", "status": "pending"}\n'
     "])\n\n"
     "【Do 执行】\n"
-    "规划完成后必须立即开始执行，不要停下来输出文本。\n"
-    "开始每个任务时调用 task_state(operation='update', tasks=[{id:N, status:'in_progress'}])，\n"
-    "然后调用对应工具执行。前一个 in_progress 的任务会自动标记为 completed。\n"
-    "关键：task_state(operation='init') 之后的下一个动作必须是 task_state(operation='update') 开始第一个任务，\n"
-    "绝不能只输出文本而不调用工具。\n\n"
+    "每开始一个任务，先调用 task_state(operation='update', tasks=[{\"id\":N, \"status\":\"in_progress\"}])（只传该任务），\n"
+    "然后立即调用对应工具执行。前一个 in_progress 的任务会自动标记为 completed。\n"
+    "task_state(update) 成功后系统会告知当前执行中的任务名，确认无误后立刻执行，不要再次调用 task_state。\n\n"
     "【Check 复盘】\n"
     "执行到「复盘与检查」任务时，回顾前面所有步骤：\n"
     "- 方法选择是否合理？前提假设是否满足？\n"

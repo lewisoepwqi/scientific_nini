@@ -13,7 +13,7 @@ typical-use-cases:
 allowed-tools:
   - collect_artifacts
   - workspace_session
-  - task_write
+  - task_state
   - analysis_memory
 user-invocable: true
 disable-model-invocation: false

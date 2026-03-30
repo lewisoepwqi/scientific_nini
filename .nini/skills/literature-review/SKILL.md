@@ -14,7 +14,7 @@ typical-use-cases:
 allowed-tools:
   - search_literature
   - workspace_session
-  - task_write
+  - task_state
   - analysis_memory
 user-invocable: true
 disable-model-invocation: false
