@@ -121,7 +121,7 @@ class TaskWriteTool(Tool):
 
     def _handle_init(self, session: Session, raw_tasks: list[dict[str, Any]]) -> ToolResult:
         """初始化任务列表。"""
-        # Fix 3: 已有进行中任务时拒绝重置，避免 LLM 丢失执行进度
+        # 已有进行中任务时拒绝重置，避免 LLM 丢失执行进度
         if session.task_manager.initialized:
             in_progress = session.task_manager.current_in_progress()
             if in_progress:
@@ -146,7 +146,7 @@ class TaskWriteTool(Tool):
             task_count,
         )
 
-        # Fix 1: 使用正确的工具名 task_state(operation='update')，并给出具体调用示例
+        # 使用正确的工具名 task_state(operation='update')，并给出具体调用示例
         first_hint = (
             f"task_state(operation='update', tasks=[{{\"id\":{first_task.id}, \"status\":\"in_progress\"}}])"
             if first_task
@@ -183,7 +183,7 @@ class TaskWriteTool(Tool):
         updated_ids = [t.get("id") for t in raw_tasks if "id" in t]
         all_ids = updated_ids + result.auto_completed_ids
         all_done = result.manager.all_completed()
-        # Fix 2: 用 pending_count() 代替 remaining_count()，in_progress 不计入"待开始"
+        # 用 pending_count() 代替 remaining_count()，in_progress 不计入"待开始"
         pending = result.manager.pending_count()
 
         if result.auto_completed_ids:
@@ -202,7 +202,7 @@ class TaskWriteTool(Tool):
                 all_done,
             )
 
-        # Fix 2: 消息中明确说明当前进行中任务，避免 LLM 误判更新未生效
+        # 消息中明确说明当前进行中任务，避免 LLM 误判更新未生效
         current_in_progress = result.manager.current_in_progress()
         if all_done:
             message = (

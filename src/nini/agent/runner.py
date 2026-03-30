@@ -739,7 +739,7 @@ class AgentRunner:
                     turn_id=turn_id,
                 )
                 return
-            # Fix 6: 动态超时扩展——PDCA 任务数已知时，用任务数计算超时下限，
+            # 动态超时扩展——PDCA 任务数已知时，用任务数计算超时下限，
             # 避免多步骤分析在任务初始化后因静态超时过早终止。
             if session.task_manager.initialized and session.task_manager.has_tasks():
                 dynamic_floor = 120 + len(session.task_manager.tasks) * 90
