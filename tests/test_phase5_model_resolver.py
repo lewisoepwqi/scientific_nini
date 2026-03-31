@@ -832,8 +832,11 @@ def test_zhipu_client_flattens_tool_history_to_plain_text() -> None:
         ]
     )
 
-    # 只保留文字内容，不注入工具调用摘要
-    assert normalized == [{"role": "assistant", "content": "继续"}]
+    # 只保留文字内容，不注入工具调用摘要；无 user 消息时插入占位 user 保证序列合法
+    assert normalized == [
+        {"role": "user", "content": "请继续。"},
+        {"role": "assistant", "content": "继续"},
+    ]
 
 
 def test_zhipu_client_normalizes_nested_tool_call_fields() -> None:
@@ -862,12 +865,16 @@ def test_zhipu_client_normalizes_nested_tool_call_fields() -> None:
         ]
     )
 
-    # content 为 None，不注入工具调用摘要 → 输出为空列表
-    assert normalized == []
+    # content 为 None，不注入工具调用摘要；序列为空时插入占位 user 保证 GLM-5 序列合法
+    assert normalized == [{"role": "user", "content": "请继续。"}]
 
 
-def test_zhipu_client_flattens_tool_role_to_assistant_context() -> None:
-    """Zhipu 请求体应将 tool 角色压缩为 assistant 文本上下文。"""
+def test_zhipu_client_flattens_tool_role_to_user_context() -> None:
+    """Zhipu 请求体应将 tool 角色转换为 user 消息（工具结果是环境观测值）。
+
+    使用 user 而非 assistant，使 ReAct 轨迹形成合法的 assistant→user 交替结构，
+    避免 GLM-5 因全为 assistant 消息而返回 code=1214 错误。
+    """
     client = ZhipuClient(api_key="zhipu-test-key", model="glm-5")
 
     normalized = client._normalize_messages_for_provider(  # noqa: SLF001
@@ -882,7 +889,7 @@ def test_zhipu_client_flattens_tool_role_to_assistant_context() -> None:
 
     assert normalized == [
         {
-            "role": "assistant",
+            "role": "user",
             "content": '{"ok": true, "message": "done"}',
         }
     ]

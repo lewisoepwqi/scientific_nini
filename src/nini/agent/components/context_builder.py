@@ -253,6 +253,15 @@ class ContextBuilder:
                 "是否需要可交互图表（可缩放/悬停）还是静态图片（PNG/SVG，适合发表/报告）。"
             )
 
+        # 注入已完成数据概况提醒（防止压缩后 LLM 重复调用 dataset_catalog(profile)）
+        completed_profiles: set[str] = getattr(session, "_completed_dataset_profiles", set())
+        if completed_profiles:
+            names = "、".join(f"'{n}'" for n in sorted(completed_profiles))
+            context_parts.append(
+                f"[已完成概况] 数据集 {names} 的概况已成功获取，"
+                "禁止重复调用 dataset_catalog(profile)，请直接进行分析或输出结论。"
+            )
+
         # 注入任务进度上下文（防止压缩后 LLM 丢失任务状态）
         if session.task_manager.has_tasks():
             tasks = session.task_manager.tasks

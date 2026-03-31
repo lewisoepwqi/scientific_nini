@@ -1781,7 +1781,9 @@ class AgentRunner:
                     max_view = dataset_profile_max_view_by_name.get(dataset_name)
                     duplicate_profile_reason: str | None = None
                     recovery_hint = (
-                        "你已经获得过该数据集的概况，请直接基于现有结果进入任务规划、统计分析或最终结论。"
+                        "你已完成数据概况分析，禁止再次调用 dataset_catalog(profile)。"
+                        "下一步：直接调用 run_code / code_session 进行统计分析，"
+                        "或调用 task_state 更新任务进度，或输出分析结论。"
                     )
                     if tool_args_signature in successful_dataset_profile_signatures:
                         duplicate_profile_reason = (
@@ -1848,9 +1850,11 @@ class AgentRunner:
                             metadata=event_metadata,
                         )
                         existing_chain = tool_failure_chains.get(tool_args_signature)
-                        if isinstance(existing_chain, dict) and str(
-                            existing_chain.get("error_code", "")
-                        ) == "DUPLICATE_DATASET_PROFILE_CALL":
+                        if (
+                            isinstance(existing_chain, dict)
+                            and str(existing_chain.get("error_code", ""))
+                            == "DUPLICATE_DATASET_PROFILE_CALL"
+                        ):
                             existing_chain["count"] = int(existing_chain.get("count", 0)) + 1
                             existing_chain["message"] = duplicate_profile_reason
                             existing_chain["recovery_hint"] = recovery_hint
@@ -2155,6 +2159,12 @@ class AgentRunner:
                                 dataset_profile_max_view_by_name.setdefault(
                                     dataset_name, completed_view
                                 )
+                            # 持久化到 session，供 context_builder 在后续轮次的运行时上下文中提醒 LLM
+                            completed_profiles: set[str] = getattr(
+                                session, "_completed_dataset_profiles", set()
+                            )
+                            completed_profiles.add(dataset_name)
+                            setattr(session, "_completed_dataset_profiles", completed_profiles)
                         tool_failure_chains.pop(tool_args_signature, None)
                         yield _new_task_attempt_event(
                             step_id=matched_step_id,
@@ -2357,7 +2367,10 @@ class AgentRunner:
                             raw_data_preview if isinstance(raw_data_preview, dict) else {}
                         )
                         preview_signature = _build_data_preview_signature(data_preview)
-                        if preview_signature and preview_signature in emitted_data_preview_signatures:
+                        if (
+                            preview_signature
+                            and preview_signature in emitted_data_preview_signatures
+                        ):
                             logger.info(
                                 "跳过重复数据预览事件: session=%s turn=%s tool=%s",
                                 session.id,

@@ -39,7 +39,8 @@ class CodeSessionTool(Tool):
     def description(self) -> str:
         return (
             "创建、读取和执行持久化脚本会话，统一管理 Python/R 脚本与执行历史。"
-            "当传入 dataset_name 时，沙箱会自动注入 DataFrame 变量 df。"
+            "当传入 dataset_name 时，沙箱自动将数据注入为 pandas DataFrame 变量 df，"
+            "【禁止】在代码中使用 pd.read_csv/read_excel/open 等文件读取语句，直接使用 df 操作数据。"
             "沙箱已预注入 pd/np/plt/sns/go/px/datetime/re/json 等，无需 import。"
             "图表在代码执行后自动收集导出，不要手动调用 plt.savefig()。"
             "禁止通过 import __main__ 或系统级 I/O 探测数据路径。"

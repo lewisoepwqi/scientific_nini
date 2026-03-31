@@ -497,7 +497,7 @@ export const useStore = create<AppState>((set, get) => ({
   modelProviders: [],
   modelProvidersLoading: false,
   workspacePanelOpen: false,
-  workspacePanelTab: "files",
+  workspacePanelTab: "tasks",
   fileSearchQuery: "",
   previewTabs: [],
   previewFileId: null,

@@ -147,16 +147,6 @@ export default function WorkspaceSidebar() {
  <Button
  variant="ghost"
  size="icon-sm"
- onClick={handleDownloadAllFiles}
- disabled={downloadingAll || workspaceFiles.length === 0}
- title="下载全部文件"
- aria-label="下载全部文件"
- >
- {downloadingAll ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
- </Button>
- <Button
- variant="ghost"
- size="icon-sm"
  onClick={() => {
  fetchWorkspaceFiles()
  fetchDatasets()
@@ -203,46 +193,12 @@ export default function WorkspaceSidebar() {
  </div>
  )}
 
- {/* Tab 切换 */}
+ {/* Tab 切换：任务 → 执行历史 → 文件 */}
  <div
  className={`flex flex-shrink-0 relative overflow-x-auto overflow-y-hidden border-b border-[var(--border-default)] scroll-smooth ${
  hasPreviewTabs ? '' : 'overflow-x-hidden'
  }`}
  >
- <Button
- variant="ghost"
- onClick={() => {
- setWorkspacePanelTab('files')
- setActivePreview(null)
- }}
- className={`${
- hasPreviewTabs ? 'inline-flex shrink-0 min-w-[82px]' : 'flex flex-1 min-w-0'
- } items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap rounded-none !transition-none relative ${
- workspacePanelTab === 'files' && !previewFileId
- ? '!text-[var(--accent)] !bg-[var(--accent-subtle)]/50 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-[var(--accent)]'
- : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
- }`}
- >
- <FolderOpen size={13} />
- 文件
- </Button>
- <Button
- variant="ghost"
- onClick={() => {
- setWorkspacePanelTab('executions')
- setActivePreview(null)
- }}
- className={`${
- hasPreviewTabs ? 'inline-flex shrink-0 min-w-[98px]' : 'flex flex-1 min-w-0'
- } items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap rounded-none !transition-none relative ${
- workspacePanelTab === 'executions' && !previewFileId
- ? '!text-[var(--accent)] !bg-[var(--accent-subtle)]/50 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-[var(--accent)]'
- : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
- }`}
- >
- <Terminal size={13} />
- 执行历史
- </Button>
  <Button
  variant="ghost"
  onClick={() => {
@@ -264,6 +220,40 @@ export default function WorkspaceSidebar() {
  {analysisTasks.length}
  </span>
  )}
+ </Button>
+ <Button
+ variant="ghost"
+ onClick={() => {
+ setWorkspacePanelTab('executions')
+ setActivePreview(null)
+ }}
+ className={`${
+ hasPreviewTabs ? 'inline-flex shrink-0 min-w-[98px]' : 'flex flex-1 min-w-0'
+ } items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap rounded-none !transition-none relative ${
+ workspacePanelTab === 'executions' && !previewFileId
+ ? '!text-[var(--accent)] !bg-[var(--accent-subtle)]/50 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-[var(--accent)]'
+ : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
+ }`}
+ >
+ <Terminal size={13} />
+ 执行历史
+ </Button>
+ <Button
+ variant="ghost"
+ onClick={() => {
+ setWorkspacePanelTab('files')
+ setActivePreview(null)
+ }}
+ className={`${
+ hasPreviewTabs ? 'inline-flex shrink-0 min-w-[82px]' : 'flex flex-1 min-w-0'
+ } items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap rounded-none !transition-none relative ${
+ workspacePanelTab === 'files' && !previewFileId
+ ? '!text-[var(--accent)] !bg-[var(--accent-subtle)]/50 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-[var(--accent)]'
+ : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
+ }`}
+ >
+ <FolderOpen size={13} />
+ 文件
  </Button>
  {previewTabs.map((id) => (
  <Button
@@ -349,6 +339,16 @@ export default function WorkspaceSidebar() {
  >
  {viewMode === 'list' ? <FolderTree size={14} /> :
  viewMode === 'tree' ? <LayoutGrid size={14} /> : <List size={14} />}
+ </Button>
+ <Button
+ variant="ghost"
+ size="icon-sm"
+ onClick={handleDownloadAllFiles}
+ disabled={downloadingAll || workspaceFiles.length === 0}
+ title="打包下载全部文件"
+ aria-label="打包下载全部文件"
+ >
+ {downloadingAll ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
  </Button>
  </div>
 

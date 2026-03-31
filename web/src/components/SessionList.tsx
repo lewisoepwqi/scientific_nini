@@ -540,7 +540,7 @@ export default function SessionList({ onClose }: Props) {
  setOpenActionsId(null)
  queueDelete(s.id, displayTitle)
  }}
- className="text-[var(--text-muted)] hover:text-[var(--error)] hover:bg-rose-100 dark:hover:bg-rose-950/30"
+ className="text-[var(--text-muted)] hover:text-[var(--error)] hover:bg-[var(--error-subtle)]"
  title="删除会话"
  aria-label="删除会话"
  disabled={pendingDelete?.id === s.id}

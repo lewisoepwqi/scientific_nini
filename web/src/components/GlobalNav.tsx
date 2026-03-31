@@ -14,10 +14,6 @@ import {
 	Moon,
 	HelpCircle,
 	Settings,
-	Sparkles,
-	FileText,
-	Coins,
-	Wrench,
 } from "lucide-react";
 import { getResolvedTheme, type ThemeMode } from "../theme";
 
@@ -30,15 +26,6 @@ export const NAV_GROUPS = [
 			{ icon: Library, label: "知识库", id: "knowledge" },
 			{ icon: Zap, label: "技能", id: "skills" },
 			{ icon: User, label: "研究画像", id: "profile" },
-		],
-	},
-	{
-		key: "features",
-		items: [
-			{ icon: Sparkles, label: "分析能力", id: "capabilities" },
-			{ icon: FileText, label: "文章初稿", id: "report" },
-			{ icon: Coins, label: "成本统计", id: "cost" },
-			{ icon: Wrench, label: "工具清单", id: "tools" },
 		],
 	},
 ] as const;
@@ -100,19 +87,25 @@ function NavButton({
 }) {
 	return (
 		<button
+			type="button"
 			onClick={onClick}
 			className={[
-				"group relative flex items-center gap-2.5 h-9 px-2 rounded-md transition-colors w-full",
-				expanded ? "justify-start" : "justify-center",
+				"group relative flex items-center transition-[background-color,color,box-shadow] duration-150 ease-out",
+				expanded
+					? "h-11 w-full justify-start gap-2.5 px-2.5 rounded-md"
+					: "mx-auto h-9 w-9 justify-center rounded-lg",
 				isActive
 					? "bg-[var(--accent-subtle)] text-[var(--accent)]"
 					: "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
+				"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-inset",
 			].join(" ")}
 			title={label}
+			aria-label={label}
+			aria-current={isActive ? "page" : undefined}
 		>
 			{isActive && (
 				<span
-					className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-r"
+					className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r"
 					style={{ background: "var(--accent)" }}
 				/>
 			)}
@@ -145,9 +138,11 @@ export default function GlobalNav({
 			{/* Logo — 点击切换展开/收起 */}
 			<div className="flex items-center gap-2.5 px-2 h-12 border-b border-[var(--border-subtle)] shrink-0 mb-1">
 				<button
+					type="button"
 					onClick={toggleExpand}
-					className="flex-shrink-0 flex items-center justify-center w-8 h-8 hover:opacity-90 transition-opacity ml-0.5"
+					className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-md hover:bg-[var(--bg-hover)] transition-[background-color,opacity,box-shadow] duration-150 ease-out ml-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
 					aria-label={expanded ? "折叠导航" : "展开导航"}
+					aria-expanded={expanded}
 				>
 					<NiniLogo size={expanded ? 24 : 24} />
 				</button>
@@ -208,9 +203,9 @@ export default function GlobalNav({
 				<NavButton
 					icon={HelpCircle}
 					label="帮助"
-					isActive={false}
+					isActive={activeNav === "help"}
 					expanded={expanded}
-					onClick={() => {}}
+					onClick={() => onNavigate("help")}
 				/>
 
 				{/* 设置 */}

@@ -1,6 +1,6 @@
 ---
 name: article_draft
-description: 根据会话中已完成的数据分析结果，逐章生成结构完整的科研论文初稿（含摘要、引言、方法、结果、讨论、结论），并将各章节保存为工作区文件。
+description: 根据会话中已完成的数据分析结果，逐章生成结构完整的科研论文初稿（含摘要、引言、方法、结果、讨论、结论），并将各章节保存为工作区文件
 category: report
 research-domain: general
 difficulty-level: advanced

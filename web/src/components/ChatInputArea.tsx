@@ -8,6 +8,7 @@ import { useConfirm } from "../store/confirm-store";
 import { useOnboardStore } from "../store/onboard-store";
 import FileUpload from "./FileUpload";
 import ModelSelector from "./ModelSelector";
+import ArticleDraftPopover from "./ArticleDraftPopover";
 import Button from "./ui/Button";
 import { Send, Square, Archive } from "lucide-react";
 
@@ -516,6 +517,47 @@ export default function ChatInputArea() {
  [uploadFile],
  );
 
+ // 文章初稿生成回调（复用 App.tsx 中 handleStartDraftDialog 的逻辑）
+ const handleStartDraft = useCallback(
+ (config: {
+ template: string;
+ sections: string[];
+ detail_level: "brief" | "standard" | "detailed";
+ include_figures: boolean;
+ include_tables: boolean;
+ title: string;
+ }) => {
+ const sectionNameMap: Record<string, string> = {
+ abstract: "摘要",
+ introduction: "引言",
+ methods: "方法",
+ results: "结果",
+ discussion: "讨论",
+ conclusion: "结论",
+ limitations: "局限性",
+ };
+ const sectionsText = config.sections.map((s) => sectionNameMap[s] || s).join("、");
+ const detailMap = { brief: "简洁版", standard: "标准版", detailed: "详细版" };
+
+ const prompt = `/article_draft
+请为我生成科研文章初稿。
+
+配置要求：
+- 期刊风格：${config.template.toUpperCase()}
+- 生成章节：${sectionsText}
+- 详细程度：${detailMap[config.detail_level]}
+- 包含图表：${config.include_figures ? "是" : "否"}
+- 包含表格：${config.include_tables ? "是" : "否"}
+
+请根据会话中的数据分析结果，按照上述配置生成结构完整的科研论文初稿。`;
+
+ startTransition(() => {
+ sendMessage(prompt);
+ });
+ },
+ [sendMessage],
+ );
+
  const isFileDragEvent = useCallback((e: React.DragEvent) => {
  return Array.from(e.dataTransfer.types || []).includes("Files");
  }, []);
@@ -665,13 +707,20 @@ export default function ChatInputArea() {
  onBlur={handleInputBlur}
  placeholder={(!slashHintSeen && isFocused && input.trim() === "") ? "" : "描述你的分析需求..."}
  aria-label="输入消息"
+ aria-haspopup="listbox"
+ aria-expanded={slashMenuOpen}
+ aria-activedescendant={slashMenuOpen && slashActiveIndex >= 0 ? `slash-opt-${filteredSlashSkills[slashActiveIndex]?.name}` : undefined}
  rows={1}
  className="w-full resize-none border-0 bg-transparent px-1 py-1.5 text-sm max-h-[120px] focus:outline-none placeholder:text-[var(--text-muted)]"
  style={{ minHeight: "42px" }}
  />
 
  {slashMenuOpen && (
- <div className="absolute left-3 right-3 bottom-[calc(100%+18px)] z-20 rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] shadow-lg dark:bg-[var(--bg-elevated)]">
+ <div
+   role="listbox"
+   aria-label="技能列表"
+   className="absolute left-3 right-3 bottom-[calc(100%+18px)] z-20 rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] shadow-lg dark:bg-[var(--bg-elevated)]"
+ >
  <div className="max-h-56 overflow-y-auto p-1.5">
  {filteredSlashSkills.length === 0 ? (
  <div className="px-2.5 py-2 text-xs text-[var(--text-muted)]">
@@ -681,10 +730,13 @@ export default function ChatInputArea() {
  filteredSlashSkills.map((skill, idx) => (
  <button
  key={skill.name}
+ id={`slash-opt-${skill.name}`}
  ref={(node) => {
  slashOptionRefs.current[idx] = node;
  }}
  type="button"
+ role="option"
+ aria-selected={idx === slashActiveIndex}
  onMouseDown={(event) => event.preventDefault()}
  onClick={() => applySlashSkill(skill)}
  onMouseEnter={() => setSlashActiveIndex(idx)}
@@ -717,8 +769,12 @@ export default function ChatInputArea() {
  )}
 
  <div className="mt-2 flex items-center justify-between gap-2">
- <div className="min-w-0">
+ <div className="flex items-center gap-2 min-w-0">
  <FileUpload />
+ <ArticleDraftPopover
+ sessionId={sessionId}
+ onStartDraft={handleStartDraft}
+ />
  </div>
  <div className="flex items-center gap-2 flex-shrink-0">
  <ModelSelector
