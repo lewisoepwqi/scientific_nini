@@ -144,7 +144,15 @@ class ZhipuClient(OpenAICompatibleClient):
         self,
         messages: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """智谱 Coding Plan 端点对 tool 历史兼容性较差，统一降级为纯文本上下文。"""
+        """智谱 Coding Plan 端点对 tool 历史兼容性较差，统一降级为纯文本上下文。
+
+        处理策略：
+        - assistant + tool_calls → 仅保留文本，丢弃 tool_calls（防止 GLM-5 模仿生成纯文本调用）
+        - tool (工具结果)       → 转换为 user 消息（工具结果是环境观测值，语义上属于外部输入）
+          使用 user 而非 assistant，使 ReAct 轨迹形成 assistant→user 交替结构，
+          满足 GLM-5 对消息序列合法性的要求（不允许连续相同角色）
+        - 最终应用 _fix_consecutive_roles 合并相邻同角色消息，确保序列合法
+        """
         normalized: list[dict[str, Any]] = []
         for message in messages:
             role = str(message.get("role") or "").strip()
@@ -161,9 +169,10 @@ class ZhipuClient(OpenAICompatibleClient):
                 continue
 
             if role == "tool":
+                # 工具结果作为"环境观测"归入 user 角色，使 ReAct 轨迹形成合法的 assistant→user 交替
                 normalized.append(
                     {
-                        "role": "assistant",
+                        "role": "user",
                         "content": self._summarize_tool_result(content),
                     }
                 )
@@ -172,7 +181,37 @@ class ZhipuClient(OpenAICompatibleClient):
             if role in {"system", "user", "assistant"}:
                 normalized.append({"role": role, "content": content})
 
+        # 合并相邻同角色消息，消除 context_builder 注入的多条连续 assistant 消息
+        normalized = self._fix_consecutive_roles(normalized)
+
+        # 确保 system 后至少有一条 user 消息（GLM-5 要求序列必须含 user）
+        has_user = any(m.get("role") == "user" for m in normalized)
+        if not has_user:
+            insert_pos = next(
+                (i for i, m in enumerate(normalized) if m.get("role") != "system"),
+                len(normalized),
+            )
+            normalized.insert(insert_pos, {"role": "user", "content": "请继续。"})
+
         return normalized
+
+    @staticmethod
+    def _fix_consecutive_roles(
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """合并相邻同角色的消息（system 除外），消除连续相同角色导致的 API 校验失败。"""
+        merged: list[dict[str, Any]] = []
+        for msg in messages:
+            role = msg.get("role")
+            content = str(msg.get("content") or "")
+            if merged and merged[-1].get("role") == role and role != "system":
+                prev_content = str(merged[-1].get("content") or "")
+                merged[-1]["content"] = (
+                    (prev_content + "\n\n" + content).strip() if prev_content else content
+                )
+            else:
+                merged.append(dict(msg))
+        return merged
 
     @staticmethod
     def _summarize_tool_calls(tool_calls: Any) -> str:

@@ -1,10 +1,11 @@
 # Design System MASTER — scientific_nini
 
-> **Design System Version:** 1.2.0
+> **Design System Version:** 1.2.1
 > **Date:** 2026-03-28
 > **Style Origin:** Linear.app 设计语言（极致密度、冷色中性、精准间距）
 > **Status:** 暗色模式优先，亮色模式对等
 > **Changelog:**
+> - v1.2.1 — 同步 `index.css` 当前 token：亮色强调色收敛为更深的 Nini Teal（`#0A7E72`），`--text-muted` 双模式对比度修正，补充阴影 token
 > - v1.2.0 — 补充完整亮色模式 token、双模式 CSS 实现方案、模式切换规范、功能域 token 化、Plotly 双模式配置
 > - v1.1.0 — 补充 DetailPanel 交互模式、功能域 token 化、三栏布局行为规范、页面路由结构、focus ring 例外说明
 > - v1.0.0 — 初始版本，暗色模式 token、基础组件规格
@@ -36,7 +37,7 @@ Nini 是本地优先的科研全流程 AI 研究伙伴。UI 必须传达**专业
 
 ---
 
-## 2. Color Tokens (v1.2.0)
+## 2. Color Tokens (v1.2.1)
 
 > ⚠️ 所有颜色必须通过 CSS token 引用，**严禁硬编码 hex 值或 Tailwind 原始色彩类名**
 
@@ -51,27 +52,30 @@ Nini 是本地优先的科研全流程 AI 研究伙伴。UI 必须传达**专业
   /* === 亮色模式（Light Mode）=== */
 
   /* 背景层级 */
-  --bg-app:      #F5F5F6;
+  --bg-app:      #EDF2FA;
   --bg-base:     #FFFFFF;
-  --bg-elevated: #F0F0F2;
-  --bg-overlay:  #E8E8EA;
-  --bg-hover:    #EBEBED;
+  --bg-elevated: #F5F9FF;
+  --bg-overlay:  #E0E8F4;
+  --bg-hover:    rgba(10, 126, 114, 0.08);
+
+  /* 卡片层级 */
+  --card:        #F5F9FF;
 
   /* 边框 */
-  --border-subtle:  #E8E8EA;
-  --border-default: #DCDCE0;
-  --border-strong:  #C8C8CE;
+  --border-subtle:  #C8D8EE;
+  --border-default: #A8C0DE;
+  --border-strong:  #8AAAC8;
 
   /* 文字 */
-  --text-primary:   #1A1A1C;
-  --text-secondary: #6A6A6F;
-  --text-muted:     #9A9AA0;
-  --text-disabled:  #C0C0C6;
+  --text-primary:   #0B1830;
+  --text-secondary: #3D5878;
+  --text-muted:     #5F7692;
+  --text-disabled:  #A8B8CC;
 
-  /* 强调色（亮色/暗色模式保持一致，这是 Linear 的特点） */
-  --accent:        #5E6AD2;
-  --accent-hover:  #4E5BC2;
-  --accent-subtle: rgba(94, 106, 210, 0.12);
+  /* 强调色 */
+  --accent:        #0A7E72;
+  --accent-hover:  #086E63;
+  --accent-subtle: rgba(10, 126, 114, 0.08);
 
   /* 功能色（亮色模式加深以保证对比度） */
   --success: #2D7A52;
@@ -87,35 +91,43 @@ Nini 是本地优先的科研全流程 AI 研究伙伴。UI 必须传达**专业
   --domain-knowledge: #4338CA;
 
   /* Scrollbar */
-  --scrollbar-thumb:       #DCDCE0;
-  --scrollbar-thumb-hover: #C8C8CE;
+  --scrollbar-thumb:       #C8D8EE;
+  --scrollbar-thumb-hover: #A8C0DE;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 3px rgba(11, 24, 48, 0.08);
+  --shadow-md: 0 6px 18px rgba(11, 24, 48, 0.10);
+  --shadow-lg: 0 12px 28px rgba(11, 24, 48, 0.14);
 }
 
 .dark {
   /* === 暗色模式（Dark Mode）=== */
 
   /* 背景层级 */
-  --bg-app:      #0F0F10;
-  --bg-base:     #141415;
-  --bg-elevated: #1A1A1C;
-  --bg-overlay:  #222224;
-  --bg-hover:    #2A2A2C;
+  --bg-app:      #000000;
+  --bg-base:     #000000;
+  --bg-elevated: #0A0A0A;
+  --bg-overlay:  #121212;
+  --bg-hover:    #18181B;
+
+  /* 卡片层级 */
+  --card:        #0A0A0A;
 
   /* 边框 */
-  --border-subtle:  #1E1E20;
-  --border-default: #2A2A2C;
-  --border-strong:  #3A3A3D;
+  --border-subtle:  #18181B;
+  --border-default: #27272A;
+  --border-strong:  #3F3F46;
 
   /* 文字 */
-  --text-primary:   #E8E8EA;
-  --text-secondary: #8A8A8F;
-  --text-muted:     #5A5A5F;
-  --text-disabled:  #3A3A3F;
+  --text-primary:   #FAFAFA;
+  --text-secondary: #A3A3A3;
+  --text-muted:     #7A7A84;
+  --text-disabled:  #52525B;
 
   /* 强调色 */
-  --accent:        #5E6AD2;
-  --accent-hover:  #6872D8;
-  --accent-subtle: rgba(94, 106, 210, 0.15);
+  --accent:        #0DBCAA;
+  --accent-hover:  #10D4BA;
+  --accent-subtle: rgba(13, 188, 170, 0.10);
 
   /* 功能色 */
   --success: #4D9A6A;
@@ -131,8 +143,13 @@ Nini 是本地优先的科研全流程 AI 研究伙伴。UI 必须传达**专业
   --domain-knowledge: #4F46E5;
 
   /* Scrollbar */
-  --scrollbar-thumb:       #2A2A2C;
-  --scrollbar-thumb-hover: #3A3A3D;
+  --scrollbar-thumb:       #27272A;
+  --scrollbar-thumb-hover: #3F3F46;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.40);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.48);
 }
 
 /* 双模式 Scrollbar 规范 */
@@ -155,36 +172,36 @@ Nini 是本地优先的科研全流程 AI 研究伙伴。UI 必须传达**专业
 
 | Token | Light | Dark | 用途 |
 |-------|-------|------|------|
-| `--bg-app` | `#F5F5F6` | `#0F0F10` | 应用最底层背景 |
-| `--bg-base` | `#FFFFFF` | `#141415` | 面板/卡片默认背景 |
-| `--bg-elevated` | `#F0F0F2` | `#1A1A1C` | 浮层/弹出内容背景 |
-| `--bg-overlay` | `#E8E8EA` | `#222224` | 遮罩层背景 |
-| `--bg-hover` | `#EBEBED` | `#2A2A2C` | hover 状态背景 |
+| `--bg-app` | `#EDF2FA` | `#000000` | 应用最底层背景 |
+| `--bg-base` | `#FFFFFF` | `#000000` | 面板/卡片默认背景 |
+| `--bg-elevated` | `#F5F9FF` | `#0A0A0A` | 浮层/弹出内容背景 |
+| `--bg-overlay` | `#E0E8F4` | `#121212` | 遮罩层背景 |
+| `--bg-hover` | `rgba(10,126,114,0.08)` | `#18181B` | hover 状态背景 |
 
 #### 边框
 
 | Token | Light | Dark | 用途 |
 |-------|-------|------|------|
-| `--border-subtle` | `#E8E8EA` | `#1E1E20` | 面板内分割线、微弱分隔 |
-| `--border-default` | `#DCDCE0` | `#2A2A2C` | 组件默认边框 |
-| `--border-strong` | `#C8C8CE` | `#3A3A3D` | 强调边框、active 状态 |
+| `--border-subtle` | `#C8D8EE` | `#18181B` | 面板内分割线、微弱分隔 |
+| `--border-default` | `#A8C0DE` | `#27272A` | 组件默认边框 |
+| `--border-strong` | `#8AAAC8` | `#3F3F46` | 强调边框、active 状态 |
 
 #### 文字
 
 | Token | Light | Dark | 用途 |
 |-------|-------|------|------|
-| `--text-primary` | `#1A1A1C` | `#E8E8EA` | 正文、标题 |
-| `--text-secondary` | `#6A6A6F` | `#8A8A8F` | 辅助说明、标签 |
-| `--text-muted` | `#9A9AA0` | `#5A5A5F` | 占位符、禁用文字 |
-| `--text-disabled` | `#C0C0C6` | `#3A3A3F` | 不可交互文字 |
+| `--text-primary` | `#0B1830` | `#FAFAFA` | 正文、标题 |
+| `--text-secondary` | `#3D5878` | `#A3A3A3` | 辅助说明、标签 |
+| `--text-muted` | `#5F7692` | `#7A7A84` | 占位符、禁用文字 |
+| `--text-disabled` | `#A8B8CC` | `#52525B` | 不可交互文字 |
 
-#### 强调色（双模式保持一致）
+#### 强调色
 
-| Token | Light & Dark | 用途 |
-|-------|-------------|------|
-| `--accent` | `#5E6AD2` | 主操作按钮、选中态、链接 |
-| `--accent-hover` | Light `#4E5BC2` / Dark `#6872D8` | hover 态（亮色加深，暗色提亮） |
-| `--accent-subtle` | Light `rgba(94,106,210,0.12)` / Dark `rgba(94,106,210,0.15)` | 选中背景、tag 背景 |
+| Token | Light | Dark | 用途 |
+|-------|-------|------|------|
+| `--accent` | `#0A7E72` | `#0DBCAA` | 主操作按钮、选中态、链接 |
+| `--accent-hover` | `#086E63` | `#10D4BA` | hover 态（亮色加深，暗色提亮） |
+| `--accent-subtle` | `rgba(10,126,114,0.08)` | `rgba(13,188,170,0.10)` | 选中背景、tag 背景 |
 
 #### 功能色
 
@@ -277,9 +294,9 @@ Nini 是本地优先的科研全流程 AI 研究伙伴。UI 必须传达**专业
 
 | Token | Value | 用途 |
 |-------|-------|------|
-| `--shadow-sm` | `0 1px 2px rgba(0,0,0,0.3)` | 微浮起 |
-| `--shadow-md` | `0 4px 8px rgba(0,0,0,0.4)` | 弹出面板 |
-| `--shadow-lg` | `0 8px 24px rgba(0,0,0,0.5)` | Sheet 弹窗 |
+| `--shadow-sm` | Light `0 1px 3px rgba(11,24,48,0.08)` / Dark `0 1px 2px rgba(0,0,0,0.32)` | 微浮起 |
+| `--shadow-md` | Light `0 6px 18px rgba(11,24,48,0.10)` / Dark `0 4px 12px rgba(0,0,0,0.40)` | 弹出面板 |
+| `--shadow-lg` | Light `0 12px 28px rgba(11,24,48,0.14)` / Dark `0 8px 24px rgba(0,0,0,0.48)` | Sheet 弹窗 |
 
 ### 亮色模式特有处理
 
@@ -698,9 +715,9 @@ export function getPlotlyLayout(isDark: boolean) {
     },
     xaxis: {
       gridcolor:    isDark ? '#2A2A2C' : '#E8E8EA',
-      linecolor:    isDark ? '#2A2A2C' : '#DCDCE0',
-      tickcolor:    isDark ? '#5A5A5F' : '#9A9AA0',
-      zerolinecolor: isDark ? '#3A3A3D' : '#C8C8CE',
+      linecolor:    isDark ? '#27272A' : '#A8C0DE',
+      tickcolor:    isDark ? '#7A7A84' : '#5F7692',
+      zerolinecolor: isDark ? '#3F3F46' : '#8AAAC8',
     },
     yaxis: {
       gridcolor:    isDark ? '#2A2A2C' : '#E8E8EA',
@@ -713,7 +730,7 @@ export function getPlotlyLayout(isDark: boolean) {
 
 // 色盲友好的图表数据系列颜色（双模式通用）
 export const CHART_COLORS = [
-  '#5E6AD2', // accent blue-purple
+  '#0A7E72', // accent teal
   '#4D9A6A', // success green
   '#C4874A', // warning orange
   '#C45A5A', // error red

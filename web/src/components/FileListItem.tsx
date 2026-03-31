@@ -164,9 +164,9 @@ export default React.memo(function FileListItem({ file }: Props) {
  </Button>
  )}
 
- {/* 操作按钮：始终可见（触屏可点击），桌面端 hover 时更突出 */}
+ {/* 操作按钮：悬停时展示 */}
  {!isRenaming && (
- <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+ <div className="items-center gap-1 hidden group-hover:flex">
  <Button
  variant="ghost"
  onClick={handleDownload}
@@ -195,7 +195,7 @@ export default React.memo(function FileListItem({ file }: Props) {
  e.stopPropagation()
  handleDelete()
  }}
- className="p-1.5 rounded hover:bg-[var(--accent-subtle)] hover:text-[var(--error)]"
+ className="p-1.5 rounded hover:bg-[var(--error-subtle)] hover:text-[var(--error)]"
  title="删除"
  aria-label="删除文件"
  >

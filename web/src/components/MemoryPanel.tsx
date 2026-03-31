@@ -36,6 +36,11 @@ const FILE_CONTENT_DEFAULT_HEIGHT = 120;
 const FILE_CONTENT_MIN_HEIGHT = 40;
 const FILE_CONTENT_MAX_HEIGHT = 400;
 
+const MEMORY_TABS = [
+ { id: "session", label: "会话记忆", icon: FileText },
+ { id: "longterm", label: "长期记忆", icon: Sparkles },
+] as const;
+
 // ---- 记忆类型配色系统 ----
 const MEMORY_TYPE_CONFIG: Record<
  string,
@@ -745,38 +750,45 @@ export default function MemoryPanel() {
  style={{ height: `${panelHeight}px` }}
  >
  {/* Tab 导航 */}
- <div className="flex flex-shrink-0 border-b border-[var(--border-default)]">
+ <div
+ role="tablist"
+ aria-label="记忆状态切换"
+ className="flex flex-shrink-0 border-b border-[var(--border-default)]"
+ >
+ {MEMORY_TABS.map((tab) => {
+ const Icon = tab.icon;
+ const isActive = activeTab === tab.id;
+ return (
  <Button
- type="button"
+ key={tab.id}
  variant="ghost"
- onClick={() => setActiveTab("session")}
+ type="button"
+ role="tab"
+ aria-selected={isActive}
+ aria-controls={`memory-panel-${tab.id}`}
+ id={`memory-tab-${tab.id}`}
+ onClick={() => setActiveTab(tab.id)}
  className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap rounded-none !transition-none relative ${
- activeTab === "session"
+ isActive
  ? "!text-[var(--accent)] !bg-[var(--accent-subtle)]/50 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-[var(--accent)]"
  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
  }`}
  >
- <Database size={13} />
- 会话记忆
+ <Icon size={13} className="flex-shrink-0" />
+ {tab.label}
  </Button>
- <Button
- type="button"
- variant="ghost"
- onClick={() => setActiveTab("longterm")}
- className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap rounded-none !transition-none relative ${
- activeTab === "longterm"
- ? "!text-[var(--accent)] !bg-[var(--accent-subtle)]/50 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-[var(--accent)]"
- : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
- }`}
- >
- <Sparkles size={13} />
- 长期记忆
- </Button>
+ );
+ })}
  </div>
 
  {/* 会话记忆 Tab */}
  {activeTab === "session" && (
- <div className="flex min-h-0 flex-1 flex-col px-2 pb-2">
+ <div
+ id="memory-panel-session"
+ role="tabpanel"
+ aria-labelledby="memory-tab-session"
+ className="flex min-h-0 flex-1 flex-col px-2 pb-2"
+ >
  <div className="flex flex-shrink-0 items-center justify-end py-1">
  <Button
  type="button"
@@ -809,7 +821,12 @@ export default function MemoryPanel() {
 
  {/* 长期记忆 Tab */}
  {activeTab === "longterm" && (
- <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+ <div
+ id="memory-panel-longterm"
+ role="tabpanel"
+ aria-labelledby="memory-tab-longterm"
+ className="min-h-0 flex-1 overflow-y-auto px-2 py-2"
+ >
  <LongTermMemoryView visible={activeTab === "longterm"} />
  </div>
  )}
