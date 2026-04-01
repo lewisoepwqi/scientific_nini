@@ -133,3 +133,51 @@ def test_group_into_waves_skips_completed():
     # 任务 1 已完成，任务 2 的依赖不在 pending 中，应单独在 wave 0
     assert len(waves) == 1
     assert waves[0][0].id == 2
+
+
+# ---- update_tasks 幂等性检测（no_op_ids） ----
+
+
+def test_update_tasks_detects_no_op_when_status_unchanged():
+    """状态未变化时应返回 no_op_ids。"""
+    tm = _make_manager(
+        [
+            {"id": 1, "title": "数据清洗", "status": "in_progress"},
+            {"id": 2, "title": "统计分析", "status": "pending"},
+        ]
+    )
+    result = tm.update_tasks([{"id": 1, "status": "in_progress"}])
+    assert result.no_op_ids == [1]
+    assert result.manager.tasks[0].status == "in_progress"
+
+
+def test_update_tasks_no_no_op_when_status_actually_changes():
+    """状态实际变化时 no_op_ids 应为空。"""
+    tm = _make_manager(
+        [
+            {"id": 1, "title": "数据清洗", "status": "in_progress"},
+            {"id": 2, "title": "统计分析", "status": "pending"},
+        ]
+    )
+    result = tm.update_tasks([{"id": 2, "status": "in_progress"}])
+    assert result.no_op_ids == []
+    # 任务1应被自动完成
+    assert 1 in result.auto_completed_ids
+
+
+def test_update_tasks_mixed_no_op_and_real_change():
+    """混合场景：部分任务无操作，部分实际变化。"""
+    tm = _make_manager(
+        [
+            {"id": 1, "title": "数据清洗", "status": "completed"},
+            {"id": 2, "title": "统计分析", "status": "in_progress"},
+        ]
+    )
+    result = tm.update_tasks(
+        [
+            {"id": 1, "status": "completed"},  # 无操作
+            {"id": 2, "status": "completed"},  # 实际变化
+        ]
+    )
+    assert result.no_op_ids == [1]
+    assert result.manager.tasks[1].status == "completed"

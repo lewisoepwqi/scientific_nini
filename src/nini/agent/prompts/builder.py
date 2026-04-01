@@ -147,14 +147,16 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
 }
 
 
+# KV-cache 友好顺序：稳定高优先级组件在前，易变/低优先级在后。
+# 前缀越稳定，LLM 提供商的 KV-cache 命中率越高。
 _TRUSTED_COMPONENT_FILES = [
-    "identity.md",
-    "strategy.md",
-    "security.md",
-    "workflow.md",
-    "agents.md",
-    "user.md",
-    "memory.md",
+    "identity.md",  # priority=100, 极稳定
+    "security.md",  # priority=95,  极稳定
+    "strategy.md",  # priority=90,  稳定
+    "agents.md",  # priority=65,  稳定
+    "workflow.md",  # priority=60,  稳定
+    "user.md",  # priority=30,  动态
+    "memory.md",  # priority=20,  动态
 ]
 
 # 组件优先级（数字越大越重要，截断时优先保留）
@@ -222,9 +224,39 @@ class PromptBuilder:
         return "\n\n".join(parts).strip()
 
     def _load_components(self) -> list[PromptComponent]:
+        """按 KV-cache 友好顺序加载组件。
+
+        稳定组件在前（identity/security/strategy），易变组件在后（skills_snapshot/user/memory）。
+        前缀越稳定，LLM 提供商的 KV-cache 命中率越高。
+        """
         self._base_dir.mkdir(parents=True, exist_ok=True)
         components: list[PromptComponent] = []
 
+        # 1. 先加载稳定的受信组件（identity → security → strategy → agents → workflow）
+        for filename in _TRUSTED_COMPONENT_FILES:
+            path = self._base_dir / filename
+            text = self._load_component_text(path, filename)
+            comp_name = filename.replace(".md", "")
+            components.append(
+                PromptComponent(
+                    name=comp_name,
+                    text=text,
+                    priority=_PRIORITY.get(comp_name, 50),
+                )
+            )
+
+        # 2. 项目根目录 AGENTS.md（稳定，priority=80）
+        agents_md_text = self._load_root_agents_md()
+        if agents_md_text:
+            components.append(
+                PromptComponent(
+                    name="agents_external_md",
+                    text=agents_md_text,
+                    priority=_PRIORITY.get("agents_external_md", 80),
+                )
+            )
+
+        # 3. Skills 快照（易变，priority=70）——放在稳定组件之后，避免变动破坏前缀 KV-cache
         skills_snapshot = settings.skills_snapshot_path
         if skills_snapshot.exists():
             snapshot_text = skills_snapshot.read_text(encoding="utf-8")
@@ -238,29 +270,6 @@ class PromptBuilder:
                 priority=_PRIORITY.get("skills_snapshot", 50),
             )
         )
-
-        for filename in _TRUSTED_COMPONENT_FILES:
-            path = self._base_dir / filename
-            text = self._load_component_text(path, filename)
-            comp_name = filename.replace(".md", "")
-            components.append(
-                PromptComponent(
-                    name=comp_name,
-                    text=text,
-                    priority=_PRIORITY.get(comp_name, 50),
-                )
-            )
-
-        # 项目根目录 AGENTS.md 进入 trusted assembly（仅根目录，子目录单独作用域不合并）
-        agents_md_text = self._load_root_agents_md()
-        if agents_md_text:
-            components.append(
-                PromptComponent(
-                    name="agents_external_md",
-                    text=agents_md_text,
-                    priority=_PRIORITY.get("agents_external_md", 80),
-                )
-            )
 
         return components
 

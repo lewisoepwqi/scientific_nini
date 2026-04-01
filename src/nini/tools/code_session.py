@@ -186,7 +186,11 @@ class CodeSessionTool(Tool):
         self._persist_script_record(manager, record, content)
         return ToolResult(
             success=True,
-            message=f"脚本会话已创建：{script_id}",
+            message=(
+                f"脚本会话已创建：{script_id}。"
+                f"⚠️ 脚本已保存但尚未执行，"
+                f"请调用 code_session(operation='run_script', script_id='{script_id}') 运行此脚本。"
+            ),
             data=self._build_script_payload(manager, record, content),
         )
 

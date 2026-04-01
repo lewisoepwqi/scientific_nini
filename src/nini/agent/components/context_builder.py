@@ -245,12 +245,19 @@ class ContextBuilder:
                 "交互式（Plotly）" if pref == "interactive" else "静态图片（Matplotlib/PNG）"
             )
             context_parts.append(
-                f"[图表输出偏好] 用户当前偏好：{pref_label}。生成图表时 render_engine 应选择对应值，无需再次询问。"
+                format_untrusted_context_block(
+                    "chart_preference",
+                    f"用户当前偏好：{pref_label}。"
+                    "生成图表时 render_engine 应选择对应值，无需再次询问。",
+                )
             )
         else:
             context_parts.append(
-                "[图表输出偏好] 用户尚未表明偏好。首次生成图表前，必须调用 ask_user_question 询问："
-                "是否需要可交互图表（可缩放/悬停）还是静态图片（PNG/SVG，适合发表/报告）。"
+                format_untrusted_context_block(
+                    "chart_preference",
+                    "用户尚未表明偏好。首次生成图表前，必须调用 ask_user_question 询问："
+                    "是否需要可交互图表（可缩放/悬停）还是静态图片（PNG/SVG，适合发表/报告）。",
+                )
             )
 
         # 注入已完成数据概况提醒（防止压缩后 LLM 重复调用 dataset_catalog(profile)）
@@ -258,8 +265,11 @@ class ContextBuilder:
         if completed_profiles:
             names = "、".join(f"'{n}'" for n in sorted(completed_profiles))
             context_parts.append(
-                f"[已完成概况] 数据集 {names} 的概况已成功获取，"
-                "禁止重复调用 dataset_catalog(profile)，请直接进行分析或输出结论。"
+                format_untrusted_context_block(
+                    "completed_profiles",
+                    f"数据集 {names} 的概况已成功获取，"
+                    "禁止重复调用 dataset_catalog(profile)，请直接进行分析或输出结论。",
+                )
             )
 
         # 注入任务进度上下文（防止压缩后 LLM 丢失任务状态）
