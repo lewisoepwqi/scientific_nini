@@ -41,6 +41,7 @@ class UpdateResult:
 
     manager: "TaskManager"
     auto_completed_ids: list[int] = field(default_factory=list)
+    no_op_ids: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -136,15 +137,20 @@ class TaskManager:
                 new_in_progress_ids.add(tid)
 
         auto_completed_ids: list[int] = []
+        no_op_ids: list[int] = []
         new_tasks: list[TaskItem] = []
         for task in self.tasks:
             if task.id in update_map:
                 upd = update_map[task.id]
+                new_status = upd.get("status", task.status)
+                # 检测状态未实际变化的无操作调用（用于打破 LLM 循环）
+                if new_status == task.status:
+                    no_op_ids.append(task.id)
                 new_tasks.append(
                     TaskItem(
                         id=task.id,
                         title=str(upd.get("title", task.title)),
-                        status=upd.get("status", task.status),
+                        status=new_status,
                         tool_hint=upd.get("tool_hint", task.tool_hint),
                         action_id=task.action_id,
                     )
@@ -164,7 +170,11 @@ class TaskManager:
             else:
                 new_tasks.append(task)
         new_manager = TaskManager(tasks=new_tasks, initialized=self.initialized)
-        return UpdateResult(manager=new_manager, auto_completed_ids=auto_completed_ids)
+        return UpdateResult(
+            manager=new_manager,
+            auto_completed_ids=auto_completed_ids,
+            no_op_ids=no_op_ids,
+        )
 
     def all_completed(self) -> bool:
         """所有任务均已到达终态（completed/failed/skipped）。"""

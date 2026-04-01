@@ -526,6 +526,8 @@ class AgentRunner:
         reasoning_tracker = ReasoningChainTracker()
         # 同一轮内的工具失败链路：用于重复错误熔断
         tool_failure_chains: dict[str, dict[str, Any]] = {}
+        # 跟踪 task_state(update) 无操作重复调用次数，用于打破 LLM 循环
+        task_state_noop_repeat_count: int = 0
         breaker_threshold = max(1, int(settings.tool_circuit_breaker_threshold))
         allowed_tool_whitelist, allowed_tool_sources = self._resolve_allowed_tool_recommendations(
             user_message
@@ -1590,15 +1592,27 @@ class AgentRunner:
                                     len(plan_dict.get("steps", [])),
                                 )
                                 yield _new_analysis_plan_event(plan_dict)
+                                _first_task = (
+                                    session.task_manager.tasks[0]
+                                    if session.task_manager.tasks
+                                    else None
+                                )
                                 yield _new_plan_progress_event(
                                     current_idx=0,
-                                    step_status="pending",
-                                    next_hint=(
-                                        session.task_manager.tasks[0].title
-                                        if session.task_manager.tasks
-                                        else None
-                                    ),
+                                    step_status=(_first_task.status if _first_task else "pending"),
+                                    next_hint=(_first_task.title if _first_task else None),
                                 )
+                                # init 已自动启动首个任务时，额外发送步骤更新事件
+                                if _first_task and _first_task.status == "in_progress":
+                                    yield _new_plan_step_update_event(
+                                        {
+                                            "id": _first_task.id,
+                                            "title": _first_task.title,
+                                            "tool_hint": _first_task.tool_hint,
+                                            "status": _first_task.status,
+                                            "action_id": _first_task.action_id,
+                                        }
+                                    )
                             else:  # update
                                 # 收集需要发送事件的任务 ID：包括显式更新的和自动完成的
                                 updated_ids = {
@@ -1625,6 +1639,34 @@ class AgentRunner:
                                         )
                         except Exception as exc:
                             logger.debug("%s 事件发射失败: %s", func_name, exc)
+
+                    # ── task_state(update) 无操作重复检测 ─────────────────────
+                    # 跟踪连续的 task_state(update) 无操作调用，超过阈值后替换为强重定向消息
+                    _ts_result_data = result.get("data", {}) if isinstance(result, dict) else {}
+                    if (
+                        not has_error
+                        and isinstance(_ts_result_data, dict)
+                        and _ts_result_data.get("no_op_ids")
+                        and isinstance(result, dict)
+                    ):
+                        task_state_noop_repeat_count += 1
+                        if task_state_noop_repeat_count >= 2:
+                            logger.warning(
+                                "检测到 task_state 无操作重复调用: session=%s "
+                                "repeat_count=%d, 替换为重定向消息",
+                                session.id,
+                                task_state_noop_repeat_count,
+                            )
+                            result["message"] = (
+                                "⚠️ 你已连续多次调用 task_state(update) 但任务状态未发生变化，"
+                                "这表明你陷入了循环。"
+                                "请立即调用实际的分析工具（如 stat_test、run_code、create_chart）"
+                                "执行当前任务，绝对不要再调用 task_state。"
+                            )
+                    else:
+                        # 有实际状态变更，重置计数
+                        task_state_noop_repeat_count = 0
+                    # ── task_state 无操作重复检测结束 ─────────────────────────
 
                     result_str = serialize_tool_result_for_memory(result)
                     session.add_tool_result(
@@ -2404,14 +2446,16 @@ class AgentRunner:
                     # 检查是否有产物（可下载文件）
                     if isinstance(result, dict) and result.get("artifacts"):
                         artifacts_raw = result.get("artifacts")
-                        if isinstance(artifacts_raw, list):
+                        if isinstance(artifacts_raw, list) and artifacts_raw:
+                            # 批量写入一条 session 事件，减少上下文膨胀
+                            session.add_assistant_event(
+                                "artifact",
+                                f"已生成 {len(artifacts_raw)} 个产物",
+                                turn_id=turn_id,
+                                artifacts=artifacts_raw,
+                            )
+                            # 仍然为每个 artifact 发送独立的 WebSocket 事件（前端需逐个渲染）
                             for artifact in artifacts_raw:
-                                session.add_assistant_event(
-                                    "artifact",
-                                    "产物已生成",
-                                    turn_id=turn_id,
-                                    artifacts=[artifact],
-                                )
                                 yield eb.build_artifact_event(
                                     artifact_id=artifact.get("id", ""),
                                     artifact_type=artifact.get("type", ""),

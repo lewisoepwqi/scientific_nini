@@ -64,8 +64,9 @@ _LLM_SUMMARY_PROMPT = (
     "③ 统计方法及选择理由\n"
     "④ **具体数值结果**（检验统计量、p 值、效应量、置信区间等，不得省略）\n"
     "⑤ 关键结论与实际意义\n"
-    "⑥ 当前尚未完成的任务或待解决问题\n"
-    "摘要不超过 600 字。只输出摘要内容，不要添加额外说明。\n\n"
+    "⑥ 每个已完成分析步骤的关键输出（如统计量、发现的规律），不超过一句话\n"
+    "⑦ PDCA 任务列表的当前状态（每个任务的 ID、标题、状态：completed/in_progress/pending）\n"
+    "摘要不超过 800 字。只输出摘要内容，不要添加额外说明。\n\n"
     "对话历史：\n{conversation}"
 )
 
@@ -97,14 +98,15 @@ def _trim_text(value: Any, *, max_len: int = 180) -> str:
     return text
 
 
-def _summarize_messages(messages: list[dict[str, Any]], *, max_items: int = 20) -> str:
+def _summarize_messages(messages: list[dict[str, Any]], *, max_items: int = 30) -> str:
     """生成轻量摘要，避免再引入一次模型调用。"""
     lines: list[str] = []
     for msg in messages[:max_items]:
         role = str(msg.get("role", "")).strip() or "unknown"
         if role == "tool":
             tool_id = _trim_text(msg.get("tool_call_id", ""), max_len=32)
-            content = _trim_text(msg.get("content", ""), max_len=140)
+            # tool_result 包含统计数值等关键结果，给予更多空间
+            content = _trim_text(msg.get("content", ""), max_len=300)
             lines.append(f"- [tool:{tool_id}] {content}")
             continue
 
@@ -189,9 +191,9 @@ async def _llm_summarize(messages: list[dict[str, Any]]) -> str | None:
         )
         summary = response.text.strip()
         if summary:
-            # 确保不超过 600 字（放宽以保留科研数值细节）
-            if len(summary) > 600:
-                summary = summary[:600] + "..."
+            # 确保不超过 800 字（放宽以保留科研数值细节和 PDCA 任务状态）
+            if len(summary) > 800:
+                summary = summary[:800] + "..."
             logger.info("LLM 对话摘要生成成功 (%d 字)", len(summary))
             return summary
     except Exception:

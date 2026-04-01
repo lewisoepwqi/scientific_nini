@@ -520,7 +520,14 @@ class HarnessRunner:
                 key="all_tasks_completed",
                 label="所有任务已完成",
                 passed=(
-                    not session.task_manager.has_tasks() or session.task_manager.all_completed()
+                    not session.task_manager.has_tasks()
+                    or session.task_manager.all_completed()
+                    or (
+                        # 无 pending 任务（仅剩 in_progress）且 LLM 已输出文本时视为通过，
+                        # 避免"不要调用工具"指令与"必须标记 completed"的矛盾
+                        session.task_manager.pending_count() == 0
+                        and bool(final_text)
+                    )
                 ),
                 detail="若存在未完成任务，需先完成或明确说明无法完成的原因。",
             ),

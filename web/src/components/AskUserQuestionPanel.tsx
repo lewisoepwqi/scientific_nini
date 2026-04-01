@@ -132,21 +132,22 @@ export default function AskUserQuestionPanel({
  // 根据 question_type 计算每个问题的容器样式
  function getSectionStyle(questionType?: QuestionType): string {
  if (questionType === "risk_confirmation") {
- return "rounded-xl border border-[var(--error)] bg-[var(--error-subtle)] p-3";
+ return "rounded-xl border border-[color-mix(in_srgb,var(--error)_32%,var(--border-default))] bg-[color-mix(in_srgb,var(--error-subtle)_72%,var(--bg-base))] p-4 shadow-sm";
  }
- return "rounded-xl border border-[var(--border-default)] p-3";
+ return "rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] p-4 shadow-sm";
  }
 
  // 根据 question_type 计算选项按钮样式
  function getOptionStyle(questionType?: QuestionType, checked?: boolean): string {
- const isEmphasis =
- questionType === "approach_choice" || questionType === "ambiguous_requirement";
- if (isEmphasis) {
- return checked
- ? "flex cursor-pointer items-start gap-2 rounded-lg border border-[var(--accent)] bg-[var(--accent-subtle)] px-2.5 py-2"
- : "flex cursor-pointer items-start gap-2 rounded-lg border border-[var(--accent-subtle)] px-2.5 py-2 hover:bg-[var(--accent-subtle)]";
+ const isRisk = questionType === "risk_confirmation";
+ if (checked) {
+ return isRisk
+ ? "group flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--error)] bg-[color-mix(in_srgb,var(--error-subtle)_78%,var(--bg-base))] px-3 py-3 shadow-[0_12px_28px_rgba(160,56,56,0.08)] ring-1 ring-[color-mix(in_srgb,var(--error)_16%,transparent)] transition-all duration-150"
+ : "group flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,var(--bg-base))] px-3 py-3 shadow-[0_12px_28px_rgba(10,126,114,0.10)] ring-1 ring-[color-mix(in_srgb,var(--accent)_18%,transparent)] transition-all duration-150";
  }
- return "flex cursor-pointer items-start gap-2 rounded-lg border border-[var(--border-default)] px-2.5 py-2 hover:bg-[var(--bg-elevated)]";
+ return isRisk
+ ? "group flex cursor-pointer items-start gap-3 rounded-xl border border-[color-mix(in_srgb,var(--error)_16%,var(--border-default))] bg-[var(--bg-base)] px-3 py-3 transition-all duration-150 hover:border-[color-mix(in_srgb,var(--error)_42%,var(--border-default))] hover:bg-[color-mix(in_srgb,var(--error-subtle)_46%,var(--bg-base))]"
+ : "group flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] px-3 py-3 transition-all duration-150 hover:border-[color-mix(in_srgb,var(--accent)_34%,var(--border-default))] hover:bg-[var(--bg-elevated)]";
  }
 
  function getTabStyle(index: number): string {
@@ -154,7 +155,7 @@ export default function AskUserQuestionPanel({
  return "border-[var(--error)] bg-[var(--error-subtle)] text-[var(--error)] shadow-sm";
  }
  if (index === activeIndex) {
- return "border-[var(--accent)] bg-[var(--bg-base)] text-[var(--text-primary)] shadow-[0_10px_24px_rgba(13,148,136,0.14)] ring-1 ring-[color-mix(in_srgb,var(--accent)_18%,transparent)]";
+ return "border-[color-mix(in_srgb,var(--accent)_34%,var(--border-default))] bg-[color-mix(in_srgb,var(--accent)_9%,var(--bg-base))] text-[var(--text-primary)]";
  }
  if (skippedMap[index]) {
  return "border-[var(--warning)] bg-[var(--warning-subtle)] text-[var(--warning)]";
@@ -218,7 +219,7 @@ export default function AskUserQuestionPanel({
  </div>
 
  {questionCount > 1 && (
- <div className="mb-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/70 p-2">
+ <div className="mb-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/70 p-2">
  <div
  className="flex flex-wrap gap-2"
  role="tablist"
@@ -235,7 +236,7 @@ export default function AskUserQuestionPanel({
  aria-current={index === activeIndex ? "step" : undefined}
  aria-controls={`ask-user-question-panel-${index}`}
  onClick={() => setActiveIndex(index)}
- className={`group inline-flex min-w-0 flex-1 items-start gap-3 rounded-2xl border px-3 py-3 text-left text-xs font-medium transition-all duration-150 sm:min-w-[11rem] ${getTabStyle(index)}`}
+ className={`group inline-flex h-auto min-w-0 flex-1 items-center gap-3 rounded-xl border px-4 py-3 text-left text-xs font-medium transition-all duration-150 sm:min-w-[11rem] ${getTabStyle(index)}`}
  >
  <span
  className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold transition-colors ${getTabNumberStyle(index)}`}
@@ -246,16 +247,20 @@ export default function AskUserQuestionPanel({
  index + 1
  )}
  </span>
- <span className="min-w-0 flex-1">
- <span className="block truncate text-sm font-semibold text-inherit">
+ <span className="min-w-0 flex-1 pr-2">
+ <span className="block truncate text-sm font-semibold leading-5 text-inherit">
  {question.header || question.question}
  </span>
- <span className="mt-1 block truncate text-[11px] text-[var(--text-secondary)]">
+ <span
+ className={`mt-0.5 block truncate text-[11px] leading-4 ${
+ index === activeIndex ? "text-[var(--accent)]" : "text-[var(--text-secondary)]"
+ }`}
+ >
  {index === activeIndex ? "正在处理这个问题" : question.question}
  </span>
  </span>
  <span
- className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTabStatusStyle(index)}`}
+ className={`ml-auto shrink-0 self-center rounded-full border px-2.5 py-1 text-[10px] font-semibold leading-none ${getTabStatusStyle(index)}`}
  >
  {getTabStatus(index)}
  </span>
@@ -280,8 +285,8 @@ export default function AskUserQuestionPanel({
  >
  <div className="mb-2">
  {questionCount > 1 && (
- <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[var(--accent-subtle)] bg-[var(--accent-subtle)] px-2.5 py-1 text-[11px] font-semibold text-[var(--accent)]">
- <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--bg-base)] px-1.5 text-[10px]">
+ <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--accent)_20%,var(--border-subtle))] bg-[color-mix(in_srgb,var(--accent)_8%,var(--bg-base))] px-2.5 py-1 text-[11px] font-semibold text-[var(--accent)]">
+ <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--bg-base)] px-1.5 text-[10px] shadow-sm">
  第 {activeIndex + 1} 题
  </span>
  <span>当前问题</span>
@@ -311,6 +316,7 @@ export default function AskUserQuestionPanel({
  <div className="space-y-2">
  {activeQuestion.options.map((option) => {
  const checked = (selectedMap[activeIndex] || []).includes(option.label);
+ const isRisk = activeQuestion.question_type === "risk_confirmation";
  return (
  <label
  key={option.label}
@@ -325,11 +331,38 @@ export default function AskUserQuestionPanel({
  ? toggleMultiOption(activeIndex, option.label)
  : setSingleOption(activeIndex, option.label)
  }
- className="mt-1"
+ className={`mt-0.5 h-4 w-4 shrink-0 ${
+ isRisk ? "accent-[var(--error)]" : "accent-[var(--accent)]"
+ }`}
  />
- <span>
- <span className="block text-sm text-[var(--text-primary)]">{option.label}</span>
- <span className="block text-xs text-[var(--text-secondary)]">{option.description}</span>
+ <span className="min-w-0 flex-1">
+ <span className="flex items-center gap-2">
+ <span
+ className={`block text-sm ${
+ checked ? "font-semibold" : "font-medium"
+ } text-[var(--text-primary)]`}
+ >
+ {option.label}
+ </span>
+ {checked && (
+ <span
+ className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+ isRisk
+ ? "border-[var(--error)] bg-[var(--error-subtle)] text-[var(--error)]"
+ : "border-[var(--accent)] bg-[var(--accent-subtle)] text-[var(--accent)]"
+ }`}
+ >
+ 已选
+ </span>
+ )}
+ </span>
+ <span
+ className={`mt-1 block text-xs leading-6 ${
+ checked ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]"
+ }`}
+ >
+ {option.description}
+ </span>
  </span>
  </label>
  );

@@ -535,6 +535,58 @@ def test_artifact_check_fails_when_promised_but_not_delivered() -> None:
     assert artifact_item.passed is False, "承诺了产物但未生成产物事件时应校验失败"
 
 
+def test_completion_check_passes_when_only_in_progress_remains() -> None:
+    """无 pending 任务且 LLM 已输出文本时，all_tasks_completed 应通过。"""
+    runner = HarnessRunner(agent_runner=None)  # type: ignore[arg-type]
+    session = Session()
+    turn_id = "turn-last-ip"
+
+    # 模拟：任务1 completed，任务2 in_progress（无 pending）
+    session.task_manager = session.task_manager.init_tasks(
+        [
+            {"id": 1, "title": "数据清洗", "status": "pending"},
+            {"id": 2, "title": "结果汇总", "status": "pending"},
+        ]
+    )
+    result = session.task_manager.update_tasks(
+        [{"id": 1, "status": "completed"}, {"id": 2, "status": "in_progress"}]
+    )
+    session.task_manager = result.manager
+
+    # LLM 输出了最终文本
+    session.add_message("assistant", "分析完成，核心结论如下。", turn_id=turn_id)
+
+    check = runner._run_completion_check(session, turn_id=turn_id, attempt=0)  # noqa: SLF001
+    task_item = next(item for item in check.items if item.key == "all_tasks_completed")
+    assert task_item.passed is True, "无 pending 且有文本输出时应视为通过"
+
+
+def test_completion_check_fails_when_pending_tasks_exist() -> None:
+    """仍有 pending 任务时，即使有文本输出也不应通过。"""
+    runner = HarnessRunner(agent_runner=None)  # type: ignore[arg-type]
+    session = Session()
+    turn_id = "turn-has-pending"
+
+    # 模拟：任务1 completed，任务2 in_progress，任务3 pending
+    session.task_manager = session.task_manager.init_tasks(
+        [
+            {"id": 1, "title": "数据清洗", "status": "pending"},
+            {"id": 2, "title": "统计分析", "status": "pending"},
+            {"id": 3, "title": "生成报告", "status": "pending"},
+        ]
+    )
+    result = session.task_manager.update_tasks(
+        [{"id": 1, "status": "completed"}, {"id": 2, "status": "in_progress"}]
+    )
+    session.task_manager = result.manager
+
+    session.add_message("assistant", "分析完成。", turn_id=turn_id)
+
+    check = runner._run_completion_check(session, turn_id=turn_id, attempt=0)  # noqa: SLF001
+    task_item = next(item for item in check.items if item.key == "all_tasks_completed")
+    assert task_item.passed is False, "仍有 pending 任务时不应通过"
+
+
 @pytest.mark.asyncio
 async def test_harness_trace_store_marks_crash_as_error() -> None:
     trace_store = _CaptureTraceStore()

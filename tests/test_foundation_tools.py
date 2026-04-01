@@ -41,13 +41,17 @@ def test_task_state_init_update_and_query() -> None:
         )
     )
     assert init_result["success"] is True
+    # init 自动将任务1设为 in_progress
+    assert init_result["data"]["pending_count"] == 1
+    assert init_result["data"]["tasks"][0]["status"] == "in_progress"
 
+    # 推进到任务2（任务1 会自动完成）
     update_result = asyncio.run(
         registry.execute(
             "task_state",
             session=session,
             operation="update",
-            tasks=[{"id": 1, "status": "in_progress"}],
+            tasks=[{"id": 2, "status": "in_progress"}],
         )
     )
     assert update_result["success"] is True
@@ -56,11 +60,124 @@ def test_task_state_init_update_and_query() -> None:
         registry.execute("task_state", session=session, operation="current")
     )
     assert current_result["success"] is True
-    assert current_result["data"]["task"]["title"] == "加载数据"
+    assert current_result["data"]["task"]["title"] == "复盘"
 
     all_result = asyncio.run(registry.execute("task_state", session=session, operation="get"))
     assert all_result["success"] is True
     assert len(all_result["data"]["tasks"]) == 2
+
+
+def test_task_state_update_no_op_returns_different_message() -> None:
+    """重复设置相同状态时，应返回明确的"无需重复"消息。"""
+    registry = create_default_tool_registry()
+    session = Session()
+
+    # 初始化任务列表（任务1 自动设为 in_progress）；使用 3 个任务
+    # 以确保推进到任务2时还有 pending 任务（不会进入"最后一个任务"分支）
+    asyncio.run(
+        registry.execute(
+            "task_state",
+            session=session,
+            operation="init",
+            tasks=[
+                {"id": 1, "title": "数据清洗", "status": "pending"},
+                {"id": 2, "title": "统计分析", "status": "pending"},
+                {"id": 3, "title": "结果汇总", "status": "pending"},
+            ],
+        )
+    )
+
+    # 推进到任务2 — 应返回正常消息（任务1 自动完成，任务3 仍 pending）
+    result1 = asyncio.run(
+        registry.execute(
+            "task_state",
+            session=session,
+            operation="update",
+            tasks=[{"id": 2, "status": "in_progress"}],
+        )
+    )
+    assert result1["success"] is True
+    assert "已标记为进行中" in result1["message"] or "执行中" in result1["message"]
+    # 首次推进不应是 no_op
+    assert not result1["data"].get("no_op_ids")
+
+    # 重复设置任务2 in_progress — 应返回差异化"无需重复"消息
+    result2 = asyncio.run(
+        registry.execute(
+            "task_state",
+            session=session,
+            operation="update",
+            tasks=[{"id": 2, "status": "in_progress"}],
+        )
+    )
+    assert result2["success"] is True
+    assert "无需重复设置" in result2["message"]
+    assert result2["data"]["no_op_ids"] == [2]
+
+
+def test_task_state_init_auto_starts_first_task() -> None:
+    """init 后首个任务应自动变为 in_progress，消息不再引导调用 task_state。"""
+    registry = create_default_tool_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "task_state",
+            session=session,
+            operation="init",
+            tasks=[
+                {"id": 1, "title": "数据清洗", "status": "pending", "tool_hint": "dataset_catalog"},
+                {"id": 2, "title": "统计分析", "status": "pending"},
+                {"id": 3, "title": "复盘", "status": "pending"},
+            ],
+        )
+    )
+    assert result["success"] is True
+    assert result["data"]["tasks"][0]["status"] == "in_progress"
+    assert result["data"]["pending_count"] == 2
+    assert "已自动开始" in result["message"]
+    # 不应引导 LLM 调用 task_state
+    assert "task_state" not in result["message"]
+    # 应引导调用分析工具
+    assert "dataset_catalog" in result["message"]
+
+
+def test_task_state_update_mixed_noop_and_change_reports_both() -> None:
+    """no-op 与实际变更同时出现时，消息应同时报告两者。"""
+    registry = create_default_tool_registry()
+    session = Session()
+
+    # 初始化（任务1 自动 in_progress）
+    asyncio.run(
+        registry.execute(
+            "task_state",
+            session=session,
+            operation="init",
+            tasks=[
+                {"id": 1, "title": "数据清洗", "status": "pending"},
+                {"id": 2, "title": "统计分析", "status": "pending"},
+                {"id": 3, "title": "复盘", "status": "pending"},
+            ],
+        )
+    )
+
+    # 批量更新：任务1 → in_progress (no-op) + 任务2 → in_progress (实际变更)
+    result = asyncio.run(
+        registry.execute(
+            "task_state",
+            session=session,
+            operation="update",
+            tasks=[
+                {"id": 1, "status": "in_progress"},
+                {"id": 2, "status": "in_progress"},
+            ],
+        )
+    )
+    assert result["success"] is True
+    assert "无需重复设置" in result["message"]
+    # 应同时报告实际变更
+    assert "同时已更新" in result["message"]
+    assert 1 in result["data"]["no_op_ids"]
 
 
 def test_registry_only_exposes_base_tools_to_llm() -> None:

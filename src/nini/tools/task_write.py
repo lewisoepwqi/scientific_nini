@@ -136,34 +136,43 @@ class TaskWriteTool(Tool):
                 )
 
         new_manager = session.task_manager.init_tasks(raw_tasks)
-        session.task_manager = new_manager
 
         task_count = len(new_manager.tasks)
         first_task = new_manager.tasks[0] if new_manager.tasks else None
+
+        # 自动将第一个任务设为 in_progress，省去 LLM 额外调用 task_state 的步骤
+        if first_task:
+            auto_start = new_manager.update_tasks([{"id": first_task.id, "status": "in_progress"}])
+            new_manager = auto_start.manager
+            first_task = new_manager.tasks[0]
+
+        session.task_manager = new_manager
         logger.info(
-            "task_write init: session=%s 声明了 %d 个任务",
+            "task_write init: session=%s 声明了 %d 个任务，任务1 已自动开始",
             session.id,
             task_count,
         )
 
-        # 使用正确的工具名 task_state(operation='update')，并给出具体调用示例
-        first_hint = (
-            f"task_state(operation='update', tasks=[{{\"id\":{first_task.id}, \"status\":\"in_progress\"}}])"
-            if first_task
-            else "task_state(operation='update')"
-        )
+        # 引导 LLM 直接调用分析工具，而非再调 task_state
+        if first_task:
+            tool_hint = first_task.tool_hint or "dataset_catalog、code_session、stat_test"
+            message = (
+                f"已声明 {task_count} 个分析任务，"
+                f"任务1「{first_task.title}」已自动开始。"
+                f"请立即调用对应的分析工具（如 {tool_hint}）执行该任务，不要输出文本。"
+            )
+        else:
+            message = f"已声明 {task_count} 个分析任务。"
+
         return ToolResult(
             success=True,
-            message=(
-                f"已声明 {task_count} 个分析任务。"
-                f"请立即调用 {first_hint} 开始第一个任务，不要输出文本。"
-            ),
+            message=message,
             data={
                 "mode": "init",
                 "task_count": task_count,
                 "tasks": [t.to_dict() for t in new_manager.tasks],
                 "all_completed": False,
-                "pending_count": task_count,
+                "pending_count": max(task_count - 1, 0),
             },
             metadata={"is_task_write": True},
         )
@@ -204,17 +213,44 @@ class TaskWriteTool(Tool):
 
         # 消息中明确说明当前进行中任务，避免 LLM 误判更新未生效
         current_in_progress = result.manager.current_in_progress()
-        if all_done:
+
+        # 检测无操作重复调用：任务状态未实际变化时返回差异化消息，打破 LLM 循环
+        if result.no_op_ids:
+            no_op_desc = "、".join(
+                f"任务{t.id}「{t.title}」" for t in result.manager.tasks if t.id in result.no_op_ids
+            )
+            parts = [f"{no_op_desc}已处于请求的状态，无需重复设置。"]
+            # 同时报告实际变更的任务，避免 LLM 忽视同批次的成功更新
+            actually_changed = [tid for tid in updated_ids if tid not in result.no_op_ids]
+            all_changed_ids = actually_changed + result.auto_completed_ids
+            if all_changed_ids:
+                changed_descs = [
+                    f"任务{t.id}「{t.title}」→{t.status}"
+                    for t in result.manager.tasks
+                    if t.id in all_changed_ids
+                ]
+                if changed_descs:
+                    parts.append(f"同时已更新：{'、'.join(changed_descs)}。")
+            if current_in_progress:
+                parts.append(
+                    f"请直接调用对应的分析工具执行任务{current_in_progress.id}"
+                    f"「{current_in_progress.title}」。"
+                )
+            else:
+                parts.append("请直接调用对应的分析工具执行任务。")
+            message = "".join(parts)
+        elif all_done:
             message = (
                 "所有任务已完成。请输出最终分析总结，不要再调用任何工具。"
                 "注意：总结应基于复盘后的最终结论，确保结果准确无误。"
             )
         elif current_in_progress and pending == 0:
-            # 只剩当前执行中任务（通常是"复盘与检查"）
+            # 只剩当前执行中任务（通常是"复盘与检查"或"汇总结论"）
             message = (
-                f"任务{current_in_progress.id}「{current_in_progress.title}」执行中。"
-                "请开始最后的复盘检查：回顾前面所有步骤的结果，"
-                "检查方法选择、统计结果、图表和结论是否正确，发现问题立即修正。"
+                f"所有前序任务已完成，当前仅剩任务{current_in_progress.id}"
+                f"「{current_in_progress.title}」。"
+                "请直接检查前面的结果是否有明显错误，如有则修正，如无则直接输出最终总结。"
+                "不要再调用 task_state，不要重复列举已完成的任务。"
             )
         elif current_in_progress:
             message = (
@@ -232,6 +268,7 @@ class TaskWriteTool(Tool):
                 "mode": "update",
                 "updated_ids": all_ids,
                 "auto_completed_ids": result.auto_completed_ids,
+                "no_op_ids": result.no_op_ids,
                 "all_completed": all_done,
                 "pending_count": pending,
                 "tasks": [t.to_dict() for t in result.manager.tasks],
