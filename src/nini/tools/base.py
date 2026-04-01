@@ -139,6 +139,22 @@ class Tool(ABC):
         """执行工具。"""
         ...
 
+    def build_input_error(
+        self,
+        *,
+        message: str,
+        payload: dict[str, Any],
+        retryable: bool = False,
+    ) -> ToolResult:
+        """构造统一的结构化输入错误结果。"""
+        return ToolResult(
+            success=False,
+            message=message,
+            data=payload,
+            metadata=payload,
+            retryable=retryable,
+        )
+
     def to_manifest(self) -> "ToolManifest":
         """导出为统一工具清单（用于跨平台描述）。"""
         from nini.tools.manifest import ToolManifest

@@ -70,6 +70,7 @@ async def test_select_single_tool_found(sample_registry):
     assert len(tools) == 1
     assert tools[0]["found"] is True
     assert tools[0]["name"] == "t_test"
+    assert tools[0]["matched_by"] == "exact_select"
     # 返回完整 schema，足以直接调用
     schema = tools[0]["schema"]
     assert schema["function"]["name"] == "t_test"
@@ -117,6 +118,7 @@ async def test_select_mixed_found_and_not_found(sample_registry):
     by_name = {t["name"]: t for t in result.data["tools"]}
     assert by_name["t_test"]["found"] is True
     assert by_name["ghost_tool"]["found"] is False
+    assert by_name["ghost_tool"]["matched_by"] == "exact_select"
 
 
 # ── Task 4.3：关键词搜索 ────────────────────────────────────────────────────
@@ -129,8 +131,9 @@ async def test_keyword_search_matches_name(sample_registry):
     result = await tool.execute(session=None, query="anova")
 
     assert result.success is True
-    names = [t["name"] for t in result.data["tools"]]
-    assert "anova" in names
+    by_name = {t["name"]: t for t in result.data["tools"]}
+    assert "anova" in by_name
+    assert by_name["anova"]["matched_by"] == "name"
 
 
 @pytest.mark.asyncio
@@ -141,8 +144,9 @@ async def test_keyword_search_matches_description(sample_registry):
     result = await tool.execute(session=None, query="方差分析")
 
     assert result.success is True
-    names = [t["name"] for t in result.data["tools"]]
-    assert "anova" in names
+    by_name = {t["name"]: t for t in result.data["tools"]}
+    assert "anova" in by_name
+    assert by_name["anova"]["matched_by"] == "description"
 
 
 @pytest.mark.asyncio
@@ -169,6 +173,7 @@ async def test_keyword_search_result_contains_schema(sample_registry):
     for item in result.data["tools"]:
         assert "name" in item
         assert "description" in item
+        assert "matched_by" in item
         assert "schema" in item
         assert "function" in item["schema"]
 
@@ -201,6 +206,31 @@ async def test_keyword_search_max_5_results():
 
     assert result.success is True
     assert len(result.data["tools"]) == 5
+
+
+@pytest.mark.asyncio
+async def test_empty_query_returns_structured_error(sample_registry):
+    """空 query 应返回结构化输入错误。"""
+    tool = SearchToolsTool(registry=sample_registry)
+    result = await tool.execute(session=None, query="   ")
+
+    assert result.success is False
+    assert result.data["error_code"] == "SEARCH_TOOLS_QUERY_REQUIRED"
+    assert result.data["expected_fields"] == ["query"]
+    assert "select:" in result.data["recovery_hint"]
+    assert "query" in result.data["minimal_example"]
+
+
+@pytest.mark.asyncio
+async def test_select_without_names_returns_structured_error(sample_registry):
+    """select: 后未提供工具名时，应返回结构化输入错误。"""
+    tool = SearchToolsTool(registry=sample_registry)
+    result = await tool.execute(session=None, query="select:  ")
+
+    assert result.success is False
+    assert result.data["error_code"] == "SEARCH_TOOLS_SELECT_NAMES_REQUIRED"
+    assert result.data["expected_fields"] == ["query"]
+    assert "工具名" in result.data["recovery_hint"]
 
 
 # ── Tasks 4.5 + 4.6：与真实注册表的集成测试 ──────────────────────────────────

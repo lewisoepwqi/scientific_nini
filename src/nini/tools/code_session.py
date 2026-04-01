@@ -38,7 +38,13 @@ class CodeSessionTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "创建、读取和执行持久化脚本会话，统一管理 Python/R 脚本与执行历史。"
+            "创建、读取和执行持久化脚本会话，统一管理 Python/R 脚本与执行历史。\n"
+            "最小示例：\n"
+            "- 创建脚本：{operation: create_script, content: result = 42}\n"
+            "- 读取脚本：{operation: get_script, script_id: script_demo}\n"
+            "- 运行脚本：{operation: run_script, script_id: script_demo, dataset_name: raw.csv}\n"
+            "- 修补脚本：{operation: patch_script, script_id: script_demo, patch: {mode: replace_string, old_string: 1 / 0, new_string: 1 / 1}}\n"
+            "- 提升输出：{operation: promote_output, dataset_name: scaled.csv}\n"
             "当传入 dataset_name 时，沙箱自动将数据注入为 pandas DataFrame 变量 df，"
             "【禁止】在代码中使用 pd.read_csv/read_excel/open 等文件读取语句，直接使用 df 操作数据。"
             "沙箱已预注入 pd/np/plt/sns/go/px/datetime/re/json 等，无需 import。"
@@ -78,6 +84,24 @@ class CodeSessionTool(Tool):
                         "old_string": {"type": "string"},
                         "new_string": {"type": "string"},
                     },
+                    "additionalProperties": False,
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "properties": {"mode": {"const": "append"}},
+                            "required": ["mode", "new_string"],
+                        },
+                        {
+                            "type": "object",
+                            "properties": {"mode": {"const": "replace_string"}},
+                            "required": ["mode", "old_string", "new_string"],
+                        },
+                        {
+                            "type": "object",
+                            "properties": {"mode": {"const": "replace_range"}},
+                            "required": ["mode", "start_line", "end_line", "new_string"],
+                        },
+                    ],
                 },
                 "dataset_name": {"type": "string"},
                 "persist_df": {"type": "boolean", "default": False},
@@ -98,14 +122,64 @@ class CodeSessionTool(Tool):
                 },
                 "label": {"type": "string"},
                 "intent": {"type": "string"},
+                "auto_run": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "创建脚本后是否立即执行。默认 true；仅在需要先人工检查脚本时显式设为 false。",
+                },
             },
             "required": ["operation"],
+            "additionalProperties": False,
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "create_script"}},
+                    "required": ["operation", "content"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "get_script"}},
+                    "required": ["operation", "script_id"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "run_script"}},
+                    "required": ["operation"],
+                    "anyOf": [{"required": ["script_id"]}, {"required": ["content"]}],
+                },
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "patch_script"}},
+                    "required": ["operation", "script_id", "patch"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "rerun"}},
+                    "required": ["operation", "script_id"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "promote_output"}},
+                    "required": ["operation"],
+                    "anyOf": [
+                        {"required": ["dataset_name"]},
+                        {"required": ["artifact_resource_id"]},
+                        {"required": ["artifact_name"]},
+                        {"required": ["artifact_path"]},
+                    ],
+                },
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "list_scripts"}},
+                    "required": ["operation"],
+                },
+            ],
         }
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         operation = str(kwargs.get("operation", "")).strip()
         if operation == "create_script":
-            return self._create_script(session, **kwargs)
+            return await self._create_script(session, **kwargs)
         if operation == "get_script":
             return self._get_script(session, **kwargs)
         if operation == "run_script":
@@ -118,7 +192,14 @@ class CodeSessionTool(Tool):
             return self._promote_output(session, **kwargs)
         if operation == "list_scripts":
             return self._list_scripts(session)
-        return ToolResult(success=False, message=f"不支持的 operation: {operation}")
+        return self._input_error(
+            operation=operation,
+            error_code="CODE_SESSION_OPERATION_INVALID",
+            message=f"不支持的 operation: {operation}",
+            expected_fields=["operation"],
+            recovery_hint="请将 operation 改为 create_script、get_script、run_script、patch_script、rerun、promote_output 或 list_scripts。",
+            minimal_example='{operation: "create_script", content: "result = 42"}',
+        )
 
     async def run_ad_hoc_script(
         self,
@@ -162,14 +243,28 @@ class CodeSessionTool(Tool):
             retry_of_execution_id=None,
         )
 
-    def _create_script(self, session: Session, **kwargs: Any) -> ToolResult:
+    async def _create_script(self, session: Session, **kwargs: Any) -> ToolResult:
         language = str(kwargs.get("language", "python")).strip().lower() or "python"
         if language not in self._LANGUAGES:
-            return ToolResult(success=False, message=f"不支持的脚本语言: {language}")
+            return self._input_error(
+                operation="create_script",
+                error_code="CODE_SESSION_LANGUAGE_INVALID",
+                message=f"不支持的脚本语言: {language}",
+                expected_fields=["operation", "content"],
+                recovery_hint="language 仅支持 python 或 r；省略时默认 python。",
+                minimal_example=self._minimal_example_for_operation("create_script"),
+            )
 
         content = str(kwargs.get("content", "") or "")
         if not content.strip():
-            return ToolResult(success=False, message="脚本内容不能为空")
+            return self._input_error(
+                operation="create_script",
+                error_code="CODE_SESSION_CONTENT_REQUIRED",
+                message="脚本内容不能为空",
+                expected_fields=["operation", "content"],
+                recovery_hint="请提供非空脚本内容；如需后续多次执行，可同时传 script_id。",
+                minimal_example=self._minimal_example_for_operation("create_script"),
+            )
 
         script_id = str(kwargs.get("script_id", "")).strip() or f"script_{uuid.uuid4().hex[:12]}"
         manager = WorkspaceManager(session.id)
@@ -184,20 +279,78 @@ class CodeSessionTool(Tool):
             content_path=str(self._content_path(manager, script_id, language)),
         )
         self._persist_script_record(manager, record, content)
-        return ToolResult(
-            success=True,
-            message=(
-                f"脚本会话已创建：{script_id}。"
-                f"⚠️ 脚本已保存但尚未执行，"
-                f"请调用 code_session(operation='run_script', script_id='{script_id}') 运行此脚本。"
-            ),
-            data=self._build_script_payload(manager, record, content),
+        auto_run = kwargs.get("auto_run", True)
+        if not bool(auto_run):
+            self._mark_script_pending(
+                session,
+                script_id=script_id,
+                summary=f"脚本 {script_id} 已创建但尚未执行。",
+                metadata={"language": language, "reason": "auto_run_disabled"},
+            )
+            return ToolResult(
+                success=True,
+                message=(
+                    f"脚本会话已创建：{script_id}。"
+                    "已按要求保留脚本但未自动执行，后续需继续运行该脚本。"
+                ),
+                data={
+                    **self._build_script_payload(manager, record, content),
+                    "auto_run": False,
+                },
+            )
+
+        execution_result = await self._execute_record(
+            session,
+            record=record,
+            dataset_name=self._resolve_dataset_name(session, kwargs.get("dataset_name")),
+            persist_df=bool(kwargs.get("persist_df", False)),
+            save_as=kwargs.get("save_as"),
+            purpose=str(kwargs.get("purpose", "exploration")),
+            label=kwargs.get("label"),
+            intent=kwargs.get("intent"),
+            source_tool="code_session",
+            retry_of_execution_id=None,
         )
+        execution_payload = execution_result.to_dict()
+        execution_data = (
+            dict(execution_payload.get("data", {}))
+            if isinstance(execution_payload.get("data"), dict)
+            else {}
+        )
+        execution_data["script"] = self._build_script_payload(manager, record, content)
+        execution_data["auto_run"] = True
+        execution_payload["data"] = execution_data
+        if execution_result.success:
+            self._clear_script_pending(session, script_id=script_id)
+            execution_payload["message"] = f"脚本会话已创建并执行：{script_id}"
+        else:
+            self._mark_script_pending(
+                session,
+                script_id=script_id,
+                summary=f"脚本 {script_id} 已创建，但自动执行失败，需要后续处理。",
+                metadata={
+                    "language": language,
+                    "reason": "auto_run_failed",
+                    "last_error": str(execution_payload.get("message", "") or ""),
+                },
+            )
+            execution_payload["message"] = (
+                f"脚本会话已创建：{script_id}，但自动执行失败。"
+                f"{str(execution_payload.get('message', '') or '')}"
+            ).strip()
+        return ToolResult(**execution_payload)
 
     def _get_script(self, session: Session, **kwargs: Any) -> ToolResult:
         script_id = str(kwargs.get("script_id", "")).strip()
         if not script_id:
-            return ToolResult(success=False, message="get_script 操作必须提供 script_id")
+            return self._input_error(
+                operation="get_script",
+                error_code="CODE_SESSION_GET_SCRIPT_ID_REQUIRED",
+                message="get_script 操作必须提供 script_id",
+                expected_fields=["operation", "script_id"],
+                recovery_hint="先传入要读取的脚本会话 script_id。",
+                minimal_example=self._minimal_example_for_operation("get_script"),
+            )
 
         manager = WorkspaceManager(session.id)
         record = self._load_script_record(manager, script_id)
@@ -244,7 +397,14 @@ class CodeSessionTool(Tool):
                     intent=kwargs.get("intent"),
                     source_tool="code_session",
                 )
-            return ToolResult(success=False, message="run_script 操作必须提供 script_id")
+            return self._input_error(
+                operation="run_script",
+                error_code="CODE_SESSION_RUN_SCRIPT_ID_OR_CONTENT_REQUIRED",
+                message="run_script 操作必须提供 script_id；若要临时执行，也可直接提供 content",
+                expected_fields=["operation", "script_id"],
+                recovery_hint="优先提供已有脚本的 script_id；若只是临时执行，可改为传 content。",
+                minimal_example=self._minimal_example_for_operation("run_script"),
+            )
 
         manager = WorkspaceManager(session.id)
         record = self._load_script_record(manager, script_id)
@@ -255,7 +415,7 @@ class CodeSessionTool(Tool):
         if not content.strip():
             return ToolResult(success=False, message=f"脚本内容为空: {script_id}")
 
-        return await self._execute_record(
+        result = await self._execute_record(
             session,
             record=record,
             dataset_name=dataset_name,
@@ -267,18 +427,35 @@ class CodeSessionTool(Tool):
             source_tool="code_session",
             retry_of_execution_id=None,
         )
+        if result.success:
+            self._clear_script_pending(session, script_id=script_id)
+        else:
+            self._mark_script_pending(
+                session,
+                script_id=script_id,
+                summary=f"脚本 {script_id} 执行失败，仍需修复后继续执行。",
+                metadata={"reason": "run_failed", "last_error": result.message},
+            )
+        return result
 
     async def _rerun_script(self, session: Session, **kwargs: Any) -> ToolResult:
         script_id = str(kwargs.get("script_id", "")).strip()
         if not script_id:
-            return ToolResult(success=False, message="rerun 操作必须提供 script_id")
+            return self._input_error(
+                operation="rerun",
+                error_code="CODE_SESSION_RERUN_SCRIPT_ID_REQUIRED",
+                message="rerun 操作必须提供 script_id",
+                expected_fields=["operation", "script_id"],
+                recovery_hint="先传入已有脚本的 script_id，再重跑。",
+                minimal_example=self._minimal_example_for_operation("rerun"),
+            )
 
         manager = WorkspaceManager(session.id)
         record = self._load_script_record(manager, script_id)
         if record is None:
             return ToolResult(success=False, message=f"未找到脚本会话: {script_id}")
 
-        return await self._execute_record(
+        result = await self._execute_record(
             session,
             record=record,
             dataset_name=self._resolve_dataset_name(session, kwargs.get("dataset_name")),
@@ -290,6 +467,37 @@ class CodeSessionTool(Tool):
             source_tool="code_session",
             retry_of_execution_id=record.last_execution_id,
         )
+        if result.success:
+            self._clear_script_pending(session, script_id=script_id)
+        else:
+            self._mark_script_pending(
+                session,
+                script_id=script_id,
+                summary=f"脚本 {script_id} 重跑失败，仍需修复后继续执行。",
+                metadata={"reason": "rerun_failed", "last_error": result.message},
+            )
+        return result
+
+    @staticmethod
+    def _mark_script_pending(
+        session: Session,
+        *,
+        script_id: str,
+        summary: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        session.upsert_pending_action(
+            action_type="script_not_run",
+            key=script_id,
+            status="pending",
+            summary=summary,
+            source_tool="code_session",
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def _clear_script_pending(session: Session, *, script_id: str) -> None:
+        session.resolve_pending_action(action_type="script_not_run", key=script_id)
 
     @staticmethod
     def _resolve_dataset_name(session: Session, raw_name: Any) -> str | None:
@@ -437,11 +645,25 @@ class CodeSessionTool(Tool):
     def _patch_script(self, session: Session, **kwargs: Any) -> ToolResult:
         script_id = str(kwargs.get("script_id", "")).strip()
         if not script_id:
-            return ToolResult(success=False, message="patch_script 操作必须提供 script_id")
+            return self._input_error(
+                operation="patch_script",
+                error_code="CODE_SESSION_PATCH_SCRIPT_ID_REQUIRED",
+                message="patch_script 操作必须提供 script_id",
+                expected_fields=["operation", "script_id", "patch"],
+                recovery_hint="先传入要修补的脚本 script_id，再提供 patch。",
+                minimal_example=self._minimal_example_for_operation("patch_script"),
+            )
 
         patch = kwargs.get("patch")
         if not isinstance(patch, dict):
-            return ToolResult(success=False, message="patch_script 操作必须提供 patch 对象")
+            return self._input_error(
+                operation="patch_script",
+                error_code="CODE_SESSION_PATCH_REQUIRED",
+                message="patch_script 操作必须提供 patch 对象",
+                expected_fields=["operation", "script_id", "patch"],
+                recovery_hint="patch 需包含 mode，以及对应模式所需字段。",
+                minimal_example=self._minimal_example_for_operation("patch_script"),
+            )
 
         manager = WorkspaceManager(session.id)
         record = self._load_script_record(manager, script_id)
@@ -452,7 +674,7 @@ class CodeSessionTool(Tool):
         try:
             updated = self._apply_patch(current, patch)
         except ValueError as exc:
-            return ToolResult(success=False, message=str(exc))
+            return self._patch_error(str(exc))
         self._persist_script_record(manager, record, updated)
         return ToolResult(
             success=True,
@@ -536,9 +758,13 @@ class CodeSessionTool(Tool):
                 },
             )
 
-        return ToolResult(
-            success=False,
+        return self._input_error(
+            operation="promote_output",
+            error_code="CODE_SESSION_PROMOTE_TARGET_REQUIRED",
             message="promote_output 操作必须提供 dataset_name、artifact_resource_id、artifact_name 或 artifact_path",
+            expected_fields=["operation"],
+            recovery_hint="请至少提供一种提升目标：dataset_name、artifact_resource_id、artifact_name 或 artifact_path。",
+            minimal_example=self._minimal_example_for_operation("promote_output"),
         )
 
     def _record_path(self, manager: WorkspaceManager, script_id: str) -> Path:
@@ -673,6 +899,74 @@ class CodeSessionTool(Tool):
                 continue
             dedup.append(item)
         return dedup
+
+    def _input_error(
+        self,
+        *,
+        operation: str,
+        error_code: str,
+        message: str,
+        expected_fields: list[str],
+        recovery_hint: str,
+        minimal_example: str,
+    ) -> ToolResult:
+        payload = {
+            "operation": operation,
+            "error_code": error_code,
+            "expected_fields": expected_fields,
+            "recovery_hint": recovery_hint,
+            "minimal_example": minimal_example,
+        }
+        return self.build_input_error(message=message, payload=payload)
+
+    def _patch_error(self, message: str) -> ToolResult:
+        code = "CODE_SESSION_PATCH_INVALID"
+        expected_fields = ["patch.mode"]
+        recovery_hint = "根据 patch.mode 补齐对应字段后重试。"
+        if "old_string" in message:
+            code = "CODE_SESSION_PATCH_OLD_STRING_REQUIRED"
+            expected_fields = ["patch.mode", "patch.old_string", "patch.new_string"]
+            recovery_hint = "replace_string 模式必须同时提供 old_string 和 new_string。"
+        elif "start_line" in message or "end_line" in message:
+            code = "CODE_SESSION_PATCH_RANGE_INVALID"
+            expected_fields = [
+                "patch.mode",
+                "patch.start_line",
+                "patch.end_line",
+                "patch.new_string",
+            ]
+            recovery_hint = "replace_range 模式必须提供有效的 start_line、end_line 和 new_string。"
+        elif "不支持的 patch 模式" in message:
+            code = "CODE_SESSION_PATCH_MODE_INVALID"
+            expected_fields = ["patch.mode"]
+            recovery_hint = "patch.mode 仅支持 append、replace_string、replace_range。"
+        elif "未找到待替换文本" in message:
+            code = "CODE_SESSION_PATCH_TARGET_NOT_FOUND"
+            expected_fields = ["patch.old_string"]
+            recovery_hint = "请确认 old_string 与当前脚本内容完全匹配。"
+        return self._input_error(
+            operation="patch_script",
+            error_code=code,
+            message=message,
+            expected_fields=expected_fields,
+            recovery_hint=recovery_hint,
+            minimal_example=self._minimal_example_for_operation("patch_script"),
+        )
+
+    def _minimal_example_for_operation(self, operation: str) -> str:
+        examples = {
+            "create_script": '{operation: "create_script", content: "result = 42"}',
+            "get_script": '{operation: "get_script", script_id: "script_demo"}',
+            "run_script": '{operation: "run_script", script_id: "script_demo"}',
+            "patch_script": (
+                '{operation: "patch_script", script_id: "script_demo", '
+                'patch: {mode: "replace_string", old_string: "1 / 0", new_string: "1 / 1"}}'
+            ),
+            "rerun": '{operation: "rerun", script_id: "script_demo"}',
+            "promote_output": '{operation: "promote_output", dataset_name: "scaled.csv"}',
+            "list_scripts": '{operation: "list_scripts"}',
+        }
+        return examples.get(operation, '{operation: "create_script", content: "result = 42"}')
 
     def _apply_patch(self, content: str, patch: dict[str, Any]) -> str:
         mode = str(patch.get("mode", "")).strip()

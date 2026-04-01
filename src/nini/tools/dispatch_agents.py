@@ -50,13 +50,16 @@ class DispatchAgentsTool(Tool):
         return (
             "将复杂任务分解并分发给多个专业 Agent 并行执行，融合结果后返回整合摘要。"
             "适用于需要多领域协作的任务（如同时进行数据清洗、统计分析、作图）。"
+            "tasks 中每个元素都应是可独立并行的子任务，避免互相依赖。"
             "参数 tasks 为任务描述列表，context 为可选背景信息。"
+            "最小示例：tasks=['清洗异常值','绘制分组箱线图']，context='数据集为 blood_pressure_cleaned'。"
         )
 
     @property
     def parameters(self) -> dict[str, Any]:
         return {
             "type": "object",
+            "additionalProperties": False,
             "properties": {
                 "tasks": {
                     "type": "array",
@@ -103,16 +106,27 @@ class DispatchAgentsTool(Tool):
             logger.error(
                 "DispatchAgentsTool.execute: 依赖未正确注入（spawner 或 fusion_engine 为 None）"
             )
-            return ToolResult(
-                success=False,
-                message="dispatch_agents 未正确初始化",
+            return self._input_error(
+                message="dispatch_agents 未正确初始化，当前无法执行并行派发。",
+                error_code="DISPATCH_AGENTS_NOT_INITIALIZED",
+                expected_fields=["tasks"],
+                recovery_hint="检查 spawner 与 fusion_engine 是否已注入后重试。",
+                minimal_example='{"tasks":["清洗数据","绘制图表"],"context":"数据集为 demo"}',
             )
 
         tasks = tasks or []
 
         # 空任务快速返回
         if not tasks:
-            return ToolResult(success=True, message="")
+            return ToolResult(
+                success=True,
+                message="",
+                metadata={
+                    "task_count": 0,
+                    "routed_agents": [],
+                    "recovery_hint": "如需并行派发，请在 tasks 中提供至少一个可独立执行的子任务。",
+                },
+            )
 
         # 为每个任务构造 (agent_id, task) 元组。
         # 直接调用 execute() 时，这里也会进行真实路由，而不是退化到固定 agent。
@@ -124,9 +138,12 @@ class DispatchAgentsTool(Tool):
         )
 
         if not task_pairs:
-            return ToolResult(
-                success=False,
-                message="dispatch_agents: 无法为任务找到匹配的 Agent",
+            return self._input_error(
+                message="dispatch_agents 无法为当前任务找到可用的 Agent。",
+                error_code="DISPATCH_AGENTS_NO_MATCHED_AGENTS",
+                expected_fields=["tasks"],
+                recovery_hint="拆分为更明确的独立子任务，或检查 AgentRegistry 中是否存在可用 Agent。",
+                minimal_example='{"tasks":["清洗缺失值","执行独立样本 t 检验"],"context":"研究问题为干预组与对照组比较"}',
             )
 
         # 并行派发
@@ -134,14 +151,37 @@ class DispatchAgentsTool(Tool):
 
         # 融合结果
         fusion_result = await self._fusion_engine.fuse(sub_results)
+        routed_agents = [agent_id for agent_id, _ in task_pairs]
 
         return ToolResult(
             success=True,
             message=fusion_result.content,
             metadata={
+                "task_count": len(tasks),
+                "routed_agents": routed_agents,
                 "fusion_strategy": fusion_result.strategy,
                 "sources": fusion_result.sources,
                 "conflicts": fusion_result.conflicts,
+            },
+        )
+
+    def _input_error(
+        self,
+        *,
+        message: str,
+        error_code: str,
+        expected_fields: list[str],
+        recovery_hint: str,
+        minimal_example: str,
+    ) -> ToolResult:
+        """返回统一结构化输入错误。"""
+        return self.build_input_error(
+            message=message,
+            payload={
+                "error_code": error_code,
+                "expected_fields": expected_fields,
+                "recovery_hint": recovery_hint,
+                "minimal_example": minimal_example,
             },
         )
 

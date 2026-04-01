@@ -89,8 +89,9 @@ class StatModelTool(Tool):
         if delegate is None:
             supported = list(self._delegates.keys())
             if not method:
-                return ToolResult(
-                    success=False,
+                return self._input_error(
+                    method=method,
+                    error_code="STAT_MODEL_METHOD_REQUIRED",
                     message=(
                         "缺少必要参数 method，请指定分析类型。"
                         f"支持的值：{supported}。"
@@ -98,15 +99,25 @@ class StatModelTool(Tool):
                         '示例（回归）：{{"method":"linear_regression","dataset_name":"<数据集名>",'
                         '"dependent_var":"Y列","independent_vars":["X1","X2"]}}'
                     ),
+                    expected_fields=["method"],
+                    recovery_hint="请先指定 method，再补齐该方法对应的列参数。",
+                    minimal_example='{method: "correlation", dataset_name: "demo", columns: ["x", "y"]}',
                 )
-            return ToolResult(
-                success=False,
+            return self._input_error(
+                method=method,
+                error_code="STAT_MODEL_METHOD_INVALID",
                 message=f"不支持的 method: '{method}'，支持的值：{supported}",
+                expected_fields=["method"],
+                recovery_hint="请将 method 改为 correlation、linear_regression 或 multiple_regression。",
+                minimal_example='{method: "correlation", dataset_name: "demo", columns: ["x", "y"]}',
             )
 
         params = {k: v for k, v in kwargs.items() if k != "method"}
         self._normalize_sequence_params(params)
         validation_error = self._validate_sequence_params(params)
+        if validation_error is not None:
+            return validation_error
+        validation_error = self._validate_method_params(method, params)
         if validation_error is not None:
             return validation_error
 
@@ -125,7 +136,14 @@ class StatModelTool(Tool):
             result = await delegate.execute(session, **params)
         except KeyError as exc:
             missing = str(exc).strip("'\"")
-            return ToolResult(success=False, message=f"缺少必要参数: {missing}")
+            return self._input_error(
+                method=method,
+                error_code="STAT_MODEL_REQUIRED_PARAM_MISSING",
+                message=f"缺少必要参数: {missing}",
+                expected_fields=self._expected_fields_for_method(method),
+                recovery_hint="根据当前 method 补齐必填字段后重试。",
+                minimal_example=self._minimal_example_for_method(method),
+            )
 
         payload = result.to_dict()
         data = payload.get("data", {}) if isinstance(payload.get("data"), dict) else {}
@@ -193,3 +211,70 @@ class StatModelTool(Tool):
                     message=f"参数 {key} 必须是数组（list），当前是 {value_type}",
                 )
         return None
+
+    def _validate_method_params(
+        self,
+        method: str,
+        params: dict[str, Any],
+    ) -> ToolResult | None:
+        required = {
+            "correlation": ["columns"],
+            "linear_regression": ["dependent_var", "independent_vars"],
+            "multiple_regression": ["dependent_var", "independent_vars"],
+        }.get(method, [])
+        missing = [
+            field
+            for field in required
+            if params.get(field) is None or (isinstance(params.get(field), str) and not str(params.get(field)).strip())
+        ]
+        if not missing:
+            return None
+        return self._input_error(
+            method=method,
+            error_code="STAT_MODEL_REQUIRED_PARAM_MISSING",
+            message=f"缺少必要参数: {missing[0]}",
+            expected_fields=self._expected_fields_for_method(method),
+            recovery_hint="根据当前 method 补齐必填字段后重试。",
+            minimal_example=self._minimal_example_for_method(method),
+        )
+
+    def _expected_fields_for_method(self, method: str) -> list[str]:
+        mapping = {
+            "correlation": ["method", "columns"],
+            "linear_regression": ["method", "dependent_var", "independent_vars"],
+            "multiple_regression": ["method", "dependent_var", "independent_vars"],
+        }
+        return mapping.get(method, ["method"])
+
+    def _minimal_example_for_method(self, method: str) -> str:
+        examples = {
+            "correlation": '{method: "correlation", dataset_name: "demo", columns: ["x", "y"]}',
+            "linear_regression": (
+                '{method: "linear_regression", dataset_name: "demo", '
+                'dependent_var: "y", independent_vars: ["x1", "x2"]}'
+            ),
+            "multiple_regression": (
+                '{method: "multiple_regression", dataset_name: "demo", '
+                'dependent_var: "y", independent_vars: ["x1", "x2", "x3"]}'
+            ),
+        }
+        return examples.get(method, '{method: "correlation", dataset_name: "demo", columns: ["x", "y"]}')
+
+    def _input_error(
+        self,
+        *,
+        method: str,
+        error_code: str,
+        message: str,
+        expected_fields: list[str],
+        recovery_hint: str,
+        minimal_example: str,
+    ) -> ToolResult:
+        payload = {
+            "method": method,
+            "error_code": error_code,
+            "expected_fields": expected_fields,
+            "recovery_hint": recovery_hint,
+            "minimal_example": minimal_example,
+        }
+        return self.build_input_error(message=message, payload=payload)

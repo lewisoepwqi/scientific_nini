@@ -41,7 +41,19 @@ class ReportSessionTool(Tool):
 
     @property
     def description(self) -> str:
-        return "创建、更新、查询和导出报告会话资源，章节结构持久化到受管资源目录。"
+        return (
+            "创建、更新、查询和导出报告会话资源，章节结构会持久化到受管资源目录。\n"
+            "最小示例：\n"
+            "- 创建报告：{operation: create, title: 月度分析报告, sections: [{key: summary, title: 摘要}]}\n"
+            "- 更新章节：{operation: patch_section, report_id: report_demo, section_key: summary, "
+            "mode: append, content: 补充说明}\n"
+            "- 绑定资源：{operation: attach_artifact, report_id: report_demo, section_key: summary, "
+            "artifact_resource_id: chart_scatter_demo}\n"
+            "- 查询报告：{operation: get, report_id: report_demo}\n"
+            "- 导出报告：{operation: export, report_id: report_demo, output_format: pdf}\n"
+            "参数约束：patch_section 必须提供 report_id 和 section_key；attach_artifact 必须提供 "
+            "report_id、section_key、artifact_resource_id；get/export 必须提供 report_id。"
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -65,6 +77,7 @@ class ReportSessionTool(Tool):
                             "attachments": {"type": "array", "items": {"type": "string"}},
                         },
                         "required": ["key", "title"],
+                        "additionalProperties": False,
                     },
                 },
                 "summary_text": {"type": "string"},
@@ -72,12 +85,61 @@ class ReportSessionTool(Tool):
                 "methods_v1": {"type": "string"},
                 "methods_entries": {
                     "type": "array",
-                    "items": {"type": "object"},
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "entry_id": {"type": "string"},
+                            "step_name": {"type": "string"},
+                            "method_name": {"type": "string"},
+                            "tool_name": {"type": "string"},
+                            "data_sources": {"type": "array", "items": {"type": "string"}},
+                            "key_parameters": {"type": "object"},
+                            "model_name": {"type": "string"},
+                            "model_version": {"type": "string"},
+                            "executed_at": {"type": "string"},
+                            "notes": {"type": "string"},
+                            "missing_fields": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["step_name", "method_name"],
+                        "additionalProperties": False,
+                    },
                 },
                 "conclusions": {"type": "string"},
                 "evidence_blocks": {
                     "type": "array",
-                    "items": {"type": "object"},
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "claim_id": {"type": "string"},
+                            "claim_summary": {"type": "string"},
+                            "section_key": {"type": "string"},
+                            "sources": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "source_id": {"type": "string"},
+                                        "source_type": {"type": "string"},
+                                        "title": {"type": "string"},
+                                        "acquisition_method": {"type": "string"},
+                                        "resource_id": {"type": "string"},
+                                        "url": {"type": "string"},
+                                        "excerpt": {"type": "string"},
+                                        "metadata": {"type": "object"},
+                                    },
+                                    "required": [
+                                        "source_id",
+                                        "source_type",
+                                        "title",
+                                        "acquisition_method",
+                                    ],
+                                    "additionalProperties": True,
+                                },
+                            },
+                        },
+                        "required": ["claim_summary"],
+                        "additionalProperties": False,
+                    },
                 },
                 "section_key": {"type": "string"},
                 "mode": {"type": "string", "enum": ["replace", "append"]},
@@ -87,6 +149,39 @@ class ReportSessionTool(Tool):
                 "filename": {"type": "string"},
             },
             "required": ["operation"],
+            "additionalProperties": False,
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "create"}},
+                    "required": ["operation"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "patch_section"}},
+                    "required": ["operation", "report_id", "section_key"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "attach_artifact"}},
+                    "required": [
+                        "operation",
+                        "report_id",
+                        "section_key",
+                        "artifact_resource_id",
+                    ],
+                },
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "get"}},
+                    "required": ["operation", "report_id"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "export"}},
+                    "required": ["operation", "report_id"],
+                },
+            ],
         }
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
@@ -101,7 +196,14 @@ class ReportSessionTool(Tool):
             return self._get_report(session, **kwargs)
         if operation == "export":
             return await self._export_report(session, **kwargs)
-        return ToolResult(success=False, message=f"不支持的 operation: {operation}")
+        return self._input_error(
+            operation=operation,
+            error_code="REPORT_SESSION_OPERATION_INVALID",
+            message=f"不支持的 operation: {operation}",
+            expected_fields=["operation"],
+            recovery_hint="请将 operation 改为 create、patch_section、attach_artifact、get 或 export。",
+            minimal_example='{operation: "create", title: "月度分析报告"}',
+        )
 
     def _create_report(self, session: Session, **kwargs: Any) -> ToolResult:
         report_id = str(kwargs.get("report_id", "")).strip() or f"report_{uuid.uuid4().hex[:12]}"
@@ -139,13 +241,27 @@ class ReportSessionTool(Tool):
     def _patch_section(self, session: Session, **kwargs: Any) -> ToolResult:
         report_id = str(kwargs.get("report_id", "")).strip()
         if not report_id:
-            return ToolResult(success=False, message="patch_section 操作必须提供 report_id")
+            return self._input_error(
+                operation="patch_section",
+                error_code="REPORT_SESSION_PATCH_REPORT_ID_REQUIRED",
+                message="patch_section 操作必须提供 report_id",
+                expected_fields=["operation", "report_id", "section_key"],
+                recovery_hint="先传入 report_id 和 section_key，再提供 content 与 mode。",
+                minimal_example=self._minimal_example_for_operation("patch_section"),
+            )
         record = self._load_report_record(session, report_id)
         if record is None:
             return ToolResult(success=False, message=f"未找到报告会话: {report_id}")
         section_key = str(kwargs.get("section_key", "")).strip()
         if not section_key:
-            return ToolResult(success=False, message="patch_section 操作必须提供 section_key")
+            return self._input_error(
+                operation="patch_section",
+                error_code="REPORT_SESSION_PATCH_SECTION_KEY_REQUIRED",
+                message="patch_section 操作必须提供 section_key",
+                expected_fields=["operation", "report_id", "section_key"],
+                recovery_hint="section_key 必须指向已有章节键，例如 summary 或 methods。",
+                minimal_example=self._minimal_example_for_operation("patch_section"),
+            )
         mode = str(kwargs.get("mode", "replace")).strip() or "replace"
         content = str(kwargs.get("content", "") or "")
         matched = False
@@ -183,9 +299,18 @@ class ReportSessionTool(Tool):
         artifact_resource_id = str(kwargs.get("artifact_resource_id", "")).strip()
         section_key = str(kwargs.get("section_key", "")).strip()
         if not report_id or not artifact_resource_id or not section_key:
-            return ToolResult(
-                success=False,
+            return self._input_error(
+                operation="attach_artifact",
+                error_code="REPORT_SESSION_ATTACH_FIELDS_REQUIRED",
                 message="attach_artifact 操作必须提供 report_id、section_key 和 artifact_resource_id",
+                expected_fields=[
+                    "operation",
+                    "report_id",
+                    "section_key",
+                    "artifact_resource_id",
+                ],
+                recovery_hint="先提供报告 ID 和目标章节，再指定已存在的 artifact_resource_id。",
+                minimal_example=self._minimal_example_for_operation("attach_artifact"),
             )
         record = self._load_report_record(session, report_id)
         if record is None:
@@ -227,7 +352,14 @@ class ReportSessionTool(Tool):
     def _get_report(self, session: Session, **kwargs: Any) -> ToolResult:
         report_id = str(kwargs.get("report_id", "")).strip()
         if not report_id:
-            return ToolResult(success=False, message="get 操作必须提供 report_id")
+            return self._input_error(
+                operation="get",
+                error_code="REPORT_SESSION_GET_REPORT_ID_REQUIRED",
+                message="get 操作必须提供 report_id",
+                expected_fields=["operation", "report_id"],
+                recovery_hint="先传入要读取的报告会话 report_id。",
+                minimal_example=self._minimal_example_for_operation("get"),
+            )
         record = self._load_report_record(session, report_id)
         if record is None:
             return ToolResult(success=False, message=f"未找到报告会话: {report_id}")
@@ -247,7 +379,14 @@ class ReportSessionTool(Tool):
     async def _export_report(self, session: Session, **kwargs: Any) -> ToolResult:
         report_id = str(kwargs.get("report_id", "")).strip()
         if not report_id:
-            return ToolResult(success=False, message="export 操作必须提供 report_id")
+            return self._input_error(
+                operation="export",
+                error_code="REPORT_SESSION_EXPORT_REPORT_ID_REQUIRED",
+                message="export 操作必须提供 report_id",
+                expected_fields=["operation", "report_id"],
+                recovery_hint="先传入已存在的 report_id，再指定 output_format。",
+                minimal_example=self._minimal_example_for_operation("export"),
+            )
         record = self._load_report_record(session, report_id)
         if record is None or not record.markdown_path:
             return ToolResult(success=False, message=f"未找到可导出的报告会话: {report_id}")
@@ -751,3 +890,38 @@ class ReportSessionTool(Tool):
         if status == ClaimVerificationStatus.CONFLICTED:
             return "证据冲突"
         return "待验证"
+
+    def _input_error(
+        self,
+        *,
+        operation: str,
+        error_code: str,
+        message: str,
+        expected_fields: list[str],
+        recovery_hint: str,
+        minimal_example: str,
+    ) -> ToolResult:
+        payload = {
+            "operation": operation,
+            "error_code": error_code,
+            "expected_fields": expected_fields,
+            "recovery_hint": recovery_hint,
+            "minimal_example": minimal_example,
+        }
+        return self.build_input_error(message=message, payload=payload)
+
+    def _minimal_example_for_operation(self, operation: str) -> str:
+        examples = {
+            "create": '{operation: "create", title: "月度分析报告"}',
+            "patch_section": (
+                '{operation: "patch_section", report_id: "report_demo", '
+                'section_key: "summary", mode: "append", content: "补充说明"}'
+            ),
+            "attach_artifact": (
+                '{operation: "attach_artifact", report_id: "report_demo", '
+                'section_key: "summary", artifact_resource_id: "chart_scatter_demo"}'
+            ),
+            "get": '{operation: "get", report_id: "report_demo"}',
+            "export": '{operation: "export", report_id: "report_demo", output_format: "pdf"}',
+        }
+        return examples.get(operation, '{operation: "create", title: "月度分析报告"}')

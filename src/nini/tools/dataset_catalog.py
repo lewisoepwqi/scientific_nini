@@ -32,7 +32,13 @@ class DatasetCatalogTool(Tool):
     def description(self) -> str:
         return (
             "统一管理数据集目录。支持列出数据集(list)、加载数据集(load)和查看数据集概况(profile)，"
-            "可聚合预览、摘要与质量概览。"
+            "可聚合预览、摘要与质量概览。\n"
+            "最小示例：\n"
+            "- 列出数据集：{operation: list}\n"
+            "- 加载数据集：{operation: load, dataset_name: demo}\n"
+            "- 查看概况：{operation: profile, dataset_name: demo, view: full, n_rows: 5}\n"
+            "参数约束：load/profile 必须提供 dataset_name。view=preview/full 时会使用 n_rows 控制预览行数；"
+            "其他 view 会忽略 n_rows。"
         )
 
     @property
@@ -86,6 +92,24 @@ class DatasetCatalogTool(Tool):
                 },
             },
             "required": ["operation"],
+            "additionalProperties": False,
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "list"}},
+                    "required": ["operation"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "load"}},
+                    "required": ["operation", "dataset_name"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"operation": {"const": "profile"}},
+                    "required": ["operation", "dataset_name"],
+                },
+            ],
         }
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
@@ -97,7 +121,14 @@ class DatasetCatalogTool(Tool):
             return await self._load_dataset(session, **kwargs)
         if operation == "profile":
             return await self._profile_dataset(session, **kwargs)
-        return ToolResult(success=False, message=f"不支持的 operation: {operation}")
+        return self._input_error(
+            operation=operation,
+            error_code="DATASET_CATALOG_OPERATION_INVALID",
+            message=f"不支持的 operation: {operation}",
+            expected_fields=["operation"],
+            recovery_hint="请将 operation 改为 list、load 或 profile。",
+            minimal_example='{operation: "list"}',
+        )
 
     def _list_datasets(self, session: Session) -> ToolResult:
         manager = WorkspaceManager(session.id)
@@ -143,7 +174,14 @@ class DatasetCatalogTool(Tool):
     async def _load_dataset(self, session: Session, **kwargs: Any) -> ToolResult:
         dataset_name = str(kwargs.get("dataset_name", "")).strip()
         if not dataset_name:
-            return ToolResult(success=False, message="load 操作必须提供 dataset_name")
+            return self._input_error(
+                operation="load",
+                error_code="DATASET_CATALOG_LOAD_DATASET_NAME_REQUIRED",
+                message="load 操作必须提供 dataset_name",
+                expected_fields=["operation", "dataset_name"],
+                recovery_hint="先传入要加载的数据集名称；如需指定 Excel sheet，可继续补充 sheet_mode/sheet_name。",
+                minimal_example=self._minimal_example_for_operation("load"),
+            )
 
         result = await self._loader.execute(
             session,
@@ -174,7 +212,14 @@ class DatasetCatalogTool(Tool):
     async def _profile_dataset(self, session: Session, **kwargs: Any) -> ToolResult:
         dataset_name = str(kwargs.get("dataset_name", "")).strip()
         if not dataset_name:
-            return ToolResult(success=False, message="profile 操作必须提供 dataset_name")
+            return self._input_error(
+                operation="profile",
+                error_code="DATASET_CATALOG_PROFILE_DATASET_NAME_REQUIRED",
+                message="profile 操作必须提供 dataset_name",
+                expected_fields=["operation", "dataset_name"],
+                recovery_hint="先传入要查看概况的数据集名称，再选择 view。",
+                minimal_example=self._minimal_example_for_operation("profile"),
+            )
 
         view = str(kwargs.get("view", "basic")).strip()
         manager = WorkspaceManager(session.id)
@@ -221,3 +266,30 @@ class DatasetCatalogTool(Tool):
             has_dataframe="preview" in base,
             dataframe_preview=base.get("preview"),
         )
+
+    def _input_error(
+        self,
+        *,
+        operation: str,
+        error_code: str,
+        message: str,
+        expected_fields: list[str],
+        recovery_hint: str,
+        minimal_example: str,
+    ) -> ToolResult:
+        payload = {
+            "operation": operation,
+            "error_code": error_code,
+            "expected_fields": expected_fields,
+            "recovery_hint": recovery_hint,
+            "minimal_example": minimal_example,
+        }
+        return self.build_input_error(message=message, payload=payload)
+
+    def _minimal_example_for_operation(self, operation: str) -> str:
+        examples = {
+            "list": '{operation: "list"}',
+            "load": '{operation: "load", dataset_name: "demo"}',
+            "profile": '{operation: "profile", dataset_name: "demo", view: "full", n_rows: 5}',
+        }
+        return examples.get(operation, '{operation: "list"}')

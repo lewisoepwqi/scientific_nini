@@ -56,6 +56,8 @@ async def test_execute_returns_skill_result():
     assert isinstance(result, ToolResult)
     assert result.success is True
     assert "清洗完成" in result.message
+    assert result.metadata["task_count"] == 1
+    assert result.metadata["routed_agents"] == ["data_cleaner"]
 
 
 @pytest.mark.asyncio
@@ -97,6 +99,8 @@ async def test_execute_empty_tasks_returns_empty():
     result = await tool.execute(None, tasks=[])
     assert result.success is True
     assert result.message == ""
+    assert result.metadata["task_count"] == 0
+    assert result.metadata["routed_agents"] == []
 
 
 @pytest.mark.asyncio
@@ -110,6 +114,7 @@ async def test_execute_none_tasks_returns_empty():
     result = await tool.execute(None, tasks=None)
     assert result.success is True
     assert result.message == ""
+    assert result.metadata["task_count"] == 0
 
 
 # ─── 依赖未注入 ───────────────────────────────────────────────────────────────
@@ -125,7 +130,8 @@ async def test_execute_no_spawner_returns_error():
     )
     result = await tool.execute(None, tasks=["任务"])
     assert result.success is False
-    assert "dispatch_agents" in result.message.lower() or result.message
+    assert result.data["error_code"] == "DISPATCH_AGENTS_NOT_INITIALIZED"
+    assert result.data["expected_fields"] == ["tasks"]
 
 
 @pytest.mark.asyncio
@@ -138,6 +144,22 @@ async def test_execute_no_fusion_returns_error():
     )
     result = await tool.execute(None, tasks=["任务"])
     assert result.success is False
+    assert result.data["error_code"] == "DISPATCH_AGENTS_NOT_INITIALIZED"
+
+
+@pytest.mark.asyncio
+async def test_execute_no_matched_agent_returns_structured_error():
+    """没有可用 Agent 时应返回结构化错误。"""
+    tool = DispatchAgentsTool(
+        agent_registry=None,
+        spawner=_MockSpawner(),
+        fusion_engine=_MockFusion(),
+    )
+    result = await tool.execute(None, tasks=["任务"])
+
+    assert result.success is False
+    assert result.data["error_code"] == "DISPATCH_AGENTS_NO_MATCHED_AGENTS"
+    assert "Agent" in result.data["recovery_hint"]
 
 
 # ─── 工具元数据 ──────────────────────────────────────────────────────────────

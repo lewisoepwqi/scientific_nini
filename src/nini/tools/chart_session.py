@@ -34,7 +34,17 @@ class ChartSessionTool(Tool):
 
     @property
     def description(self) -> str:
-        return "创建、更新、查询和导出图表会话资源，图表规格持久化到受管资源目录。"
+        return (
+            "创建、更新、查询和导出图表会话资源，图表规格会持久化到受管资源目录。\n"
+            "最小示例：\n"
+            "- 创建折线图：{operation: create, dataset_name: trend_demo, chart_type: line, "
+            "x_column: month, y_column: value, title: 月度趋势}\n"
+            "- 更新标题：{operation: update, chart_id: chart_trend_demo, title: 新标题}\n"
+            "- 查询图表：{operation: get, chart_id: chart_trend_demo}\n"
+            "- 导出 PNG：{operation: export, chart_id: chart_trend_demo, format: png}\n"
+            "参数约束：create 必须提供 dataset_name 和 chart_type；update/get/export 必须提供 "
+            "chart_id。render_engine 仅支持 auto、plotly、matplotlib。"
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -53,7 +63,11 @@ class ChartSessionTool(Tool):
                 },
                 "title": {"type": "string"},
                 "journal_style": {"type": "string"},
-                "render_engine": {"type": "string"},
+                "render_engine": {
+                    "type": "string",
+                    "enum": ["auto", "plotly", "matplotlib"],
+                    "description": "渲染引擎：auto|plotly|matplotlib",
+                },
                 "x_column": {"type": "string"},
                 "y_column": {"type": "string"},
                 "group_column": {"type": "string"},
@@ -67,6 +81,37 @@ class ChartSessionTool(Tool):
                 "scale": {"type": "number"},
             },
             "required": ["operation"],
+            "additionalProperties": False,
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"const": "create"},
+                    },
+                    "required": ["operation", "dataset_name", "chart_type"],
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"const": "update"},
+                    },
+                    "required": ["operation", "chart_id"],
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"const": "get"},
+                    },
+                    "required": ["operation", "chart_id"],
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"const": "export"},
+                    },
+                    "required": ["operation", "chart_id"],
+                },
+            ],
         }
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
@@ -79,12 +124,28 @@ class ChartSessionTool(Tool):
             return self._get_chart(session, **kwargs)
         if operation == "export":
             return await self._export_chart(session, **kwargs)
-        return ToolResult(success=False, message=f"不支持的 operation: {operation}")
+        return self._input_error(
+            operation=operation,
+            error_code="CHART_SESSION_OPERATION_INVALID",
+            message=f"不支持的 operation: {operation}",
+            expected_fields=["operation"],
+            recovery_hint="请将 operation 改为 create、update、get 或 export 之一。",
+            minimal_example='{operation: "create", dataset_name: "trend_demo", chart_type: "line"}',
+        )
 
     async def _create_or_update(
         self, session: Session, *, create: bool, **kwargs: Any
     ) -> ToolResult:
         chart_id = str(kwargs.get("chart_id", "")).strip() or f"chart_{uuid.uuid4().hex[:12]}"
+        if not create and not str(kwargs.get("chart_id", "")).strip():
+            return self._input_error(
+                operation="update",
+                error_code="CHART_SESSION_UPDATE_CHART_ID_REQUIRED",
+                message="update 操作必须提供 chart_id",
+                expected_fields=["operation", "chart_id"],
+                recovery_hint="先提供已有图表的 chart_id，再传入要更新的字段。",
+                minimal_example=self._minimal_example_for_operation("update"),
+            )
         existing = None if create else self._load_chart_record(session, chart_id)
         if not create and existing is None:
             return ToolResult(success=False, message=f"未找到图表会话: {chart_id}")
@@ -143,9 +204,31 @@ class ChartSessionTool(Tool):
             ),
         }
         if not spec["dataset_name"] or not spec["chart_type"]:
-            return ToolResult(
-                success=False,
+            expected_fields = ["operation"]
+            if create:
+                expected_fields.extend(["dataset_name", "chart_type"])
+            else:
+                if not spec["dataset_name"]:
+                    expected_fields.append("dataset_name")
+                if not spec["chart_type"]:
+                    expected_fields.append("chart_type")
+                expected_fields.insert(1, "chart_id")
+            return self._input_error(
+                operation="create" if create else "update",
+                error_code=(
+                    "CHART_SESSION_CREATE_FIELDS_REQUIRED"
+                    if create
+                    else "CHART_SESSION_UPDATE_FIELDS_REQUIRED"
+                ),
                 message="create/update 图表会话必须提供 dataset_name 和 chart_type",
+                expected_fields=expected_fields,
+                recovery_hint=(
+                    "create 时请显式提供 dataset_name 和 chart_type；"
+                    "update 时若原记录缺少这些字段，也需要一并补齐。"
+                ),
+                minimal_example=self._minimal_example_for_operation(
+                    "create" if create else "update"
+                ),
             )
 
         create_params = {k: v for k, v in spec.items() if v is not None}
@@ -184,7 +267,14 @@ class ChartSessionTool(Tool):
     def _get_chart(self, session: Session, **kwargs: Any) -> ToolResult:
         chart_id = str(kwargs.get("chart_id", "")).strip()
         if not chart_id:
-            return ToolResult(success=False, message="get 操作必须提供 chart_id")
+            return self._input_error(
+                operation="get",
+                error_code="CHART_SESSION_GET_CHART_ID_REQUIRED",
+                message="get 操作必须提供 chart_id",
+                expected_fields=["operation", "chart_id"],
+                recovery_hint="先传入要读取的图表会话 chart_id。",
+                minimal_example=self._minimal_example_for_operation("get"),
+            )
         record = self._load_chart_record(session, chart_id)
         if record is None:
             return ToolResult(success=False, message=f"未找到图表会话: {chart_id}")
@@ -204,7 +294,14 @@ class ChartSessionTool(Tool):
     async def _export_chart(self, session: Session, **kwargs: Any) -> ToolResult:
         chart_id = str(kwargs.get("chart_id", "")).strip()
         if not chart_id:
-            return ToolResult(success=False, message="export 操作必须提供 chart_id")
+            return self._input_error(
+                operation="export",
+                error_code="CHART_SESSION_EXPORT_CHART_ID_REQUIRED",
+                message="export 操作必须提供 chart_id",
+                expected_fields=["operation", "chart_id"],
+                recovery_hint="先传入已存在的图表会话 chart_id，再指定导出格式。",
+                minimal_example=self._minimal_example_for_operation("export"),
+            )
         record = self._load_chart_record(session, chart_id)
         if record is None:
             return ToolResult(success=False, message=f"未找到图表会话: {chart_id}")
@@ -456,3 +553,34 @@ class ChartSessionTool(Tool):
                     ids.append(str(record.get("id", "")))
                     break
         return [item for item in ids if item]
+
+    def _input_error(
+        self,
+        *,
+        operation: str,
+        error_code: str,
+        message: str,
+        expected_fields: list[str],
+        recovery_hint: str,
+        minimal_example: str,
+    ) -> ToolResult:
+        payload = {
+            "operation": operation,
+            "error_code": error_code,
+            "expected_fields": expected_fields,
+            "recovery_hint": recovery_hint,
+            "minimal_example": minimal_example,
+        }
+        return self.build_input_error(message=message, payload=payload)
+
+    def _minimal_example_for_operation(self, operation: str) -> str:
+        examples = {
+            "create": (
+                '{operation: "create", dataset_name: "trend_demo", chart_type: "line", '
+                'x_column: "month", y_column: "value"}'
+            ),
+            "update": '{operation: "update", chart_id: "chart_trend_demo", title: "新标题"}',
+            "get": '{operation: "get", chart_id: "chart_trend_demo"}',
+            "export": '{operation: "export", chart_id: "chart_trend_demo", format: "png"}',
+        }
+        return examples.get(operation, '{operation: "create", dataset_name: "trend_demo"}')

@@ -180,6 +180,45 @@ def test_task_state_update_mixed_noop_and_change_reports_both() -> None:
     assert 1 in result["data"]["no_op_ids"]
 
 
+def test_task_state_schema_uses_operation_level_oneof() -> None:
+    registry = create_default_tool_registry()
+    schema = registry.get("task_state").parameters
+
+    assert set(schema["required"]) == {"operation"}
+    assert schema["additionalProperties"] is False
+
+    branches = {
+        branch["properties"]["operation"]["const"]: set(branch["required"])
+        for branch in schema["oneOf"]
+    }
+    assert branches["init"] == {"operation", "tasks"}
+    assert branches["update"] == {"operation", "tasks"}
+    assert branches["get"] == {"operation"}
+    assert branches["current"] == {"operation"}
+
+    task_item = schema["properties"]["tasks"]["items"]
+    assert task_item["additionalProperties"] is False
+    assert "oneOf" in task_item
+
+
+def test_task_state_missing_tasks_returns_structured_error() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "task_state",
+            session=session,
+            operation="init",
+        )
+    )
+
+    assert result["success"] is False
+    assert result["data"]["error_code"] == "TASK_STATE_TASKS_REQUIRED"
+    assert result["data"]["expected_fields"] == ["operation", "tasks"]
+    assert "tasks" in result["data"]["minimal_example"]
+
+
 def test_registry_only_exposes_base_tools_to_llm() -> None:
     registry = create_default_tool_registry()
     definitions = registry.get_tool_definitions()
@@ -188,6 +227,70 @@ def test_registry_only_exposes_base_tools_to_llm() -> None:
     assert names == LLM_EXPOSED_BASE_TOOL_NAMES
     assert "run_code" not in names
     assert "complete_comparison" not in names
+
+
+def test_llm_facing_tool_contracts_include_examples_and_discriminators() -> None:
+    registry = create_default_tool_registry()
+    expectations = {
+        "search_tools": False,
+        "dataset_transform": True,
+        "workspace_session": True,
+        "dataset_catalog": True,
+        "chart_session": True,
+        "report_session": True,
+        "code_session": True,
+        "task_state": True,
+        "stat_test": True,
+        "stat_model": False,
+    }
+
+    for tool_name, expects_oneof in expectations.items():
+        tool = registry.get(tool_name)
+        assert tool is not None
+        description = str(tool.description)
+        schema = tool.parameters
+
+        assert "最小示例" in description
+        if expects_oneof:
+            assert "oneOf" in schema
+            assert schema["additionalProperties"] is False
+        else:
+            assert "oneOf" not in schema
+
+
+def test_structured_input_errors_share_standard_payload_shape() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+    session.datasets["stats_demo"] = pd.DataFrame(
+        {
+            "group": ["a", "a", "b", "b"],
+            "value": [1.0, 2.0, 3.0, 4.0],
+            "x": [1, 2, 3, 4],
+            "y": [2, 4, 6, 8],
+        }
+    )
+
+    cases = [
+        ("dataset_catalog", {"operation": "load"}),
+        ("chart_session", {"operation": "export"}),
+        ("report_session", {"operation": "export"}),
+        ("code_session", {"operation": "get_script"}),
+        ("task_state", {"operation": "init"}),
+        ("search_tools", {"query": "   "}),
+        ("stat_test", {"method": "independent_t", "group_column": "group"}),
+        (
+            "stat_model",
+            {"method": "linear_regression", "dataset_name": "stats_demo", "dependent_var": "y"},
+        ),
+    ]
+
+    for tool_name, kwargs in cases:
+        result = asyncio.run(registry.execute(tool_name, session=session, **kwargs))
+        assert result["success"] is False
+        assert "data" in result
+        payload = result["data"]
+        for key in ("error_code", "expected_fields", "recovery_hint", "minimal_example"):
+            assert key in payload, (tool_name, payload)
 
 
 def test_dataset_catalog_lists_and_profiles_datasets() -> None:
@@ -231,6 +334,51 @@ def test_dataset_catalog_lists_and_profiles_datasets() -> None:
     assert "preview" in profile_result["data"]
     assert "summary" in profile_result["data"]
     assert "quality" in profile_result["data"]
+
+
+def test_dataset_catalog_schema_uses_operation_level_oneof() -> None:
+    registry = create_default_tool_registry()
+    schema = registry.get("dataset_catalog").parameters
+
+    assert set(schema["required"]) == {"operation"}
+    assert schema["additionalProperties"] is False
+
+    branches = {
+        branch["properties"]["operation"]["const"]: set(branch["required"])
+        for branch in schema["oneOf"]
+    }
+    assert branches["list"] == {"operation"}
+    assert branches["load"] == {"operation", "dataset_name"}
+    assert branches["profile"] == {"operation", "dataset_name"}
+
+
+def test_dataset_catalog_missing_required_args_returns_expected_fields_and_example() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    load_result = asyncio.run(
+        registry.execute(
+            "dataset_catalog",
+            session=session,
+            operation="load",
+        )
+    )
+    assert load_result["success"] is False
+    assert load_result["data"]["error_code"] == "DATASET_CATALOG_LOAD_DATASET_NAME_REQUIRED"
+    assert load_result["data"]["expected_fields"] == ["operation", "dataset_name"]
+    assert "dataset_name" in load_result["data"]["minimal_example"]
+
+    profile_result = asyncio.run(
+        registry.execute(
+            "dataset_catalog",
+            session=session,
+            operation="profile",
+            view="full",
+        )
+    )
+    assert profile_result["success"] is False
+    assert profile_result["data"]["error_code"] == "DATASET_CATALOG_PROFILE_DATASET_NAME_REQUIRED"
+    assert profile_result["data"]["expected_fields"] == ["operation", "dataset_name"]
 
 
 def test_dataset_transform_runs_and_supports_step_patch() -> None:
@@ -428,6 +576,36 @@ def test_stat_model_requires_dataset_name_when_multiple_datasets_exist() -> None
     assert "缺少 dataset_name" in result["message"]
 
 
+def test_stat_model_returns_structured_error_for_missing_required_param() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+    session.datasets["stats_demo"] = pd.DataFrame(
+        {
+            "x": [1, 2, 3, 4, 5, 6],
+            "y": [2, 4, 6, 8, 10, 12],
+        }
+    )
+
+    result = asyncio.run(
+        registry.execute(
+            "stat_model",
+            session=session,
+            method="linear_regression",
+            dataset_name="stats_demo",
+            dependent_var="y",
+        )
+    )
+
+    assert result["success"] is False
+    assert result["message"] == "缺少必要参数: independent_vars"
+    assert result["data"]["error_code"] == "STAT_MODEL_REQUIRED_PARAM_MISSING"
+    assert result["data"]["expected_fields"] == [
+        "method",
+        "dependent_var",
+        "independent_vars",
+    ]
+
+
 def test_stat_test_auto_uses_single_dataset_when_dataset_name_missing() -> None:
     registry = create_default_tool_registry()
     session = Session()
@@ -493,6 +671,8 @@ def test_stat_test_returns_friendly_error_for_missing_required_param() -> None:
 
     assert result["success"] is False
     assert result["message"] == "缺少必要参数: value_column"
+    assert result["data"]["error_code"] == "STAT_TEST_REQUIRED_PARAM_MISSING"
+    assert result["data"]["expected_fields"] == ["method", "value_column", "group_column"]
 
 
 def test_stat_model_schema_explicitly_requires_correlation_dataset_and_columns() -> None:
@@ -521,12 +701,42 @@ def test_stat_test_schema_explicitly_requires_dataset_and_columns_for_independen
     schema = skill.parameters
     assert schema["type"] == "object"
     assert set(schema["required"]) == {"method"}
+    assert schema["additionalProperties"] is False
+    assert "oneOf" in schema
     method_schema = schema["properties"]["method"]
     assert "independent_t" in method_schema["enum"]
     assert "paired_t" in method_schema["enum"]
     assert "dataset_name" in schema["properties"]
     assert "value_column" in schema["properties"]
     assert "group_column" in schema["properties"]
+    assert "correction_method" in schema["properties"]
+
+    branches = {
+        branch["properties"]["method"]["const"]: set(branch["required"])
+        for branch in schema["oneOf"]
+    }
+    assert branches["independent_t"] == {"method", "value_column", "group_column"}
+    assert branches["one_sample_t"] == {"method", "value_column", "test_value"}
+    assert branches["multiple_comparison_correction"] == {"method", "p_values"}
+
+
+def test_stat_test_multiple_comparison_supports_correction_method() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "stat_test",
+            session=session,
+            method="multiple_comparison_correction",
+            p_values=[0.01, 0.02, 0.2],
+            correction_method="holm",
+        )
+    )
+
+    assert result["success"] is True, result
+    assert result["data"]["requested_method"] == "multiple_comparison_correction"
+    assert result["data"]["method"] == "Holm"
 
 
 def test_workspace_session_schema_requires_file_path_for_read() -> None:
@@ -540,6 +750,15 @@ def test_workspace_session_schema_requires_file_path_for_read() -> None:
     assert "read" in schema["properties"]["operation"]["enum"]
     assert "file_path" in schema["properties"]
     assert set(schema["required"]) == {"operation"}
+    assert "oneOf" in schema
+
+    read_branch = next(item for item in schema["oneOf"] if item["properties"]["operation"]["const"] == "read")
+    assert set(read_branch["required"]) == {"operation", "file_path"}
+
+    write_branch = next(
+        item for item in schema["oneOf"] if item["properties"]["operation"]["const"] == "write"
+    )
+    assert set(write_branch["required"]) == {"operation", "file_path", "content"}
 
 
 def test_dataset_transform_schema_op_is_strict_enum() -> None:
@@ -551,6 +770,125 @@ def test_dataset_transform_schema_op_is_strict_enum() -> None:
     assert "enum" in step_schema
     assert "dropna" not in step_schema["enum"]
     assert "concat_datasets" in step_schema["enum"]
+
+
+def test_dataset_transform_schema_uses_operation_and_step_level_oneof() -> None:
+    registry = create_default_tool_registry()
+    skill = registry.get("dataset_transform")
+    assert skill is not None
+
+    schema = skill.parameters
+    assert schema["required"] == ["operation"]
+    assert "oneOf" in schema
+
+    step_items = schema["properties"]["steps"]["items"]
+    assert "oneOf" in step_items
+    derive_variant = next(
+        item for item in step_items["oneOf"] if item["properties"]["op"]["const"] == "derive_column"
+    )
+    assert derive_variant["properties"]["params"]["required"] == ["column", "expr"]
+
+
+def test_dataset_transform_reports_recovery_hint_for_rename_mapping_error() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+    session.datasets["raw"] = pd.DataFrame({"收缩压/Hgmm": [120, 130]})
+
+    result = asyncio.run(
+        registry.execute(
+            "dataset_transform",
+            session=session,
+            operation="run",
+            dataset_name="raw",
+            steps=[
+                {
+                    "id": "rename",
+                    "op": "rename_columns",
+                    "params": {"收缩压/Hgmm": "收缩压"},
+                }
+            ],
+        )
+    )
+
+    assert result["success"] is False
+    assert result["data"]["error_code"] == "DATASET_TRANSFORM_RENAME_MAPPING_REQUIRED"
+    assert "params.mapping" in result["data"]["recovery_hint"]
+    assert "mapping" in result["data"]["expected_params"]
+
+
+def test_dataset_transform_rejects_df_variable_in_expr_with_guidance() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+    session.datasets["raw"] = pd.DataFrame({"x": [1, 2, 3]})
+
+    result = asyncio.run(
+        registry.execute(
+            "dataset_transform",
+            session=session,
+            operation="run",
+            dataset_name="raw",
+            steps=[
+                {
+                    "id": "derive",
+                    "op": "derive_column",
+                    "params": {"column": "x2", "expr": "df['x'] * 2"},
+                }
+            ],
+        )
+    )
+
+    assert result["success"] is False
+    assert result["data"]["error_code"] == "DATASET_TRANSFORM_EXPR_DF_UNSUPPORTED"
+    assert "code_session" in result["data"]["recovery_hint"]
+    assert "x2" not in session.datasets["raw"].columns
+
+
+def test_dataset_transform_rejects_ifexp_with_guidance() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+    session.datasets["raw"] = pd.DataFrame({"小时": [1, 8, 23]})
+
+    result = asyncio.run(
+        registry.execute(
+            "dataset_transform",
+            session=session,
+            operation="run",
+            dataset_name="raw",
+            steps=[
+                {
+                    "id": "derive_period",
+                    "op": "derive_column",
+                    "params": {
+                        "column": "白天标志",
+                        "expr": "'白天' if 小时 >= 6 and 小时 < 22 else '夜间'",
+                    },
+                }
+            ],
+        )
+    )
+
+    assert result["success"] is False
+    assert result["data"]["error_code"] == "DATASET_TRANSFORM_EXPR_IFEXP_UNSUPPORTED"
+    assert "布尔表达式" in result["data"]["recovery_hint"]
+
+
+def test_dataset_transform_patch_step_requires_transform_id_with_structured_error() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "dataset_transform",
+            session=session,
+            operation="patch_step",
+            step_patch={"step_id": "dedup", "params": {}},
+        )
+    )
+
+    assert result["success"] is False
+    assert result["data"]["error_code"] == "DATASET_TRANSFORM_PATCH_TRANSFORM_ID_REQUIRED"
+    assert result["data"]["expected_fields"] == ["operation", "transform_id", "step_patch"]
+    assert "transform_id" in result["data"]["minimal_example"]
 
 
 def test_chart_session_persists_spec_and_tracks_exports() -> None:
@@ -615,6 +953,70 @@ def test_chart_session_persists_spec_and_tracks_exports() -> None:
         )
     )["data"]["record"]
     assert record["last_export_ids"]
+
+
+def test_chart_session_schema_uses_operation_level_oneof() -> None:
+    registry = create_default_tool_registry()
+    schema = registry.get("chart_session").parameters
+
+    assert set(schema["required"]) == {"operation"}
+    assert schema["additionalProperties"] is False
+
+    branches = {
+        branch["properties"]["operation"]["const"]: set(branch["required"])
+        for branch in schema["oneOf"]
+    }
+    assert branches["create"] == {"operation", "dataset_name", "chart_type"}
+    assert branches["update"] == {"operation", "chart_id"}
+    assert branches["get"] == {"operation", "chart_id"}
+    assert branches["export"] == {"operation", "chart_id"}
+    assert schema["properties"]["render_engine"]["enum"] == ["auto", "plotly", "matplotlib"]
+
+
+def test_chart_session_missing_required_args_returns_expected_fields_and_example() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    update_result = asyncio.run(
+        registry.execute(
+            "chart_session",
+            session=session,
+            operation="update",
+            title="补标题",
+        )
+    )
+    assert update_result["success"] is False
+    assert update_result["data"]["error_code"] == "CHART_SESSION_UPDATE_CHART_ID_REQUIRED"
+    assert update_result["data"]["expected_fields"] == ["operation", "chart_id"]
+    assert "chart_id" in update_result["data"]["minimal_example"]
+
+    create_result = asyncio.run(
+        registry.execute(
+            "chart_session",
+            session=session,
+            operation="create",
+            dataset_name="trend_demo",
+        )
+    )
+    assert create_result["success"] is False
+    assert create_result["data"]["error_code"] == "CHART_SESSION_CREATE_FIELDS_REQUIRED"
+    assert create_result["data"]["expected_fields"] == [
+        "operation",
+        "dataset_name",
+        "chart_type",
+    ]
+    assert "chart_type" in create_result["data"]["minimal_example"]
+
+    export_result = asyncio.run(
+        registry.execute(
+            "chart_session",
+            session=session,
+            operation="export",
+        )
+    )
+    assert export_result["success"] is False
+    assert export_result["data"]["error_code"] == "CHART_SESSION_EXPORT_CHART_ID_REQUIRED"
+    assert export_result["data"]["expected_fields"] == ["operation", "chart_id"]
 
 
 def test_report_session_persists_sections_and_exports(
@@ -812,6 +1214,81 @@ def test_report_session_persists_sections_and_exports(
     assert final_record["export_ids"]
 
 
+def test_report_session_schema_uses_operation_level_oneof() -> None:
+    registry = create_default_tool_registry()
+    schema = registry.get("report_session").parameters
+
+    assert set(schema["required"]) == {"operation"}
+    assert schema["additionalProperties"] is False
+
+    branches = {
+        branch["properties"]["operation"]["const"]: set(branch["required"])
+        for branch in schema["oneOf"]
+    }
+    assert branches["create"] == {"operation"}
+    assert branches["patch_section"] == {"operation", "report_id", "section_key"}
+    assert branches["attach_artifact"] == {
+        "operation",
+        "report_id",
+        "section_key",
+        "artifact_resource_id",
+    }
+    assert branches["get"] == {"operation", "report_id"}
+    assert branches["export"] == {"operation", "report_id"}
+
+
+def test_report_session_missing_required_args_returns_expected_fields_and_example() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    patch_result = asyncio.run(
+        registry.execute(
+            "report_session",
+            session=session,
+            operation="patch_section",
+            section_key="summary",
+            content="补充说明",
+        )
+    )
+    assert patch_result["success"] is False
+    assert patch_result["data"]["error_code"] == "REPORT_SESSION_PATCH_REPORT_ID_REQUIRED"
+    assert patch_result["data"]["expected_fields"] == [
+        "operation",
+        "report_id",
+        "section_key",
+    ]
+
+    attach_result = asyncio.run(
+        registry.execute(
+            "report_session",
+            session=session,
+            operation="attach_artifact",
+            report_id="report_demo",
+            section_key="summary",
+        )
+    )
+    assert attach_result["success"] is False
+    assert attach_result["data"]["error_code"] == "REPORT_SESSION_ATTACH_FIELDS_REQUIRED"
+    assert attach_result["data"]["expected_fields"] == [
+        "operation",
+        "report_id",
+        "section_key",
+        "artifact_resource_id",
+    ]
+    assert "artifact_resource_id" in attach_result["data"]["minimal_example"]
+
+    export_result = asyncio.run(
+        registry.execute(
+            "report_session",
+            session=session,
+            operation="export",
+        )
+    )
+    assert export_result["success"] is False
+    assert export_result["data"]["error_code"] == "REPORT_SESSION_EXPORT_REPORT_ID_REQUIRED"
+    assert export_result["data"]["expected_fields"] == ["operation", "report_id"]
+
+
 def test_workspace_session_unifies_file_ops_and_fetch_save(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -907,6 +1384,25 @@ def test_workspace_session_missing_operation_unsafe_inference_is_rejected() -> N
     assert metadata.get("normalized") is False
 
 
+def test_workspace_session_missing_required_args_returns_expected_fields_and_example() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "workspace_session",
+            session=session,
+            operation="write",
+            file_path="notes/a.md",
+        )
+    )
+
+    assert result["success"] is False
+    assert result["data"]["error_code"] == "WORKSPACE_OPERATION_ARGS_MISSING"
+    assert result["data"]["expected_fields"] == ["file_path", "content"]
+    assert '"operation":"write"' in result["data"]["minimal_example"]
+
+
 def test_code_session_persists_scripts_and_execution_history() -> None:
     registry = create_default_tool_registry()
     session = Session()
@@ -917,6 +1413,7 @@ def test_code_session_persists_scripts_and_execution_history() -> None:
             "code_session",
             session=session,
             operation="create_script",
+            auto_run=False,
             script_id="script_demo",
             language="python",
             content=(
@@ -968,6 +1465,146 @@ def test_code_session_persists_scripts_and_execution_history() -> None:
     assert history_result["data"]["history"][0]["script_resource_id"] == "script_demo"
 
 
+def test_code_session_schema_uses_operation_and_patch_level_oneof() -> None:
+    registry = create_default_tool_registry()
+    schema = registry.get("code_session").parameters
+
+    assert set(schema["required"]) == {"operation"}
+    assert schema["additionalProperties"] is False
+
+    branches = {
+        branch["properties"]["operation"]["const"]: set(branch["required"])
+        for branch in schema["oneOf"]
+    }
+    assert branches["create_script"] == {"operation", "content"}
+    assert branches["get_script"] == {"operation", "script_id"}
+    assert branches["patch_script"] == {"operation", "script_id", "patch"}
+    assert branches["rerun"] == {"operation", "script_id"}
+    assert branches["list_scripts"] == {"operation"}
+
+    patch_schema = schema["properties"]["patch"]
+    assert patch_schema["additionalProperties"] is False
+    patch_branches = {
+        branch["properties"]["mode"]["const"]: set(branch["required"])
+        for branch in patch_schema["oneOf"]
+    }
+    assert patch_branches["append"] == {"mode", "new_string"}
+    assert patch_branches["replace_string"] == {"mode", "old_string", "new_string"}
+    assert patch_branches["replace_range"] == {
+        "mode",
+        "start_line",
+        "end_line",
+        "new_string",
+    }
+
+
+def test_code_session_create_script_auto_runs_by_default() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+    session.datasets["raw.csv"] = pd.DataFrame({"x": [1, 2, 3]})
+
+    result = asyncio.run(
+        registry.execute(
+            "code_session",
+            session=session,
+            operation="create_script",
+            script_id="script_auto_run_demo",
+            language="python",
+            content="result = int(df['x'].sum())",
+            dataset_name="raw.csv",
+            intent="自动执行脚本",
+        )
+    )
+
+    assert result["success"] is True, result
+    assert result["data"]["auto_run"] is True
+    assert result["data"]["execution_id"]
+    assert result["data"]["script"]["script_id"] == "script_auto_run_demo"
+    assert session.list_pending_actions(action_type="script_not_run") == []
+
+
+def test_code_session_missing_required_args_returns_expected_fields_and_example() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    get_result = asyncio.run(
+        registry.execute(
+            "code_session",
+            session=session,
+            operation="get_script",
+        )
+    )
+    assert get_result["success"] is False
+    assert get_result["data"]["error_code"] == "CODE_SESSION_GET_SCRIPT_ID_REQUIRED"
+    assert get_result["data"]["expected_fields"] == ["operation", "script_id"]
+
+    run_result = asyncio.run(
+        registry.execute(
+            "code_session",
+            session=session,
+            operation="run_script",
+        )
+    )
+    assert run_result["success"] is False
+    assert run_result["data"]["error_code"] == "CODE_SESSION_RUN_SCRIPT_ID_OR_CONTENT_REQUIRED"
+    assert "content" in run_result["message"]
+
+    promote_result = asyncio.run(
+        registry.execute(
+            "code_session",
+            session=session,
+            operation="promote_output",
+        )
+    )
+    assert promote_result["success"] is False
+    assert promote_result["data"]["error_code"] == "CODE_SESSION_PROMOTE_TARGET_REQUIRED"
+    assert "dataset_name" in promote_result["data"]["recovery_hint"]
+
+
+def test_code_session_create_script_auto_run_failure_registers_pending_action() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "code_session",
+            session=session,
+            operation="create_script",
+            script_id="script_auto_run_failure",
+            language="python",
+            content="result = 1 / 0",
+            intent="自动执行失败样例",
+        )
+    )
+
+    assert result["success"] is False, result
+    pending = session.list_pending_actions(action_type="script_not_run")
+    assert len(pending) == 1
+    assert pending[0]["key"] == "script_auto_run_failure"
+
+
+def test_code_session_create_script_without_auto_run_registers_pending_action() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "code_session",
+            session=session,
+            operation="create_script",
+            auto_run=False,
+            script_id="script_manual_followup",
+            language="python",
+            content="result = 42",
+        )
+    )
+
+    assert result["success"] is True, result
+    pending = session.list_pending_actions(action_type="script_not_run")
+    assert len(pending) == 1
+    assert pending[0]["key"] == "script_manual_followup"
+
+
 def test_code_session_supports_patch_rerun_and_promote_output() -> None:
     registry = create_default_tool_registry()
     session = Session()
@@ -978,6 +1615,7 @@ def test_code_session_supports_patch_rerun_and_promote_output() -> None:
             "code_session",
             session=session,
             operation="create_script",
+            auto_run=False,
             script_id="script_patch_demo",
             language="python",
             content=(
@@ -1048,6 +1686,44 @@ def test_code_session_supports_patch_rerun_and_promote_output() -> None:
     assert len(script_state["data"]["history"]) == 1
 
 
+def test_code_session_patch_validation_returns_structured_error() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    create_result = asyncio.run(
+        registry.execute(
+            "code_session",
+            session=session,
+            operation="create_script",
+            auto_run=False,
+            script_id="script_patch_validation",
+            language="python",
+            content="result = 42\n",
+        )
+    )
+    assert create_result["success"] is True, create_result
+
+    patch_result = asyncio.run(
+        registry.execute(
+            "code_session",
+            session=session,
+            operation="patch_script",
+            script_id="script_patch_validation",
+            patch={
+                "mode": "replace_string",
+                "new_string": "result = 43",
+            },
+        )
+    )
+    assert patch_result["success"] is False
+    assert patch_result["data"]["error_code"] == "CODE_SESSION_PATCH_OLD_STRING_REQUIRED"
+    assert patch_result["data"]["expected_fields"] == [
+        "patch.mode",
+        "patch.old_string",
+        "patch.new_string",
+    ]
+
+
 def test_code_session_records_failure_location_and_retry_link() -> None:
     registry = create_default_tool_registry()
     session = Session()
@@ -1057,6 +1733,7 @@ def test_code_session_records_failure_location_and_retry_link() -> None:
             "code_session",
             session=session,
             operation="create_script",
+            auto_run=False,
             script_id="script_failure_demo",
             language="python",
             content="result = 1 / 0\n",
@@ -1146,6 +1823,7 @@ def test_code_session_run_script_auto_uses_single_dataset_when_dataset_name_miss
             "code_session",
             session=session,
             operation="create_script",
+            auto_run=False,
             script_id="script_auto_dataset",
             language="python",
             content="result = int(df['x'].sum())",
@@ -1175,6 +1853,7 @@ def test_code_session_rejects_file_io_when_dataset_name_provided() -> None:
             "code_session",
             session=session,
             operation="create_script",
+            auto_run=False,
             script_id="script_dataset_guard",
             language="python",
             content="import pandas as pd\ndf = pd.read_excel('all.xlsx')\nresult = len(df)\n",
