@@ -783,6 +783,22 @@ export interface AgentInfo {
   status: 'running' | 'completed' | 'error';
   task: string;
   startTime: number;
+  updatedAt: number;
+  attemptCount: number;
+  failureCount: number;
+  latestExecutionTimeMs: number | null;
+  lastError?: string | null;
+  summary?: string;
+  history: AgentAttemptInfo[];
+}
+
+export interface AgentAttemptInfo {
+  attempt: number;
+  task: string;
+  status: AgentInfo["status"];
+  startedAt: number;
+  endedAt: number | null;
+  executionTimeMs: number | null;
   summary?: string;
 }
 

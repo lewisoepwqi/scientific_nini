@@ -1090,3 +1090,81 @@ describe("handleEvent 文本去重", () => {
     expect(harness.getState().messages[0]?.outputLevel).toBe("o2");
   });
 });
+
+describe("handleEvent 多 Agent 聚合", () => {
+  it("同一 agent 多次失败重试后应聚合为单卡并保留历史", async () => {
+    const harness = createHarness();
+
+    await harness.dispatch({
+      type: "agent_start",
+      data: {
+        agent_id: "agent-stat",
+        agent_name: "统计分析专家",
+        task: "执行正态性检验",
+        attempt: 1,
+        retry_count: 0,
+      },
+    });
+
+    await harness.dispatch({
+      type: "agent_error",
+      data: {
+        agent_id: "agent-stat",
+        agent_name: "统计分析专家",
+        error: "第一次执行超时",
+        execution_time_ms: 300000,
+        attempt: 1,
+        retry_count: 0,
+      },
+    });
+
+    await harness.dispatch({
+      type: "agent_start",
+      data: {
+        agent_id: "agent-stat",
+        agent_name: "统计分析专家",
+        task: "执行正态性检验",
+        attempt: 2,
+        retry_count: 1,
+      },
+    });
+
+    await harness.dispatch({
+      type: "agent_complete",
+      data: {
+        agent_id: "agent-stat",
+        agent_name: "统计分析专家",
+        summary: "Shapiro-Wilk 检验已完成",
+        execution_time_ms: 1280,
+        attempt: 2,
+        retry_count: 1,
+      },
+    });
+
+    const state = harness.getState();
+    expect(Object.keys(state.activeAgents)).toHaveLength(0);
+    expect(state.completedAgents).toHaveLength(1);
+    expect(state.completedAgents[0]).toMatchObject({
+      agentId: "agent-stat",
+      status: "completed",
+      attemptCount: 2,
+      failureCount: 1,
+      latestExecutionTimeMs: 1280,
+      summary: "Shapiro-Wilk 检验已完成",
+      lastError: null,
+    });
+    expect(state.completedAgents[0].history).toHaveLength(2);
+    expect(state.completedAgents[0].history[0]).toMatchObject({
+      attempt: 1,
+      status: "error",
+      executionTimeMs: 300000,
+      summary: "第一次执行超时",
+    });
+    expect(state.completedAgents[0].history[1]).toMatchObject({
+      attempt: 2,
+      status: "completed",
+      executionTimeMs: 1280,
+      summary: "Shapiro-Wilk 检验已完成",
+    });
+  });
+});

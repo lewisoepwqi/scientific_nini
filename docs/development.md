@@ -104,3 +104,30 @@ curl http://127.0.0.1:8011/api/health
 - 扩展 WebSocket 事件：更新 `src/nini/agent/runner.py` 与 `web/src/store.ts`
 - 新增配置项：更新 `src/nini/config.py`、`nini init` 默认模板与文档
 - 升级模型路由：更新 `src/nini/agent/model_resolver.py` 与对应测试
+
+## 7. Agent 可靠性运行时
+
+当前运行时可靠性增强围绕三条主线展开：
+
+- `pending_actions`：统一记录脚本未执行、工具失败未恢复、承诺产物未落地、等待用户确认、仅描述下一步未执行等待处理状态。
+- `CompletionEvidence`：completion check 先收集结构化证据，再映射为校验项与 recovery prompt，不再仅靠关键词和零散提示。
+- `HarnessSessionSnapshot`：每轮 harness 结束后写入轻量快照，供 `nini debug ...` 和问题复盘复用。
+
+### `pending_actions` 边界
+
+- 只记录“还需要继续处理的动作”，不复制完整 task manager 状态。
+- 只保存摘要字段与最小元数据，不保存大对象或完整 trace。
+- 真实来源仍在原始消息、工具结果和 trace；`pending_actions` 只是统一账本，不是新的业务事实源。
+
+### Tool Exposure Policy 边界
+
+- 策略只负责在运行前收缩不该出现的工具面。
+- 策略不会替代模型对分析方法的语义判断。
+- 当前只做最小三阶段裁剪：`profile / analysis / export`。
+- 高风险工具是否重新暴露，仍受会话级授权状态约束。
+
+### 非目标
+
+- 不在本轮把 `runner.py` 拆成大规模模块化架构。
+- 不把整个 `Session` 改造成不可变对象。
+- 不引入新的通用 toolchain 框架来统一所有工具链路。

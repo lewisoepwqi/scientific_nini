@@ -7,7 +7,10 @@
 ```bash
 nini start [--host 127.0.0.1] [--port 8000] [--reload] [--log-level info]
 nini init [--env-file .env] [--force]
-nini doctor
+nini doctor [--surface] [--surface-stage profile|analysis|export]
+nini debug summary <session_id>
+nini debug snapshot <session_id> --turn-id <turn_id>
+nini debug load-session <session_id>
 ```
 
 ## 1) `nini start`
@@ -61,6 +64,40 @@ nini init --env-file .env.dev --force
 
 ```bash
 nini doctor
+nini doctor --surface
+nini doctor --surface --surface-stage export
+```
+
+`--surface` 会输出当前工具面与技能面的诊断快照，包含：
+
+- 当前阶段（`profile / analysis / export`）
+- 当前可见工具列表
+- 被策略隐藏的工具
+- 高风险工具摘要
+- 会话级授权状态
+
+## 4) `nini debug`
+
+查看 harness 运行快照，用于排查 completion check、待处理动作和工具暴露问题。
+
+### `nini debug summary <session_id>`
+
+输出某个会话最近一轮的 `HarnessSessionSnapshot`。
+
+### `nini debug snapshot <session_id> --turn-id <turn_id>`
+
+输出指定轮次的快照；若轮次不存在，会返回明确的未找到提示。
+
+### `nini debug load-session <session_id>`
+
+输出最近快照以及其关联的 trace 明细，用于快速复盘某一轮为何进入 `done / blocked / error`。
+
+示例：
+
+```bash
+nini debug summary 9f8e7d6c5b4a
+nini debug snapshot 9f8e7d6c5b4a --turn-id 12ab34cd56ef
+nini debug load-session 9f8e7d6c5b4a
 ```
 
 ## 向后兼容行为

@@ -226,6 +226,38 @@ class ToolResultEventData(BaseModel):
     data: Optional[dict[str, Any]] = Field(None, description="结果数据")
 
 
+class AgentStartEventData(BaseModel):
+    """AGENT_START 事件的数据结构。"""
+
+    agent_id: str = Field(..., description="子 Agent ID")
+    agent_name: str = Field(..., description="子 Agent 名称")
+    task: str = Field(..., description="当前执行任务")
+    attempt: int = Field(1, description="当前尝试次数（1-based）")
+    retry_count: int = Field(0, description="已发生的重试次数")
+
+
+class AgentCompleteEventData(BaseModel):
+    """AGENT_COMPLETE 事件的数据结构。"""
+
+    agent_id: str = Field(..., description="子 Agent ID")
+    agent_name: str = Field(..., description="子 Agent 名称")
+    summary: str = Field("", description="执行摘要")
+    execution_time_ms: int = Field(..., description="本次尝试耗时（毫秒）")
+    attempt: int = Field(1, description="当前尝试次数（1-based）")
+    retry_count: int = Field(0, description="已发生的重试次数")
+
+
+class AgentErrorEventData(BaseModel):
+    """AGENT_ERROR 事件的数据结构。"""
+
+    agent_id: str = Field(..., description="子 Agent ID")
+    agent_name: str = Field(..., description="子 Agent 名称")
+    error: str = Field(..., description="错误摘要")
+    execution_time_ms: int = Field(..., description="本次尝试耗时（毫秒）")
+    attempt: int = Field(1, description="当前尝试次数（1-based）")
+    retry_count: int = Field(0, description="已发生的重试次数")
+
+
 # ---- 其他事件 ----
 
 

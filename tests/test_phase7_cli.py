@@ -16,7 +16,7 @@ from nini.__main__ import (
     main,
 )
 from nini.config import settings
-from nini.harness.models import HarnessRunSummary
+from nini.harness.models import HarnessRunSummary, HarnessSessionSnapshot
 
 
 def test_cli_init_creates_env_file(tmp_path: Path) -> None:
@@ -90,6 +90,26 @@ def test_cli_doctor_returns_success_with_default_config(
     settings.ensure_dirs()
     ret = main(["doctor"])
     assert ret == 0
+
+
+def test_cli_doctor_surface_outputs_visible_tools(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _FakeRegistry:
+        def list_tools(self):
+            return ["task_state", "dataset_catalog", "export_report"]
+
+        def list_markdown_tools(self):
+            return [{"name": "writing-guide", "enabled": True}]
+
+    monkeypatch.setattr("nini.tools.registry.create_default_tool_registry", lambda: _FakeRegistry())
+    ret = main(["doctor", "--surface", "--surface-stage", "profile"])
+    out = capsys.readouterr().out
+
+    assert ret == 0
+    assert '"stage": "profile"' in out
+    assert '"visible_tools"' in out
 
 
 def test_render_markdown_skill_template_removes_todo_placeholders() -> None:
@@ -233,6 +253,44 @@ def test_cli_harness_eval_outputs_failure_distribution(
 
     assert ret == 0
     assert '"tool_loop": 1' in out
+
+
+def test_cli_debug_summary_outputs_latest_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _FakeStore:
+        def load_latest_snapshot(self, session_id: str):
+            return HarnessSessionSnapshot(
+                session_id=session_id,
+                turn_id="turn_demo",
+                run_id="run_demo",
+                stop_reason="completed",
+            )
+
+    monkeypatch.setattr("nini.harness.store.HarnessTraceStore", _FakeStore)
+    ret = main(["debug", "summary", "session_demo"])
+    out = capsys.readouterr().out
+
+    assert ret == 0
+    assert '"turn_id": "turn_demo"' in out
+
+
+def test_cli_debug_snapshot_returns_not_found_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _FakeStore:
+        def load_snapshot(self, session_id: str, turn_id: str):
+            _ = session_id, turn_id
+            raise FileNotFoundError(turn_id)
+
+    monkeypatch.setattr("nini.harness.store.HarnessTraceStore", _FakeStore)
+    ret = main(["debug", "snapshot", "session_demo", "--turn-id", "turn_missing"])
+    out = capsys.readouterr().out
+
+    assert ret == 1
+    assert "未找到" in out
 
 
 def test_cli_harness_eval_gate_returns_nonzero_when_gate_failed(

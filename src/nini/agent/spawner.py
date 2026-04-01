@@ -52,6 +52,9 @@ class SubAgentSpawner:
         task: str,
         session: Any,
         timeout_seconds: int = 300,
+        *,
+        attempt: int = 1,
+        retry_count: int = 0,
     ) -> SubAgentResult:
         """派生并执行单个子 Agent。
 
@@ -82,6 +85,8 @@ class SubAgentSpawner:
                 "agent_id": agent_id,
                 "agent_name": agent_def.name,
                 "task": task,
+                "attempt": attempt,
+                "retry_count": retry_count,
             },
         )
 
@@ -109,6 +114,9 @@ class SubAgentSpawner:
                     "agent_id": agent_id,
                     "agent_name": agent_def.name,
                     "error": error_msg,
+                    "execution_time_ms": elapsed_ms,
+                    "attempt": attempt,
+                    "retry_count": retry_count,
                 },
             )
             return SubAgentResult(
@@ -129,6 +137,9 @@ class SubAgentSpawner:
                     "agent_id": agent_id,
                     "agent_name": agent_def.name,
                     "error": str(exc),
+                    "execution_time_ms": elapsed_ms,
+                    "attempt": attempt,
+                    "retry_count": retry_count,
                 },
             )
             return SubAgentResult(
@@ -151,6 +162,8 @@ class SubAgentSpawner:
                     "agent_name": agent_def.name,
                     "summary": result.summary,
                     "execution_time_ms": elapsed_ms,
+                    "attempt": attempt,
+                    "retry_count": retry_count,
                 },
             )
         else:
@@ -162,6 +175,9 @@ class SubAgentSpawner:
                     "agent_id": agent_id,
                     "agent_name": agent_def.name,
                     "error": result.summary or "执行失败",
+                    "execution_time_ms": elapsed_ms,
+                    "attempt": attempt,
+                    "retry_count": retry_count,
                 },
             )
 
@@ -190,7 +206,14 @@ class SubAgentSpawner:
 
         last_result: SubAgentResult | None = None
         for attempt in range(max_retries):
-            result = await self.spawn(agent_id, task, session, timeout_seconds=timeout)
+            result = await self.spawn(
+                agent_id,
+                task,
+                session,
+                timeout_seconds=timeout,
+                attempt=attempt + 1,
+                retry_count=attempt,
+            )
             if result.success:
                 return result
             last_result = result

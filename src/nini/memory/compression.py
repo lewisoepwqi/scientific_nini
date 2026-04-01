@@ -66,6 +66,7 @@ _LLM_SUMMARY_PROMPT = (
     "⑤ 关键结论与实际意义\n"
     "⑥ 每个已完成分析步骤的关键输出（如统计量、发现的规律），不超过一句话\n"
     "⑦ PDCA 任务列表的当前状态（每个任务的 ID、标题、状态：completed/in_progress/pending）\n"
+    "⑧ 当前仍未解决的待处理动作（pending_actions）及其影响\n"
     "摘要不超过 800 字。只输出摘要内容，不要添加额外说明。\n\n"
     "对话历史：\n{conversation}"
 )

@@ -8,21 +8,24 @@ from __future__ import annotations
 import pytest
 
 from nini.agent.event_builders import (
+    build_agent_complete_event,
+    build_agent_error_event,
+    build_agent_start_event,
     build_analysis_plan_event,
-    build_plan_step_update_event,
-    build_plan_progress_event,
-    build_task_attempt_event,
-    build_run_context_event,
-    build_completion_check_event,
     build_blocked_event,
-    build_token_usage_event,
+    build_completion_check_event,
+    build_done_event,
+    build_error_event,
     build_model_fallback_event,
+    build_plan_progress_event,
+    build_plan_step_update_event,
+    build_run_context_event,
+    build_session_event,
+    build_task_attempt_event,
+    build_text_event,
+    build_token_usage_event,
     build_tool_call_event,
     build_tool_result_event,
-    build_text_event,
-    build_error_event,
-    build_done_event,
-    build_session_event,
     build_workspace_update_event,
 )
 from nini.agent.events import EventType
@@ -191,6 +194,63 @@ class TestHarnessEventBuilders:
         assert event.type == EventType.BLOCKED
         assert event.turn_id == "turn_blocked"
         assert event.data["reason_code"] == "tool_loop"
+
+
+class TestAgentEventBuilders:
+    """Agent 生命周期事件构造器测试。"""
+
+    def test_build_agent_start_event(self):
+        """构造 Agent 启动事件。"""
+        event = build_agent_start_event(
+            agent_id="agent-stat",
+            agent_name="统计分析专家",
+            task="执行正态性检验",
+            attempt=2,
+            retry_count=1,
+            turn_id="turn_agent",
+        )
+
+        assert event.type == EventType.AGENT_START
+        assert event.turn_id == "turn_agent"
+        assert event.data["agent_id"] == "agent-stat"
+        assert event.data["attempt"] == 2
+        assert event.data["retry_count"] == 1
+
+    def test_build_agent_complete_event(self):
+        """构造 Agent 完成事件。"""
+        event = build_agent_complete_event(
+            agent_id="agent-stat",
+            agent_name="统计分析专家",
+            summary="分析完成",
+            execution_time_ms=1280,
+            attempt=2,
+            retry_count=1,
+            turn_id="turn_agent",
+        )
+
+        assert event.type == EventType.AGENT_COMPLETE
+        assert event.data["summary"] == "分析完成"
+        assert event.data["execution_time_ms"] == 1280
+        assert event.data["attempt"] == 2
+        assert event.data["retry_count"] == 1
+
+    def test_build_agent_error_event(self):
+        """构造 Agent 失败事件。"""
+        event = build_agent_error_event(
+            agent_id="agent-stat",
+            agent_name="统计分析专家",
+            error="执行超时",
+            execution_time_ms=300000,
+            attempt=3,
+            retry_count=2,
+            turn_id="turn_agent",
+        )
+
+        assert event.type == EventType.AGENT_ERROR
+        assert event.data["error"] == "执行超时"
+        assert event.data["execution_time_ms"] == 300000
+        assert event.data["attempt"] == 3
+        assert event.data["retry_count"] == 2
 
 
 class TestTokenUsageEventBuilder:

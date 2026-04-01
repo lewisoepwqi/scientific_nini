@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path
 import sys
-from typing import Sequence
+from typing import Any, Sequence
 
 
 def _default_env_content() -> str:
@@ -197,7 +197,36 @@ def _build_parser() -> argparse.ArgumentParser:
     init_parser.set_defaults(func=_cmd_init)
 
     doctor_parser = subparsers.add_parser("doctor", help="检查运行环境与配置")
+    doctor_parser.add_argument(
+        "--surface",
+        action="store_true",
+        help="输出当前 tools/skills/surface 诊断信息",
+    )
+    doctor_parser.add_argument(
+        "--surface-stage",
+        choices=["profile", "analysis", "export"],
+        default=None,
+        help="surface 诊断时强制指定阶段",
+    )
     doctor_parser.set_defaults(func=_cmd_doctor)
+
+    debug_parser = subparsers.add_parser("debug", help="查看运行快照诊断信息")
+    debug_subparsers = debug_parser.add_subparsers(dest="debug_command", required=True)
+
+    debug_summary_parser = debug_subparsers.add_parser("summary", help="查看会话最新运行摘要")
+    debug_summary_parser.add_argument("session_id", help="会话 ID")
+    debug_summary_parser.set_defaults(func=_cmd_debug_summary)
+
+    debug_snapshot_parser = debug_subparsers.add_parser("snapshot", help="查看指定轮次快照")
+    debug_snapshot_parser.add_argument("session_id", help="会话 ID")
+    debug_snapshot_parser.add_argument("--turn-id", required=True, help="轮次 ID")
+    debug_snapshot_parser.set_defaults(func=_cmd_debug_snapshot)
+
+    debug_load_session_parser = debug_subparsers.add_parser(
+        "load-session", help="加载会话最新快照及关联 trace"
+    )
+    debug_load_session_parser.add_argument("session_id", help="会话 ID")
+    debug_load_session_parser.set_defaults(func=_cmd_debug_load_session)
 
     export_parser = subparsers.add_parser("export-memory", help="导出会话记忆为格式化 JSON")
     export_parser.add_argument("session_id", help="会话 ID")
@@ -411,6 +440,31 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
+    if getattr(args, "surface", False):
+        from nini.agent.tool_exposure_policy import compute_tool_exposure_policy
+        from nini.agent.session import Session
+        from nini.tools.registry import create_default_tool_registry
+
+        registry = create_default_tool_registry()
+        session = Session()
+        policy = compute_tool_exposure_policy(
+            session=session,
+            tool_registry=registry,
+            stage_override=args.surface_stage,
+        )
+        markdown_items = registry.list_markdown_tools()
+        payload = {
+            "stage": policy["stage"],
+            "tools": registry.list_tools(),
+            "skills": [str(item.get("name", "")).strip() for item in markdown_items if item.get("enabled", True)],
+            "visible_tools": policy["visible_tools"],
+            "removed_tools": policy["removed_by_policy"],
+            "high_risk_tools": policy["high_risk_tools"],
+            "authorization_state": policy["authorization_state"],
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
     from nini.config import settings
     from nini.sandbox.r_executor import detect_r_installation
 
@@ -607,6 +661,64 @@ def _cmd_harness_eval(args: argparse.Namespace) -> int:
 
     result = asyncio.run(store.aggregate_failures(session_id=args.session_id))
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_debug_summary(args: argparse.Namespace) -> int:
+    """查看会话最近一轮运行快照。"""
+    from nini.harness.store import HarnessTraceStore
+
+    store = HarnessTraceStore()
+    snapshot = store.load_latest_snapshot(args.session_id)
+    print(json.dumps(snapshot.model_dump(mode="json"), ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_debug_snapshot(args: argparse.Namespace) -> int:
+    """查看指定轮次运行快照。"""
+    from nini.harness.store import HarnessTraceStore
+
+    store = HarnessTraceStore()
+    try:
+        snapshot = store.load_snapshot(args.session_id, args.turn_id)
+    except FileNotFoundError:
+        print(
+            json.dumps(
+                {
+                    "success": False,
+                    "message": f"未找到 session={args.session_id} turn_id={args.turn_id} 的运行快照",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 1
+    print(json.dumps(snapshot.model_dump(mode="json"), ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_debug_load_session(args: argparse.Namespace) -> int:
+    """加载会话最新快照及其关联 trace 摘要。"""
+    from nini.harness.store import HarnessTraceStore
+
+    store = HarnessTraceStore()
+    snapshot = store.load_latest_snapshot(args.session_id)
+    trace_payload: dict[str, Any] | None = None
+    trace_ref = str(snapshot.trace_ref or "").strip()
+    if trace_ref:
+        trace_path = Path(trace_ref)
+        if trace_path.exists():
+            trace_payload = json.loads(trace_path.read_text(encoding="utf-8"))
+    print(
+        json.dumps(
+            {
+                "snapshot": snapshot.model_dump(mode="json"),
+                "trace": trace_payload,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 

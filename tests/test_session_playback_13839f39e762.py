@@ -238,6 +238,7 @@ class TestSessionPlayback13839f39e762:
                 "code_session",
                 session=session,
                 operation="create_script",
+                auto_run=False,
                 script_id="analyze_intermediate",
                 language="python",
                 content="result = len(df)",
@@ -336,6 +337,7 @@ class TestSessionPlayback13839f39e762:
                 "code_session",
                 session=session,
                 operation="create_script",
+                auto_run=False,
                 script_id="recovery_test",
                 language="python",
                 content=(

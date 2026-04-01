@@ -27,8 +27,11 @@ export function handleAgentEvent(
       const agentId = typeof data.agent_id === "string" ? data.agent_id : "";
       const agentName = typeof data.agent_name === "string" ? data.agent_name : agentId;
       const task = typeof data.task === "string" ? data.task : "";
+      const attempt = typeof data.attempt === "number" ? data.attempt : undefined;
+      const retryCount =
+        typeof data.retry_count === "number" ? data.retry_count : undefined;
       if (!agentId) break;
-      set((s) => setAgentStart(s, agentId, agentName, task));
+      set((s) => setAgentStart(s, agentId, agentName, task, attempt, retryCount));
       break;
     }
 
@@ -41,8 +44,11 @@ export function handleAgentEvent(
       if (!isRecord(data)) break;
       const agentId = typeof data.agent_id === "string" ? data.agent_id : "";
       const summary = typeof data.summary === "string" ? data.summary : "";
+      const executionTimeMs =
+        typeof data.execution_time_ms === "number" ? data.execution_time_ms : undefined;
+      const attempt = typeof data.attempt === "number" ? data.attempt : undefined;
       if (!agentId) break;
-      set((s) => setAgentComplete(s, agentId, summary));
+      set((s) => setAgentComplete(s, agentId, summary, executionTimeMs, attempt));
       break;
     }
 
@@ -50,8 +56,11 @@ export function handleAgentEvent(
       if (!isRecord(data)) break;
       const agentId = typeof data.agent_id === "string" ? data.agent_id : "";
       const error = typeof data.error === "string" ? data.error : "未知错误";
+      const executionTimeMs =
+        typeof data.execution_time_ms === "number" ? data.execution_time_ms : undefined;
+      const attempt = typeof data.attempt === "number" ? data.attempt : undefined;
       if (!agentId) break;
-      set((s) => setAgentError(s, agentId, error));
+      set((s) => setAgentError(s, agentId, error, executionTimeMs, attempt));
       break;
     }
   }

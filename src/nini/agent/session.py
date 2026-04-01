@@ -43,6 +43,7 @@ class Session:
     workspace_hydrated: bool = False
     load_persisted_messages: bool = False
     harness_runtime_context: str = ""
+    pending_actions: list[dict[str, Any]] = field(default_factory=list)
     # 图表输出格式偏好："interactive"（Plotly）/ "image"（Matplotlib/PNG）/ None（未设置）
     chart_output_preference: str | None = None
     task_kind: str = "quick_task"
@@ -66,6 +67,8 @@ class Session:
         # 防御：meta.json 中 null 值或类型错误时重置为空列表
         if not isinstance(self.compression_segments, list):
             self.compression_segments = []
+        if not isinstance(self.pending_actions, list):
+            self.pending_actions = []
         if self.load_persisted_messages and not self.messages:
             self.messages.extend(self.conversation_memory.load_messages(resolve_refs=True))
         if self.messages:
@@ -197,6 +200,137 @@ class Session:
             if value is not None and key not in msg:
                 msg[key] = value
         self._append_entry(msg)
+
+    def list_pending_actions(
+        self,
+        *,
+        status: str | None = None,
+        action_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """返回待处理动作列表。"""
+        items = [dict(item) for item in self.pending_actions if isinstance(item, dict)]
+        if action_type:
+            normalized_type = str(action_type).strip()
+            items = [item for item in items if str(item.get("type", "")).strip() == normalized_type]
+        if status:
+            normalized_status = str(status).strip()
+            items = [item for item in items if str(item.get("status", "")).strip() == normalized_status]
+        return items
+
+    def upsert_pending_action(
+        self,
+        *,
+        action_type: str,
+        key: str,
+        summary: str,
+        source_tool: str,
+        status: str = "pending",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """新增或更新待处理动作。"""
+        normalized_type = str(action_type or "").strip()
+        normalized_key = str(key or "").strip()
+        if not normalized_type or not normalized_key:
+            raise ValueError("pending action 必须提供 action_type 和 key")
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        normalized_summary = str(summary or "").strip()
+        normalized_source = str(source_tool or "").strip() or "system"
+        normalized_status = str(status or "").strip() or "pending"
+        payload = {
+            "type": normalized_type,
+            "key": normalized_key,
+            "status": normalized_status,
+            "summary": normalized_summary,
+            "source_tool": normalized_source,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "metadata": dict(metadata or {}),
+        }
+        replaced = False
+        next_items: list[dict[str, Any]] = []
+        for item in self.pending_actions:
+            if not isinstance(item, dict):
+                continue
+            if (
+                str(item.get("type", "")).strip() == normalized_type
+                and str(item.get("key", "")).strip() == normalized_key
+            ):
+                payload["created_at"] = str(item.get("created_at") or now_iso)
+                next_items.append({**item, **payload})
+                replaced = True
+            else:
+                next_items.append(dict(item))
+        if not replaced:
+            next_items.append(payload)
+        self.pending_actions = next_items
+        session_manager.save_session_pending_actions(self.id, self.pending_actions)
+        return dict(payload)
+
+    def resolve_pending_action(
+        self,
+        *,
+        action_type: str,
+        key: str,
+        final_status: str = "resolved",
+        resolution_note: str | None = None,
+    ) -> bool:
+        """将待处理动作标记为已解决并从账本移除。"""
+        normalized_type = str(action_type or "").strip()
+        normalized_key = str(key or "").strip()
+        if not normalized_type or not normalized_key:
+            return False
+
+        matched = False
+        next_items: list[dict[str, Any]] = []
+        for item in self.pending_actions:
+            if not isinstance(item, dict):
+                continue
+            if (
+                str(item.get("type", "")).strip() == normalized_type
+                and str(item.get("key", "")).strip() == normalized_key
+            ):
+                matched = True
+                continue
+            next_items.append(dict(item))
+        if matched:
+            self.pending_actions = next_items
+            session_manager.save_session_pending_actions(self.id, self.pending_actions)
+        return matched
+
+    def clear_pending_actions(self, *, action_type: str | None = None) -> int:
+        """批量清理待处理动作。"""
+        normalized_type = str(action_type or "").strip()
+        before = len(self.pending_actions)
+        if normalized_type:
+            self.pending_actions = [
+                dict(item)
+                for item in self.pending_actions
+                if isinstance(item, dict)
+                and str(item.get("type", "")).strip() != normalized_type
+            ]
+        else:
+            self.pending_actions = []
+        removed = before - len(self.pending_actions)
+        if removed > 0:
+            session_manager.save_session_pending_actions(self.id, self.pending_actions)
+        return removed
+
+    def build_pending_actions_summary(self, *, max_items: int = 5) -> str:
+        """构建运行时上下文使用的待处理动作摘要。"""
+        items = self.list_pending_actions(status="pending")[:max_items]
+        if not items:
+            return ""
+        lines = []
+        for item in items:
+            summary = str(item.get("summary", "")).strip()
+            source_tool = str(item.get("source_tool", "")).strip()
+            suffix = f"（来源: {source_tool}）" if source_tool else ""
+            lines.append(f"- [{item.get('type', 'unknown')}] {summary}{suffix}")
+        remaining = len(self.list_pending_actions(status="pending")) - len(items)
+        if remaining > 0:
+            lines.append(f"- ... 另有 {remaining} 个待处理动作未展开")
+        return "\n".join(lines)
 
     def add_reasoning(
         self,
@@ -451,6 +585,7 @@ class SessionManager:
         recipe_inputs: dict[str, Any] = {}
         deep_task_state: dict[str, Any] = {}
         compression_segments: list[dict[str, Any]] = []
+        pending_actions: list[dict[str, Any]] = []
         if load_persisted_messages:
             meta = self._load_session_meta(sid)
             loaded_title = str(meta.get("title", "")).strip()
@@ -488,6 +623,9 @@ class SessionManager:
             raw_deep_task_state = meta.get("deep_task_state")
             if isinstance(raw_deep_task_state, dict):
                 deep_task_state = dict(raw_deep_task_state)
+            raw_pending_actions = meta.get("pending_actions")
+            if isinstance(raw_pending_actions, list):
+                pending_actions = [item for item in raw_pending_actions if isinstance(item, dict)]
             # 加载 compression_segments；向后兼容旧格式
             raw_segs = meta.get("compression_segments")
             if isinstance(raw_segs, list) and raw_segs:
@@ -517,6 +655,7 @@ class SessionManager:
             recipe_id=recipe_id,
             recipe_inputs=recipe_inputs,
             deep_task_state=deep_task_state,
+            pending_actions=pending_actions,
             compression_segments=compression_segments,
             load_persisted_messages=load_persisted_messages,
         )
@@ -829,6 +968,15 @@ class SessionManager:
     ) -> None:
         """持久化 deep task 状态。"""
         self._save_session_meta_fields(session_id, {"deep_task_state": deep_task_state})
+
+    def save_session_pending_actions(
+        self,
+        session_id: str,
+        pending_actions: list[dict[str, Any]],
+    ) -> None:
+        """持久化待处理动作账本。"""
+        normalized = [dict(item) for item in pending_actions if isinstance(item, dict)]
+        self._save_session_meta_fields(session_id, {"pending_actions": normalized})
 
     def save_session_tool_approvals(
         self,
