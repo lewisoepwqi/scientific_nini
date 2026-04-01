@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping, cast
 
 from nini.config import settings
-from nini.harness.models import HarnessRunSummary, HarnessTraceRecord
+from nini.harness.models import HarnessRunSummary, HarnessSessionSnapshot, HarnessTraceRecord
 from nini.models.database import get_db, init_db
 
 
@@ -29,6 +29,12 @@ class HarnessTraceStore:
     def _jsonl_path(self, session_id: str) -> Path:
         return self._base_dir(session_id) / "runs.jsonl"
 
+    def _snapshot_dir(self, session_id: str) -> Path:
+        return settings.sessions_dir / session_id / "harness" / "snapshots"
+
+    def _snapshot_path(self, session_id: str, turn_id: str) -> Path:
+        return self._snapshot_dir(session_id) / f"{turn_id}.json"
+
     async def save_run(self, record: HarnessTraceRecord) -> HarnessRunSummary:
         """保存运行明细与 SQLite 摘要。"""
         base_dir = self._base_dir(record.session_id)
@@ -39,6 +45,16 @@ class HarnessTraceStore:
             json.dumps(record.model_dump(mode="json"), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+        runtime_snapshot_payload = None
+        if isinstance(record.summary, dict):
+            raw_snapshot = record.summary.get("runtime_snapshot")
+            if isinstance(raw_snapshot, dict):
+                runtime_snapshot_payload = dict(raw_snapshot)
+        if runtime_snapshot_payload is not None:
+            runtime_snapshot_payload["trace_ref"] = str(trace_path)
+            snapshot = HarnessSessionSnapshot.model_validate(runtime_snapshot_payload)
+            self._save_snapshot(snapshot)
 
         with self._jsonl_path(record.session_id).open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record.model_dump(mode="json"), ensure_ascii=False) + "\n")
@@ -63,6 +79,14 @@ class HarnessTraceStore:
         )
         await self._save_summary(summary)
         return summary
+
+    def _save_snapshot(self, snapshot: HarnessSessionSnapshot) -> None:
+        snapshot_dir = self._snapshot_dir(snapshot.session_id)
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        self._snapshot_path(snapshot.session_id, snapshot.turn_id).write_text(
+            json.dumps(snapshot.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     async def _save_summary(self, summary: HarnessRunSummary) -> None:
         await self._ensure_schema()
@@ -214,6 +238,27 @@ class HarnessTraceStore:
             "blocked": record.blocked.model_dump(mode="json") if record.blocked else None,
             "events": [event.model_dump(mode="json") for event in record.events],
         }
+
+    def load_snapshot(self, session_id: str, turn_id: str) -> HarnessSessionSnapshot:
+        """读取指定轮次的运行快照。"""
+        path = self._snapshot_path(session_id, turn_id)
+        if not path.exists():
+            raise FileNotFoundError(turn_id)
+        return HarnessSessionSnapshot.model_validate_json(path.read_text(encoding="utf-8"))
+
+    def load_latest_snapshot(self, session_id: str) -> HarnessSessionSnapshot:
+        """读取指定会话最近一轮的运行快照。"""
+        snapshot_dir = self._snapshot_dir(session_id)
+        if not snapshot_dir.exists():
+            raise FileNotFoundError(session_id)
+        candidates = sorted(
+            snapshot_dir.glob("*.json"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+        if not candidates:
+            raise FileNotFoundError(session_id)
+        return HarnessSessionSnapshot.model_validate_json(candidates[0].read_text(encoding="utf-8"))
 
     async def aggregate_failures(self, session_id: str | None = None) -> dict[str, Any]:
         """聚合失败标签分布。"""

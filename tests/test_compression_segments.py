@@ -438,3 +438,24 @@ class TestPersistenceRoundtrip:
 
         meta = json.loads((session_dir / "meta.json").read_text(encoding="utf-8"))
         assert "compression_segments" not in meta
+
+    def test_pending_actions_roundtrip_in_meta(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+        settings.ensure_dirs()
+
+        sid = "pending_actions_roundtrip"
+        session = session_manager.create_session(sid)
+        session.upsert_pending_action(
+            action_type="script_not_run",
+            key="script_demo",
+            status="pending",
+            summary="脚本 script_demo 已创建但尚未执行。",
+            source_tool="code_session",
+        )
+
+        loaded = session_manager.create_session(sid, load_persisted_messages=True)
+        pending = loaded.list_pending_actions(action_type="script_not_run")
+        assert len(pending) == 1
+        assert pending[0]["key"] == "script_demo"

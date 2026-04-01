@@ -7,6 +7,7 @@ import json
 import pytest
 
 from nini.agent import event_builders as eb
+from nini.agent.events import AgentEvent, EventType
 from nini.agent.session import Session
 from nini.config import settings
 from nini.harness.models import HarnessRunContext, HarnessTraceRecord
@@ -189,6 +190,119 @@ class _ToolRecoveryRunner:
         yield eb.build_done_event(turn_id=turn_id)
 
 
+class _StructuredDatasetTransformRecoveryRunner:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def run(
+        self,
+        session: Session,
+        user_message: str,
+        *,
+        append_user_message: bool = True,
+        stop_event=None,
+        turn_id: str | None = None,
+        stage_override: str | None = None,
+    ):
+        _ = stop_event, stage_override
+        self.calls.append(
+            {
+                "user_message": user_message,
+                "append_user_message": append_user_message,
+            }
+        )
+        assert turn_id is not None
+        if append_user_message:
+            session.add_message("user", user_message, turn_id=turn_id)
+        yield eb.build_iteration_start_event(iteration=len(self.calls) - 1, turn_id=turn_id)
+
+        if len(self.calls) == 1:
+            raw_args = json.dumps(
+                {
+                    "operation": "run",
+                    "dataset_name": "raw",
+                    "steps": [
+                        {
+                            "id": "rename",
+                            "op": "rename_columns",
+                            "params": {"收缩压/Hgmm": "收缩压"},
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            )
+            error_payload = {
+                "error_code": "DATASET_TRANSFORM_RENAME_MAPPING_REQUIRED",
+                "expected_params": ["mapping"],
+                "recovery_hint": "请将映射放入 params.mapping 后重试。",
+                "minimal_example": '{"mapping":{"收缩压/Hgmm":"收缩压"}}',
+            }
+            for idx in range(2):
+                tool_call_id = f"dataset-transform-invalid-{idx}"
+                session.add_tool_call(tool_call_id, "dataset_transform", raw_args, turn_id=turn_id)
+                session.add_tool_result(
+                    tool_call_id,
+                    "数据变换失败: rename_columns 缺少 mapping",
+                    tool_name="dataset_transform",
+                    status="error",
+                    turn_id=turn_id,
+                    data=error_payload,
+                )
+                yield eb.build_tool_result_event(
+                    tool_call_id=tool_call_id,
+                    name="dataset_transform",
+                    status="error",
+                    message="数据变换失败: rename_columns 缺少 mapping",
+                    data=error_payload,
+                    turn_id=turn_id,
+                )
+                if stop_event is not None and stop_event.is_set():
+                    return
+        else:
+            raw_args = json.dumps(
+                {
+                    "operation": "run",
+                    "dataset_name": "raw",
+                    "steps": [
+                        {
+                            "id": "rename",
+                            "op": "rename_columns",
+                            "params": {"mapping": {"收缩压/Hgmm": "收缩压"}},
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            )
+            tool_call_id = "dataset-transform-valid"
+            session.add_tool_call(tool_call_id, "dataset_transform", raw_args, turn_id=turn_id)
+            session.add_tool_result(
+                tool_call_id,
+                "数据变换完成",
+                tool_name="dataset_transform",
+                status="success",
+                turn_id=turn_id,
+                data={"resource_id": "ds_clean", "resource_type": "dataset"},
+            )
+            yield eb.build_tool_result_event(
+                tool_call_id=tool_call_id,
+                name="dataset_transform",
+                status="success",
+                message="数据变换完成",
+                data={"resource_id": "ds_clean", "resource_type": "dataset"},
+                turn_id=turn_id,
+            )
+            session.add_message(
+                "assistant",
+                "已根据 error_code 改用 params.mapping 重试并完成分析。",
+                turn_id=turn_id,
+            )
+            yield eb.build_text_event(
+                "已根据 error_code 改用 params.mapping 重试并完成分析。",
+                turn_id=turn_id,
+            )
+        yield eb.build_done_event(turn_id=turn_id)
+
+
 class _CrashRunner:
     async def run(
         self,
@@ -307,7 +421,7 @@ async def test_harness_runner_persists_blocked_summary_for_incomplete_tasks() ->
         if msg.get("role") == "assistant" and msg.get("event_type") == "text"
     ]
     assert "当前轮分析已暂停" in str(assistant_messages[-1].get("content", ""))
-    assert "未满足的完成条件：所有任务已完成。" in str(assistant_messages[-1].get("content", ""))
+    assert "所有任务已完成" in str(assistant_messages[-1].get("content", ""))
 
 
 @pytest.mark.asyncio
@@ -376,6 +490,44 @@ async def test_harness_runner_tool_recovery_prompt_is_not_appended_as_user_messa
     user_messages = [msg for msg in session.messages if msg.get("role") == "user"]
     assert len(user_messages) == 1
     assert "检测到同类工具路径连续失败" not in str(user_messages[0].get("content", ""))
+
+
+@pytest.mark.asyncio
+async def test_harness_runner_completes_after_structured_tool_failure_recovery() -> None:
+    inner_runner = _StructuredDatasetTransformRecoveryRunner()
+    trace_store = _CaptureTraceStore()
+    runner = HarnessRunner(agent_runner=inner_runner, trace_store=trace_store)
+    session = Session()
+
+    events = [event async for event in runner.run(session, "请先清洗再分析数据")]
+    event_types = [event.type.value for event in events]
+
+    assert "blocked" not in event_types
+    assert event_types[-1] == "done"
+    assert len(inner_runner.calls) == 2
+    assert inner_runner.calls[1]["append_user_message"] is False
+    assert any(
+        event.type == EventType.REASONING
+        and isinstance(event.data, dict)
+        and event.data.get("source") == "loop_recovery"
+        for event in events
+    )
+    assert any(
+        event.type.value == "completion_check"
+        and isinstance(event.data, dict)
+        and event.data.get("passed") is False
+        for event in events
+    )
+    assert any(
+        event.type.value == "completion_check"
+        and isinstance(event.data, dict)
+        and event.data.get("passed") is True
+        for event in events
+    )
+    assert session.list_pending_actions(action_type="tool_failure_unresolved") == []
+    assert trace_store.records[0].status == "completed"
+    assert trace_store.records[0].task_metrics is not None
+    assert trace_store.records[0].task_metrics.recovery_count >= 1
 
 
 def test_harness_runner_tool_failure_signature_uses_tool_arguments() -> None:
@@ -585,6 +737,74 @@ def test_completion_check_fails_when_pending_tasks_exist() -> None:
     check = runner._run_completion_check(session, turn_id=turn_id, attempt=0)  # noqa: SLF001
     task_item = next(item for item in check.items if item.key == "all_tasks_completed")
     assert task_item.passed is False, "仍有 pending 任务时不应通过"
+
+
+def test_completion_check_registers_artifact_and_transitional_pending_actions() -> None:
+    runner = HarnessRunner(agent_runner=None)  # type: ignore[arg-type]
+    session = Session()
+    turn_id = "turn-pending-actions"
+    session.add_message("assistant", "以下是分析报告，接下来我会继续补图。", turn_id=turn_id)
+
+    check = runner._run_completion_check(session, turn_id=turn_id, attempt=0)  # noqa: SLF001
+
+    pending_types = {item["type"] for item in session.list_pending_actions(status="pending")}
+    assert check.passed is False
+    assert "artifact_promised_not_materialized" in pending_types
+    assert "task_noop_blocked" in pending_types
+
+
+def test_handle_tool_result_registers_and_clears_pending_failure() -> None:
+    session = Session()
+    turn_id = "turn-tool-failure"
+    tool_call_id = "call-demo"
+    session.add_tool_call(
+        tool_call_id,
+        "export_report",
+        '{"operation":"export","format":"pdf"}',
+        turn_id=turn_id,
+    )
+    error_event = AgentEvent(
+        type=EventType.TOOL_RESULT,
+        tool_call_id=tool_call_id,
+        tool_name="export_report",
+        turn_id=turn_id,
+        data={"status": "error", "message": "导出超时：超过 10 秒"},
+    )
+    success_event = AgentEvent(
+        type=EventType.TOOL_RESULT,
+        tool_call_id=tool_call_id,
+        tool_name="export_report",
+        turn_id=turn_id,
+        data={"status": "success", "message": "导出成功"},
+    )
+
+    _, blocked_state = HarnessRunner._handle_tool_result(  # noqa: SLF001
+        session=session,
+        event=error_event,
+        turn_id=turn_id,
+        task_id=None,
+        attempt_id=None,
+        tool_error_counts={},
+        tool_failure_messages={},
+        recovered_tool_signatures=set(),
+    )
+    assert blocked_state is None
+    pending = session.list_pending_actions(action_type="tool_failure_unresolved")
+    assert len(pending) == 1
+    assert pending[0]["metadata"]["failure_kind"] == "timeout"
+    assert pending[0]["metadata"]["purpose"] == "export"
+
+    HarnessRunner._handle_tool_result(  # noqa: SLF001
+        session=session,
+        event=success_event,
+        turn_id=turn_id,
+        task_id=None,
+        attempt_id=None,
+        tool_error_counts={f"export_report::{{\"format\":\"pdf\",\"operation\":\"export\"}}": 1},
+        tool_failure_messages={},
+        recovered_tool_signatures=set(),
+    )
+    assert session.list_pending_actions(action_type="tool_failure_unresolved") == []
 
 
 @pytest.mark.asyncio

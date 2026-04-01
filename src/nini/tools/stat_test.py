@@ -39,7 +39,17 @@ class StatTestTool(Tool):
 
     @property
     def description(self) -> str:
-        return "统一执行 t 检验、Mann-Whitney、ANOVA、Kruskal-Wallis 与多重比较校正。"
+        return (
+            "统一执行 t 检验、Mann-Whitney、ANOVA、Kruskal-Wallis 与多重比较校正。\n"
+            "最小示例：\n"
+            '- 独立样本 t 检验：{method: independent_t, dataset_name: demo, value_column: value, group_column: group}\n'
+            '- 配对样本 t 检验：{method: paired_t, dataset_name: demo, value_column: value, group_column: group}\n'
+            "- 单样本 t 检验：{method: one_sample_t, dataset_name: demo, value_column: value, test_value: 0}\n"
+            "- Mann-Whitney：{method: mann_whitney, dataset_name: demo, value_column: value, group_column: group}\n"
+            "- 多重比较校正：{method: multiple_comparison_correction, p_values: [0.01, 0.02], correction_method: holm}\n"
+            "参数约束：独立/配对 t、Mann-Whitney、ANOVA、Kruskal-Wallis 至少需要 value_column 和 group_column；"
+            "单样本 t 需要 value_column 和 test_value；多重比较校正需要 p_values。"
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -76,6 +86,11 @@ class StatTestTool(Tool):
                     "items": {"type": "number"},
                     "description": "待校正的 p 值列表",
                 },
+                "correction_method": {
+                    "type": "string",
+                    "enum": ["bonferroni", "holm", "fdr"],
+                    "description": "仅 multiple_comparison_correction 使用的校正方法",
+                },
                 "alpha": {"type": "number", "description": "显著性水平", "default": 0.05},
                 "context": {
                     "type": "string",
@@ -84,14 +99,58 @@ class StatTestTool(Tool):
                 },
             },
             "required": ["method"],
-            "additionalProperties": True,
+            "additionalProperties": False,
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {"method": {"const": "independent_t"}},
+                    "required": ["method", "value_column", "group_column"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"method": {"const": "paired_t"}},
+                    "required": ["method", "value_column", "group_column"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"method": {"const": "one_sample_t"}},
+                    "required": ["method", "value_column", "test_value"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"method": {"const": "mann_whitney"}},
+                    "required": ["method", "value_column", "group_column"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"method": {"const": "one_way_anova"}},
+                    "required": ["method", "value_column", "group_column"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"method": {"const": "kruskal_wallis"}},
+                    "required": ["method", "value_column", "group_column"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"method": {"const": "multiple_comparison_correction"}},
+                    "required": ["method", "p_values"],
+                },
+            ],
         }
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         method = str(kwargs.get("method", "")).strip()
         delegate = self._delegates.get(method)
         if delegate is None:
-            return ToolResult(success=False, message=f"不支持的 method: {method}")
+            return self._input_error(
+                method=method,
+                error_code="STAT_TEST_METHOD_INVALID",
+                message=f"不支持的 method: {method}",
+                expected_fields=["method"],
+                recovery_hint="请将 method 改为 independent_t、paired_t、one_sample_t、mann_whitney、one_way_anova、kruskal_wallis 或 multiple_comparison_correction。",
+                minimal_example='{method: "independent_t", dataset_name: "demo", value_column: "value", group_column: "group"}',
+            )
 
         params = {k: v for k, v in kwargs.items() if k != "method"}
         if method != "multiple_comparison_correction":
@@ -100,6 +159,14 @@ class StatTestTool(Tool):
                 return dataset_name
             if dataset_name:
                 params["dataset_name"] = dataset_name
+        else:
+            correction_method = str(params.pop("correction_method", "")).strip()
+            if correction_method:
+                params["method"] = correction_method
+
+        validation_error = self._validate_method_params(method, params)
+        if validation_error is not None:
+            return validation_error
 
         if method == "independent_t":
             params["paired"] = False
@@ -110,7 +177,14 @@ class StatTestTool(Tool):
             result = await delegate.execute(session, **params)
         except KeyError as exc:
             missing = str(exc).strip("'\"")
-            return ToolResult(success=False, message=f"缺少必要参数: {missing}")
+            return self._input_error(
+                method=method,
+                error_code="STAT_TEST_REQUIRED_PARAM_MISSING",
+                message=f"缺少必要参数: {missing}",
+                expected_fields=self._expected_fields_for_method(method),
+                recovery_hint="根据当前 method 补齐必填字段后重试。",
+                minimal_example=self._minimal_example_for_method(method),
+            )
 
         payload = result.to_dict()
         data = payload.get("data", {}) if isinstance(payload.get("data"), dict) else {}
@@ -118,6 +192,101 @@ class StatTestTool(Tool):
         data["resource_type"] = "stat_result"
         payload["data"] = data
         return ToolResult(**payload)
+
+    def _validate_method_params(
+        self,
+        method: str,
+        params: dict[str, Any],
+    ) -> ToolResult | None:
+        required = {
+            "independent_t": ["value_column", "group_column"],
+            "paired_t": ["value_column", "group_column"],
+            "one_sample_t": ["value_column", "test_value"],
+            "mann_whitney": ["value_column", "group_column"],
+            "one_way_anova": ["value_column", "group_column"],
+            "kruskal_wallis": ["value_column", "group_column"],
+            "multiple_comparison_correction": ["p_values"],
+        }.get(method, [])
+        missing = [
+            field
+            for field in required
+            if params.get(field) is None or (isinstance(params.get(field), str) and not str(params.get(field)).strip())
+        ]
+        if not missing:
+            return None
+        first_missing = missing[0]
+        return self._input_error(
+            method=method,
+            error_code="STAT_TEST_REQUIRED_PARAM_MISSING",
+            message=f"缺少必要参数: {first_missing}",
+            expected_fields=self._expected_fields_for_method(method),
+            recovery_hint="根据当前 method 补齐必填字段后重试。",
+            minimal_example=self._minimal_example_for_method(method),
+        )
+
+    def _expected_fields_for_method(self, method: str) -> list[str]:
+        mapping = {
+            "independent_t": ["method", "value_column", "group_column"],
+            "paired_t": ["method", "value_column", "group_column"],
+            "one_sample_t": ["method", "value_column", "test_value"],
+            "mann_whitney": ["method", "value_column", "group_column"],
+            "one_way_anova": ["method", "value_column", "group_column"],
+            "kruskal_wallis": ["method", "value_column", "group_column"],
+            "multiple_comparison_correction": ["method", "p_values"],
+        }
+        return mapping.get(method, ["method"])
+
+    def _minimal_example_for_method(self, method: str) -> str:
+        examples = {
+            "independent_t": (
+                '{method: "independent_t", dataset_name: "demo", '
+                'value_column: "value", group_column: "group"}'
+            ),
+            "paired_t": (
+                '{method: "paired_t", dataset_name: "demo", '
+                'value_column: "value", group_column: "group"}'
+            ),
+            "one_sample_t": (
+                '{method: "one_sample_t", dataset_name: "demo", '
+                'value_column: "value", test_value: 0}'
+            ),
+            "mann_whitney": (
+                '{method: "mann_whitney", dataset_name: "demo", '
+                'value_column: "value", group_column: "group"}'
+            ),
+            "one_way_anova": (
+                '{method: "one_way_anova", dataset_name: "demo", '
+                'value_column: "value", group_column: "group"}'
+            ),
+            "kruskal_wallis": (
+                '{method: "kruskal_wallis", dataset_name: "demo", '
+                'value_column: "value", group_column: "group"}'
+            ),
+            "multiple_comparison_correction": (
+                '{method: "multiple_comparison_correction", '
+                'p_values: [0.01, 0.02], correction_method: "holm"}'
+            ),
+        }
+        return examples.get(method, '{method: "independent_t", value_column: "value", group_column: "group"}')
+
+    def _input_error(
+        self,
+        *,
+        method: str,
+        error_code: str,
+        message: str,
+        expected_fields: list[str],
+        recovery_hint: str,
+        minimal_example: str,
+    ) -> ToolResult:
+        payload = {
+            "method": method,
+            "error_code": error_code,
+            "expected_fields": expected_fields,
+            "recovery_hint": recovery_hint,
+            "minimal_example": minimal_example,
+        }
+        return self.build_input_error(message=message, payload=payload)
 
     def _resolve_dataset_name(
         self,

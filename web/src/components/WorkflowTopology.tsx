@@ -43,6 +43,9 @@ function AgentNode({ agent }: AgentNodeProps) {
  <div className="min-w-0 flex-1">
  <p className="truncate text-xs font-medium leading-tight">{agent.agentName}</p>
  <p className="text-[11px] opacity-70">{STATUS_LABEL[agent.status]}</p>
+ <p className="text-[11px] opacity-70 truncate">
+ 尝试 {agent.attemptCount}{agent.failureCount > 0 ? ` · 失败 ${agent.failureCount}` : ""}
+ </p>
  </div>
  </div>
  );
@@ -53,7 +56,9 @@ export default function WorkflowTopology() {
  const completedAgents = useStore((s) => s.completedAgents);
 
  const activeList = Object.values(activeAgents);
- const allAgents = [...activeList, ...completedAgents];
+ const allAgents = [...activeList, ...completedAgents].sort(
+ (left, right) => right.updatedAt - left.updatedAt,
+ );
 
  // 少于 2 个 Agent 时不渲染
  if (allAgents.length < 2) {
@@ -63,7 +68,7 @@ export default function WorkflowTopology() {
  return (
  <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-4 py-3">
  <p className="mb-2 text-xs font-medium text-[var(--text-secondary)]">并行执行中</p>
- <div className="flex flex-wrap gap-2">
+ <div className="flex max-h-56 flex-wrap gap-2 overflow-y-auto">
  {allAgents.map((agent) => (
  <AgentNode key={agent.agentId} agent={agent} />
  ))}

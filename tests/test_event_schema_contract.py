@@ -12,17 +12,20 @@ from typing import Any
 import pytest
 
 from nini.models.event_schemas import (
+    AgentCompleteEventData,
+    AgentErrorEventData,
+    AgentStartEventData,
     AnalysisPlanEventData,
     AnalysisPlanStep,
+    DoneEventData,
+    ErrorEventData,
     PlanProgressEventData,
     PlanStepUpdateEventData,
+    SessionEventData,
     TaskAttemptEventData,
     TokenUsageEventData,
     ToolCallEventData,
     ToolResultEventData,
-    ErrorEventData,
-    DoneEventData,
-    SessionEventData,
 )
 
 
@@ -177,6 +180,59 @@ class TestTaskAttemptEventContract:
         assert event_data.attempt == 2
         assert event_data.max_attempts == 3
         assert event_data.status == "retrying"
+
+
+class TestAgentEventContract:
+    """AGENT_* 事件数据契约测试。"""
+
+    def test_agent_start_event_defaults(self) -> None:
+        """Agent 启动事件应提供默认重试字段。"""
+        data = {
+            "agent_id": "agent-stat",
+            "agent_name": "统计分析专家",
+            "task": "执行正态性检验",
+        }
+
+        event_data = AgentStartEventData.model_validate(data)
+
+        assert event_data.agent_id == "agent-stat"
+        assert event_data.attempt == 1
+        assert event_data.retry_count == 0
+
+    def test_agent_complete_event_with_execution_time(self) -> None:
+        """Agent 完成事件应包含执行耗时。"""
+        data = {
+            "agent_id": "agent-stat",
+            "agent_name": "统计分析专家",
+            "summary": "分析完成",
+            "execution_time_ms": 1280,
+            "attempt": 2,
+            "retry_count": 1,
+        }
+
+        event_data = AgentCompleteEventData.model_validate(data)
+
+        assert event_data.execution_time_ms == 1280
+        assert event_data.attempt == 2
+        assert event_data.retry_count == 1
+
+    def test_agent_error_event_with_execution_time(self) -> None:
+        """Agent 失败事件也应包含执行耗时。"""
+        data = {
+            "agent_id": "agent-stat",
+            "agent_name": "统计分析专家",
+            "error": "执行超时",
+            "execution_time_ms": 300000,
+            "attempt": 3,
+            "retry_count": 2,
+        }
+
+        event_data = AgentErrorEventData.model_validate(data)
+
+        assert event_data.error == "执行超时"
+        assert event_data.execution_time_ms == 300000
+        assert event_data.attempt == 3
+        assert event_data.retry_count == 2
 
 
 class TestTokenUsageEventContract:

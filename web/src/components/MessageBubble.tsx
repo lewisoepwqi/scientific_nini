@@ -494,7 +494,7 @@ function MessageBubble({
  // dispatch_agents 工具：展示参与执行的子 Agent 来源标签
  const isDispatchAgents = message.toolName === "dispatch_agents";
  const sourceAgents = isDispatchAgents && completedAgents.length > 0
- ? completedAgents
+ ? completedAgents.slice(0, 6)
  : [];
 
  return (

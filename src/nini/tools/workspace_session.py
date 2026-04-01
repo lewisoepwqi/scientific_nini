@@ -38,7 +38,11 @@ class WorkspaceSessionTool(Tool):
             "最小示例："
             '1) 列表: {"operation":"list","query":"report"}；'
             '2) 读取: {"operation":"read","file_path":"notes/a.md"}；'
-            '3) 写入: {"operation":"write","file_path":"notes/a.md","content":"..."}。'
+            '3) 写入: {"operation":"write","file_path":"notes/a.md","content":"..."}；'
+            '4) 追加: {"operation":"append","file_path":"notes/a.md","content":"\\nmore"}；'
+            '5) 抓取网页: {"operation":"fetch_url","url":"https://example.com","save_to":"notes/example.md"}。'
+            "read 必须提供 file_path；write/append 必须提供 file_path 和 content；"
+            "fetch_url 必须提供 url。"
         )
 
     @property
@@ -79,6 +83,36 @@ class WorkspaceSessionTool(Tool):
             },
             "required": ["operation"],
             "additionalProperties": False,
+            "oneOf": [
+                {
+                    "properties": {"operation": {"const": "list"}},
+                    "required": ["operation"],
+                },
+                {
+                    "properties": {"operation": {"const": "read"}},
+                    "required": ["operation", "file_path"],
+                },
+                {
+                    "properties": {"operation": {"const": "write"}},
+                    "required": ["operation", "file_path", "content"],
+                },
+                {
+                    "properties": {"operation": {"const": "append"}},
+                    "required": ["operation", "file_path", "content"],
+                },
+                {
+                    "properties": {"operation": {"const": "edit"}},
+                    "required": ["operation", "file_path"],
+                },
+                {
+                    "properties": {"operation": {"const": "organize"}},
+                    "required": ["operation"],
+                },
+                {
+                    "properties": {"operation": {"const": "fetch_url"}},
+                    "required": ["operation", "url"],
+                },
+            ],
         }
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
@@ -166,62 +200,54 @@ class WorkspaceSessionTool(Tool):
         if not missing:
             return None
 
-        return ToolResult(
-            success=False,
+        payload = {
+            "error_code": "WORKSPACE_OPERATION_ARGS_MISSING",
+            "operation": operation,
+            "missing_fields": missing,
+            "expected_fields": list(required_fields.get(operation, ())),
+            "expected_operations": list(self._OPERATIONS),
+            "recovery_hint": self._recovery_hint_for_operation(operation),
+            "minimal_example": self._minimal_example_for_operation(operation),
+        }
+        return self.build_input_error(
             message=f"operation='{operation}' 缺少必要参数: {', '.join(missing)}",
-            data={
-                "error_code": "WORKSPACE_OPERATION_ARGS_MISSING",
-                "operation": operation,
-                "missing_fields": missing,
-                "expected_operations": list(self._OPERATIONS),
-                "recovery_hint": self._recovery_hint_for_operation(operation),
-            },
-            metadata={
-                "error_code": "WORKSPACE_OPERATION_ARGS_MISSING",
-                "operation": operation,
-                "missing_fields": missing,
-            },
+            payload=payload,
         )
 
     def _missing_operation_result(self, kwargs: dict[str, Any]) -> ToolResult:
         provided_fields = sorted(
             key for key, value in kwargs.items() if key != "operation" and value is not None
         )
-        return ToolResult(
-            success=False,
+        payload = {
+            "error_code": "WORKSPACE_OPERATION_REQUIRED",
+            "expected_operations": list(self._OPERATIONS),
+            "provided_fields": provided_fields,
+            "recovery_hint": (
+                "请显式提供 operation，例如 "
+                '{"operation":"list"} 或 {"operation":"read","file_path":"notes/a.md"}。'
+            ),
+            "minimal_example": '{"operation":"list"}',
+        }
+        return self.build_input_error(
             message="workspace_session 缺少 operation 参数。",
-            data={
-                "error_code": "WORKSPACE_OPERATION_REQUIRED",
-                "expected_operations": list(self._OPERATIONS),
-                "provided_fields": provided_fields,
-                "recovery_hint": (
-                    "请显式提供 operation，例如 "
-                    '{"operation":"list"} 或 {"operation":"read","file_path":"notes/a.md"}。'
-                ),
-            },
-            metadata={
-                "error_code": "WORKSPACE_OPERATION_REQUIRED",
-                "provided_fields": provided_fields,
-            },
+            payload=payload,
         )
 
     def _invalid_operation_result(self, operation: str) -> ToolResult:
-        return ToolResult(
-            success=False,
+        payload = {
+            "error_code": "WORKSPACE_OPERATION_UNSUPPORTED",
+            "expected_operations": list(self._OPERATIONS),
+            "recovery_hint": (
+                "可用 operation: "
+                + ", ".join(self._OPERATIONS)
+                + "。例如先调用 {'operation':'list'} 获取 path。"
+            ),
+            "minimal_example": '{"operation":"list"}',
+            "operation": operation,
+        }
+        return self.build_input_error(
             message=f"不支持的 operation: {operation}",
-            data={
-                "error_code": "WORKSPACE_OPERATION_UNSUPPORTED",
-                "expected_operations": list(self._OPERATIONS),
-                "recovery_hint": (
-                    "可用 operation: "
-                    + ", ".join(self._OPERATIONS)
-                    + "。例如先调用 {'operation':'list'} 获取 path。"
-                ),
-            },
-            metadata={
-                "error_code": "WORKSPACE_OPERATION_UNSUPPORTED",
-                "operation": operation,
-            },
+            payload=payload,
         )
 
     def _recovery_hint_for_operation(self, operation: str) -> str:
@@ -237,3 +263,23 @@ class WorkspaceSessionTool(Tool):
                 "fetch_url 需要 url，例如 {'operation':'fetch_url','url':'https://example.com'}。"
             )
         return "请根据 operation 补齐必要参数。"
+
+    def _minimal_example_for_operation(self, operation: str) -> str:
+        if operation == "list":
+            return '{"operation":"list","query":"report"}'
+        if operation == "read":
+            return '{"operation":"read","file_path":"notes/a.md"}'
+        if operation == "write":
+            return '{"operation":"write","file_path":"notes/a.md","content":"# summary"}'
+        if operation == "append":
+            return '{"operation":"append","file_path":"notes/a.md","content":"\\nmore"}'
+        if operation == "edit":
+            return (
+                '{"operation":"edit","file_path":"notes/a.md",'
+                '"old_string":"old","new_string":"new"}'
+            )
+        if operation == "organize":
+            return '{"operation":"organize","create_folders":["notes/archive"]}'
+        if operation == "fetch_url":
+            return '{"operation":"fetch_url","url":"https://example.com"}'
+        return '{"operation":"list"}'

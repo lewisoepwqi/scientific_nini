@@ -29,6 +29,9 @@ from nini.models.event_schemas import (
     ModelTokenUsageDetail,
     ToolCallEventData,
     ToolResultEventData,
+    AgentStartEventData,
+    AgentCompleteEventData,
+    AgentErrorEventData,
     TextEventData,
     ErrorEventData,
     DoneEventData,
@@ -938,18 +941,22 @@ def build_agent_start_event(
     agent_id: str,
     agent_name: str,
     task: str,
+    attempt: int = 1,
+    retry_count: int = 0,
     *,
     turn_id: str | None = None,
 ) -> AgentEvent:
     """构造 AGENT_START 事件。"""
+    event_data = AgentStartEventData(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        task=task,
+        attempt=attempt,
+        retry_count=retry_count,
+    )
     return AgentEvent(
         type=EventType.AGENT_START,
-        data={
-            "event_type": "agent_start",
-            "agent_id": agent_id,
-            "agent_name": agent_name,
-            "task": task,
-        },
+        data={"event_type": "agent_start", **event_data.model_dump()},
         turn_id=turn_id,
     )
 
@@ -959,19 +966,23 @@ def build_agent_complete_event(
     agent_name: str,
     summary: str,
     execution_time_ms: int,
+    attempt: int = 1,
+    retry_count: int = 0,
     *,
     turn_id: str | None = None,
 ) -> AgentEvent:
     """构造 AGENT_COMPLETE 事件。"""
+    event_data = AgentCompleteEventData(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        summary=summary,
+        execution_time_ms=execution_time_ms,
+        attempt=attempt,
+        retry_count=retry_count,
+    )
     return AgentEvent(
         type=EventType.AGENT_COMPLETE,
-        data={
-            "event_type": "agent_complete",
-            "agent_id": agent_id,
-            "agent_name": agent_name,
-            "summary": summary,
-            "execution_time_ms": execution_time_ms,
-        },
+        data={"event_type": "agent_complete", **event_data.model_dump()},
         turn_id=turn_id,
     )
 
@@ -980,18 +991,24 @@ def build_agent_error_event(
     agent_id: str,
     agent_name: str,
     error: str,
+    execution_time_ms: int,
+    attempt: int = 1,
+    retry_count: int = 0,
     *,
     turn_id: str | None = None,
 ) -> AgentEvent:
     """构造 AGENT_ERROR 事件。"""
+    event_data = AgentErrorEventData(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        error=error,
+        execution_time_ms=execution_time_ms,
+        attempt=attempt,
+        retry_count=retry_count,
+    )
     return AgentEvent(
         type=EventType.AGENT_ERROR,
-        data={
-            "event_type": "agent_error",
-            "agent_id": agent_id,
-            "agent_name": agent_name,
-            "error": error,
-        },
+        data={"event_type": "agent_error", **event_data.model_dump()},
         turn_id=turn_id,
     )
 

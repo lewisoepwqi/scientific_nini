@@ -69,6 +69,20 @@ class CompletionCheckItem(BaseModel):
     detail: str = ""
 
 
+class CompletionEvidence(BaseModel):
+    """完成校验前收集的结构化证据。"""
+
+    turn_id: str
+    final_text: str = ""
+    unresolved_tool_failures: list[str] = Field(default_factory=list)
+    promised_artifact_missing: bool = False
+    user_confirmation_pending: bool = False
+    transitional_output: bool = False
+    pending_actions: list[dict[str, Any]] = Field(default_factory=list)
+    remaining_tasks: int = 0
+    task_completion_ratio: float = 1.0
+
+
 class CompletionCheckResult(BaseModel):
     """完成前校验结果。"""
 
@@ -77,6 +91,7 @@ class CompletionCheckResult(BaseModel):
     passed: bool
     items: list[CompletionCheckItem] = Field(default_factory=list)
     missing_actions: list[str] = Field(default_factory=list)
+    evidence: dict[str, Any] = Field(default_factory=dict)
 
 
 class BlockedState(BaseModel):
@@ -151,6 +166,23 @@ class HarnessTraceRecord(BaseModel):
     summary: dict[str, Any] = Field(default_factory=dict)
     started_at: str = Field(default_factory=utc_now_iso)
     finished_at: str | None = None
+
+
+class HarnessSessionSnapshot(BaseModel):
+    """每轮 harness 运行后的轻量快照。"""
+
+    session_id: str
+    turn_id: str
+    run_id: str
+    stop_reason: str
+    pending_actions: list[dict[str, Any]] = Field(default_factory=list)
+    task_progress: dict[str, Any] = Field(default_factory=dict)
+    tool_failures: list[str] = Field(default_factory=list)
+    selected_tools: list[str] = Field(default_factory=list)
+    compressed_rounds: int = 0
+    token_usage: dict[str, Any] = Field(default_factory=dict)
+    trace_ref: str | None = None
+    created_at: str = Field(default_factory=utc_now_iso)
 
 
 class HarnessRunSummary(BaseModel):

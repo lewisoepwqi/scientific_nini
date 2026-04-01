@@ -282,6 +282,12 @@ class ContextBuilder:
             )
             context_parts.append(format_untrusted_context_block("task_progress", task_body))
 
+        pending_actions_summary = session.build_pending_actions_summary()
+        if pending_actions_summary:
+            context_parts.append(
+                format_untrusted_context_block("pending_actions", pending_actions_summary)
+            )
+
         messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         if context_parts:
             # 预算控制：按优先级裁剪，Skill 辅助资料不挤占对话历史

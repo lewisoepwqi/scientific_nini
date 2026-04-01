@@ -3077,10 +3077,29 @@ class AgentRunner:
         is_sub_session = isinstance(session, SubSession)
 
         tools: list[dict[str, Any]] = []
+        visible_tool_names: set[str] | None = None
         if self._tool_registry is not None:
+            try:
+                from nini.agent.tool_exposure_policy import compute_tool_exposure_policy
+
+                policy = compute_tool_exposure_policy(
+                    session=session,
+                    tool_registry=self._tool_registry,
+                )
+                visible_tool_names = set(policy.get("visible_tools", []))
+            except Exception:
+                visible_tool_names = None
             raw = self._tool_registry.get_tool_definitions()
             if isinstance(raw, list):
-                tools = [item for item in raw if isinstance(item, dict)]
+                tools = [
+                    item
+                    for item in raw
+                    if isinstance(item, dict)
+                    and (
+                        visible_tool_names is None
+                        or str(item.get("function", {}).get("name", "")).strip() in visible_tool_names
+                    )
+                ]
 
         # Orchestrator 工具：从注册表中直接获取 tool_definition（不走 expose_to_llm 过滤）
         if (

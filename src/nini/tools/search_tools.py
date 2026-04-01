@@ -45,12 +45,15 @@ class SearchToolsTool(Tool):
             "当需要使用某工具但它不在当前工具列表中时，通过此工具获取其 schema，"
             "然后即可在同一轮对话中调用该工具。"
             "支持两种查询：select:name1,name2（精确获取）或关键词搜索（匹配名称和描述）。"
+            "最小示例：query='select:dataset_catalog' 可直接获取单个工具 schema；"
+            "query='统计 检验' 可按关键词搜索候选工具。"
         )
 
     @property
     def parameters(self) -> dict[str, Any]:
         return {
             "type": "object",
+            "additionalProperties": False,
             "properties": {
                 "query": {
                     "type": "string",
@@ -79,7 +82,13 @@ class SearchToolsTool(Tool):
         """执行工具查询。"""
         query: str = kwargs.get("query", "").strip()
         if not query:
-            return ToolResult(success=False, message="query 不能为空")
+            return self._input_error(
+                message="search_tools 缺少 query，无法执行工具发现。",
+                error_code="SEARCH_TOOLS_QUERY_REQUIRED",
+                expected_fields=["query"],
+                recovery_hint="提供关键词，或使用 select:工具名1,工具名2 形式进行精确查询。",
+                minimal_example='{"query":"select:dataset_catalog"}',
+            )
 
         if query.lower().startswith("select:"):
             return self._select_by_names(query[len("select:") :])
@@ -90,7 +99,13 @@ class SearchToolsTool(Tool):
         """按工具名精确获取完整 schema。"""
         names = [n.strip() for n in names_str.split(",") if n.strip()]
         if not names:
-            return ToolResult(success=False, message="select: 后必须提供工具名称")
+            return self._input_error(
+                message="search_tools 的 select: 查询缺少工具名称。",
+                error_code="SEARCH_TOOLS_SELECT_NAMES_REQUIRED",
+                expected_fields=["query"],
+                recovery_hint="在 select: 后提供至少一个工具名，多个工具用逗号分隔。",
+                minimal_example='{"query":"select:dataset_catalog,chart_session"}',
+            )
 
         results: list[dict[str, Any]] = []
         for name in names:
@@ -100,6 +115,7 @@ class SearchToolsTool(Tool):
                     {
                         "name": name,
                         "found": False,
+                        "matched_by": "exact_select",
                         "message": f"工具 '{name}' 未找到",
                     }
                 )
@@ -108,6 +124,7 @@ class SearchToolsTool(Tool):
                     {
                         "name": name,
                         "found": True,
+                        "matched_by": "exact_select",
                         "schema": tool.get_tool_definition(),
                     }
                 )
@@ -125,11 +142,14 @@ class SearchToolsTool(Tool):
             tool = self._registry.get(tool_name)
             if tool is None:
                 continue
-            if keyword_lower in tool.name.lower() or keyword_lower in tool.description.lower():
+            name_matched = keyword_lower in tool.name.lower()
+            description_matched = keyword_lower in tool.description.lower()
+            if name_matched or description_matched:
                 matches.append(
                     {
                         "name": tool.name,
                         "description": tool.description,
+                        "matched_by": "name" if name_matched else "description",
                         "schema": tool.get_tool_definition(),
                     }
                 )
@@ -142,3 +162,23 @@ class SearchToolsTool(Tool):
             message = f"找到 {len(matches)} 个匹配工具"
 
         return ToolResult(success=True, data={"tools": matches}, message=message)
+
+    def _input_error(
+        self,
+        *,
+        message: str,
+        error_code: str,
+        expected_fields: list[str],
+        recovery_hint: str,
+        minimal_example: str,
+    ) -> ToolResult:
+        """返回统一结构化输入错误。"""
+        return self.build_input_error(
+            message=message,
+            payload={
+                "error_code": error_code,
+                "expected_fields": expected_fields,
+                "recovery_hint": recovery_hint,
+                "minimal_example": minimal_example,
+            },
+        )

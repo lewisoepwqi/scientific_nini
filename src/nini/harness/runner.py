@@ -22,12 +22,14 @@ from nini.agent.session import Session
 from nini.config import settings
 from nini.harness.models import (
     BlockedState,
+    CompletionEvidence,
     CompletionCheckItem,
     CompletionCheckResult,
     HarnessArtifactSummary,
     HarnessBudgetWarning,
     HarnessDatasetSummary,
     HarnessRunContext,
+    HarnessSessionSnapshot,
     HarnessRunSummary,
     HarnessTaskMetrics,
     HarnessTraceEvent,
@@ -35,7 +37,9 @@ from nini.harness.models import (
 )
 from nini.harness.store import HarnessTraceStore
 
-_TRANSITIONAL_TEXT_RE = re.compile(r"^(接下来|下一步|我将|我会继续|我会先|下面将|随后将)")
+_TRANSITIONAL_TEXT_RE = re.compile(r"(接下来|下一步|我将|我会继续|我会先|下面将|随后将)")
+_USER_CONFIRMATION_RE = re.compile(r"(是否使用|是否采用|需要确认|请确认|是否继续)")
+_TIMEOUT_RE = re.compile(r"(超时|timeout)", re.IGNORECASE)
 
 
 def _utc_now_iso() -> str:
@@ -382,6 +386,11 @@ class HarnessRunner:
                 recovery_count=recovery_count,
                 tool_call_count=tool_call_count,
             )
+            runtime_snapshot = self._build_runtime_snapshot(
+                session=session,
+                trace=trace,
+            )
+            trace.summary["runtime_snapshot"] = runtime_snapshot.model_dump(mode="json")
             await self._trace_store.save_run(trace)
 
     @staticmethod
@@ -460,6 +469,79 @@ class HarnessRunner:
         turn_id: str,
         attempt: int,
     ) -> CompletionCheckResult:
+        evidence = self._build_completion_evidence(session, turn_id=turn_id)
+        strict_analysis_mode = session.task_manager.has_tasks() or bool(session.datasets)
+        unresolved_pending_actions = evidence.pending_actions
+        all_tasks_completed = (
+            not session.task_manager.has_tasks()
+            or session.task_manager.all_completed()
+            or (
+                session.task_manager.pending_count() == 0
+                and bool(evidence.final_text)
+            )
+        )
+
+        items = [
+            CompletionCheckItem(
+                key="answered_user",
+                label="回应原始问题",
+                passed=bool(evidence.final_text),
+                detail="最终回答需直接对应用户最初目标。",
+            ),
+            CompletionCheckItem(
+                key="ignored_tool_failures",
+                label="未忽略失败工具",
+                passed=(
+                    not strict_analysis_mode
+                    or not evidence.unresolved_tool_failures
+                    or any(
+                        token in evidence.final_text.lower()
+                        for token in ("失败", "报错", "error", "未完成", "超时")
+                    )
+                ),
+                detail="若存在失败工具，需先处理或解释失败影响。",
+            ),
+            CompletionCheckItem(
+                key="artifact_generated",
+                label="承诺产物已生成",
+                passed=not evidence.promised_artifact_missing,
+                detail="若回答声称已生成图表/报告，应先看到对应产物事件。",
+            ),
+            CompletionCheckItem(
+                key="not_transitional",
+                label="不是过渡性结尾",
+                passed=not evidence.transitional_output,
+                detail="不能只说下一步计划而未真正完成。",
+            ),
+            CompletionCheckItem(
+                key="all_tasks_completed",
+                label="所有任务已完成",
+                passed=all_tasks_completed,
+                detail="若存在未完成任务，需先完成或明确说明无法完成的原因。",
+            ),
+            CompletionCheckItem(
+                key="pending_actions_resolved",
+                label="没有未解决待处理动作",
+                passed=(not strict_analysis_mode) or not unresolved_pending_actions,
+                detail="待处理动作未清空时，不应直接结束当前轮。",
+            ),
+        ]
+        missing_actions = [item.label for item in items if not item.passed]
+        return CompletionCheckResult(
+            turn_id=turn_id,
+            attempt=attempt,
+            passed=all(item.passed for item in items),
+            items=items,
+            missing_actions=missing_actions,
+            evidence=evidence.model_dump(mode="json"),
+        )
+
+    def _build_completion_evidence(
+        self,
+        session: Session,
+        *,
+        turn_id: str,
+    ) -> CompletionEvidence:
         messages = [msg for msg in session.messages if msg.get("turn_id") == turn_id]
         assistant_messages = [
             msg
@@ -471,74 +553,91 @@ class HarnessRunner:
         final_text = (
             str(assistant_messages[-1].get("content", "")).strip() if assistant_messages else ""
         )
-
-        tool_failures = [
-            msg
+        unresolved_tool_failures = [
+            str(msg.get("content") or msg.get("message") or "工具执行失败").strip()
             for msg in messages
             if msg.get("event_type") == "tool_result" and msg.get("status") == "error"
         ]
-        strict_analysis_mode = session.task_manager.has_tasks() or bool(session.datasets)
         artifact_count = sum(
             1
             for msg in messages
             if str(msg.get("event_type", "")) in {"artifact", "image", "chart", "data"}
         )
-        promised_artifact = bool(_PROMISED_ARTIFACT_RE.search(final_text))
+        promised_artifact_missing = bool(_PROMISED_ARTIFACT_RE.search(final_text)) and artifact_count == 0
+        user_confirmation_pending = bool(_USER_CONFIRMATION_RE.search(final_text))
+        transitional_output = bool(_TRANSITIONAL_TEXT_RE.search(final_text))
 
-        items = [
-            CompletionCheckItem(
-                key="answered_user",
-                label="回应原始问题",
-                passed=bool(final_text),
-                detail="最终回答需直接对应用户最初目标。",
-            ),
-            CompletionCheckItem(
-                key="ignored_tool_failures",
-                label="未忽略失败工具",
-                passed=(
-                    not strict_analysis_mode
-                    or not tool_failures
-                    or any(
-                        token in final_text.lower() for token in ("失败", "报错", "error", "未完成")
+        if promised_artifact_missing:
+            session.upsert_pending_action(
+                action_type="artifact_promised_not_materialized",
+                key=f"{turn_id}:artifact",
+                status="pending",
+                summary="回答承诺了图表、报告或附件，但当前轮未看到对应产物事件。",
+                source_tool="completion_verifier",
+                metadata={"turn_id": turn_id},
+            )
+        else:
+            session.resolve_pending_action(
+                action_type="artifact_promised_not_materialized",
+                key=f"{turn_id}:artifact",
+            )
+
+        if user_confirmation_pending:
+            session.upsert_pending_action(
+                action_type="user_confirmation_pending",
+                key=f"{turn_id}:confirmation",
+                status="pending",
+                summary="当前轮仍在等待用户确认后才能继续完成后续动作。",
+                source_tool="completion_verifier",
+                metadata={"turn_id": turn_id},
+            )
+        else:
+            session.resolve_pending_action(
+                action_type="user_confirmation_pending",
+                key=f"{turn_id}:confirmation",
+            )
+
+        if transitional_output:
+            session.upsert_pending_action(
+                action_type="task_noop_blocked",
+                key=f"{turn_id}:transitional",
+                status="pending",
+                summary="当前轮只描述了下一步计划，但尚未真正执行对应动作。",
+                source_tool="completion_verifier",
+                metadata={"turn_id": turn_id},
+            )
+        else:
+            session.resolve_pending_action(
+                action_type="task_noop_blocked",
+                key=f"{turn_id}:transitional",
+            )
+
+        if any(token in final_text for token in ("失败", "报错", "error", "替代方案", "改用")):
+            for item in session.list_pending_actions(action_type="tool_failure_unresolved"):
+                metadata = item.get("metadata", {})
+                if isinstance(metadata, dict) and str(metadata.get("turn_id", "")).strip() == turn_id:
+                    session.resolve_pending_action(
+                        action_type="tool_failure_unresolved",
+                        key=str(item.get("key", "")).strip(),
                     )
-                ),
-                detail="若存在失败工具，需先处理或解释失败影响。",
-            ),
-            CompletionCheckItem(
-                key="artifact_generated",
-                label="承诺产物已生成",
-                passed=(not promised_artifact) or artifact_count > 0,
-                detail="若回答声称已生成图表/报告，应先看到对应产物事件。",
-            ),
-            CompletionCheckItem(
-                key="not_transitional",
-                label="不是过渡性结尾",
-                passed=not bool(_TRANSITIONAL_TEXT_RE.search(final_text)),
-                detail="不能只说下一步计划而未真正完成。",
-            ),
-            CompletionCheckItem(
-                key="all_tasks_completed",
-                label="所有任务已完成",
-                passed=(
-                    not session.task_manager.has_tasks()
-                    or session.task_manager.all_completed()
-                    or (
-                        # 无 pending 任务（仅剩 in_progress）且 LLM 已输出文本时视为通过，
-                        # 避免"不要调用工具"指令与"必须标记 completed"的矛盾
-                        session.task_manager.pending_count() == 0
-                        and bool(final_text)
-                    )
-                ),
-                detail="若存在未完成任务，需先完成或明确说明无法完成的原因。",
-            ),
-        ]
-        missing_actions = [item.label for item in items if not item.passed]
-        return CompletionCheckResult(
+
+        total_tasks = len(session.task_manager.tasks)
+        remaining_tasks = session.task_manager.remaining_count() if session.task_manager.has_tasks() else 0
+        task_completion_ratio = 1.0
+        if total_tasks > 0:
+            task_completion_ratio = max(0.0, min(1.0, (total_tasks - remaining_tasks) / total_tasks))
+        pending_actions = session.list_pending_actions(status="pending")
+
+        return CompletionEvidence(
             turn_id=turn_id,
-            attempt=attempt,
-            passed=all(item.passed for item in items),
-            items=items,
-            missing_actions=missing_actions,
+            final_text=final_text,
+            unresolved_tool_failures=unresolved_tool_failures,
+            promised_artifact_missing=promised_artifact_missing,
+            user_confirmation_pending=user_confirmation_pending,
+            transitional_output=transitional_output,
+            pending_actions=pending_actions,
+            remaining_tasks=remaining_tasks,
+            task_completion_ratio=task_completion_ratio,
         )
 
     @staticmethod
@@ -548,6 +647,38 @@ class HarnessRunner:
         remaining_tasks: int = 0,
     ) -> str:
         missing = "；".join(completion.missing_actions) or "补齐完成条件"
+        evidence = completion.evidence if isinstance(completion.evidence, dict) else {}
+        evidence_pending = evidence.get("pending_actions", [])
+        followups: list[str] = []
+        if any(
+            isinstance(item, dict) and item.get("type") == "script_not_run" for item in evidence_pending
+        ):
+            followups.append("优先继续执行已创建但未成功运行的脚本。")
+        if any(
+            isinstance(item, dict) and item.get("type") == "artifact_promised_not_materialized"
+            for item in evidence_pending
+        ):
+            followups.append("先生成刚才承诺的图表/报告/附件，或明确说明未生成的影响。")
+        if any(
+            isinstance(item, dict) and item.get("type") == "user_confirmation_pending"
+            for item in evidence_pending
+        ):
+            followups.append("当前仍缺少用户确认，先发起确认或说明为何无法继续。")
+        timeout_actions = [
+            item
+            for item in evidence_pending
+            if isinstance(item, dict)
+            and item.get("type") == "tool_failure_unresolved"
+            and isinstance(item.get("metadata"), dict)
+            and item["metadata"].get("failure_kind") == "timeout"
+        ]
+        for item in timeout_actions[:2]:
+            metadata = item.get("metadata") if isinstance(item, dict) else {}
+            purpose = str(metadata.get("purpose", "")).strip() if isinstance(metadata, dict) else ""
+            if purpose:
+                followups.append(f"处理 `{purpose}` 相关超时，选择更短路径重试或先解释其影响。")
+            else:
+                followups.append("存在超时失败，先重试可恢复步骤或解释超时对结论的影响。")
         prefix = ""
         if remaining_tasks > 0:
             prefix = f"还有 {remaining_tasks} 个任务尚未完成，请继续执行。"
@@ -556,6 +687,7 @@ class HarnessRunner:
             f"需要优先补齐以下缺口：{missing}。"
             "如果已有工具失败，请明确处理或解释；如果缺少产物，请先生成；"
             "如果只是描述下一步，请立即执行对应动作。"
+            + (" ".join(followups) if followups else "")
         )
 
     @staticmethod
@@ -611,10 +743,24 @@ class HarnessRunner:
         if status == "error":
             tool_error_counts[signature] = tool_error_counts.get(signature, 0) + 1
             tool_failure_messages[signature] = str(data.get("message", "") or "工具执行失败")
+            metadata = {"turn_id": turn_id}
+            failure_message = str(data.get("message", "") or "工具执行失败")
+            if _TIMEOUT_RE.search(failure_message):
+                metadata["failure_kind"] = "timeout"
+                metadata["purpose"] = HarnessRunner._infer_timeout_purpose(tool_name=tool_name, data=data)
+            session.upsert_pending_action(
+                action_type="tool_failure_unresolved",
+                key=signature,
+                status="pending",
+                summary=f"{tool_name} 失败：{failure_message}",
+                source_tool=tool_name,
+                metadata=metadata,
+            )
         else:
             tool_error_counts[signature] = 0
             tool_failure_messages.pop(signature, None)
             recovered_tool_signatures.discard(signature)
+            session.resolve_pending_action(action_type="tool_failure_unresolved", key=signature)
             return None, None
 
         count = tool_error_counts[signature]
@@ -734,6 +880,64 @@ class HarnessRunner:
             "output_tokens": output_tokens,
             "estimated_cost_usd": estimated_cost_usd,
         }
+
+    @staticmethod
+    def _infer_timeout_purpose(*, tool_name: str, data: dict[str, Any]) -> str:
+        if tool_name == "code_session":
+            result = data.get("result")
+            if isinstance(result, dict):
+                result_data = result.get("data")
+                if isinstance(result_data, dict):
+                    return str(result_data.get("purpose", "") or "").strip() or "analysis"
+            return "analysis"
+        if tool_name in {"export_report", "export_document", "report_session"}:
+            return "export"
+        if tool_name in {"chart_session", "export_chart"}:
+            return "visualization"
+        return "analysis"
+
+    @staticmethod
+    def _build_runtime_snapshot(
+        *,
+        session: Session,
+        trace: HarnessTraceRecord,
+    ) -> HarnessSessionSnapshot:
+        selected_tools: list[str] = []
+        for event in trace.events:
+            if event.type != EventType.TOOL_CALL.value or not event.tool_name:
+                continue
+            tool_name = str(event.tool_name).strip()
+            if tool_name and tool_name not in selected_tools:
+                selected_tools.append(tool_name)
+
+        pending_tasks = [
+            task.title
+            for task in session.task_manager.tasks
+            if task.status in {"pending", "in_progress"}
+        ]
+        return HarnessSessionSnapshot(
+            session_id=session.id,
+            turn_id=trace.turn_id,
+            run_id=trace.run_id,
+            stop_reason=trace.blocked.reason_code if trace.blocked else trace.status,
+            pending_actions=session.list_pending_actions(status="pending"),
+            task_progress={
+                "total": len(session.task_manager.tasks),
+                "remaining": session.task_manager.remaining_count()
+                if session.task_manager.has_tasks()
+                else 0,
+                "pending_titles": pending_tasks[:10],
+            },
+            tool_failures=list(trace.failure_tags),
+            selected_tools=selected_tools,
+            compressed_rounds=int(session.compressed_rounds),
+            token_usage={
+                "input_tokens": int(trace.summary.get("input_tokens", 0) or 0),
+                "output_tokens": int(trace.summary.get("output_tokens", 0) or 0),
+                "estimated_cost_usd": float(trace.summary.get("estimated_cost_usd", 0.0) or 0.0),
+            },
+            trace_ref=trace.summary.get("trace_path") if isinstance(trace.summary, dict) else None,
+        )
 
     @staticmethod
     def _current_attempt_id(session: Session, task_id: str | None) -> str | None:
