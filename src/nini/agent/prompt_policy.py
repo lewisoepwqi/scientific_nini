@@ -153,7 +153,7 @@ RUNTIME_CONTEXT_BLOCK_PRIORITY: Final[dict[str, int]] = {
 }
 
 # 全局 runtime context 预算上限（字符数）
-RUNTIME_CONTEXT_BUDGET_CHARS: Final[int] = 40_000
+RUNTIME_CONTEXT_BUDGET_CHARS: Final[int] = 35_000
 
 # 按 Prompt Profile 分级的 runtime context 预算
 _RUNTIME_CONTEXT_BUDGET_BY_PROFILE: Final[dict[str, int]] = {
