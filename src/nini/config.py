@@ -336,7 +336,7 @@ class Settings(BaseSettings):
     memory_auto_compress: bool = True
     memory_compress_threshold_kb: int = 500  # 已废弃，由 memory_compress_threshold_tokens 替代
     memory_compress_threshold_tokens: int = 8000  # 基于 Token 数的触发阈值（CJK 感知）
-    memory_keep_recent_messages: int = 20
+    memory_keep_recent_messages: int = 6  # 压缩时最少保留的近期消息数（约 3 轮对话）
     compressed_context_max_chars: int = 2000  # 压缩上下文字符硬截断兜底（轻量路径）
     compressed_context_max_segments: int = 3  # 压缩摘要段数上限，超出后触发丢弃或 LLM 合并
 

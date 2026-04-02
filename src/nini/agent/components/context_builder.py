@@ -114,7 +114,6 @@ class ContextBuilder:
             session: 当前会话
             context_ratio: 上一轮 context 使用率（0.0 ~ 1.0），用于自适应截断预算
         """
-        system_prompt = get_system_prompt()
         context_parts: list[str] = []
         retrieval_event: dict[str, Any] | None = None
 
@@ -143,15 +142,27 @@ class ContextBuilder:
             except Exception as exc:
                 logger.debug("意图预分析失败，保守兜底（启用 RAG）: %s", exc)
 
+        # 提取意图关键词，用于系统提示词条件注入
+        intent_hints = _extract_intent_hints(last_user_msg, _intent_analysis)
+
+        # 根据模型上下文窗口和意图关键词构建系统提示词
+        context_window: int | None = getattr(session, "_model_context_window", None)
+        system_prompt = get_system_prompt(
+            context_window=context_window, intent_hints=intent_hints
+        )
+
         intent_runtime_context = self.build_intent_runtime_context(
             last_user_msg, intent_analysis=_intent_analysis
         )
         if intent_runtime_context:
             context_parts.append(intent_runtime_context)
 
-        phase_runtime_context = self.build_phase_runtime_context(last_user_msg)
-        if phase_runtime_context:
-            context_parts.append(phase_runtime_context)
+        # phase_navigation 仅在 DOMAIN_TASK / KNOWLEDGE_QA 时注入
+        _is_domain_or_qa = _check_domain_or_qa(_intent_analysis)
+        if _is_domain_or_qa:
+            phase_runtime_context = self.build_phase_runtime_context(last_user_msg)
+            if phase_runtime_context:
+                context_parts.append(phase_runtime_context)
 
         harness_runtime_context = str(getattr(session, "harness_runtime_context", "") or "").strip()
         if harness_runtime_context:
@@ -238,39 +249,42 @@ class ContextBuilder:
         if research_profile_context:
             context_parts.append(research_profile_context)
 
-        # 注入图表输出格式偏好（指导 LLM 选择 render_engine）
-        pref = getattr(session, "chart_output_preference", None)
-        if pref:
-            pref_label = (
-                "交互式（Plotly）" if pref == "interactive" else "静态图片（Matplotlib/PNG）"
-            )
-            context_parts.append(
-                format_untrusted_context_block(
-                    "chart_preference",
-                    f"用户当前偏好：{pref_label}。"
-                    "生成图表时 render_engine 应选择对应值，无需再次询问。",
+        # 注入图表输出格式偏好（仅在涉及可视化时注入）
+        _viz_needed = _check_viz_needed(intent_hints)
+        if _viz_needed:
+            pref = getattr(session, "chart_output_preference", None)
+            if pref:
+                pref_label = (
+                    "交互式（Plotly）" if pref == "interactive" else "静态图片（Matplotlib/PNG）"
                 )
-            )
-        else:
-            context_parts.append(
-                format_untrusted_context_block(
-                    "chart_preference",
-                    "用户尚未表明偏好。首次生成图表前，必须调用 ask_user_question 询问："
-                    "是否需要可交互图表（可缩放/悬停）还是静态图片（PNG/SVG，适合发表/报告）。",
+                context_parts.append(
+                    format_untrusted_context_block(
+                        "chart_preference",
+                        f"用户当前偏好：{pref_label}。"
+                        "生成图表时 render_engine 应选择对应值，无需再次询问。",
+                    )
                 )
-            )
+            else:
+                context_parts.append(
+                    format_untrusted_context_block(
+                        "chart_preference",
+                        "用户尚未表明偏好。首次生成图表前，必须调用 ask_user_question 询问："
+                        "是否需要可交互图表（可缩放/悬停）还是静态图片（PNG/SVG，适合发表/报告）。",
+                    )
+                )
 
-        # 注入已完成数据概况提醒（防止压缩后 LLM 重复调用 dataset_catalog(profile)）
-        completed_profiles: set[str] = getattr(session, "_completed_dataset_profiles", set())
-        if completed_profiles:
-            names = "、".join(f"'{n}'" for n in sorted(completed_profiles))
-            context_parts.append(
-                format_untrusted_context_block(
-                    "completed_profiles",
-                    f"数据集 {names} 的概况已成功获取，"
-                    "禁止重复调用 dataset_catalog(profile)，请直接进行分析或输出结论。",
+        # 注入已完成数据概况提醒（仅在 DOMAIN_TASK 时注入，防止重复调用 dataset_catalog）
+        if _is_domain_or_qa:
+            completed_profiles: set[str] = getattr(session, "_completed_dataset_profiles", set())
+            if completed_profiles:
+                names = "、".join(f"'{n}'" for n in sorted(completed_profiles))
+                context_parts.append(
+                    format_untrusted_context_block(
+                        "completed_profiles",
+                        f"数据集 {names} 的概况已成功获取，"
+                        "禁止重复调用 dataset_catalog(profile)，请直接进行分析或输出结论。",
+                    )
                 )
-            )
 
         # 注入任务进度上下文（防止压缩后 LLM 丢失任务状态）
         if session.task_manager.has_tasks():
@@ -291,9 +305,17 @@ class ContextBuilder:
         messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         if context_parts:
             # 预算控制：按优先级裁剪，Skill 辅助资料不挤占对话历史
-            from nini.agent.prompt_policy import trim_runtime_context_by_priority
+            from nini.agent.prompt_policy import (
+                get_runtime_context_budget,
+                trim_runtime_context_by_priority,
+            )
+            from nini.agent.prompts.builder import detect_prompt_profile
 
-            context_parts = trim_runtime_context_by_priority(context_parts)
+            _profile = detect_prompt_profile(context_window)
+            runtime_budget = get_runtime_context_budget(_profile.value)
+            context_parts = trim_runtime_context_by_priority(
+                context_parts, max_chars=runtime_budget
+            )
             messages.append(
                 {
                     "role": "assistant",
@@ -305,7 +327,13 @@ class ContextBuilder:
             messages.append(
                 {
                     "role": "assistant",
-                    "content": "[以下是之前对话的摘要]\n" + str(session.compressed_context).strip(),
+                    "content": (
+                        "[以下是之前对话的压缩摘要，涵盖了已归档的早期对话内容]\n\n"
+                        + str(session.compressed_context).strip()
+                        + "\n\n[最近的消息已保留原文。"
+                        "请直接继续当前工作——不要确认摘要内容、不要回顾之前发生了什么、"
+                        "不要询问是否继续。如果用户的最新消息有明确指令，直接执行。]"
+                    ),
                 }
             )
 
@@ -441,6 +469,47 @@ class ContextBuilder:
         combined = scan_agents_md(max_chars=AGENTS_MD_MAX_CHARS)
         cls._agents_md_cache = combined if combined else None
         return combined
+
+
+def _extract_intent_hints(
+    user_message: str | None,
+    intent_analysis: Any | None,
+) -> set[str]:
+    """从用户消息和意图分析结果中提取关键词，用于系统提示词条件注入。"""
+    hints: set[str] = set()
+    if not user_message:
+        return hints
+    # 直接从用户消息中提取关键词（低成本，无需 LLM 调用）
+    msg_lower = user_message.lower()
+    from nini.agent.prompts.builder import _CONDITIONAL_COMPONENT_KEYWORDS
+
+    for _filename, keywords in _CONDITIONAL_COMPONENT_KEYWORDS.items():
+        for kw in keywords:
+            if kw in msg_lower:
+                hints.add(kw)
+    return hints
+
+
+def _check_domain_or_qa(intent_analysis: Any | None) -> bool:
+    """检查意图是否为 DOMAIN_TASK 或 KNOWLEDGE_QA（需要注入阶段导航等上下文）。"""
+    if intent_analysis is None:
+        return True  # 保守兜底：无意图分析时默认注入
+    try:
+        from nini.intent.base import QueryType
+
+        return intent_analysis.query_type in {QueryType.DOMAIN_TASK, QueryType.KNOWLEDGE_QA}
+    except Exception:
+        return True
+
+
+def _check_viz_needed(intent_hints: set[str] | None) -> bool:
+    """检查意图关键词是否包含可视化相关词汇。"""
+    if not intent_hints:
+        return False
+    from nini.agent.prompts.builder import _CONDITIONAL_COMPONENT_KEYWORDS
+
+    viz_keywords = _CONDITIONAL_COMPONENT_KEYWORDS.get("strategy_visualization.md", frozenset())
+    return bool(intent_hints & viz_keywords)
 
 
 async def _build_dataset_history_memory(dataset_name: str) -> str:

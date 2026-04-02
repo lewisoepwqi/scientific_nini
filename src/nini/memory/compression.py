@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -100,40 +101,189 @@ def _trim_text(value: Any, *, max_len: int = 180) -> str:
 
 
 def _summarize_messages(messages: list[dict[str, Any]], *, max_items: int = 30) -> str:
-    """生成轻量摘要，避免再引入一次模型调用。"""
-    lines: list[str] = []
-    for msg in messages[:max_items]:
-        role = str(msg.get("role", "")).strip() or "unknown"
-        if role == "tool":
-            tool_id = _trim_text(msg.get("tool_call_id", ""), max_len=32)
-            # tool_result 包含统计数值等关键结果，给予更多空间
-            content = _trim_text(msg.get("content", ""), max_len=300)
-            lines.append(f"- [tool:{tool_id}] {content}")
+    """生成结构化轻量摘要（无 LLM 调用）。
+
+    借鉴 claw-code 的结构化提取模式，按类别提取关键信息而非逐条截取。
+    """
+    # 1. 消息范围统计
+    roles = Counter(str(m.get("role", "unknown")) for m in messages)
+    scope = (
+        f"已压缩 {len(messages)} 条消息"
+        f"（用户={roles.get('user', 0)}, "
+        f"助手={roles.get('assistant', 0)}, "
+        f"工具={roles.get('tool', 0)}）"
+    )
+
+    # 2. 提取各类结构化信息
+    tools_used = _extract_tools_used(messages)
+    datasets = _extract_datasets_referenced(messages)
+    recent_requests = _extract_recent_user_requests(messages, limit=3, max_chars=160)
+    stat_results = _extract_stat_results(messages)
+    pending = _extract_pending_tasks(messages)
+    timeline = _build_timeline(messages[:max_items], max_chars=160)
+
+    # 3. 组装
+    parts = [scope]
+    if tools_used:
+        parts.append(f"使用工具: {', '.join(tools_used)}")
+    if datasets:
+        parts.append(f"涉及数据集: {', '.join(datasets)}")
+    if recent_requests:
+        parts.append("最近用户请求:\n" + "\n".join(f"  - {r}" for r in recent_requests))
+    if stat_results:
+        parts.append("关键统计结果:\n" + "\n".join(f"  - {r}" for r in stat_results))
+    if pending:
+        parts.append("待办事项:\n" + "\n".join(f"  - {p}" for p in pending))
+    if timeline:
+        parts.append("时间线:\n" + "\n".join(f"  - {t}" for t in timeline))
+    return "\n".join(parts)
+
+
+def _extract_tools_used(messages: list[dict[str, Any]]) -> list[str]:
+    """从 assistant 消息的 tool_calls 中提取工具名（去重排序）。"""
+    names: set[str] = set()
+    for msg in messages:
+        if msg.get("role") != "assistant":
             continue
+        for tc in msg.get("tool_calls") or []:
+            if isinstance(tc, dict):
+                func = tc.get("function", {})
+                if isinstance(func, dict):
+                    name = str(func.get("name", "")).strip()
+                    if name:
+                        names.add(name)
+    return sorted(names)
 
-        content = _trim_text(msg.get("content", ""), max_len=140)
-        if role == "assistant" and msg.get("tool_calls"):
-            tool_calls = msg.get("tool_calls", [])
-            if isinstance(tool_calls, list) and tool_calls:
-                names = []
-                for item in tool_calls[:4]:
-                    if isinstance(item, dict):
-                        func = item.get("function", {})
-                        if isinstance(func, dict):
-                            name = str(func.get("name", "")).strip()
-                            if name:
-                                names.append(name)
-                if names:
-                    lines.append(f"- [assistant] 调用了工具: {', '.join(names)}")
-                    if content:
-                        lines.append(f"- [assistant] {content}")
-                    continue
-        lines.append(f"- [{role}] {content}")
 
-    if len(messages) > max_items:
-        lines.append(f"- ... 其余 {len(messages) - max_items} 条消息已省略")
+def _extract_datasets_referenced(messages: list[dict[str, Any]]) -> list[str]:
+    """从工具参数中提取 dataset_name（去重）。"""
+    datasets: set[str] = set()
+    for msg in messages:
+        if msg.get("role") != "assistant":
+            continue
+        for tc in msg.get("tool_calls") or []:
+            if not isinstance(tc, dict):
+                continue
+            func = tc.get("function", {})
+            if not isinstance(func, dict):
+                continue
+            args_str = str(func.get("arguments", ""))
+            try:
+                args = json.loads(args_str) if args_str.strip().startswith("{") else {}
+            except (json.JSONDecodeError, ValueError):
+                args = {}
+            ds_name = str(args.get("dataset_name", "")).strip()
+            if ds_name:
+                datasets.add(ds_name)
+    return sorted(datasets)
 
-    return "\n".join(lines).strip()
+
+_STAT_RESULT_RE = re.compile(
+    r"(?:p[\s_-]*(?:value)?[\s=:：]*[\d.eE\-]+)"
+    r"|(?:effect[\s_]*size[\s=:：]*[\d.eE\-]+)"
+    r"|(?:statistic[\s=:：]*[\d.eE\-]+)"
+    r"|(?:r[\s=:：]*[\d.]+)"
+    r"|(?:CI[\s=:：]*[\[(][\d.,\s\-]+[\])])",
+    re.IGNORECASE,
+)
+
+
+def _extract_stat_results(messages: list[dict[str, Any]]) -> list[str]:
+    """从 tool 消息中提取统计结果（p 值、效应量等关键数值）。"""
+    results: list[str] = []
+    for msg in messages:
+        if msg.get("role") != "tool":
+            continue
+        content = str(msg.get("content", ""))
+        matches = _STAT_RESULT_RE.findall(content)
+        if matches:
+            # 取前 5 个匹配，每个截断
+            for m in matches[:5]:
+                trimmed = _trim_text(m, max_len=80)
+                if trimmed and trimmed not in results:
+                    results.append(trimmed)
+        if len(results) >= 10:
+            break
+    return results
+
+
+def _extract_pending_tasks(messages: list[dict[str, Any]]) -> list[str]:
+    """从 task_state 工具结果中提取 pending/in_progress 的任务。"""
+    pending: list[str] = []
+    for msg in reversed(messages):
+        if msg.get("role") != "tool":
+            continue
+        content = str(msg.get("content", ""))
+        # 尝试解析 task_state 的 JSON 结果
+        try:
+            data = json.loads(content) if content.strip().startswith("{") else None
+        except (json.JSONDecodeError, ValueError):
+            data = None
+        if isinstance(data, dict):
+            tasks = data.get("data", {}).get("tasks") if isinstance(data.get("data"), dict) else None
+            if isinstance(tasks, list):
+                for t in tasks:
+                    if isinstance(t, dict):
+                        status = str(t.get("status", "")).lower()
+                        if status in ("pending", "in_progress"):
+                            title = _trim_text(t.get("title", t.get("name", "")), max_len=100)
+                            if title:
+                                pending.append(f"[{status}] {title}")
+                if pending:
+                    return pending[:8]
+        # 也检测包含 pending/todo 关键词的文本消息
+        if re.search(r"(?:pending|todo|待办|未完成|in.progress)", content, re.IGNORECASE):
+            pending.append(_trim_text(content, max_len=120))
+            if len(pending) >= 5:
+                break
+    return pending[:8]
+
+
+def _extract_recent_user_requests(
+    messages: list[dict[str, Any]], *, limit: int = 3, max_chars: int = 160
+) -> list[str]:
+    """提取最后 N 条用户消息内容。"""
+    requests: list[str] = []
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            text = _trim_text(msg.get("content", ""), max_len=max_chars)
+            if text:
+                requests.append(text)
+            if len(requests) >= limit:
+                break
+    requests.reverse()
+    return requests
+
+
+def _build_timeline(
+    messages: list[dict[str, Any]], *, max_chars: int = 160
+) -> list[str]:
+    """构建消息时间线摘要。"""
+    timeline: list[str] = []
+    for msg in messages:
+        role = str(msg.get("role", "unknown")).strip()
+        if role == "tool":
+            content = _trim_text(msg.get("content", ""), max_len=max_chars)
+            timeline.append(f"[工具结果] {content}")
+        elif role == "assistant" and msg.get("tool_calls"):
+            names = []
+            for tc in (msg.get("tool_calls") or [])[:4]:
+                if isinstance(tc, dict):
+                    func = tc.get("function", {})
+                    if isinstance(func, dict):
+                        name = str(func.get("name", "")).strip()
+                        if name:
+                            names.append(name)
+            text = _trim_text(msg.get("content", ""), max_len=100)
+            tool_info = f"调用 {', '.join(names)}" if names else ""
+            entry = f"[助手] {tool_info}"
+            if text:
+                entry += f" {text}"
+            timeline.append(_trim_text(entry, max_len=max_chars))
+        else:
+            content = _trim_text(msg.get("content", ""), max_len=max_chars)
+            timeline.append(f"[{role}] {content}")
+    return timeline
 
 
 def _format_messages_for_llm(messages: list[dict[str, Any]], *, max_chars: int = 8000) -> str:
