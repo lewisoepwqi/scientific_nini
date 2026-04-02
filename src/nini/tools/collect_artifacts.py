@@ -24,7 +24,11 @@ class CollectArtifactsTool(Tool):
     def description(self) -> str:
         return (
             "收集当前会话中的统计结果、图表、方法记录和数据集概要，"
-            "输出可直接用于论文或报告写作的结构化素材包。"
+            "输出可直接用于论文或报告写作的结构化素材包。\n"
+            "最小示例：\n"
+            "- 收集全部素材：{}\n"
+            '- 指定数据集：{dataset_name: "demo"}\n'
+            "适合在分析完成后、生成报告前调用，自动汇总本次会话的全部分析产出。"
         )
 
     @property

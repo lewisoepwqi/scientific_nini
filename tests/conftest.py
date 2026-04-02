@@ -11,6 +11,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from nini.agent.prompts.builder import clear_prompt_cache
 from nini.agent.session import session_manager
 from nini.app import create_app
 from nini.config import settings
@@ -27,6 +28,12 @@ warnings.filterwarnings(
     category=ResourceWarning,
     message=r"unclosed event loop .*",
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_prompt_cache() -> None:
+    """每个测试前清空提示词 TTL 缓存，防止跨测试污染。"""
+    clear_prompt_cache()
 
 
 @pytest_asyncio.fixture
