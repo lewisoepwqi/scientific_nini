@@ -23,7 +23,13 @@ class GenerateWidgetTool(Tool):
     def description(self) -> str:
         return (
             "生成可在聊天界面内嵌渲染的自包含 HTML 组件。"
-            "适用于统计结果摘要卡、交互式科研面板和自定义可视化。"
+            "适用于统计结果摘要卡、交互式科研面板和自定义可视化。\n"
+            "最小示例：\n"
+            '- 摘要卡片：{title: "分析摘要", html: "<div style=\'padding:16px\'>'
+            '<h3>t = 2.45, p = 0.018</h3><p>效应量 d = 0.65</p></div>"}\n'
+            '- 交互面板：{title: "数据概览", html: "<div>...</div>", '
+            'description: "含 JavaScript 交互的统计面板"}\n'
+            "参数约束：title 和 html 为必填；html 须为自包含片段（可含内联 CSS/JS）。"
         )
 
     @property

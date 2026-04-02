@@ -74,11 +74,10 @@ class TestDataframePreviewLimit:
 class TestLargePayloadReference:
     """测试大型数据引用化。"""
 
-    def test_small_data_not_referenced(self, tmp_path):
+    def test_small_data_not_referenced(self, tmp_path, monkeypatch):
         """小数据不应该被引用化。"""
-        # 使用临时目录
         session_id = "test_small"
-        settings.data_dir = tmp_path
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
 
         memory = ConversationMemory(session_id)
         entry = {
@@ -96,11 +95,10 @@ class TestLargePayloadReference:
         # 应该直接包含数据，而不是引用
         assert "_ref" not in str(loaded[0]["chart_data"])
 
-    def test_large_data_referenced(self, tmp_path):
+    def test_large_data_referenced(self, tmp_path, monkeypatch):
         """大数据应该被引用化。"""
-        # 使用临时目录
         session_id = "test_large"
-        settings.data_dir = tmp_path
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
 
         memory = ConversationMemory(session_id)
 
@@ -138,10 +136,10 @@ class TestLargePayloadReference:
         payload_data = json.loads(payload_file.read_text())
         assert payload_data == large_chart
 
-    def test_resolve_references(self, tmp_path):
+    def test_resolve_references(self, tmp_path, monkeypatch):
         """测试引用解析。"""
         session_id = "test_resolve"
-        settings.data_dir = tmp_path
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
 
         memory = ConversationMemory(session_id)
 
@@ -212,10 +210,10 @@ class TestAutoCompression:
 class TestMemoryFileSize:
     """测试 memory.jsonl 文件大小优化效果。"""
 
-    def test_memory_size_with_large_payloads(self, tmp_path):
+    def test_memory_size_with_large_payloads(self, tmp_path, monkeypatch):
         """验证大型数据引用化后文件大小减少。"""
         session_id = "test_size"
-        settings.data_dir = tmp_path
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
 
         memory = ConversationMemory(session_id)
 

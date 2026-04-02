@@ -42,13 +42,13 @@ class StatTestTool(Tool):
         return (
             "统一执行 t 检验、Mann-Whitney、ANOVA、Kruskal-Wallis 与多重比较校正。\n"
             "最小示例：\n"
-            '- 独立样本 t 检验：{method: independent_t, dataset_name: demo, value_column: value, group_column: group}\n'
-            '- 配对样本 t 检验：{method: paired_t, dataset_name: demo, value_column: value, group_column: group}\n'
-            "- 单样本 t 检验：{method: one_sample_t, dataset_name: demo, value_column: value, test_value: 0}\n"
-            "- Mann-Whitney：{method: mann_whitney, dataset_name: demo, value_column: value, group_column: group}\n"
-            "- 多重比较校正：{method: multiple_comparison_correction, p_values: [0.01, 0.02], correction_method: holm}\n"
-            "参数约束：独立/配对 t、Mann-Whitney、ANOVA、Kruskal-Wallis 至少需要 value_column 和 group_column；"
-            "单样本 t 需要 value_column 和 test_value；多重比较校正需要 p_values。"
+            "- 两组比较：{method: independent_t, dataset_name: demo, value_column: value, group_column: group}\n"
+            "- 单样本 t：{method: one_sample_t, dataset_name: demo, value_column: value, test_value: 0}\n"
+            "- 多重校正：{method: multiple_comparison_correction, p_values: [0.01, 0.02], correction_method: holm}\n"
+            "参数约束：两组/多组比较需 value_column + group_column；"
+            "单样本 t 需 value_column + test_value；多重校正需 p_values。\n"
+            "method 枚举：independent_t/paired_t/one_sample_t/mann_whitney/anova/kruskal_wallis/"
+            "multiple_comparison_correction。"
         )
 
     @property

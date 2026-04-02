@@ -155,6 +155,18 @@ RUNTIME_CONTEXT_BLOCK_PRIORITY: Final[dict[str, int]] = {
 # 全局 runtime context 预算上限（字符数）
 RUNTIME_CONTEXT_BUDGET_CHARS: Final[int] = 40_000
 
+# 按 Prompt Profile 分级的 runtime context 预算
+_RUNTIME_CONTEXT_BUDGET_BY_PROFILE: Final[dict[str, int]] = {
+    "full": 40_000,
+    "standard": 20_000,
+    "compact": 10_000,
+}
+
+
+def get_runtime_context_budget(profile: str = "full") -> int:
+    """根据 prompt profile 返回 runtime context 字符预算上限。"""
+    return _RUNTIME_CONTEXT_BUDGET_BY_PROFILE.get(profile, RUNTIME_CONTEXT_BUDGET_CHARS)
+
 
 def trim_runtime_context_by_priority(
     blocks: list[str],

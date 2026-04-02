@@ -2565,6 +2565,10 @@ class AgentRunner:
         session: Session,
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         """通过 canonical context builder 构建发送给 LLM 的消息列表。"""
+        # 将模型上下文窗口信息传递给 session，供 ContextBuilder 选择 prompt profile
+        if not hasattr(session, "_model_context_window"):
+            _get_cw = getattr(self._resolver, "get_model_context_window", None)
+            session._model_context_window = _get_cw() if callable(_get_cw) else None
         start_time = time.monotonic()
         messages, retrieval_event = await self._context_builder.build_messages_and_retrieval(
             session, context_ratio=self._context_ratio

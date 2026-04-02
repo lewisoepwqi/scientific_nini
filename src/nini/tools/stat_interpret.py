@@ -25,7 +25,16 @@ class StatInterpretTool(Tool):
 
     @property
     def description(self) -> str:
-        return "统一解读统计检验与建模结果，输出可读的结论文本。"
+        return (
+            "统一解读统计检验与建模结果，输出可读的中文结论文本。\n"
+            "最小示例：\n"
+            '- 解读 t 检验：{test_type: "t_test", result: {statistic: 2.45, p_value: 0.018, '
+            "effect_size: 0.65, group1_mean: 120.3, group2_mean: 115.8}}\n"
+            '- 解读回归：{test_type: "regression", result: {r_squared: 0.85, '
+            "coefficients: [{name: x1, value: 0.3, p_value: 0.001}]}}\n"
+            "参数约束：test_type（枚举：t_test/anova/correlation/regression/mann_whitney/"
+            "kruskal_wallis）和 result 均为必填。"
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
