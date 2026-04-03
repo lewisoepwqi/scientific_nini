@@ -34,15 +34,9 @@ class WorkspaceSessionTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "统一管理工作区文件列表、读取、写入、编辑、整理和 URL 抓取。"
-            "最小示例："
-            '1) 列表: {"operation":"list","query":"report"}；'
-            '2) 读取: {"operation":"read","file_path":"notes/a.md"}；'
-            '3) 写入: {"operation":"write","file_path":"notes/a.md","content":"..."}；'
-            '4) 追加: {"operation":"append","file_path":"notes/a.md","content":"\\nmore"}；'
-            '5) 抓取网页: {"operation":"fetch_url","url":"https://example.com","save_to":"notes/example.md"}。'
-            "read 必须提供 file_path；write/append 必须提供 file_path 和 content；"
-            "fetch_url 必须提供 url。"
+            "统一管理工作区文件：list/read/write/append/edit/organize/fetch_url。\n"
+            "最小示例：{operation: read, file_path: notes/a.md}\n"
+            "约束：read 需 file_path；write/append 需 file_path+content；fetch_url 需 url。"
         )
 
     @property

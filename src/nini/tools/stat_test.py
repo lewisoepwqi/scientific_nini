@@ -40,15 +40,10 @@ class StatTestTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "统一执行 t 检验、Mann-Whitney、ANOVA、Kruskal-Wallis 与多重比较校正。\n"
-            "最小示例：\n"
-            "- 两组比较：{method: independent_t, dataset_name: demo, value_column: value, group_column: group}\n"
-            "- 单样本 t：{method: one_sample_t, dataset_name: demo, value_column: value, test_value: 0}\n"
-            "- 多重校正：{method: multiple_comparison_correction, p_values: [0.01, 0.02], correction_method: holm}\n"
-            "参数约束：两组/多组比较需 value_column + group_column；"
-            "单样本 t 需 value_column + test_value；多重校正需 p_values。\n"
-            "method 枚举：independent_t/paired_t/one_sample_t/mann_whitney/anova/kruskal_wallis/"
-            "multiple_comparison_correction。"
+            "统一差异检验与t/Mann-Whitney/ANOVA/Kruskal-Wallis 与多重比较校正。\n"
+            "最小示例：{method: independent_t, dataset_name: demo, value_column: value, group_column: group}\n"
+            "参数：两组/多组需 value_column+group_column；单样本 t 需 value_column+test_value；多重校正需 p_values。\n"
+            "method：independent_t/paired_t/one_sample_t/mann_whitney/anova/kruskal_wallis/multiple_comparison_correction。"
         )
 
     @property
