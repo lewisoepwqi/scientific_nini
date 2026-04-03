@@ -159,7 +159,7 @@ RUNTIME_CONTEXT_BUDGET_CHARS: Final[int] = 35_000
 _RUNTIME_CONTEXT_BUDGET_BY_PROFILE: Final[dict[str, int]] = {
     "full": 40_000,
     "standard": 15_000,
-    "compact": 10_000,
+    "compact": 8_000,
 }
 
 
