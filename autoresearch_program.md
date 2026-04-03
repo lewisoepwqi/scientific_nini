@@ -76,21 +76,21 @@ LOOP FOREVER:
 按优先级排列，完成一个划掉一个：
 
 ### 高优先级（token 收益大）
-- [ ] 精简 `strategy_core.md`（3903 字符，最大的 strategy 文件）—— 注意 exp1 失败因过度删减
-- [ ] 精简 `strategy_task.md`（2635 字符）中的 PDCA_DETAIL_BLOCK 冗余示例
-- [ ] 合并 `prompt_policy.py` 中 PDCA_DETAIL_BLOCK 的重复错误示例
+- [x] 精简 `strategy_core.md`（3903 字符，最大的 strategy 文件）—— 注意 exp1 失败因过度删减
+- [x] 精简 `strategy_task.md`（2635 字符）中的 PDCA_DETAIL_BLOCK 冗余示例
+- [x] 合并 `prompt_policy.py` 中 PDCA_DETAIL_BLOCK 的重复错误示例
 
 ### 中优先级（稳定收益）
-- [ ] 精简 `strategy_sandbox.md`（2240 字符）的沙箱规则
-- [ ] 精简 `strategy_visualization.md`（1987 字符）
+- [x] 精简 `strategy_sandbox.md`（2240 字符）的沙箱规则
+- [x] 精简 `strategy_visualization.md`（1987 字符）
 - [ ] 精简 `strategy_report.md`（2235 字符）
-- [ ] 优化工具 description 减少 tool_schema_tokens —— 注意 exp2 失败因测试依赖具体措辞
+- [x] 优化工具 description 减少 tool_schema_tokens —— 注意 exp2 失败因测试依赖具体措辞
 
 ### 低优先级（实验性）
-- [ ] 降低 `budget_standard` 20K→15K
-- [ ] 降低 `budget_compact` 10K→8K
-- [ ] 调整 `loop_guard.py` warn_threshold 3→4
-- [ ] 调整 compression.py 的 `_LLM_SUMMARY_PROMPT` 精简
+- [x] 降低 `budget_standard` 20K→15K
+- [x] 降低 `budget_compact` 10K→8K
+- [x] 调整 `loop_guard.py` warn_threshold 3→4
+- [x] 调整 compression.py 的 `_LLM_SUMMARY_PROMPT` 精简
 
 ## 失败实验档案
 
