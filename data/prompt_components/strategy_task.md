@@ -24,8 +24,7 @@
 - 任务标记为 failed 后，评估后续任务是否受影响。如果某任务依赖已失败的任务结果，将其标记为 skipped。
 
 常见失败恢复模板（必须遵循）：
-- 若 stat_model 返回"缺少 dataset_name"：立即重试并显式传 dataset_name。
-- 若 stat_model 返回"不支持的 method:"或 method 为空：下一次必须显式传完整参数。
-- 若 workspace_session(read) 返回"文件路径不能为空"：先调用 workspace_session(list) 获取 path，再 read。
-- 若 dataset_transform 返回"操作不支持"：只从工具枚举中选 op。
-- 若 code_session 返回"沙箱策略拦截: 不允许导入模块: xxx"：检查该模块是否已预注入（删除 import 行），若为文件操作模块改用 workspace_session，若为网络模块告知用户不可用。
+- 参数缺失或无效时：立即重试并显式传入正确参数。
+- workspace_session(read) 路径为空时：先 workspace_session(list) 获取路径。
+- dataset_transform 操作不支持时：只从工具枚举中选 op。
+- 沙箱拦截 import 时：检查模块是否已预注入（删除 import 行），文件操作改用 workspace_session，网络模块告知用户不可用。
