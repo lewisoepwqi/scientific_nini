@@ -1,8 +1,5 @@
-commit	metric_name	metric_value	status	description
-b6c4680	prompt_tokens	6561	keep	baseline
-b6c4680	tool_schema_tokens	9252	keep	baseline
-b6c4680	test_passed	2010	keep	baseline
-b6c4680	test_duration_sec	126.7	keep	baseline
-exp1	prompt_tokens	6049	discard	精简 strategy_core.md: -512 tokens 但 test_failed 6→7
-exp2	tool_schema_tokens	9165	discard	精简 search_tools description: -87 tokens 但 test_failed 6→7
-exp3	runtime_budget_chars	35000	keep	降低 RUNTIME_CONTEXT_BUDGET_CHARS 40K→35K: tests 不变
+commit	timestamp	prompt_tokens	tool_schema_tokens	total_tokens	test_passed	test_failed	test_duration_sec	budget_full	budget_standard	budget_compact	changed_file	change_summary	status
+b6c4680	2026-04-03T00:00	6561	9252	15813	2010	0	126.7	40000	20000	10000	-	baseline	keep
+exp1	2026-04-03T00:00	6049	9252	15301	2010	7	126.7	40000	20000	10000	strategy_core.md	精简 strategy_core.md: -512 tokens 但 test_failed 6→7	discard
+exp2	2026-04-03T00:00	6561	9165	15726	2010	7	126.7	40000	20000	10000	search_tools desc	精简 search_tools description: -87 tokens 但 test_failed 6→7	discard
+8c239dd	2026-04-03T00:00	6561	9252	15813	2010	0	126.7	35000	20000	10000	prompt_policy.py	降低 RUNTIME_CONTEXT_BUDGET_CHARS 40K→35K: tests 不变	keep
