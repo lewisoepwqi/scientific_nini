@@ -35,15 +35,10 @@ class ChartSessionTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "创建、更新、查询和导出图表会话资源，图表规格会持久化到受管资源目录。\n"
-            "最小示例：\n"
-            "- 创建折线图：{operation: create, dataset_name: trend_demo, chart_type: line, "
-            "x_column: month, y_column: value, title: 月度趋势}\n"
-            "- 更新标题：{operation: update, chart_id: chart_trend_demo, title: 新标题}\n"
-            "- 查询图表：{operation: get, chart_id: chart_trend_demo}\n"
-            "- 导出 PNG：{operation: export, chart_id: chart_trend_demo, format: png}\n"
-            "参数约束：create 必须提供 dataset_name 和 chart_type；update/get/export 必须提供 "
-            "chart_id。render_engine 仅支持 auto、plotly、matplotlib。"
+            "创建、更新、查询和导出图表会话资源，规格持久化到受管资源目录。\n"
+            "最小示例：{operation: create, dataset_name: demo, chart_type: line, x_column: x, y_column: y}\n"
+            "约束：create 需 dataset_name+chart_type；update/get/export 需 chart_id。"
+            "render_engine 支持 auto/plotly/matplotlib。"
         )
 
     @property

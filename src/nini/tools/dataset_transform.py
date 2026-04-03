@@ -87,15 +87,11 @@ class DatasetTransformTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "执行结构化数据变换流水线。支持拼接、衍生列、过滤、聚合、排序、去重、列重命名、"
-            "列选择以及结构化清洗，并支持步骤级 patch 与重跑。"
-            "steps[].op 仅支持：concat_datasets、concat_all、derive_column、filter_rows、"
-            "group_aggregate、sort_rows、deduplicate、rename_columns、select_columns、"
-            "clean_data、recommend_cleaning_strategy。"
-            "其中 derive_column/filter_rows 使用 pandas eval/query 风格表达式，不是自由 Python："
-            "请直接引用列名，例如 expr='测量时刻.dt.hour'；"
-            "不支持 df[...]、lambda、三元 if ... else ...。"
-            '最小示例：{"operation":"run","dataset_name":"demo","steps":[{"id":"derive_hour","op":"derive_column","params":{"column":"小时","expr":"测量时刻.dt.hour"}}]}。'
+            "执行结构化数据变换流水线（拼接/衍生/过滤/聚合/排序/去重/重命名/清洗），支持步骤级 patch。\n"
+            "op 枚举：concat_datasets/concat_all/derive_column/filter_rows/group_aggregate/sort_rows/"
+            "deduplicate/rename_columns/select_columns/clean_data/recommend_cleaning_strategy。\n"
+            "derive_column/filter_rows 使用 pandas eval/query 表达式，直接引用列名（如 expr='测量时刻.dt.hour'），不支持 df[]/lambda/三元 if。\n"
+            '最小示例：{"operation":"run","dataset_name":"demo","steps":[{"op":"derive_column","params":{"column":"小时","expr":"测量时刻.dt.hour"}}]}'
         )
 
     @property
