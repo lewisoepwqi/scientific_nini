@@ -10,7 +10,7 @@ from nini.agent import event_builders as eb
 from nini.agent.events import AgentEvent, EventType
 from nini.agent.session import Session
 from nini.config import settings
-from nini.harness.models import HarnessRunContext, HarnessTraceRecord
+from nini.harness.models import CompletionCheckResult, HarnessRunContext, HarnessTraceRecord
 from nini.harness.runner import HarnessRunner
 from nini.harness.store import HarnessTraceStore
 from nini.models.database import init_db
@@ -136,6 +136,37 @@ class _ErrorRunner:
             session.add_message("user", "分析失败", turn_id=turn_id)
         yield eb.build_iteration_start_event(iteration=0, turn_id=turn_id)
         yield eb.build_error_event("LLM 调用失败", turn_id=turn_id)
+
+
+class _SoftViolationRunner:
+    async def run(
+        self,
+        session: Session,
+        user_message: str,
+        *,
+        append_user_message: bool = True,
+        stop_event=None,
+        turn_id: str | None = None,
+        stage_override: str | None = None,
+    ):
+        _ = user_message, stop_event, stage_override
+        assert turn_id is not None
+        if append_user_message:
+            session.add_message("user", "分析失败", turn_id=turn_id)
+        yield eb.build_iteration_start_event(iteration=0, turn_id=turn_id)
+        yield AgentEvent(
+            type=EventType.ERROR,
+            data={
+                "level": "allowed_tools_soft_violation",
+                "tool": "code_session",
+                "risk_level": "low",
+                "message": "低风险越界，继续执行。",
+            },
+            turn_id=turn_id,
+        )
+        session.add_message("assistant", "最终分析完成。", turn_id=turn_id)
+        yield eb.build_text_event("最终分析完成。", turn_id=turn_id)
+        yield eb.build_done_event(turn_id=turn_id)
 
 
 class _ToolRecoveryRunner:
@@ -435,6 +466,22 @@ async def test_harness_runner_stops_after_error_without_completion_check() -> No
 
     assert event_types == ["iteration_start", "error"]
     assert trace_store.records[0].status == "error"
+
+
+@pytest.mark.asyncio
+async def test_harness_runner_ignores_allowed_tools_soft_violation_error() -> None:
+    trace_store = _CaptureTraceStore()
+    runner = HarnessRunner(agent_runner=_SoftViolationRunner(), trace_store=trace_store)
+    session = Session()
+
+    events = [event async for event in runner.run(session, "请分析数据差异")]
+    event_types = [event.type.value for event in events]
+
+    assert event_types[0] == "iteration_start"
+    assert "error" in event_types
+    assert "text" in event_types
+    assert event_types[-1] == "done"
+    assert trace_store.records[0].status == "completed"
 
 
 @pytest.mark.asyncio
@@ -753,6 +800,59 @@ def test_completion_check_registers_artifact_and_transitional_pending_actions() 
     assert "task_noop_blocked" in pending_types
 
 
+def test_completion_check_allows_transitional_phrasing_when_tasks_done() -> None:
+    runner = HarnessRunner(agent_runner=None)  # type: ignore[arg-type]
+    session = Session()
+    turn_id = "turn-transitional-done"
+
+    session.task_manager = session.task_manager.init_tasks(
+        [
+            {"id": 1, "title": "抽取主要发现", "status": "pending"},
+            {"id": 2, "title": "建立解释框架", "status": "pending"},
+            {"id": 3, "title": "输出结论与下一步", "status": "pending"},
+        ]
+    )
+    result = session.task_manager.update_tasks(
+        [
+            {"id": 1, "status": "completed"},
+            {"id": 2, "status": "completed"},
+            {"id": 3, "status": "completed"},
+        ]
+    )
+    session.task_manager = result.manager
+    session.add_message(
+        "assistant",
+        "我将先总结主要结果，再给出下一步建议。结论：当前结果支持干预有效，但仍需补充效应量。",
+        turn_id=turn_id,
+    )
+
+    check = runner._run_completion_check(session, turn_id=turn_id, attempt=0)  # noqa: SLF001
+
+    not_transitional = next(item for item in check.items if item.key == "not_transitional")
+    assert not_transitional.passed is True
+    pending_types = {item["type"] for item in session.list_pending_actions(status="pending")}
+    assert "task_noop_blocked" not in pending_types
+
+
+def test_completion_recovery_prompt_in_recipe_mode_forces_defaults() -> None:
+    completion = CompletionCheckResult(
+        turn_id="turn-recipe",
+        attempt=1,
+        passed=False,
+        items=[],
+        missing_actions=["所有任务已完成"],
+        evidence={"pending_actions": []},
+    )
+    prompt = HarnessRunner._build_completion_recovery_prompt(  # noqa: SLF001
+        completion=completion,
+        remaining_tasks=2,
+        recipe_mode=True,
+    )
+
+    assert "Recipe 模式" in prompt
+    assert "保守常见默认值继续完成" in prompt
+
+
 def test_handle_tool_result_registers_and_clears_pending_failure() -> None:
     session = Session()
     turn_id = "turn-tool-failure"
@@ -800,7 +900,7 @@ def test_handle_tool_result_registers_and_clears_pending_failure() -> None:
         turn_id=turn_id,
         task_id=None,
         attempt_id=None,
-        tool_error_counts={f"export_report::{{\"format\":\"pdf\",\"operation\":\"export\"}}": 1},
+        tool_error_counts={f'export_report::{{"format":"pdf","operation":"export"}}': 1},
         tool_failure_messages={},
         recovered_tool_signatures=set(),
     )

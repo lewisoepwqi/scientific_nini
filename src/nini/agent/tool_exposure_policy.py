@@ -70,6 +70,28 @@ _HIGH_RISK_TOOLS = {
 }
 
 
+def _collect_task_tool_hints(session: Any) -> list[str]:
+    """从任务计划中提取 tool_hint，供 surface 判定参考。"""
+    if session is None or not hasattr(session, "task_manager"):
+        return []
+    manager = getattr(session, "task_manager", None)
+    if manager is None or not hasattr(manager, "to_analysis_plan_dict"):
+        return []
+    plan = manager.to_analysis_plan_dict()
+    steps = plan.get("steps") if isinstance(plan, dict) else None
+    if not isinstance(steps, list):
+        return []
+
+    hints: list[str] = []
+    for item in steps:
+        if not isinstance(item, dict):
+            continue
+        hint = str(item.get("tool_hint", "") or "").strip()
+        if hint and hint not in hints:
+            hints.append(hint)
+    return hints
+
+
 def resolve_surface_stage(session: Any, *, user_message: str | None = None) -> str:
     """将当前会话映射到 profile / analysis / export 三段式阶段。"""
     normalized_message = str(user_message or "").lower()
@@ -77,6 +99,12 @@ def resolve_surface_stage(session: Any, *, user_message: str | None = None) -> s
         return "export"
     if any(token in normalized_message for token in ("概览", "质量", "摘要", "预览", "字段")):
         return "profile"
+
+    task_tool_hints = _collect_task_tool_hints(session)
+    if any(hint in _EXPORT_TOOLS for hint in task_tool_hints):
+        return "export"
+    if any(hint in _ANALYSIS_TOOLS for hint in task_tool_hints):
+        return "analysis"
 
     stage = detect_current_stage(session) if session is not None else AnalysisStage.UNKNOWN
     if stage in {AnalysisStage.PLANNING, AnalysisStage.DATA_PREP, AnalysisStage.UNKNOWN}:
@@ -100,7 +128,9 @@ def compute_tool_exposure_policy(
         if isinstance(listed, list):
             all_tools = [str(item).strip() for item in listed if str(item).strip()]
 
-    stage = str(stage_override or "").strip() or resolve_surface_stage(session, user_message=user_message)
+    stage = str(stage_override or "").strip() or resolve_surface_stage(
+        session, user_message=user_message
+    )
     allowed = set(_ALWAYS_ALLOWED)
     if stage == "profile":
         allowed |= _PROFILE_TOOLS

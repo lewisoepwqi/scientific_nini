@@ -16,3 +16,4 @@ e7a86e0	2026-04-03T00:00	legacy_v1	6112	9252	15364	2010	0	128.1	40000	15000	8000
 d2c5765	2026-04-03T00:00	legacy_v1	6112	8936	15048	2010	0	141.7	40000	15000	8000	dataset_transform+chart_session	精简两个工具 description: tool_schema ↓139	keep
 8e9bf42	2026-04-03T00:00	legacy_v1	6112	8579	14691	2010	0	122.5	40000	15000	8000	stat_model+workspace_session+stat_test+dataset_catalog	精简 4 个工具 description: tool_schema ↓357	keep
 b78ce96	2026-04-03T17:04	nini_runtime_v2	7501	4726	12227	2016	0	153.2	40000	15000	8000	AUTORESEARCH_AGENT_PROTOCOL.md	baseline-v2 runtime surface	keep
+b78ce96	2026-04-04T12:37	nini_runtime_v2	7501	4726	12227	2033	0	132.5	40000	15000	8000	AUTORESEARCH_AGENT_PROTOCOL.md	manual-run-static-20260404-203512	pending

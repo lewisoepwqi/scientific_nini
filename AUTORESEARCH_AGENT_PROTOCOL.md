@@ -1,214 +1,21 @@
-# Autoresearch Agent 操作规程
+# Autoresearch Agent 操作规程（兼容入口）
 
-> 本文件是 AI Agent 执行 autoresearch 实验循环的完整操作手册。
-> **你（AI Agent）必须严格按照本文件的步骤执行，不得跳步、合并步骤或自行发挥。**
+根目录协议文件已拆分为双线管理：
 
----
+- 第一条 `static`：见 [docs/autoresearch/static/AGENT_PROTOCOL.md](/home/lewis/coding/scientific_nini/docs/autoresearch/static/AGENT_PROTOCOL.md)
+- 第二条 `harness`：见 [docs/autoresearch/harness/PROTOCOL.md](/home/lewis/coding/scientific_nini/docs/autoresearch/harness/PROTOCOL.md)
 
-## 0. 你的身份与目标
+使用规则：
 
-你是 Nini 项目的自动优化 Agent。你的唯一目标是：**在不破坏任何测试的前提下，减少 Nini 的 prompt token 消耗和工具 schema 开销**。
+- 优化 prompt / tool surface / 固定开销时，只使用 `static` 协议。
+- 优化 benchmark 完成率 / 阻塞率 / 成本耗时时，只使用 `harness` 协议。
+- 禁止在一个实验里同时跨两条线。
 
-核心指标（按重要性排序）：
-1. `test_failed = 0` — 硬性约束，不可违反
-2. `total_tokens`（= prompt_tokens + tool_schema_tokens）— 主优化目标，越低越好
-3. `test_duration_sec` — 次优化目标，越短越好
-4. `budget_*` — 辅助指标，降低可节省运行时内存
+兼容说明：
 
----
-
-## 1. 环境确认（每次会话开始时执行一次）
-
-```bash
-# 确认当前在 autoresearch 分支
-git branch --show-current
-# 预期输出包含 "autoresearch/"，若不是则停止
-
-# 确认工作区干净
-git status --short
-# 预期输出为空（untracked 文件可忽略），若有未提交改动则先处理
-
-# 确认 baseline 存在
-cat results.tsv | head -2
-# 预期第二行有 status=keep 的 baseline 记录
-```
-
-**如果环境不满足以上条件，停止并询问用户。**
-
----
-
-## 2. 选择实验方向
-
-### 2.1 查阅实验候选队列
-
-打开 `autoresearch_program.md`，找到「实验候选队列」章节，选择一个未完成（`[ ]`）的条目。
-
-优先级规则：
-- 高优先级条目优先
-- 同级条目中，选字符数最大的文件（收益最大）
-- 跳过「失败实验档案」中记录过的相似改动
-
-### 2.2 查阅失败实验档案
-
-打开 `autoresearch_program.md`，找到「失败实验档案」章节。确认你选择的方向不会重蹈覆辙。
-
-**关键教训**：
-- 不能删除 `strategy_core.md` 中的"标准分析流程"和工具调用黄金路径（exp1 教训）
-- 不能修改工具 description 中被测试断言匹配的措辞（exp2 教训）
-
-### 2.3 确定本次实验的精确改动
-
-在动手之前，明确写出：
-1. 要改哪个文件
-2. 要改哪些行/段落
-3. 改完预期 token 变化方向
-4. 为什么这个改动不会破坏测试
-
----
-
-## 3. 可修改文件清单与禁区
-
-### 可修改（每次只改一类）
-
-| 实验类型 | 文件路径 | 改什么 |
-|---|---|---|
-| Prompt 精简 | `data/prompt_components/strategy_core.md` | 删除冗余示例/重复段落 |
-| Prompt 精简 | `data/prompt_components/strategy_task.md` | 精简 PDCA 说明 |
-| Prompt 精简 | `data/prompt_components/strategy_sandbox.md` | 精简沙箱规则 |
-| Prompt 精简 | `data/prompt_components/strategy_visualization.md` | 精简可视化指引 |
-| Prompt 精简 | `data/prompt_components/strategy_report.md` | 精简报告指引 |
-| Prompt 精简 | `data/prompt_components/strategy_phases.md` | 精简阶段策略 |
-| 策略常量 | `src/nini/agent/prompt_policy.py` | 修改预算常量值 |
-| 策略常量 | `src/nini/agent/prompt_policy.py` | 精简 PDCA_DETAIL_BLOCK 文本 |
-| 循环阈值 | `src/nini/agent/loop_guard.py` | 调整 warn/hard_limit 阈值 |
-| 压缩提示 | `src/nini/memory/compression.py` | 精简 _LLM_SUMMARY_PROMPT |
-| 工具描述 | `src/nini/tools/*.py` 的 description | 精简描述文本（不改逻辑） |
-| 超参 | `.env` | 调整 NINI_LLM_* 参数 |
-
-### 绝对禁止修改
-
-- `tests/` 下任何文件
-- `scripts/measure_baseline.py`
-- `scripts/run_experiment.sh`
-- `src/nini/config.py` 的字段定义
-- `src/nini/tools/*.py` 的 `execute()` 方法和函数逻辑
-- `results.tsv` 的历史行（只能追加或修改最后一行的 status）
-
----
-
-## 4. 执行实验（逐步操作）
-
-### Step 4.1：读取当前文件
-
-```bash
-# 读取目标文件，理解当前内容
-cat <目标文件>
-```
-
-**要求**：在修改前，你必须先完整阅读目标文件。不要对未读取的文件做修改。
-
-### Step 4.2：执行修改
-
-规则：
-- **每次只改一个变量/策略**，不要同时改多处
-- 精简文本时，保留核心语义，删除重复/冗余/示例过多的部分
-- 修改常量时，只改值，不改变量名或类型
-- 改完后用 `git diff` 确认改动范围
-
-```bash
-# 确认改动范围
-git diff
-# 检查：改动是否仅限于一个文件？是否只改了预期的部分？
-```
-
-### Step 4.3：提交实验
-
-```bash
-git add <修改的文件>
-git commit -m "experiment: <简要描述>"
-```
-
-commit message 格式要求：
-- 前缀固定为 `experiment:`
-- 描述要包含：改了什么、预期效果
-- 示例：`experiment: 精简 strategy_core.md 删除重复的方法选择表`, `experiment: 降低 budget_standard 20K→15K`
-
-### Step 4.4：运行评估
-
-```bash
-./scripts/run_experiment.sh "描述"
-```
-
-**注意**：此脚本会自动完成以下所有步骤，你不需要手动做：
-1. 运行 pytest（门控）
-2. 运行 measure_baseline.py（采集指标）
-3. 与上次 keep 记录对比（输出 delta）
-4. 追加结果到 results.tsv（status=pending 或 discard）
-
-如果你无法执行 shell 脚本（例如权限问题），可以手动分步执行：
-
-```bash
-# 手动分步执行（仅当脚本不可用时）
-# Step A: pytest 门控
-python -m pytest -q --tb=short 2>&1 | tail -5
-# 记录 passed/failed 数量
-
-# Step B: 采集指标并对比
-python scripts/measure_baseline.py --compare
-
-# Step C: 追加到 results.tsv（根据结果填入参数）
-python scripts/measure_baseline.py \
-    --append \
-    --commit "$(git rev-parse --short HEAD)" \
-    --changed-file "<文件名>" \
-    --summary "<描述>" \
-    --status "pending" \
-    --test-passed <N> \
-    --test-failed <N> \
-    --test-duration <秒>
-```
-
----
-
-## 5. 判定结果
-
-### 5.1 读取评估输出
-
-从 `run_experiment.sh` 或 `measure_baseline.py --compare` 的输出中找到：
-
-```
---- delta vs last keep ---
-  prompt_tokens: 6561 → XXXX  (↑/↓ N, +/-X.X%)
-  tool_schema_tokens: 9252 → XXXX  (↑/↓ N, +/-X.X%)
-  total_tokens: 15813 → XXXX  (↑/↓ N, +/-X.X%)
-```
-
-### 5.2 应用判定规则
-
-按以下优先级判定（从上到下，命中第一条即停止）：
-
-| # | 条件 | 判定 | 操作 |
-|---|---|---|---|
-| 1 | `test_failed > 0` | **discard** | 必须回退 |
-| 2 | `total_tokens` 下降 > 10 | **keep** | 保留并继续 |
-| 3 | `total_tokens` 变化 ≤ 10 且代码更简洁 | **keep** | simplicity 收益 |
-| 4 | `total_tokens` 上升 | **discard** | 回退 |
-| 5 | 仅 `test_duration_sec` 下降 > 5% | **keep** | 速度收益 |
-| 6 | 仅 `budget_*` 降低 | **keep** | 内存收益 |
-
-### 5.3 执行 keep 流程
-
-```bash
-# 1. 修改 results.tsv 最后一行的 status 字段为 "keep"
-# （用编辑器或 sed，确保只改最后一行的 status 字段）
-
-# 2. 更新实验候选队列：将完成的条目标记为 [x]
-# 编辑 autoresearch_program.md
-
-# 3. 继续下一个实验（回到 Step 2）
-```
-
-### 5.4 执行 discard 流程
+- 旧入口 `python scripts/measure_baseline.py` 仍可用，但等价于 `python scripts/measure_static_baseline.py`
+- 旧入口 `./scripts/run_experiment.sh` 仍可用，但等价于 `./scripts/run_static_experiment.sh`
+- 第一条线结果账本已迁到 `results/static_results.tsv`
 
 ```bash
 # 1. 修改 results.tsv 最后一行的 status 字段为 "discard"
@@ -230,18 +37,24 @@ git checkout -- <修改的文件>
 
 ## 6. 指标参考值
 
-当前 baseline（最后一条 keep 记录）：
+当前 baseline（仅比较同 `metric_version=nini_runtime_v2` 的 keep 记录）：
 
 | 指标 | 值 | 含义 |
 |---|---|---|
-| prompt_tokens | 6561 | system prompt 消耗的 token 数 |
-| tool_schema_tokens | 9252 | 工具定义（14 个工具）消耗的 token 数 |
-| total_tokens | 15813 | 每次 API 调用的固定开销 |
+| prompt_tokens | 以脚本实测为准 | 三类 full prompt 场景中的最坏 token 数 |
+| tool_schema_tokens | 以脚本实测为准 | 三种主 Agent 可见工具面中的最坏 token 数 |
+| total_tokens | 以脚本实测为准 | v2 主基线固定开销 |
 | test_passed | 2010 | 通过的测试数 |
 | test_duration_sec | 126.7 | 测试运行耗时 |
 | budget_full | 40000→35000 | full profile 运行时上下文预算（字符） |
 | budget_standard | 20000 | standard profile 运行时上下文预算 |
 | budget_compact | 10000 | compact profile 运行时上下文预算 |
+
+### v2 观察重点
+
+- `SKILLS_SNAPSHOT` 常常是当前 prompt 中最大的单块，优先检查冗余元数据与重复描述。
+- `data/AGENTS.md` 进入 trusted boundary，会直接推高 full prompt。
+- 工具 description 优化要优先看 `analysis` 工具面；不要再以“注册表原始 14 工具”作为唯一依据。
 
 ### Token 分布
 
