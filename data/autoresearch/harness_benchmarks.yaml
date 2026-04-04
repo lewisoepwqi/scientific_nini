@@ -1,0 +1,66 @@
+# 第二条 autoresearch-harness 线的 benchmark 骨架。
+# 这里只定义结构，不在本次改动中引入执行逻辑。
+
+version: nini_harness_v1
+
+sets:
+  smoke:
+    description: 小规模稳定基准，每次 harness 实验必跑
+    cases:
+      - benchmark_id: literature_review_success
+        recipe_id: literature_review
+        expected_status: completed
+        required: true
+        user_request: 帮我围绕“肠道菌群与抑郁症”做一份综述提纲，并列出优先检索方向。
+        recipe_inputs:
+          topic: 肠道菌群与抑郁症
+          scope: 近五年临床研究
+          output_goal: 开题汇报提纲
+      - benchmark_id: experiment_plan_success
+        recipe_id: experiment_plan
+        expected_status: completed
+        required: true
+        user_request: 请帮我设计一个关于睡眠干预改善焦虑症状的实验计划。
+        recipe_inputs:
+          research_question: 睡眠干预是否能改善焦虑症状
+          population: 轻中度焦虑成人
+          output_goal: 可执行实验方案
+      - benchmark_id: results_interpretation_success
+        recipe_id: results_interpretation
+        expected_status: completed
+        required: true
+        user_request: 帮我解读一组抑郁量表干预前后结果，并说明下一步分析建议。
+        recipe_inputs:
+          dataset_summary: 干预前后量表得分与基线特征
+          focus_metric: 抑郁量表总分变化
+          output_goal: 结果解读摘要
+  full:
+    description: 扩展基准，当前先与 smoke 对齐，后续再扩充更多恢复与边界案例
+    cases:
+      - benchmark_id: literature_review_success
+        recipe_id: literature_review
+        expected_status: completed
+        required: true
+        user_request: 帮我围绕“肠道菌群与抑郁症”做一份综述提纲，并列出优先检索方向。
+        recipe_inputs:
+          topic: 肠道菌群与抑郁症
+          scope: 近五年临床研究
+          output_goal: 开题汇报提纲
+      - benchmark_id: experiment_plan_success
+        recipe_id: experiment_plan
+        expected_status: completed
+        required: true
+        user_request: 请帮我设计一个关于睡眠干预改善焦虑症状的实验计划。
+        recipe_inputs:
+          research_question: 睡眠干预是否能改善焦虑症状
+          population: 轻中度焦虑成人
+          output_goal: 可执行实验方案
+      - benchmark_id: results_interpretation_success
+        recipe_id: results_interpretation
+        expected_status: completed
+        required: true
+        user_request: 帮我解读一组抑郁量表干预前后结果，并说明下一步分析建议。
+        recipe_inputs:
+          dataset_summary: 干预前后量表得分与基线特征
+          focus_metric: 抑郁量表总分变化
+          output_goal: 结果解读摘要

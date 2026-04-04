@@ -17,7 +17,7 @@ from nini.models.database import get_db, init_db
 class HarnessTraceStore:
     """管理 harness trace 的本地存储。"""
 
-    _schema_ready = False
+    _schema_ready_db_paths: set[str] = set()
     _schema_lock = asyncio.Lock()
 
     def _base_dir(self, session_id: str) -> Path:
@@ -136,10 +136,11 @@ class HarnessTraceStore:
 
     @classmethod
     async def _ensure_schema(cls) -> None:
-        if cls._schema_ready:
+        db_path = str(settings.db_path.resolve())
+        if db_path in cls._schema_ready_db_paths:
             return
         async with cls._schema_lock:
-            if cls._schema_ready:
+            if db_path in cls._schema_ready_db_paths:
                 return
             await init_db()
             async with await get_db() as db:
@@ -154,7 +155,7 @@ class HarnessTraceStore:
                     except Exception:
                         pass
                 await db.commit()
-            cls._schema_ready = True
+            cls._schema_ready_db_paths.add(db_path)
 
     async def list_runs(
         self,
@@ -162,6 +163,7 @@ class HarnessTraceStore:
         limit: int = 20,
     ) -> list[HarnessRunSummary]:
         """读取摘要列表。"""
+        await self._ensure_schema()
         query = (
             "SELECT run_id, session_id, turn_id, task_id, recipe_id, status, failure_tags, "
             "recovery_count, budget_warning_count, duration_ms, input_tokens, output_tokens, "

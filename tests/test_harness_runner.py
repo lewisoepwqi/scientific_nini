@@ -703,6 +703,51 @@ async def test_harness_trace_store_evaluates_core_recipe_gate(
     assert result["core_recipe_benchmarks"]["top_failure_tags"]
 
 
+@pytest.mark.asyncio
+async def test_harness_trace_store_reinitializes_schema_for_new_db_path(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first_data_dir = tmp_path / "data_first"
+    second_data_dir = tmp_path / "data_second"
+
+    monkeypatch.setattr(settings, "data_dir", first_data_dir)
+    settings.ensure_dirs()
+    await init_db()
+
+    store = HarnessTraceStore()
+    await store.save_run(
+        HarnessTraceRecord(
+            run_id="run_first",
+            session_id="session_first",
+            turn_id="turn_first",
+            user_message="请分析第一组数据",
+            run_context=HarnessRunContext(turn_id="turn_first"),
+            status="completed",
+            finished_at="2026-03-14T00:00:01+00:00",
+        )
+    )
+
+    monkeypatch.setattr(settings, "data_dir", second_data_dir)
+    settings.ensure_dirs()
+
+    await store.save_run(
+        HarnessTraceRecord(
+            run_id="run_second",
+            session_id="session_second",
+            turn_id="turn_second",
+            user_message="请分析第二组数据",
+            run_context=HarnessRunContext(turn_id="turn_second"),
+            status="completed",
+            finished_at="2026-03-14T00:00:02+00:00",
+        )
+    )
+
+    summaries = await store.list_runs(session_id="session_second", limit=5)
+
+    assert summaries
+    assert summaries[0].run_id == "run_second"
+
+
 def test_artifact_check_passes_for_capability_description() -> None:
     """能力介绍类文本（含产物词但无完成语义词）不应触发承诺产物校验。"""
     runner = HarnessRunner(agent_runner=None)  # type: ignore[arg-type]
