@@ -1,0 +1,18 @@
+commit	timestamp	metric_version	prompt_tokens	tool_schema_tokens	total_tokens	test_passed	test_failed	test_duration_sec	budget_full	budget_standard	budget_compact	changed_file	change_summary	status
+b6c4680	2026-04-03T00:00	legacy_v1	6561	9252	15813	2010	0	126.7	40000	20000	10000	-	baseline	keep
+exp1	2026-04-03T00:00	legacy_v1	6049	9252	15301	2010	7	126.7	40000	20000	10000	strategy_core.md	精简 strategy_core.md: -512 tokens 但 test_failed 6→7	discard
+exp2	2026-04-03T00:00	legacy_v1	6561	9165	15726	2010	7	126.7	40000	20000	10000	search_tools desc	精简 search_tools description: -87 tokens 但 test_failed 6→7	discard
+8c239dd	2026-04-03T00:00	legacy_v1	6561	9252	15813	2010	0	126.7	35000	20000	10000	prompt_policy.py	降低 RUNTIME_CONTEXT_BUDGET_CHARS 40K→35K: tests 不变	keep
+0f81581	2026-04-03T00:00	legacy_v1	6491	9252	15743	2010	0	152.9	40000	20000	10000	strategy_task.md	精简失败恢复模板: prompt_tokens ↓70 total_tokens ↓70	keep
+316cd41	2026-04-03T00:00	legacy_v1	6391	9252	15643	2010	0	152.9	40000	20000	10000	strategy_sandbox.md	预注入变量表格改为行内: prompt_tokens ↓100 total_tokens ↓100	keep
+e13c153	2026-04-03T00:00	legacy_v1	6279	9252	15531	2010	0	152.9	40000	20000	10000	strategy_visualization.md	删除通用图表类型场景说明: prompt_tokens ↓112 total_tokens ↓112	keep
+b3288cd	2026-04-03T00:00	legacy_v1	6112	9252	15364	2010	0	160.6	40000	20000	10000	strategy_core.md	删除问题定义示例和冗余审查步骤: prompt_tokens ↓167 total_tokens ↓167	keep
+76204a1	2026-04-03T00:00	legacy_v1	6112	9252	15364	2010	0	154.9	40000	20000	10000	compression.py	精简 _LLM_SUMMARY_PROMPT: baseline 无变化但有运行时 simplicity 收益	keep
+f13d135	2026-04-03T00:00	legacy_v1	6112	9252	15364	2010	0	154.9	40000	15000	10000	prompt_policy.py	降低 budget_standard 20K→15K: 仅 budget 降低	keep
+e7a86e0	2026-04-03T00:00	legacy_v1	6112	9252	15364	2010	0	128.1	40000	15000	8000	prompt_policy.py	降低 budget_compact 10K→8K: 仅 budget 降低	keep
+8548b76	2026-04-03T00:00	legacy_v1	6112	9252	15364	2010	0	118.1	40000	15000	8000	loop_guard.py	调整 warn_threshold 3→4: 无新测试失败	keep
+511b763	2026-04-03T00:00	legacy_v1	6112	9252	15364	2010	0	160.6	40000	15000	8000	prompt_policy.py	精简 PDCA_DETAIL_BLOCK 删除冗余 JSON 示例和重复说明: 运行时 simplicity 收益	keep
+8e9bf49	2026-04-03T00:00	legacy_v1	6112	9075	15187	2010	0	142.5	40000	15000	8000	code_session.py	精简 description 387→186 chars: tool_schema ↓177	keep
+d2c5765	2026-04-03T00:00	legacy_v1	6112	8936	15048	2010	0	141.7	40000	15000	8000	dataset_transform+chart_session	精简两个工具 description: tool_schema ↓139	keep
+8e9bf42	2026-04-03T00:00	legacy_v1	6112	8579	14691	2010	0	122.5	40000	15000	8000	stat_model+workspace_session+stat_test+dataset_catalog	精简 4 个工具 description: tool_schema ↓357	keep
+b78ce96	2026-04-03T17:04	nini_runtime_v2	7501	4726	12227	2016	0	153.2	40000	15000	8000	AUTORESEARCH_AGENT_PROTOCOL.md	baseline-v2 runtime surface	keep

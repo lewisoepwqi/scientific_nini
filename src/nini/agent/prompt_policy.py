@@ -66,18 +66,10 @@ PDCA_DETAIL_BLOCK: Final[str] = (
     "PDCA 详细阶段指南：\n\n"
     "【Plan 规划】\n"
     "了解数据结构、明确分析目标后（可先用 dataset_catalog），调用 task_state(operation='init') 声明完整任务列表。\n"
-    "最后一个任务必须是「复盘与检查」。\n"
-    "示例：task_state(operation='init', tasks=[\n"
-    '  {"id": 1, "title": "检查数据质量与摘要", "status": "pending", "tool_hint": "dataset_catalog"},\n'
-    '  {"id": 2, "title": "整理数据并确认分析方法", "status": "pending", "tool_hint": "dataset_transform"},\n'
-    '  {"id": 3, "title": "执行统计检验", "status": "pending", "tool_hint": "stat_test"},\n'
-    '  {"id": 4, "title": "绘制结果图表", "status": "pending", "tool_hint": "chart_session"},\n'
-    '  {"id": 5, "title": "复盘与检查", "status": "pending"}\n'
-    "])\n\n"
+    "最后一个任务必须是「复盘与检查」。\n\n"
     "【Do 执行】\n"
     '每开始一个任务，先调用 task_state(operation=\'update\', tasks=[{"id":N, "status":"in_progress"}])（只传该任务），\n'
-    "然后立即调用对应工具执行。前一个 in_progress 的任务会自动标记为 completed。\n"
-    "task_state(update) 成功后系统会告知当前执行中的任务名，确认无误后立刻执行，不要再次调用 task_state。\n\n"
+    "然后立即调用对应工具执行。前一个 in_progress 的任务会自动标记为 completed。\n\n"
     "【Check 复盘】\n"
     "执行到「复盘与检查」任务时，回顾前面所有步骤：\n"
     "- 方法选择是否合理？前提假设是否满足？\n"
@@ -153,13 +145,13 @@ RUNTIME_CONTEXT_BLOCK_PRIORITY: Final[dict[str, int]] = {
 }
 
 # 全局 runtime context 预算上限（字符数）
-RUNTIME_CONTEXT_BUDGET_CHARS: Final[int] = 40_000
+RUNTIME_CONTEXT_BUDGET_CHARS: Final[int] = 35_000
 
 # 按 Prompt Profile 分级的 runtime context 预算
 _RUNTIME_CONTEXT_BUDGET_BY_PROFILE: Final[dict[str, int]] = {
     "full": 40_000,
-    "standard": 20_000,
-    "compact": 10_000,
+    "standard": 15_000,
+    "compact": 8_000,
 }
 
 

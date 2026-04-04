@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 # Prompt Profile —— 根据模型上下文窗口大小自动选择提示词详细程度
 # ---------------------------------------------------------------------------
 
+
 class PromptProfile(str, Enum):
     """提示词详细程度档位。"""
 
@@ -58,18 +59,52 @@ def detect_prompt_profile(context_window: int | None) -> PromptProfile:
 
 # 当 intent_hints 包含以下关键词时，对应的条件组件会被加载
 _CONDITIONAL_COMPONENT_KEYWORDS: dict[str, frozenset[str]] = {
-    "strategy_visualization.md": frozenset({
-        "chart", "plot", "图", "可视化", "画图", "绘图", "散点", "折线",
-        "柱状", "箱线", "直方", "热图", "visualization", "figure",
-    }),
-    "strategy_report.md": frozenset({
-        "report", "报告", "总结", "汇报", "导出", "export", "summary",
-        "生成报告", "写报告",
-    }),
-    "strategy_phases.md": frozenset({
-        "文献", "实验设计", "论文", "写作", "投稿", "综述", "选题",
-        "literature", "experiment", "paper", "writing",
-    }),
+    "strategy_visualization.md": frozenset(
+        {
+            "chart",
+            "plot",
+            "图",
+            "可视化",
+            "画图",
+            "绘图",
+            "散点",
+            "折线",
+            "柱状",
+            "箱线",
+            "直方",
+            "热图",
+            "visualization",
+            "figure",
+        }
+    ),
+    "strategy_report.md": frozenset(
+        {
+            "report",
+            "报告",
+            "总结",
+            "汇报",
+            "导出",
+            "export",
+            "summary",
+            "生成报告",
+            "写报告",
+        }
+    ),
+    "strategy_phases.md": frozenset(
+        {
+            "文献",
+            "实验设计",
+            "论文",
+            "写作",
+            "投稿",
+            "综述",
+            "选题",
+            "literature",
+            "experiment",
+            "paper",
+            "writing",
+        }
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -169,7 +204,7 @@ _PRIORITY: dict[str, int] = {
 
 # COMPACT/STANDARD profile 的 token 预算（比字符预算更精确，尤其中文场景）
 _TOKEN_BUDGET_BY_PROFILE: dict[PromptProfile, int] = {
-    PromptProfile.COMPACT: 800,    # ~3,200 字符中文
+    PromptProfile.COMPACT: 800,  # ~3,200 字符中文
     PromptProfile.STANDARD: 3000,  # ~12,000 字符中文
 }
 
@@ -179,6 +214,17 @@ class PromptComponent:
     name: str
     text: str
     priority: int = 50
+
+
+@dataclass(frozen=True)
+class PromptBuildReport:
+    """系统提示词构建报告。"""
+
+    profile: str
+    truncated: bool
+    total_tokens_before: int
+    total_tokens_after: int
+    token_budget: int | None = None
 
 
 class PromptBuilder:
@@ -201,13 +247,27 @@ class PromptBuilder:
         self._profile = detect_prompt_profile(context_window)
 
     def build(self, *, intent_hints: set[str] | None = None) -> str:
+        prompt, _ = self.build_with_report(intent_hints=intent_hints)
+        return prompt
+
+    def build_with_report(
+        self,
+        *,
+        intent_hints: set[str] | None = None,
+    ) -> tuple[str, PromptBuildReport]:
         components = self._load_components(intent_hints=intent_hints)
         total_limit = max(int(settings.prompt_total_max_chars), 256)
         per_component_limit = max(int(settings.prompt_component_max_chars), 1)
+        token_budget: int | None = None
+        total_tokens_before = sum(self._estimate_component_tokens(c) for c in components)
+        truncated = False
 
         # 第一轮：单组件截断
         for comp in components:
-            comp.text = self._truncate(comp.text.strip(), per_component_limit)
+            original = comp.text.strip()
+            comp.text = self._truncate(original, per_component_limit)
+            if comp.text != original:
+                truncated = True
 
         # 第二轮：总预算保护
         if self._profile in (PromptProfile.COMPACT, PromptProfile.STANDARD):
@@ -215,18 +275,23 @@ class PromptBuilder:
             token_budget = _TOKEN_BUDGET_BY_PROFILE.get(self._profile, 3000)
             total_tokens = sum(self._estimate_component_tokens(c) for c in components)
             if total_tokens > token_budget:
+                truncated = True
                 logger.warning(
                     "系统提示词总量 (%d tokens) 超过 %s 预算 (%d)，启动截断保护",
-                    total_tokens, self._profile.value, token_budget,
+                    total_tokens,
+                    self._profile.value,
+                    token_budget,
                 )
                 components = self._apply_token_budget_protection(components, token_budget)
         else:
             # FULL profile: 字符预算（足够宽松）
             total_chars = sum(len(c.text) + len(c.name) + 10 for c in components)
             if total_chars > total_limit:
+                truncated = True
                 logger.warning(
                     "系统提示词总量 (%d 字符) 超过上限 (%d)，启动截断保护",
-                    total_chars, total_limit,
+                    total_chars,
+                    total_limit,
                 )
                 components = self._apply_budget_protection(components, total_limit)
 
@@ -243,11 +308,16 @@ class PromptBuilder:
         parts.append(f"当前日期：{date.today().isoformat()}")
         result = "\n\n".join(parts).strip()
         result = re.sub(r"\n{3,}", "\n\n", result)  # 折叠连续空行，节省 token
-        return result
+        report = PromptBuildReport(
+            profile=self._profile.value,
+            truncated=truncated,
+            total_tokens_before=total_tokens_before,
+            total_tokens_after=count_tokens(result),
+            token_budget=token_budget,
+        )
+        return result, report
 
-    def _load_components(
-        self, *, intent_hints: set[str] | None = None
-    ) -> list[PromptComponent]:
+    def _load_components(self, *, intent_hints: set[str] | None = None) -> list[PromptComponent]:
         """按 KV-cache 友好顺序加载组件，根据 profile 和 intent 过滤。
 
         稳定组件在前（identity/security/strategy_core），易变组件在后。
@@ -466,9 +536,7 @@ class PromptBuilder:
         sorted_by_priority = sorted(enumerate(components), key=lambda t: t[1].priority)
 
         def _total_tokens() -> int:
-            return sum(
-                PromptBuilder._estimate_component_tokens(c) for c in components
-            )
+            return sum(PromptBuilder._estimate_component_tokens(c) for c in components)
 
         for idx, comp in sorted_by_priority:
             if _total_tokens() <= token_budget:
@@ -487,8 +555,10 @@ class PromptBuilder:
             )
             logger.info(
                 "Token 截断保护: %s (%d → ~%d tokens, 优先级=%d)",
-                comp.name, current_tokens,
-                count_tokens(components[idx].text), comp.priority,
+                comp.name,
+                current_tokens,
+                count_tokens(components[idx].text),
+                comp.priority,
             )
 
         return components
@@ -534,6 +604,15 @@ def build_system_prompt(
     prompt = PromptBuilder(context_window=context_window).build(intent_hints=intent_hints)
     _prompt_cache[cache_key] = (prompt, now)
     return prompt
+
+
+def build_system_prompt_with_report(
+    *,
+    context_window: int | None = None,
+    intent_hints: set[str] | None = None,
+) -> tuple[str, PromptBuildReport]:
+    """构建系统提示词并返回审计报告。"""
+    return PromptBuilder(context_window=context_window).build_with_report(intent_hints=intent_hints)
 
 
 def clear_prompt_cache() -> None:

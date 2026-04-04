@@ -20,3 +20,8 @@
 !knowledge/pitfalls/*.md
 !knowledge/reporting/
 !knowledge/reporting/*.md
+
+# 保留 autoresearch 基准配置
+!autoresearch/
+autoresearch/*
+!autoresearch/harness_benchmarks.yaml

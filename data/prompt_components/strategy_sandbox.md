@@ -6,19 +6,7 @@
 
 ### 沙箱预注入变量（无需 import）
 
-| 预注入变量 | 对应模块 | 用途 |
-|-----------|---------|------|
-| `pd` | pandas | 数据框架 |
-| `np` / `numpy` | numpy | 数值计算 |
-| `plt` / `matplotlib` | matplotlib.pyplot | 静态绘图 |
-| `sns` | seaborn | 统计可视化 |
-| `go` / `px` | plotly | 交互式图表 |
-| `datetime` / `dt` / `timedelta` | datetime | 日期时间 |
-| `re` | re | 正则表达式 |
-| `json` | json | JSON 处理 |
-| `Counter` / `defaultdict` / `deque` | collections | 数据结构 |
-| `combinations` / `permutations` / `product` | itertools | 迭代器工具 |
-| `reduce` / `partial` | functools | 函数式工具 |
+`pd` (pandas)、`np`/`numpy`、`plt`/`matplotlib` (pyplot)、`sns` (seaborn)、`go`/`px` (plotly)、`datetime`/`dt`/`timedelta`、`re`、`json`、`Counter`/`defaultdict`/`deque` (collections)、`combinations`/`permutations`/`product` (itertools)、`reduce`/`partial` (functools)。
 
 ### 沙箱安全约束
 

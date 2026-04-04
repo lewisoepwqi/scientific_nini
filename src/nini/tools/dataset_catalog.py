@@ -31,14 +31,9 @@ class DatasetCatalogTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "统一管理数据集目录。支持列出数据集(list)、加载数据集(load)和查看数据集概况(profile)，"
-            "可聚合预览、摘要与质量概览。\n"
-            "最小示例：\n"
-            "- 列出数据集：{operation: list}\n"
-            "- 加载数据集：{operation: load, dataset_name: demo}\n"
-            "- 查看概况：{operation: profile, dataset_name: demo, view: full, n_rows: 5}\n"
-            "参数约束：load/profile 必须提供 dataset_name。view=preview/full 时会使用 n_rows 控制预览行数；"
-            "其他 view 会忽略 n_rows。"
+            "统一管理数据集目录：list/load/profile 操作。\可聚合预览、摘要与质量概览。\n"
+            "最小示例：{operation: profile, dataset_name: demo, view: full, n_rows: 5}\n"
+            "约束：load/profile 必须提供 dataset_name。view=preview/full 可用 n_rows。 其他 view 忽略 n_rows。"
         )
 
     @property

@@ -16,7 +16,9 @@ from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Protocol
 
 from nini.agent import event_builders as eb
+from nini.agent.components.context_builder import _extract_intent_hints
 from nini.agent.events import AgentEvent, EventType
+from nini.agent.prompts.builder import build_system_prompt_with_report
 from nini.agent.runner import AgentRunner
 from nini.agent.session import Session
 from nini.config import settings
@@ -154,6 +156,12 @@ class HarnessRunner:
                     self._record_event(trace, event)
 
                     if event.type == EventType.ERROR:
+                        error_level = ""
+                        if isinstance(event.data, dict):
+                            error_level = str(event.data.get("level", "") or "").strip()
+                        if error_level == "allowed_tools_soft_violation":
+                            yield event
+                            continue
                         trace.status = "error"
                         trace.finished_at = _utc_now_iso()
                         yield event
@@ -328,6 +336,7 @@ class HarnessRunner:
                 pending_prompt = self._build_completion_recovery_prompt(
                     completion,
                     remaining_tasks=session.task_manager.remaining_count(),
+                    recipe_mode=bool(session.recipe_id),
                 )
                 append_flag = False
                 combined_stop_event = asyncio.Event()
@@ -375,6 +384,10 @@ class HarnessRunner:
                 bridge_task.cancel()
             self._finish_current_stage(trace)
             trace.summary = self._build_trace_summary(trace)
+            trace.summary["prompt_audit"] = self._build_prompt_audit(
+                session=session,
+                user_message=user_message,
+            )
             if trace.finished_at is None:
                 trace.finished_at = _utc_now_iso()
                 if stop_event is not None and stop_event.is_set():
@@ -462,6 +475,23 @@ class HarnessRunner:
             recipe_id=recipe_id,
         )
 
+    @staticmethod
+    def _build_prompt_audit(session: Session, user_message: str) -> dict[str, Any]:
+        """记录本轮系统提示词是否发生预算截断。"""
+        context_window = getattr(session, "_model_context_window", None)
+        intent_hints = _extract_intent_hints(user_message, None)
+        _, report = build_system_prompt_with_report(
+            context_window=context_window,
+            intent_hints=intent_hints,
+        )
+        return {
+            "profile": report.profile,
+            "truncated": report.truncated,
+            "total_tokens_before": report.total_tokens_before,
+            "total_tokens_after": report.total_tokens_after,
+            "token_budget": report.token_budget,
+        }
+
     def _run_completion_check(
         self,
         session: Session,
@@ -475,11 +505,9 @@ class HarnessRunner:
         all_tasks_completed = (
             not session.task_manager.has_tasks()
             or session.task_manager.all_completed()
-            or (
-                session.task_manager.pending_count() == 0
-                and bool(evidence.final_text)
-            )
+            or (session.task_manager.pending_count() == 0 and bool(evidence.final_text))
         )
+        substantive_final_text = self._has_substantive_final_text(evidence.final_text)
 
         items = [
             CompletionCheckItem(
@@ -510,7 +538,10 @@ class HarnessRunner:
             CompletionCheckItem(
                 key="not_transitional",
                 label="不是过渡性结尾",
-                passed=not evidence.transitional_output,
+                passed=(
+                    not evidence.transitional_output
+                    or (all_tasks_completed and substantive_final_text)
+                ),
                 detail="不能只说下一步计划而未真正完成。",
             ),
             CompletionCheckItem(
@@ -535,6 +566,15 @@ class HarnessRunner:
             missing_actions=missing_actions,
             evidence=evidence.model_dump(mode="json"),
         )
+
+    @staticmethod
+    def _has_substantive_final_text(final_text: str) -> bool:
+        """判断最终文本是否已包含足够实质内容，而非一句过渡话术。"""
+        normalized = str(final_text or "").strip()
+        if len(normalized) >= 400:
+            return True
+        markers = ("## ", "### ", "|", "结论", "建议", "主要发现", "下一步建议")
+        return sum(1 for marker in markers if marker in normalized) >= 2
 
     def _build_completion_evidence(
         self,
@@ -563,9 +603,13 @@ class HarnessRunner:
             for msg in messages
             if str(msg.get("event_type", "")) in {"artifact", "image", "chart", "data"}
         )
-        promised_artifact_missing = bool(_PROMISED_ARTIFACT_RE.search(final_text)) and artifact_count == 0
+        promised_artifact_missing = (
+            bool(_PROMISED_ARTIFACT_RE.search(final_text)) and artifact_count == 0
+        )
         user_confirmation_pending = bool(_USER_CONFIRMATION_RE.search(final_text))
-        transitional_output = bool(_TRANSITIONAL_TEXT_RE.search(final_text))
+        transitional_output = bool(_TRANSITIONAL_TEXT_RE.search(final_text)) and (
+            not self._has_substantive_final_text(final_text)
+        )
 
         if promised_artifact_missing:
             session.upsert_pending_action(
@@ -615,17 +659,24 @@ class HarnessRunner:
         if any(token in final_text for token in ("失败", "报错", "error", "替代方案", "改用")):
             for item in session.list_pending_actions(action_type="tool_failure_unresolved"):
                 metadata = item.get("metadata", {})
-                if isinstance(metadata, dict) and str(metadata.get("turn_id", "")).strip() == turn_id:
+                if (
+                    isinstance(metadata, dict)
+                    and str(metadata.get("turn_id", "")).strip() == turn_id
+                ):
                     session.resolve_pending_action(
                         action_type="tool_failure_unresolved",
                         key=str(item.get("key", "")).strip(),
                     )
 
         total_tasks = len(session.task_manager.tasks)
-        remaining_tasks = session.task_manager.remaining_count() if session.task_manager.has_tasks() else 0
+        remaining_tasks = (
+            session.task_manager.remaining_count() if session.task_manager.has_tasks() else 0
+        )
         task_completion_ratio = 1.0
         if total_tasks > 0:
-            task_completion_ratio = max(0.0, min(1.0, (total_tasks - remaining_tasks) / total_tasks))
+            task_completion_ratio = max(
+                0.0, min(1.0, (total_tasks - remaining_tasks) / total_tasks)
+            )
         pending_actions = session.list_pending_actions(status="pending")
 
         return CompletionEvidence(
@@ -645,13 +696,15 @@ class HarnessRunner:
         completion: CompletionCheckResult,
         *,
         remaining_tasks: int = 0,
+        recipe_mode: bool = False,
     ) -> str:
         missing = "；".join(completion.missing_actions) or "补齐完成条件"
         evidence = completion.evidence if isinstance(completion.evidence, dict) else {}
         evidence_pending = evidence.get("pending_actions", [])
         followups: list[str] = []
         if any(
-            isinstance(item, dict) and item.get("type") == "script_not_run" for item in evidence_pending
+            isinstance(item, dict) and item.get("type") == "script_not_run"
+            for item in evidence_pending
         ):
             followups.append("优先继续执行已创建但未成功运行的脚本。")
         if any(
@@ -664,6 +717,10 @@ class HarnessRunner:
             for item in evidence_pending
         ):
             followups.append("当前仍缺少用户确认，先发起确认或说明为何无法继续。")
+        if recipe_mode:
+            followups.append(
+                "当前处于 Recipe 模式，不能停在继续向用户追问。若信息不足，请基于已提供输入、Recipe 默认字段和保守常见默认值继续完成，并在结果中显式列出假设。"
+            )
         timeout_actions = [
             item
             for item in evidence_pending
@@ -686,8 +743,7 @@ class HarnessRunner:
             f"{prefix}请不要结束当前任务。你刚才的结果未通过完成校验，"
             f"需要优先补齐以下缺口：{missing}。"
             "如果已有工具失败，请明确处理或解释；如果缺少产物，请先生成；"
-            "如果只是描述下一步，请立即执行对应动作。"
-            + (" ".join(followups) if followups else "")
+            "如果只是描述下一步，请立即执行对应动作。" + (" ".join(followups) if followups else "")
         )
 
     @staticmethod
@@ -747,7 +803,9 @@ class HarnessRunner:
             failure_message = str(data.get("message", "") or "工具执行失败")
             if _TIMEOUT_RE.search(failure_message):
                 metadata["failure_kind"] = "timeout"
-                metadata["purpose"] = HarnessRunner._infer_timeout_purpose(tool_name=tool_name, data=data)
+                metadata["purpose"] = HarnessRunner._infer_timeout_purpose(
+                    tool_name=tool_name, data=data
+                )
             session.upsert_pending_action(
                 action_type="tool_failure_unresolved",
                 key=signature,
@@ -923,9 +981,11 @@ class HarnessRunner:
             pending_actions=session.list_pending_actions(status="pending"),
             task_progress={
                 "total": len(session.task_manager.tasks),
-                "remaining": session.task_manager.remaining_count()
-                if session.task_manager.has_tasks()
-                else 0,
+                "remaining": (
+                    session.task_manager.remaining_count()
+                    if session.task_manager.has_tasks()
+                    else 0
+                ),
                 "pending_titles": pending_tasks[:10],
             },
             tool_failures=list(trace.failure_tags),

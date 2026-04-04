@@ -38,18 +38,11 @@ class CodeSessionTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "创建、读取和执行持久化脚本会话，统一管理 Python/R 脚本与执行历史。\n"
-            "最小示例：\n"
-            "- 创建脚本：{operation: create_script, content: result = 42}\n"
-            "- 读取脚本：{operation: get_script, script_id: script_demo}\n"
-            "- 运行脚本：{operation: run_script, script_id: script_demo, dataset_name: raw.csv}\n"
-            "- 修补脚本：{operation: patch_script, script_id: script_demo, patch: {mode: replace_string, old_string: 1 / 0, new_string: 1 / 1}}\n"
-            "- 提升输出：{operation: promote_output, dataset_name: scaled.csv}\n"
-            "当传入 dataset_name 时，沙箱自动将数据注入为 pandas DataFrame 变量 df，"
-            "【禁止】在代码中使用 pd.read_csv/read_excel/open 等文件读取语句，直接使用 df 操作数据。"
-            "沙箱已预注入 pd/np/plt/sns/go/px/datetime/re/json 等，无需 import。"
-            "图表在代码执行后自动收集导出，不要手动调用 plt.savefig()。"
-            "禁止通过 import __main__ 或系统级 I/O 探测数据路径。"
+            "创建、读取和执行持久化脚本会话（Python/R），统一管理脚本与执行历史。\n"
+            "最小示例：{operation: create_script, content: result = 42}\n"
+            "传入 dataset_name 时沙箱自动注入 df（DataFrame），禁止 pd.read_csv 等文件读取。\n"
+            "预注入 pd/np/plt/sns/go/px/datetime/re/json，无需 import。\n"
+            "图表自动导出，禁止 plt.savefig()。禁止 import __main__ 或系统 I/O。"
         )
 
     @property

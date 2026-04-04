@@ -31,15 +31,10 @@ class StatModelTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "统一执行相关分析和线性/多元回归分析。"
-            "【必须】始终传入 method 字段，否则调用会失败。"
-            "最小示例："
-            '1) 相关性分析: {"method":"correlation","dataset_name":"demo","columns":["x","y"]}；'
-            '2) 线性回归: {"method":"linear_regression","dataset_name":"demo",'
-            '"dependent_var":"y","independent_vars":["x1","x2"]}；'
-            '3) 多元回归: {"method":"multiple_regression","dataset_name":"demo",'
-            '"dependent_var":"y","independent_vars":["x1","x2","x3"]}。'
-            "若不确定列名，请先用 dataset_catalog 查看数据集结构。"
+            "统一执行相关分析、线性回归和多元回归。必须传入 method 字段。\n"
+            "最小示例：{method: correlation, dataset_name: demo, columns: [x, y]}\n"
+            "method 枚举：correlation/linear_regression/multiple_regression。"
+            "回归需 dependent_var+independent_vars。不确定列名时先用 dataset_catalog 查看。"
         )
 
     @property

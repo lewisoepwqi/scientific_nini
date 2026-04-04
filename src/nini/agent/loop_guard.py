@@ -65,7 +65,7 @@ class LoopGuard:
 
     def __init__(
         self,
-        warn_threshold: int = 3,
+        warn_threshold: int = 4,
         hard_limit: int = 5,
         window_size: int = 20,
         max_sessions: int = 100,
