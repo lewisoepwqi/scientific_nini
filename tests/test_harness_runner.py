@@ -1015,6 +1015,47 @@ def test_handle_tool_result_success_clears_non_blocking_failure_from_same_turn()
     assert session.list_pending_actions(action_type="tool_failure_unresolved") == []
 
 
+def test_handle_tool_result_marks_workspace_binary_read_as_non_blocking() -> None:
+    session = Session()
+    turn_id = "turn-workspace-binary"
+    tool_call_id = "call-workspace-binary"
+    session.add_tool_call(
+        tool_call_id,
+        "workspace_session",
+        '{"operation":"read","file_path":"demo.xlsx"}',
+        turn_id=turn_id,
+    )
+
+    error_event = AgentEvent(
+        type=EventType.TOOL_RESULT,
+        tool_call_id=tool_call_id,
+        tool_name="workspace_session",
+        turn_id=turn_id,
+        data={
+            "status": "error",
+            "message": "不能直接按文本读取 `demo.xlsx`。该文件是二进制或 Office 文档，请改用合适的专用工具。",
+            "data": {"error_code": "WORKSPACE_READ_BINARY_UNSUPPORTED"},
+        },
+    )
+
+    _, blocked_state = HarnessRunner._handle_tool_result(  # noqa: SLF001
+        session=session,
+        event=error_event,
+        turn_id=turn_id,
+        task_id=None,
+        attempt_id=None,
+        tool_error_counts={},
+        tool_failure_messages={},
+        recovered_tool_signatures=set(),
+    )
+
+    assert blocked_state is None
+    pending = session.list_pending_actions(action_type="tool_failure_unresolved")
+    assert len(pending) == 1
+    assert pending[0]["blocking"] is False
+    assert pending[0]["failure_category"] == "recoverable_input_misuse"
+
+
 @pytest.mark.asyncio
 async def test_harness_trace_store_marks_crash_as_error() -> None:
     trace_store = _CaptureTraceStore()

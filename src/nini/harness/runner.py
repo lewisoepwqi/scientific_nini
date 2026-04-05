@@ -930,6 +930,7 @@ class HarnessRunner:
     ) -> tuple[str, bool]:
         """返回失败分类与是否阻塞。"""
         normalized_message = str(message or "").strip()
+        payload = data.get("data") if isinstance(data.get("data"), dict) else {}
         if tool_name in {"task_state", "task_write"}:
             result_payload = data.get("result")
             result_data = result_payload.get("data", {}) if isinstance(result_payload, dict) else {}
@@ -943,6 +944,10 @@ class HarnessRunner:
                 return "idempotent_conflict", False
             if "无需重复设置" in normalized_message:
                 return "idempotent_conflict", False
+        if tool_name == "workspace_session":
+            error_code = str(payload.get("error_code", "")).strip()
+            if error_code == "WORKSPACE_READ_BINARY_UNSUPPORTED":
+                return "recoverable_input_misuse", False
         return "blocking_failure", True
 
     @staticmethod

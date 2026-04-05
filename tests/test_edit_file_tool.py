@@ -137,6 +137,57 @@ async def test_read_existing_file(skill: EditFile, mock_session: MagicMock, work
     assert result.data["line_count"] == 4  # 末尾 \n 后有空行
 
 
+async def test_read_dataset_alias_resolves_to_workspace_upload(
+    skill: EditFile, mock_session: MagicMock, workspace: Path
+):
+    upload_path = workspace / "uploads" / "4ac463bc2600_demo.csv"
+    upload_path.parent.mkdir(parents=True, exist_ok=True)
+    upload_path.write_text("x,y\n1,2\n", encoding="utf-8")
+
+    manager = WorkspaceManager(mock_session.id)
+    manager.add_dataset_record(
+        dataset_id="4ac463bc2600",
+        name="demo.csv",
+        file_path=upload_path,
+        file_type="csv",
+        file_size=upload_path.stat().st_size,
+        row_count=1,
+        column_count=2,
+    )
+
+    result = await skill.execute(mock_session, file_path="demo.csv", operation="read")
+
+    assert result.success
+    assert result.data["content"] == "x,y\n1,2\n"
+    assert result.data["file_path"] == "4ac463bc2600_demo.csv"
+
+
+async def test_read_binary_dataset_returns_structured_recovery_hint(
+    skill: EditFile, mock_session: MagicMock, workspace: Path
+):
+    upload_path = workspace / "uploads" / "4ac463bc2600_demo.xlsx"
+    upload_path.parent.mkdir(parents=True, exist_ok=True)
+    upload_path.write_bytes(b"PK\x03\x04binary excel payload")
+
+    manager = WorkspaceManager(mock_session.id)
+    manager.add_dataset_record(
+        dataset_id="4ac463bc2600",
+        name="demo.xlsx",
+        file_path=upload_path,
+        file_type="xlsx",
+        file_size=upload_path.stat().st_size,
+        row_count=1,
+        column_count=2,
+    )
+
+    result = await skill.execute(mock_session, file_path="demo.xlsx", operation="read")
+
+    assert not result.success
+    assert result.data["error_code"] == "WORKSPACE_READ_BINARY_UNSUPPORTED"
+    assert "dataset_catalog" in result.data["recovery_hint"]
+    assert "Excel" in result.data["recovery_hint"]
+
+
 async def test_read_nonexistent_file_returns_error(
     skill: EditFile, mock_session: MagicMock, workspace: Path
 ):

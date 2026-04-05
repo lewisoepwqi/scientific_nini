@@ -199,3 +199,72 @@ async def test_spawn_batch_empty_returns_empty():
     spawner = SubAgentSpawner(MagicMock(), make_tool_registry())
     results = await spawner.spawn_batch([], make_mock_session())
     assert results == []
+
+
+@pytest.mark.asyncio
+async def test_spawn_stops_child_when_parent_stop_event_is_set():
+    registry = make_registry()
+    spawner = SubAgentSpawner(registry, make_tool_registry())
+    parent_session = make_mock_session()
+    parent_session.runtime_stop_event = asyncio.Event()
+
+    async def mock_execute(agent_def, task, session, **kwargs):
+        stop_event = kwargs["stop_event"]
+        while not stop_event.is_set():
+            await asyncio.sleep(0.01)
+        return SubAgentResult(
+            agent_id=agent_def.agent_id,
+            success=False,
+            summary="用户已终止该子 Agent",
+            stopped=True,
+            stop_reason="用户已终止该子 Agent",
+        )
+
+    with patch.object(spawner, "_execute_agent", side_effect=mock_execute):
+        spawn_task = asyncio.create_task(spawner.spawn("test_agent", "任务", parent_session))
+        await asyncio.sleep(0.05)
+        parent_session.runtime_stop_event.set()
+        result = await spawn_task
+
+    assert result.stopped is True
+    assert result.stop_reason == "用户已终止该子 Agent"
+    assert parent_session.subagent_stop_events == {}
+
+
+@pytest.mark.asyncio
+async def test_spawn_batch_stops_all_children_when_parent_stop_event_is_set():
+    registry = MagicMock()
+
+    def get_agent(agent_id: str):
+        return make_agent_def(agent_id)
+
+    registry.get.side_effect = get_agent
+    spawner = SubAgentSpawner(registry, make_tool_registry())
+    parent_session = make_mock_session()
+    parent_session.runtime_stop_event = asyncio.Event()
+
+    async def mock_execute(agent_def, task, session, **kwargs):
+        stop_event = kwargs["stop_event"]
+        while not stop_event.is_set():
+            await asyncio.sleep(0.01)
+        return SubAgentResult(
+            agent_id=agent_def.agent_id,
+            success=False,
+            summary=f"{agent_def.agent_id} stopped",
+            stopped=True,
+            stop_reason="用户已终止该子 Agent",
+        )
+
+    with patch.object(spawner, "_execute_agent", side_effect=mock_execute):
+        batch_task = asyncio.create_task(
+            spawner.spawn_batch(
+                [("agent_a", "任务A"), ("agent_b", "任务B")],
+                parent_session,
+            )
+        )
+        await asyncio.sleep(0.05)
+        parent_session.runtime_stop_event.set()
+        results = await batch_task
+
+    assert [result.stopped for result in results] == [True, True]
+    assert parent_session.subagent_stop_events == {}
