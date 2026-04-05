@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -168,6 +169,7 @@ class ConversationMemory:
         self._dir = settings.sessions_dir / session_id
         self._path = self._dir / "memory.jsonl"
         self._payloads_dir = self._dir / "workspace" / "artifacts" / "memory-payloads"
+        self._write_lock = threading.Lock()
 
     def _ensure_dir(self) -> None:
         """确保目录存在（延迟创建）。"""
@@ -293,9 +295,10 @@ class ConversationMemory:
         # 添加时间戳
         entry_with_refs.setdefault("_ts", datetime.now(timezone.utc).isoformat())
 
-        # 主路径：写入 JSONL（保持现有行为，兼容直接读文件的测试）
-        with open(self._path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry_with_refs, ensure_ascii=False, default=str) + "\n")
+        # 主路径：写入 JSONL（加锁防止并发追加产生半行数据）
+        with self._write_lock:
+            with open(self._path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry_with_refs, ensure_ascii=False, default=str) + "\n")
 
         # 次路径：写入 SQLite（仅当 DB 已存在时；不创建新 DB，避免 migration+insert 重复）
         try:
@@ -451,12 +454,14 @@ class InMemoryConversationMemory:
 
     def __init__(self) -> None:
         self._entries: list[dict[str, Any]] = []
+        self._write_lock = threading.Lock()
 
     def append(self, entry: dict[str, Any]) -> None:
-        """追加一条记录到内存。"""
+        """追加一条记录到内存（加锁防止并发追加导致迭代异常）。"""
         entry_copy = dict(entry)
         entry_copy.setdefault("_ts", datetime.now(timezone.utc).isoformat())
-        self._entries.append(entry_copy)
+        with self._write_lock:
+            self._entries.append(entry_copy)
 
     def load_all(self, *, resolve_refs: bool = False) -> list[dict[str, Any]]:
         """返回所有记录（参数 resolve_refs 忽略，内存中无引用）。"""
