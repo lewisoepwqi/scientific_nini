@@ -15,6 +15,44 @@ from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
+# OpenTelemetry 集成（可选依赖，缺失时降级为无操作）
+try:
+    from opentelemetry import trace as _otel_trace
+
+    _tracer = _otel_trace.get_tracer("nini.agent.spawner")
+    _OTEL_AVAILABLE = True
+except ImportError:
+    _tracer = None  # type: ignore[assignment]
+    _OTEL_AVAILABLE = False
+
+
+def _start_span(name: str, attributes: dict[str, Any] | None = None):
+    """启动 OTel span，若 OTel 不可用则返回无操作上下文管理器。"""
+    if _OTEL_AVAILABLE and _tracer is not None:
+        span = _tracer.start_as_current_span(name)
+        if attributes:
+            import contextlib
+
+            @contextlib.contextmanager
+            def _span_ctx():
+                with span as s:
+                    for k, v in attributes.items():
+                        try:
+                            s.set_attribute(k, str(v))
+                        except Exception:
+                            pass
+                    yield s
+
+            return _span_ctx()
+        return span
+    import contextlib
+
+    @contextlib.contextmanager
+    def _noop():
+        yield None
+
+    return _noop()
+
 
 @dataclass
 class SubAgentResult:
@@ -56,6 +94,8 @@ class SubAgentSpawner:
         """
         self._registry = registry
         self._tool_registry = tool_registry
+        # 断路器：记录各 agent_id 的连续失败次数（跨 spawn_with_retry 调用有效）
+        self._circuit_breaker_failures: dict[str, int] = {}
 
     async def _invoke_execute_impl(self, impl: Any, *args: Any, **kwargs: Any) -> Any:
         """兼容旧测试桩的执行签名。"""
@@ -101,6 +141,34 @@ class SubAgentSpawner:
         Returns:
             SubAgentResult：执行结果
         """
+        with _start_span(
+            "sub_agent.spawn",
+            {"agent.id": agent_id, "agent.attempt": attempt, "task.preview": task[:100]},
+        ):
+            return await self._spawn_impl(
+                agent_id=agent_id,
+                task=task,
+                session=session,
+                timeout_seconds=timeout_seconds,
+                attempt=attempt,
+                retry_count=retry_count,
+                parent_turn_id=parent_turn_id,
+                stop_event=stop_event,
+            )
+
+    async def _spawn_impl(
+        self,
+        agent_id: str,
+        task: str,
+        session: Any,
+        timeout_seconds: int = 300,
+        *,
+        attempt: int = 1,
+        retry_count: int = 0,
+        parent_turn_id: str | None = None,
+        stop_event: asyncio.Event | None = None,
+    ) -> SubAgentResult:
+        """spawn 的实际实现（由 spawn() 包装 OTel span 后调用）。"""
         agent_def = self._registry.get(agent_id)
         if agent_def is None:
             logger.warning("SubAgentSpawner.spawn: 未知 agent_id '%s'", agent_id)
@@ -110,6 +178,7 @@ class SubAgentSpawner:
                 task=task,
                 summary=f"未找到 Agent 定义: {agent_id}",
                 error=f"未找到 Agent 定义: {agent_id}",
+                stop_reason="missing_agent",
             )
 
         run_id = self._build_run_id(parent_turn_id, agent_id, attempt)
@@ -230,6 +299,7 @@ class SubAgentSpawner:
                     summary="执行超时",
                     execution_time_ms=elapsed_ms,
                     error=error_msg,
+                    stop_reason="timeout",
                     run_id=run_id,
                     turn_id=parent_turn_id or "",
                     parent_session_id=str(getattr(session, "id", "") or ""),
@@ -261,6 +331,7 @@ class SubAgentSpawner:
                     summary=error_msg,
                     execution_time_ms=elapsed_ms,
                     error=str(exc),
+                    stop_reason="error",
                     run_id=run_id,
                     turn_id=parent_turn_id or "",
                     parent_session_id=str(getattr(session, "id", "") or ""),
@@ -325,11 +396,23 @@ class SubAgentSpawner:
                     turn_id=parent_turn_id,
                     metadata=run_metadata,
                 )
+            # 生成执行快照并挂载到父会话（供调试和回放使用）
+            self._attach_snapshot(session, result, attempt=attempt)
             return result
         finally:
             if stop_relay_task is not None:
                 stop_relay_task.cancel()
             subagent_stop_events.pop(run_id, None)
+
+    # 不可重试的永久失败类型：这些情况下重试无意义
+    _PERMANENT_STOP_REASONS: frozenset[str] = frozenset({
+        "missing_agent",       # agent_id 不存在，重试也不会出现
+        "permission_denied",   # 权限拒绝，配置问题
+        "config_error",        # 配置错误
+    })
+
+    # 断路器：同一 agent_id 在本次 spawner 实例中连续失败次数阈值
+    _CIRCUIT_BREAKER_THRESHOLD: int = 3
 
     async def spawn_with_retry(
         self,
@@ -341,6 +424,9 @@ class SubAgentSpawner:
         parent_turn_id: str | None = None,
     ) -> SubAgentResult:
         """派生子 Agent，失败时指数退避重试。
+
+        对 _PERMANENT_STOP_REASONS 中的失败类型立即返回，不重试。
+        瞬时失败（timeout、error）才走指数退避重试。
 
         Args:
             agent_id: Agent 定义 ID
@@ -354,6 +440,23 @@ class SubAgentSpawner:
         agent_def = self._registry.get(agent_id)
         timeout = agent_def.timeout_seconds if agent_def else 300
 
+        # 断路器检查：连续失败次数超阈值则立即拒绝
+        current_failures = self._circuit_breaker_failures.get(agent_id, 0)
+        if current_failures >= self._CIRCUIT_BREAKER_THRESHOLD:
+            logger.warning(
+                "Agent '%s' 断路器已触发（连续失败 %d 次），跳过本次执行",
+                agent_id,
+                current_failures,
+            )
+            return SubAgentResult(
+                agent_id=agent_id,
+                success=False,
+                task=task,
+                summary=f"Agent '{agent_id}' 断路器已触发，连续失败 {current_failures} 次",
+                stop_reason="circuit_breaker_open",
+                error=f"断路器触发（阈值={self._CIRCUIT_BREAKER_THRESHOLD}）",
+            )
+
         last_result: SubAgentResult | None = None
         for attempt in range(max_retries):
             result = await self.spawn(
@@ -366,20 +469,36 @@ class SubAgentSpawner:
                 parent_turn_id=parent_turn_id,
             )
             if result.success or result.stopped:
+                # 成功：重置断路器计数
+                self._circuit_breaker_failures.pop(agent_id, None)
+                return result
+            # 永久失败：不重试，更新断路器
+            if result.stop_reason in self._PERMANENT_STOP_REASONS:
+                logger.warning(
+                    "Agent '%s' 遇到永久失败（stop_reason=%s），跳过重试",
+                    agent_id,
+                    result.stop_reason,
+                )
+                self._circuit_breaker_failures[agent_id] = current_failures + 1
                 return result
             last_result = result
             if attempt < max_retries - 1:
                 wait_secs = 2**attempt
                 logger.info(
-                    "Agent '%s' 第 %d 次执行失败，%ds 后重试",
+                    "Agent '%s' 第 %d 次执行失败（stop_reason=%s），%ds 后重试",
                     agent_id,
                     attempt + 1,
+                    result.stop_reason or "unknown",
                     wait_secs,
                 )
                 await asyncio.sleep(wait_secs)
 
+        # 所有重试耗尽，更新断路器
+        self._circuit_breaker_failures[agent_id] = (
+            self._circuit_breaker_failures.get(agent_id, 0) + 1
+        )
         return last_result or SubAgentResult(
-            agent_id=agent_id, success=False, summary="重试次数耗尽"
+            agent_id=agent_id, success=False, summary="重试次数耗尽", stop_reason="max_retries"
         )
 
     async def spawn_batch(
@@ -457,6 +576,7 @@ class SubAgentSpawner:
         effective_run_id = run_id or self._build_run_id(parent_turn_id, agent_def.agent_id, attempt)
 
         # 构造子会话，共享父会话数据集和事件回调
+        current_depth = getattr(parent_session, "spawn_depth", 0)
         sub_session = SubSession(
             parent_session_id=parent_session.id,
             datasets=parent_session.datasets,
@@ -471,9 +591,24 @@ class SubAgentSpawner:
                 run_id=effective_run_id,
             ),
         )
+        # 将派生深度写入子会话，使嵌套链路可感知（硬限制 ≤ 2）
+        try:
+            sub_session.spawn_depth = min(current_depth + 1, 2)
+        except (AttributeError, TypeError):
+            pass
 
-        # 构造受限工具子集
-        subset_registry = self._tool_registry.create_subset(agent_def.allowed_tools)
+        # 构造受限工具子集，深度控制 dispatch_agents 暴露
+        from nini.agent.tool_exposure_policy import ToolExposurePolicy
+        max_depth = getattr(agent_def, "max_spawn_depth", 0)
+        policy = ToolExposurePolicy.from_agent_def(agent_def)
+        if current_depth < max_depth:
+            # 允许子 Agent 派发（移除 dispatch_agents 的黑名单屏蔽）
+            policy = ToolExposurePolicy(
+                allowed_tools=policy.allowed_tools,
+                deny_names=policy.deny_names - {"dispatch_agents"},
+                deny_prefixes=policy.deny_prefixes,
+            )
+        subset_registry = policy.apply(self._tool_registry)
 
         # 实例化 AgentRunner，注入受限工具集
         runner = AgentRunner(tool_registry=subset_registry)
@@ -606,8 +741,9 @@ class SubAgentSpawner:
         hypothesis_context = HypothesisContext()
         sub_session.artifacts["_hypothesis_context"] = hypothesis_context
 
-        # 构造受限工具子集
-        subset_registry = self._tool_registry.create_subset(agent_def.allowed_tools)
+        # 构造受限工具子集（ToolExposurePolicy 自动排除 dispatch_agents 防递归）
+        from nini.agent.tool_exposure_policy import ToolExposurePolicy
+        subset_registry = ToolExposurePolicy.from_agent_def(agent_def).apply(self._tool_registry)
         runner = AgentRunner(tool_registry=subset_registry)
 
         all_output_parts: list[str] = []
@@ -777,6 +913,24 @@ class SubAgentSpawner:
             result.resource_session_id = resolve_session_resource_id(parent_session)
         if not result.error and not result.success:
             result.error = result.summary or "执行失败"
+
+    @staticmethod
+    def _attach_snapshot(session: Any, result: Any, *, attempt: int) -> None:
+        """生成执行快照并追加到父会话的 sub_agent_snapshots 列表。"""
+        try:
+            from nini.agent.snapshot import SubAgentRunSnapshot
+            snapshot = SubAgentRunSnapshot.from_result(result, attempt=attempt)
+            snapshots = getattr(session, "sub_agent_snapshots", None)
+            if snapshots is None:
+                snapshots = []
+                try:
+                    setattr(session, "sub_agent_snapshots", snapshots)
+                except (AttributeError, TypeError):
+                    return
+            if isinstance(snapshots, list):
+                snapshots.append(snapshot)
+        except Exception as exc:
+            logger.debug("生成子 Agent 快照失败（非致命）: %s", exc)
 
     @staticmethod
     def _build_run_id(parent_turn_id: str | None, agent_id: str, attempt: int) -> str:

@@ -34,6 +34,7 @@ class AgentDefinition:
     max_tokens: int = 8000
     timeout_seconds: int = 300
     paradigm: str = "react"
+    max_spawn_depth: int = 0  # 允许派发子 Agent 的最大嵌套深度（0 = 禁止，1 = 允许一级嵌套）
 
 
 class AgentRegistry:
@@ -127,6 +128,7 @@ class AgentRegistry:
                 max_tokens=int(data.get("max_tokens", 8000)),
                 timeout_seconds=int(data.get("timeout_seconds", 300)),
                 paradigm=str(data.get("paradigm", "react")),
+                max_spawn_depth=int(data.get("max_spawn_depth", 0)),
             )
             if not agent_def.agent_id:
                 logger.warning("YAML 缺少 agent_id 字段，跳过: %s", yaml_path)

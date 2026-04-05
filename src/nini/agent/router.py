@@ -80,14 +80,17 @@ citation_manager, research_planner, review_assistant
 """
 
 
-@dataclass
+@dataclass(frozen=True)
 class RoutingDecision:
-    """路由决策结果。"""
+    """路由决策结果（不可变）。
+
+    frozen=True 保证路由决策在传递过程中不被意外修改。
+    """
 
     agent_ids: list[str]
     tasks: list[str]
     confidence: float
-    strategy: str  # "rule" 或 "llm"
+    strategy: str  # "rule" | "llm" | "multi_intent"
     parallel: bool = True
 
 
@@ -173,7 +176,17 @@ class TaskRouter:
             # 提取 JSON
             json_text = _extract_json_block(full_response)
             if not json_text:
-                logger.warning("TaskRouter._llm_route: LLM 未返回有效 JSON")
+                logger.warning(
+                    "TaskRouter._llm_route: LLM 未返回有效 JSON",
+                    extra={
+                        "routing_audit": {
+                            "strategy": "llm",
+                            "intent_preview": intent[:100],
+                            "parse_error": "no_json_block",
+                            "raw_response_len": len(full_response),
+                        }
+                    },
+                )
                 return RoutingDecision(agent_ids=[], tasks=[], confidence=0.0, strategy="llm")
 
             data = json.loads(json_text)
@@ -188,6 +201,19 @@ class TaskRouter:
             elif len(tasks) > len(agent_ids):
                 tasks = tasks[: len(agent_ids)]
 
+            logger.info(
+                "TaskRouter._llm_route: 路由完成",
+                extra={
+                    "routing_audit": {
+                        "strategy": "llm",
+                        "intent_preview": intent[:100],
+                        "agent_ids": agent_ids,
+                        "confidence": confidence,
+                        "parallel": parallel,
+                        "parse_error": None,
+                    }
+                },
+            )
             return RoutingDecision(
                 agent_ids=agent_ids,
                 tasks=tasks,
@@ -196,7 +222,17 @@ class TaskRouter:
                 parallel=parallel,
             )
         except Exception as exc:
-            logger.warning("TaskRouter._llm_route 失败: %s", exc)
+            logger.warning(
+                "TaskRouter._llm_route 失败: %s",
+                exc,
+                extra={
+                    "routing_audit": {
+                        "strategy": "llm",
+                        "intent_preview": intent[:100],
+                        "parse_error": str(exc),
+                    }
+                },
+            )
             return RoutingDecision(agent_ids=[], tasks=[], confidence=0.0, strategy="llm")
 
     async def route(

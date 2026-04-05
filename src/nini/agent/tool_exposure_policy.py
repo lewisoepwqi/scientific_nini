@@ -1,7 +1,13 @@
-"""工具暴露策略。"""
+"""工具暴露策略。
+
+提供两套接口：
+- ToolExposurePolicy 数据类：面向子 Agent 工具子集构建，支持白名单/黑名单/前缀黑名单过滤。
+- compute_tool_exposure_policy()：面向主 Agent，基于会话阶段动态计算暴露面。
+"""
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
 
 from nini.agent.components.analysis_stage_detector import AnalysisStage, detect_current_stage
@@ -68,6 +74,56 @@ _HIGH_RISK_TOOLS = {
     "organize_workspace",
     "workspace_session",
 }
+
+
+@dataclass(frozen=True)
+class ToolExposurePolicy:
+    """子 Agent 工具暴露策略（不可变）。
+
+    用于从完整 ToolRegistry 中构建受限子集，取代 registry.create_subset(allowed_tools)。
+    过滤顺序：白名单（allowed_tools 非空时生效）→ deny_names 黑名单 → deny_prefixes 前缀黑名单。
+
+    示例::
+        policy = ToolExposurePolicy(allowed_tools=("stat_test", "chart_session"))
+        subset = policy.apply(tool_registry)
+    """
+
+    allowed_tools: tuple[str, ...] = field(default_factory=tuple)
+    deny_names: frozenset[str] = field(default_factory=frozenset)
+    deny_prefixes: tuple[str, ...] = field(default_factory=tuple)
+
+    @classmethod
+    def from_agent_def(cls, agent_def: Any) -> "ToolExposurePolicy":
+        """从 AgentDefinition 构建策略（始终排除 dispatch_agents 防递归）。"""
+        allowed = tuple(getattr(agent_def, "allowed_tools", ()) or ())
+        return cls(
+            allowed_tools=allowed,
+            deny_names=frozenset({"dispatch_agents"}),
+        )
+
+    def apply(self, tool_registry: Any) -> Any:
+        """在 tool_registry 上应用策略，返回过滤后的子集注册表。"""
+        if tool_registry is None:
+            return tool_registry
+        # 优先使用 allowed_tools 白名单
+        if self.allowed_tools:
+            filtered = list(self.allowed_tools)
+        else:
+            all_tools = tool_registry.list_tools() if hasattr(tool_registry, "list_tools") else []
+            filtered = list(all_tools)
+
+        # deny_names 黑名单
+        if self.deny_names:
+            filtered = [t for t in filtered if t not in self.deny_names]
+
+        # deny_prefixes 前缀黑名单
+        if self.deny_prefixes:
+            filtered = [
+                t for t in filtered
+                if not any(t.startswith(p) for p in self.deny_prefixes)
+            ]
+
+        return tool_registry.create_subset(filtered)
 
 
 def _collect_task_tool_hints(session: Any) -> list[str]:

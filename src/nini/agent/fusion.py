@@ -47,9 +47,12 @@ _CONSENSUS_PROMPT_TEMPLATE = """\
 """
 
 
-@dataclass
+@dataclass(frozen=True)
 class FusionResult:
-    """融合结果数据类。"""
+    """融合结果数据类（不可变）。
+
+    frozen=True 保证融合结果在传递和消费过程中不被修改。
+    """
 
     content: str
     strategy: str
@@ -112,15 +115,24 @@ class ResultFusionEngine:
                 _SUMMARIZE_TIMEOUT_SECONDS,
             )
             fallback = self._concatenate(results)
-            fallback.conflicts = conflicts
-            return fallback
+            # FusionResult 是 frozen，需构造新对象注入 conflicts
+            return FusionResult(
+                content=fallback.content,
+                strategy=fallback.strategy,
+                conflicts=conflicts,
+                sources=fallback.sources,
+            )
         except Exception as exc:
             logger.warning(
                 "ResultFusionEngine._summarize: LLM 调用失败: %s，降级为 concatenate", exc
             )
             fallback = self._concatenate(results)
-            fallback.conflicts = conflicts
-            return fallback
+            return FusionResult(
+                content=fallback.content,
+                strategy=fallback.strategy,
+                conflicts=conflicts,
+                sources=fallback.sources,
+            )
 
     async def _consensus(self, results: list[Any]) -> FusionResult:
         """共识策略：LLM 共识提取 + 冲突标注。"""
