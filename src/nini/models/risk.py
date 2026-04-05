@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from enum import Enum
 
-
 # ---- 枚举定义 ----
 
 
@@ -41,14 +40,14 @@ class OutputLevel(str, Enum):
 class ResearchPhase(str, Enum):
     """研究阶段。表示科研全流程的八大阶段。"""
 
-    TOPIC_SELECTION = "topic_selection"          # 选题
-    LITERATURE_REVIEW = "literature_review"      # 文献调研
-    EXPERIMENT_DESIGN = "experiment_design"      # 实验设计
-    DATA_COLLECTION = "data_collection"          # 数据采集
-    DATA_ANALYSIS = "data_analysis"              # 数据分析
-    PAPER_WRITING = "paper_writing"              # 论文写作
-    SUBMISSION = "submission"                    # 投稿发表
-    DISSEMINATION = "dissemination"              # 传播转化
+    TOPIC_SELECTION = "topic_selection"  # 选题
+    LITERATURE_REVIEW = "literature_review"  # 文献调研
+    EXPERIMENT_DESIGN = "experiment_design"  # 实验设计
+    DATA_COLLECTION = "data_collection"  # 数据采集
+    DATA_ANALYSIS = "data_analysis"  # 数据分析
+    PAPER_WRITING = "paper_writing"  # 论文写作
+    SUBMISSION = "submission"  # 投稿发表
+    DISSEMINATION = "dissemination"  # 传播转化
 
 
 # ---- 枚举元数据 ----

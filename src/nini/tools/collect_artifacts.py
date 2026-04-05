@@ -99,7 +99,7 @@ class CollectArtifactsTool(Tool):
         results: list[dict[str, Any]] = []
         seen: set[tuple[Any, ...]] = set()
 
-        for memory in list_session_analysis_memories(session.id):
+        for memory in list_session_analysis_memories(session.get_resource_session_id()):
             dataset_name = str(memory.dataset_name or "").strip() or None
             for statistic in memory.statistics:
                 item = {
@@ -111,6 +111,7 @@ class CollectArtifactsTool(Tool):
                     "effect_size": statistic.effect_size,
                     "effect_type": statistic.effect_type or None,
                     "significant": statistic.significant,
+                    "metadata": statistic.metadata if isinstance(statistic.metadata, dict) else {},
                     "source": "analysis_memory",
                 }
                 dedup_key = (
@@ -210,7 +211,9 @@ class CollectArtifactsTool(Tool):
         degrees_of_freedom = self._first_int(content, "degrees_of_freedom", "df")
         significant = content.get("significant")
         if not isinstance(significant, bool):
-            significant = bool(p_value is not None and p_value < 0.05)
+            significant = (
+                bool(p_value is not None and p_value < 0.05) if p_value is not None else None
+            )
 
         return {
             "dataset_name": self._optional_string(content.get("dataset_name")),
@@ -221,11 +224,14 @@ class CollectArtifactsTool(Tool):
             "effect_size": effect_size,
             "effect_type": effect_type,
             "significant": significant,
+            "metadata": (
+                content.get("metadata") if isinstance(content.get("metadata"), dict) else {}
+            ),
             "source": "tool_result",
         }
 
     def _collect_charts(self, session: Session) -> list[dict[str, Any]]:
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         charts: list[dict[str, Any]] = []
         for artifact in manager.list_artifacts():
             artifact_type = str(artifact.get("type", "")).strip().lower()
@@ -251,7 +257,7 @@ class CollectArtifactsTool(Tool):
         return charts
 
     def _collect_methods(self, session: Session) -> list[dict[str, Any]]:
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         methods: list[dict[str, Any]] = []
         seen: set[tuple[Any, ...]] = set()
 
@@ -304,7 +310,7 @@ class CollectArtifactsTool(Tool):
         return methods
 
     def _collect_datasets(self, session: Session) -> list[dict[str, Any]]:
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         workspace_records = {
             str(item.get("name", "")).strip(): item
             for item in manager.list_datasets()
@@ -408,6 +414,8 @@ class CollectArtifactsTool(Tool):
         for key in keys:
             value = payload.get(key)
             if value in (None, ""):
+                continue
+            if not isinstance(value, (str, int, float)):
                 continue
             try:
                 return float(value)

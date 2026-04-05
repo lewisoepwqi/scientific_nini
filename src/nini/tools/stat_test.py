@@ -205,7 +205,8 @@ class StatTestTool(Tool):
         missing = [
             field
             for field in required
-            if params.get(field) is None or (isinstance(params.get(field), str) and not str(params.get(field)).strip())
+            if params.get(field) is None
+            or (isinstance(params.get(field), str) and not str(params.get(field)).strip())
         ]
         if not missing:
             return None
@@ -262,7 +263,9 @@ class StatTestTool(Tool):
                 'p_values: [0.01, 0.02], correction_method: "holm"}'
             ),
         }
-        return examples.get(method, '{method: "independent_t", value_column: "value", group_column: "group"}')
+        return examples.get(
+            method, '{method: "independent_t", value_column: "value", group_column: "group"}'
+        )
 
     def _input_error(
         self,

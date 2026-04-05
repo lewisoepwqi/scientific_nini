@@ -247,12 +247,35 @@ class AgentCompleteEventData(BaseModel):
     retry_count: int = Field(0, description="已发生的重试次数")
 
 
+class AgentProgressEventData(BaseModel):
+    """AGENT_PROGRESS 事件的数据结构。"""
+
+    agent_id: str = Field(..., description="子 Agent ID")
+    agent_name: str = Field(..., description="子 Agent 名称")
+    phase: str = Field(..., description="当前阶段标识")
+    message: str = Field(..., description="当前阶段说明")
+    progress_hint: str | None = Field(None, description="下一步或补充提示")
+    attempt: int = Field(1, description="当前尝试次数（1-based）")
+    retry_count: int = Field(0, description="已发生的重试次数")
+
+
 class AgentErrorEventData(BaseModel):
     """AGENT_ERROR 事件的数据结构。"""
 
     agent_id: str = Field(..., description="子 Agent ID")
     agent_name: str = Field(..., description="子 Agent 名称")
     error: str = Field(..., description="错误摘要")
+    execution_time_ms: int = Field(..., description="本次尝试耗时（毫秒）")
+    attempt: int = Field(1, description="当前尝试次数（1-based）")
+    retry_count: int = Field(0, description="已发生的重试次数")
+
+
+class AgentStoppedEventData(BaseModel):
+    """AGENT_STOPPED 事件的数据结构。"""
+
+    agent_id: str = Field(..., description="子 Agent ID")
+    agent_name: str = Field(..., description="子 Agent 名称")
+    reason: str = Field(..., description="终止原因")
     execution_time_ms: int = Field(..., description="本次尝试耗时（毫秒）")
     attempt: int = Field(1, description="当前尝试次数（1-based）")
     retry_count: int = Field(0, description="已发生的重试次数")

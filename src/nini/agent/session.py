@@ -15,12 +15,65 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_SESSION_PERSISTENCE_REGISTRY: dict[str, bool] = {}
+
 import pandas as pd
 
 from nini.agent.task_manager import TaskManager
 from nini.config import settings
 from nini.memory.conversation import ConversationMemory
 from nini.memory.knowledge import KnowledgeMemory
+
+
+def register_session_persistence(session_id: str, enabled: bool) -> None:
+    """注册会话是否允许持久化运行时状态。"""
+    normalized = str(session_id or "").strip()
+    if not normalized:
+        return
+    _SESSION_PERSISTENCE_REGISTRY[normalized] = bool(enabled)
+
+
+def _normalize_session_identifier(value: Any) -> str:
+    """仅接受真实字符串形式的会话标识，避免将 Mock 等对象误转为路径。"""
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def session_persistence_enabled(session_or_id: str | Any) -> bool:
+    """判断会话是否允许持久化运行时状态。"""
+    if isinstance(session_or_id, str):
+        normalized = session_or_id.strip()
+        if not normalized:
+            return True
+        return _SESSION_PERSISTENCE_REGISTRY.get(normalized, True)
+
+    session_id = _normalize_session_identifier(getattr(session_or_id, "id", ""))
+    if not session_id:
+        return True
+    session_flag = getattr(session_or_id, "persist_runtime_state", None)
+    if isinstance(session_flag, bool):
+        register_session_persistence(session_id, session_flag)
+        return session_flag
+    return _SESSION_PERSISTENCE_REGISTRY.get(session_id, True)
+
+
+def resolve_session_resource_id(session_or_id: str | Any) -> str:
+    """解析会话资源应归属的 session_id。"""
+    if isinstance(session_or_id, str):
+        return session_or_id.strip()
+
+    owner_id = _normalize_session_identifier(
+        getattr(session_or_id, "resource_owner_session_id", "")
+    )
+    if owner_id:
+        return owner_id
+
+    parent_id = _normalize_session_identifier(getattr(session_or_id, "parent_session_id", ""))
+    if parent_id:
+        return parent_id
+
+    return _normalize_session_identifier(getattr(session_or_id, "id", ""))
 
 
 @dataclass
@@ -40,6 +93,8 @@ class Session:
     last_compressed_at: str | None = None
     compression_segments: list[dict[str, Any]] = field(default_factory=list)
     research_profile_id: str = "default"
+    persist_runtime_state: bool = True
+    resource_owner_session_id: str | None = None
     workspace_hydrated: bool = False
     load_persisted_messages: bool = False
     harness_runtime_context: str = ""
@@ -50,6 +105,7 @@ class Session:
     recipe_id: str | None = None
     recipe_inputs: dict[str, Any] = field(default_factory=dict)
     deep_task_state: dict[str, Any] = field(default_factory=dict)
+    subagent_stop_events: dict[str, Any] = field(default_factory=dict, repr=False)
     conversation_memory: ConversationMemory = field(init=False, repr=False)
     knowledge_memory: KnowledgeMemory = field(init=False, repr=False)
     task_manager: TaskManager = field(init=False, repr=False)
@@ -60,6 +116,9 @@ class Session:
     def __post_init__(self) -> None:
         from nini.agent.evidence_collector import EvidenceCollector
 
+        register_session_persistence(self.id, self.persist_runtime_state)
+        if not self.resource_owner_session_id:
+            self.resource_owner_session_id = self.id
         self.conversation_memory = ConversationMemory(self.id)
         self.knowledge_memory = KnowledgeMemory(self.id)
         self.task_manager = TaskManager()
@@ -108,6 +167,14 @@ class Session:
                         rebuilt = result.manager
         if rebuilt.initialized:
             self.task_manager = rebuilt
+
+    def supports_persistent_state(self) -> bool:
+        """返回当前会话是否允许写入持久化运行时状态。"""
+        return session_persistence_enabled(self)
+
+    def get_resource_session_id(self) -> str:
+        """返回当前会话资源应归属的 session_id。"""
+        return resolve_session_resource_id(self)
 
     def _append_entry(self, entry: dict[str, Any], *, auto_compress: bool = False) -> None:
         """追加一条规范化消息记录并同步持久化。"""
@@ -214,7 +281,9 @@ class Session:
             items = [item for item in items if str(item.get("type", "")).strip() == normalized_type]
         if status:
             normalized_status = str(status).strip()
-            items = [item for item in items if str(item.get("status", "")).strip() == normalized_status]
+            items = [
+                item for item in items if str(item.get("status", "")).strip() == normalized_status
+            ]
         return items
 
     def upsert_pending_action(
@@ -225,6 +294,8 @@ class Session:
         summary: str,
         source_tool: str,
         status: str = "pending",
+        blocking: bool = True,
+        failure_category: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """新增或更新待处理动作。"""
@@ -243,6 +314,8 @@ class Session:
             "status": normalized_status,
             "summary": normalized_summary,
             "source_tool": normalized_source,
+            "blocking": bool(blocking),
+            "failure_category": str(failure_category or "").strip() or None,
             "created_at": now_iso,
             "updated_at": now_iso,
             "metadata": dict(metadata or {}),
@@ -264,7 +337,8 @@ class Session:
         if not replaced:
             next_items.append(payload)
         self.pending_actions = next_items
-        session_manager.save_session_pending_actions(self.id, self.pending_actions)
+        if self.supports_persistent_state():
+            session_manager.save_session_pending_actions(self.id, self.pending_actions)
         return dict(payload)
 
     def resolve_pending_action(
@@ -295,7 +369,8 @@ class Session:
             next_items.append(dict(item))
         if matched:
             self.pending_actions = next_items
-            session_manager.save_session_pending_actions(self.id, self.pending_actions)
+            if self.supports_persistent_state():
+                session_manager.save_session_pending_actions(self.id, self.pending_actions)
         return matched
 
     def clear_pending_actions(self, *, action_type: str | None = None) -> int:
@@ -306,14 +381,14 @@ class Session:
             self.pending_actions = [
                 dict(item)
                 for item in self.pending_actions
-                if isinstance(item, dict)
-                and str(item.get("type", "")).strip() != normalized_type
+                if isinstance(item, dict) and str(item.get("type", "")).strip() != normalized_type
             ]
         else:
             self.pending_actions = []
         removed = before - len(self.pending_actions)
         if removed > 0:
-            session_manager.save_session_pending_actions(self.id, self.pending_actions)
+            if self.supports_persistent_state():
+                session_manager.save_session_pending_actions(self.id, self.pending_actions)
         return removed
 
     def build_pending_actions_summary(self, *, max_items: int = 5) -> str:
@@ -325,8 +400,9 @@ class Session:
         for item in items:
             summary = str(item.get("summary", "")).strip()
             source_tool = str(item.get("source_tool", "")).strip()
+            tone = "阻塞" if item.get("blocking", True) else "提醒"
             suffix = f"（来源: {source_tool}）" if source_tool else ""
-            lines.append(f"- [{item.get('type', 'unknown')}] {summary}{suffix}")
+            lines.append(f"- [{tone}/{item.get('type', 'unknown')}] {summary}{suffix}")
         remaining = len(self.list_pending_actions(status="pending")) - len(items)
         if remaining > 0:
             lines.append(f"- ... 另有 {remaining} 个待处理动作未展开")
@@ -377,7 +453,8 @@ class Session:
         if not key or normalized_scope != "session":
             return
         self.tool_approval_grants[key] = normalized_scope
-        session_manager.save_session_tool_approvals(self.id, self.tool_approval_grants)
+        if self.supports_persistent_state():
+            session_manager.save_session_tool_approvals(self.id, self.tool_approval_grants)
 
     def has_tool_approval(self, approval_key: str) -> bool:
         """检查当前会话是否已放行指定工具。"""
@@ -403,10 +480,11 @@ class Session:
         if normalized_scope != "session":
             return
         self.sandbox_approved_imports.update(normalized_packages)
-        session_manager.save_session_sandbox_import_approvals(
-            self.id,
-            self.sandbox_approved_imports,
-        )
+        if self.supports_persistent_state():
+            session_manager.save_session_sandbox_import_approvals(
+                self.id,
+                self.sandbox_approved_imports,
+            )
 
     def has_sandbox_import_approval(self, package: str) -> bool:
         """检查当前会话是否已授权指定扩展包。"""
@@ -543,13 +621,14 @@ class Session:
                 # 持久化压缩元数据
                 import nini.agent.session as _self_mod
 
-                _self_mod.session_manager.save_session_compression(
-                    self.id,
-                    compressed_context=self.compressed_context,
-                    compressed_rounds=self.compressed_rounds,
-                    last_compressed_at=self.last_compressed_at,
-                    compression_segments=self.compression_segments,
-                )
+                if self.supports_persistent_state():
+                    _self_mod.session_manager.save_session_compression(
+                        self.id,
+                        compressed_context=self.compressed_context,
+                        compressed_rounds=self.compressed_rounds,
+                        last_compressed_at=self.last_compressed_at,
+                        compression_segments=self.compression_segments,
+                    )
         except Exception as exc:
             # 压缩失败不应阻止正常流程
             import logging
@@ -806,6 +885,54 @@ class SessionManager:
     def _memory_path(self, session_id: str) -> Path:
         return settings.sessions_dir / session_id / "memory.jsonl"
 
+    def _agent_runs_path(self, session_id: str) -> Path:
+        return settings.sessions_dir / session_id / "agent_runs.jsonl"
+
+    def append_agent_run_event(self, session_id: str, event: dict[str, Any]) -> None:
+        """追加一条子运行事件到独立日志文件。"""
+        if not session_id:
+            return
+        target_path = self._agent_runs_path(session_id)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = dict(event)
+        payload.setdefault("_ts", datetime.now(timezone.utc).isoformat())
+        with target_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    def load_agent_run_events(
+        self,
+        session_id: str,
+        *,
+        turn_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """读取会话的子运行事件，可按 turn_id 过滤。"""
+        target_path = self._agent_runs_path(session_id)
+        if not target_path.exists():
+            return []
+        events: list[dict[str, Any]] = []
+        try:
+            with target_path.open("r", encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        parsed = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(parsed, dict):
+                        continue
+                    event_turn_id = str(parsed.get("turn_id") or "").strip() or None
+                    metadata = parsed.get("metadata")
+                    if event_turn_id is None and isinstance(metadata, dict):
+                        event_turn_id = str(metadata.get("turn_id") or "").strip() or None
+                    if turn_id and event_turn_id != turn_id:
+                        continue
+                    events.append(parsed)
+        except OSError:
+            return []
+        return events
+
     def _load_cached_message_count(self, session_id: str, meta: dict[str, Any]) -> int:
         memory_path = self._memory_path(session_id)
         if not memory_path.exists():
@@ -1042,6 +1169,8 @@ class SessionManager:
 
     def _load_session_meta(self, session_id: str) -> dict[str, Any]:
         """加载会话元数据。优先从 SQLite 读取，回退到 meta.json。"""
+        if not session_persistence_enabled(session_id):
+            return {}
         session_dir = settings.sessions_dir / session_id
 
         # 优先路径：SQLite
@@ -1075,6 +1204,8 @@ class SessionManager:
 
     def _save_session_meta_fields(self, session_id: str, fields: dict[str, Any]) -> None:
         """持久化元数据字段。双写 meta.json + SQLite。"""
+        if not session_persistence_enabled(session_id):
+            return
         session_dir = settings.sessions_dir / session_id
         meta_path = session_dir / "meta.json"
         meta_path.parent.mkdir(parents=True, exist_ok=True)

@@ -30,8 +30,10 @@ from nini.models.event_schemas import (
     ToolCallEventData,
     ToolResultEventData,
     AgentStartEventData,
+    AgentProgressEventData,
     AgentCompleteEventData,
     AgentErrorEventData,
+    AgentStoppedEventData,
     TextEventData,
     ErrorEventData,
     DoneEventData,
@@ -172,6 +174,10 @@ def build_plan_progress_event(
         step_status=step_status,
         next_hint=next_hint,
         block_reason=block_reason,
+        recipe_id=None,
+        task_id=None,
+        task_kind=None,
+        retry_count=None,
     )
 
     data = event_data.model_dump()
@@ -259,6 +265,8 @@ def build_run_context_event(
         ],
         tool_hints=[str(item) for item in (tool_hints or []) if str(item).strip()],
         constraints=[str(item) for item in (constraints or []) if str(item).strip()],
+        task_id=None,
+        recipe_id=None,
     )
 
     data = event_data.model_dump()
@@ -295,6 +303,7 @@ def build_completion_check_event(
             for item in (items or [])
         ],
         missing_actions=[str(item) for item in (missing_actions or []) if str(item).strip()],
+        task_id=None,
     )
 
     data = event_data.model_dump()
@@ -322,6 +331,8 @@ def build_blocked_event(
         reason_code=reason_code,
         message=message,
         recoverable=recoverable,
+        task_id=None,
+        attempt_id=None,
         suggested_action=suggested_action,
     )
 
@@ -552,7 +563,7 @@ def build_text_event(
     content: str, *, turn_id: str | None = None, metadata: dict[str, Any] | None = None, **extra
 ) -> AgentEvent:
     """构造 TEXT 事件。"""
-    event_data = TextEventData(content=content)
+    event_data = TextEventData(content=content, output_level=None)
 
     data = event_data.model_dump()
     data.update(extra)
@@ -599,7 +610,12 @@ def build_done_event(
 
 def build_session_event(session_id: str, **extra) -> AgentEvent:
     """构造 SESSION 事件。"""
-    event_data = SessionEventData(session_id=session_id)
+    event_data = SessionEventData(
+        session_id=session_id,
+        task_kind=None,
+        recipe_id=None,
+        deep_task_state=None,
+    )
 
     data = event_data.model_dump()
     data.update(extra)
@@ -987,6 +1003,34 @@ def build_agent_complete_event(
     )
 
 
+def build_agent_progress_event(
+    agent_id: str,
+    agent_name: str,
+    phase: str,
+    message: str,
+    progress_hint: str | None = None,
+    attempt: int = 1,
+    retry_count: int = 0,
+    *,
+    turn_id: str | None = None,
+) -> AgentEvent:
+    """构造 AGENT_PROGRESS 事件。"""
+    event_data = AgentProgressEventData(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        phase=phase,
+        message=message,
+        progress_hint=progress_hint,
+        attempt=attempt,
+        retry_count=retry_count,
+    )
+    return AgentEvent(
+        type=EventType.AGENT_PROGRESS,
+        data={"event_type": "agent_progress", **event_data.model_dump()},
+        turn_id=turn_id,
+    )
+
+
 def build_agent_error_event(
     agent_id: str,
     agent_name: str,
@@ -1009,6 +1053,32 @@ def build_agent_error_event(
     return AgentEvent(
         type=EventType.AGENT_ERROR,
         data={"event_type": "agent_error", **event_data.model_dump()},
+        turn_id=turn_id,
+    )
+
+
+def build_agent_stopped_event(
+    agent_id: str,
+    agent_name: str,
+    reason: str,
+    execution_time_ms: int,
+    attempt: int = 1,
+    retry_count: int = 0,
+    *,
+    turn_id: str | None = None,
+) -> AgentEvent:
+    """构造 AGENT_STOPPED 事件。"""
+    event_data = AgentStoppedEventData(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        reason=reason,
+        execution_time_ms=execution_time_ms,
+        attempt=attempt,
+        retry_count=retry_count,
+    )
+    return AgentEvent(
+        type=EventType.AGENT_STOPPED,
+        data={"event_type": "agent_stopped", **event_data.model_dump()},
         turn_id=turn_id,
     )
 

@@ -123,7 +123,7 @@ class ExportChartTool(Tool):
         base = self._build_filename(filename, latest)
         full_name = f"{base}.{fmt}"
 
-        storage = ArtifactStorage(session.id)
+        storage = ArtifactStorage(session)
         path = storage.get_path(full_name)
 
         if fmt == "html":
@@ -264,7 +264,7 @@ class ExportChartTool(Tool):
         fallback_message: str | None = None,
     ) -> ToolResult:
         """构建统一的导出结果。"""
-        ws = WorkspaceManager(session.id)
+        ws = WorkspaceManager(session)
         artifact = {
             "name": full_name,
             "type": "chart",

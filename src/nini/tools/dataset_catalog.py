@@ -126,7 +126,7 @@ class DatasetCatalogTool(Tool):
         )
 
     def _list_datasets(self, session: Session) -> ToolResult:
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         workspace_records = {
             str(item.get("name", "")).strip(): item for item in manager.list_datasets()
         }
@@ -194,7 +194,7 @@ class DatasetCatalogTool(Tool):
         if isinstance(result.data, dict):
             target_name = str(result.data.get("output_dataset") or dataset_name)
 
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         record = manager.get_dataset_by_name(target_name)
         payload = result.to_dict()
         data = payload.get("data", {}) if isinstance(payload.get("data"), dict) else {}
@@ -217,7 +217,7 @@ class DatasetCatalogTool(Tool):
             )
 
         view = str(kwargs.get("view", "basic")).strip()
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         record = manager.get_dataset_by_name(dataset_name)
         if dataset_name not in session.datasets:
             load_result = await self._loader.execute(session, dataset_name=dataset_name)

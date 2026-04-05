@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from nini.agent.fusion import FusionResult, ResultFusionEngine
+from nini.agent.session import Session, session_manager
 from nini.agent.spawner import SubAgentResult
+from nini.config import settings
 from nini.tools.dispatch_agents import DispatchAgentsTool
 from nini.tools.base import ToolResult
 
@@ -41,6 +45,16 @@ class _MockFusion:
         return FusionResult(content=content, strategy="concatenate")
 
 
+@pytest.fixture
+def isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """隔离 dispatch_agents 运行事件输出目录。"""
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+    session_manager._sessions.clear()
+    yield tmp_path
+    session_manager._sessions.clear()
+
+
 # ─── 正常执行 ─────────────────────────────────────────────────────────────────
 
 
@@ -58,6 +72,9 @@ async def test_execute_returns_skill_result():
     assert "清洗完成" in result.message
     assert result.metadata["task_count"] == 1
     assert result.metadata["routed_agents"] == ["data_cleaner"]
+    assert result.metadata["success_count"] == 1
+    assert result.metadata["failure_count"] == 0
+    assert result.metadata["subtasks"][0]["agent_id"] == "data_cleaner"
 
 
 @pytest.mark.asyncio
@@ -175,3 +192,61 @@ def test_tool_expose_to_llm_false():
     """expose_to_llm 为 False（通过 Orchestrator 路径暴露）。"""
     tool = DispatchAgentsTool()
     assert tool.expose_to_llm is False
+
+
+@pytest.mark.asyncio
+async def test_execute_records_structured_agent_run_events(isolated_data_dir: Path):
+    """执行完成后应写入父会话级结构化 dispatch/子任务事件。"""
+    tool = DispatchAgentsTool(
+        agent_registry=_MockRegistry(),
+        spawner=_MockSpawner(
+            results=[
+                SubAgentResult(
+                    agent_id="data_cleaner",
+                    agent_name="数据清洗",
+                    success=True,
+                    task="清洗数据",
+                    summary="清洗完成",
+                    run_id="agent:turn-001:data_cleaner:1",
+                    parent_session_id="session-dispatch",
+                    resource_session_id="session-dispatch",
+                    artifacts={"clean.csv": {}},
+                ),
+                SubAgentResult(
+                    agent_id="statistician",
+                    agent_name="统计分析",
+                    success=False,
+                    task="统计分析",
+                    summary="统计失败",
+                    error="样本量不足",
+                    run_id="agent:turn-001:statistician:1",
+                    parent_session_id="session-dispatch",
+                    resource_session_id="session-dispatch",
+                ),
+            ]
+        ),
+        fusion_engine=_MockFusion(),
+    )
+    session = session_manager.create_session("session-dispatch")
+
+    result = await tool.execute(
+        session,
+        tasks=["清洗数据", "统计分析"],
+        turn_id="turn-001",
+        tool_call_id="call-001",
+    )
+
+    assert result.metadata["dispatch_run_id"] == "dispatch:call-001"
+    assert result.metadata["partial_failure"] is True
+    assert result.metadata["failure_count"] == 1
+    assert result.metadata["subtasks"][1]["error"] == "样本量不足"
+
+    events = session_manager.load_agent_run_events("session-dispatch", turn_id="turn-001")
+    event_types = [event["type"] for event in events]
+    assert "subagent_result" in event_types
+    assert "dispatch_agents_result" in event_types
+
+    dispatch_event = next(event for event in events if event["type"] == "dispatch_agents_result")
+    assert dispatch_event["metadata"]["run_id"] == "dispatch:call-001"
+    assert dispatch_event["data"]["failure_count"] == 1
+    assert dispatch_event["data"]["subtasks"][0]["artifact_names"] == ["clean.csv"]

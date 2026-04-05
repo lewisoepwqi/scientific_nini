@@ -19,8 +19,7 @@ def write_skill(tmp_path: Path, content: str) -> Path:
 
 class TestScannerContractParsing:
     def test_skill_with_contract_parsed(self, tmp_path: Path) -> None:
-        content = textwrap.dedent(
-            """\
+        content = textwrap.dedent("""\
             ---
             name: experiment-design-helper
             description: 实验设计辅助技能
@@ -40,8 +39,7 @@ class TestScannerContractParsing:
                   trust_level: t1
             ---
             实验设计辅助工作流正文。
-            """
-        )
+            """)
         root = write_skill(tmp_path, content)
         tools = scan_markdown_tools(root)
 
@@ -55,16 +53,14 @@ class TestScannerContractParsing:
         assert contract.steps[1].depends_on == ["define_problem"]
 
     def test_skill_without_contract_unaffected(self, tmp_path: Path) -> None:
-        content = textwrap.dedent(
-            """\
+        content = textwrap.dedent("""\
             ---
             name: legacy-skill
             description: 旧式 Skill，无 contract
             category: utility
             ---
             旧式 Skill 正文。
-            """
-        )
+            """)
         root = write_skill(tmp_path, content)
         tools = scan_markdown_tools(root)
 
@@ -77,8 +73,7 @@ class TestScannerContractParsing:
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """contract 格式错误时记录警告，Skill 正常创建但不含 contract 键。"""
-        content = textwrap.dedent(
-            """\
+        content = textwrap.dedent("""\
             ---
             name: broken-skill
             description: contract 格式错误的 Skill
@@ -92,8 +87,7 @@ class TestScannerContractParsing:
                   depends_on: [nonexistent_step]
             ---
             正文内容。
-            """
-        )
+            """)
         root = write_skill(tmp_path, content)
         import logging
 
@@ -108,8 +102,7 @@ class TestScannerContractParsing:
         assert any("contract" in record.message for record in caplog.records)
 
     def test_contract_with_review_gate_parsed(self, tmp_path: Path) -> None:
-        content = textwrap.dedent(
-            """\
+        content = textwrap.dedent("""\
             ---
             name: guarded-skill
             description: 带 review_gate 的 Skill
@@ -130,8 +123,7 @@ class TestScannerContractParsing:
                   trust_level: t1
             ---
             带 review_gate 的工作流。
-            """
-        )
+            """)
         root = write_skill(tmp_path, content)
         tools = scan_markdown_tools(root)
 
@@ -143,8 +135,7 @@ class TestScannerContractParsing:
 
 class TestToolAdapterRouting:
     def test_has_contract_true_for_skill_with_contract(self, tmp_path: Path) -> None:
-        content = textwrap.dedent(
-            """\
+        content = textwrap.dedent("""\
             ---
             name: contract-skill
             description: 有契约
@@ -158,8 +149,7 @@ class TestToolAdapterRouting:
                   description: 只有一步
             ---
             正文。
-            """
-        )
+            """)
         root = write_skill(tmp_path, content)
         from nini.tools.tool_adapter import has_contract
 
@@ -167,16 +157,14 @@ class TestToolAdapterRouting:
         assert has_contract(tools[0]) is True
 
     def test_has_contract_false_for_legacy_skill(self, tmp_path: Path) -> None:
-        content = textwrap.dedent(
-            """\
+        content = textwrap.dedent("""\
             ---
             name: old-skill
             description: 旧式
             category: utility
             ---
             旧式 Skill。
-            """
-        )
+            """)
         root = write_skill(tmp_path, content)
         from nini.tools.tool_adapter import has_contract
 

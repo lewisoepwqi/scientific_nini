@@ -123,7 +123,9 @@ class TestContractRunnerEvidenceIntegration:
         async def cb(event_type: str, data: Any) -> None:
             return None
 
-        async def executor(step: SkillStep, session: Session, inputs: dict[str, Any]) -> dict[str, Any]:
+        async def executor(
+            step: SkillStep, session: Session, inputs: dict[str, Any]
+        ) -> dict[str, Any]:
             if step.id == "load_data":
                 return {"dataset_name": "blood_pressure.csv"}
             if step.id == "run_test":
@@ -161,7 +163,9 @@ class TestContractRunnerEvidenceIntegration:
         async def cb(event_type: str, data: Any) -> None:
             return None
 
-        async def executor(step: SkillStep, session: Session, inputs: dict[str, Any]) -> dict[str, Any]:
+        async def executor(
+            step: SkillStep, session: Session, inputs: dict[str, Any]
+        ) -> dict[str, Any]:
             return {"data": {"dataset_name": "blood_pressure.csv", "result_ref": "stat:1"}}
 
         runner = ContractRunner(contract, skill_name="plain-skill", callback=cb)

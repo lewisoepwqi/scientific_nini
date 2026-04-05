@@ -111,6 +111,38 @@ async def test_consolidate_statistic_significant_has_higher_importance(mock_stor
 
 
 @pytest.mark.asyncio
+async def test_consolidate_statistic_with_unknown_significance_does_not_claim_not_significant(
+    mock_store,
+):
+    """显著性未知时，长期记忆摘要不应被写成“不显著”。"""
+    from nini.memory.compression import AnalysisMemory, StatisticResult
+
+    memory = AnalysisMemory(session_id="sess_unknown", dataset_name="data.csv")
+    memory.statistics.append(StatisticResult(test_name="spearman", p_value=None, significant=None))
+
+    recorded_summaries = []
+    mock_store.add_memory = MagicMock(
+        side_effect=lambda **kw: recorded_summaries.append(kw.get("summary", ""))
+    )
+
+    with (
+        patch(
+            "nini.memory.compression.list_session_analysis_memories",
+            return_value=[memory],
+        ),
+        patch(
+            "nini.memory.long_term_memory.get_long_term_memory_store",
+            return_value=mock_store,
+        ),
+    ):
+        from nini.memory.long_term_memory import consolidate_session_memories
+
+        await consolidate_session_memories("sess_unknown")
+
+    assert recorded_summaries == ["spearman 结果（未判定）"]
+
+
+@pytest.mark.asyncio
 async def test_consolidate_empty_session_returns_zero():
     """无分析记忆的会话应返回 0。"""
     with patch(

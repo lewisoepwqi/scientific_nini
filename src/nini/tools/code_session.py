@@ -214,7 +214,7 @@ class CodeSessionTool(Tool):
             return ToolResult(success=False, message=f"不支持的脚本语言: {language}")
 
         script_id = f"script_{uuid.uuid4().hex[:12]}"
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         record = ScriptSessionRecord(
             id=script_id,
             session_id=session.id,
@@ -260,7 +260,7 @@ class CodeSessionTool(Tool):
             )
 
         script_id = str(kwargs.get("script_id", "")).strip() or f"script_{uuid.uuid4().hex[:12]}"
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         existing = self._load_script_record(manager, script_id)
         if existing is not None:
             return ToolResult(success=False, message=f"脚本会话已存在: {script_id}")
@@ -345,7 +345,7 @@ class CodeSessionTool(Tool):
                 minimal_example=self._minimal_example_for_operation("get_script"),
             )
 
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         record = self._load_script_record(manager, script_id)
         if record is None:
             return ToolResult(success=False, message=f"未找到脚本会话: {script_id}")
@@ -358,7 +358,7 @@ class CodeSessionTool(Tool):
         )
 
     def _list_scripts(self, session: Session) -> ToolResult:
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         scripts = [
             item
             for item in manager.list_resource_summaries()
@@ -399,7 +399,7 @@ class CodeSessionTool(Tool):
                 minimal_example=self._minimal_example_for_operation("run_script"),
             )
 
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         record = self._load_script_record(manager, script_id)
         if record is None:
             return ToolResult(success=False, message=f"未找到脚本会话: {script_id}")
@@ -443,7 +443,7 @@ class CodeSessionTool(Tool):
                 minimal_example=self._minimal_example_for_operation("rerun"),
             )
 
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         record = self._load_script_record(manager, script_id)
         if record is None:
             return ToolResult(success=False, message=f"未找到脚本会话: {script_id}")
@@ -588,7 +588,7 @@ class CodeSessionTool(Tool):
         else:
             return ToolResult(success=False, message=f"不支持的脚本语言: {record.language}")
 
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         output_resource_ids = self._resolve_output_resource_ids(manager, result=result)
         error_location = self._extract_error_location(result)
         recovery_hint = self._build_recovery_hint(result)
@@ -658,7 +658,7 @@ class CodeSessionTool(Tool):
                 minimal_example=self._minimal_example_for_operation("patch_script"),
             )
 
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         record = self._load_script_record(manager, script_id)
         if record is None:
             return ToolResult(success=False, message=f"未找到脚本会话: {script_id}")
@@ -676,7 +676,7 @@ class CodeSessionTool(Tool):
         )
 
     def _promote_output(self, session: Session, **kwargs: Any) -> ToolResult:
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         dataset_name = str(kwargs.get("dataset_name", "")).strip()
         artifact_resource_id = str(kwargs.get("artifact_resource_id", "")).strip()
         artifact_name = str(kwargs.get("artifact_name", "")).strip()

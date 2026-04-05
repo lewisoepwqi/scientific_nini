@@ -19,7 +19,7 @@ def _make_runner_with_dispatch_registered():
 
     class _MockRegistry:
         def list_agents(self):
-            return []
+            return [type("Def", (), {"agent_id": "x"})()]
 
     class _MockSpawner:
         async def spawn_batch(self, tasks, session, **kwargs):
@@ -137,6 +137,12 @@ async def test_handle_dispatch_agents_produces_tool_result_event():
     # 应产生 tool_result 事件
     event_types = [e.type for e in events]
     assert EventType.TOOL_RESULT in event_types or len(events) > 0
+    tool_result_event = next(
+        event for event in events if getattr(event, "type", None) == EventType.TOOL_RESULT
+    )
+    result_payload = tool_result_event.data["data"]["result"]["metadata"]
+    assert result_payload["dispatch_run_id"] == "dispatch:call-123"
+    assert result_payload["subtasks"][0]["agent_id"] == "x"
 
 
 @pytest.mark.asyncio

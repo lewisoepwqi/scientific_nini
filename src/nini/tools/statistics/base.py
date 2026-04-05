@@ -12,6 +12,7 @@ from typing import Any
 
 import pandas as pd
 
+from nini.agent.session import resolve_session_resource_id
 from nini.agent.session import Session
 from nini.memory.compression import StatisticResult, get_analysis_memory
 
@@ -57,11 +58,12 @@ def _record_stat_result(
     degrees_of_freedom: int | None = None,
     effect_size: float | None = None,
     effect_type: str = "",
-    significant: bool = False,
+    significant: bool | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """将统计结果记录到 AnalysisMemory 和 KnowledgeMemory。"""
     # AnalysisMemory
-    mem = get_analysis_memory(session.id, dataset_name)
+    mem = get_analysis_memory(resolve_session_resource_id(session), dataset_name)
     mem.add_statistic(
         StatisticResult(
             test_name=test_name,
@@ -71,7 +73,10 @@ def _record_stat_result(
             effect_size=effect_size,
             effect_type=effect_type,
             significant=significant,
+            metadata=dict(metadata or {}),
         )
     )
     # KnowledgeMemory
-    session.knowledge_memory.append(test_name, message)
+    knowledge_memory = getattr(session, "knowledge_memory", None)
+    if knowledge_memory is not None:
+        knowledge_memory.append(test_name, message)

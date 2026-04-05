@@ -419,7 +419,7 @@ def _session_statistics(session: Session) -> str:
     total_rows = sum(len(df) for df in session.datasets.values())
 
     # 统计产物（以工作区索引为准，排除内部产物）
-    workspace_artifacts = WorkspaceManager(session.id).list_artifacts()
+    workspace_artifacts = WorkspaceManager(session).list_artifacts()
     artifact_count = sum(
         1
         for item in workspace_artifacts
@@ -522,7 +522,7 @@ def _resolve_output_name(
     title: str,
 ) -> str:
     """解析并去重报告文件名，避免覆盖历史报告。支持从标题生成语义化文件名。"""
-    manager = WorkspaceManager(session.id)
+    manager = WorkspaceManager(session)
 
     if isinstance(filename, str) and filename.strip():
         # 用户指定了文件名，使用用户指定的
@@ -697,11 +697,13 @@ class GenerateReportTool(Tool):
         relative_path = (
             str(record.get("markdown_path", "")).strip() or f"notes/reports/{output_name}"
         )
-        ws = WorkspaceManager(session.id)
+        ws = WorkspaceManager(session)
         path = ws.save_text_file(relative_path, preview_md)
 
         if save_to_knowledge:
-            session.knowledge_memory.append(title, preview_md)
+            knowledge_memory = getattr(session, "knowledge_memory", None)
+            if knowledge_memory is not None:
+                knowledge_memory.append(title, preview_md)
 
         artifact = {
             "name": output_name,

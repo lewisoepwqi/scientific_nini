@@ -13,7 +13,7 @@ import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, Awaitable, Callable, TypeVar, cast
 from urllib.parse import unquote, urlsplit
 
 from nini.agent.session import Session
@@ -235,7 +235,7 @@ async def _run_export_operation_with_retry(
     operation_name: str,
     manager: WorkspaceManager,
     export_job_id: str,
-    operation: Callable[[], "asyncio.Future[_T] | asyncio.Task[_T] | Any"],
+    operation: Callable[[], Awaitable[_T]],
 ) -> _T:
     """对导出链路的外部依赖执行有限次重试与超时控制。"""
     timeout_seconds = max(1, int(settings.deep_task_external_timeout_seconds))
@@ -273,7 +273,7 @@ async def _run_export_operation_with_retry(
                     },
                 },
             )
-            return result
+            return cast(_T, result)
 
         manager.update_export_job(
             export_job_id,
@@ -616,7 +616,7 @@ def _resolve_document_source(
     prefer_latest_report: bool = False,
 ) -> tuple[dict[str, Any] | None, str | None]:
     """定位可导出的工作区文档。"""
-    manager = WorkspaceManager(session.id)
+    manager = WorkspaceManager(session)
 
     if isinstance(source_ref, str) and source_ref.strip():
         report_markdown_path = _resolve_report_resource_markdown_path(manager, source_ref.strip())
@@ -629,7 +629,7 @@ def _resolve_document_source(
         if matched is not None:
             return matched, None
 
-        storage = ArtifactStorage(session.id)
+        storage = ArtifactStorage(session)
         candidate = storage.get_path(source_ref.strip())
         if candidate.exists():
             rel_path = _workspace_relative_path_for_candidate(manager, session.id, candidate)
@@ -688,7 +688,7 @@ def _resolve_document_source(
                 return matched, None
             candidate = Path(report_ref)
             if not candidate.is_absolute():
-                candidate = ArtifactStorage(session.id).get_path(Path(report_ref).name)
+                candidate = ArtifactStorage(session).get_path(Path(report_ref).name)
             if candidate.exists():
                 rel_path = _workspace_relative_path_for_candidate(manager, session.id, candidate)
                 if rel_path and candidate.suffix.lower() in {".md", ".txt", ".html", ".htm"}:
@@ -766,7 +766,7 @@ async def export_workspace_document(
     if source_file is None:
         return ToolResult(success=False, message=error_message or "未找到可导出的文档")
 
-    manager = WorkspaceManager(session.id)
+    manager = WorkspaceManager(session)
     source_path = str(source_file.get("path", "")).strip()
     if not source_path:
         return ToolResult(success=False, message="文档路径缺失，无法导出。")
@@ -905,7 +905,7 @@ async def export_workspace_document(
                     ),
                 )
             try:
-                output_bytes = await _run_export_operation_with_retry(
+                output_bytes: bytes = await _run_export_operation_with_retry(
                     operation_name="WeasyPrint PDF 导出",
                     manager=manager,
                     export_job_id=str(export_job.get("id", "")),

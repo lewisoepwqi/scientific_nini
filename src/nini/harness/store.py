@@ -339,10 +339,10 @@ class HarnessTraceStore:
                 gate_failure_counter.update(item.failure_tags)
             elif item.status != "completed":
                 gate_failure_counter.update(["unknown_failure"])
-        for item in results:
-            if item.get("passed"):
+        for result_item in results:
+            if result_item.get("passed"):
                 continue
-            actual_status = str(item.get("actual_status", "missing")).strip() or "missing"
+            actual_status = str(result_item.get("actual_status", "missing")).strip() or "missing"
             gate_failure_counter.update([f"benchmark:{actual_status}"])
 
         return {

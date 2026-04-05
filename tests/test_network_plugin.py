@@ -226,9 +226,12 @@ async def test_network_uses_configured_proxy(monkeypatch: pytest.MonkeyPatch) ->
         mock_httpx.AsyncClient.return_value = mock_client
         await plugin.is_available()
         _, kwargs = mock_httpx.AsyncClient.call_args
-        proxies = kwargs.get("proxies")
-        assert proxies is not None
-        assert "http://proxy.example.com:8080" in proxies.values()
+        proxy_value = kwargs.get("proxy")
+        proxies_value = kwargs.get("proxies")
+        assert proxy_value == "http://proxy.example.com:8080" or (
+            isinstance(proxies_value, dict)
+            and "http://proxy.example.com:8080" in proxies_value.values()
+        )
 
 
 @pytest.mark.asyncio

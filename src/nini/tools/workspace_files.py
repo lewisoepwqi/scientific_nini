@@ -76,7 +76,7 @@ class ListWorkspaceFilesTool(Tool):
         return ["file", "text"]
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         query = str(kwargs.get("query") or "").strip()
         path_prefix = str(kwargs.get("path_prefix") or "").strip().strip("/")
         limit_raw = kwargs.get("limit", 50)

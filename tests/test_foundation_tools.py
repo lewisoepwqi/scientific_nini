@@ -752,7 +752,9 @@ def test_workspace_session_schema_requires_file_path_for_read() -> None:
     assert set(schema["required"]) == {"operation"}
     assert "oneOf" in schema
 
-    read_branch = next(item for item in schema["oneOf"] if item["properties"]["operation"]["const"] == "read")
+    read_branch = next(
+        item for item in schema["oneOf"] if item["properties"]["operation"]["const"] == "read"
+    )
     assert set(read_branch["required"]) == {"operation", "file_path"}
 
     write_branch = next(

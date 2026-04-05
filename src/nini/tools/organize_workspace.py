@@ -77,7 +77,7 @@ class OrganizeWorkspaceTool(Tool):
         }
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         create_folders = kwargs.get("create_folders") or []
         moves = kwargs.get("moves") or []
         auto_create = bool(kwargs.get("auto_create_folder", False))

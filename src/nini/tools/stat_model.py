@@ -220,7 +220,8 @@ class StatModelTool(Tool):
         missing = [
             field
             for field in required
-            if params.get(field) is None or (isinstance(params.get(field), str) and not str(params.get(field)).strip())
+            if params.get(field) is None
+            or (isinstance(params.get(field), str) and not str(params.get(field)).strip())
         ]
         if not missing:
             return None
@@ -253,7 +254,9 @@ class StatModelTool(Tool):
                 'dependent_var: "y", independent_vars: ["x1", "x2", "x3"]}'
             ),
         }
-        return examples.get(method, '{method: "correlation", dataset_name: "demo", columns: ["x", "y"]}')
+        return examples.get(
+            method, '{method: "correlation", dataset_name: "demo", columns: ["x", "y"]}'
+        )
 
     def _input_error(
         self,

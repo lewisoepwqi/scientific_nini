@@ -2610,7 +2610,11 @@ class AgentRunner:
         # 将模型上下文窗口信息传递给 session，供 ContextBuilder 选择 prompt profile
         if not hasattr(session, "_model_context_window"):
             _get_cw = getattr(self._resolver, "get_model_context_window", None)
-            session._model_context_window = _get_cw() if callable(_get_cw) else None
+            setattr(
+                session,
+                "_model_context_window",
+                _get_cw() if callable(_get_cw) else None,
+            )
         start_time = time.monotonic()
         messages, retrieval_event = await self._context_builder.build_messages_and_retrieval(
             session, context_ratio=self._context_ratio
@@ -3936,6 +3940,8 @@ class AgentRunner:
                 session,
                 tasks=tasks_list,
                 context=context_str,
+                turn_id=turn_id,
+                tool_call_id=tc_id,
             )
         except Exception as exc:
             error_msg = f"dispatch_agents 执行异常: {exc}"
@@ -4159,7 +4165,7 @@ class AgentRunner:
 
         # exploration/transformation 的代码只写入 executions/，不生成产物
         if purpose not in ("visualization", "export"):
-            ws = WorkspaceManager(session.id)
+            ws = WorkspaceManager(session)
             ws.save_code_execution(
                 code=code.rstrip(),
                 output="",
@@ -4172,7 +4178,7 @@ class AgentRunner:
             return None
 
         # visualization/export 保存为可交付产物，使用 label 命名
-        ws = WorkspaceManager(session.id)
+        ws = WorkspaceManager(session)
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         if label:
             filename = ws.sanitize_filename(f"{label}.{file_ext}", default_name=f"code.{file_ext}")
@@ -4182,7 +4188,7 @@ class AgentRunner:
                 default_name=f"{func_name}.{file_ext}",
             )
 
-        storage = ArtifactStorage(session.id)
+        storage = ArtifactStorage(session)
         path = storage.save_text(code.rstrip() + "\n", filename)
         ws.add_artifact_record(
             name=filename,

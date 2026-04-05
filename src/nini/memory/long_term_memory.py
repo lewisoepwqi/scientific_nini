@@ -24,6 +24,15 @@ from nini.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _format_statistic_significance(significant: bool | None) -> str:
+    """格式化统计显著性标签。"""
+    if significant is True:
+        return "显著"
+    if significant is False:
+        return "不显著"
+    return "未判定"
+
+
 @dataclass
 class LongTermMemoryEntry:
     """长期记忆条目。
@@ -646,20 +655,33 @@ async def consolidate_session_memories(session_id: str) -> int:
             for stat in memory.statistics:
                 if stat.ltm_id:  # 第一层：已沉淀，跳过
                     continue
-                importance = 0.8 if stat.significant else 0.6
+                if stat.significant is True:
+                    importance = 0.8
+                elif stat.significant is False:
+                    importance = 0.6
+                else:
+                    importance = 0.45
                 entry = store.add_memory(
                     memory_type="statistic",
                     content=(
                         f"{stat.test_name}: "
                         f"统计量={stat.test_statistic}, p={stat.p_value}, "
-                        f"效应量={stat.effect_size}, 显著={stat.significant}"
+                        f"效应量={stat.effect_size}, 显著={_format_statistic_significance(stat.significant)}"
                     ),
-                    summary=f"{stat.test_name} 结果({'显著' if stat.significant else '不显著'})",
+                    summary=f"{stat.test_name} 结果（{_format_statistic_significance(stat.significant)}）",
                     source_session_id=session_id,
                     source_dataset=memory.dataset_name,
                     analysis_type=stat.test_name,
                     importance_score=importance,
                     tags=["statistic", stat.test_name],
+                    metadata={
+                        "significant": stat.significant,
+                        "sample_size": (
+                            stat.metadata.get("sample_size")
+                            if isinstance(stat.metadata, dict)
+                            else None
+                        ),
+                    },
                 )
                 if entry is not None:
                     stat.ltm_id = entry.id  # 第一层：标记已沉淀

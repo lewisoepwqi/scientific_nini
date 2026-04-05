@@ -79,6 +79,7 @@ class CompletionEvidence(BaseModel):
     user_confirmation_pending: bool = False
     transitional_output: bool = False
     pending_actions: list[dict[str, Any]] = Field(default_factory=list)
+    blocking_pending_actions: list[dict[str, Any]] = Field(default_factory=list)
     remaining_tasks: int = 0
     task_completion_ratio: float = 1.0
 

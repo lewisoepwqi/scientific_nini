@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -71,6 +72,57 @@ async def get_session(session_id: str) -> APIResponse:
             "recipe_id": session.recipe_id,
             "recipe_inputs": session.recipe_inputs,
             "deep_task_state": session.deep_task_state,
+        },
+    )
+
+
+@router.get("/{session_id}/agent-runs", response_model=APIResponse)
+async def get_session_agent_runs(
+    session_id: str,
+    turn_id: str | None = Query(default=None, description="按根回合过滤"),
+) -> APIResponse:
+    """读取会话的运行线程事件。"""
+    _get_existing_session_or_404(session_id)
+    normalized_turn_id = (turn_id or "").strip() or None
+    events = session_manager.load_agent_run_events(session_id, turn_id=normalized_turn_id)
+
+    runs: dict[str, dict[str, Any]] = {}
+    for event in events:
+        metadata = event.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        run_id = metadata.get("run_id")
+        if not isinstance(run_id, str) or not run_id.strip():
+            continue
+        entry = runs.setdefault(
+            run_id,
+            {
+                "run_id": run_id,
+                "run_scope": metadata.get("run_scope"),
+                "parent_run_id": metadata.get("parent_run_id"),
+                "agent_id": metadata.get("agent_id"),
+                "agent_name": metadata.get("agent_name"),
+                "attempt": metadata.get("attempt"),
+                "turn_id": metadata.get("turn_id") or event.get("turn_id"),
+                "latest_phase": metadata.get("phase"),
+                "updated_at": event.get("_ts"),
+            },
+        )
+        if metadata.get("phase"):
+            entry["latest_phase"] = metadata.get("phase")
+        entry["updated_at"] = event.get("_ts")
+
+    return APIResponse(
+        success=True,
+        data={
+            "session_id": session_id,
+            "turn_id": normalized_turn_id,
+            "runs": sorted(
+                runs.values(),
+                key=lambda item: str(item.get("updated_at") or ""),
+                reverse=True,
+            ),
+            "events": events,
         },
     )
 

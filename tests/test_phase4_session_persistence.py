@@ -418,6 +418,73 @@ def test_get_session_detail_message_count_includes_archived_history(
     assert payload["data"]["message_count"] == total_before
 
 
+def test_get_session_agent_runs_returns_runs_and_events(client: LocalASGIClient) -> None:
+    """agent-runs 端点应同时返回原始事件与按 run_id 聚合的摘要。"""
+    resp = client.post("/api/sessions")
+    assert resp.status_code == 201
+    session_id = resp.json()["data"]["session_id"]
+
+    session_manager.append_agent_run_event(
+        session_id,
+        {
+            "type": "agent_progress",
+            "turn_id": "turn-agent-1",
+            "data": {"event_type": "agent_progress", "message": "处理中"},
+            "metadata": {
+                "run_scope": "subagent",
+                "run_id": "agent:turn-agent-1:statistician:1",
+                "parent_run_id": "dispatch:call-1",
+                "agent_id": "statistician",
+                "agent_name": "统计分析",
+                "attempt": 1,
+                "phase": "thinking",
+                "turn_id": "turn-agent-1",
+            },
+        },
+    )
+    session_manager.append_agent_run_event(
+        session_id,
+        {
+            "type": "dispatch_agents_result",
+            "turn_id": "turn-agent-1",
+            "data": {
+                "task_count": 1,
+                "routed_agents": ["statistician"],
+                "subtasks": [],
+            },
+            "metadata": {
+                "run_scope": "dispatch",
+                "run_id": "dispatch:call-1",
+                "parent_run_id": "root:turn-agent-1",
+                "agent_id": "dispatch_agents",
+                "agent_name": "dispatch_agents",
+                "attempt": 1,
+                "phase": "fused",
+                "turn_id": "turn-agent-1",
+            },
+        },
+    )
+
+    agent_runs_resp = client.get(f"/api/sessions/{session_id}/agent-runs?turn_id=turn-agent-1")
+    assert agent_runs_resp.status_code == 200
+    payload = agent_runs_resp.json()
+    assert payload["success"] is True
+    data = payload["data"]
+    assert data["session_id"] == session_id
+    assert data["turn_id"] == "turn-agent-1"
+    assert len(data["events"]) == 2
+    assert len(data["runs"]) == 2
+
+    dispatch_run = next(item for item in data["runs"] if item["run_id"] == "dispatch:call-1")
+    child_run = next(
+        item for item in data["runs"] if item["run_id"] == "agent:turn-agent-1:statistician:1"
+    )
+    assert dispatch_run["run_scope"] == "dispatch"
+    assert dispatch_run["latest_phase"] == "fused"
+    assert child_run["agent_name"] == "统计分析"
+    assert child_run["parent_run_id"] == "dispatch:call-1"
+
+
 # ---- GET /api/sessions/{session_id}/messages 端点测试 ----
 
 

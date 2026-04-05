@@ -404,7 +404,7 @@ class DatasetTransformTool(Tool):
                     "minimal_example": '{"operation":"run","dataset_name":"demo","steps":[{"id":"dedup","op":"deduplicate","params":{}}]}',
                 },
             )
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         resource = manager.get_resource_summary(transform_id)
         return ToolResult(
             success=True,
@@ -613,7 +613,7 @@ class DatasetTransformTool(Tool):
         df: pd.DataFrame,
     ) -> dict[str, Any]:
         session.datasets[output_name] = df
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         dataset_id = uuid.uuid4().hex[:12]
         path = manager.build_managed_resource_path(
             ResourceType.DATASET,
@@ -642,7 +642,7 @@ class DatasetTransformTool(Tool):
         steps: list[dict[str, Any]],
         output_dataset_name: str,
     ) -> dict[str, Any]:
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         path = manager.build_managed_resource_path(
             ResourceType.STAT_RESULT,
             f"{transform_id}.json",
@@ -667,7 +667,7 @@ class DatasetTransformTool(Tool):
         )
 
     def _load_transform_plan(self, session: Session, transform_id: str) -> dict[str, Any] | None:
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         path = manager.build_managed_resource_path(
             ResourceType.STAT_RESULT,
             f"{transform_id}.json",

@@ -456,7 +456,11 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         payload = {
             "stage": policy["stage"],
             "tools": registry.list_tools(),
-            "skills": [str(item.get("name", "")).strip() for item in markdown_items if item.get("enabled", True)],
+            "skills": [
+                str(item.get("name", "")).strip()
+                for item in markdown_items
+                if item.get("enabled", True)
+            ],
             "visible_tools": policy["visible_tools"],
             "removed_tools": policy["removed_by_policy"],
             "high_risk_tools": policy["high_risk_tools"],

@@ -16,7 +16,6 @@ import pytest
 
 from nini.tools.markdown_scanner import scan_markdown_tools
 
-
 # ---------------------------------------------------------------------------
 # 工具函数：拓扑排序（Kahn 算法），返回步骤 id 有序列表
 # ---------------------------------------------------------------------------
@@ -59,9 +58,9 @@ class TestExperimentDesignSkillDiscovery:
         skills_dir = Path(__file__).parent.parent / ".nini" / "skills"
         skills = scan_markdown_tools(skills_dir)
         names = [s.name for s in skills]
-        assert "experiment_design_helper" in names or "experiment-design-helper" in names, (
-            f"期望找到 experiment_design_helper，实际找到: {names}"
-        )
+        assert (
+            "experiment_design_helper" in names or "experiment-design-helper" in names
+        ), f"期望找到 experiment_design_helper，实际找到: {names}"
 
     def test_skill_frontmatter_fields(self) -> None:
         """experiment-design-helper Skill 的 frontmatter 包含必要字段。"""
@@ -77,9 +76,9 @@ class TestExperimentDesignSkillDiscovery:
         )
         assert skill is not None, "experiment-design-helper skill 未找到"
         assert skill.description, "description 不能为空"
-        assert skill.category == "experiment_design", (
-            f"期望 category=experiment_design，实际: {skill.category}"
-        )
+        assert (
+            skill.category == "experiment_design"
+        ), f"期望 category=experiment_design，实际: {skill.category}"
 
     def test_skill_has_instruction_body(self) -> None:
         """SKILL.md 正文（工作流说明）不能为空。"""
@@ -132,18 +131,18 @@ class TestSkillContract:
 
         contract = skill.metadata.get("contract")
         assert contract is not None, "contract 字段未解析，检查 SKILL.md 的 frontmatter"
-        assert isinstance(contract, SkillContract), (
-            f"contract 类型错误，期望 SkillContract，实际: {type(contract)}"
-        )
+        assert isinstance(
+            contract, SkillContract
+        ), f"contract 类型错误，期望 SkillContract，实际: {type(contract)}"
 
     def test_contract_has_four_steps(self, skill) -> None:
         """contract 应包含 4 个步骤。"""
         from nini.models.skill_contract import SkillContract
 
         contract: SkillContract = skill.metadata["contract"]
-        assert len(contract.steps) == 4, (
-            f"期望 4 个步骤，实际: {len(contract.steps)}。步骤 id: {[s.id for s in contract.steps]}"
-        )
+        assert (
+            len(contract.steps) == 4
+        ), f"期望 4 个步骤，实际: {len(contract.steps)}。步骤 id: {[s.id for s in contract.steps]}"
 
     def test_contract_trust_ceiling_is_t1(self, skill) -> None:
         """contract 的 trust_ceiling 应为 t1。"""
@@ -151,9 +150,9 @@ class TestSkillContract:
         from nini.models.skill_contract import SkillContract
 
         contract: SkillContract = skill.metadata["contract"]
-        assert contract.trust_ceiling == TrustLevel.T1, (
-            f"期望 trust_ceiling=t1，实际: {contract.trust_ceiling}"
-        )
+        assert (
+            contract.trust_ceiling == TrustLevel.T1
+        ), f"期望 trust_ceiling=t1，实际: {contract.trust_ceiling}"
 
     def test_step_ids_are_correct(self, skill) -> None:
         """contract 的四个步骤 id 应为预期值。"""
@@ -162,9 +161,7 @@ class TestSkillContract:
         contract: SkillContract = skill.metadata["contract"]
         step_ids = {s.id for s in contract.steps}
         expected_ids = {"define_problem", "choose_design", "calculate_params", "generate_plan"}
-        assert step_ids == expected_ids, (
-            f"步骤 id 不匹配。期望: {expected_ids}，实际: {step_ids}"
-        )
+        assert step_ids == expected_ids, f"步骤 id 不匹配。期望: {expected_ids}，实际: {step_ids}"
 
     def test_topological_order_is_correct(self, skill) -> None:
         """拓扑排序结果应为 define_problem → choose_design → calculate_params → generate_plan。"""
@@ -174,22 +171,16 @@ class TestSkillContract:
         order = _topological_sort(contract.steps)
 
         expected_order = ["define_problem", "choose_design", "calculate_params", "generate_plan"]
-        assert order == expected_order, (
-            f"步骤顺序不正确。期望: {expected_order}，实际: {order}"
-        )
+        assert order == expected_order, f"步骤顺序不正确。期望: {expected_order}，实际: {order}"
 
     def test_generate_plan_has_review_gate(self, skill) -> None:
         """generate_plan 步骤的 review_gate 应为 True。"""
         from nini.models.skill_contract import SkillContract
 
         contract: SkillContract = skill.metadata["contract"]
-        generate_plan_step = next(
-            (s for s in contract.steps if s.id == "generate_plan"), None
-        )
+        generate_plan_step = next((s for s in contract.steps if s.id == "generate_plan"), None)
         assert generate_plan_step is not None, "未找到 generate_plan 步骤"
-        assert generate_plan_step.review_gate is True, (
-            "generate_plan 步骤的 review_gate 应为 True"
-        )
+        assert generate_plan_step.review_gate is True, "generate_plan 步骤的 review_gate 应为 True"
 
     def test_non_generate_plan_steps_have_no_review_gate(self, skill) -> None:
         """其他步骤的 review_gate 应为 False。"""
@@ -198,9 +189,9 @@ class TestSkillContract:
         contract: SkillContract = skill.metadata["contract"]
         for step in contract.steps:
             if step.id != "generate_plan":
-                assert step.review_gate is False, (
-                    f"步骤 '{step.id}' 的 review_gate 应为 False，实际为 True"
-                )
+                assert (
+                    step.review_gate is False
+                ), f"步骤 '{step.id}' 的 review_gate 应为 False，实际为 True"
 
     def test_linear_dag_dependencies(self, skill) -> None:
         """验证线性 DAG 依赖关系正确。"""
@@ -210,15 +201,9 @@ class TestSkillContract:
         deps: dict[str, list[str]] = {s.id: s.depends_on for s in contract.steps}
 
         assert deps["define_problem"] == [], "define_problem 不应有前置依赖"
-        assert "define_problem" in deps["choose_design"], (
-            "choose_design 应依赖 define_problem"
-        )
-        assert "choose_design" in deps["calculate_params"], (
-            "calculate_params 应依赖 choose_design"
-        )
-        assert "calculate_params" in deps["generate_plan"], (
-            "generate_plan 应依赖 calculate_params"
-        )
+        assert "define_problem" in deps["choose_design"], "choose_design 应依赖 define_problem"
+        assert "choose_design" in deps["calculate_params"], "calculate_params 应依赖 choose_design"
+        assert "calculate_params" in deps["generate_plan"], "generate_plan 应依赖 calculate_params"
 
     def test_all_steps_trust_level_within_ceiling(self, skill) -> None:
         """所有步骤的 trust_level 不应超过 trust_ceiling=t1。"""
@@ -228,6 +213,6 @@ class TestSkillContract:
         contract: SkillContract = skill.metadata["contract"]
         # 验证所有步骤的 trust_level 为 t1（SkillContract model_validator 已检验，此处双重确认）
         for step in contract.steps:
-            assert step.trust_level == TrustLevel.T1, (
-                f"步骤 '{step.id}' 的 trust_level '{step.trust_level}' 超过了 ceiling t1"
-            )
+            assert (
+                step.trust_level == TrustLevel.T1
+            ), f"步骤 '{step.id}' 的 trust_level '{step.trust_level}' 超过了 ceiling t1"

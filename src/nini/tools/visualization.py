@@ -164,8 +164,8 @@ class CreateChartTool(Tool):
                 "style_key": style_spec.style_key,
             }
 
-            ws = WorkspaceManager(session.id)
-            storage = ArtifactStorage(session.id)
+            ws = WorkspaceManager(session)
+            storage = ArtifactStorage(session)
             # 默认保持兼容：先保存 plotly json 产物
             if title and title.strip():
                 base_name = ws.sanitize_filename(

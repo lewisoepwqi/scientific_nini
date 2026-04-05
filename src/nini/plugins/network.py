@@ -13,7 +13,7 @@ from nini.plugins.base import DegradationInfo, Plugin
 logger = logging.getLogger(__name__)
 
 _SEMANTIC_SCHOLAR_PROBE_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
-_SEMANTIC_SCHOLAR_PROBE_PARAMS = {
+_SEMANTIC_SCHOLAR_PROBE_PARAMS: dict[str, str | int] = {
     "query": "test",
     "limit": 1,
     "fields": "title",
@@ -57,11 +57,14 @@ class NetworkPlugin(Plugin):
 
         try:
             proxy = settings.network_proxy
-            # httpx 代理参数：字典形式或 None
-            proxies = {"http://": proxy, "https://": proxy} if proxy else None
             timeout = settings.network_timeout
 
-            async with httpx.AsyncClient(proxies=proxies, timeout=timeout) as client:
+            client = (
+                httpx.AsyncClient(proxy=proxy, timeout=timeout)
+                if proxy
+                else httpx.AsyncClient(timeout=timeout)
+            )
+            async with client:
                 response = await client.head(settings.network_probe_url)
                 if response.status_code >= 500:
                     return False
@@ -84,11 +87,11 @@ class NetworkPlugin(Plugin):
         from nini.config import settings
 
         proxy = settings.network_proxy
-        proxies = {"http://": proxy, "https://": proxy} if proxy else None
         # 保存长连接客户端供后续工具使用
-        self._client = httpx.AsyncClient(
-            proxies=proxies,
-            timeout=settings.network_timeout,
+        self._client = (
+            httpx.AsyncClient(proxy=proxy, timeout=settings.network_timeout)
+            if proxy
+            else httpx.AsyncClient(timeout=settings.network_timeout)
         )
         logger.info("NetworkPlugin HTTP 客户端已初始化（代理: %s）", proxy or "无")
 

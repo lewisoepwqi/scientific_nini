@@ -56,6 +56,7 @@ class EventType(str, Enum):
     AGENT_PROGRESS = "agent_progress"  # 子 Agent 执行进度（Phase 2 payload 规划）
     AGENT_COMPLETE = "agent_complete"  # 子 Agent 成功完成
     AGENT_ERROR = "agent_error"  # 子 Agent 执行失败（含超时）
+    AGENT_STOPPED = "agent_stopped"  # 子 Agent 被用户主动终止
     WORKFLOW_STATUS = "workflow_status"  # 工作流整体状态（Phase 2 payload 规划）
 
     # Hypothesis-Driven 范式事件类型（Phase 3）

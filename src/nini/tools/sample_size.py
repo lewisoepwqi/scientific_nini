@@ -129,7 +129,9 @@ class SampleSizeTool(Tool):
                 message="缺少必要参数：design_type（实验设计类型）",
             )
 
-        if effect_size is None and not (design_type == "proportion" and p1 is not None and p2 is not None):
+        if effect_size is None and not (
+            design_type == "proportion" and p1 is not None and p2 is not None
+        ):
             return ToolResult(
                 success=False,
                 message="缺少必要参数：effect_size（效应量）。"
@@ -239,9 +241,7 @@ class SampleSizeTool(Tool):
             ),
         )
 
-    def _anova(
-        self, effect_size: float, alpha: float, power: float, groups: int
-    ) -> ToolResult:
+    def _anova(self, effect_size: float, alpha: float, power: float, groups: int) -> ToolResult:
         """多组均值比较（单因素 ANOVA）样本量计算。"""
         from statsmodels.stats.power import FTestAnovaPower
 
