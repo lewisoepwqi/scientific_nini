@@ -11,11 +11,16 @@ sets:
         recipe_id: literature_review
         expected_status: completed
         required: true
-        user_request: 帮我围绕“肠道菌群与抑郁症”做一份综述提纲，并列出优先检索方向。
+        user_request: 帮我围绕"肠道菌群与抑郁症"做一份综述提纲，并列出优先检索方向。
         recipe_inputs:
           topic: 肠道菌群与抑郁症
           scope: 近五年临床研究
           output_goal: 开题汇报提纲
+        expected_tools:
+          - search_literature
+          - task_state
+          - collect_artifacts
+        expected_tools_mode: subset
       - benchmark_id: experiment_plan_success
         recipe_id: experiment_plan
         expected_status: completed
@@ -25,6 +30,10 @@ sets:
           research_question: 睡眠干预是否能改善焦虑症状
           population: 轻中度焦虑成人
           output_goal: 可执行实验方案
+        expected_tools:
+          - sample_size
+          - task_state
+        expected_tools_mode: subset
       - benchmark_id: results_interpretation_success
         recipe_id: results_interpretation
         expected_status: completed
@@ -34,6 +43,10 @@ sets:
           dataset_summary: 干预前后量表得分与基线特征
           focus_metric: 抑郁量表总分变化
           output_goal: 结果解读摘要
+        expected_tools:
+          - stat_test
+          - task_state
+        expected_tools_mode: subset
   full:
     description: 扩展基准，当前先与 smoke 对齐，后续再扩充更多恢复与边界案例
     cases:
@@ -41,11 +54,16 @@ sets:
         recipe_id: literature_review
         expected_status: completed
         required: true
-        user_request: 帮我围绕“肠道菌群与抑郁症”做一份综述提纲，并列出优先检索方向。
+        user_request: 帮我围绕"肠道菌群与抑郁症"做一份综述提纲，并列出优先检索方向。
         recipe_inputs:
           topic: 肠道菌群与抑郁症
           scope: 近五年临床研究
           output_goal: 开题汇报提纲
+        expected_tools:
+          - search_literature
+          - task_state
+          - collect_artifacts
+        expected_tools_mode: subset
       - benchmark_id: experiment_plan_success
         recipe_id: experiment_plan
         expected_status: completed
@@ -55,6 +73,10 @@ sets:
           research_question: 睡眠干预是否能改善焦虑症状
           population: 轻中度焦虑成人
           output_goal: 可执行实验方案
+        expected_tools:
+          - sample_size
+          - task_state
+        expected_tools_mode: subset
       - benchmark_id: results_interpretation_success
         recipe_id: results_interpretation
         expected_status: completed
@@ -64,3 +86,7 @@ sets:
           dataset_summary: 干预前后量表得分与基线特征
           focus_metric: 抑郁量表总分变化
           output_goal: 结果解读摘要
+        expected_tools:
+          - stat_test
+          - task_state
+        expected_tools_mode: subset

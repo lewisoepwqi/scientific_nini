@@ -119,6 +119,16 @@ class HarnessBudgetWarning(BaseModel):
     timestamp: str = Field(default_factory=utc_now_iso)
 
 
+class ToolCallEntry(BaseModel):
+    """单次工具调用记录，用于工具调用质量评估。"""
+
+    tool_name: str
+    arguments_hash: str = ""
+    result_status: str = ""  # success / error / pending
+    stage: str = ""  # profile / analysis / export
+    timestamp: str = Field(default_factory=utc_now_iso)
+
+
 class HarnessTaskMetrics(BaseModel):
     """deep task 关键指标摘要。"""
 
@@ -129,6 +139,7 @@ class HarnessTaskMetrics(BaseModel):
     step_durations_ms: dict[str, int] = Field(default_factory=dict)
     recovery_count: int = 0
     tool_call_count: int = 0
+    tool_call_sequence: list[ToolCallEntry] = Field(default_factory=list)
     failure_types: list[str] = Field(default_factory=list)
     budget_warnings: list[HarnessBudgetWarning] = Field(default_factory=list)
 

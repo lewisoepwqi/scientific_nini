@@ -25,7 +25,7 @@ from nini.agent.runner import AgentRunner
 from nini.agent.session import Session
 from nini.config import settings
 from nini.config_manager import get_active_provider_id, list_user_configured_provider_ids
-from nini.harness.models import HarnessRunSummary, HarnessTraceRecord
+from nini.harness.models import HarnessRunSummary, HarnessTraceRecord, ToolCallEntry
 from nini.harness.runner import HarnessRunner
 from nini.harness.store import HarnessTraceStore
 from nini.models.database import init_db
@@ -56,6 +56,11 @@ TSV_COLUMNS = [
     "median_input_tokens",
     "median_output_tokens",
     "median_tool_calls",
+    "median_tool_precision",
+    "median_tool_recall",
+    "median_tool_f1",
+    "median_redundant_call_rate",
+    "first_tool_accuracy",
     "prompt_profiles",
     "prompt_truncated_runs",
     "prompt_truncation_rate",
@@ -79,6 +84,8 @@ class BenchmarkCase:
     required: bool = True
     user_request: str = ""
     recipe_inputs: dict[str, Any] | None = None
+    expected_tools: tuple[str, ...] = ()
+    expected_tools_mode: str = "subset"  # subset | exact | ordered
 
 
 @dataclass(frozen=True)
@@ -118,6 +125,68 @@ def _format_median(value: float) -> int | float:
     return rounded
 
 
+def compute_tool_call_quality(
+    actual_sequence: list[ToolCallEntry],
+    expected_tools: tuple[str, ...],
+    mode: str = "subset",
+) -> dict[str, float]:
+    """计算工具调用质量指标。
+
+    返回 dict 包含 tool_precision、tool_recall、tool_f1、
+    redundant_call_rate、first_tool_accuracy。
+    """
+    actual_names = [entry.tool_name for entry in actual_sequence if entry.tool_name]
+    actual_set = set(actual_names)
+    expected_set = set(expected_tools)
+
+    if not expected_set:
+        # 没有定义期望工具集时，无法计算 precision/recall，返回 N/A 值
+        seen: set[tuple[str, str]] = set()
+        redundant = 0
+        for entry in actual_sequence:
+            sig = (entry.tool_name, entry.arguments_hash)
+            if sig in seen:
+                redundant += 1
+            else:
+                seen.add(sig)
+        redundant_rate = redundant / len(actual_sequence) if actual_sequence else 0.0
+        return {
+            "tool_precision": -1.0,
+            "tool_recall": -1.0,
+            "tool_f1": -1.0,
+            "redundant_call_rate": round(redundant_rate, 4),
+            "first_tool_accuracy": -1.0,
+        }
+
+    # 交集
+    intersection = actual_set & expected_set
+    precision = len(intersection) / len(actual_set) if actual_set else 0.0
+    recall = len(intersection) / len(expected_set) if expected_set else 0.0
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+
+    # 冗余调用：同工具同参数重复
+    seen_sigs: set[tuple[str, str]] = set()
+    redundant_count = 0
+    for entry in actual_sequence:
+        sig = (entry.tool_name, entry.arguments_hash)
+        if sig in seen_sigs:
+            redundant_count += 1
+        else:
+            seen_sigs.add(sig)
+    redundant_rate = redundant_count / len(actual_sequence) if actual_sequence else 0.0
+
+    # 首次工具选择准确率
+    first_tool_hit = 1.0 if (actual_names and actual_names[0] in expected_set) else 0.0
+
+    return {
+        "tool_precision": round(precision, 4),
+        "tool_recall": round(recall, 4),
+        "tool_f1": round(f1, 4),
+        "redundant_call_rate": round(redundant_rate, 4),
+        "first_tool_accuracy": first_tool_hit,
+    }
+
+
 def _latest_by_recipe(summaries: list[HarnessRunSummary]) -> dict[str, HarnessRunSummary]:
     latest: dict[str, HarnessRunSummary] = {}
     for item in summaries:
@@ -148,6 +217,10 @@ def load_benchmark_set(
         recipe_id = str(item.get("recipe_id", "")).strip()
         if not recipe_id:
             continue
+        raw_expected_tools = item.get("expected_tools")
+        expected_tools: tuple[str, ...] = ()
+        if isinstance(raw_expected_tools, list):
+            expected_tools = tuple(str(t).strip() for t in raw_expected_tools if str(t).strip())
         cases.append(
             BenchmarkCase(
                 benchmark_id=str(item.get("benchmark_id", recipe_id)).strip() or recipe_id,
@@ -161,6 +234,10 @@ def load_benchmark_set(
                     if isinstance(item.get("recipe_inputs"), dict)
                     else None
                 ),
+                expected_tools=expected_tools,
+                expected_tools_mode=str(
+                    item.get("expected_tools_mode", "subset") or "subset"
+                ).strip(),
             )
         )
     if not cases:
@@ -195,6 +272,13 @@ def evaluate_benchmark_set_from_summaries(
     failure_counter: Counter[str] = Counter()
     sample_results: list[dict[str, Any]] = []
 
+    # 工具调用质量聚合列表
+    tool_precisions: list[float] = []
+    tool_recalls: list[float] = []
+    tool_f1s: list[float] = []
+    redundant_rates: list[float] = []
+    first_tool_hits: list[float] = []
+
     pass_count = 0
     blocked_count = 0
     failure_count = 0
@@ -214,6 +298,7 @@ def evaluate_benchmark_set_from_summaries(
         case_failure_tags: list[str] = []
         tool_call_count = 0
         prompt_audit: dict[str, Any] | None = None
+        tool_quality: dict[str, float] | None = None
         if matched is not None:
             durations.append(float(matched.duration_ms) / 1000.0)
             costs.append(float(matched.estimated_cost_usd))
@@ -232,6 +317,31 @@ def evaluate_benchmark_set_from_summaries(
                 record = None
             if record is not None and record.task_metrics is not None:
                 tool_call_count = int(record.task_metrics.tool_call_count or 0)
+                # 计算工具调用质量
+                tool_quality = compute_tool_call_quality(
+                    actual_sequence=record.task_metrics.tool_call_sequence,
+                    expected_tools=case.expected_tools,
+                    mode=case.expected_tools_mode,
+                )
+                # -1.0 表示 N/A（无 expected_tools 定义），不纳入聚合
+                if tool_quality["tool_precision"] >= 0:
+                    tool_precisions.append(tool_quality["tool_precision"])
+                if tool_quality["tool_recall"] >= 0:
+                    tool_recalls.append(tool_quality["tool_recall"])
+                if tool_quality["tool_f1"] >= 0:
+                    tool_f1s.append(tool_quality["tool_f1"])
+                if tool_quality["redundant_call_rate"] >= 0:
+                    redundant_rates.append(tool_quality["redundant_call_rate"])
+                if tool_quality["first_tool_accuracy"] >= 0:
+                    first_tool_hits.append(tool_quality["first_tool_accuracy"])
+                # 基于工具质量补充 failure_tag
+                if case.expected_tools and tool_quality["tool_recall"] >= 0:
+                    if tool_quality["tool_recall"] < 1.0:
+                        failure_counter.update(["missing_tool_call"])
+                        case_failure_tags.append("missing_tool_call")
+                    if tool_quality["redundant_call_rate"] > 0.3:
+                        failure_counter.update(["redundant_tool_call"])
+                        case_failure_tags.append("redundant_tool_call")
             if record is not None and isinstance(record.summary, dict):
                 raw_prompt_audit = record.summary.get("prompt_audit")
                 if isinstance(raw_prompt_audit, dict):
@@ -267,6 +377,7 @@ def evaluate_benchmark_set_from_summaries(
                 "actual_status": actual_status,
                 "failure_tags": case_failure_tags,
                 "tool_call_count": tool_call_count,
+                "tool_quality": tool_quality,
                 "prompt_audit": prompt_audit,
                 "passed": passed,
             }
@@ -291,6 +402,18 @@ def evaluate_benchmark_set_from_summaries(
         "median_input_tokens": _format_median(median(input_tokens)) if input_tokens else 0,
         "median_output_tokens": _format_median(median(output_tokens)) if output_tokens else 0,
         "median_tool_calls": _format_median(median(tool_calls)) if tool_calls else 0,
+        # 工具调用质量聚合指标
+        "median_tool_precision": (
+            _format_median(median(tool_precisions)) if tool_precisions else -1
+        ),
+        "median_tool_recall": (_format_median(median(tool_recalls)) if tool_recalls else -1),
+        "median_tool_f1": (_format_median(median(tool_f1s)) if tool_f1s else -1),
+        "median_redundant_call_rate": (
+            _format_median(median(redundant_rates)) if redundant_rates else 0
+        ),
+        "first_tool_accuracy": (
+            round(sum(first_tool_hits) / len(first_tool_hits), 4) if first_tool_hits else -1
+        ),
         "prompt_profiles": sorted(prompt_profiles),
         "prompt_truncated_runs": prompt_truncated_runs,
         "prompt_truncation_rate": (
@@ -717,6 +840,23 @@ def compare_against_baseline(metrics: dict[str, Any], baseline: dict[str, str]) 
             4,
         ),
     }
+    # 工具调用质量 delta（-1 表示 N/A，跳过比较）
+    current_f1 = float(metrics.get("median_tool_f1", -1))
+    baseline_f1 = _coerce_float(baseline, "median_tool_f1", -1.0)
+    if current_f1 >= 0 and baseline_f1 >= 0:
+        delta["median_tool_f1"] = round(current_f1 - baseline_f1, 4)
+    current_precision = float(metrics.get("median_tool_precision", -1))
+    baseline_precision = _coerce_float(baseline, "median_tool_precision", -1.0)
+    if current_precision >= 0 and baseline_precision >= 0:
+        delta["median_tool_precision"] = round(current_precision - baseline_precision, 4)
+    current_recall = float(metrics.get("median_tool_recall", -1))
+    baseline_recall = _coerce_float(baseline, "median_tool_recall", -1.0)
+    if current_recall >= 0 and baseline_recall >= 0:
+        delta["median_tool_recall"] = round(current_recall - baseline_recall, 4)
+    current_redundant = float(metrics.get("median_redundant_call_rate", 0))
+    baseline_redundant = _coerce_float(baseline, "median_redundant_call_rate")
+    delta["median_redundant_call_rate"] = round(current_redundant - baseline_redundant, 4)
+
     baseline_raw_tags = str(baseline.get("new_failure_tags", "[]") or "[]")
     try:
         parsed_baseline_tags = json.loads(baseline_raw_tags)
@@ -733,6 +873,8 @@ def compare_against_baseline(metrics: dict[str, Any], baseline: dict[str, str]) 
         suggestion = "discard"
     elif delta["pass_count"] > 0 or delta["blocked_count"] < 0 or delta["failure_count"] < 0:
         suggestion = "keep"
+    elif "median_tool_f1" in delta and delta["median_tool_f1"] > 0:
+        suggestion = "keep"
     elif (
         delta["median_cost_usd"] < 0
         or delta["median_duration_s"] < 0
@@ -740,6 +882,9 @@ def compare_against_baseline(metrics: dict[str, Any], baseline: dict[str, str]) 
     ):
         suggestion = "keep"
     else:
+        suggestion = "review"
+    # 工具 F1 显著退化时阻止 keep
+    if "median_tool_f1" in delta and delta["median_tool_f1"] < -0.05 and suggestion == "keep":
         suggestion = "review"
     if prompt_truncation_mismatch and suggestion == "keep":
         suggestion = "review"
@@ -778,6 +923,11 @@ def append_to_tsv(
         "median_input_tokens": metrics["median_input_tokens"],
         "median_output_tokens": metrics["median_output_tokens"],
         "median_tool_calls": metrics["median_tool_calls"],
+        "median_tool_precision": metrics.get("median_tool_precision", -1),
+        "median_tool_recall": metrics.get("median_tool_recall", -1),
+        "median_tool_f1": metrics.get("median_tool_f1", -1),
+        "median_redundant_call_rate": metrics.get("median_redundant_call_rate", 0),
+        "first_tool_accuracy": metrics.get("first_tool_accuracy", -1),
         "prompt_profiles": json.dumps(metrics.get("prompt_profiles", []), ensure_ascii=False),
         "prompt_truncated_runs": metrics["prompt_truncated_runs"],
         "prompt_truncation_rate": metrics["prompt_truncation_rate"],

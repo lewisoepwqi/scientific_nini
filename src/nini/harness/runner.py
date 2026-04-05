@@ -36,6 +36,7 @@ from nini.harness.models import (
     HarnessTaskMetrics,
     HarnessTraceEvent,
     HarnessTraceRecord,
+    ToolCallEntry,
 )
 from nini.harness.store import HarnessTraceStore
 
@@ -119,6 +120,9 @@ class HarnessRunner:
         completed = False
         recovery_count = 0
         tool_call_count = 0
+        tool_call_sequence: list[ToolCallEntry] = []
+        # tool_call_id → 序列索引，用于 TOOL_RESULT 回填状态
+        _pending_tool_calls: dict[str, int] = {}
         emitted_budget_levels: set[tuple[str, str]] = set()
 
         try:
@@ -170,6 +174,35 @@ class HarnessRunner:
 
                     if event.type == EventType.TOOL_CALL:
                         tool_call_count += 1
+                        # 记录工具调用序列条目
+                        call_tool_name = str(event.tool_name or "").strip()
+                        call_args_hash = ""
+                        call_id = ""
+                        if isinstance(event.data, dict):
+                            call_id = str(event.data.get("id", "") or "").strip()
+                            raw_args = event.data.get("arguments", "")
+                            if isinstance(raw_args, str) and raw_args.strip():
+                                import hashlib
+
+                                call_args_hash = hashlib.md5(raw_args.strip().encode()).hexdigest()[
+                                    :8
+                                ]
+                            elif isinstance(raw_args, dict):
+                                import hashlib
+
+                                call_args_hash = hashlib.md5(
+                                    json.dumps(raw_args, sort_keys=True).encode()
+                                ).hexdigest()[:8]
+                        entry = ToolCallEntry(
+                            tool_name=call_tool_name,
+                            arguments_hash=call_args_hash,
+                            result_status="pending",
+                            stage=run_context.tool_hints[0] if run_context.tool_hints else "",
+                        )
+                        seq_idx = len(tool_call_sequence)
+                        tool_call_sequence.append(entry)
+                        if call_id:
+                            _pending_tool_calls[call_id] = seq_idx
                         budget_event = self._build_budget_warning_if_needed(
                             trace=trace,
                             task_id=task_id,
@@ -235,6 +268,18 @@ class HarnessRunner:
                         run_context_emitted = True
 
                     if event.type == EventType.TOOL_RESULT:
+                        # 回填工具调用结果状态
+                        result_data = event.data if isinstance(event.data, dict) else {}
+                        result_call_id = str(
+                            event.tool_call_id or result_data.get("id", "") or ""
+                        ).strip()
+                        result_status = str(result_data.get("status", "success") or "success")
+                        if result_call_id and result_call_id in _pending_tool_calls:
+                            idx = _pending_tool_calls.pop(result_call_id)
+                            if idx < len(tool_call_sequence):
+                                tool_call_sequence[idx] = tool_call_sequence[idx].model_copy(
+                                    update={"result_status": result_status}
+                                )
                         recovery_event, blocked_state = self._handle_tool_result(
                             session=session,
                             event=event,
@@ -398,6 +443,7 @@ class HarnessRunner:
                 trace,
                 recovery_count=recovery_count,
                 tool_call_count=tool_call_count,
+                tool_call_sequence=tool_call_sequence,
             )
             runtime_snapshot = self._build_runtime_snapshot(
                 session=session,
@@ -1065,6 +1111,7 @@ class HarnessRunner:
         *,
         recovery_count: int,
         tool_call_count: int,
+        tool_call_sequence: list[ToolCallEntry] | None = None,
     ) -> HarnessTaskMetrics:
         step_durations_ms: dict[str, int] = {}
         for item in trace.stage_history:
@@ -1108,6 +1155,7 @@ class HarnessRunner:
             step_durations_ms=step_durations_ms,
             recovery_count=recovery_count,
             tool_call_count=tool_call_count,
+            tool_call_sequence=list(tool_call_sequence or []),
             failure_types=list(trace.failure_tags),
             budget_warnings=[item.model_copy(deep=True) for item in trace.budget_warnings],
         )
