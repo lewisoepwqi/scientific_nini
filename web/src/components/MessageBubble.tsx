@@ -284,6 +284,8 @@ function MessageBubble({
  retryDisabled = false,
 }: Props) {
  const completedAgents = useStore((s) => s.completedAgents);
+ const runGroupsByTurn = useStore((s) => s.runGroupsByTurn);
+ const selectAgentRun = useStore((s) => s.selectAgentRun);
  const isUser = message.role === "user";
  const isTool = message.role === "tool";
  const isReasoning = !!message.isReasoning;
@@ -496,6 +498,8 @@ function MessageBubble({
  const sourceAgents = isDispatchAgents && completedAgents.length > 0
  ? completedAgents.slice(0, 6)
  : [];
+ const relatedRunGroup = message.turnId ? runGroupsByTurn[message.turnId] : undefined;
+ const firstSubagentRunId = relatedRunGroup?.runIds.find((runId) => runId !== relatedRunGroup.rootRunId);
 
  return (
  <div className="flex gap-3 mb-3">
@@ -505,6 +509,19 @@ function MessageBubble({
  <Wrench size={14} />
  </div>
  <div className="flex-1 min-w-0">
+ {/* 快捷跳转到子 Agent 线程 */}
+ {isDispatchAgents && firstSubagentRunId && (
+ <div className="mb-2">
+ <Button
+ type="button"
+ size="sm"
+ variant="ghost"
+ onClick={() => selectAgentRun(firstSubagentRunId)}
+ >
+ 查看子 Agent 线程
+ </Button>
+ </div>
+ )}
  {/* 子 Agent 来源标签（仅 dispatch_agents 工具结果展示） */}
  {sourceAgents.length > 0 && (
  <div className="mb-1 flex flex-wrap gap-1">

@@ -1,5 +1,8 @@
 import '@testing-library/jest-dom'
 import { vi } from 'vitest'
+import { ensureBrowserGlobalAlias } from '../utils/browserCompat'
+
+ensureBrowserGlobalAlias()
 
 // Mock window.matchMedia
 Object.defineProperty(window, 'matchMedia', {
@@ -41,10 +44,10 @@ Object.defineProperty(window, 'ResizeObserver', {
 })
 
 // Mock fetch
-global.fetch = vi.fn()
+globalThis.fetch = vi.fn()
 
 // Mock WebSocket
-global.WebSocket = vi.fn(() => ({
+globalThis.WebSocket = vi.fn(() => ({
   send: vi.fn(),
   close: vi.fn(),
   addEventListener: vi.fn(),

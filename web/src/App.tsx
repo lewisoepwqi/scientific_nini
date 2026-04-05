@@ -44,8 +44,7 @@ const WorkspaceSidebar = lazy(() => import("./components/WorkspaceSidebar"));
 const MemoryPanel = lazy(() => import("./components/MemoryPanel"));
 
 /* ---- 懒加载：聊天面板附属组件 ---- */
-const AgentExecutionPanel = lazy(() => import("./components/AgentExecutionPanel"));
-const WorkflowTopology = lazy(() => import("./components/WorkflowTopology"));
+const AgentRunTabsPanel = lazy(() => import("./components/AgentRunTabsPanel"));
 const HypothesisTracker = lazy(() => import("./components/HypothesisTracker"));
 
 /* ---- 导航类型 ---- */
@@ -154,6 +153,7 @@ export default function App() {
   );
   const activeAgents = useStore((s) => s.activeAgents);
   const completedAgents = useStore((s) => s.completedAgents);
+  const agentRunTabs = useStore((s) => s.agentRunTabs);
   const hypotheses = useStore((s) => s.hypotheses);
 
   useEffect(() => {
@@ -409,13 +409,10 @@ export default function App() {
               </header>
 
               {/* 多 Agent 执行状态面板（WorkflowTopology 在 ≥2 个 Agent 时自动渲染） */}
-              {(Object.keys(activeAgents).length > 0 || completedAgents.length > 0) && (
-                <div className="px-4 pt-3 space-y-2">
+              {(agentRunTabs.length > 1 || Object.keys(activeAgents).length > 0 || completedAgents.length > 0) && (
+                <div className="px-4 pt-3">
                   <Suspense fallback={null}>
-                    <WorkflowTopology />
-                  </Suspense>
-                  <Suspense fallback={null}>
-                    <AgentExecutionPanel />
+                    <AgentRunTabsPanel />
                   </Suspense>
                 </div>
               )}

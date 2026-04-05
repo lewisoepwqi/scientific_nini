@@ -12,18 +12,21 @@ const STATUS_STYLES: Record<AgentInfo["status"], string> = {
  running: "bg-[var(--accent-subtle)] border-[var(--accent)] text-[var(--accent)]",
  completed: "bg-[var(--accent-subtle)] border-[var(--success)] text-[var(--success)]",
  error: "bg-[var(--accent-subtle)] border-[var(--error)] text-[var(--error)]",
+ stopped: "bg-[var(--bg-elevated)] border-[var(--text-muted)] text-[var(--text-secondary)]",
 };
 
 const STATUS_LABEL: Record<AgentInfo["status"], string> = {
  running: "运行中",
  completed: "完成",
  error: "失败",
+ stopped: "已终止",
 };
 
 const STATUS_DOT: Record<AgentInfo["status"], string> = {
  running: "bg-[var(--accent)] animate-pulse",
  completed: "bg-[var(--success)]",
  error: "bg-[var(--error)]",
+ stopped: "bg-[var(--text-muted)]",
 };
 
 interface AgentNodeProps {

@@ -232,6 +232,51 @@ export interface ToolResultEventData {
   data?: Record<string, unknown>;
 }
 
+export interface AgentStartEventData {
+  agent_id: string;
+  agent_name: string;
+  task: string;
+  attempt: number;
+  retry_count: number;
+}
+
+export interface AgentProgressEventData {
+  agent_id: string;
+  agent_name: string;
+  phase: string;
+  message: string;
+  progress_hint?: string | null;
+  attempt: number;
+  retry_count: number;
+}
+
+export interface AgentCompleteEventData {
+  agent_id: string;
+  agent_name: string;
+  summary: string;
+  execution_time_ms: number;
+  attempt: number;
+  retry_count: number;
+}
+
+export interface AgentErrorEventData {
+  agent_id: string;
+  agent_name: string;
+  error: string;
+  execution_time_ms: number;
+  attempt: number;
+  retry_count: number;
+}
+
+export interface AgentStoppedEventData {
+  agent_id: string;
+  agent_name: string;
+  reason: string;
+  execution_time_ms: number;
+  attempt: number;
+  retry_count: number;
+}
+
 // ---- 其他事件 ----
 
 /** TEXT 事件的数据结构 */
@@ -365,6 +410,11 @@ export type WSEventData =
   | SessionTokenUsageEventData
   | ToolCallEventData
   | ToolResultEventData
+  | AgentStartEventData
+  | AgentProgressEventData
+  | AgentCompleteEventData
+  | AgentErrorEventData
+  | AgentStoppedEventData
   | TextEventData
   | ErrorEventData
   | DoneEventData

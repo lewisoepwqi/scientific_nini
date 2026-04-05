@@ -75,6 +75,8 @@ export type {
   UserDisplayPreference,
   MessageBuffer,
   AgentInfo,
+  AgentRunThread,
+  AgentRunGroup,
 } from "./store/types";
 
 import type {
@@ -115,6 +117,8 @@ import type {
   DisplayPreference,
   MessageBuffer,
   AgentInfo,
+  AgentRunThread,
+  AgentRunGroup,
 } from "./store/types";
 
 // ---- Agent 切片导入 ----
@@ -284,6 +288,12 @@ export interface AppState {
   // 多 Agent 执行状态
   activeAgents: Record<string, AgentInfo>;
   completedAgents: AgentInfo[];
+  agentRuns: Record<string, AgentRunThread>;
+  agentRunTabs: string[];
+  selectedRunId: string | null;
+  unreadByRun: Record<string, number>;
+  runGroupsByTurn: Record<string, AgentRunGroup>;
+  lastViewedRunIdBySession: Record<string, string>;
 
   // Hypothesis-Driven 范式状态
   hypotheses: import("./store/types").HypothesisInfo[];
@@ -390,6 +400,8 @@ export interface AppState {
     mode: AskUserQuestionNotificationPreference,
   ) => void;
   setDisplayPreference: (mode: DisplayPreference) => void;
+  selectAgentRun: (runId: string | null) => void;
+  stopAgentRun: (runId: string, agentId: string) => void;
 }
 
 // ============================================================================
@@ -431,6 +443,11 @@ const SESSION_RESET_STATE = {
   skillExecution: null as SkillExecutionState | null,
   currentIntentAnalysis: null as IntentAnalysisView | null,
   composerDraft: "",
+  agentRuns: {} as Record<string, AgentRunThread>,
+  agentRunTabs: [] as string[],
+  selectedRunId: null as string | null,
+  unreadByRun: {} as Record<string, number>,
+  runGroupsByTurn: {} as Record<string, AgentRunGroup>,
 };
 
 function resolveCurrentPendingAskUserQuestion(
@@ -1009,6 +1026,41 @@ export const useStore = create<AppState>((set, get) => ({
     }));
   },
 
+  selectAgentRun(runId: string | null) {
+    set((s) => ({
+      selectedRunId: runId,
+      unreadByRun: runId
+        ? {
+            ...s.unreadByRun,
+            [runId]: 0,
+          }
+        : s.unreadByRun,
+      ...(s.sessionId && runId
+        ? {
+            lastViewedRunIdBySession: {
+              ...s.lastViewedRunIdBySession,
+              [s.sessionId]: runId,
+            },
+          }
+        : {}),
+    }));
+  },
+
+  stopAgentRun(runId: string, agentId: string) {
+    const { ws, sessionId } = get();
+    if (!ws || ws.readyState !== WebSocket.OPEN || !sessionId) return;
+    ws.send(
+      JSON.stringify({
+        type: "stop_agent",
+        session_id: sessionId,
+        metadata: {
+          run_id: runId,
+          agent_id: agentId,
+        },
+      }),
+    );
+  },
+
   async retryLastTurn() {
     const { ws, sessionId, messages, isStreaming } = get();
     if (isStreaming) return;
@@ -1389,6 +1441,18 @@ export const useStore = create<AppState>((set, get) => ({
       cachedSessionUi && shouldUseCachedUi
         ? clonePlanProgress(cachedSessionUi.analysisPlanProgress)
         : restored.analysisPlanProgress;
+    const restoredAgentRuns =
+      cachedSessionUi && shouldUseCachedUi ? { ...cachedSessionUi.agentRuns } : {};
+    const restoredAgentRunTabs =
+      cachedSessionUi && shouldUseCachedUi ? [...cachedSessionUi.agentRunTabs] : [];
+    const restoredSelectedRunId =
+      cachedSessionUi && shouldUseCachedUi ? cachedSessionUi.selectedRunId : null;
+    const restoredUnreadByRun =
+      cachedSessionUi && shouldUseCachedUi ? { ...cachedSessionUi.unreadByRun } : {};
+    const restoredRunGroups =
+      cachedSessionUi && shouldUseCachedUi ? { ...cachedSessionUi.runGroupsByTurn } : {};
+    const persistedAgentRunEvents =
+      !shouldUseCachedUi ? await api.fetchSessionAgentRuns(targetSessionId) : [];
 
     await preloadRenderersForMessages(restoredMessages);
     if (requestSeq !== sessionSwitchRequestSeq) {
@@ -1467,6 +1531,11 @@ export const useStore = create<AppState>((set, get) => ({
           cachedSessionUi && shouldUseCachedUi
             ? { ...cachedSessionUi.planActionTaskMap }
             : {},
+        agentRuns: restoredAgentRuns,
+        agentRunTabs: restoredAgentRunTabs,
+        selectedRunId: restoredSelectedRunId,
+        unreadByRun: restoredUnreadByRun,
+        runGroupsByTurn: restoredRunGroups,
         _streamingMetrics: restoredStreamingMetrics,
         tokenUsage:
           cachedSessionUi && shouldUseCachedUi
@@ -1483,6 +1552,15 @@ export const useStore = create<AppState>((set, get) => ({
       get().fetchFolders(),
       get().fetchTokenUsage(targetSessionId),
     ]);
+    if (
+      !shouldUseCachedUi &&
+      requestSeq === sessionSwitchRequestSeq &&
+      get().sessionId === targetSessionId
+    ) {
+      for (const rawEvent of persistedAgentRunEvents) {
+        await handleEvent(rawEvent as WSEvent, set, get);
+      }
+    }
   },
 
   async deleteSession(targetSessionId: string) {
