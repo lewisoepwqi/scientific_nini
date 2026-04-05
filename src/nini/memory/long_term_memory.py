@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -134,12 +135,12 @@ class LongTermMemoryStore:
         logger.info(f"已加载 {len(self._entries)} 条长期记忆")
 
     def _save_entries(self) -> None:
-        """保存所有记忆条目。"""
+        """保存所有记忆条目（原子写入：先写临时文件再 rename，避免崩溃导致数据丢失）。"""
         entries_file = self._storage_dir / "entries.jsonl"
-        lines = []
-        for entry in self._entries.values():
-            lines.append(json.dumps(entry.to_dict(), ensure_ascii=False))
-        entries_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        tmp_file = entries_file.with_suffix(".jsonl.tmp")
+        lines = [json.dumps(entry.to_dict(), ensure_ascii=False) for entry in self._entries.values()]
+        tmp_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        os.replace(tmp_file, entries_file)
 
     async def initialize(self) -> None:
         """初始化向量存储。"""
