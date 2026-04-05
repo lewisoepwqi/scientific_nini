@@ -124,8 +124,11 @@ def _rscript_binary() -> str:
 
 
 def _extract_required_packages(code: str) -> set[str]:
+    """从 R 代码中提取 library()/require() 引用的包名（仅从非注释行提取）。"""
+    # 先剥离 R 单行注释（# 开头），防止注释中的 library(...) 触发自动安装
+    code_no_comments = re.sub(r"#[^\n]*", "", code)
     packages: set[str] = set()
-    for matched in _PACKAGE_REF_RE.finditer(code):
+    for matched in _PACKAGE_REF_RE.finditer(code_no_comments):
         pkg = matched.group(1)
         if pkg:
             packages.add(pkg)
@@ -302,8 +305,7 @@ on.exit({{ try(grDevices::dev.off(), silent = TRUE) }}, add = TRUE)
 
 err_msg <- NULL
 tryCatch({{
-  user_code <- paste(readLines(user_code_path, warn = FALSE, encoding = "UTF-8"), collapse = "\\n")
-  eval(parse(text = user_code), envir = .GlobalEnv)
+  source(user_code_path, local = FALSE, encoding = "UTF-8")
 }}, error = function(e) {{
   err_msg <<- conditionMessage(e)
 }})
@@ -412,12 +414,19 @@ class RSandboxExecutor:
         dataset_name: str | None = None,
         persist_df: bool = False,
     ) -> dict[str, Any]:
-        return self._execute_sync(
-            code=code,
-            session_id=session_id,
-            datasets=datasets,
-            dataset_name=dataset_name,
-            persist_df=persist_df,
+        """异步执行入口：在线程池中运行同步逻辑，避免阻塞 asyncio 事件循环。"""
+        import asyncio
+        import functools
+
+        return await asyncio.to_thread(
+            functools.partial(
+                self._execute_sync,
+                code=code,
+                session_id=session_id,
+                datasets=datasets,
+                dataset_name=dataset_name,
+                persist_df=persist_df,
+            )
         )
 
     def _execute_sync(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -28,8 +29,9 @@ def _extract_header_token(headers: Any) -> str:
     return ""
 
 
-def _build_cookie_signature(api_key: str, issued_at_ts: int) -> str:
-    payload = f"{issued_at_ts}".encode("utf-8")
+def _build_cookie_signature(api_key: str, issued_at_ts: int, nonce: str) -> str:
+    # 将时间戳与随机 nonce 一起签名，防止时间戳枚举攻击
+    payload = f"{issued_at_ts}.{nonce}".encode("utf-8")
     secret = api_key.encode("utf-8")
     return hmac.new(secret, payload, hashlib.sha256).hexdigest()
 
@@ -38,8 +40,9 @@ def build_auth_session_cookie_value(api_key: str, now: datetime | None = None) -
     """生成 HttpOnly 鉴权 Cookie 值。"""
     current = now or datetime.now(timezone.utc)
     issued_at_ts = int(current.timestamp())
-    signature = _build_cookie_signature(api_key, issued_at_ts)
-    return f"{issued_at_ts}.{signature}"
+    nonce = secrets.token_hex(16)
+    signature = _build_cookie_signature(api_key, issued_at_ts, nonce)
+    return f"{issued_at_ts}.{nonce}.{signature}"
 
 
 def is_valid_auth_session_cookie(
@@ -53,7 +56,7 @@ def is_valid_auth_session_cookie(
     if not cookie_value or not normalized_key:
         return False
     try:
-        issued_at_raw, signature = cookie_value.split(".", 1)
+        issued_at_raw, nonce, signature = cookie_value.split(".", 2)
         issued_at_ts = int(issued_at_raw)
     except (ValueError, TypeError):
         return False
@@ -63,7 +66,7 @@ def is_valid_auth_session_cookie(
     if current - issued_at > AUTH_SESSION_TTL:
         return False
 
-    expected = _build_cookie_signature(normalized_key, issued_at_ts)
+    expected = _build_cookie_signature(normalized_key, issued_at_ts, nonce)
     return hmac.compare_digest(signature, expected)
 
 

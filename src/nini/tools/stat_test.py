@@ -43,7 +43,7 @@ class StatTestTool(Tool):
             "统一差异检验与t/Mann-Whitney/ANOVA/Kruskal-Wallis 与多重比较校正。\n"
             "最小示例：{method: independent_t, dataset_name: demo, value_column: value, group_column: group}\n"
             "参数：两组/多组需 value_column+group_column；单样本 t 需 value_column+test_value；多重校正需 p_values。\n"
-            "method：independent_t/paired_t/one_sample_t/mann_whitney/anova/kruskal_wallis/multiple_comparison_correction。"
+            "method：independent_t/paired_t/one_sample_t/mann_whitney/one_way_anova/kruskal_wallis/multiple_comparison_correction。"
         )
 
     @property
@@ -286,31 +286,3 @@ class StatTestTool(Tool):
         }
         return self.build_input_error(message=message, payload=payload)
 
-    def _resolve_dataset_name(
-        self,
-        session: Session,
-        params: dict[str, Any],
-    ) -> str | ToolResult | None:
-        dataset_name = str(params.get("dataset_name", "")).strip()
-        if dataset_name:
-            return dataset_name
-
-        for alias in ("dataset", "dataset_id", "input_dataset", "source_dataset"):
-            value = params.get(alias)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-
-        dataset_names = [
-            name for name in session.datasets.keys() if isinstance(name, str) and name.strip()
-        ]
-        if len(dataset_names) == 1:
-            return dataset_names[0]
-        if not dataset_names:
-            return ToolResult(success=False, message="缺少 dataset_name，且当前会话没有可用数据集")
-
-        preview = ", ".join(dataset_names[:5])
-        suffix = "..." if len(dataset_names) > 5 else ""
-        return ToolResult(
-            success=False,
-            message=f"缺少 dataset_name，当前会话存在多个数据集，请明确指定（可选: {preview}{suffix}）",
-        )

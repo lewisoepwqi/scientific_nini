@@ -715,6 +715,42 @@ def _sandbox_worker(
         conn.close()
 
 
+class _RestrictedUnpickler(pickle.Unpickler):
+    """受限反序列化器：仅允许沙箱结果中合法出现的类型，防止子进程发送恶意 __reduce__ payload。"""
+
+    # 显式白名单：内置类型和标准库
+    _SAFE: dict[str, set[str]] = {
+        "builtins": {
+            "dict", "list", "tuple", "set", "frozenset",
+            "str", "int", "float", "bool", "bytes", "bytearray",
+            "complex", "NoneType", "slice", "range", "type", "object",
+        },
+        "_codecs": {"encode"},
+        "datetime": {"datetime", "date", "time", "timedelta"},
+        "collections": {"OrderedDict"},
+    }
+
+    # 信任整个 pandas/numpy 命名空间（pickle 需要大量内部类型，逐一枚举不可行）
+    _TRUSTED_PREFIXES: tuple[str, ...] = ("pandas", "numpy")
+
+    def find_class(self, module: str, name: str) -> Any:
+        if module in self._SAFE and name in self._SAFE[module]:
+            return super().find_class(module, name)
+        # 允许 pandas.* 和 numpy.* 所有子模块（DataFrame/ndarray pickle 需要内部类型）
+        root = module.split(".")[0]
+        if root in self._TRUSTED_PREFIXES:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(
+            f"不允许从沙箱反序列化类型: {module}.{name}"
+        )
+
+
+def _safe_recv(conn: Connection) -> Any:
+    """使用受限反序列化器接收沙箱进程数据，防止 pickle RCE。"""
+    raw = conn.recv_bytes()
+    return _RestrictedUnpickler(io.BytesIO(raw)).load()
+
+
 class SandboxExecutor:
     """沙箱执行器（进程隔离 + 策略校验 + 超时控制）。"""
 
@@ -732,17 +768,20 @@ class SandboxExecutor:
         persist_df: bool = False,
         extra_allowed_imports: Iterable[str] | None = None,
     ) -> dict[str, Any]:
-        """异步执行入口。
+        """异步执行入口：在线程池中运行同步逻辑，避免阻塞 asyncio 事件循环。"""
+        import asyncio
+        import functools
 
-        这里直接调用同步实现，避免在线程池里再启动 `spawn` 子进程时出现阻塞。
-        """
-        return self._execute_sync(
-            code=code,
-            session_id=session_id,
-            datasets=datasets,
-            dataset_name=dataset_name,
-            persist_df=persist_df,
-            extra_allowed_imports=extra_allowed_imports,
+        return await asyncio.to_thread(
+            functools.partial(
+                self._execute_sync,
+                code=code,
+                session_id=session_id,
+                datasets=datasets,
+                dataset_name=dataset_name,
+                persist_df=persist_df,
+                extra_allowed_imports=extra_allowed_imports,
+            )
         )
 
     def _execute_sync(
@@ -805,18 +844,24 @@ class SandboxExecutor:
 
             if parent_conn.poll(min(0.05, remaining)):
                 try:
-                    payload = parent_conn.recv()
+                    payload = _safe_recv(parent_conn)
                 except EOFError:
                     payload = None
+                except pickle.UnpicklingError as exc:
+                    logger.warning("沙箱进程发送了不安全的 payload，已拒绝: %s", exc)
+                    payload = {"success": False, "error": "沙箱返回了不允许的数据类型", "stdout": "", "stderr": ""}
                 break
 
             if not process.is_alive():
                 # 进程已退出但可能还有最后一条消息尚未被读取
                 if parent_conn.poll(0.05):
                     try:
-                        payload = parent_conn.recv()
+                        payload = _safe_recv(parent_conn)
                     except EOFError:
                         payload = None
+                    except pickle.UnpicklingError as exc:
+                        logger.warning("沙箱进程发送了不安全的 payload，已拒绝: %s", exc)
+                        payload = {"success": False, "error": "沙箱返回了不允许的数据类型", "stdout": "", "stderr": ""}
                 break
 
         if payload is not None:

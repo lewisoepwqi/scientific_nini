@@ -224,7 +224,35 @@ class FetchURLTool(Tool):
 
         import httpx
 
+        class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
+            """连接时二次验证目标 IP，防止 DNS 重绑定 SSRF。"""
+
+            async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+                host = request.url.host
+                try:
+                    ipaddress.ip_address(host)
+                    # 直接是 IP 地址，由上层 _validate_url 已验证
+                except ValueError:
+                    # 域名：在建立 TCP 连接前再次解析验证
+                    try:
+                        addr_info = socket.getaddrinfo(host, None, socket.AF_UNSPEC)
+                        for _, _, _, _, sockaddr in addr_info:
+                            resolved_ip = ipaddress.ip_address(sockaddr[0])
+                            if (
+                                resolved_ip.is_private
+                                or resolved_ip.is_loopback
+                                or resolved_ip.is_link_local
+                                or resolved_ip.is_reserved
+                            ):
+                                raise httpx.ConnectError(
+                                    f"DNS 重绑定防护：连接时检测到目标 IP {resolved_ip} 为私有地址"
+                                )
+                    except (socket.gaierror, ValueError):
+                        pass
+                return await super().handle_async_request(request)
+
         async with httpx.AsyncClient(
+            transport=_SSRFGuardTransport(),
             timeout=_TIMEOUT,
             follow_redirects=False,
             headers={

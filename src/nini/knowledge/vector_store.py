@@ -1,7 +1,7 @@
 """基于 LlamaIndex 的向量检索引擎。
 
 提供向量+BM25 混合检索能力，替代纯关键词匹配。
-支持 MD5 变更检测与自动增量重建索引。
+支持 SHA-256 变更检测与自动增量重建索引。
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ def _check_llama_index() -> bool:
 class VectorKnowledgeStore:
     """领域知识向量索引，支持语义检索与 BM25 混合排序。
 
-    索引持久化到 ``storage_dir``，通过 MD5 哈希检测文件变更，
+    索引持久化到 ``storage_dir``，通过 SHA-256 哈希检测文件变更，
     仅在内容变化时重建索引。
     """
 
@@ -161,7 +161,7 @@ class VectorKnowledgeStore:
             return "", [], availability
 
     def _needs_rebuild(self) -> bool:
-        """通过 MD5 哈希检测知识文件是否变更。"""
+        """通过 SHA-256 哈希检测知识文件是否变更。"""
         current_hashes = self._compute_file_hashes()
         if not (self._storage_dir / "docstore.json").exists():
             return True
@@ -179,7 +179,7 @@ class VectorKnowledgeStore:
         return current_hashes != normalized_saved
 
     def _compute_file_hashes(self) -> dict[str, str]:
-        """计算知识目录下所有 .md 文件的 MD5 哈希。"""
+        """计算知识目录下所有 .md 文件的 SHA-256 哈希。"""
         hashes: dict[str, str] = {}
         if not self._knowledge_dir.is_dir():
             return hashes
