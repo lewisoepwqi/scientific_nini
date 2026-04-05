@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -103,8 +104,8 @@ class LongTermMemoryStore:
     管理长期记忆的持久化和向量索引。
     """
 
-    # session 级 in-flight 锁，防止高重要性记忆触发的沉淀任务并发重复执行
-    _consolidating: set[str] = set()
+    # session 级 in-flight 锁（per-session asyncio.Lock），防止沉淀任务并发重复执行
+    _consolidating_locks: dict[str, Any] = {}  # str -> asyncio.Lock
 
     def __init__(self, storage_dir: Path | None = None) -> None:
         self._storage_dir = storage_dir or settings.sessions_dir / "../long_term_memory"
@@ -134,12 +135,12 @@ class LongTermMemoryStore:
         logger.info(f"已加载 {len(self._entries)} 条长期记忆")
 
     def _save_entries(self) -> None:
-        """保存所有记忆条目。"""
+        """保存所有记忆条目（原子写入：先写临时文件再 rename，避免崩溃导致数据丢失）。"""
         entries_file = self._storage_dir / "entries.jsonl"
-        lines = []
-        for entry in self._entries.values():
-            lines.append(json.dumps(entry.to_dict(), ensure_ascii=False))
-        entries_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        tmp_file = entries_file.with_suffix(".jsonl.tmp")
+        lines = [json.dumps(entry.to_dict(), ensure_ascii=False) for entry in self._entries.values()]
+        tmp_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        os.replace(tmp_file, entries_file)
 
     async def initialize(self) -> None:
         """初始化向量存储。"""
@@ -247,12 +248,13 @@ class LongTermMemoryStore:
         self._entries[entry.id] = entry
         self._save_entries()
 
-        # 添加到向量索引
+        # 添加到向量索引（仅在事件循环运行中时调度，避免在同步上下文中 create_task 崩溃）
         if self._vector_store and self._vector_store._initialized:
             try:
                 import asyncio
 
-                asyncio.create_task(
+                loop = asyncio.get_running_loop()
+                loop.create_task(
                     self._vector_store.add_document(
                         doc_id=entry.id,
                         content=f"{entry.summary}\n{entry.content}",
@@ -263,30 +265,38 @@ class LongTermMemoryStore:
                         },
                     )
                 )
+            except RuntimeError:
+                # 无运行中的事件循环（如测试环境）：跳过向量索引，不影响主存储路径
+                logger.debug("无运行中事件循环，跳过向量索引更新")
             except Exception as e:
                 logger.warning(f"添加记忆到向量索引失败: {e}")
 
         logger.info(f"添加长期记忆: {entry.memory_type} - {entry.summary[:50]}...")
 
-        # 高重要性记忆自动触发沉淀（importance_score >= 0.8），使用 in-flight 锁防并发
+        # 高重要性记忆自动触发沉淀（importance_score >= 0.8），使用 per-session Lock 防并发
         if importance_score >= 0.8 and source_session_id:
-            if source_session_id not in LongTermMemoryStore._consolidating:
-                LongTermMemoryStore._consolidating.add(source_session_id)
+            import asyncio as _asyncio
 
-                async def _do_consolidate(sid: str) -> None:
-                    try:
-                        await consolidate_session_memories(sid)
-                    finally:
-                        LongTermMemoryStore._consolidating.discard(sid)
+            if source_session_id not in LongTermMemoryStore._consolidating_locks:
+                LongTermMemoryStore._consolidating_locks[source_session_id] = _asyncio.Lock()
+            session_lock = LongTermMemoryStore._consolidating_locks[source_session_id]
 
-                consolidate_coro = _do_consolidate(source_session_id)
+            if not session_lock.locked():
+                async def _do_consolidate(sid: str, lock: Any) -> None:
+                    async with lock:
+                        try:
+                            await consolidate_session_memories(sid)
+                        finally:
+                            LongTermMemoryStore._consolidating_locks.pop(sid, None)
+
+                consolidate_coro = _do_consolidate(source_session_id, session_lock)
                 try:
                     from nini.utils.background_tasks import track_background_task
 
                     track_background_task(consolidate_coro)
                 except Exception:
                     consolidate_coro.close()
-                    LongTermMemoryStore._consolidating.discard(source_session_id)
+                    LongTermMemoryStore._consolidating_locks.pop(source_session_id, None)
                     logger.debug("高重要性记忆触发沉淀失败，忽略", exc_info=True)
 
         return entry
@@ -384,7 +394,11 @@ class LongTermMemoryStore:
                 r for r in results if self._compute_effective_score(r, context) >= min_importance
             ]
 
-        return results[:top_k]
+        final = results[:top_k]
+        # 持久化本次搜索更新的访问统计（access_count/last_accessed_at）
+        if final:
+            self._save_entries()
+        return final
 
     def get_memories_by_session(self, session_id: str) -> list[LongTermMemoryEntry]:
         """获取会话的所有记忆。

@@ -66,3 +66,6 @@ research/superagi/
 
 # 内置 Key 加密构建产物（仅打包时生成，不提交）
 src/nini/_builtin_key.py
+
+# Git worktrees
+.worktrees/

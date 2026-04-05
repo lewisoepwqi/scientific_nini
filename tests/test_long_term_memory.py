@@ -184,7 +184,7 @@ async def test_high_importance_triggers_consolidation(tmp_path):
     """importance_score >= 0.8 时应触发 consolidate_session_memories 异步任务。"""
     store = LongTermMemoryStore(storage_dir=tmp_path)
     # 清空 in-flight 锁
-    LongTermMemoryStore._consolidating.clear()
+    LongTermMemoryStore._consolidating_locks.clear()
 
     with patch(
         "nini.memory.long_term_memory.consolidate_session_memories",
@@ -211,7 +211,7 @@ async def test_high_importance_triggers_consolidation(tmp_path):
                 importance_score=0.9,  # >= 0.8，应触发
             )
             # in-flight 锁应已被加入
-            assert "sess_high" in LongTermMemoryStore._consolidating or True  # 任务已创建
+            assert "sess_high" in LongTermMemoryStore._consolidating_locks or True  # 任务已创建
             mock_track.assert_called_once()
 
 

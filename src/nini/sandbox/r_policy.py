@@ -17,7 +17,6 @@ ALLOWED_R_PACKAGES: set[str] = {
     "datasets",
     "grid",
     "splines",
-    "parallel",
     "stats4",
     "tcltk",
     # 数据处理
@@ -96,6 +95,17 @@ BANNED_R_CALLS: set[str] = {
     ".Internal",
     ".Call",
     ".External",
+    # 并行处理函数：会创建不受资源限制约束的子进程（DoS 风险）
+    "mclapply",
+    "mcfork",
+    "makeCluster",
+    "stopCluster",
+    "clusterEvalQ",
+    "clusterApply",
+    "clusterCall",
+    "clusterMap",
+    "parLapply",
+    "parSapply",
 }
 
 _PACKAGE_CALL_RE = re.compile(
