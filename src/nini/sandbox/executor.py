@@ -769,17 +769,20 @@ class SandboxExecutor:
         persist_df: bool = False,
         extra_allowed_imports: Iterable[str] | None = None,
     ) -> dict[str, Any]:
-        """异步执行入口。
+        """异步执行入口：在线程池中运行同步逻辑，避免阻塞 asyncio 事件循环。"""
+        import asyncio
+        import functools
 
-        这里直接调用同步实现，避免在线程池里再启动 `spawn` 子进程时出现阻塞。
-        """
-        return self._execute_sync(
-            code=code,
-            session_id=session_id,
-            datasets=datasets,
-            dataset_name=dataset_name,
-            persist_df=persist_df,
-            extra_allowed_imports=extra_allowed_imports,
+        return await asyncio.to_thread(
+            functools.partial(
+                self._execute_sync,
+                code=code,
+                session_id=session_id,
+                datasets=datasets,
+                dataset_name=dataset_name,
+                persist_df=persist_df,
+                extra_allowed_imports=extra_allowed_imports,
+            )
         )
 
     def _execute_sync(

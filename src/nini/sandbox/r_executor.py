@@ -414,12 +414,19 @@ class RSandboxExecutor:
         dataset_name: str | None = None,
         persist_df: bool = False,
     ) -> dict[str, Any]:
-        return self._execute_sync(
-            code=code,
-            session_id=session_id,
-            datasets=datasets,
-            dataset_name=dataset_name,
-            persist_df=persist_df,
+        """异步执行入口：在线程池中运行同步逻辑，避免阻塞 asyncio 事件循环。"""
+        import asyncio
+        import functools
+
+        return await asyncio.to_thread(
+            functools.partial(
+                self._execute_sync,
+                code=code,
+                session_id=session_id,
+                datasets=datasets,
+                dataset_name=dataset_name,
+                persist_df=persist_df,
+            )
         )
 
     def _execute_sync(
