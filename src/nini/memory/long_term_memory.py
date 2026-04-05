@@ -104,8 +104,8 @@ class LongTermMemoryStore:
     管理长期记忆的持久化和向量索引。
     """
 
-    # session 级 in-flight 锁，防止高重要性记忆触发的沉淀任务并发重复执行
-    _consolidating: set[str] = set()
+    # session 级 in-flight 锁（per-session asyncio.Lock），防止沉淀任务并发重复执行
+    _consolidating_locks: dict[str, Any] = {}  # str -> asyncio.Lock
 
     def __init__(self, storage_dir: Path | None = None) -> None:
         self._storage_dir = storage_dir or settings.sessions_dir / "../long_term_memory"
@@ -269,25 +269,30 @@ class LongTermMemoryStore:
 
         logger.info(f"添加长期记忆: {entry.memory_type} - {entry.summary[:50]}...")
 
-        # 高重要性记忆自动触发沉淀（importance_score >= 0.8），使用 in-flight 锁防并发
+        # 高重要性记忆自动触发沉淀（importance_score >= 0.8），使用 per-session Lock 防并发
         if importance_score >= 0.8 and source_session_id:
-            if source_session_id not in LongTermMemoryStore._consolidating:
-                LongTermMemoryStore._consolidating.add(source_session_id)
+            import asyncio as _asyncio
 
-                async def _do_consolidate(sid: str) -> None:
-                    try:
-                        await consolidate_session_memories(sid)
-                    finally:
-                        LongTermMemoryStore._consolidating.discard(sid)
+            if source_session_id not in LongTermMemoryStore._consolidating_locks:
+                LongTermMemoryStore._consolidating_locks[source_session_id] = _asyncio.Lock()
+            session_lock = LongTermMemoryStore._consolidating_locks[source_session_id]
 
-                consolidate_coro = _do_consolidate(source_session_id)
+            if not session_lock.locked():
+                async def _do_consolidate(sid: str, lock: Any) -> None:
+                    async with lock:
+                        try:
+                            await consolidate_session_memories(sid)
+                        finally:
+                            LongTermMemoryStore._consolidating_locks.pop(sid, None)
+
+                consolidate_coro = _do_consolidate(source_session_id, session_lock)
                 try:
                     from nini.utils.background_tasks import track_background_task
 
                     track_background_task(consolidate_coro)
                 except Exception:
                     consolidate_coro.close()
-                    LongTermMemoryStore._consolidating.discard(source_session_id)
+                    LongTermMemoryStore._consolidating_locks.pop(source_session_id, None)
                     logger.debug("高重要性记忆触发沉淀失败，忽略", exc_info=True)
 
         return entry
