@@ -13,6 +13,7 @@ from nini.harness.autoresearch import (
     _auto_answer_questions,
     append_to_tsv,
     compare_against_baseline,
+    compute_tool_call_quality,
     evaluate_benchmark_set_from_summaries,
     load_benchmark_set,
     load_last_keep,
@@ -21,7 +22,12 @@ from nini.harness.autoresearch import (
     resolve_benchmark_case,
     run_benchmark_set_async,
 )
-from nini.harness.models import HarnessRunContext, HarnessTaskMetrics, HarnessTraceRecord
+from nini.harness.models import (
+    HarnessRunContext,
+    HarnessTaskMetrics,
+    HarnessTraceRecord,
+    ToolCallEntry,
+)
 from nini.harness.store import HarnessTraceStore
 from nini.models.database import init_db
 from nini.agent import event_builders as eb
@@ -663,3 +669,279 @@ sets:
     assert status_by_recipe["literature_review"] in {"blocked", "stopped"}
     assert status_by_recipe["literature_review"] != "error"
     assert status_by_recipe["experiment_plan"] == "completed"
+
+
+# ---------------------------------------------------------------------------
+# 工具调用质量指标测试
+# ---------------------------------------------------------------------------
+
+
+def test_compute_tool_call_quality_perfect_match() -> None:
+    """所有期望工具都被调用，无冗余。"""
+    sequence = [
+        ToolCallEntry(tool_name="search_literature", arguments_hash="aaa"),
+        ToolCallEntry(tool_name="task_state", arguments_hash="bbb"),
+        ToolCallEntry(tool_name="collect_artifacts", arguments_hash="ccc"),
+    ]
+    result = compute_tool_call_quality(
+        sequence,
+        expected_tools=("search_literature", "task_state", "collect_artifacts"),
+        mode="subset",
+    )
+    assert result["tool_precision"] == 1.0
+    assert result["tool_recall"] == 1.0
+    assert result["tool_f1"] == 1.0
+    assert result["redundant_call_rate"] == 0.0
+    assert result["first_tool_accuracy"] == 1.0
+
+
+def test_compute_tool_call_quality_partial_recall() -> None:
+    """只调用了部分期望工具。"""
+    sequence = [
+        ToolCallEntry(tool_name="search_literature", arguments_hash="aaa"),
+        ToolCallEntry(tool_name="task_state", arguments_hash="bbb"),
+    ]
+    result = compute_tool_call_quality(
+        sequence,
+        expected_tools=("search_literature", "task_state", "collect_artifacts"),
+        mode="subset",
+    )
+    assert result["tool_precision"] == 1.0
+    assert result["tool_recall"] == pytest.approx(0.6667, abs=0.001)
+    assert result["redundant_call_rate"] == 0.0
+
+
+def test_compute_tool_call_quality_with_extra_tools() -> None:
+    """调用了额外的非期望工具，precision 下降。"""
+    sequence = [
+        ToolCallEntry(tool_name="search_literature", arguments_hash="aaa"),
+        ToolCallEntry(tool_name="stat_test", arguments_hash="bbb"),
+        ToolCallEntry(tool_name="task_state", arguments_hash="ccc"),
+    ]
+    result = compute_tool_call_quality(
+        sequence,
+        expected_tools=("search_literature", "task_state"),
+        mode="subset",
+    )
+    assert result["tool_precision"] == pytest.approx(0.6667, abs=0.001)
+    assert result["tool_recall"] == 1.0
+
+
+def test_compute_tool_call_quality_with_redundancy() -> None:
+    """同工具同参数重复调用。"""
+    sequence = [
+        ToolCallEntry(tool_name="search_literature", arguments_hash="aaa"),
+        ToolCallEntry(tool_name="search_literature", arguments_hash="aaa"),
+        ToolCallEntry(tool_name="task_state", arguments_hash="bbb"),
+    ]
+    result = compute_tool_call_quality(
+        sequence,
+        expected_tools=("search_literature", "task_state"),
+        mode="subset",
+    )
+    assert result["redundant_call_rate"] == pytest.approx(0.3333, abs=0.001)
+
+
+def test_compute_tool_call_quality_no_expected_tools() -> None:
+    """未定义 expected_tools 时返回 -1 标记。"""
+    sequence = [
+        ToolCallEntry(tool_name="stat_test", arguments_hash="aaa"),
+    ]
+    result = compute_tool_call_quality(sequence, expected_tools=(), mode="subset")
+    assert result["tool_precision"] == -1.0
+    assert result["tool_recall"] == -1.0
+    assert result["tool_f1"] == -1.0
+
+
+def test_compute_tool_call_quality_first_tool_miss() -> None:
+    """首次工具选择不在期望集中。"""
+    sequence = [
+        ToolCallEntry(tool_name="stat_test", arguments_hash="aaa"),
+        ToolCallEntry(tool_name="search_literature", arguments_hash="bbb"),
+    ]
+    result = compute_tool_call_quality(
+        sequence,
+        expected_tools=("search_literature",),
+        mode="subset",
+    )
+    assert result["first_tool_accuracy"] == 0.0
+
+
+def test_load_benchmark_set_parses_expected_tools() -> None:
+    """确认 YAML 中的 expected_tools 被正确解析。"""
+    definition = load_benchmark_set("smoke")
+    lit_case = next(c for c in definition.cases if c.recipe_id == "literature_review")
+    assert "search_literature" in lit_case.expected_tools
+    assert "task_state" in lit_case.expected_tools
+    assert lit_case.expected_tools_mode == "subset"
+
+
+@pytest.mark.asyncio
+async def test_evaluate_includes_tool_quality_metrics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """验证聚合评估结果包含工具调用质量指标。"""
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+    await init_db()
+
+    benchmark_path = tmp_path / "benchmarks.yaml"
+    benchmark_path.write_text(
+        """
+version: nini_harness_v1
+sets:
+  smoke:
+    description: 测试集
+    cases:
+      - benchmark_id: lit_success
+        recipe_id: literature_review
+        expected_status: completed
+        required: true
+        expected_tools:
+          - search_literature
+          - task_state
+        expected_tools_mode: subset
+""".strip(),
+        encoding="utf-8",
+    )
+    definition = load_benchmark_set("smoke", config_path=benchmark_path)
+    store = HarnessTraceStore()
+
+    record = HarnessTraceRecord(
+        run_id="run_quality_test",
+        session_id="session_quality",
+        turn_id="turn_q",
+        user_message="请做文献综述",
+        run_context=HarnessRunContext(turn_id="turn_q", recipe_id="literature_review"),
+        recipe_id="literature_review",
+        status="completed",
+        summary={"input_tokens": 100, "output_tokens": 30, "estimated_cost_usd": 0.1},
+        task_metrics=HarnessTaskMetrics(
+            tool_call_count=3,
+            tool_call_sequence=[
+                ToolCallEntry(tool_name="search_literature", arguments_hash="a1"),
+                ToolCallEntry(tool_name="task_state", arguments_hash="b1"),
+                ToolCallEntry(tool_name="collect_artifacts", arguments_hash="c1"),
+            ],
+        ),
+        started_at="2026-04-03T00:00:00+00:00",
+        finished_at="2026-04-03T00:00:10+00:00",
+    )
+    await store.save_run(record)
+
+    summaries = await store.list_runs(session_id="session_quality", limit=10)
+    metrics = evaluate_benchmark_set_from_summaries(
+        definition=definition,
+        summaries=summaries,
+        store=store,
+        session_id="session_quality",
+    )
+
+    assert metrics["median_tool_precision"] == pytest.approx(0.6667, abs=0.001)
+    assert metrics["median_tool_recall"] == 1.0
+    assert metrics["median_tool_f1"] > 0
+    assert metrics["median_redundant_call_rate"] == 0
+    assert metrics["first_tool_accuracy"] == 1.0
+
+    # sample_results 中包含 tool_quality
+    lit_result = next(r for r in metrics["sample_results"] if r["recipe_id"] == "literature_review")
+    assert lit_result["tool_quality"] is not None
+    assert lit_result["tool_quality"]["tool_recall"] == 1.0
+
+
+def test_compare_baseline_includes_tool_f1_delta() -> None:
+    """验证 compare_against_baseline 包含 tool_f1 delta。"""
+    metrics = {
+        "pass_count": 2,
+        "blocked_count": 0,
+        "failure_count": 1,
+        "pass_rate": 0.6667,
+        "blocked_rate": 0.0,
+        "median_cost_usd": 0.1,
+        "median_duration_s": 7.0,
+        "median_input_tokens": 100,
+        "median_output_tokens": 30,
+        "median_tool_calls": 4,
+        "median_tool_f1": 0.85,
+        "median_tool_precision": 0.8,
+        "median_tool_recall": 0.9,
+        "median_redundant_call_rate": 0.1,
+        "prompt_truncated_runs": 0,
+        "prompt_truncation_rate": 0.0,
+        "failure_tags": [],
+    }
+    baseline = {
+        "pass_count": "2",
+        "blocked_count": "0",
+        "failure_count": "1",
+        "pass_rate": "0.6667",
+        "blocked_rate": "0.0",
+        "median_cost_usd": "0.12",
+        "median_duration_s": "8",
+        "median_input_tokens": "110",
+        "median_output_tokens": "35",
+        "median_tool_calls": "5",
+        "median_tool_f1": "0.7",
+        "median_tool_precision": "0.65",
+        "median_tool_recall": "0.8",
+        "median_redundant_call_rate": "0.2",
+        "prompt_truncated_runs": "0",
+        "prompt_truncation_rate": "0.0",
+        "new_failure_tags": "[]",
+    }
+
+    result = compare_against_baseline(metrics, baseline)
+
+    assert result["delta"]["median_tool_f1"] == pytest.approx(0.15, abs=0.001)
+    assert result["delta"]["median_tool_precision"] == pytest.approx(0.15, abs=0.001)
+    assert result["delta"]["median_tool_recall"] == pytest.approx(0.1, abs=0.001)
+    assert result["delta"]["median_redundant_call_rate"] == pytest.approx(-0.1, abs=0.001)
+    # tool_f1 改善应触发 keep
+    assert result["suggestion"] == "keep"
+
+
+def test_compare_baseline_tool_f1_regression_blocks_keep() -> None:
+    """tool_f1 显著退化时不应 keep。"""
+    metrics = {
+        "pass_count": 2,
+        "blocked_count": 0,
+        "failure_count": 1,
+        "pass_rate": 0.6667,
+        "blocked_rate": 0.0,
+        "median_cost_usd": 0.08,
+        "median_duration_s": 6.0,
+        "median_input_tokens": 90,
+        "median_output_tokens": 25,
+        "median_tool_calls": 3,
+        "median_tool_f1": 0.5,
+        "median_tool_precision": 0.5,
+        "median_tool_recall": 0.5,
+        "median_redundant_call_rate": 0.0,
+        "prompt_truncated_runs": 0,
+        "prompt_truncation_rate": 0.0,
+        "failure_tags": [],
+    }
+    baseline = {
+        "pass_count": "2",
+        "blocked_count": "0",
+        "failure_count": "1",
+        "pass_rate": "0.6667",
+        "blocked_rate": "0.0",
+        "median_cost_usd": "0.10",
+        "median_duration_s": "7",
+        "median_input_tokens": "100",
+        "median_output_tokens": "30",
+        "median_tool_calls": "4",
+        "median_tool_f1": "0.9",
+        "median_tool_precision": "0.85",
+        "median_tool_recall": "0.95",
+        "median_redundant_call_rate": "0.0",
+        "prompt_truncated_runs": "0",
+        "prompt_truncation_rate": "0.0",
+        "new_failure_tags": "[]",
+    }
+
+    result = compare_against_baseline(metrics, baseline)
+
+    # 虽然成本/耗时降低会触发 keep，但 tool_f1 退化 > 0.05 应阻止
+    assert result["suggestion"] == "review"
