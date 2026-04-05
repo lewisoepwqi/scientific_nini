@@ -248,12 +248,13 @@ class LongTermMemoryStore:
         self._entries[entry.id] = entry
         self._save_entries()
 
-        # 添加到向量索引
+        # 添加到向量索引（仅在事件循环运行中时调度，避免在同步上下文中 create_task 崩溃）
         if self._vector_store and self._vector_store._initialized:
             try:
                 import asyncio
 
-                asyncio.create_task(
+                loop = asyncio.get_running_loop()
+                loop.create_task(
                     self._vector_store.add_document(
                         doc_id=entry.id,
                         content=f"{entry.summary}\n{entry.content}",
@@ -264,6 +265,9 @@ class LongTermMemoryStore:
                         },
                     )
                 )
+            except RuntimeError:
+                # 无运行中的事件循环（如测试环境）：跳过向量索引，不影响主存储路径
+                logger.debug("无运行中事件循环，跳过向量索引更新")
             except Exception as e:
                 logger.warning(f"添加记忆到向量索引失败: {e}")
 
@@ -390,7 +394,11 @@ class LongTermMemoryStore:
                 r for r in results if self._compute_effective_score(r, context) >= min_importance
             ]
 
-        return results[:top_k]
+        final = results[:top_k]
+        # 持久化本次搜索更新的访问统计（access_count/last_accessed_at）
+        if final:
+            self._save_entries()
+        return final
 
     def get_memories_by_session(self, session_id: str) -> list[LongTermMemoryEntry]:
         """获取会话的所有记忆。
