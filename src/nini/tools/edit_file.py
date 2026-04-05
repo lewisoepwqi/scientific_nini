@@ -20,6 +20,31 @@ from nini.workspace import WorkspaceManager
 
 logger = logging.getLogger(__name__)
 
+_BINARY_READ_BLOCKED_EXTENSIONS = {
+    ".xlsx",
+    ".xls",
+    ".xlsm",
+    ".xlsb",
+    ".ods",
+    ".parquet",
+    ".feather",
+    ".arrow",
+    ".npy",
+    ".npz",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".ppt",
+    ".pptx",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".zip",
+}
+
 
 class EditFile(Tool):
     """编辑工作区文件内容。
@@ -152,6 +177,11 @@ class EditFile(Tool):
                     metadata={"error_code": "WORKSPACE_PATH_OUT_OF_SCOPE"},
                 )
 
+            if operation == "read" and not full_path.exists():
+                aliased_path = self._resolve_read_alias(session, file_path)
+                if aliased_path is not None:
+                    full_path = aliased_path
+
             # 根据操作类型执行相应逻辑
             if operation == "read":
                 return await self._do_read(full_path, encoding)
@@ -212,6 +242,41 @@ class EditFile(Tool):
             logger.error(f"路径解析失败: {e}")
             return None
 
+    def _resolve_read_alias(self, session: Session, file_path: str) -> Path | None:
+        """按工作区资源名补全真实路径，兼容数据集名与唯一文件名。"""
+        ref = str(file_path or "").strip().strip("/")
+        if not ref:
+            return None
+
+        manager = WorkspaceManager(session)
+        entries = manager.list_workspace_files_with_paths()
+
+        for item in entries:
+            rel_path = str(item.get("path", "")).strip()
+            if rel_path != ref:
+                continue
+            try:
+                return manager.resolve_workspace_path(rel_path, allow_missing=False)
+            except (FileNotFoundError, ValueError):
+                return None
+
+        filename = Path(ref).name
+        exact_matches = [
+            item
+            for item in entries
+            if str(item.get("name", "")).strip() == filename and str(item.get("path", "")).strip()
+        ]
+        if len(exact_matches) != 1:
+            return None
+
+        try:
+            return manager.resolve_workspace_path(
+                str(exact_matches[0].get("path", "")).strip(),
+                allow_missing=False,
+            )
+        except (FileNotFoundError, ValueError):
+            return None
+
     async def _do_read(self, file_path: Path, encoding: str) -> ToolResult:
         """读取文件内容。"""
         if not file_path.exists():
@@ -224,6 +289,24 @@ class EditFile(Tool):
             return ToolResult(
                 success=False,
                 message=f"路径不是文件: {file_path.name}",
+            )
+
+        suffix = file_path.suffix.lower()
+        if suffix in _BINARY_READ_BLOCKED_EXTENSIONS:
+            return self.build_input_error(
+                message=(
+                    f"不能直接按文本读取 `{file_path.name}`。该文件是二进制或 Office 文档，"
+                    "请改用合适的专用工具。"
+                ),
+                payload={
+                    "error_code": "WORKSPACE_READ_BINARY_UNSUPPORTED",
+                    "file_path": file_path.name,
+                    "detected_extension": suffix,
+                    "recovery_hint": (
+                        "如果这是数据集，请改用 dataset_catalog / code_session / run_code，"
+                        "并优先传 dataset_name；不要再用 workspace_session(read) 读取 Excel。"
+                    ),
+                },
             )
 
         try:
@@ -248,6 +331,22 @@ class EditFile(Tool):
                     "char_count": len(content),
                     "preview": preview,
                     "file_path": str(file_path.name),
+                },
+            )
+        except UnicodeDecodeError:
+            return self.build_input_error(
+                message=(
+                    f"不能直接按 `{encoding}` 文本读取 `{file_path.name}`。"
+                    "该文件更像是二进制内容，请改用专用工具。"
+                ),
+                payload={
+                    "error_code": "WORKSPACE_READ_BINARY_UNSUPPORTED",
+                    "file_path": file_path.name,
+                    "detected_extension": suffix,
+                    "recovery_hint": (
+                        "如果这是数据集，请改用 dataset_catalog / code_session / run_code；"
+                        "如果只是需要下载或预览，请使用工作区下载 URL 或预览接口。"
+                    ),
                 },
             )
         except Exception as e:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import shutil
@@ -105,6 +106,7 @@ class Session:
     recipe_id: str | None = None
     recipe_inputs: dict[str, Any] = field(default_factory=dict)
     deep_task_state: dict[str, Any] = field(default_factory=dict)
+    runtime_stop_event: Any = field(default=None, repr=False)
     subagent_stop_events: dict[str, Any] = field(default_factory=dict, repr=False)
     conversation_memory: ConversationMemory = field(init=False, repr=False)
     knowledge_memory: KnowledgeMemory = field(init=False, repr=False)
@@ -407,6 +409,19 @@ class Session:
         if remaining > 0:
             lines.append(f"- ... 另有 {remaining} 个待处理动作未展开")
         return "\n".join(lines)
+
+    def stop_all_subagents(self) -> int:
+        """向当前会话下所有仍在运行的子 Agent 广播停止信号。"""
+        stop_events = self.subagent_stop_events
+        if not isinstance(stop_events, dict):
+            return 0
+
+        stopped = 0
+        for event in stop_events.values():
+            if isinstance(event, asyncio.Event) and not event.is_set():
+                event.set()
+                stopped += 1
+        return stopped
 
     def add_reasoning(
         self,

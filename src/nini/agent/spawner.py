@@ -125,7 +125,20 @@ class SubAgentSpawner:
         if not isinstance(subagent_stop_events, dict):
             subagent_stop_events = {}
             setattr(session, "subagent_stop_events", subagent_stop_events)
-        subagent_stop_events[run_id] = stop_event or asyncio.Event()
+        child_stop_event = stop_event or asyncio.Event()
+        subagent_stop_events[run_id] = child_stop_event
+        parent_stop_event = getattr(session, "runtime_stop_event", None)
+        stop_relay_task: asyncio.Task[None] | None = None
+        if isinstance(parent_stop_event, asyncio.Event):
+            if parent_stop_event.is_set():
+                child_stop_event.set()
+            else:
+                stop_relay_task = asyncio.create_task(
+                    self._relay_parent_stop_event(
+                        parent_stop_event=parent_stop_event,
+                        child_stop_event=child_stop_event,
+                    )
+                )
 
         # 推送 agent_start 事件
         await self._push_event(
@@ -169,7 +182,7 @@ class SubAgentSpawner:
                     attempt=attempt,
                     retry_count=retry_count,
                     run_id=run_id,
-                    stop_event=subagent_stop_events[run_id],
+                    stop_event=child_stop_event,
                 )
             else:
                 _execute_coro = self._invoke_execute_impl(
@@ -181,7 +194,7 @@ class SubAgentSpawner:
                     attempt=attempt,
                     retry_count=retry_count,
                     run_id=run_id,
-                    stop_event=subagent_stop_events[run_id],
+                    stop_event=child_stop_event,
                 )
             try:
                 result = await asyncio.wait_for(
@@ -314,6 +327,8 @@ class SubAgentSpawner:
                 )
             return result
         finally:
+            if stop_relay_task is not None:
+                stop_relay_task.cancel()
             subagent_stop_events.pop(run_id, None)
 
     async def spawn_with_retry(
@@ -959,6 +974,19 @@ class SubAgentSpawner:
             event_iter = runner.run(session, task)
         async for event in event_iter:
             yield event
+
+    async def _relay_parent_stop_event(
+        self,
+        *,
+        parent_stop_event: asyncio.Event,
+        child_stop_event: asyncio.Event,
+    ) -> None:
+        """父会话停止时，向子 Agent 广播同一停止信号。"""
+        try:
+            await parent_stop_event.wait()
+            child_stop_event.set()
+        except asyncio.CancelledError:
+            raise
 
     async def _push_event(
         self,

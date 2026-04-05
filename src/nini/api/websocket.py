@@ -403,6 +403,7 @@ async def websocket_agent(ws: WebSocket):
             ),
         )
         stop_event = active_stop_events.get(session.id) or asyncio.Event()
+        session.runtime_stop_event = stop_event
 
         # 会话首次恢复时，从工作空间补齐已上传数据集
         if not getattr(session, "workspace_hydrated", False):
@@ -726,6 +727,8 @@ async def websocket_agent(ws: WebSocket):
                 )
         finally:
             session.event_callback = previous_event_callback
+            session.runtime_stop_event = None
+            session.stop_all_subagents()
             _cancel_pending_questions(session.id)
             # 从字典中移除该会话的任务和停止事件
             active_chat_tasks.pop(session.id, None)
@@ -769,6 +772,9 @@ async def websocket_agent(ws: WebSocket):
                             stop_ev = active_stop_events.get(stop_session_id)
                             if stop_ev:
                                 stop_ev.set()
+                            live_session = session_manager.get_session(stop_session_id)
+                            if live_session is not None:
+                                live_session.stop_all_subagents()
                             task.cancel()
                             with suppress(asyncio.CancelledError):
                                 await task
@@ -800,6 +806,9 @@ async def websocket_agent(ws: WebSocket):
                                 stop_ev = active_stop_events.get(sid)
                                 if stop_ev:
                                     stop_ev.set()
+                                live_session = session_manager.get_session(sid)
+                                if live_session is not None:
+                                    live_session.stop_all_subagents()
                                 task.cancel()
                                 with suppress(asyncio.CancelledError):
                                     await task
@@ -1177,6 +1186,9 @@ async def websocket_agent(ws: WebSocket):
         # 断开连接时 cancel 所有会话的后台任务，并触发各自的记忆沉淀
         for sid, stop_ev in list(active_stop_events.items()):
             stop_ev.set()
+            live_session = session_manager.get_session(sid)
+            if live_session is not None:
+                live_session.stop_all_subagents()
         for sid, task in list(active_chat_tasks.items()):
             if not task.done():
                 task.cancel()
