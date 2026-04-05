@@ -715,6 +715,43 @@ def _sandbox_worker(
         conn.close()
 
 
+class _RestrictedUnpickler(pickle.Unpickler):
+    """受限反序列化器：仅允许沙箱结果中合法出现的类型，防止子进程发送恶意 __reduce__ payload。"""
+
+    _SAFE: dict[str, set[str]] = {
+        "builtins": {
+            "dict", "list", "tuple", "set", "frozenset",
+            "str", "int", "float", "bool", "bytes", "bytearray",
+            "complex", "NoneType",
+        },
+        "pandas.core.frame": {"DataFrame"},
+        "pandas.core.series": {"Series"},
+        "pandas.core.indexes.base": {"Index"},
+        "pandas.core.indexes.range": {"RangeIndex"},
+        "pandas.core.indexes.multi": {"MultiIndex"},
+        "pandas.core.indexes.datetimes": {"DatetimeIndex"},
+        "numpy": {"ndarray", "dtype"},
+        "numpy.core.multiarray": {"scalar", "_reconstruct"},
+        "numpy.core._multiarray_umath": {"_reconstruct"},
+        "_codecs": {"encode"},
+        "datetime": {"datetime", "date", "time", "timedelta"},
+        "collections": {"OrderedDict"},
+    }
+
+    def find_class(self, module: str, name: str) -> Any:
+        if module in self._SAFE and name in self._SAFE[module]:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(
+            f"不允许从沙箱反序列化类型: {module}.{name}"
+        )
+
+
+def _safe_recv(conn: Connection) -> Any:
+    """使用受限反序列化器接收沙箱进程数据，防止 pickle RCE。"""
+    raw = conn.recv_bytes()
+    return _RestrictedUnpickler(io.BytesIO(raw)).load()
+
+
 class SandboxExecutor:
     """沙箱执行器（进程隔离 + 策略校验 + 超时控制）。"""
 
@@ -805,18 +842,24 @@ class SandboxExecutor:
 
             if parent_conn.poll(min(0.05, remaining)):
                 try:
-                    payload = parent_conn.recv()
+                    payload = _safe_recv(parent_conn)
                 except EOFError:
                     payload = None
+                except pickle.UnpicklingError as exc:
+                    logger.warning("沙箱进程发送了不安全的 payload，已拒绝: %s", exc)
+                    payload = {"success": False, "error": "沙箱返回了不允许的数据类型", "stdout": "", "stderr": ""}
                 break
 
             if not process.is_alive():
                 # 进程已退出但可能还有最后一条消息尚未被读取
                 if parent_conn.poll(0.05):
                     try:
-                        payload = parent_conn.recv()
+                        payload = _safe_recv(parent_conn)
                     except EOFError:
                         payload = None
+                    except pickle.UnpicklingError as exc:
+                        logger.warning("沙箱进程发送了不安全的 payload，已拒绝: %s", exc)
+                        payload = {"success": False, "error": "沙箱返回了不允许的数据类型", "stdout": "", "stderr": ""}
                 break
 
         if payload is not None:
