@@ -43,7 +43,7 @@ class StatTestTool(Tool):
             "统一差异检验与t/Mann-Whitney/ANOVA/Kruskal-Wallis 与多重比较校正。\n"
             "最小示例：{method: independent_t, dataset_name: demo, value_column: value, group_column: group}\n"
             "参数：两组/多组需 value_column+group_column；单样本 t 需 value_column+test_value；多重校正需 p_values。\n"
-            "method：independent_t/paired_t/one_sample_t/mann_whitney/anova/kruskal_wallis/multiple_comparison_correction。"
+            "method：independent_t/paired_t/one_sample_t/mann_whitney/one_way_anova/kruskal_wallis/multiple_comparison_correction。"
         )
 
     @property
