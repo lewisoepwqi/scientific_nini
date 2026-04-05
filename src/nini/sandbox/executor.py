@@ -718,28 +718,27 @@ def _sandbox_worker(
 class _RestrictedUnpickler(pickle.Unpickler):
     """受限反序列化器：仅允许沙箱结果中合法出现的类型，防止子进程发送恶意 __reduce__ payload。"""
 
+    # 显式白名单：内置类型和标准库
     _SAFE: dict[str, set[str]] = {
         "builtins": {
             "dict", "list", "tuple", "set", "frozenset",
             "str", "int", "float", "bool", "bytes", "bytearray",
-            "complex", "NoneType",
+            "complex", "NoneType", "slice", "range", "type", "object",
         },
-        "pandas.core.frame": {"DataFrame"},
-        "pandas.core.series": {"Series"},
-        "pandas.core.indexes.base": {"Index"},
-        "pandas.core.indexes.range": {"RangeIndex"},
-        "pandas.core.indexes.multi": {"MultiIndex"},
-        "pandas.core.indexes.datetimes": {"DatetimeIndex"},
-        "numpy": {"ndarray", "dtype"},
-        "numpy.core.multiarray": {"scalar", "_reconstruct"},
-        "numpy.core._multiarray_umath": {"_reconstruct"},
         "_codecs": {"encode"},
         "datetime": {"datetime", "date", "time", "timedelta"},
         "collections": {"OrderedDict"},
     }
 
+    # 信任整个 pandas/numpy 命名空间（pickle 需要大量内部类型，逐一枚举不可行）
+    _TRUSTED_PREFIXES: tuple[str, ...] = ("pandas", "numpy")
+
     def find_class(self, module: str, name: str) -> Any:
         if module in self._SAFE and name in self._SAFE[module]:
+            return super().find_class(module, name)
+        # 允许 pandas.* 和 numpy.* 所有子模块（DataFrame/ndarray pickle 需要内部类型）
+        root = module.split(".")[0]
+        if root in self._TRUSTED_PREFIXES:
             return super().find_class(module, name)
         raise pickle.UnpicklingError(
             f"不允许从沙箱反序列化类型: {module}.{name}"

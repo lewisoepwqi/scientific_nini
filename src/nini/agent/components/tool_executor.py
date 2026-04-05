@@ -1,6 +1,6 @@
-"""Tool execution logic for AgentRunner.
+"""AgentRunner 的工具执行逻辑。
 
-Handles tool invocation, result serialization, and related utilities.
+处理工具调用、结果序列化及相关工具函数。
 """
 
 from __future__ import annotations
@@ -26,12 +26,12 @@ async def execute_tool(
 
     Args:
         tool_registry: 工具注册中心，用于执行工具调用。
-        session: The current session context.
-        name: The tool/function name to execute.
-        arguments: JSON-encoded arguments string.
+        session: 当前会话上下文。
+        name: 要执行的工具/函数名称。
+        arguments: JSON 编码的参数字符串。
 
     Returns:
-        The tool execution result, or an error dict on failure.
+        工具执行结果，失败时返回错误字典。
     """
     if tool_registry is None:
         return {"error": f"技能系统未初始化，无法执行 {name}"}
@@ -52,13 +52,13 @@ async def execute_tool(
 
 
 def parse_tool_arguments(arguments: str) -> dict[str, Any]:
-    """Parse tool arguments JSON, returning empty dict on failure.
+    """解析工具参数 JSON，解析失败时返回空字典。
 
     Args:
-        arguments: JSON-encoded arguments string.
+        arguments: JSON 编码的参数字符串。
 
     Returns:
-        Parsed dict or empty dict if parsing fails.
+        解析后的字典，解析失败时返回空字典。
     """
     try:
         parsed = json.loads(arguments)
@@ -68,14 +68,14 @@ def parse_tool_arguments(arguments: str) -> dict[str, Any]:
 
 
 def serialize_tool_result_for_memory(result: Any, *, tool_name: str = "") -> str:
-    """Serialize tool result for storage in conversation memory.
+    """将工具结果序列化后存入会话记忆。
 
     Args:
-        result: The tool result to serialize.
+        result: 待序列化的工具结果。
         tool_name: 工具名称，用于对特定工具结果做额外结构化提取。
 
     Returns:
-        JSON string representation of the result.
+        结果的 JSON 字符串表示。
     """
     if isinstance(result, dict):
         compact = summarize_tool_result_dict(result)
@@ -89,14 +89,14 @@ def serialize_tool_result_for_memory(result: Any, *, tool_name: str = "") -> str
 
 
 def compact_tool_content(content: Any, *, max_chars: int) -> str:
-    """Compact tool content for memory storage.
+    """压缩工具内容以存入记忆。
 
     Args:
-        content: The content to compact.
-        max_chars: Maximum character limit.
+        content: 待压缩的内容。
+        max_chars: 最大字符数限制。
 
     Returns:
-        Compacted string representation.
+        压缩后的字符串表示。
     """
     text = "" if content is None else str(content)
     parsed: Any = None
@@ -124,13 +124,13 @@ def compact_tool_content(content: Any, *, max_chars: int) -> str:
 
 
 def summarize_tool_result_dict(data: dict[str, Any]) -> dict[str, Any]:
-    """Summarize tool result dict, keeping only essential fields.
+    """汇总工具结果字典，仅保留关键字段。
 
     Args:
-        data: The tool result data.
+        data: 工具结果数据。
 
     Returns:
-        A compact summary of the result.
+        结果的精简摘要字典。
     """
     compact: dict[str, Any] = {}
     is_code_session_result = _is_code_session_result(data)
@@ -143,7 +143,7 @@ def summarize_tool_result_dict(data: dict[str, Any]) -> dict[str, Any]:
         if key in data:
             compact[key] = bool(data.get(key))
 
-    # Extract reference excerpt if present
+    # 提取引用摘录（如有）
     existing_excerpt = extract_reference_excerpt(
         data.get("data_excerpt"),
         max_chars=8000,
@@ -224,34 +224,34 @@ def summarize_tool_result_dict(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def extract_reference_excerpt(value: Any, *, max_chars: int) -> str:
-    """Extract a text excerpt suitable for context inclusion.
+    """提取适合上下文引用的文本摘录。
 
     Args:
-        value: The value to extract from.
-        max_chars: Maximum character limit.
+        value: 待提取的值。
+        max_chars: 最大字符数限制。
 
     Returns:
-        The extracted excerpt or empty string.
+        提取的摘录字符串，无内容时返回空字符串。
     """
     if not isinstance(value, str):
         return ""
     text = value.strip()
     if not text:
         return ""
-    # Note: sanitize_reference_text is expected to be called separately
+    # 注意：sanitize_reference_text 由调用方单独调用
     if len(text) > max_chars:
         return text[:max_chars] + "..."
     return text
 
 
 def summarize_nested_dict(data_obj: dict[str, Any]) -> dict[str, Any]:
-    """Create a shallow summary of nested data dict.
+    """对嵌套数据字典生成浅层摘要。
 
     Args:
-        data_obj: The data object to summarize.
+        data_obj: 待摘要的数据对象。
 
     Returns:
-        A summary dict with key metadata fields.
+        包含关键元数据字段的摘要字典。
     """
     summary: dict[str, Any] = {}
     for key in ("name", "dataset_name", "chart_type", "journal_style"):

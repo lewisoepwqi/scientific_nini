@@ -257,7 +257,7 @@ class HybridRetriever:
             try:
                 import asyncio
 
-                _, bm25_raw = await asyncio.get_event_loop().run_in_executor(
+                _, bm25_raw = await asyncio.get_running_loop().run_in_executor(
                     None, self._bm25_retriever.search, query, top_k * 2
                 )
                 bm25_results = [(r["id"], float(r["score"])) for r in bm25_raw]
