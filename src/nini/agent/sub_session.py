@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from nini.agent.session import Session
+from nini.agent.session import register_session_persistence
 from nini.agent.task_manager import TaskManager
 from nini.memory.conversation import InMemoryConversationMemory
 
@@ -24,6 +25,7 @@ class SubSession(Session):
 
     # 父会话 ID，用于溯源和关联
     parent_session_id: str = ""
+    persist_runtime_state: bool = False
 
     def __post_init__(self) -> None:
         """初始化子会话，使用内存存储替代磁盘存储。
@@ -33,6 +35,8 @@ class SubSession(Session):
         - task_manager 正常初始化
         - 不调用父类 __post_init__，避免触发磁盘 IO
         """
+        register_session_persistence(self.id, False)
+        self.resource_owner_session_id = self.parent_session_id or self.id
         # 初始化任务管理器
         self.task_manager = TaskManager()
         # 使用内存会话记忆，不写磁盘

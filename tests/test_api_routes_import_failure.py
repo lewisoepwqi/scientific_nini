@@ -139,6 +139,7 @@ class TestRoutesHealthCheck:
         # session_routes 保留会话管理端点，但消息历史由主路由统一提供
         assert any("/{session_id}/compress" in p for p in paths)
         assert all("/{session_id}/messages" not in p for p in paths)
+        assert paths.count("/sessions/{session_id}/agent-runs") == 1
 
         found_history = any("/api/sessions/{session_id}/messages" in p for p in http_paths)
         assert found_history, "主 HTTP 路由缺少 canonical 会话历史端点"

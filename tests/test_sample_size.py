@@ -142,12 +142,8 @@ class TestANOVA:
 
     async def test_four_groups(self, tool: SampleSizeTool, session: Session) -> None:
         """4 组 ANOVA，样本量应大于 3 组。"""
-        result_3 = await tool.execute(
-            session, design_type="anova", effect_size=0.25, groups=3
-        )
-        result_4 = await tool.execute(
-            session, design_type="anova", effect_size=0.25, groups=4
-        )
+        result_3 = await tool.execute(session, design_type="anova", effect_size=0.25, groups=3)
+        result_4 = await tool.execute(session, design_type="anova", effect_size=0.25, groups=4)
         assert result_3.success is True
         assert result_4.success is True
         # 组数增加，每组所需样本量通常减少（总自由度增加），检验此趋势合理性
@@ -196,9 +192,7 @@ class TestProportion:
         assert result.data["p2"] == 0.6
         assert result.data["n_per_group"] > 0
 
-    async def test_message_contains_cohens_h(
-        self, tool: SampleSizeTool, session: Session
-    ) -> None:
+    async def test_message_contains_cohens_h(self, tool: SampleSizeTool, session: Session) -> None:
         """通过 p1/p2 计算时，消息中应显示 Cohen's h 值。"""
         result = await tool.execute(
             session,
@@ -249,13 +243,9 @@ class TestErrorHandling:
         assert result.success is False
         assert "power" in result.message
 
-    async def test_unsupported_design_type(
-        self, tool: SampleSizeTool, session: Session
-    ) -> None:
+    async def test_unsupported_design_type(self, tool: SampleSizeTool, session: Session) -> None:
         """不支持的设计类型应返回错误。"""
-        result = await tool.execute(
-            session, design_type="invalid_type", effect_size=0.5
-        )
+        result = await tool.execute(session, design_type="invalid_type", effect_size=0.5)
         assert result.success is False
         assert "invalid_type" in result.message or "不支持" in result.message
 

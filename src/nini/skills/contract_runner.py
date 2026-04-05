@@ -944,8 +944,9 @@ class ContractRunner:
             raw_level = source.get("output_level")
             if isinstance(raw_level, str) and raw_level.strip():
                 return raw_level.strip().lower()
-            if hasattr(raw_level, "value") and isinstance(raw_level.value, str):
-                return raw_level.value.strip().lower()
+            raw_value = getattr(raw_level, "value", None)
+            if isinstance(raw_value, str):
+                return raw_value.strip().lower()
         return None
 
     def _collect_summary_output_level(self, step_outputs: Any) -> str | None:

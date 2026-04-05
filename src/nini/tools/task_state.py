@@ -186,14 +186,12 @@ class TaskStateTool(Tool):
     def _minimal_example_for_operation(self, operation: str) -> str:
         examples = {
             "init": (
-                '{operation: "init", tasks: ['
-                '{id: 1, title: "加载数据", status: "pending"}]}'
+                '{operation: "init", tasks: [' '{id: 1, title: "加载数据", status: "pending"}]}'
             ),
-            "update": (
-                '{operation: "update", tasks: ['
-                '{id: 2, status: "in_progress"}]}'
-            ),
+            "update": ('{operation: "update", tasks: [' '{id: 2, status: "in_progress"}]}'),
             "get": '{operation: "get"}',
             "current": '{operation: "current"}',
         }
-        return examples.get(operation, '{operation: "init", tasks: [{id: 1, title: "加载数据", status: "pending"}]}')
+        return examples.get(
+            operation, '{operation: "init", tasks: [{id: 1, title: "加载数据", status: "pending"}]}'
+        )

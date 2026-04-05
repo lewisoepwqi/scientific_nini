@@ -30,6 +30,7 @@ from urllib.parse import quote, unquote
 
 import pandas as pd
 
+from nini.agent.session import resolve_session_resource_id
 from nini.config import settings
 from nini.models.session_resources import (
     CodeExecutionRecord,
@@ -81,9 +82,9 @@ def _now_iso() -> str:
 class WorkspaceManager:
     """管理单个会话的工作空间。"""
 
-    def __init__(self, session_id: str):
-        self.session_id = session_id
-        self.base_dir = settings.sessions_dir / session_id / "workspace"
+    def __init__(self, session_id: str | Any):
+        self.session_id = resolve_session_resource_id(session_id)
+        self.base_dir = settings.sessions_dir / self.session_id / "workspace"
         self.workspace_dir = self.base_dir
         self.uploads_dir = self.base_dir / "uploads"
         self.artifacts_dir = self.base_dir / "artifacts"

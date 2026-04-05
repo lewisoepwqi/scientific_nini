@@ -15,11 +15,13 @@ function AgentStatusBadge({ status }: { status: AgentInfo["status"] }) {
  running: "bg-[var(--accent-subtle)] text-[var(--accent)]",
  completed: "bg-[var(--accent-subtle)] text-[var(--success)]",
  error: "bg-[var(--accent-subtle)] text-[var(--error)]",
+ stopped: "bg-[var(--bg-elevated)] text-[var(--text-secondary)]",
  };
  const labels = {
  running: "运行中",
  completed: "已完成",
  error: "失败",
+ stopped: "已终止",
  };
  return (
  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${styles[status]}`}>

@@ -338,7 +338,9 @@ async def test_export_report_with_mock_weasyprint(
     assert result.artifacts[0]["download_url"].endswith(
         f"/api/workspace/{mock_session.id}/files/artifacts/exports/test_report.pdf"
     )
-    pdf_path = setup_report / mock_session.id / "workspace" / "artifacts" / "exports" / "test_report.pdf"
+    pdf_path = (
+        setup_report / mock_session.id / "workspace" / "artifacts" / "exports" / "test_report.pdf"
+    )
     assert pdf_path.read_bytes() == fake_pdf
 
 

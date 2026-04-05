@@ -93,7 +93,10 @@ class RecipeDefinition(BaseModel):
         if not input_lines:
             input_lines.append("- 未提供结构化补充输入，请结合原始请求自行补足必要上下文。")
 
-        step_lines = [f"{index}. {step.title}：{step.description}" for index, step in enumerate(self.steps, start=1)]
+        step_lines = [
+            f"{index}. {step.title}：{step.description}"
+            for index, step in enumerate(self.steps, start=1)
+        ]
         output_lines = [
             f"- {output.label}（{output.type}）" for output in self.default_outputs
         ] or ["- 输出结构化结果并说明下一步建议"]

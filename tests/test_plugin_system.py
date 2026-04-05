@@ -9,7 +9,6 @@ import pytest
 from nini.plugins.base import DegradationInfo, Plugin
 from nini.plugins.registry import PluginRegistry
 
-
 # ---- 测试辅助插件 ----
 
 
@@ -128,6 +127,7 @@ def test_plugin_subclass_missing_abstract_methods_raises_type_error() -> None:
 
         async def is_available(self) -> bool:
             return True
+
         # 故意不实现 initialize()
 
     with pytest.raises(TypeError):

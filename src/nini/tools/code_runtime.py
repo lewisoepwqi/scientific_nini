@@ -96,7 +96,7 @@ def _persist_runtime_dataset(
     normalized_name = str(dataset_name or "").strip() or f"dataset_{uuid.uuid4().hex[:8]}"
     session.datasets[normalized_name] = df
 
-    manager = WorkspaceManager(session.id)
+    manager = WorkspaceManager(session)
     resource_type = ResourceType.TEMP_DATASET if temporary else ResourceType.DATASET
     source_kind = "temp_datasets" if temporary else "datasets"
     retention = "session" if temporary else "persistent"
@@ -162,8 +162,8 @@ def _save_python_figures(
     if not figures:
         return []
 
-    storage = ArtifactStorage(session.id)
-    ws = WorkspaceManager(session.id)
+    storage = ArtifactStorage(session)
+    ws = WorkspaceManager(session)
     artifacts: list[dict[str, Any]] = []
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     style_spec = build_style_spec()
@@ -339,8 +339,8 @@ def _save_r_figures(
     if not figures:
         return []
 
-    storage = ArtifactStorage(session.id)
-    ws = WorkspaceManager(session.id)
+    storage = ArtifactStorage(session)
+    ws = WorkspaceManager(session)
     artifacts: list[dict[str, Any]] = []
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
@@ -429,10 +429,17 @@ async def execute_python_code(
             message=f"沙箱策略拦截: {exc}",
             data={
                 "pre_injected_modules": [
-                    "pd (pandas)", "np (numpy)", "plt (matplotlib.pyplot)",
-                    "sns (seaborn)", "go/px (plotly)", "datetime/dt/timedelta",
-                    "re", "json", "Counter/defaultdict/deque",
-                    "combinations/permutations/product", "reduce/partial",
+                    "pd (pandas)",
+                    "np (numpy)",
+                    "plt (matplotlib.pyplot)",
+                    "sns (seaborn)",
+                    "go/px (plotly)",
+                    "datetime/dt/timedelta",
+                    "re",
+                    "json",
+                    "Counter/defaultdict/deque",
+                    "combinations/permutations/product",
+                    "reduce/partial",
                 ],
             },
         )

@@ -96,9 +96,9 @@ def normalize_source_record(
         source_id = source_id or f"source:{_stable_hash(title or url or stable_ref or 'unknown')}"
         acquisition_method = acquisition_method or default_method
 
-    metadata = payload.get("metadata")
-    if not isinstance(metadata, dict):
-        metadata = {}
+    record_metadata = payload.get("metadata")
+    if not isinstance(record_metadata, dict):
+        record_metadata = {}
 
     return SourceRecord(
         source_id=source_id,
@@ -120,7 +120,7 @@ def normalize_source_record(
         resource_id=resource_id or None,
         url=url or None,
         excerpt=excerpt,
-        metadata=metadata,
+        metadata=record_metadata,
     )
 
 

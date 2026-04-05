@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import median
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -230,7 +230,7 @@ def load_benchmark_set(
                 required=bool(item.get("required", True)),
                 user_request=str(item.get("user_request", "") or "").strip(),
                 recipe_inputs=(
-                    dict(item.get("recipe_inputs"))
+                    dict(cast(dict[str, Any], item.get("recipe_inputs")))
                     if isinstance(item.get("recipe_inputs"), dict)
                     else None
                 ),

@@ -10,6 +10,8 @@ import type {
   SkillExecutionState,
   StreamingMetrics,
   TokenUsage,
+  AgentRunThread,
+  AgentRunGroup,
 } from "./types";
 
 export interface SessionUiCacheEntry {
@@ -33,6 +35,11 @@ export interface SessionUiCacheEntry {
   analysisPlanOrder: number;
   activePlanTaskIds: Array<string | null>;
   planActionTaskMap: Record<string, string>;
+  agentRuns: Record<string, AgentRunThread>;
+  agentRunTabs: string[];
+  selectedRunId: string | null;
+  unreadByRun: Record<string, number>;
+  runGroupsByTurn: Record<string, AgentRunGroup>;
 }
 
 export interface SessionUiCacheSnapshotSource {
@@ -56,6 +63,11 @@ export interface SessionUiCacheSnapshotSource {
   _analysisPlanOrder: number;
   _activePlanTaskIds: Array<string | null>;
   _planActionTaskMap: Record<string, string>;
+  agentRuns: Record<string, AgentRunThread>;
+  agentRunTabs: string[];
+  selectedRunId: string | null;
+  unreadByRun: Record<string, number>;
+  runGroupsByTurn: Record<string, AgentRunGroup>;
 }
 
 const MAX_SESSION_CACHE = 10;
@@ -137,7 +149,40 @@ export function createEmptySessionUiCacheEntry(): SessionUiCacheEntry {
     analysisPlanOrder: 0,
     activePlanTaskIds: [],
     planActionTaskMap: {},
+    agentRuns: {},
+    agentRunTabs: [],
+    selectedRunId: null,
+    unreadByRun: {},
+    runGroupsByTurn: {},
   };
+}
+
+function cloneAgentRuns(
+  agentRuns: Record<string, AgentRunThread>,
+): Record<string, AgentRunThread> {
+  return Object.fromEntries(
+    Object.entries(agentRuns).map(([runId, run]) => [
+      runId,
+      {
+        ...run,
+        messages: cloneMessages(run.messages),
+      },
+    ]),
+  );
+}
+
+function cloneRunGroups(
+  groups: Record<string, AgentRunGroup>,
+): Record<string, AgentRunGroup> {
+  return Object.fromEntries(
+    Object.entries(groups).map(([turnId, group]) => [
+      turnId,
+      {
+        ...group,
+        runIds: [...group.runIds],
+      },
+    ]),
+  );
 }
 
 export function cloneSessionUiCacheEntry(
@@ -174,6 +219,11 @@ export function cloneSessionUiCacheEntry(
     analysisPlanOrder: entry.analysisPlanOrder,
     activePlanTaskIds: [...entry.activePlanTaskIds],
     planActionTaskMap: { ...entry.planActionTaskMap },
+    agentRuns: cloneAgentRuns(entry.agentRuns),
+    agentRunTabs: [...entry.agentRunTabs],
+    selectedRunId: entry.selectedRunId,
+    unreadByRun: { ...entry.unreadByRun },
+    runGroupsByTurn: cloneRunGroups(entry.runGroupsByTurn),
   };
 }
 
@@ -211,6 +261,11 @@ export function captureSessionUiCacheEntry(
     analysisPlanOrder: source._analysisPlanOrder,
     activePlanTaskIds: [...source._activePlanTaskIds],
     planActionTaskMap: { ...source._planActionTaskMap },
+    agentRuns: cloneAgentRuns(source.agentRuns),
+    agentRunTabs: [...source.agentRunTabs],
+    selectedRunId: source.selectedRunId,
+    unreadByRun: { ...source.unreadByRun },
+    runGroupsByTurn: cloneRunGroups(source.runGroupsByTurn),
   };
 }
 

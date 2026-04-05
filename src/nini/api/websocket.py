@@ -56,6 +56,27 @@ def _load_existing_session(session_id: str) -> Session | None:
         return None
 
 
+def _with_root_run_metadata(
+    metadata: dict[str, Any] | None,
+    *,
+    turn_id: str | None,
+) -> dict[str, Any]:
+    """为主 Agent 事件补齐根运行元数据。"""
+    merged = dict(metadata or {})
+    normalized_turn_id = str(turn_id or "").strip() or None
+    if normalized_turn_id is None:
+        return merged
+    merged.setdefault("run_scope", "root")
+    merged.setdefault("run_id", f"root:{normalized_turn_id}")
+    merged.setdefault("parent_run_id", None)
+    merged.setdefault("agent_id", None)
+    merged.setdefault("agent_name", None)
+    merged.setdefault("attempt", None)
+    merged.setdefault("phase", None)
+    merged.setdefault("turn_id", normalized_turn_id)
+    return merged
+
+
 @router.websocket("/ws")
 async def websocket_agent(ws: WebSocket):
     """WebSocket Agent 交互。
@@ -330,7 +351,7 @@ async def websocket_agent(ws: WebSocket):
         user_request: str,
     ) -> None:
         """初始化 deep task 工作区并归档输入摘要。"""
-        workspace = WorkspaceManager(session.id)
+        workspace = WorkspaceManager(session)
         workspace.ensure_dirs()
         lines = [
             f"# {recipe.name}",
@@ -386,7 +407,7 @@ async def websocket_agent(ws: WebSocket):
         # 会话首次恢复时，从工作空间补齐已上传数据集
         if not getattr(session, "workspace_hydrated", False):
             try:
-                loaded = WorkspaceManager(session.id).hydrate_session_datasets(session)
+                loaded = WorkspaceManager(session).hydrate_session_datasets(session)
                 if loaded > 0:
                     logger.info(
                         "工作空间数据集已恢复: session_id=%s loaded=%d",
@@ -423,7 +444,10 @@ async def websocket_agent(ws: WebSocket):
                 tool_call_id=getattr(event, "tool_call_id", None),
                 tool_name=getattr(event, "tool_name", None),
                 turn_id=getattr(event, "turn_id", None),
-                metadata=getattr(event, "metadata", None),
+                metadata=_with_root_run_metadata(
+                    getattr(event, "metadata", None),
+                    turn_id=getattr(event, "turn_id", None),
+                ),
                 active_stop_events=active_stop_events,
             )
 
@@ -517,7 +541,10 @@ async def websocket_agent(ws: WebSocket):
                             tool_call_id=event.tool_call_id,
                             tool_name=event.tool_name,
                             turn_id=event.turn_id,
-                            metadata=event.metadata,
+                            metadata=_with_root_run_metadata(
+                                event.metadata,
+                                turn_id=event.turn_id,
+                            ),
                             active_stop_events=active_stop_events,
                         )
                         if (
@@ -588,7 +615,7 @@ async def websocket_agent(ws: WebSocket):
                                 from nini.utils.token_counter import count_messages_tokens
 
                                 ctx_tokens = count_messages_tokens(session.messages)
-                                wm = WorkspaceManager(session.id)
+                                wm = WorkspaceManager(session)
                                 event_intent = (
                                     event.metadata.get("intent")
                                     if isinstance(event.metadata, dict)
@@ -792,6 +819,60 @@ async def websocket_agent(ws: WebSocket):
                             data="当前没有进行中的请求",
                             active_stop_events=active_stop_events,
                         )
+                continue
+
+            if msg_type == "stop_agent":
+                stop_session_id = str(msg.get("session_id") or "").strip()
+                metadata = msg.get("metadata")
+                meta = metadata if isinstance(metadata, dict) else {}
+                run_id = str(meta.get("run_id") or "").strip()
+                agent_id = str(meta.get("agent_id") or "").strip()
+                if not stop_session_id or not run_id or not agent_id:
+                    await _send_event(
+                        ws,
+                        "error",
+                        data="stop_agent 缺少 session_id / run_id / agent_id",
+                        active_stop_events=active_stop_events,
+                    )
+                    continue
+                session_token = bind_log_context(session_id=stop_session_id)
+                try:
+                    logger.info(
+                        "处理 WebSocket 消息: type=stop_agent run_id=%s agent_id=%s",
+                        run_id,
+                        agent_id,
+                    )
+                    live_session = session_manager.get_session(stop_session_id)
+                    stop_map = (
+                        getattr(live_session, "subagent_stop_events", {}) if live_session else {}
+                    )
+                    stop_ev = stop_map.get(run_id) if isinstance(stop_map, dict) else None
+                    if isinstance(stop_ev, asyncio.Event):
+                        stop_ev.set()
+                    else:
+                        await _send_event(
+                            ws,
+                            EventType.AGENT_ERROR.value,
+                            data={
+                                "event_type": "agent_error",
+                                "agent_id": agent_id,
+                                "agent_name": agent_id,
+                                "error": "当前子 Agent 不在运行中",
+                                "execution_time_ms": 0,
+                                "attempt": 1,
+                                "retry_count": 0,
+                            },
+                            session_id=stop_session_id,
+                            metadata={
+                                "run_scope": "subagent",
+                                "run_id": run_id,
+                                "agent_id": agent_id,
+                                "agent_name": agent_id,
+                            },
+                            active_stop_events=active_stop_events,
+                        )
+                finally:
+                    reset_log_context(session_token)
                 continue
 
             if msg_type == "ask_user_question_answer":
@@ -1262,6 +1343,24 @@ async def _send_event(
         return
 
     try:
+        normalized_metadata = metadata or {}
+        if (
+            session_id
+            and isinstance(normalized_metadata, dict)
+            and normalized_metadata.get("run_scope") == "subagent"
+        ):
+            session_manager.append_agent_run_event(
+                session_id,
+                {
+                    "type": event_type,
+                    "data": _normalize_wire_event_data(event_type, data),
+                    "session_id": session_id,
+                    "tool_call_id": tool_call_id,
+                    "tool_name": tool_name,
+                    "turn_id": turn_id,
+                    "metadata": normalized_metadata,
+                },
+            )
         event = WSEvent(
             type=event_type,
             data=_normalize_wire_event_data(event_type, data),
@@ -1269,7 +1368,7 @@ async def _send_event(
             tool_call_id=tool_call_id,
             tool_name=tool_name,
             turn_id=turn_id,
-            metadata=metadata or {},
+            metadata=normalized_metadata,
         )
         event_dict = event.model_dump(exclude_none=True)
         await ws.send_text(json.dumps(event_dict, cls=_NumpySafeEncoder, ensure_ascii=False))

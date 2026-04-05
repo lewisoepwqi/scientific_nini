@@ -432,10 +432,26 @@ class SessionTokenTracker:
 _trackers: dict[str, SessionTokenTracker] = {}
 
 
-def get_tracker(session_id: str) -> SessionTokenTracker:
+def get_tracker(
+    session_id: str,
+    *,
+    persist_enabled: bool | None = None,
+) -> SessionTokenTracker:
     """获取或创建会话 token 追踪器。"""
+    if persist_enabled is None:
+        try:
+            from nini.agent.session import session_persistence_enabled
+
+            persist_enabled = session_persistence_enabled(session_id)
+        except Exception:
+            persist_enabled = True
     if session_id not in _trackers:
-        _trackers[session_id] = SessionTokenTracker(session_id=session_id)
+        _trackers[session_id] = SessionTokenTracker(
+            session_id=session_id,
+            _persist_enabled=bool(persist_enabled),
+        )
+    elif persist_enabled is not None:
+        _trackers[session_id]._persist_enabled = bool(persist_enabled)
     return _trackers[session_id]
 
 

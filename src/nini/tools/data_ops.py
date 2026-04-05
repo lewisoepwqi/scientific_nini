@@ -148,7 +148,7 @@ class LoadDatasetTool(Tool):
                 message="sheet_mode 仅支持: default/single/all",
             )
 
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
 
         if sheet_mode == "default":
             if name not in session.datasets:

@@ -502,6 +502,35 @@ def test_summarize_tool_result_dict_omits_code_session_data_excerpt() -> None:
     assert compact["data_summary"]["keys"] == ["content", "script_id"]
 
 
+def test_summarize_tool_result_dict_keeps_structured_stat_summary() -> None:
+    result = {
+        "success": True,
+        "message": "Spearman 相关性分析完成（3 个变量, n=20）",
+        "data": {
+            "method": "spearman",
+            "sample_size": 20,
+            "correlation_matrix": {
+                "x": {"x": 1.0, "y": 0.8, "z": -0.2},
+                "y": {"x": 0.8, "y": 1.0, "z": -0.1},
+                "z": {"x": -0.2, "y": -0.1, "z": 1.0},
+            },
+            "pvalue_matrix": {
+                "x": {"x": 0.0, "y": 0.0001, "z": 0.4},
+                "y": {"x": 0.0001, "y": 0.0, "z": 0.5},
+                "z": {"x": 0.4, "y": 0.5, "z": 0.0},
+            },
+        },
+    }
+
+    compact = summarize_tool_result_dict(result)
+
+    assert "stat_summary" in compact
+    assert compact["stat_summary"]["method"] == "spearman"
+    assert compact["stat_summary"]["sample_size"] == 20
+    assert compact["stat_summary"]["pairwise"][0]["var_a"] == "x"
+    assert compact["stat_summary"]["pairwise"][0]["var_b"] == "y"
+
+
 def test_replace_arguments_handles_positional_and_full_arguments() -> None:
     """参数替换应同时支持 `$ARGUMENTS` 和位置参数。"""
     text = "分析 $ARGUMENTS；主列=$1；分组=$2；第三项=$3"

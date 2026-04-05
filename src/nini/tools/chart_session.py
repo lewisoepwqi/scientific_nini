@@ -231,7 +231,7 @@ class ChartSessionTool(Tool):
         if not result.success:
             return result
 
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         artifact_ids = self._resolve_artifact_ids(manager, result.artifacts)
         record = ChartSessionRecord(
             id=chart_id,
@@ -273,7 +273,7 @@ class ChartSessionTool(Tool):
         record = self._load_chart_record(session, chart_id)
         if record is None:
             return ToolResult(success=False, message=f"未找到图表会话: {chart_id}")
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         return ToolResult(
             success=True,
             message=f"已读取图表会话 '{chart_id}'",
@@ -313,7 +313,7 @@ class ChartSessionTool(Tool):
             "height": kwargs.get("height", 800),
             "scale": kwargs.get("scale", 2.0),
         }
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         source_task_id = str(session.deep_task_state.get("task_id", "")).strip() or None
         requested_format = str(kwargs.get("format", "png")).strip() or "png"
         export_job = manager.create_export_job(
@@ -485,7 +485,7 @@ class ChartSessionTool(Tool):
         )
 
     def _load_chart_record(self, session: Session, chart_id: str) -> ChartSessionRecord | None:
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         path = self._record_path(manager, chart_id)
         if not path.exists():
             return None

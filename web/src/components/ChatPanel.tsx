@@ -57,6 +57,8 @@ export default function ChatPanel() {
  askUserQuestionNotificationPreference,
  currentIntentAnalysis,
  streamingMetrics,
+ agentRuns,
+ selectedRunId,
  } = useStore(
  useShallow((s) => ({
  sessionId: s.sessionId,
@@ -64,10 +66,12 @@ export default function ChatPanel() {
  messages: s.messages,
  isStreaming: s.isStreaming,
  pendingAskUserQuestionsBySession: s.pendingAskUserQuestionsBySession,
- pendingAskUserQuestion: s.pendingAskUserQuestion,
- askUserQuestionNotificationPreference: s.askUserQuestionNotificationPreference,
- currentIntentAnalysis: s.currentIntentAnalysis,
- streamingMetrics: s._streamingMetrics,
+  pendingAskUserQuestion: s.pendingAskUserQuestion,
+  askUserQuestionNotificationPreference: s.askUserQuestionNotificationPreference,
+  currentIntentAnalysis: s.currentIntentAnalysis,
+  streamingMetrics: s._streamingMetrics,
+  agentRuns: s.agentRuns,
+  selectedRunId: s.selectedRunId,
  })),
  )
  // 函数 selector 独立（Zustand 对函数引用稳定，不触发重渲染）
@@ -80,6 +84,12 @@ export default function ChatPanel() {
  const submitAskUserQuestionAnswers = useStore((s) => s.submitAskUserQuestionAnswers)
  const retryLastTurn = useStore((s) => s.retryLastTurn)
  const bottomRef = useRef<HTMLDivElement>(null)
+ const displayMessages = useMemo(() => {
+ if (!selectedRunId) return messages
+ const selectedRun = agentRuns[selectedRunId]
+ if (!selectedRun || selectedRun.runScope === 'root') return messages
+ return selectedRun.messages
+ }, [agentRuns, messages, selectedRunId])
  const [displayedTokenCount, setDisplayedTokenCount] = useState(() =>
  streamingMetrics.hasTokenUsage ? streamingMetrics.totalTokens : 0,
  )
@@ -133,7 +143,7 @@ export default function ChatPanel() {
  useEffect(() => {
  const id = setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
  return () => clearTimeout(id)
- }, [messages])
+ }, [displayMessages])
 
  useEffect(() => {
  if (!isStreaming || !streamingMetrics.startedAt) {
@@ -293,7 +303,7 @@ export default function ChatPanel() {
  showConversationContent ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
  }`}
  >
- {showConversationContent && messages.length === 0 && !isNoSession && (
+ {showConversationContent && displayMessages.length === 0 && !isNoSession && (
  <div className="min-h-[60vh] py-6 space-y-3">
  <WelcomeHint />
  <RecipeCenter />
@@ -323,7 +333,7 @@ export default function ChatPanel() {
  )}
  {showConversationContent && <SkillProgressPanel />}
  {/* 所有消息按原始顺序展示 */}
- {showConversationContent && messages.map((msg) => {
+ {showConversationContent && displayMessages.map((msg) => {
  const isUser = msg.role === 'user'
  const isLastUser = isUser && msg.id === lastUserMessageId
  const showRetry =

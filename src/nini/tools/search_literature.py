@@ -236,15 +236,16 @@ class SearchLiteratureTool(Tool):
         from nini.config import settings
 
         proxy = settings.network_proxy
-        proxies = {"http://": proxy, "https://": proxy} if proxy else None
-        client = httpx.AsyncClient(
-            proxies=proxies,
-            timeout=settings.network_timeout,
-            headers={
+        client_kwargs: dict[str, Any] = {
+            "timeout": settings.network_timeout,
+            "headers": {
                 "User-Agent": "Nini-Scientific-Agent/0.1 (Literature Search)",
                 "Accept": "application/json",
             },
-        )
+        }
+        if proxy:
+            client_kwargs["proxy"] = proxy
+        client = httpx.AsyncClient(**client_kwargs)
         return client, True
 
     async def _search_semantic_scholar(

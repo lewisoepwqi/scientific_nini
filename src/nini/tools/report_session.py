@@ -222,7 +222,7 @@ class ReportSessionTool(Tool):
         filename = self._normalize_markdown_filename(kwargs.get("filename"))
         if filename:
             record.markdown_path = f"notes/reports/{filename}"
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         markdown_rel_path = self._write_report_markdown(manager, record)
         record.markdown_path = markdown_rel_path
         self._persist_report_record(manager, record)
@@ -278,7 +278,7 @@ class ReportSessionTool(Tool):
             record.methods_ledger = self._build_default_methods_ledger(record.sections)
             record.methods_v1 = render_methods_v1(record.methods_ledger)
         apply_claim_verification(record)
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         markdown_rel_path = self._write_report_markdown(manager, record)
         record.markdown_path = markdown_rel_path
         self._persist_report_record(manager, record)
@@ -321,7 +321,7 @@ class ReportSessionTool(Tool):
                 continue
             if artifact_resource_id not in section.attachments:
                 section.attachments.append(artifact_resource_id)
-            resource = WorkspaceManager(session.id).get_resource_summary(artifact_resource_id)
+            resource = WorkspaceManager(session).get_resource_summary(artifact_resource_id)
             if isinstance(resource, dict):
                 self._upsert_section_evidence_source(
                     record,
@@ -333,7 +333,7 @@ class ReportSessionTool(Tool):
         if not matched:
             return ToolResult(success=False, message=f"未找到章节: {section_key}")
         apply_claim_verification(record)
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         markdown_rel_path = self._write_report_markdown(manager, record)
         record.markdown_path = markdown_rel_path
         self._persist_report_record(manager, record)
@@ -363,7 +363,7 @@ class ReportSessionTool(Tool):
         record = self._load_report_record(session, report_id)
         if record is None:
             return ToolResult(success=False, message=f"未找到报告会话: {report_id}")
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         return ToolResult(
             success=True,
             message=f"已读取报告会话 '{report_id}'",
@@ -400,7 +400,7 @@ class ReportSessionTool(Tool):
         )
         if not result.success:
             return result
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         record.export_ids = self._resolve_artifact_ids(manager, result.artifacts)
         self._persist_report_record(manager, record)
         payload = result.to_dict()
@@ -528,7 +528,7 @@ class ReportSessionTool(Tool):
         )
 
     def _load_report_record(self, session: Session, report_id: str) -> ReportSessionRecord | None:
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         path = self._record_path(manager, report_id)
         if not path.exists():
             return None
@@ -742,7 +742,7 @@ class ReportSessionTool(Tool):
     def _update_latest_report_handles(self, session: Session, record: ReportSessionRecord) -> None:
         if not record.markdown_path:
             return
-        manager = WorkspaceManager(session.id)
+        manager = WorkspaceManager(session)
         download_url = manager.build_workspace_file_download_url(record.markdown_path)
         session.documents["latest_report"] = {
             "name": Path(record.markdown_path).name,

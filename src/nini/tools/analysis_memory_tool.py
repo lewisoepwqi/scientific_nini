@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from nini.agent.session import resolve_session_resource_id
 from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
 
@@ -67,7 +68,7 @@ class AnalysisMemoryTool(Tool):
         keyword = str(kwargs.get("keyword", "") or "").strip().lower()
         dataset_filter = str(kwargs.get("dataset_name", "") or "").strip().lower()
 
-        memories = list_session_analysis_memories(session.id)
+        memories = list_session_analysis_memories(resolve_session_resource_id(session))
 
         if operation == "list":
             return self._handle_list(memories)

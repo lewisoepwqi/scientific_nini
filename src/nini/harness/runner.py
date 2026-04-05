@@ -547,7 +547,7 @@ class HarnessRunner:
     ) -> CompletionCheckResult:
         evidence = self._build_completion_evidence(session, turn_id=turn_id)
         strict_analysis_mode = session.task_manager.has_tasks() or bool(session.datasets)
-        unresolved_pending_actions = evidence.pending_actions
+        unresolved_pending_actions = evidence.blocking_pending_actions
         all_tasks_completed = (
             not session.task_manager.has_tasks()
             or session.task_manager.all_completed()
@@ -724,6 +724,9 @@ class HarnessRunner:
                 0.0, min(1.0, (total_tasks - remaining_tasks) / total_tasks)
             )
         pending_actions = session.list_pending_actions(status="pending")
+        blocking_pending_actions = [
+            dict(item) for item in pending_actions if bool(item.get("blocking", True))
+        ]
 
         return CompletionEvidence(
             turn_id=turn_id,
@@ -733,6 +736,7 @@ class HarnessRunner:
             user_confirmation_pending=user_confirmation_pending,
             transitional_output=transitional_output,
             pending_actions=pending_actions,
+            blocking_pending_actions=blocking_pending_actions,
             remaining_tasks=remaining_tasks,
             task_completion_ratio=task_completion_ratio,
         )
@@ -746,7 +750,10 @@ class HarnessRunner:
     ) -> str:
         missing = "；".join(completion.missing_actions) or "补齐完成条件"
         evidence = completion.evidence if isinstance(completion.evidence, dict) else {}
-        evidence_pending = evidence.get("pending_actions", [])
+        raw_evidence_pending = evidence.get(
+            "blocking_pending_actions", evidence.get("pending_actions", [])
+        )
+        evidence_pending = raw_evidence_pending if isinstance(raw_evidence_pending, list) else []
         followups: list[str] = []
         if any(
             isinstance(item, dict) and item.get("type") == "script_not_run"
@@ -845,8 +852,13 @@ class HarnessRunner:
         if status == "error":
             tool_error_counts[signature] = tool_error_counts.get(signature, 0) + 1
             tool_failure_messages[signature] = str(data.get("message", "") or "工具执行失败")
-            metadata = {"turn_id": turn_id}
+            metadata: dict[str, Any] = {"turn_id": turn_id}
             failure_message = str(data.get("message", "") or "工具执行失败")
+            failure_category, blocking = HarnessRunner._classify_tool_failure(
+                tool_name=tool_name,
+                message=failure_message,
+                data=data,
+            )
             if _TIMEOUT_RE.search(failure_message):
                 metadata["failure_kind"] = "timeout"
                 metadata["purpose"] = HarnessRunner._infer_timeout_purpose(
@@ -858,6 +870,8 @@ class HarnessRunner:
                 status="pending",
                 summary=f"{tool_name} 失败：{failure_message}",
                 source_tool=tool_name,
+                blocking=blocking,
+                failure_category=failure_category,
                 metadata=metadata,
             )
         else:
@@ -865,6 +879,19 @@ class HarnessRunner:
             tool_failure_messages.pop(signature, None)
             recovered_tool_signatures.discard(signature)
             session.resolve_pending_action(action_type="tool_failure_unresolved", key=signature)
+            for item in session.list_pending_actions(action_type="tool_failure_unresolved"):
+                item_metadata = item.get("metadata")
+                if not isinstance(item_metadata, dict):
+                    continue
+                if (
+                    str(item.get("source_tool", "")).strip() == tool_name
+                    and str(item_metadata.get("turn_id", "")).strip() == turn_id
+                    and not bool(item.get("blocking", True))
+                ):
+                    session.resolve_pending_action(
+                        action_type="tool_failure_unresolved",
+                        key=str(item.get("key", "")).strip(),
+                    )
             return None, None
 
         count = tool_error_counts[signature]
@@ -893,6 +920,30 @@ class HarnessRunner:
                 None,
             )
         return None, None
+
+    @staticmethod
+    def _classify_tool_failure(
+        *,
+        tool_name: str,
+        message: str,
+        data: dict[str, Any],
+    ) -> tuple[str, bool]:
+        """返回失败分类与是否阻塞。"""
+        normalized_message = str(message or "").strip()
+        if tool_name in {"task_state", "task_write"}:
+            result_payload = data.get("result")
+            result_data = result_payload.get("data", {}) if isinstance(result_payload, dict) else {}
+            no_op_ids = result_data.get("no_op_ids") if isinstance(result_data, dict) else None
+            if isinstance(no_op_ids, list) and no_op_ids:
+                return "idempotent_conflict", False
+            if (
+                "任务列表已初始化且" in normalized_message
+                and "无法重新初始化" in normalized_message
+            ):
+                return "idempotent_conflict", False
+            if "无需重复设置" in normalized_message:
+                return "idempotent_conflict", False
+        return "blocking_failure", True
 
     @staticmethod
     def _resolve_tool_failure_signature(

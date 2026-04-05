@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from nini.agent.session import session_manager
 from nini.agent.sub_session import SubSession
 from nini.memory.conversation import InMemoryConversationMemory
 
@@ -56,6 +57,177 @@ def test_datasets_shared_reference():
 def test_parent_session_id_field():
     session = SubSession(id=uuid.uuid4().hex[:12], parent_session_id="parent123")
     assert session.parent_session_id == "parent123"
+
+
+@pytest.mark.asyncio
+async def test_stat_model_does_not_crash_when_knowledge_memory_is_none():
+    import pandas as pd
+
+    from nini.tools.stat_model import StatModelTool
+
+    session = SubSession(id=uuid.uuid4().hex[:12])
+    session.datasets["demo"] = pd.DataFrame(
+        {
+            "x": [1, 2, 3, 4, 5, 6],
+            "y": [2, 4, 6, 8, 10, 12],
+        }
+    )
+
+    result = await StatModelTool().execute(
+        session,
+        method="correlation",
+        dataset_name="demo",
+        columns=["x", "y"],
+    )
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_stat_test_does_not_crash_when_knowledge_memory_is_none():
+    import pandas as pd
+
+    from nini.tools.stat_test import StatTestTool
+
+    session = SubSession(id=uuid.uuid4().hex[:12])
+    session.datasets["demo"] = pd.DataFrame(
+        {
+            "value": [1.0, 2.0, 3.0, 10.0, 11.0, 12.0],
+            "group": ["A", "A", "A", "B", "B", "B"],
+        }
+    )
+
+    result = await StatTestTool().execute(
+        session,
+        method="independent_t",
+        dataset_name="demo",
+        value_column="value",
+        group_column="group",
+    )
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_subsession_stat_tools_do_not_persist_analysis_memory(tmp_path, monkeypatch):
+    import pandas as pd
+
+    from nini.memory.compression import (
+        clear_session_analysis_memories,
+        list_session_analysis_memories,
+    )
+    from nini.tools.stat_model import StatModelTool
+
+    from nini.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    session = SubSession(id=uuid.uuid4().hex[:12])
+    session.datasets["demo"] = pd.DataFrame(
+        {
+            "x": [1, 2, 3, 4, 5, 6],
+            "y": [2, 4, 6, 8, 10, 12],
+        }
+    )
+
+    try:
+        result = await StatModelTool().execute(
+            session,
+            method="correlation",
+            dataset_name="demo",
+            columns=["x", "y"],
+        )
+
+        assert result.success is True
+        memories = list_session_analysis_memories(session.id)
+        assert len(memories) == 1
+        assert not (tmp_path / "data" / "sessions" / session.id / "analysis_memories").exists()
+    finally:
+        clear_session_analysis_memories(session.id)
+
+
+def test_subsession_token_tracker_does_not_write_cost_file(tmp_path, monkeypatch):
+    from nini.config import settings
+    from nini.utils.token_counter import get_tracker, remove_tracker
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    session = SubSession(id=uuid.uuid4().hex[:12])
+
+    try:
+        tracker = get_tracker(session.id)
+        tracker.record(model="glm-5", input_tokens=10, output_tokens=5)
+        assert not (tmp_path / "data" / "sessions" / session.id / "cost.jsonl").exists()
+    finally:
+        remove_tracker(session.id)
+
+
+def test_session_manager_skips_meta_persistence_for_subsession(tmp_path, monkeypatch):
+    from nini.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    session = SubSession(id=uuid.uuid4().hex[:12])
+
+    session_manager.save_session_pending_actions(
+        session.id,
+        [{"type": "tool_failure_unresolved", "key": "k", "summary": "s"}],
+    )
+
+    assert not (tmp_path / "data" / "sessions" / session.id / "meta.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_subsession_analysis_memory_is_attributed_to_parent_session(tmp_path, monkeypatch):
+    import pandas as pd
+
+    from nini.config import settings
+    from nini.memory.compression import (
+        clear_session_analysis_memories,
+        list_session_analysis_memories,
+    )
+    from nini.tools.stat_model import StatModelTool
+
+    parent_session_id = "parent123"
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    session = SubSession(id=uuid.uuid4().hex[:12], parent_session_id=parent_session_id)
+    session.datasets["demo"] = pd.DataFrame(
+        {
+            "x": [1, 2, 3, 4, 5, 6],
+            "y": [2, 4, 6, 8, 10, 12],
+        }
+    )
+
+    try:
+        result = await StatModelTool().execute(
+            session,
+            method="correlation",
+            dataset_name="demo",
+            columns=["x", "y"],
+        )
+
+        assert result.success is True
+        parent_memories = list_session_analysis_memories(parent_session_id)
+        assert len(parent_memories) == 1
+        assert parent_memories[0].session_id == parent_session_id
+        assert not (tmp_path / "data" / "sessions" / session.id / "analysis_memories").exists()
+    finally:
+        clear_session_analysis_memories(parent_session_id)
+        clear_session_analysis_memories(session.id)
+
+
+def test_subsession_workspace_and_artifacts_use_parent_session(tmp_path, monkeypatch):
+    from nini.config import settings
+    from nini.memory.storage import ArtifactStorage
+    from nini.workspace import WorkspaceManager
+
+    parent_session_id = "parent456"
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    session = SubSession(id=uuid.uuid4().hex[:12], parent_session_id=parent_session_id)
+
+    note_path = WorkspaceManager(session).save_text_file("notes/sub-agent.md", "hello")
+    artifact_path = ArtifactStorage(session).save_text("artifact", "child.txt")
+
+    assert str(note_path).startswith(str(tmp_path / "data" / "sessions" / parent_session_id))
+    assert str(artifact_path).startswith(str(tmp_path / "data" / "sessions" / parent_session_id))
+    assert not (tmp_path / "data" / "sessions" / session.id / "workspace").exists()
 
 
 def test_agent_runner_accepts_subsession():

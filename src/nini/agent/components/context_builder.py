@@ -147,9 +147,7 @@ class ContextBuilder:
 
         # 根据模型上下文窗口和意图关键词构建系统提示词
         context_window: int | None = getattr(session, "_model_context_window", None)
-        system_prompt = get_system_prompt(
-            context_window=context_window, intent_hints=intent_hints
-        )
+        system_prompt = get_system_prompt(context_window=context_window, intent_hints=intent_hints)
 
         intent_runtime_context = self.build_intent_runtime_context(
             last_user_msg, intent_analysis=_intent_analysis

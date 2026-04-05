@@ -467,4 +467,4 @@ class EditFile(Tool):
         """同步 edit_file 创建/更新的文本文件索引，使其在工作区按文稿展示。"""
         workspace_path = settings.sessions_dir / session.id / "workspace"
         relative_path = file_path.resolve().relative_to(workspace_path.resolve()).as_posix()
-        WorkspaceManager(session.id).sync_text_document_record(relative_path)
+        WorkspaceManager(session).sync_text_document_record(relative_path)

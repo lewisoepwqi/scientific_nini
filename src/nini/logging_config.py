@@ -151,12 +151,15 @@ def setup_logging(
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 
-    log_path = target_dir / target_name
+    log_path: Path | None = target_dir / target_name
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
+        resolved_log_path = log_path
+        if resolved_log_path is None:
+            raise ValueError("日志文件路径为空")
         file_handler = _mark_managed(
             TimedRotatingFileHandler(
-                log_path,
+                resolved_log_path,
                 when=when,
                 interval=interval,
                 backupCount=retention,

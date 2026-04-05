@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 from typing import Any
 
 from nini.agent.session import Session
@@ -162,6 +163,8 @@ def summarize_tool_result_dict(data: dict[str, Any]) -> dict[str, Any]:
                 "questions": data_obj.get("questions"),
                 "answers": data_obj.get("answers"),
             }
+        elif _is_statistical_result(data_obj):
+            compact["stat_summary"] = _summarize_statistical_result(data_obj)
         elif _is_dataset_profile(data_obj):
             # 特殊处理数据集 profile：保留完整列信息
             compact["data_summary"] = _summarize_dataset_profile(data_obj)
@@ -339,6 +342,134 @@ def _is_code_session_result(data: dict[str, Any]) -> bool:
     return "execution_id" in data or "script_id" in data
 
 
+def _is_statistical_result(data_obj: dict[str, Any]) -> bool:
+    """判断数据对象是否为统计工具结果。"""
+    if "stat_summary" in data_obj:
+        return True
+    return any(
+        key in data_obj
+        for key in (
+            "p_value",
+            "effect_size",
+            "test_statistic",
+            "correlation_matrix",
+            "pvalue_matrix",
+        )
+    )
+
+
+def _safe_number(value: Any) -> float | None:
+    """安全提取有限浮点数。"""
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _summarize_statistical_result(data_obj: dict[str, Any]) -> dict[str, Any]:
+    """提取统计工具结果的结构化摘要。"""
+    summary: dict[str, Any] = {}
+    stat_summary = data_obj.get("stat_summary")
+    if isinstance(stat_summary, dict):
+        summary.update(
+            {
+                key: stat_summary[key]
+                for key in ("kind", "method", "sample_size", "test_name", "significant")
+                if key in stat_summary
+            }
+        )
+        pairwise_summary = stat_summary.get("pairwise")
+        if isinstance(pairwise_summary, list):
+            summary["pairwise"] = [
+                {
+                    "var_a": str(item.get("var_a", "")).strip(),
+                    "var_b": str(item.get("var_b", "")).strip(),
+                    "coefficient": _safe_number(item.get("coefficient")),
+                    "p_value": _safe_number(item.get("p_value")),
+                    "significant": (
+                        item.get("significant")
+                        if isinstance(item.get("significant"), bool)
+                        else None
+                    ),
+                }
+                for item in pairwise_summary[:3]
+                if isinstance(item, dict)
+            ]
+        if summary:
+            return summary
+
+    summary["method"] = (
+        data_obj.get("requested_method") or data_obj.get("method") or data_obj.get("test_name")
+    )
+    sample_size = data_obj.get("sample_size")
+    if isinstance(sample_size, int):
+        summary["sample_size"] = sample_size
+    p_value = _safe_number(data_obj.get("p_value"))
+    if p_value is not None:
+        summary["p_value"] = p_value
+    test_statistic = _safe_number(
+        data_obj.get("test_statistic") or data_obj.get("statistic") or data_obj.get("t_statistic")
+    )
+    if test_statistic is not None:
+        summary["test_statistic"] = test_statistic
+    effect_size = _safe_number(data_obj.get("effect_size") or data_obj.get("cohens_d"))
+    if effect_size is not None:
+        summary["effect_size"] = effect_size
+    significant = data_obj.get("significant")
+    if isinstance(significant, bool):
+        summary["significant"] = significant
+
+    corr_matrix = data_obj.get("correlation_matrix")
+    pvalue_matrix = data_obj.get("pvalue_matrix")
+    if isinstance(corr_matrix, dict) and isinstance(pvalue_matrix, dict):
+        pairwise_rows: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for left, row in corr_matrix.items():
+            if not isinstance(row, dict):
+                continue
+            for right, coefficient in row.items():
+                left_name = str(left).strip()
+                right_name = str(right).strip()
+                if not left_name or not right_name or left_name == right_name:
+                    continue
+                pair_key = (
+                    (left_name, right_name) if left_name <= right_name else (right_name, left_name)
+                )
+                if pair_key in seen:
+                    continue
+                seen.add(pair_key)
+                pair_p = None
+                p_row = pvalue_matrix.get(left_name)
+                if isinstance(p_row, dict):
+                    pair_p = _safe_number(p_row.get(right_name))
+                coefficient_value = _safe_number(coefficient)
+                pairwise_rows.append(
+                    {
+                        "var_a": left_name,
+                        "var_b": right_name,
+                        "coefficient": coefficient_value,
+                        "p_value": pair_p,
+                        "significant": (bool(pair_p < 0.05) if pair_p is not None else None),
+                    }
+                )
+        if pairwise_rows:
+            pairwise_rows.sort(
+                key=lambda item: (
+                    abs(item["coefficient"]) if item["coefficient"] is not None else -1.0
+                ),
+                reverse=True,
+            )
+            summary["pairwise"] = pairwise_rows[:3]
+            summary["kind"] = "correlation"
+
+    return {key: value for key, value in summary.items() if value is not None}
+
+
 def _extract_stat_findings(data: dict[str, Any]) -> str | None:
     """从统计工具结果中提取关键发现摘要。
 
@@ -350,6 +481,40 @@ def _extract_stat_findings(data: dict[str, Any]) -> str | None:
     inner = data.get("data")
     if isinstance(inner, dict):
         sources.append(inner)
+
+    if isinstance(inner, dict):
+        stat_summary = _summarize_statistical_result(inner)
+        pairwise_items = stat_summary.get("pairwise")
+        if isinstance(pairwise_items, list) and pairwise_items:
+            summary_parts = ["[关键发现]"]
+            method_name = stat_summary.get("method")
+            sample_size = stat_summary.get("sample_size")
+            if method_name:
+                summary_parts.append(f"方法: {method_name}")
+            if isinstance(sample_size, int):
+                summary_parts.append(f"n={sample_size}")
+            pair_texts = []
+            for pair in pairwise_items[:3]:
+                if not isinstance(pair, dict):
+                    continue
+                left = str(pair.get("var_a", "")).strip()
+                right = str(pair.get("var_b", "")).strip()
+                if not left or not right:
+                    continue
+                fragment = f"{left} vs {right}"
+                coefficient = pair.get("coefficient")
+                pair_p_value = pair.get("p_value")
+                if coefficient is not None:
+                    fragment += f", r={coefficient}"
+                if pair_p_value is not None:
+                    fragment += f", p={pair_p_value}"
+                pair_sig = pair.get("significant")
+                if isinstance(pair_sig, bool):
+                    fragment += ", " + ("显著" if pair_sig else "不显著")
+                pair_texts.append(fragment)
+            if pair_texts:
+                summary_parts.append("；".join(pair_texts))
+                return ", ".join(summary_parts)
 
     method: str | None = None
     p_value: Any = None

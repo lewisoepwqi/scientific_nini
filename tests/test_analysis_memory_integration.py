@@ -119,6 +119,37 @@ class TestRecordStatResult:
         assert "ANOVA" in content
         assert "F(2, 30)" in content
 
+    @pytest.mark.asyncio
+    async def test_correlation_tool_records_pairwise_statistics(self) -> None:
+        from nini.tools.statistics.correlation import CorrelationTool
+
+        session = Session(id="test_correlation_memory")
+        clear_session_analysis_memories(session.id)
+        session.datasets["demo"] = pd.DataFrame(
+            {
+                "x": [1, 2, 3, 4, 5, 6],
+                "y": [2, 4, 6, 8, 10, 12],
+                "z": [6, 5, 4, 3, 2, 1],
+            }
+        )
+
+        tool = CorrelationTool()
+        result = await tool.execute(
+            session,
+            dataset_name="demo",
+            columns=["x", "y", "z"],
+            method="spearman",
+        )
+
+        assert result.success is True
+        memory = get_analysis_memory(session.id, "demo")
+        assert len(memory.statistics) == 3
+        first = memory.statistics[0]
+        assert first.p_value is not None
+        assert first.effect_size is not None
+        assert isinstance(first.significant, bool)
+        assert first.metadata["sample_size"] == 6
+
 
 # ---- AnalysisMemory 注入到 messages ----
 

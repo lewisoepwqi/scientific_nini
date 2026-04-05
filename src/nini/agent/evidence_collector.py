@@ -95,7 +95,9 @@ class EvidenceCollector:
             metadata=metadata,
         )
 
-    def find_nodes(self, query: str, *, node_type: EvidenceNodeType | None = None) -> list[EvidenceNode]:
+    def find_nodes(
+        self, query: str, *, node_type: EvidenceNodeType | None = None
+    ) -> list[EvidenceNode]:
         """按关键词检索节点。"""
         normalized_query = query.strip().lower()
         matches: list[EvidenceNode] = []

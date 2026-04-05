@@ -20,6 +20,7 @@ from typing import Any
 from urllib.parse import quote
 
 from nini.agent.session import Session
+from nini.agent.session import session_persistence_enabled
 from nini.config import settings
 
 logger = logging.getLogger(__name__)
@@ -194,6 +195,37 @@ def _extract_stat_results(messages: list[dict[str, Any]]) -> list[str]:
         if msg.get("role") != "tool":
             continue
         content = str(msg.get("content", ""))
+        try:
+            payload = json.loads(content) if content.strip().startswith("{") else None
+        except (json.JSONDecodeError, ValueError):
+            payload = None
+        if isinstance(payload, dict):
+            stat_summary = payload.get("stat_summary")
+            if isinstance(stat_summary, dict):
+                pairwise = stat_summary.get("pairwise")
+                if isinstance(pairwise, list) and pairwise:
+                    for pair in pairwise[:3]:
+                        if not isinstance(pair, dict):
+                            continue
+                        left = str(pair.get("var_a", "")).strip()
+                        right = str(pair.get("var_b", "")).strip()
+                        if not left or not right:
+                            continue
+                        line_parts = [f"{left} vs {right}"]
+                        coefficient = pair.get("coefficient")
+                        p_value = pair.get("p_value")
+                        if isinstance(coefficient, (int, float)):
+                            line_parts.append(f"r={float(coefficient):.4f}")
+                        if isinstance(p_value, (int, float)):
+                            line_parts.append(f"p={float(p_value):.4g}")
+                        significant = pair.get("significant")
+                        if isinstance(significant, bool):
+                            line_parts.append("显著" if significant else "不显著")
+                        line = "，".join(line_parts)
+                        if line not in results:
+                            results.append(line)
+                    if results:
+                        continue
         matches = _STAT_RESULT_RE.findall(content)
         if matches:
             # 取前 5 个匹配，每个截断
@@ -219,7 +251,9 @@ def _extract_pending_tasks(messages: list[dict[str, Any]]) -> list[str]:
         except (json.JSONDecodeError, ValueError):
             data = None
         if isinstance(data, dict):
-            tasks = data.get("data", {}).get("tasks") if isinstance(data.get("data"), dict) else None
+            tasks = (
+                data.get("data", {}).get("tasks") if isinstance(data.get("data"), dict) else None
+            )
             if isinstance(tasks, list):
                 for t in tasks:
                     if isinstance(t, dict):
@@ -254,9 +288,7 @@ def _extract_recent_user_requests(
     return requests
 
 
-def _build_timeline(
-    messages: list[dict[str, Any]], *, max_chars: int = 160
-) -> list[str]:
+def _build_timeline(messages: list[dict[str, Any]], *, max_chars: int = 160) -> list[str]:
     """构建消息时间线摘要。"""
     timeline: list[str] = []
     for msg in messages:
@@ -509,7 +541,9 @@ def compress_session_history(
         }
 
     summary = _strip_upload_mentions(_summarize_messages(archived))
-    archive_path = _archive_messages(session.id, archived)
+    archive_path: Path | None = None
+    if session_persistence_enabled(session.id):
+        archive_path = _archive_messages(session.id, archived)
 
     session.messages = remaining
     session._rewrite_conversation_memory()
@@ -520,7 +554,7 @@ def compress_session_history(
         "message": "会话压缩完成",
         "summary": summary,
         "summary_mode": "lightweight",
-        "archive_path": str(archive_path),
+        "archive_path": str(archive_path) if archive_path is not None else "",
         "archived_count": len(archived),
         "remaining_count": len(remaining),
         "compressed_rounds": session.compressed_rounds,
@@ -644,17 +678,18 @@ def rollback_compression(session: Session) -> dict[str, Any]:
 # ---- 结构化记忆压缩 ----
 
 
-def _analysis_memory_dir(session_id: str) -> Path:
+def _analysis_memory_dir(session_id: str, *, create: bool = True) -> Path:
     """返回会话的 AnalysisMemory 持久化目录。"""
     path = settings.sessions_dir / session_id / "analysis_memories"
-    path.mkdir(parents=True, exist_ok=True)
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def _analysis_memory_path(session_id: str, dataset_name: str) -> Path:
     """返回指定数据集的 AnalysisMemory 文件路径。"""
     safe_name = quote(dataset_name, safe="")
-    return _analysis_memory_dir(session_id) / f"{safe_name}.json"
+    return _analysis_memory_dir(session_id, create=True) / f"{safe_name}.json"
 
 
 @dataclass
@@ -688,7 +723,8 @@ class StatisticResult:
     confidence_interval_lower: float | None = None  # 置信区间下限
     confidence_interval_upper: float | None = None  # 置信区间上限
     confidence_level: float = 0.95  # 置信水平
-    significant: bool = False  # 是否显著
+    significant: bool | None = None  # 是否显著；None 表示未记录完整判定
+    metadata: dict[str, Any] = field(default_factory=dict)  # 扩展元数据（样本量、配对结果等）
     ltm_id: str = ""  # 已沉淀到长期记忆的条目 ID，非空表示已写入
 
 
@@ -747,7 +783,14 @@ class AnalysisMemory:
 
     def add_statistic(self, statistic: StatisticResult) -> None:
         """添加统计结果。"""
-        self.statistics.append(statistic)
+        signature = self._statistic_signature(statistic)
+        for index, existing in enumerate(self.statistics):
+            if self._statistic_signature(existing) == signature:
+                statistic.ltm_id = existing.ltm_id or statistic.ltm_id
+                self.statistics[index] = statistic
+                break
+        else:
+            self.statistics.append(statistic)
         self.updated_at = __import__("time").time()
         save_analysis_memory(self)
 
@@ -796,6 +839,25 @@ class AnalysisMemory:
 
         return "、".join(parts) + f"（数据集: {self.dataset_name}）"
 
+    @staticmethod
+    def _statistic_signature(statistic: StatisticResult) -> tuple[Any, ...]:
+        """生成统计结果签名，用于幂等更新相同分析结果。"""
+        metadata = statistic.metadata if isinstance(statistic.metadata, dict) else {}
+        key_pairs = []
+        for key in ("dataset_name", "method", "sample_size", "variables", "pairwise"):
+            value = metadata.get(key)
+            key_pairs.append(json.dumps(value, ensure_ascii=False, sort_keys=True, default=str))
+        return (
+            statistic.test_name,
+            statistic.test_statistic,
+            statistic.p_value,
+            statistic.degrees_of_freedom,
+            statistic.effect_size,
+            statistic.effect_type,
+            statistic.significant,
+            *key_pairs,
+        )
+
     def to_context(self) -> dict[str, Any]:
         """转换为可注入的上下文。"""
         return {
@@ -817,6 +879,7 @@ class AnalysisMemory:
                     "effect_size": s.effect_size,
                     "effect_type": s.effect_type,
                     "significant": s.significant,
+                    "metadata": s.metadata,
                 }
                 for s in self.statistics
             ],
@@ -862,7 +925,11 @@ class AnalysisMemory:
                     "degrees_of_freedom": s.degrees_of_freedom,
                     "effect_size": s.effect_size,
                     "effect_type": s.effect_type,
+                    "confidence_interval_lower": s.confidence_interval_lower,
+                    "confidence_interval_upper": s.confidence_interval_upper,
+                    "confidence_level": s.confidence_level,
                     "significant": s.significant,
+                    "metadata": s.metadata,
                     "ltm_id": s.ltm_id,
                 }
                 for s in self.statistics
@@ -929,7 +996,27 @@ class AnalysisMemory:
                         float(item["effect_size"]) if item.get("effect_size") is not None else None
                     ),
                     effect_type=str(item.get("effect_type", "")),
-                    significant=bool(item.get("significant", False)),
+                    confidence_interval_lower=(
+                        float(item["confidence_interval_lower"])
+                        if item.get("confidence_interval_lower") is not None
+                        else None
+                    ),
+                    confidence_interval_upper=(
+                        float(item["confidence_interval_upper"])
+                        if item.get("confidence_interval_upper") is not None
+                        else None
+                    ),
+                    confidence_level=float(item.get("confidence_level", 0.95)),
+                    significant=(
+                        bool(item["significant"])
+                        if isinstance(item.get("significant"), bool)
+                        else None
+                    ),
+                    metadata=(
+                        dict(item.get("metadata", {}))
+                        if isinstance(item.get("metadata"), dict)
+                        else {}
+                    ),
                     ltm_id=str(item.get("ltm_id", "")),
                 )
                 for item in data.get("statistics", [])
@@ -983,7 +1070,12 @@ class AnalysisMemory:
         if self.statistics:
             parts.append(f"**统计结果**（{len(self.statistics)} 项）：")
             for s in self.statistics[:5]:  # 最多显示 5 项
-                sig = "显著" if s.significant else "不显著"
+                if s.significant is True:
+                    sig = "显著"
+                elif s.significant is False:
+                    sig = "不显著"
+                else:
+                    sig = "未判定"
                 nums: list[str] = []
                 if s.test_statistic is not None:
                     nums.append(f"统计量={s.test_statistic:.4f}")
@@ -992,7 +1084,38 @@ class AnalysisMemory:
                 if s.effect_size is not None:
                     label = s.effect_type or "效应量"
                     nums.append(f"{label}={s.effect_size:.4f}")
+                sample_size = (
+                    s.metadata.get("sample_size") if isinstance(s.metadata, dict) else None
+                )
+                if isinstance(sample_size, int):
+                    nums.append(f"n={sample_size}")
                 num_str = f"（{'，'.join(nums)}）" if nums else ""
+                pairwise = s.metadata.get("pairwise") if isinstance(s.metadata, dict) else None
+                if isinstance(pairwise, list) and pairwise:
+                    formatted_pairs: list[str] = []
+                    for pair in pairwise[:3]:
+                        if not isinstance(pair, dict):
+                            continue
+                        left = str(pair.get("var_a", "")).strip()
+                        right = str(pair.get("var_b", "")).strip()
+                        coefficient = pair.get("coefficient")
+                        p_value = pair.get("p_value")
+                        if not left or not right:
+                            continue
+                        pair_parts: list[str] = [f"{left} vs {right}"]
+                        if isinstance(coefficient, (int, float)):
+                            pair_parts.append(f"r={float(coefficient):.4f}")
+                        if isinstance(p_value, (int, float)):
+                            pair_parts.append(f"p={float(p_value):.4g}")
+                        pair_sig = pair.get("significant")
+                        if isinstance(pair_sig, bool):
+                            pair_parts.append("显著" if pair_sig else "不显著")
+                        formatted_pairs.append("，".join(pair_parts))
+                    if formatted_pairs:
+                        parts.append(
+                            f"- {s.test_name}: {sig}{num_str}；" + "；".join(formatted_pairs)
+                        )
+                        continue
                 parts.append(f"- {s.test_name}: {sig}{num_str}")
 
         if self.decisions:
@@ -1016,6 +1139,8 @@ _analysis_memories: dict[str, AnalysisMemory] = {}
 
 def save_analysis_memory(memory: AnalysisMemory) -> None:
     """将 AnalysisMemory 持久化到磁盘。"""
+    if not session_persistence_enabled(memory.session_id):
+        return
     path = _analysis_memory_path(memory.session_id, memory.dataset_name)
     path.write_text(
         json.dumps(memory.to_dict(), ensure_ascii=False, indent=2),
@@ -1025,7 +1150,9 @@ def save_analysis_memory(memory: AnalysisMemory) -> None:
 
 def load_analysis_memory(session_id: str, dataset_name: str) -> AnalysisMemory | None:
     """从磁盘加载 AnalysisMemory。"""
-    path = _analysis_memory_path(session_id, dataset_name)
+    if not session_persistence_enabled(session_id):
+        return None
+    path = _analysis_memory_dir(session_id, create=False) / f"{quote(dataset_name, safe='')}.json"
     if not path.exists():
         return None
     try:
@@ -1059,28 +1186,31 @@ def remove_analysis_memory(session_id: str, dataset_name: str) -> None:
     """移除分析记忆。"""
     key = f"{session_id}:{dataset_name}"
     _analysis_memories.pop(key, None)
-    path = _analysis_memory_path(session_id, dataset_name)
-    if path.exists():
-        path.unlink()
+    if session_persistence_enabled(session_id):
+        path = _analysis_memory_path(session_id, dataset_name)
+        if path.exists():
+            path.unlink()
 
 
 def list_session_analysis_memories(session_id: str) -> list[AnalysisMemory]:
     """列出会话的所有分析记忆（非空的）。"""
-    memory_dir = _analysis_memory_dir(session_id)
-    for path in sorted(memory_dir.glob("*.json")):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            logger.warning("读取 AnalysisMemory 文件失败: %s", path)
-            continue
-        if not isinstance(payload, dict):
-            continue
-        dataset_name = str(payload.get("dataset_name", "")).strip()
-        if not dataset_name:
-            continue
-        key = f"{session_id}:{dataset_name}"
-        if key not in _analysis_memories:
-            _analysis_memories[key] = AnalysisMemory.from_dict(payload)
+    if session_persistence_enabled(session_id):
+        memory_dir = _analysis_memory_dir(session_id, create=False)
+        if memory_dir.exists():
+            for path in sorted(memory_dir.glob("*.json")):
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    logger.warning("读取 AnalysisMemory 文件失败: %s", path)
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                dataset_name = str(payload.get("dataset_name", "")).strip()
+                if not dataset_name:
+                    continue
+                key = f"{session_id}:{dataset_name}"
+                if key not in _analysis_memories:
+                    _analysis_memories[key] = AnalysisMemory.from_dict(payload)
 
     result: list[AnalysisMemory] = []
     prefix = f"{session_id}:"
@@ -1093,11 +1223,12 @@ def list_session_analysis_memories(session_id: str) -> list[AnalysisMemory]:
 def clear_session_analysis_memories(session_id: str) -> None:
     """清除会话的所有分析记忆。"""
     clear_session_analysis_memory_cache(session_id)
-    memory_dir = settings.sessions_dir / session_id / "analysis_memories"
-    if memory_dir.exists():
-        for path in memory_dir.glob("*.json"):
-            path.unlink()
-        memory_dir.rmdir()
+    if session_persistence_enabled(session_id):
+        memory_dir = settings.sessions_dir / session_id / "analysis_memories"
+        if memory_dir.exists():
+            for path in memory_dir.glob("*.json"):
+                path.unlink()
+            memory_dir.rmdir()
 
 
 def clear_session_analysis_memory_cache(session_id: str) -> None:

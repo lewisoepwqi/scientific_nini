@@ -448,8 +448,14 @@ class TestDefaultCapabilityAnnotations:
     def test_data_analysis_capabilities_have_correct_phase(self):
         """数据分析类能力应标注为 data_analysis 阶段。"""
         caps = self._caps()
-        for name in ("difference_analysis", "correlation_analysis", "regression_analysis",
-                     "data_exploration", "data_cleaning", "report_generation"):
+        for name in (
+            "difference_analysis",
+            "correlation_analysis",
+            "regression_analysis",
+            "data_exploration",
+            "data_cleaning",
+            "report_generation",
+        ):
             assert caps[name].phase == ResearchPhase.DATA_ANALYSIS, f"{name}.phase 不正确"
 
     def test_visualization_phase_is_none(self):
@@ -483,8 +489,13 @@ class TestDefaultCapabilityAnnotations:
     def test_max_output_level_o4_capabilities(self):
         """可达 O4 输出等级的能力应正确标注。"""
         caps = self._caps()
-        for name in ("difference_analysis", "correlation_analysis", "regression_analysis",
-                     "visualization", "report_generation"):
+        for name in (
+            "difference_analysis",
+            "correlation_analysis",
+            "regression_analysis",
+            "visualization",
+            "report_generation",
+        ):
             assert caps[name].max_output_level == OutputLevel.O4, f"{name}.max_output_level 不正确"
 
     def test_max_output_level_o2_capabilities(self):

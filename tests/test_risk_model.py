@@ -18,7 +18,6 @@ from nini.models.risk import (
 )
 from nini.models.event_schemas import DoneEventData, TextEventData
 
-
 # ---- RiskLevel 枚举测试 ----
 
 

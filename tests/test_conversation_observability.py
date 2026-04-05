@@ -1498,7 +1498,9 @@ async def test_runner_deduplicates_repeated_data_preview_events_in_same_turn(mon
         and event.data["data"]["result"].get("error_code") == "DUPLICATE_DATASET_PROFILE_CALL"
     ]
     persisted_data_events = [
-        msg for msg in session.messages if msg.get("role") == "assistant" and msg.get("event_type") == "data"
+        msg
+        for msg in session.messages
+        if msg.get("role") == "assistant" and msg.get("event_type") == "data"
     ]
 
     assert resolver.calls == 3

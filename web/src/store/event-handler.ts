@@ -53,6 +53,13 @@ import {
 import { areAllPlanStepsDone } from "./plan-state-machine";
 import { handleAgentEvent } from "./agent-event-handler";
 import { handleHypothesisEvent } from "./hypothesis-event-handler";
+import {
+  buildRootRunId,
+  ensureRootRun,
+  replaceAgentRunMessages,
+  upsertAgentRun,
+} from "./agent-slice";
+import type { AgentRunThread, AgentSlice } from "./types";
 
 // ---- 错误处理类型 ----
 
@@ -550,6 +557,12 @@ export interface AppStateSubset {
   // 多 Agent 执行状态
   activeAgents: Record<string, AgentInfo>;
   completedAgents: AgentInfo[];
+  agentRuns: Record<string, AgentRunThread>;
+  agentRunTabs: string[];
+  selectedRunId: string | null;
+  unreadByRun: Record<string, number>;
+  runGroupsByTurn: Record<string, import("./types").AgentRunGroup>;
+  lastViewedRunIdBySession: Record<string, string>;
   // 假设驱动范式状态
   hypotheses: import("./types").HypothesisInfo[];
   currentPhase: string;
@@ -561,6 +574,121 @@ export interface AppStateSubset {
   fetchWorkspaceFiles: () => Promise<void>;
   fetchSkills: () => Promise<void>;
   switchSession?: (sessionId: string) => Promise<void>;
+}
+
+interface RunMeta {
+  runScope: "root" | "subagent";
+  runId: string | null;
+  parentRunId: string | null;
+  turnId: string | null;
+  agentId: string | null;
+  agentName: string | null;
+  attempt: number | null;
+  phase: string | null;
+}
+
+function getRunMeta(evt: WSEvent): RunMeta {
+  const metadata = isRecord(evt.metadata) ? evt.metadata : {};
+  const turnId =
+    typeof metadata.turn_id === "string" && metadata.turn_id.trim()
+      ? metadata.turn_id.trim()
+      : typeof evt.turn_id === "string" && evt.turn_id.trim()
+        ? evt.turn_id.trim()
+        : null;
+  const runScope =
+    metadata.run_scope === "subagent" ? "subagent" : "root";
+  const runId =
+    typeof metadata.run_id === "string" && metadata.run_id.trim()
+      ? metadata.run_id.trim()
+      : runScope === "root" && turnId
+        ? buildRootRunId(turnId)
+        : null;
+  return {
+    runScope,
+    runId,
+    parentRunId:
+      typeof metadata.parent_run_id === "string" && metadata.parent_run_id.trim()
+        ? metadata.parent_run_id.trim()
+        : null,
+    turnId,
+    agentId:
+      typeof metadata.agent_id === "string" && metadata.agent_id.trim()
+        ? metadata.agent_id.trim()
+        : null,
+    agentName:
+      typeof metadata.agent_name === "string" && metadata.agent_name.trim()
+        ? metadata.agent_name.trim()
+        : null,
+    attempt:
+      typeof metadata.attempt === "number" && Number.isFinite(metadata.attempt)
+        ? metadata.attempt
+        : null,
+    phase:
+      typeof metadata.phase === "string" && metadata.phase.trim()
+        ? metadata.phase.trim()
+        : null,
+  };
+}
+
+function applyRunSlicePatch(
+  _target: Pick<
+    AppStateSubset,
+    "activeAgents" | "completedAgents" | "agentRuns" | "agentRunTabs" | "selectedRunId" | "unreadByRun" | "runGroupsByTurn"
+  >,
+  next: AgentSlice,
+) {
+  return {
+    activeAgents: next.activeAgents,
+    completedAgents: next.completedAgents,
+    agentRuns: next.agentRuns,
+    agentRunTabs: next.agentRunTabs,
+    selectedRunId: next.selectedRunId,
+    unreadByRun: next.unreadByRun,
+    runGroupsByTurn: next.runGroupsByTurn,
+  };
+}
+
+function ensureSubagentThread(
+  state: AgentSlice,
+  runMeta: RunMeta,
+  updatedAt: number,
+): AgentSlice {
+  if (!runMeta.runId || !runMeta.turnId) return state;
+  const ensured = ensureRootRun(state, runMeta.turnId, updatedAt);
+  if (ensured.agentRuns[runMeta.runId]) return ensured;
+  return upsertAgentRun(ensured, {
+    runId: runMeta.runId,
+    turnId: runMeta.turnId,
+    parentRunId: runMeta.parentRunId ?? buildRootRunId(runMeta.turnId),
+    runScope: "subagent",
+    agentId: runMeta.agentId,
+    agentName: runMeta.agentName || runMeta.agentId || "子 Agent",
+    status: "running",
+    task: "",
+    attempt: runMeta.attempt ?? 1,
+    retryCount: Math.max(0, (runMeta.attempt ?? 1) - 1),
+    startTime: updatedAt,
+    updatedAt,
+    latestExecutionTimeMs: null,
+    lastError: null,
+    summary: undefined,
+    phase: runMeta.phase,
+    progressMessage: null,
+    progressHint: null,
+    messages: [],
+  });
+}
+
+function attachRunMetaToMessage(message: Message, runMeta: RunMeta): Message {
+  return {
+    ...message,
+    runId: runMeta.runId ?? undefined,
+    runScope: runMeta.runScope,
+    parentRunId: runMeta.parentRunId,
+    agentId: runMeta.agentId,
+    agentName: runMeta.agentName,
+    attempt: runMeta.attempt,
+  };
 }
 
 function resetStreamingMetrics(): StreamingMetrics {
@@ -740,6 +868,7 @@ export function handleEvent(
 
     case "text": {
       const backgroundSessionId = getBackgroundSessionId(evt, get);
+      const runMeta = getRunMeta(evt);
       const rawText =
         typeof evt.data === "string"
           ? evt.data
@@ -747,6 +876,46 @@ export function handleEvent(
             ? evt.data.content
             : "";
       const text = stripReasoningMarkers(rawText);
+      if (runMeta.runScope === "subagent" && runMeta.runId && runMeta.turnId) {
+        if (backgroundSessionId) break;
+        const messageId = evt.metadata?.message_id as string | undefined;
+        const operation =
+          (evt.metadata?.operation as "append" | "replace" | "complete" | undefined) ||
+          "append";
+        set((s) => {
+          let nextAgentState = ensureSubagentThread(s, runMeta, Date.now());
+          const thread = nextAgentState.agentRuns[runMeta.runId!];
+          if (!thread) return {};
+          if (messageId) {
+            const timestamp = Date.now();
+            let effectiveOperation = operation;
+            if (!text && operation === "complete") {
+              return applyRunSlicePatch(s, nextAgentState);
+            }
+            if (operation === "complete") {
+              effectiveOperation = "replace";
+            }
+            const nextMessages = upsertAssistantTextMessage(thread.messages, {
+              content: text,
+              timestamp,
+              messageId,
+              turnId: runMeta.turnId ?? undefined,
+              operation: effectiveOperation,
+            }).map((message) => attachRunMetaToMessage(message, runMeta));
+            nextAgentState = replaceAgentRunMessages(nextAgentState, runMeta.runId!, nextMessages);
+          } else if (text) {
+            const nextMessages = upsertAssistantTextMessage(thread.messages, {
+              content: text,
+              timestamp: Date.now(),
+              turnId: runMeta.turnId ?? undefined,
+              operation: "append",
+            }).map((message) => attachRunMetaToMessage(message, runMeta));
+            nextAgentState = replaceAgentRunMessages(nextAgentState, runMeta.runId!, nextMessages);
+          }
+          return applyRunSlicePatch(s, nextAgentState);
+        });
+        break;
+      }
 
       // ============================================================
       // 消息去重架构 (Message Deduplication Architecture)
@@ -1357,6 +1526,7 @@ export function handleEvent(
 
     case "reasoning": {
       const backgroundSessionId = getBackgroundSessionId(evt, get);
+      const runMeta = getRunMeta(evt);
       const backgroundEntry = backgroundSessionId
         ? getSessionUiCacheEntry(backgroundSessionId)
         : null;
@@ -1407,6 +1577,24 @@ export function handleEvent(
           : operation === "complete" || operationFromData === "complete"
             ? false
             : true; // 默认流式中
+      if (runMeta.runScope === "subagent" && runMeta.runId && runMeta.turnId) {
+        if (backgroundSessionId) break;
+        set((s) => {
+          let nextAgentState = ensureSubagentThread(s, runMeta, Date.now());
+          const thread = nextAgentState.agentRuns[runMeta.runId!];
+          if (!thread) return {};
+          const nextMessages = upsertReasoningMessage(thread.messages, {
+            content,
+            reasoningId,
+            reasoningLive: isLive,
+            turnId: runMeta.turnId ?? undefined,
+            timestamp: Date.now(),
+          }).map((message) => attachRunMetaToMessage(message, runMeta));
+          nextAgentState = replaceAgentRunMessages(nextAgentState, runMeta.runId!, nextMessages);
+          return applyRunSlicePatch(s, nextAgentState);
+        });
+        break;
+      }
       if (backgroundSessionId) {
         updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
           ...entry,
@@ -1436,6 +1624,7 @@ export function handleEvent(
 
     case "tool_call": {
       const backgroundSessionId = getBackgroundSessionId(evt, get);
+      const runMeta = getRunMeta(evt);
       const data = isRecord(evt.data) ? evt.data : {};
       const toolName =
         typeof data.name === "string" && data.name.trim()
@@ -1465,6 +1654,29 @@ export function handleEvent(
           : toolName === "run_code" && typeof toolArgs.intent === "string"
             ? toolArgs.intent
             : undefined;
+      if (runMeta.runScope === "subagent" && runMeta.runId && runMeta.turnId) {
+        if (backgroundSessionId) break;
+        set((s) => {
+          let nextAgentState = ensureSubagentThread(s, runMeta, Date.now());
+          const thread = nextAgentState.agentRuns[runMeta.runId!];
+          if (!thread) return {};
+          const nextMessages = upsertToolCallMessage(thread.messages, {
+            content:
+              toolName === "run_code" && intent
+                ? `🔧 ${toolName}: ${intent}`
+                : `调用工具: **${toolName}**`,
+            toolName,
+            toolCallId: evt.tool_call_id || undefined,
+            toolInput: toolArgs,
+            toolIntent: intent,
+            turnId: runMeta.turnId ?? undefined,
+            timestamp: Date.now(),
+          }).map((message) => attachRunMetaToMessage(message, runMeta));
+          nextAgentState = replaceAgentRunMessages(nextAgentState, runMeta.runId!, nextMessages);
+          return applyRunSlicePatch(s, nextAgentState);
+        });
+        break;
+      }
       if (backgroundSessionId) {
         updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
           ...entry,
@@ -1511,6 +1723,7 @@ export function handleEvent(
         set((s) => buildPendingAskUserQuestionPatch(s, pendingQuestionSessionId, null));
       }
       const backgroundSessionId = getBackgroundSessionId(evt, get);
+      const runMeta = getRunMeta(evt);
       const data = isRecord(evt.data) ? evt.data : {};
       const legacyResult =
         isRecord(data.data) && "result" in data.data ? data.data.result : undefined;
@@ -1525,6 +1738,31 @@ export function handleEvent(
         normalized.message ||
         (status === "error" ? "工具执行失败" : "工具执行完成");
       const toolCallId = evt.tool_call_id;
+      if (runMeta.runScope === "subagent" && runMeta.runId && runMeta.turnId) {
+        if (backgroundSessionId) break;
+        set((s) => {
+          let nextAgentState = ensureSubagentThread(s, runMeta, Date.now());
+          const thread = nextAgentState.agentRuns[runMeta.runId!];
+          if (!thread) return {};
+          const nextMessages = upsertToolResultMessage(thread.messages, {
+            content: resultMessage,
+            toolName: evt.tool_name || undefined,
+            toolCallId: toolCallId || undefined,
+            toolResult: resultMessage,
+            toolStatus: status,
+            toolIntent:
+              typeof evt.metadata?.intent === "string"
+                ? evt.metadata.intent
+                : undefined,
+            widget: normalized.widget,
+            turnId: runMeta.turnId ?? undefined,
+            timestamp: Date.now(),
+          }).map((message) => attachRunMetaToMessage(message, runMeta));
+          nextAgentState = replaceAgentRunMessages(nextAgentState, runMeta.runId!, nextMessages);
+          return applyRunSlicePatch(s, nextAgentState);
+        });
+        break;
+      }
       if (backgroundSessionId) {
         updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
           ...entry,
@@ -1652,6 +1890,22 @@ export function handleEvent(
       });
 
     case "done": {
+      const runMeta = getRunMeta(evt);
+      if (runMeta.runScope === "subagent" && runMeta.runId && runMeta.turnId) {
+        set((s) => {
+          let nextAgentState = ensureSubagentThread(s, runMeta, Date.now());
+          const thread = nextAgentState.agentRuns[runMeta.runId!];
+          if (!thread) return {};
+          const nextMessages = finalizeReasoningMessages(
+            thread.messages,
+            runMeta.turnId,
+            true,
+          ).map((message) => attachRunMetaToMessage(message, runMeta));
+          nextAgentState = replaceAgentRunMessages(nextAgentState, runMeta.runId!, nextMessages);
+          return applyRunSlicePatch(s, nextAgentState);
+        });
+        break;
+      }
       const doneEvtSid = evt.session_id ?? get().sessionId ?? null;
       const doneCurSid = get().sessionId;
       const doneIsActive = !doneEvtSid || doneEvtSid === doneCurSid;
@@ -1787,6 +2041,22 @@ export function handleEvent(
     }
 
     case "stopped": {
+      const runMeta = getRunMeta(evt);
+      if (runMeta.runScope === "subagent" && runMeta.runId && runMeta.turnId) {
+        set((s) => {
+          let nextAgentState = ensureSubagentThread(s, runMeta, Date.now());
+          const thread = nextAgentState.agentRuns[runMeta.runId!];
+          if (!thread) return {};
+          const nextMessages = finalizeReasoningMessages(
+            thread.messages,
+            runMeta.turnId,
+            true,
+          ).map((message) => attachRunMetaToMessage(message, runMeta));
+          nextAgentState = replaceAgentRunMessages(nextAgentState, runMeta.runId!, nextMessages);
+          return applyRunSlicePatch(s, nextAgentState);
+        });
+        break;
+      }
       const stoppedEvtSid = evt.session_id ?? get().sessionId ?? null;
       const stoppedCurSid = get().sessionId;
       const stoppedIsActive = !stoppedEvtSid || stoppedEvtSid === stoppedCurSid;
@@ -1907,6 +2177,37 @@ export function handleEvent(
     }
 
     case "error": {
+      const runMeta = getRunMeta(evt);
+      if (runMeta.runScope === "subagent" && runMeta.runId && runMeta.turnId) {
+        const normalizedError = normalizeWsError(evt.data);
+        set((s) => {
+          let nextAgentState = ensureSubagentThread(s, runMeta, Date.now());
+          const thread = nextAgentState.agentRuns[runMeta.runId!];
+          if (!thread) return {};
+          const nextMessages = [
+            ...finalizeReasoningMessages(thread.messages, runMeta.turnId, true),
+            attachRunMetaToMessage(
+              {
+                id: nextId(),
+                role: "assistant",
+                content: `错误: ${normalizedError.message}`,
+                isError: true,
+                errorKind: normalizedError.kind,
+                errorCode: normalizedError.code,
+                errorHint: normalizedError.hint,
+                errorDetail: normalizedError.detail,
+                retryable: normalizedError.retryable,
+                turnId: runMeta.turnId ?? undefined,
+                timestamp: Date.now(),
+              },
+              runMeta,
+            ),
+          ];
+          nextAgentState = replaceAgentRunMessages(nextAgentState, runMeta.runId!, nextMessages);
+          return applyRunSlicePatch(s, nextAgentState);
+        });
+        break;
+      }
       const errorEvtSid = evt.session_id ?? get().sessionId ?? null;
       const errorCurSid = get().sessionId;
       const errorIsActive = !errorEvtSid || errorEvtSid === errorCurSid;
@@ -2069,7 +2370,8 @@ export function handleEvent(
     case "agent_start":
     case "agent_progress":
     case "agent_complete":
-    case "agent_error": {
+    case "agent_error":
+    case "agent_stopped": {
       handleAgentEvent(evt, set, get);
       break;
     }

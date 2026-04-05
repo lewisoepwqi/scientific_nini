@@ -7,15 +7,16 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from nini.agent.session import resolve_session_resource_id
 from nini.config import settings
 
 
 class ArtifactStorage:
     """会话产物存储（图表、导出文件等）。"""
 
-    def __init__(self, session_id: str):
-        self.session_id = session_id
-        self._dir = settings.sessions_dir / session_id / "workspace" / "artifacts"
+    def __init__(self, session_id: str | Any):
+        self.session_id = resolve_session_resource_id(session_id)
+        self._dir = settings.sessions_dir / self.session_id / "workspace" / "artifacts"
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def save(self, data: bytes, filename: str) -> Path:

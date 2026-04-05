@@ -952,6 +952,69 @@ def test_handle_tool_result_registers_and_clears_pending_failure() -> None:
     assert session.list_pending_actions(action_type="tool_failure_unresolved") == []
 
 
+def test_completion_check_ignores_non_blocking_pending_actions() -> None:
+    runner = HarnessRunner(agent_runner=None)  # type: ignore[arg-type]
+    session = Session()
+    turn_id = "turn-non-blocking"
+    session.upsert_pending_action(
+        action_type="tool_failure_unresolved",
+        key='task_state::{"operation":"init"}',
+        summary="task_state 失败：任务列表已初始化且无法重新初始化。",
+        source_tool="task_state",
+        blocking=False,
+        failure_category="idempotent_conflict",
+        metadata={"turn_id": "old-turn"},
+    )
+    session.add_message("assistant", "结论：相关分析已完成。", turn_id=turn_id)
+
+    check = runner._run_completion_check(session, turn_id=turn_id, attempt=0)  # noqa: SLF001
+
+    pending_item = next(item for item in check.items if item.key == "pending_actions_resolved")
+    assert pending_item.passed is True
+
+
+def test_handle_tool_result_success_clears_non_blocking_failure_from_same_turn() -> None:
+    session = Session()
+    turn_id = "turn-task-state"
+    tool_call_id = "call-task-state"
+    session.add_tool_call(
+        tool_call_id,
+        "task_state",
+        '{"operation":"init","tasks":[{"id":1,"title":"分析","status":"pending"}]}',
+        turn_id=turn_id,
+    )
+    session.upsert_pending_action(
+        action_type="tool_failure_unresolved",
+        key='task_state::{"operation":"init","tasks":[{"id":1,"title":"分析","status":"pending"}]}',
+        summary="task_state 失败：任务列表已初始化且无法重新初始化。",
+        source_tool="task_state",
+        blocking=False,
+        failure_category="idempotent_conflict",
+        metadata={"turn_id": turn_id},
+    )
+
+    success_event = AgentEvent(
+        type=EventType.TOOL_RESULT,
+        tool_call_id=tool_call_id,
+        tool_name="task_state",
+        turn_id=turn_id,
+        data={"status": "success", "message": "任务状态已更新"},
+    )
+
+    HarnessRunner._handle_tool_result(  # noqa: SLF001
+        session=session,
+        event=success_event,
+        turn_id=turn_id,
+        task_id=None,
+        attempt_id=None,
+        tool_error_counts={},
+        tool_failure_messages={},
+        recovered_tool_signatures=set(),
+    )
+
+    assert session.list_pending_actions(action_type="tool_failure_unresolved") == []
+
+
 @pytest.mark.asyncio
 async def test_harness_trace_store_marks_crash_as_error() -> None:
     trace_store = _CaptureTraceStore()

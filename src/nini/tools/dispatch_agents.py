@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from nini.agent.session import session_manager
 from nini.tools.base import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -89,6 +90,8 @@ class DispatchAgentsTool(Tool):
         *,
         tasks: list[str] | None = None,
         context: str = "",
+        turn_id: str | None = None,
+        tool_call_id: str | None = None,
         **kwargs: Any,
     ) -> ToolResult:
         """执行多 Agent 并行派发。
@@ -147,11 +150,38 @@ class DispatchAgentsTool(Tool):
             )
 
         # 并行派发
-        sub_results = await self._spawner.spawn_batch(task_pairs, session)
+        sub_results = await self._spawner.spawn_batch(
+            task_pairs,
+            session,
+            parent_turn_id=turn_id,
+        )
 
         # 融合结果
         fusion_result = await self._fusion_engine.fuse(sub_results)
         routed_agents = [agent_id for agent_id, _ in task_pairs]
+        subtask_results = [
+            self._serialize_sub_result(
+                result,
+                routed_task=task_text,
+                fallback_agent_id=agent_id,
+            )
+            for (agent_id, task_text), result in zip(task_pairs, sub_results, strict=False)
+        ]
+        success_count = sum(1 for item in subtask_results if item["success"])
+        stopped_count = sum(1 for item in subtask_results if item["stopped"])
+        failure_count = len(subtask_results) - success_count - stopped_count
+        partial_failure = failure_count > 0 and success_count > 0
+        dispatch_run_id = self._build_dispatch_run_id(turn_id=turn_id, tool_call_id=tool_call_id)
+
+        self._record_dispatch_run_events(
+            session=session,
+            dispatch_run_id=dispatch_run_id,
+            turn_id=turn_id,
+            routed_agents=routed_agents,
+            context=context,
+            subtasks=subtask_results,
+            fusion_result=fusion_result,
+        )
 
         return ToolResult(
             success=True,
@@ -162,6 +192,12 @@ class DispatchAgentsTool(Tool):
                 "fusion_strategy": fusion_result.strategy,
                 "sources": fusion_result.sources,
                 "conflicts": fusion_result.conflicts,
+                "dispatch_run_id": dispatch_run_id,
+                "success_count": success_count,
+                "failure_count": failure_count,
+                "stopped_count": stopped_count,
+                "partial_failure": partial_failure,
+                "subtasks": subtask_results,
             },
         )
 
@@ -182,6 +218,128 @@ class DispatchAgentsTool(Tool):
                 "expected_fields": expected_fields,
                 "recovery_hint": recovery_hint,
                 "minimal_example": minimal_example,
+            },
+        )
+
+    def _serialize_sub_result(
+        self,
+        result: Any,
+        *,
+        routed_task: str,
+        fallback_agent_id: str,
+    ) -> dict[str, Any]:
+        """将子 Agent 结果归一化为结构化字典。"""
+        agent_id = str(getattr(result, "agent_id", "") or fallback_agent_id)
+        stopped = bool(getattr(result, "stopped", False))
+        success = bool(getattr(result, "success", False))
+        error = str(getattr(result, "error", "") or "").strip()
+        summary = str(getattr(result, "summary", "") or "").strip()
+        artifact_keys = sorted(getattr(result, "artifacts", {}).keys())
+        document_keys = sorted(getattr(result, "documents", {}).keys())
+        status = "stopped" if stopped else ("success" if success else "error")
+        return {
+            "agent_id": agent_id,
+            "agent_name": str(getattr(result, "agent_name", "") or agent_id),
+            "task": str(getattr(result, "task", "") or routed_task),
+            "status": status,
+            "success": success,
+            "stopped": stopped,
+            "summary": summary,
+            "error": error or (summary if not success else ""),
+            "execution_time_ms": int(getattr(result, "execution_time_ms", 0) or 0),
+            "run_id": str(getattr(result, "run_id", "") or ""),
+            "turn_id": str(getattr(result, "turn_id", "") or ""),
+            "parent_session_id": str(getattr(result, "parent_session_id", "") or ""),
+            "child_session_id": str(getattr(result, "child_session_id", "") or ""),
+            "resource_session_id": str(getattr(result, "resource_session_id", "") or ""),
+            "artifact_names": artifact_keys,
+            "document_names": document_keys,
+            "artifact_count": len(artifact_keys),
+            "document_count": len(document_keys),
+        }
+
+    def _build_dispatch_run_id(
+        self,
+        *,
+        turn_id: str | None,
+        tool_call_id: str | None,
+    ) -> str:
+        """构造父级 dispatch 运行 ID。"""
+        normalized_tool_call = str(tool_call_id or "").strip()
+        if normalized_tool_call:
+            return f"dispatch:{normalized_tool_call}"
+        normalized_turn = str(turn_id or "").strip() or "unknown"
+        return f"dispatch:{normalized_turn}"
+
+    def _record_dispatch_run_events(
+        self,
+        *,
+        session: Any,
+        dispatch_run_id: str,
+        turn_id: str | None,
+        routed_agents: list[str],
+        context: str,
+        subtasks: list[dict[str, Any]],
+        fusion_result: Any,
+    ) -> None:
+        """将 dispatch 结果写入父会话运行事件文件，便于事后排障。"""
+        session_id = str(getattr(session, "id", "") or "").strip()
+        if not session_id:
+            return
+
+        normalized_turn_id = str(turn_id or "").strip() or None
+        parent_run_id = f"root:{normalized_turn_id}" if normalized_turn_id else None
+
+        for item in subtasks:
+            run_id = str(item.get("run_id") or "").strip()
+            if not run_id:
+                continue
+            session_manager.append_agent_run_event(
+                session_id,
+                {
+                    "type": "subagent_result",
+                    "data": item,
+                    "turn_id": normalized_turn_id,
+                    "metadata": {
+                        "run_scope": "subagent",
+                        "run_id": run_id,
+                        "parent_run_id": dispatch_run_id,
+                        "agent_id": item.get("agent_id"),
+                        "agent_name": item.get("agent_name"),
+                        "attempt": 1,
+                        "phase": item.get("status"),
+                        "turn_id": normalized_turn_id,
+                    },
+                },
+            )
+
+        session_manager.append_agent_run_event(
+            session_id,
+            {
+                "type": "dispatch_agents_result",
+                "data": {
+                    "task_count": len(subtasks),
+                    "routed_agents": routed_agents,
+                    "context": context,
+                    "fusion_strategy": getattr(fusion_result, "strategy", "concatenate"),
+                    "sources": list(getattr(fusion_result, "sources", []) or []),
+                    "conflicts": list(getattr(fusion_result, "conflicts", []) or []),
+                    "subtasks": subtasks,
+                    "success_count": sum(1 for item in subtasks if item["success"]),
+                    "failure_count": sum(1 for item in subtasks if item["status"] == "error"),
+                    "stopped_count": sum(1 for item in subtasks if item["status"] == "stopped"),
+                },
+                "turn_id": normalized_turn_id,
+                "metadata": {
+                    "run_scope": "dispatch",
+                    "run_id": dispatch_run_id,
+                    "parent_run_id": parent_run_id,
+                    "agent_id": "dispatch_agents",
+                    "agent_name": "dispatch_agents",
+                    "attempt": 1,
+                    "phase": "fused",
+                    "turn_id": normalized_turn_id,
+                },
             },
         )
 

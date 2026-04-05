@@ -254,5 +254,7 @@ def test_websocket_dispatch_agents_partial_failure_does_not_interrupt_main_agent
     assert "data_cleaner" in agent_errors
     assert "statistician" in agent_completes
     assert tool_result["data"]["status"] == "success"
+    assert tool_result["data"]["result"]["metadata"]["partial_failure"] is True
+    assert tool_result["data"]["result"]["metadata"]["failure_count"] == 1
     assert "done" in event_types
     assert "error" not in event_types

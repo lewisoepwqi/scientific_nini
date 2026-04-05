@@ -113,7 +113,9 @@ class Capability:
             "execution_message": self.execution_message,
             "phase": self.phase.value if self.phase is not None else None,
             "risk_level": self.risk_level.value if self.risk_level is not None else None,
-            "max_output_level": self.max_output_level.value if self.max_output_level is not None else None,
+            "max_output_level": (
+                self.max_output_level.value if self.max_output_level is not None else None
+            ),
         }
 
     def supports_direct_execution(self) -> bool:

@@ -45,7 +45,9 @@ async def compress_session_context(
     )
     try:
         result = await compress_session_history_with_llm(
-            session, ratio=0.5, min_messages=min_messages,
+            session,
+            ratio=0.5,
+            min_messages=min_messages,
         )
         if not result.get("success"):
             return None
@@ -55,14 +57,17 @@ async def compress_session_context(
         if post_tokens > threshold and len(session.messages) > min_messages:
             logger.warning(
                 "首轮压缩后仍超限 (%d > %d)，执行二次压缩 (ratio=0.7)",
-                post_tokens, threshold,
+                post_tokens,
+                threshold,
             )
             result2 = await compress_session_history_with_llm(
-                session, ratio=0.7, min_messages=min_messages,
+                session,
+                ratio=0.7,
+                min_messages=min_messages,
             )
             if result2.get("success"):
-                result["archived_count"] = (
-                    result.get("archived_count", 0) + result2.get("archived_count", 0)
+                result["archived_count"] = result.get("archived_count", 0) + result2.get(
+                    "archived_count", 0
                 )
                 result["remaining_count"] = result2["remaining_count"]
                 post_tokens = count_messages_tokens(session.messages)

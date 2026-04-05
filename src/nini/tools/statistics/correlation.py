@@ -81,6 +81,7 @@ class CorrelationTool(Tool):
             "kendall": kendalltau,
         }.get(method, pearsonr)
         corr_func_callable = cast(Callable[[Any, Any], tuple[Any, Any]], corr_func)
+        pairwise_results: list[dict[str, Any]] = []
 
         for col1 in columns:
             pvalue_matrix[col1] = {}
@@ -90,6 +91,18 @@ class CorrelationTool(Tool):
                     continue
                 _, pval = corr_func_callable(data[col1].values, data[col2].values)
                 pvalue_matrix[col1][col2] = _ensure_finite(pval, f"{col1}-{col2} p 值")
+                if columns.index(col2) <= columns.index(col1):
+                    continue
+                coefficient = _safe_float(corr_matrix.loc[col1, col2])
+                pairwise_results.append(
+                    {
+                        "var_a": col1,
+                        "var_b": col2,
+                        "coefficient": coefficient,
+                        "p_value": pvalue_matrix[col1][col2],
+                        "significant": bool(pvalue_matrix[col1][col2] < 0.05),
+                    }
+                )
 
         result = {
             "method": method,
@@ -99,13 +112,35 @@ class CorrelationTool(Tool):
                 for col in columns
             },
             "pvalue_matrix": pvalue_matrix,
+            "stat_summary": {
+                "kind": "correlation",
+                "method": method,
+                "sample_size": len(data),
+                "pairwise": pairwise_results,
+            },
         }
 
         message = f"{method.title()} 相关性分析完成（{len(columns)} 个变量, n={len(data)}）"
-        _record_stat_result(
-            session,
-            name,
-            test_name=f"{method.title()} 相关性分析",
-            message=message,
-        )
+        for pair in pairwise_results:
+            coefficient = pair["coefficient"]
+            p_value = pair["p_value"]
+            _record_stat_result(
+                session,
+                name,
+                test_name=f"{method.title()} 相关性分析（{pair['var_a']} vs {pair['var_b']}）",
+                message=message,
+                p_value=float(p_value) if p_value is not None else None,
+                effect_size=float(coefficient) if coefficient is not None else None,
+                effect_type=f"{method.lower()}_correlation",
+                significant=bool(pair["significant"]),
+                metadata={
+                    "dataset_name": name,
+                    "method": method,
+                    "sample_size": len(data),
+                    "variables": [pair["var_a"], pair["var_b"]],
+                    "var_a": pair["var_a"],
+                    "var_b": pair["var_b"],
+                    "coefficient": coefficient,
+                },
+            )
         return ToolResult(success=True, data=result, message=message)
