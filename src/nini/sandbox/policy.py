@@ -355,7 +355,7 @@ def validate_code(code: str, *, extra_allowed_imports: Iterable[str] | None = No
         # 禁止访问危险的双下划线属性（防止沙箱逃逸）
         if isinstance(node, ast.Attribute):
             if node.attr.startswith("__") and node.attr.endswith("__"):
-                _ALLOWED_DUNDERS = {"__name__", "__doc__", "__len__", "__class__"}
+                _ALLOWED_DUNDERS = {"__name__", "__doc__", "__len__"}
                 if node.attr not in _ALLOWED_DUNDERS:
                     violations.append(
                         PolicyViolation(
