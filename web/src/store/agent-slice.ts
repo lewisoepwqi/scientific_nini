@@ -47,17 +47,11 @@ function clampHistory(history: AgentAttemptInfo[]): AgentAttemptInfo[] {
 }
 
 function sortRunIds(agentRuns: Record<string, AgentRunThread>, runIds: string[]): string[] {
-  const rootRunIds = runIds.filter((runId) => agentRuns[runId]?.runScope === "root");
-  const subagentRunIds = runIds
-    .filter((runId) => agentRuns[runId]?.runScope === "subagent")
-    .sort((left, right) => {
-      const leftRun = agentRuns[left];
-      const rightRun = agentRuns[right];
-      const leftPriority = leftRun?.status === "running" ? 0 : 1;
-      const rightPriority = rightRun?.status === "running" ? 0 : 1;
-      if (leftPriority !== rightPriority) return leftPriority - rightPriority;
-      return (rightRun?.updatedAt ?? 0) - (leftRun?.updatedAt ?? 0);
-    });
+  const uniqueRunIds = Array.from(new Set(runIds));
+  const rootRunIds = uniqueRunIds.filter((runId) => agentRuns[runId]?.runScope === "root");
+  const subagentRunIds = uniqueRunIds.filter(
+    (runId) => agentRuns[runId]?.runScope === "subagent",
+  );
   return [...rootRunIds, ...subagentRunIds];
 }
 
