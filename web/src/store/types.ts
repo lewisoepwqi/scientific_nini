@@ -562,6 +562,12 @@ export interface Message {
   id: string;
   role: "user" | "assistant" | "tool";
   content: string;
+  runId?: string;
+  runScope?: "root" | "subagent";
+  parentRunId?: string | null;
+  agentId?: string | null;
+  agentName?: string | null;
+  attempt?: number | null;
   /** 后端消息ID，用于区分同一turn中的多条消息 */
   messageId?: string;
   toolName?: string;
@@ -780,7 +786,7 @@ export interface RawSessionMessage {
 export interface AgentInfo {
   agentId: string;
   agentName: string;
-  status: 'running' | 'completed' | 'error';
+  status: 'running' | 'completed' | 'error' | 'stopped';
   task: string;
   startTime: number;
   updatedAt: number;
@@ -805,6 +811,53 @@ export interface AgentAttemptInfo {
 export interface AgentSlice {
   activeAgents: Record<string, AgentInfo>;
   completedAgents: AgentInfo[];
+  agentRuns: Record<string, AgentRunThread>;
+  agentRunTabs: string[];
+  selectedRunId: string | null;
+  unreadByRun: Record<string, number>;
+  runGroupsByTurn: Record<string, AgentRunGroup>;
+  lastViewedRunIdBySession: Record<string, string>;
+}
+
+export type AgentRunStatus = "running" | "completed" | "error" | "stopped";
+
+export interface AgentRunThread {
+  runId: string;
+  turnId: string;
+  parentRunId: string | null;
+  runScope: "root" | "subagent";
+  agentId: string | null;
+  agentName: string;
+  status: AgentRunStatus;
+  task: string;
+  attempt: number;
+  retryCount: number;
+  startTime: number;
+  updatedAt: number;
+  latestExecutionTimeMs: number | null;
+  lastError?: string | null;
+  summary?: string;
+  phase?: string | null;
+  progressMessage?: string | null;
+  progressHint?: string | null;
+  messages: Message[];
+}
+
+export interface AgentRunEvent {
+  type: string;
+  session_id?: string;
+  turn_id?: string;
+  tool_call_id?: string;
+  tool_name?: string;
+  metadata?: Record<string, unknown>;
+  data?: unknown;
+}
+
+export interface AgentRunGroup {
+  turnId: string;
+  rootRunId: string;
+  runIds: string[];
+  updatedAt: number;
 }
 
 // ---- Hypothesis-Driven 范式状态 ----

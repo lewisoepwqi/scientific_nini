@@ -176,6 +176,24 @@ export async function switchSession(
   }
 }
 
+export async function fetchSessionAgentRuns(
+  sessionId: string,
+  turnId?: string | null,
+): Promise<unknown[]> {
+  if (!sessionId) return [];
+  try {
+    const query = turnId ? `?turn_id=${encodeURIComponent(turnId)}` : "";
+    const resp = await apiFetch(`/api/sessions/${sessionId}/agent-runs${query}`);
+    const payload = await resp.json();
+    const data = isRecord(payload) ? payload.data : null;
+    if (!isRecord(data)) return [];
+    return Array.isArray(data.events) ? data.events : [];
+  } catch (e) {
+    logError("获取 Agent 运行事件失败:", e);
+    return [];
+  }
+}
+
 export async function deleteSession(targetSessionId: string): Promise<boolean> {
   try {
     const resp = await apiFetch(`/api/sessions/${targetSessionId}`, { method: "DELETE" });

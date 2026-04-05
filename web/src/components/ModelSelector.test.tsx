@@ -11,7 +11,7 @@ vi.mock("../store", () => ({
 
 describe("ModelSelector", () => {
  beforeEach(() => {
- vi.mocked(global.fetch).mockResolvedValue({
+ vi.mocked(globalThis.fetch).mockResolvedValue({
  json: vi.fn().mockResolvedValue({
  success: true,
  data: {
