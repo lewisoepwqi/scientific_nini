@@ -139,10 +139,11 @@ class AnthropicClient(BaseLLMClient):
                 continue
 
             if role == "tool":
-                # Anthropic 不支持 tool 角色：转为 assistant 摘要，避免误判为用户输入。
+                # Anthropic 不支持 tool 角色：转为 user 消息发送工具结果，
+                # 保持对话的 user/assistant 合法交替结构。
                 out.append(
                     {
-                        "role": "assistant",
+                        "role": "user",
                         "content": self._summarize_tool_context(msg.get("content")),
                     }
                 )
