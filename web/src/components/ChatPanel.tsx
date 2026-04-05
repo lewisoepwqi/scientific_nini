@@ -27,6 +27,32 @@ const compactTokenFormatter = new Intl.NumberFormat('en-US', {
  maximumFractionDigits: 1,
 })
 
+const selectedRunStatusLabel = {
+ running: '运行中',
+ completed: '已完成',
+ error: '失败',
+ stopped: '已终止',
+} as const
+
+const selectedRunStatusClass = {
+ running:
+ 'border-[color-mix(in_srgb,var(--accent)_22%,transparent)] bg-[var(--accent-subtle)] text-[var(--accent)]',
+ completed:
+ 'border-[color-mix(in_srgb,var(--success)_22%,transparent)] bg-[color-mix(in_srgb,var(--success)_10%,var(--bg-base))] text-[var(--success)]',
+ error:
+ 'border-[color-mix(in_srgb,var(--error)_22%,transparent)] bg-[color-mix(in_srgb,var(--error)_10%,var(--bg-base))] text-[var(--error)]',
+ stopped:
+ 'border-[color-mix(in_srgb,var(--text-muted)_24%,transparent)] bg-[var(--bg-elevated)] text-[var(--text-secondary)]',
+} as const
+
+function formatDuration(durationMs: number): string {
+ if (durationMs < 1000) return `${Math.max(1, durationMs)}ms`
+ const seconds = Math.floor(durationMs / 1000)
+ const minutes = Math.floor(seconds / 60)
+ const remainSeconds = seconds % 60
+ return minutes > 0 ? `${minutes}m ${remainSeconds}s` : `${remainSeconds}s`
+}
+
 /** 首次访问欢迎提示 */
 function WelcomeHint() {
  const isSeen = useOnboardStore((s) => s.isSeen);
@@ -83,13 +109,20 @@ export default function ChatPanel() {
  const setComposerDraft = useStore((s) => s.setComposerDraft)
  const submitAskUserQuestionAnswers = useStore((s) => s.submitAskUserQuestionAnswers)
  const retryLastTurn = useStore((s) => s.retryLastTurn)
+ const stopAgentRun = useStore((s) => s.stopAgentRun)
  const bottomRef = useRef<HTMLDivElement>(null)
+ const selectedRun = useMemo(() => {
+ if (!selectedRunId) return null
+ return agentRuns[selectedRunId] ?? null
+ }, [agentRuns, selectedRunId])
+ const selectedSubagentRun = useMemo(() => {
+ if (!selectedRun || selectedRun.runScope !== 'subagent') return null
+ return selectedRun
+ }, [selectedRun])
  const displayMessages = useMemo(() => {
- if (!selectedRunId) return messages
- const selectedRun = agentRuns[selectedRunId]
- if (!selectedRun || selectedRun.runScope === 'root') return messages
- return selectedRun.messages
- }, [agentRuns, messages, selectedRunId])
+ if (!selectedSubagentRun) return messages
+ return selectedSubagentRun.messages
+ }, [messages, selectedSubagentRun])
  const [displayedTokenCount, setDisplayedTokenCount] = useState(() =>
  streamingMetrics.hasTokenUsage ? streamingMetrics.totalTokens : 0,
  )
@@ -214,6 +247,18 @@ export default function ChatPanel() {
  })
  }, [isStreaming, canRetry, retryLastTurn, confirm])
 
+ const handleStopSelectedSubagent = useCallback(async () => {
+ if (!selectedSubagentRun?.agentId || selectedSubagentRun.status !== 'running') return
+ const confirmed = await confirm({
+ title: `终止 ${selectedSubagentRun.agentName}`,
+ message: '将停止当前子 Agent，已生成内容会保留在对话中，是否继续？',
+ confirmText: '终止',
+ destructive: true,
+ })
+ if (!confirmed) return
+ stopAgentRun(selectedSubagentRun.runId, selectedSubagentRun.agentId)
+ }, [confirm, selectedSubagentRun, stopAgentRun])
+
  const handleEnableNotifications = useCallback(async () => {
  if (typeof window === 'undefined' || !('Notification' in window)) return
  const permission = await window.Notification.requestPermission()
@@ -239,6 +284,12 @@ export default function ChatPanel() {
  const isNoSession = !sessionId
  const showBootstrapState = appBootstrapping
  const showConversationContent = !appBootstrapping
+ const selectedRunDuration =
+ selectedSubagentRun?.status === 'running'
+ ? formatDuration(Math.max(0, Date.now() - selectedSubagentRun.startTime))
+ : typeof selectedSubagentRun?.latestExecutionTimeMs === 'number'
+ ? formatDuration(selectedSubagentRun.latestExecutionTimeMs)
+ : null
 
  return (
  <div className="flex flex-col flex-1 min-h-0">
@@ -303,7 +354,10 @@ export default function ChatPanel() {
  showConversationContent ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
  }`}
  >
- {showConversationContent && displayMessages.length === 0 && !isNoSession && (
+ {showConversationContent &&
+ displayMessages.length === 0 &&
+ !isNoSession &&
+ !selectedSubagentRun && (
  <div className="min-h-[60vh] py-6 space-y-3">
  <WelcomeHint />
  <RecipeCenter />
@@ -332,6 +386,68 @@ export default function ChatPanel() {
  </div>
  )}
  {showConversationContent && <SkillProgressPanel />}
+ {showConversationContent && selectedSubagentRun && (
+ <div
+ id="agent-run-thread-panel"
+ className="mb-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-base)] px-4 py-3 shadow-sm"
+ >
+ <div className="flex items-start justify-between gap-3">
+ <div className="min-w-0 flex-1">
+ <div className="flex flex-wrap items-start gap-2">
+ <span className="text-xs font-medium uppercase tracking-[0.16em] text-[var(--text-muted)]">
+ 子 Agent 视图
+ </span>
+ <span
+ className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold leading-none ${selectedRunStatusClass[selectedSubagentRun.status]}`}
+ >
+ {selectedRunStatusLabel[selectedSubagentRun.status]}
+ </span>
+ </div>
+ <div className="mt-2 flex flex-wrap items-start gap-x-3 gap-y-1">
+ <span className="text-sm font-semibold text-[var(--text-primary)]">
+ {selectedSubagentRun.agentName}
+ </span>
+ <span className="text-xs text-[var(--text-secondary)]">
+ 尝试 {selectedSubagentRun.attempt}
+ </span>
+ {selectedRunDuration && (
+ <span className="text-xs text-[var(--text-secondary)]">
+ 耗时 {selectedRunDuration}
+ </span>
+ )}
+ </div>
+ <p className="mt-2 text-xs text-[var(--text-secondary)] break-words">
+ {selectedSubagentRun.task || '等待任务描述...'}
+ </p>
+ {selectedSubagentRun.progressMessage &&
+ selectedSubagentRun.progressMessage !== selectedSubagentRun.task && (
+ <p className="mt-1 text-xs text-[var(--text-muted)] break-words">
+ {selectedSubagentRun.progressMessage}
+ </p>
+ )}
+ </div>
+ {selectedSubagentRun.status === 'running' && selectedSubagentRun.agentId && (
+ <Button
+ type="button"
+ variant="danger"
+ className="shrink-0 rounded-lg px-3"
+ onClick={() => {
+ void handleStopSelectedSubagent()
+ }}
+ >
+ 终止子 Agent
+ </Button>
+ )}
+ </div>
+ </div>
+ )}
+ {showConversationContent &&
+ selectedSubagentRun &&
+ displayMessages.length === 0 && (
+ <div className="rounded-2xl border border-dashed border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-4 py-6 text-sm text-[var(--text-secondary)]">
+ 当前子 Agent 还没有产出可展示的消息。
+ </div>
+ )}
  {/* 所有消息按原始顺序展示 */}
  {showConversationContent && displayMessages.map((msg) => {
  const isUser = msg.role === 'user'

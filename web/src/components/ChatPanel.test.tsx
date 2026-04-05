@@ -1,11 +1,16 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ChatPanel from './ChatPanel'
 
 let mockState: Record<string, unknown>
+const mockConfirm = vi.fn()
 
 vi.mock('../store', () => ({
  useStore: (selector: (state: Record<string, unknown>) => unknown) => selector(mockState),
+}))
+
+vi.mock('../store/confirm-store', () => ({
+ useConfirm: () => mockConfirm,
 }))
 
 vi.mock('./MessageBubble', () => ({
@@ -35,14 +40,19 @@ describe('ChatPanel', () => {
  Element.prototype.scrollIntoView = vi.fn()
  mockState = {
  sessionId: 'session-1',
+ appBootstrapping: false,
  messages: [],
  isStreaming: true,
  switchSession: vi.fn(),
+ createNewSession: vi.fn(),
  pendingAskUserQuestionsBySession: {},
  pendingAskUserQuestion: null,
  askUserQuestionNotificationPreference: 'default',
  setAskUserQuestionNotificationPreference: vi.fn(),
  currentIntentAnalysis: null,
+ agentRuns: {},
+ selectedRunId: null,
+ stopAgentRun: vi.fn(),
  _streamingMetrics: {
  startedAt: new Date('2026-03-04T12:00:00Z').getTime(),
  turnId: 'turn-1',
@@ -53,6 +63,8 @@ describe('ChatPanel', () => {
  submitAskUserQuestionAnswers: vi.fn(),
  retryLastTurn: vi.fn(),
  }
+ mockConfirm.mockReset()
+ mockConfirm.mockResolvedValue(true)
  })
 
  afterEach(() => {
@@ -132,5 +144,53 @@ describe('ChatPanel', () => {
 
  expect(screen.getByText('会话“后台会话”正在等待你的回答')).toBeInTheDocument()
  expect(screen.getByRole('button', { name: '切换并处理' })).toBeInTheDocument()
+ })
+
+ it('选中运行中的子 agent 时应通过确认对话框终止', async () => {
+ const stopAgentRun = vi.fn()
+ mockState = {
+ ...mockState,
+ isStreaming: false,
+ selectedRunId: 'agent:turn-1:search:1',
+ agentRuns: {
+ 'agent:turn-1:search:1': {
+ runId: 'agent:turn-1:search:1',
+ turnId: 'turn-1',
+ parentRunId: 'root:turn-1',
+ runScope: 'subagent',
+ agentId: 'search',
+ agentName: '文献检索',
+ status: 'running',
+ task: '检索近五年论文',
+ attempt: 2,
+ retryCount: 1,
+ startTime: new Date('2026-03-04T12:00:10Z').getTime(),
+ updatedAt: new Date('2026-03-04T12:00:36Z').getTime(),
+ latestExecutionTimeMs: null,
+ progressMessage: '正在汇总候选文献',
+ messages: [],
+ },
+ },
+ stopAgentRun,
+ }
+
+ render(<ChatPanel />)
+
+ expect(screen.getByText('子 Agent 视图')).toBeInTheDocument()
+ expect(screen.getByText('文献检索')).toBeInTheDocument()
+ expect(screen.getByRole('button', { name: '终止子 Agent' })).toBeInTheDocument()
+
+ await act(async () => {
+ fireEvent.click(screen.getByRole('button', { name: '终止子 Agent' }))
+ })
+
+ expect(mockConfirm).toHaveBeenCalledWith(
+ expect.objectContaining({
+ title: '终止 文献检索',
+ confirmText: '终止',
+ destructive: true,
+ }),
+ )
+ expect(stopAgentRun).toHaveBeenCalledWith('agent:turn-1:search:1', 'search')
  })
 })
