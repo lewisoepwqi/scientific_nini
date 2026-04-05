@@ -66,17 +66,23 @@ def parse_tool_arguments(arguments: str) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def serialize_tool_result_for_memory(result: Any) -> str:
+def serialize_tool_result_for_memory(result: Any, *, tool_name: str = "") -> str:
     """Serialize tool result for storage in conversation memory.
 
     Args:
         result: The tool result to serialize.
+        tool_name: 工具名称，用于对特定工具结果做额外结构化提取。
 
     Returns:
         JSON string representation of the result.
     """
     if isinstance(result, dict):
         compact = summarize_tool_result_dict(result)
+        # 对统计工具结果追加关键发现摘要
+        if tool_name in ("stat_test", "stat_model"):
+            findings = _extract_stat_findings(result)
+            if findings:
+                compact["key_findings"] = findings
         return json.dumps(compact, ensure_ascii=False, default=str)
     return compact_tool_content(result, max_chars=2000)
 
@@ -331,3 +337,50 @@ def _summarize_dataset_profile(data_obj: dict[str, Any]) -> dict[str, Any]:
 def _is_code_session_result(data: dict[str, Any]) -> bool:
     """判断工具结果是否为 code_session 执行结果。"""
     return "execution_id" in data or "script_id" in data
+
+
+def _extract_stat_findings(data: dict[str, Any]) -> str | None:
+    """从统计工具结果中提取关键发现摘要。
+
+    在 data 顶层和 data["data"] 中查找统计量字段，格式化为简洁摘要。
+    无法提取到关键字段时返回 None。
+    """
+    # 尝试从顶层和 data 子字段中提取
+    sources = [data]
+    inner = data.get("data")
+    if isinstance(inner, dict):
+        sources.append(inner)
+
+    method: str | None = None
+    p_value: Any = None
+    statistic: Any = None
+    effect_size: Any = None
+    stat_name: str | None = None
+
+    for src in sources:
+        if not method:
+            method = src.get("method") or src.get("test_name") or src.get("model_type")
+        if p_value is None:
+            p_value = src.get("p_value") or src.get("p")
+        if statistic is None:
+            statistic = src.get("statistic") or src.get("test_statistic")
+            stat_name = src.get("statistic_name") or src.get("stat_name")
+        if effect_size is None:
+            effect_size = src.get("effect_size") or src.get("cohens_d") or src.get("r_squared")
+
+    # 至少需要 p 值或统计量才生成摘要
+    if p_value is None and statistic is None:
+        return None
+
+    parts: list[str] = ["[关键发现]"]
+    if method:
+        parts.append(f"方法: {method}")
+    if statistic is not None:
+        label = stat_name or "统计量"
+        parts.append(f"{label}={statistic}")
+    if p_value is not None:
+        parts.append(f"p={p_value}")
+    if effect_size is not None:
+        parts.append(f"效应量={effect_size}")
+
+    return ", ".join(parts)

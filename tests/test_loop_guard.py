@@ -16,7 +16,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nini.agent.loop_guard import LoopGuard, LoopGuardDecision, _hash_tool_calls
+from nini.agent.loop_guard import (
+    LoopGuard,
+    LoopGuardDecision,
+    _hash_tool_calls,
+    build_loop_warn_message,
+)
 
 # ---------------------------------------------------------------------------
 # 工具函数：构造模拟 tool_call 字典
@@ -98,42 +103,48 @@ class TestLoopGuardDecisions:
         self.tc = [_make_tc("load_dataset", path="/data/a.csv")]
 
     def test_normal_path_first_call(self):
-        """第 1 次出现 → NORMAL。"""
-        result = self.guard.check(self.tc, self.session)
-        assert result == LoopGuardDecision.NORMAL
+        """第 1 次出现 → NORMAL，工具名列表为空。"""
+        decision, tool_names = self.guard.check(self.tc, self.session)
+        assert decision == LoopGuardDecision.NORMAL
+        assert tool_names == []
 
     def test_normal_path_second_call(self):
         """第 2 次出现 → NORMAL。"""
         self.guard.check(self.tc, self.session)
-        result = self.guard.check(self.tc, self.session)
-        assert result == LoopGuardDecision.NORMAL
+        decision, tool_names = self.guard.check(self.tc, self.session)
+        assert decision == LoopGuardDecision.NORMAL
+        assert tool_names == []
 
     def test_warn_path_third_call(self):
-        """第 3 次出现 → WARN。"""
+        """第 3 次出现 → WARN，返回重复工具名。"""
         for _ in range(2):
             self.guard.check(self.tc, self.session)
-        result = self.guard.check(self.tc, self.session)
-        assert result == LoopGuardDecision.WARN
+        decision, tool_names = self.guard.check(self.tc, self.session)
+        assert decision == LoopGuardDecision.WARN
+        assert tool_names == ["load_dataset"]
 
     def test_warn_path_fourth_call(self):
         """第 4 次出现（介于 warn 和 hard_limit 之间）→ WARN。"""
         for _ in range(3):
             self.guard.check(self.tc, self.session)
-        result = self.guard.check(self.tc, self.session)
-        assert result == LoopGuardDecision.WARN
+        decision, tool_names = self.guard.check(self.tc, self.session)
+        assert decision == LoopGuardDecision.WARN
+        assert "load_dataset" in tool_names
 
     def test_force_stop_path_fifth_call(self):
-        """第 5 次出现 → FORCE_STOP。"""
+        """第 5 次出现 → FORCE_STOP，返回重复工具名。"""
         for _ in range(4):
             self.guard.check(self.tc, self.session)
-        result = self.guard.check(self.tc, self.session)
-        assert result == LoopGuardDecision.FORCE_STOP
+        decision, tool_names = self.guard.check(self.tc, self.session)
+        assert decision == LoopGuardDecision.FORCE_STOP
+        assert tool_names == ["load_dataset"]
 
     def test_force_stop_beyond_hard_limit(self):
         """超过 hard_limit 次 → 持续返回 FORCE_STOP。"""
+        decision = LoopGuardDecision.NORMAL
         for _ in range(10):
-            result = self.guard.check(self.tc, self.session)
-        assert result == LoopGuardDecision.FORCE_STOP
+            decision, _ = self.guard.check(self.tc, self.session)
+        assert decision == LoopGuardDecision.FORCE_STOP
 
     def test_different_fingerprint_resets_count(self):
         """不同 fingerprint 的出现次数独立计数。"""
@@ -141,8 +152,9 @@ class TestLoopGuardDecisions:
         for _ in range(4):
             self.guard.check(self.tc, self.session)
         # tc2 首次出现应为 NORMAL
-        result = self.guard.check(tc2, self.session)
-        assert result == LoopGuardDecision.NORMAL
+        decision, tool_names = self.guard.check(tc2, self.session)
+        assert decision == LoopGuardDecision.NORMAL
+        assert tool_names == []
 
 
 # ---------------------------------------------------------------------------
@@ -160,8 +172,8 @@ class TestSessionIsolation:
         for _ in range(4):
             guard.check(tc, "session-a")
         # session-b 中相同 fingerprint 首次出现 → 应为 NORMAL
-        result = guard.check(tc, "session-b")
-        assert result == LoopGuardDecision.NORMAL
+        decision, _ = guard.check(tc, "session-b")
+        assert decision == LoopGuardDecision.NORMAL
 
     def test_multiple_sessions_independent_counts(self):
         """多个 session 各自维护独立计数。"""
@@ -170,8 +182,8 @@ class TestSessionIsolation:
         sessions = ["s1", "s2", "s3"]
         for sid in sessions:
             for _ in range(2):
-                result = guard.check(tc, sid)
-                assert result == LoopGuardDecision.NORMAL
+                decision, _ = guard.check(tc, sid)
+                assert decision == LoopGuardDecision.NORMAL
 
 
 # ---------------------------------------------------------------------------
@@ -203,8 +215,8 @@ class TestLRUEviction:
 
         # session-0 已被淘汰，其计数重置
         # 再次访问 session-0 应返回 NORMAL（第 1 次出现，不是第 2 次）
-        result = guard.check(tc, "session-0")
-        assert result == LoopGuardDecision.NORMAL
+        decision, _ = guard.check(tc, "session-0")
+        assert decision == LoopGuardDecision.NORMAL
 
     def test_lru_max_sessions_respected(self):
         """缓存内 session 数量不超过 max_sessions。"""
@@ -231,8 +243,8 @@ class TestLRUEviction:
             guard.check(tc_noise_i, "s1")
 
         # tc_a 已被完全挤出滑动窗口（窗口大小=5），再次出现应返回 NORMAL
-        result = guard.check(tc_a, "s1")
-        assert result == LoopGuardDecision.NORMAL
+        decision, _ = guard.check(tc_a, "s1")
+        assert decision == LoopGuardDecision.NORMAL
 
 
 # ---------------------------------------------------------------------------
@@ -264,9 +276,10 @@ class TestRunnerIntegration:
 
         def mock_check(tool_calls, session_id):
             check_call_count[0] += 1
+            tool_names = [str(tc.get("function", {}).get("name", "")) for tc in tool_calls]
             if check_call_count[0] == 1:
-                return LoopGuardDecision.WARN
-            return LoopGuardDecision.NORMAL
+                return LoopGuardDecision.WARN, tool_names
+            return LoopGuardDecision.NORMAL, []
 
         mock_guard = MagicMock()
         mock_guard.check.side_effect = mock_check
@@ -367,7 +380,7 @@ class TestRunnerIntegration:
 
         runner = AgentRunner()
         mock_guard = MagicMock()
-        mock_guard.check.return_value = LoopGuardDecision.FORCE_STOP
+        mock_guard.check.return_value = (LoopGuardDecision.FORCE_STOP, ["run_code"])
         runner._loop_guard = mock_guard
 
         async def mock_chat(messages, tools, **kwargs):
@@ -431,6 +444,38 @@ class TestRunnerIntegration:
             if hasattr(e, "type") and e.type == EventType.TEXT and "循环" in str(e.data)
         ]
         assert len(text_events) >= 1, f"未找到 FORCE_STOP text 事件，收到事件: {events}"
+
+
+# ---------------------------------------------------------------------------
+# build_loop_warn_message 测试
+# ---------------------------------------------------------------------------
+
+
+class TestBuildLoopWarnMessage:
+    """测试针对性循环警告消息生成。"""
+
+    def test_known_tool_produces_specific_hint(self):
+        """已知工具名应生成包含具体建议的警告消息。"""
+        msg = build_loop_warn_message(["dataset_catalog"])
+        assert "具体建议" in msg
+        assert "直接进入分析步骤" in msg
+
+    def test_unknown_tool_produces_generic_hint(self):
+        """未知工具名应使用通用反思建议。"""
+        msg = build_loop_warn_message(["unknown_tool"])
+        assert "换一种方法" in msg
+        assert "具体建议" not in msg
+
+    def test_multiple_known_tools(self):
+        """多个已知工具名应生成多条具体建议。"""
+        msg = build_loop_warn_message(["stat_test", "code_session"])
+        assert "统计检验" in msg
+        assert "代码反复执行" in msg
+
+    def test_empty_tool_names(self):
+        """空工具名列表应使用通用反思建议。"""
+        msg = build_loop_warn_message([])
+        assert "换一种方法" in msg
 
 
 def aiter(iterable):

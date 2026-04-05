@@ -50,6 +50,59 @@ def _hash_tool_calls(tool_calls: list[dict[str, Any]]) -> str:
     return hashlib.md5(serialized.encode()).hexdigest()[:12]
 
 
+def _extract_tool_names(tool_calls: list[dict[str, Any]]) -> list[str]:
+    """从 tool_calls 列表中提取工具名称。"""
+    names: list[str] = []
+    for tc in tool_calls:
+        name = str(tc.get("function", {}).get("name", "")).strip()
+        if name:
+            names.append(name)
+    return names
+
+
+# 工具名称到循环反思提示的映射
+_LOOP_REFLECTION_HINTS: dict[str, str] = {
+    "dataset_catalog": "你在反复查看数据概况，请直接进入分析步骤。",
+    "dataset_transform": "你在反复清洗数据，请检查转换是否已生效，然后继续下一步。",
+    "stat_test": "你在反复执行统计检验，请检查前提假设是否满足，或换用其他方法。",
+    "stat_model": "你在反复拟合模型，请检查模型假设或简化模型结构。",
+    "code_session": "代码反复执行，请检查错误关键线索、简化逻辑或拆分步骤。",
+    "preview_data": "你在反复预览数据，请直接进入分析步骤。",
+    "data_summary": "你在反复查看数据摘要，请直接进入分析步骤。",
+}
+
+
+def build_loop_warn_message(tool_names: list[str]) -> str:
+    """根据循环中涉及的工具名称，生成定制化的循环警告消息。
+
+    Args:
+        tool_names: 循环中重复调用的工具名称列表
+
+    Returns:
+        包含通用警告和工具特定反思提示的消息
+    """
+    base = (
+        "⚠️ 注意：你已重复调用了相同的工具组合多次，这可能表明你陷入了循环。"
+        "继续重复相同的工具调用将导致任务被强制终止。"
+    )
+
+    # 收集匹配到的工具特定提示（去重、保持顺序）
+    specific_hints: list[str] = []
+    seen: set[str] = set()
+    for name in tool_names:
+        hint = _LOOP_REFLECTION_HINTS.get(name)
+        if hint and hint not in seen:
+            specific_hints.append(hint)
+            seen.add(hint)
+
+    if specific_hints:
+        hints_text = "\n".join(f"- {h}" for h in specific_hints)
+        return f"{base}\n具体建议：\n{hints_text}"
+
+    # 无特定提示时使用通用反思建议
+    return f"{base}\n" "请仔细反思当前状态，尝试换一种方法解决问题，或直接给出你目前能得出的结论。"
+
+
 class LoopGuard:
     """ReAct 循环重复检测器。
 
@@ -78,8 +131,10 @@ class LoopGuard:
         # OrderedDict 维护访问顺序，最近访问的移到末尾
         self._cache: OrderedDict[str, deque[str]] = OrderedDict()
 
-    def check(self, tool_calls: list[dict[str, Any]], session_id: str) -> LoopGuardDecision:
-        """检查当前 tool_calls 是否构成循环，返回对应决策。
+    def check(
+        self, tool_calls: list[dict[str, Any]], session_id: str
+    ) -> tuple[LoopGuardDecision, list[str]]:
+        """检查当前 tool_calls 是否构成循环，返回决策及重复工具名称。
 
         将当前 tool_calls 的 fingerprint 加入滑动窗口后，统计该 fingerprint
         在窗口内的出现次数，按阈值返回 NORMAL / WARN / FORCE_STOP。
@@ -89,7 +144,7 @@ class LoopGuard:
             session_id: 会话 ID，用于隔离不同会话的检测状态
 
         Returns:
-            LoopGuardDecision 枚举值
+            (决策枚举值, 重复的工具名称列表)；NORMAL 时工具名列表为空
         """
         # 获取或初始化该 session 的滑动窗口
         window = self._get_or_create_window(session_id)
@@ -102,11 +157,14 @@ class LoopGuard:
         # 统计当前 fingerprint 在窗口内的出现次数
         count = sum(1 for f in window if f == fp)
 
+        # 提取工具名称，仅在 WARN/FORCE_STOP 时返回
         if count >= self._hard_limit:
-            return LoopGuardDecision.FORCE_STOP
+            tool_names = _extract_tool_names(tool_calls)
+            return LoopGuardDecision.FORCE_STOP, tool_names
         if count >= self._warn_threshold:
-            return LoopGuardDecision.WARN
-        return LoopGuardDecision.NORMAL
+            tool_names = _extract_tool_names(tool_calls)
+            return LoopGuardDecision.WARN, tool_names
+        return LoopGuardDecision.NORMAL, []
 
     def _get_or_create_window(self, session_id: str) -> deque[str]:
         """获取或创建 session 对应的滑动窗口，并更新 LRU 顺序。"""

@@ -46,7 +46,7 @@ from nini.agent.plan_parser import AnalysisPlan, parse_analysis_plan
 # 导入类型安全的事件构造器（逐步迁移中）
 from nini.agent import event_builders as eb
 
-from nini.agent.loop_guard import LoopGuard, LoopGuardDecision
+from nini.agent.loop_guard import LoopGuard, LoopGuardDecision, build_loop_warn_message
 from nini.capabilities import create_default_capabilities
 from nini.models.risk import OutputLevel, TRUST_CEILING_MAP, TrustLevel
 from nini.models.skill_contract import SkillContract
@@ -536,6 +536,10 @@ class AgentRunner:
         pending_followup_prompt: str | None = None
         # 循环检测警告消息，在下一轮 LLM 请求时注入为 system 消息
         pending_loop_warn_message: str | None = None
+        # 工具熔断后的 CoT fallback 提示，在下一轮 LLM 请求时注入
+        pending_breaker_fallback_prompt: str | None = None
+        # 结论合成提示是否已使用（防止重复触发）
+        synthesis_prompt_used: bool = False
         emitted_data_preview_signatures: set[str] = set()
         successful_dataset_profile_signatures: set[str] = set()
         dataset_profile_max_view_by_name: dict[str, str] = {}
@@ -817,6 +821,17 @@ class AgentRunner:
                 ]
                 pending_loop_warn_message = None
 
+            # 注入工具熔断后的 CoT fallback 提示
+            if pending_breaker_fallback_prompt:
+                messages = [
+                    *messages,
+                    {
+                        "role": "system",
+                        "content": pending_breaker_fallback_prompt,
+                    },
+                ]
+                pending_breaker_fallback_prompt = None
+
             # 调用 LLM（流式）；若遇到上下文超限错误，自动压缩后重试一次
             full_text = ""
             full_reasoning = ""
@@ -1082,6 +1097,25 @@ class AgentRunner:
 
             # 如果没有 tool_calls → 纯文本回复，结束循环
             if not tool_calls:
+                # 多步分析完成时注入结论合成提示（一次性）
+                if (
+                    active_plan is not None
+                    and not synthesis_prompt_used
+                    and iteration >= 3
+                    and sum(1 for s in active_plan.steps if s.status == "completed")
+                    >= len(active_plan.steps) * 0.6
+                ):
+                    synthesis_prompt_used = True
+                    pending_followup_prompt = (
+                        "分析步骤已基本完成，请确保最终回复包含：\n"
+                        "1. 回顾最初研究问题\n"
+                        "2. 逐步总结每步关键发现（含统计证据）\n"
+                        "3. 综合结论\n"
+                        "4. 局限性与下一步建议"
+                    )
+                    iteration += 1
+                    continue
+
                 final_text = full_text or raw_full_text
                 final_text, normalized_internal_status = _normalize_assistant_text_output(
                     final_text
@@ -1348,7 +1382,7 @@ class AgentRunner:
             # ── Orchestrator 钩子结束 ─────────────────────────────────────────
 
             # ── 循环检测守卫 ──────────────────────────────────────────────────
-            _loop_decision = self._loop_guard.check(tool_calls, session.id)
+            _loop_decision, _loop_tool_names = self._loop_guard.check(tool_calls, session.id)
             if _loop_decision == LoopGuardDecision.FORCE_STOP:
                 # 强制终止：跳过工具执行，推送说明性文本事件后退出循环
                 _stop_msg = (
@@ -1356,9 +1390,10 @@ class AgentRunner:
                     "系统已自动终止当前任务。请尝试调整问题描述或手动干预。"
                 )
                 logger.warning(
-                    "循环守卫触发 FORCE_STOP: session=%s iteration=%d",
+                    "循环守卫触发 FORCE_STOP: session=%s iteration=%d tools=%s",
                     session.id,
                     iteration,
+                    _loop_tool_names,
                 )
                 yield eb.build_text_event(
                     content=_stop_msg,
@@ -1374,16 +1409,13 @@ class AgentRunner:
                 yield eb.build_done_event(turn_id=turn_id)
                 return
             elif _loop_decision == LoopGuardDecision.WARN:
-                # 警告：当前轮正常执行，但在下一轮注入 system 警告消息
-                pending_loop_warn_message = (
-                    "⚠️ 注意：你已重复调用了相同的工具组合多次，这可能表明你陷入了循环。"
-                    "请仔细反思当前状态，尝试换一种方法解决问题，或直接给出你目前能得出的结论。"
-                    "继续重复相同的工具调用将导致任务被强制终止。"
-                )
+                # 警告：当前轮正常执行，但在下一轮注入针对性反思提示
+                pending_loop_warn_message = build_loop_warn_message(_loop_tool_names)
                 logger.info(
-                    "循环守卫触发 WARN: session=%s iteration=%d",
+                    "循环守卫触发 WARN: session=%s iteration=%d tools=%s",
                     session.id,
                     iteration,
+                    _loop_tool_names,
                 )
             # ── 循环检测守卫结束 ──────────────────────────────────────────────
 
@@ -1668,7 +1700,7 @@ class AgentRunner:
                         task_state_noop_repeat_count = 0
                     # ── task_state 无操作重复检测结束 ─────────────────────────
 
-                    result_str = serialize_tool_result_for_memory(result)
+                    result_str = serialize_tool_result_for_memory(result, tool_name=func_name)
                     session.add_tool_result(
                         tc_id,
                         result_str,
@@ -1760,7 +1792,7 @@ class AgentRunner:
                         and (result.get("error") or result.get("success") is False)
                     )
                     status = "error" if has_error else "success"
-                    result_str = serialize_tool_result_for_memory(result)
+                    result_str = serialize_tool_result_for_memory(result, tool_name=func_name)
                     session.add_tool_result(
                         tc_id,
                         result_str,
@@ -1858,7 +1890,7 @@ class AgentRunner:
                         }
                         has_error = True
                         status = "error"
-                        result_str = serialize_tool_result_for_memory(result)
+                        result_str = serialize_tool_result_for_memory(result, tool_name=func_name)
                         session.add_tool_result(
                             tc_id,
                             result_str,
@@ -1943,7 +1975,7 @@ class AgentRunner:
                     }
                     has_error = True
                     status = "error"
-                    result_str = serialize_tool_result_for_memory(result)
+                    result_str = serialize_tool_result_for_memory(result, tool_name=func_name)
                     session.add_tool_result(
                         tc_id,
                         result_str,
@@ -1967,6 +1999,16 @@ class AgentRunner:
                         data={"result": result},
                         turn_id=turn_id,
                         metadata=event_metadata,
+                    )
+                    # 熔断触发后注入 CoT fallback 提示，引导模型切换策略
+                    chain_count = int(chain_state.get("count", 0))
+                    pending_breaker_fallback_prompt = (
+                        f"工具 {func_name} 已触发熔断（连续失败 {chain_count} 次），"
+                        "请不要再尝试相同的方法。\n"
+                        f"上次错误提示：{recovery_hint}\n"
+                        "你可以：(1) 尝试完全不同的工具或方法 "
+                        "(2) 基于目前已获得的信息直接给出最佳结论，"
+                        "明确标注哪些结论缺乏工具验证。"
                     )
                     continue
 
@@ -2334,7 +2376,7 @@ class AgentRunner:
                     execution_id = None
 
                 # 推送工具结果
-                result_str = serialize_tool_result_for_memory(result)
+                result_str = serialize_tool_result_for_memory(result, tool_name=func_name)
 
                 # 必须先将工具结果加入会话，保证消息历史完整
                 # 即使后续发送事件失败（如 WebSocket 断开），消息顺序也正确
@@ -3101,7 +3143,8 @@ class AgentRunner:
                     if isinstance(item, dict)
                     and (
                         visible_tool_names is None
-                        or str(item.get("function", {}).get("name", "")).strip() in visible_tool_names
+                        or str(item.get("function", {}).get("name", "")).strip()
+                        in visible_tool_names
                     )
                 ]
 
