@@ -161,8 +161,9 @@ def test_update_tasks_no_no_op_when_status_actually_changes():
     )
     result = tm.update_tasks([{"id": 2, "status": "in_progress"}])
     assert result.no_op_ids == []
-    # 任务1应被自动完成
-    assert 1 in result.auto_completed_ids
+    assert result.auto_completed_ids == []
+    assert result.manager.tasks[0].status == "in_progress"
+    assert result.manager.tasks[1].status == "in_progress"
 
 
 def test_update_tasks_mixed_no_op_and_real_change():
@@ -181,3 +182,15 @@ def test_update_tasks_mixed_no_op_and_real_change():
     )
     assert result.no_op_ids == [1]
     assert result.manager.tasks[1].status == "completed"
+
+
+def test_update_tasks_preserves_depends_on_when_status_changes():
+    """状态更新时不应丢失依赖字段。"""
+    tm = _make_manager(
+        [
+            {"id": 1, "title": "A"},
+            {"id": 2, "title": "B", "depends_on": [1], "status": "pending"},
+        ]
+    )
+    result = tm.update_tasks([{"id": 2, "status": "in_progress"}])
+    assert result.manager.tasks[1].depends_on == [1]

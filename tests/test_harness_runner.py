@@ -1056,6 +1056,131 @@ def test_handle_tool_result_marks_workspace_binary_read_as_non_blocking() -> Non
     assert pending[0]["failure_category"] == "recoverable_input_misuse"
 
 
+def test_handle_tool_result_marks_task_state_init_status_error_as_non_blocking() -> None:
+    session = Session()
+    turn_id = "turn-task-state-init-status"
+    tool_call_id = "call-task-state-init-status"
+    session.add_tool_call(
+        tool_call_id,
+        "task_state",
+        '{"operation":"init","tasks":[{"id":1,"title":"澄清问题","status":"in_progress"}]}',
+        turn_id=turn_id,
+    )
+
+    error_event = AgentEvent(
+        type=EventType.TOOL_RESULT,
+        tool_call_id=tool_call_id,
+        tool_name="task_state",
+        turn_id=turn_id,
+        data={
+            "status": "error",
+            "message": "init 操作中的所有任务初始状态必须为 pending",
+            "result": {
+                "success": False,
+                "message": "init 操作中的所有任务初始状态必须为 pending",
+                "data": {"error_code": "TASK_STATE_INIT_STATUS_INVALID"},
+            },
+        },
+    )
+
+    _, blocked_state = HarnessRunner._handle_tool_result(  # noqa: SLF001
+        session=session,
+        event=error_event,
+        turn_id=turn_id,
+        task_id=None,
+        attempt_id=None,
+        tool_error_counts={},
+        tool_failure_messages={},
+        recovered_tool_signatures=set(),
+    )
+
+    assert blocked_state is None
+    pending = session.list_pending_actions(action_type="tool_failure_unresolved")
+    assert len(pending) == 1
+    assert pending[0]["blocking"] is False
+    assert pending[0]["failure_category"] == "recoverable_input_misuse"
+
+
+def test_handle_tool_result_marks_task_state_missing_operation_as_non_blocking() -> None:
+    session = Session()
+    turn_id = "turn-task-state-missing-operation"
+    tool_call_id = "call-task-state-missing-operation"
+    session.add_tool_call(tool_call_id, "task_state", "{}", turn_id=turn_id)
+
+    error_event = AgentEvent(
+        type=EventType.TOOL_RESULT,
+        tool_call_id=tool_call_id,
+        tool_name="task_state",
+        turn_id=turn_id,
+        data={
+            "status": "error",
+            "message": "缺少 operation，请指定 init、update、get 或 current",
+            "result": {
+                "success": False,
+                "message": "缺少 operation，请指定 init、update、get 或 current",
+                "data": {"error_code": "TASK_STATE_OPERATION_REQUIRED"},
+            },
+        },
+    )
+
+    _, blocked_state = HarnessRunner._handle_tool_result(  # noqa: SLF001
+        session=session,
+        event=error_event,
+        turn_id=turn_id,
+        task_id=None,
+        attempt_id=None,
+        tool_error_counts={},
+        tool_failure_messages={},
+        recovered_tool_signatures=set(),
+    )
+
+    assert blocked_state is None
+    pending = session.list_pending_actions(action_type="tool_failure_unresolved")
+    assert len(pending) == 1
+    assert pending[0]["blocking"] is False
+    assert pending[0]["failure_category"] == "recoverable_input_misuse"
+
+
+def test_handle_tool_result_marks_task_write_missing_mode_as_non_blocking() -> None:
+    session = Session()
+    turn_id = "turn-task-write-missing-mode"
+    tool_call_id = "call-task-write-missing-mode"
+    session.add_tool_call(tool_call_id, "task_write", "{}", turn_id=turn_id)
+
+    error_event = AgentEvent(
+        type=EventType.TOOL_RESULT,
+        tool_call_id=tool_call_id,
+        tool_name="task_write",
+        turn_id=turn_id,
+        data={
+            "status": "error",
+            "message": "缺少 mode，请指定 init 或 update",
+            "result": {
+                "success": False,
+                "message": "缺少 mode，请指定 init 或 update",
+                "data": {"error_code": "TASK_WRITE_MODE_REQUIRED"},
+            },
+        },
+    )
+
+    _, blocked_state = HarnessRunner._handle_tool_result(  # noqa: SLF001
+        session=session,
+        event=error_event,
+        turn_id=turn_id,
+        task_id=None,
+        attempt_id=None,
+        tool_error_counts={},
+        tool_failure_messages={},
+        recovered_tool_signatures=set(),
+    )
+
+    assert blocked_state is None
+    pending = session.list_pending_actions(action_type="tool_failure_unresolved")
+    assert len(pending) == 1
+    assert pending[0]["blocking"] is False
+    assert pending[0]["failure_category"] == "recoverable_input_misuse"
+
+
 @pytest.mark.asyncio
 async def test_harness_trace_store_marks_crash_as_error() -> None:
     trace_store = _CaptureTraceStore()

@@ -37,7 +37,7 @@ class TaskItem:
 
 @dataclass(frozen=True)
 class UpdateResult:
-    """update_tasks 的返回结果，包含新的 TaskManager 和自动完成的任务 ID。"""
+    """update_tasks 的返回结果。"""
 
     manager: "TaskManager"
     auto_completed_ids: list[int] = field(default_factory=list)
@@ -123,18 +123,8 @@ class TaskManager:
         return waves
 
     def update_tasks(self, raw_updates: list[dict[str, Any]]) -> "UpdateResult":
-        """按 id 更新部分任务状态，返回 UpdateResult。
-
-        自动完成逻辑：当某个任务被设为 in_progress 时，
-        之前处于 in_progress 的任务会被自动标记为 completed。
-        """
+        """按 id 更新部分任务状态，返回 UpdateResult。"""
         update_map: dict[int, dict[str, Any]] = {int(t["id"]): t for t in raw_updates if "id" in t}
-
-        # 检测是否有任务被设为 in_progress，用于自动完成前一个任务
-        new_in_progress_ids: set[int] = set()
-        for tid, upd in update_map.items():
-            if upd.get("status") == "in_progress":
-                new_in_progress_ids.add(tid)
 
         auto_completed_ids: list[int] = []
         no_op_ids: list[int] = []
@@ -153,20 +143,9 @@ class TaskManager:
                         status=new_status,
                         tool_hint=upd.get("tool_hint", task.tool_hint),
                         action_id=task.action_id,
+                        depends_on=list(task.depends_on),
                     )
                 )
-            elif task.status == "in_progress" and new_in_progress_ids:
-                # 自动完成：前一个 in_progress 的任务
-                new_tasks.append(
-                    TaskItem(
-                        id=task.id,
-                        title=task.title,
-                        status="completed",
-                        tool_hint=task.tool_hint,
-                        action_id=task.action_id,
-                    )
-                )
-                auto_completed_ids.append(task.id)
             else:
                 new_tasks.append(task)
         new_manager = TaskManager(tasks=new_tasks, initialized=self.initialized)

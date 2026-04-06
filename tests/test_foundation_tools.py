@@ -41,17 +41,30 @@ def test_task_state_init_update_and_query() -> None:
         )
     )
     assert init_result["success"] is True
-    # init 自动将任务1设为 in_progress
-    assert init_result["data"]["pending_count"] == 1
-    assert init_result["data"]["tasks"][0]["status"] == "in_progress"
+    assert init_result["data"]["pending_count"] == 2
+    assert init_result["data"]["tasks"][0]["status"] == "pending"
 
-    # 推进到任务2（任务1 会自动完成）
+    # 显式启动任务1
+    start_result = asyncio.run(
+        registry.execute(
+            "task_state",
+            session=session,
+            operation="update",
+            tasks=[{"id": 1, "status": "in_progress"}],
+        )
+    )
+    assert start_result["success"] is True
+
+    # 显式完成任务1，并启动任务2
     update_result = asyncio.run(
         registry.execute(
             "task_state",
             session=session,
             operation="update",
-            tasks=[{"id": 2, "status": "in_progress"}],
+            tasks=[
+                {"id": 1, "status": "completed"},
+                {"id": 2, "status": "in_progress"},
+            ],
         )
     )
     assert update_result["success"] is True
@@ -72,8 +85,7 @@ def test_task_state_update_no_op_returns_different_message() -> None:
     registry = create_default_tool_registry()
     session = Session()
 
-    # 初始化任务列表（任务1 自动设为 in_progress）；使用 3 个任务
-    # 以确保推进到任务2时还有 pending 任务（不会进入"最后一个任务"分支）
+    # 初始化任务列表；使用 3 个任务以确保推进到任务2时还有 pending 任务
     asyncio.run(
         registry.execute(
             "task_state",
@@ -87,13 +99,25 @@ def test_task_state_update_no_op_returns_different_message() -> None:
         )
     )
 
-    # 推进到任务2 — 应返回正常消息（任务1 自动完成，任务3 仍 pending）
+    asyncio.run(
+        registry.execute(
+            "task_state",
+            session=session,
+            operation="update",
+            tasks=[{"id": 1, "status": "in_progress"}],
+        )
+    )
+
+    # 推进到任务2 — 应返回正常消息（任务1 已显式完成，任务3 仍 pending）
     result1 = asyncio.run(
         registry.execute(
             "task_state",
             session=session,
             operation="update",
-            tasks=[{"id": 2, "status": "in_progress"}],
+            tasks=[
+                {"id": 1, "status": "completed"},
+                {"id": 2, "status": "in_progress"},
+            ],
         )
     )
     assert result1["success"] is True
@@ -115,8 +139,8 @@ def test_task_state_update_no_op_returns_different_message() -> None:
     assert result2["data"]["no_op_ids"] == [2]
 
 
-def test_task_state_init_auto_starts_first_task() -> None:
-    """init 后首个任务应自动变为 in_progress，消息不再引导调用 task_state。"""
+def test_task_state_init_does_not_auto_start_first_task() -> None:
+    """init 只声明任务，不应隐式推进首任务状态。"""
     registry = create_default_tool_registry()
     session = Session()
 
@@ -133,12 +157,11 @@ def test_task_state_init_auto_starts_first_task() -> None:
         )
     )
     assert result["success"] is True
-    assert result["data"]["tasks"][0]["status"] == "in_progress"
-    assert result["data"]["pending_count"] == 2
-    assert "已自动开始" in result["message"]
-    # 不应引导 LLM 调用 task_state
-    assert "task_state" not in result["message"]
-    # 应引导调用分析工具
+    assert result["data"]["tasks"][0]["status"] == "pending"
+    assert result["data"]["pending_count"] == 3
+    assert "已自动开始" not in result["message"]
+    # 应明确要求先显式推进状态
+    assert "task_state" in result["message"]
     assert "dataset_catalog" in result["message"]
 
 
@@ -147,7 +170,6 @@ def test_task_state_update_mixed_noop_and_change_reports_both() -> None:
     registry = create_default_tool_registry()
     session = Session()
 
-    # 初始化（任务1 自动 in_progress）
     asyncio.run(
         registry.execute(
             "task_state",
@@ -158,6 +180,15 @@ def test_task_state_update_mixed_noop_and_change_reports_both() -> None:
                 {"id": 2, "title": "统计分析", "status": "pending"},
                 {"id": 3, "title": "复盘", "status": "pending"},
             ],
+        )
+    )
+
+    asyncio.run(
+        registry.execute(
+            "task_state",
+            session=session,
+            operation="update",
+            tasks=[{"id": 1, "status": "in_progress"}],
         )
     )
 
@@ -180,25 +211,134 @@ def test_task_state_update_mixed_noop_and_change_reports_both() -> None:
     assert 1 in result["data"]["no_op_ids"]
 
 
+def test_task_state_update_before_init_returns_clear_error() -> None:
+    """未初始化时 update 不应隐式创建任务列表。"""
+    registry = create_default_tool_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "task_state",
+            session=session,
+            operation="update",
+            tasks=[{"id": 1, "status": "in_progress"}],
+        )
+    )
+    assert result["success"] is False
+    assert "尚未初始化" in result["message"]
+
+
+def test_task_state_init_normalizes_non_pending_status() -> None:
+    """init 误传非 pending 初始状态时应自动归一化，而不是阻塞失败。"""
+    registry = create_default_tool_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "task_state",
+            session=session,
+            operation="init",
+            tasks=[
+                {"id": 1, "title": "数据质量审查", "status": "in_progress"},
+                {"id": 2, "title": "统计分析", "status": "pending"},
+            ],
+        )
+    )
+
+    assert result["success"] is True
+    assert "归一化为 pending" in result["message"]
+    assert result["data"]["normalized_task_ids"] == [1]
+    assert [task["status"] for task in result["data"]["tasks"]] == ["pending", "pending"]
+    assert session.task_manager.tasks[0].status == "pending"
+
+
 def test_task_state_schema_uses_operation_level_oneof() -> None:
     registry = create_default_tool_registry()
     schema = registry.get("task_state").parameters
 
     assert set(schema["required"]) == {"operation"}
     assert schema["additionalProperties"] is False
+    assert set(schema["properties"]) == {"operation", "tasks"}
+    assert schema["properties"]["operation"]["enum"] == ["init", "update", "get", "current"]
 
-    branches = {
-        branch["properties"]["operation"]["const"]: set(branch["required"])
-        for branch in schema["oneOf"]
-    }
+    branch_map = {branch["properties"]["operation"]["const"]: branch for branch in schema["oneOf"]}
+    branches = {name: set(branch["required"]) for name, branch in branch_map.items()}
     assert branches["init"] == {"operation", "tasks"}
     assert branches["update"] == {"operation", "tasks"}
     assert branches["get"] == {"operation"}
     assert branches["current"] == {"operation"}
 
-    task_item = schema["properties"]["tasks"]["items"]
-    assert task_item["additionalProperties"] is False
-    assert "oneOf" in task_item
+    init_task_item = branch_map["init"]["properties"]["tasks"]["items"]
+    update_task_item = branch_map["update"]["properties"]["tasks"]["items"]
+    assert init_task_item["additionalProperties"] is False
+    assert init_task_item["required"] == ["id", "title", "status"]
+    assert init_task_item["properties"]["status"]["enum"] == ["pending"]
+    assert update_task_item["additionalProperties"] is False
+    assert update_task_item["required"] == ["id", "status"]
+    assert "in_progress" in update_task_item["properties"]["status"]["enum"]
+
+
+def test_task_state_empty_operation_returns_structured_error() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    result = asyncio.run(registry.execute("task_state", session=session))
+
+    assert result["success"] is False
+    assert result["data"]["error_code"] == "TASK_STATE_OPERATION_REQUIRED"
+    assert result["data"]["expected_fields"] == ["operation"]
+    assert "缺少 operation" in result["message"]
+
+
+def test_task_write_schema_uses_mode_level_oneof_and_init_pending_only() -> None:
+    registry = create_default_tool_registry()
+    schema = registry.get("task_write").parameters
+
+    assert set(schema["required"]) == {"mode", "tasks"}
+    assert schema["additionalProperties"] is False
+    assert set(schema["properties"]) == {"mode", "tasks"}
+    assert schema["properties"]["mode"]["enum"] == ["init", "update"]
+
+    branch_map = {branch["properties"]["mode"]["const"]: branch for branch in schema["oneOf"]}
+    init_task_item = branch_map["init"]["properties"]["tasks"]["items"]
+    update_task_item = branch_map["update"]["properties"]["tasks"]["items"]
+
+    assert init_task_item["required"] == ["id", "title", "status"]
+    assert init_task_item["properties"]["status"]["enum"] == ["pending"]
+    assert update_task_item["required"] == ["id", "status"]
+    assert "completed" in update_task_item["properties"]["status"]["enum"]
+
+
+def test_task_write_init_normalizes_non_pending_status() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "task_write",
+            session=session,
+            mode="init",
+            tasks=[
+                {"id": 1, "title": "澄清问题", "status": "in_progress"},
+                {"id": 2, "title": "执行分析", "status": "pending"},
+            ],
+        )
+    )
+
+    assert result["success"] is True
+    assert result["data"]["normalized_task_ids"] == [1]
+    assert [task["status"] for task in result["data"]["tasks"]] == ["pending", "pending"]
+
+
+def test_task_write_empty_payload_returns_structured_error() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    result = asyncio.run(registry.execute("task_write", session=session))
+
+    assert result["success"] is False
+    assert result["data"]["error_code"] == "TASK_WRITE_MODE_REQUIRED"
+    assert result["data"]["expected_fields"] == ["mode", "tasks"]
 
 
 def test_task_state_missing_tasks_returns_structured_error() -> None:
@@ -1522,7 +1662,36 @@ def test_code_session_create_script_auto_runs_by_default() -> None:
     assert result["data"]["auto_run"] is True
     assert result["data"]["execution_id"]
     assert result["data"]["script"]["script_id"] == "script_auto_run_demo"
+    assert "代码执行成功" in result["message"]
     assert session.list_pending_actions(action_type="script_not_run") == []
+
+
+def test_code_session_save_as_supports_result_df_alias() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+    session.datasets["raw.csv"] = pd.DataFrame({"x": [1, 2, 3]})
+
+    result = asyncio.run(
+        registry.execute(
+            "code_session",
+            session=session,
+            operation="create_script",
+            script_id="script_result_df_demo",
+            language="python",
+            dataset_name="raw.csv",
+            save_as="scaled.csv",
+            content=(
+                "result_df = df.copy()\n"
+                "result_df['scaled'] = result_df['x'] * 10\n"
+                "print('scaled rows', len(result_df))\n"
+            ),
+        )
+    )
+
+    assert result["success"] is True, result
+    assert "scaled.csv" in session.datasets
+    assert session.datasets["scaled.csv"]["scaled"].tolist() == [10, 20, 30]
+    assert "已保存为数据集 'scaled.csv'" in result["message"]
 
 
 def test_code_session_missing_required_args_returns_expected_fields_and_example() -> None:

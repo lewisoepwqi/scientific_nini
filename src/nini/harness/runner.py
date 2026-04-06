@@ -935,6 +935,7 @@ class HarnessRunner:
             result_payload = data.get("result")
             result_data = result_payload.get("data", {}) if isinstance(result_payload, dict) else {}
             no_op_ids = result_data.get("no_op_ids") if isinstance(result_data, dict) else None
+            error_code = result_data.get("error_code") if isinstance(result_data, dict) else None
             if isinstance(no_op_ids, list) and no_op_ids:
                 return "idempotent_conflict", False
             if (
@@ -944,6 +945,11 @@ class HarnessRunner:
                 return "idempotent_conflict", False
             if "无需重复设置" in normalized_message:
                 return "idempotent_conflict", False
+            if (
+                isinstance(error_code, str)
+                and error_code.startswith(("TASK_STATE_", "TASK_WRITE_"))
+            ) or ("初始状态必须为 pending" in normalized_message):
+                return "recoverable_input_misuse", False
         if tool_name == "workspace_session":
             error_code = str(payload.get("error_code", "")).strip()
             if error_code == "WORKSPACE_READ_BINARY_UNSUPPORTED":

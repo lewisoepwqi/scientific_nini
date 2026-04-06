@@ -52,10 +52,13 @@
 - 无法完成时，明确缺失信息并给出最小补充清单。
 
 工具调用黄金路径（数据分析场景，必须优先）：
-- 第一步：dataset_catalog(operation='profile') 先确认数据质量。
+- **第零步（多步分析）：先用 task_state(operation='init') 声明任务列表。init 只负责声明任务，不会自动开始任何任务。**
+- 第一步：dataset_catalog(operation='profile', dataset_name='xxx') 先确认数据质量。profile 成功后数据已在内存中就绪，后续步骤无需重新加载。
 - 第二步：使用结构化统计工具（stat_test / stat_model）执行分析，必须显式传 dataset_name 与关键参数。
 - 禁止调用 stat_model({})、stat_test({})、chart_session({}) 这类空参数工具调用。
-- 第三步：仅当结构化工具无法表达时，才使用 code_session；优先传 dataset_name 让沙箱注入 df。
+- 第三步：仅当结构化工具无法表达时，才使用 code_session；传入 dataset_name 参数，沙箱自动注入 df（df 即是已加载的 DataFrame，直接可用，**禁止 pd.read_csv/pd.read_excel 重新读取文件**）。
+- 开始任务：先调用 task_state(operation='update', tasks=[{"id": N, "status": "in_progress"}])，再调用对应工具执行。
+- 推进下一任务：先显式将当前任务标记为 completed，再按需将下一个任务设为 in_progress；**禁止假设系统会自动完成前一个任务。**
 - 继续操作已有资源时，优先复用上一步返回的 resource_id；禁止依赖 latest_chart、latest_report 或纯文本猜测。
 
 用户确认交互规则（必须遵循）：

@@ -658,12 +658,15 @@ def _sandbox_worker(
 
         result_obj = exec_globals.get("result")
         output_df = exec_globals.get("output_df")
+        result_df = exec_globals.get("result_df")
 
         if persist_df and dataset_name and isinstance(exec_globals.get("df"), pd.DataFrame):
             local_datasets[dataset_name] = exec_globals["df"]
 
         if isinstance(output_df, pd.DataFrame):
             result_obj = output_df
+        elif isinstance(result_df, pd.DataFrame):
+            result_obj = result_df
 
         # 自动检测并序列化图表对象（单命名空间，exec_locals 传空字典）
         figures = _collect_figures(exec_globals, {})
@@ -721,9 +724,23 @@ class _RestrictedUnpickler(pickle.Unpickler):
     # 显式白名单：内置类型和标准库
     _SAFE: dict[str, set[str]] = {
         "builtins": {
-            "dict", "list", "tuple", "set", "frozenset",
-            "str", "int", "float", "bool", "bytes", "bytearray",
-            "complex", "NoneType", "slice", "range", "type", "object",
+            "dict",
+            "list",
+            "tuple",
+            "set",
+            "frozenset",
+            "str",
+            "int",
+            "float",
+            "bool",
+            "bytes",
+            "bytearray",
+            "complex",
+            "NoneType",
+            "slice",
+            "range",
+            "type",
+            "object",
         },
         "_codecs": {"encode"},
         "datetime": {"datetime", "date", "time", "timedelta"},
@@ -740,9 +757,7 @@ class _RestrictedUnpickler(pickle.Unpickler):
         root = module.split(".")[0]
         if root in self._TRUSTED_PREFIXES:
             return super().find_class(module, name)
-        raise pickle.UnpicklingError(
-            f"不允许从沙箱反序列化类型: {module}.{name}"
-        )
+        raise pickle.UnpicklingError(f"不允许从沙箱反序列化类型: {module}.{name}")
 
 
 def _safe_recv(conn: Connection) -> Any:
@@ -849,7 +864,12 @@ class SandboxExecutor:
                     payload = None
                 except pickle.UnpicklingError as exc:
                     logger.warning("沙箱进程发送了不安全的 payload，已拒绝: %s", exc)
-                    payload = {"success": False, "error": "沙箱返回了不允许的数据类型", "stdout": "", "stderr": ""}
+                    payload = {
+                        "success": False,
+                        "error": "沙箱返回了不允许的数据类型",
+                        "stdout": "",
+                        "stderr": "",
+                    }
                 break
 
             if not process.is_alive():
@@ -861,7 +881,12 @@ class SandboxExecutor:
                         payload = None
                     except pickle.UnpicklingError as exc:
                         logger.warning("沙箱进程发送了不安全的 payload，已拒绝: %s", exc)
-                        payload = {"success": False, "error": "沙箱返回了不允许的数据类型", "stdout": "", "stderr": ""}
+                        payload = {
+                            "success": False,
+                            "error": "沙箱返回了不允许的数据类型",
+                            "stdout": "",
+                            "stderr": "",
+                        }
                 break
 
         if payload is not None:
