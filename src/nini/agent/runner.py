@@ -1634,19 +1634,9 @@ class AgentRunner:
                                     step_status=(_first_task.status if _first_task else "pending"),
                                     next_hint=(_first_task.title if _first_task else None),
                                 )
-                                # init 已自动启动首个任务时，额外发送步骤更新事件
-                                if _first_task and _first_task.status == "in_progress":
-                                    yield _new_plan_step_update_event(
-                                        {
-                                            "id": _first_task.id,
-                                            "title": _first_task.title,
-                                            "tool_hint": _first_task.tool_hint,
-                                            "status": _first_task.status,
-                                            "action_id": _first_task.action_id,
-                                        }
-                                    )
                             else:  # update
-                                # 收集需要发送事件的任务 ID：包括显式更新的和自动完成的
+                                # 收集需要发送事件的任务 ID：当前只包含显式更新项；
+                                # 保留 auto_completed_ids 兼容旧返回结构。
                                 updated_ids = {
                                     int(u["id"]) for u in tw_args.get("tasks", []) if "id" in u
                                 }

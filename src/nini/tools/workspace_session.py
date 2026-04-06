@@ -36,7 +36,11 @@ class WorkspaceSessionTool(Tool):
         return (
             "统一管理工作区文件：list/read/write/append/edit/organize/fetch_url。\n"
             "最小示例：{operation: read, file_path: notes/a.md}\n"
-            "约束：read 需 file_path；write/append 需 file_path+content；fetch_url 需 url。"
+            "约束：read 需 file_path；write/append 需 file_path+content；fetch_url 需 url。\n"
+            "重要限制：read 只能读取文本文件（.md/.txt 等）。"
+            "禁止用 read 读取数据集文件（.xlsx/.xls/.parquet 等二进制文件），"
+            "否则会触发 WORKSPACE_READ_BINARY_UNSUPPORTED 错误。"
+            "数据集请改用 dataset_catalog(operation='load', dataset_name='xxx')。"
         )
 
     @property
