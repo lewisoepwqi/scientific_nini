@@ -8,6 +8,70 @@ from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
 from nini.tools.task_write import TaskWriteTool
 
+_TASK_STATUS_ENUM = ["pending", "in_progress", "completed", "failed", "skipped"]
+
+
+def _build_init_task_item_schema() -> dict[str, Any]:
+    """构造 init 分支的任务项 schema。"""
+    return {
+        "type": "object",
+        "properties": {
+            "id": {"type": "integer"},
+            "title": {"type": "string"},
+            "status": {
+                "type": "string",
+                "enum": ["pending"],
+            },
+            "tool_hint": {"type": "string"},
+            "depends_on": {
+                "type": "array",
+                "items": {"type": "integer"},
+            },
+        },
+        "required": ["id", "title", "status"],
+        "additionalProperties": False,
+    }
+
+
+def _build_update_task_item_schema() -> dict[str, Any]:
+    """构造 update 分支的任务项 schema。"""
+    return {
+        "type": "object",
+        "properties": {
+            "id": {"type": "integer"},
+            "title": {"type": "string"},
+            "status": {
+                "type": "string",
+                "enum": _TASK_STATUS_ENUM,
+            },
+            "tool_hint": {"type": "string"},
+        },
+        "required": ["id", "status"],
+        "additionalProperties": False,
+    }
+
+
+def _build_generic_task_item_schema() -> dict[str, Any]:
+    """构造顶层通用任务项 schema，兼容 provider 对顶层 properties 的依赖。"""
+    return {
+        "type": "object",
+        "properties": {
+            "id": {"type": "integer"},
+            "title": {"type": "string"},
+            "status": {
+                "type": "string",
+                "enum": _TASK_STATUS_ENUM,
+            },
+            "tool_hint": {"type": "string"},
+            "depends_on": {
+                "type": "array",
+                "items": {"type": "integer"},
+            },
+        },
+        "required": ["id", "status"],
+        "additionalProperties": False,
+    }
+
 
 class TaskStateTool(Tool):
     """统一任务状态读写接口。"""
@@ -29,15 +93,20 @@ class TaskStateTool(Tool):
             "统一管理任务状态。支持初始化(init)、更新(update)、查询全部任务(get)和查询当前任务(current)。\n"
             "最小示例：\n"
             "- 初始化任务：{operation: init, tasks: [{id: 1, title: 加载数据, status: pending}]}\n"
-            "- 更新任务：{operation: update, tasks: [{id: 2, status: in_progress}]}\n"
+            "- 开始任务：{operation: update, tasks: [{id: 1, status: in_progress}]}\n"
+            "- 完成任务：{operation: update, tasks: [{id: 1, status: completed}]}\n"
             "- 查询全部：{operation: get}\n"
             "- 查询当前：{operation: current}\n"
             "参数约束：init/update 必须提供 tasks；init 中每个任务至少需要 id、title、status，"
+            "且初始状态只能是 pending；若误传其他状态，系统会自动按 pending 归一化并在返回中提示。"
             "update 中每个任务至少需要 id、status。"
         )
 
     @property
     def parameters(self) -> dict[str, Any]:
+        init_task_items = _build_init_task_item_schema()
+        update_task_items = _build_update_task_item_schema()
+        generic_task_items = _build_generic_task_item_schema()
         return {
             "type": "object",
             "properties": {
@@ -48,37 +117,12 @@ class TaskStateTool(Tool):
                 },
                 "tasks": {
                     "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "id": {"type": "integer"},
-                            "title": {"type": "string"},
-                            "status": {
-                                "type": "string",
-                                "enum": [
-                                    "pending",
-                                    "in_progress",
-                                    "completed",
-                                    "failed",
-                                    "skipped",
-                                ],
-                            },
-                            "tool_hint": {"type": "string"},
-                        },
-                        "oneOf": [
-                            {
-                                "type": "object",
-                                "required": ["id", "title", "status"],
-                            },
-                            {
-                                "type": "object",
-                                "required": ["id", "status"],
-                            },
-                        ],
-                        "required": ["id", "status"],
-                        "additionalProperties": False,
-                    },
-                    "description": "init/update 时传入的任务列表",
+                    "items": generic_task_items,
+                    "description": (
+                        "init/update 时传入的任务列表。"
+                        "init 只声明任务，所有任务初始状态必须为 pending；"
+                        "update 时只传状态有变化的任务。"
+                    ),
                 },
             },
             "required": ["operation"],
@@ -86,29 +130,77 @@ class TaskStateTool(Tool):
             "oneOf": [
                 {
                     "type": "object",
-                    "properties": {"operation": {"const": "init"}},
+                    "properties": {
+                        "operation": {
+                            "type": "string",
+                            "const": "init",
+                            "description": "初始化完整任务列表",
+                        },
+                        "tasks": {
+                            "type": "array",
+                            "items": init_task_items,
+                            "description": "完整任务列表。init 只声明任务，所有任务初始状态必须为 pending",
+                        },
+                    },
                     "required": ["operation", "tasks"],
+                    "additionalProperties": False,
                 },
                 {
                     "type": "object",
-                    "properties": {"operation": {"const": "update"}},
+                    "properties": {
+                        "operation": {
+                            "type": "string",
+                            "const": "update",
+                            "description": "更新部分任务状态",
+                        },
+                        "tasks": {
+                            "type": "array",
+                            "items": update_task_items,
+                            "description": "状态变更任务列表。update 时仅传状态有变化的任务",
+                        },
+                    },
                     "required": ["operation", "tasks"],
+                    "additionalProperties": False,
                 },
                 {
                     "type": "object",
-                    "properties": {"operation": {"const": "get"}},
+                    "properties": {
+                        "operation": {
+                            "type": "string",
+                            "const": "get",
+                            "description": "查询全部任务",
+                        }
+                    },
                     "required": ["operation"],
+                    "additionalProperties": False,
                 },
                 {
                     "type": "object",
-                    "properties": {"operation": {"const": "current"}},
+                    "properties": {
+                        "operation": {
+                            "type": "string",
+                            "const": "current",
+                            "description": "查询当前执行中的任务",
+                        }
+                    },
                     "required": ["operation"],
+                    "additionalProperties": False,
                 },
             ],
         }
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         operation = str(kwargs.get("operation", "")).strip()
+
+        if not operation:
+            return self._input_error(
+                operation=operation,
+                error_code="TASK_STATE_OPERATION_REQUIRED",
+                message="缺少 operation，请指定 init、update、get 或 current",
+                expected_fields=["operation"],
+                recovery_hint="请先设置 operation；初始化任务用 init，推进任务用 update。",
+                minimal_example=self._minimal_example_for_operation("init"),
+            )
 
         if operation in {"init", "update"}:
             tasks = kwargs.get("tasks", [])

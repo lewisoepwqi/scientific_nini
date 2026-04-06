@@ -14,13 +14,118 @@ from nini.tools.base import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
 
+_TASK_STATUS_ENUM = ["pending", "in_progress", "completed", "failed", "skipped"]
+
+
+def _build_init_task_item_schema() -> dict[str, Any]:
+    """构造 init 分支的任务项 schema。"""
+    return {
+        "type": "object",
+        "properties": {
+            "id": {
+                "type": "integer",
+                "description": "任务 ID，从 1 开始，初始化后保持稳定",
+            },
+            "title": {
+                "type": "string",
+                "description": "任务标题，简洁描述要完成的事情",
+            },
+            "status": {
+                "type": "string",
+                "enum": ["pending"],
+                "description": (
+                    "任务初始状态。init 只允许 pending；若模型误传其他状态，"
+                    "运行时也会自动按 pending 归一化。"
+                ),
+            },
+            "tool_hint": {
+                "type": "string",
+                "description": "（可选）预期使用的工具名称，如 t_test、create_chart",
+            },
+            "depends_on": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "（可选）依赖的前置任务 ID 列表",
+            },
+        },
+        "required": ["id", "title", "status"],
+        "additionalProperties": False,
+    }
+
+
+def _build_update_task_item_schema() -> dict[str, Any]:
+    """构造 update 分支的任务项 schema。"""
+    return {
+        "type": "object",
+        "properties": {
+            "id": {
+                "type": "integer",
+                "description": "任务 ID，从 1 开始，更新时与初始化时一致",
+            },
+            "title": {
+                "type": "string",
+                "description": "（可选）更新后的任务标题",
+            },
+            "status": {
+                "type": "string",
+                "enum": _TASK_STATUS_ENUM,
+                "description": (
+                    "任务状态：pending=待执行, in_progress=执行中, "
+                    "completed=已完成, failed=确认失败, skipped=因依赖失败跳过"
+                ),
+            },
+            "tool_hint": {
+                "type": "string",
+                "description": "（可选）预期使用的工具名称，如 t_test、create_chart",
+            },
+        },
+        "required": ["id", "status"],
+        "additionalProperties": False,
+    }
+
+
+def _build_generic_task_item_schema() -> dict[str, Any]:
+    """构造顶层通用任务项 schema，兼容 provider 对顶层 properties 的依赖。"""
+    return {
+        "type": "object",
+        "properties": {
+            "id": {
+                "type": "integer",
+                "description": "任务 ID，从 1 开始，更新时与初始化时一致",
+            },
+            "title": {
+                "type": "string",
+                "description": "任务标题，简洁描述要完成的事情",
+            },
+            "status": {
+                "type": "string",
+                "enum": _TASK_STATUS_ENUM,
+                "description": (
+                    "任务状态：pending=待执行, in_progress=执行中, "
+                    "completed=已完成, failed=确认失败, skipped=因依赖失败跳过"
+                ),
+            },
+            "tool_hint": {
+                "type": "string",
+                "description": "（可选）预期使用的工具名称，如 t_test、create_chart",
+            },
+            "depends_on": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "（可选）依赖的前置任务 ID 列表",
+            },
+        },
+        "required": ["id", "status"],
+        "additionalProperties": False,
+    }
+
 
 class TaskWriteTool(Tool):
     """管理分析任务列表（PDCA 闭环）。
 
     使用规范：
     - Plan：mode="init" 声明全部任务（最后一个任务应为「复盘与检查」）
-    - Do：mode="update" 将当前任务标记为 in_progress（前一个会自动完成）
+    - Do：mode="update" 显式更新当前任务状态（例如 pending → in_progress）
     - Check：执行「复盘与检查」任务，回顾所有结果，发现问题则修正
     - Act：复盘完成后输出最终总结
     """
@@ -34,13 +139,17 @@ class TaskWriteTool(Tool):
         return (
             "管理分析任务列表（PDCA 闭环）。"
             "Plan：mode='init' 声明全部任务，最后一个任务应为「复盘与检查」；"
-            "Do：mode='update' 标记当前任务为 in_progress（前一个任务自动完成）；"
+            "init 只声明任务，不会自动开始执行，所有任务初始状态都应为 pending；"
+            "Do：mode='update' 显式更新任务状态（例如将某任务标记为 in_progress 或 completed）；"
             "Check：执行复盘任务时回顾所有结果并修正问题；"
             "Act：复盘完成后输出最终总结。"
         )
 
     @property
     def parameters(self) -> dict[str, Any]:
+        init_task_items = _build_init_task_item_schema()
+        update_task_items = _build_update_task_item_schema()
+        generic_task_items = _build_generic_task_item_schema()
         return {
             "type": "object",
             "properties": {
@@ -54,41 +163,100 @@ class TaskWriteTool(Tool):
                 },
                 "tasks": {
                     "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "id": {
-                                "type": "integer",
-                                "description": "任务 ID，从 1 开始，更新时与初始化时一致",
-                            },
-                            "title": {
-                                "type": "string",
-                                "description": "任务标题，简洁描述要完成的事情",
-                            },
-                            "status": {
-                                "type": "string",
-                                "enum": [
-                                    "pending",
-                                    "in_progress",
-                                    "completed",
-                                    "failed",
-                                    "skipped",
-                                ],
-                                "description": "任务状态：pending=待执行, in_progress=执行中, completed=已完成, failed=确认失败, skipped=因依赖失败跳过",
-                            },
-                            "tool_hint": {
-                                "type": "string",
-                                "description": "（可选）预期使用的工具名称，如 t_test、create_chart",
-                            },
-                        },
-                        "required": ["id", "status"],
-                    },
-                    "description": "任务列表。init 时提供全部任务；update 时仅提供状态变更的任务",
+                    "items": generic_task_items,
+                    "description": (
+                        "任务列表。init 时提供全部任务且初始状态必须为 pending；"
+                        "update 时仅提供状态变更的任务。"
+                    ),
                     "minItems": 1,
                 },
             },
             "required": ["mode", "tasks"],
+            "additionalProperties": False,
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "mode": {
+                            "type": "string",
+                            "const": "init",
+                            "description": "初始化完整任务列表（首次调用，包含所有计划步骤）",
+                        },
+                        "tasks": {
+                            "type": "array",
+                            "items": init_task_items,
+                            "description": "完整任务列表。init 只声明任务，所有任务初始状态必须为 pending",
+                            "minItems": 1,
+                        },
+                    },
+                    "required": ["mode", "tasks"],
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "mode": {
+                            "type": "string",
+                            "const": "update",
+                            "description": "更新部分任务状态（仅包含状态有变化的任务）",
+                        },
+                        "tasks": {
+                            "type": "array",
+                            "items": update_task_items,
+                            "description": "状态变更任务列表。update 时只传状态有变化的任务",
+                            "minItems": 1,
+                        },
+                    },
+                    "required": ["mode", "tasks"],
+                    "additionalProperties": False,
+                },
+            ],
         }
+
+    def _normalize_init_tasks(
+        self, raw_tasks: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[int]]:
+        """将 init 输入统一归一化为 pending，兼容历史错误形状。"""
+        normalized_tasks: list[dict[str, Any]] = []
+        normalized_task_ids: list[int] = []
+        for index, task in enumerate(raw_tasks, start=1):
+            normalized = dict(task)
+            task_id = int(normalized.get("id", index))
+            raw_status = str(normalized.get("status", "pending")).strip()
+            if raw_status != "pending":
+                normalized_task_ids.append(task_id)
+            normalized["id"] = task_id
+            normalized["status"] = "pending"
+            normalized_tasks.append(normalized)
+        return normalized_tasks, normalized_task_ids
+
+    def _input_error(
+        self,
+        *,
+        mode: str,
+        error_code: str,
+        message: str,
+        expected_fields: list[str],
+        recovery_hint: str,
+        minimal_example: str,
+    ) -> ToolResult:
+        payload = {
+            "mode": mode,
+            "error_code": error_code,
+            "expected_fields": expected_fields,
+            "recovery_hint": recovery_hint,
+            "minimal_example": minimal_example,
+        }
+        return self.build_input_error(message=message, payload=payload)
+
+    def _minimal_example_for_mode(self, mode: str) -> str:
+        examples = {
+            "init": '{mode: "init", tasks: [{id: 1, title: "加载数据", status: "pending"}]}',
+            "update": '{mode: "update", tasks: [{id: 1, status: "in_progress"}]}',
+        }
+        return examples.get(
+            mode, '{mode: "init", tasks: [{id: 1, title: "加载数据", status: "pending"}]}'
+        )
 
     @property
     def expose_to_llm(self) -> bool:
@@ -100,13 +268,27 @@ class TaskWriteTool(Tool):
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         """执行任务列表管理。"""
-        mode = str(kwargs.get("mode", "init")).strip()
+        mode = str(kwargs.get("mode", "")).strip()
         raw_tasks = kwargs.get("tasks", [])
 
+        if not mode:
+            return self._input_error(
+                mode=mode,
+                error_code="TASK_WRITE_MODE_REQUIRED",
+                message="缺少 mode，请指定 init 或 update",
+                expected_fields=["mode", "tasks"],
+                recovery_hint="首次声明任务列表用 init，后续状态推进用 update。",
+                minimal_example=self._minimal_example_for_mode("init"),
+            )
+
         if not isinstance(raw_tasks, list) or not raw_tasks:
-            return ToolResult(
-                success=False,
+            return self._input_error(
+                mode=mode,
+                error_code="TASK_WRITE_TASKS_REQUIRED",
                 message="tasks 参数不能为空列表",
+                expected_fields=["mode", "tasks"],
+                recovery_hint="请传入非空 tasks 列表；init 需声明全部任务，update 只传状态有变化的任务。",
+                minimal_example=self._minimal_example_for_mode(mode),
             )
 
         if mode == "init":
@@ -114,9 +296,13 @@ class TaskWriteTool(Tool):
         elif mode == "update":
             return self._handle_update(session, raw_tasks)
         else:
-            return ToolResult(
-                success=False,
+            return self._input_error(
+                mode=mode,
+                error_code="TASK_WRITE_MODE_INVALID",
                 message=f"不支持的 mode: {mode}，请使用 init 或 update",
+                expected_fields=["mode", "tasks"],
+                recovery_hint="请将 mode 改为 init 或 update。",
+                minimal_example=self._minimal_example_for_mode("init"),
             )
 
     def _handle_init(self, session: Session, raw_tasks: list[dict[str, Any]]) -> ToolResult:
@@ -135,34 +321,41 @@ class TaskWriteTool(Tool):
                     ),
                 )
 
-        new_manager = session.task_manager.init_tasks(raw_tasks)
+        normalized_tasks, normalized_task_ids = self._normalize_init_tasks(raw_tasks)
+        new_manager = session.task_manager.init_tasks(normalized_tasks)
 
         task_count = len(new_manager.tasks)
         first_task = new_manager.tasks[0] if new_manager.tasks else None
 
-        # 自动将第一个任务设为 in_progress，省去 LLM 额外调用 task_state 的步骤
-        if first_task:
-            auto_start = new_manager.update_tasks([{"id": first_task.id, "status": "in_progress"}])
-            new_manager = auto_start.manager
-            first_task = new_manager.tasks[0]
-
         session.task_manager = new_manager
         logger.info(
-            "task_write init: session=%s 声明了 %d 个任务，任务1 已自动开始",
+            "task_write init: session=%s 声明了 %d 个任务，等待模型显式推进状态，归一化任务=%s",
             session.id,
             task_count,
+            normalized_task_ids,
         )
 
-        # 引导 LLM 直接调用分析工具，而非再调 task_state
+        # 由模型显式推进任务状态，避免运行时替模型隐式修改任务板
+        warning_prefix = ""
+        if normalized_task_ids:
+            warning_prefix = (
+                f"已将任务{','.join(str(task_id) for task_id in normalized_task_ids)}"
+                "的初始状态归一化为 pending。"
+            )
         if first_task:
             tool_hint = first_task.tool_hint or "dataset_catalog、code_session、stat_test"
             message = (
+                warning_prefix
+                + (
                 f"已声明 {task_count} 个分析任务，"
-                f"任务1「{first_task.title}」已自动开始。"
-                f"请立即调用对应的分析工具（如 {tool_hint}）执行该任务，不要输出文本。"
+                f"当前尚未开始执行。"
+                f"如确认从任务1「{first_task.title}」开始，请先调用 "
+                f"task_state(operation='update', tasks=[{{id:{first_task.id}, status:'in_progress'}}])，"
+                f"再调用对应的分析工具（如 {tool_hint}）。"
+                )
             )
         else:
-            message = f"已声明 {task_count} 个分析任务。"
+            message = f"{warning_prefix}已声明 {task_count} 个分析任务。"
 
         return ToolResult(
             success=True,
@@ -172,19 +365,30 @@ class TaskWriteTool(Tool):
                 "task_count": task_count,
                 "tasks": [t.to_dict() for t in new_manager.tasks],
                 "all_completed": False,
-                "pending_count": max(task_count - 1, 0),
+                "pending_count": task_count,
+                "normalized_task_ids": normalized_task_ids,
             },
-            metadata={"is_task_write": True},
+            metadata={
+                "is_task_write": True,
+                "normalized_task_ids": normalized_task_ids,
+            },
         )
 
     def _handle_update(self, session: Session, raw_tasks: list[dict[str, Any]]) -> ToolResult:
-        """更新任务状态。
-
-        当某个任务被设为 in_progress 时，之前处于 in_progress 的任务会自动标记为 completed。
-        """
+        """更新任务状态。"""
         if not session.task_manager.initialized:
-            # 未初始化时，将 update 视为 init
-            return self._handle_init(session, raw_tasks)
+            return self._input_error(
+                mode="update",
+                error_code="TASK_WRITE_NOT_INITIALIZED",
+                message=(
+                    "任务列表尚未初始化。"
+                    "请先调用 task_state(operation='init', tasks=[...]) 声明完整任务列表，"
+                    "再调用 update 推进状态。"
+                ),
+                expected_fields=["mode", "tasks"],
+                recovery_hint="请先用 init 声明完整任务列表，再用 update 推进状态。",
+                minimal_example=self._minimal_example_for_mode("init"),
+            )
 
         result = session.task_manager.update_tasks(raw_tasks)
         session.task_manager = result.manager
@@ -195,21 +399,12 @@ class TaskWriteTool(Tool):
         # 用 pending_count() 代替 remaining_count()，in_progress 不计入"待开始"
         pending = result.manager.pending_count()
 
-        if result.auto_completed_ids:
-            logger.info(
-                "task_write update: session=%s 更新任务 %s, 自动完成任务 %s, all_completed=%s",
-                session.id,
-                updated_ids,
-                result.auto_completed_ids,
-                all_done,
-            )
-        else:
-            logger.info(
-                "task_write update: session=%s 更新任务 %s, all_completed=%s",
-                session.id,
-                updated_ids,
-                all_done,
-            )
+        logger.info(
+            "task_write update: session=%s 更新任务 %s, all_completed=%s",
+            session.id,
+            updated_ids,
+            all_done,
+        )
 
         # 消息中明确说明当前进行中任务，避免 LLM 误判更新未生效
         current_in_progress = result.manager.current_in_progress()
@@ -255,7 +450,8 @@ class TaskWriteTool(Tool):
         elif current_in_progress:
             message = (
                 f"任务{current_in_progress.id}「{current_in_progress.title}」已标记为进行中。"
-                f"请立即调用对应工具执行该任务，完成后再调用 task_state(operation='update') 推进下一步。"
+                f"请立即调用对应工具执行该任务；完成后请显式调用 task_state(operation='update') 将其更新为 completed，"
+                f"并按需启动下一任务。"
                 f"（还有 {pending} 个任务待开始）"
             )
         else:

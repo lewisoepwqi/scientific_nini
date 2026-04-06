@@ -41,6 +41,7 @@ class CodeSessionTool(Tool):
             "创建、读取和执行持久化脚本会话（Python/R），统一管理脚本与执行历史。\n"
             "最小示例：{operation: create_script, content: result = 42}\n"
             "传入 dataset_name 时沙箱自动注入 df（DataFrame），禁止 pd.read_csv 等文件读取。\n"
+            "如需配合 save_as 生成派生数据集，脚本必须显式返回 DataFrame（设置 output_df、result_df 或 result）。\n"
             "预注入 pd/np/plt/sns/go/px/datetime/re/json，无需 import。\n"
             "图表自动导出，禁止 plt.savefig()。禁止 import __main__ 或系统 I/O。"
         )
@@ -100,7 +101,7 @@ class CodeSessionTool(Tool):
                 "persist_df": {"type": "boolean", "default": False},
                 "save_as": {
                     "type": "string",
-                    "description": "将 DataFrame 结果保存为持久化数据集的名称。仅影响 DataFrame 保存，与图表导出无关。图表会自动收集导出。",
+                    "description": "将返回的 DataFrame 保存为持久化数据集名称。脚本需显式设置 output_df、result_df 或 result 为 DataFrame；仅打印 stdout 不会生成派生数据集。",
                 },
                 "resource_name": {"type": "string"},
                 "resource_id": {"type": "string"},
@@ -315,7 +316,13 @@ class CodeSessionTool(Tool):
         execution_payload["data"] = execution_data
         if execution_result.success:
             self._clear_script_pending(session, script_id=script_id)
-            execution_payload["message"] = f"脚本会话已创建并执行：{script_id}"
+            detail_message = str(execution_payload.get("message", "") or "").strip()
+            if detail_message:
+                execution_payload["message"] = (
+                    f"脚本会话已创建并执行：{script_id}\n{detail_message}"
+                )
+            else:
+                execution_payload["message"] = f"脚本会话已创建并执行：{script_id}"
         else:
             self._mark_script_pending(
                 session,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from nini.agent.prompts.scientific import get_system_prompt
@@ -24,6 +26,8 @@ class TestFewShotExamples:
         assert "错误示例 7" in PDCA_DETAIL_BLOCK
         assert "缺失值" in PDCA_DETAIL_BLOCK
         assert "异常值" in PDCA_DETAIL_BLOCK
+        assert "任务1 自动开始" not in PDCA_DETAIL_BLOCK
+        assert "前一个 in_progress 的任务会自动标记为 completed" not in PDCA_DETAIL_BLOCK
         # system prompt 中不再包含错误示例（减少非分析任务的 context 开销）
         prompt = get_system_prompt()
         assert "错误示例 6" not in prompt
@@ -50,3 +54,21 @@ class TestFewShotExamples:
         assert "不要再次调用 workspace_session 读取 SKILL.md" in prompt
         assert "当系统已注入某个技能的 skill_definition 运行时上下文时" in prompt
         assert "必须先读取该技能定义文件" not in prompt
+
+
+def test_prompt_component_files_do_not_describe_implicit_task_progression() -> None:
+    """任务提示词组件不应再描述 init 自动开始或 update 自动完成。"""
+    repo_root = Path(__file__).resolve().parents[1]
+    strategy_core = (repo_root / "data" / "prompt_components" / "strategy_core.md").read_text(
+        encoding="utf-8"
+    )
+    strategy_task = (repo_root / "data" / "prompt_components" / "strategy_task.md").read_text(
+        encoding="utf-8"
+    )
+
+    combined = strategy_core + "\n" + strategy_task
+    assert "任务1 自动开始" not in combined
+    assert "自动将任务1 设为 in_progress" not in combined
+    assert "当前任务自动完成" not in combined
+    assert "自动将当前 in_progress 的任务标记为 completed" not in combined
+    assert "init 只负责声明任务" in combined
