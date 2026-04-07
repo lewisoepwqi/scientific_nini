@@ -14,3 +14,4 @@ allowed_tools:
 max_tokens: 8000
 timeout_seconds: 300
 paradigm: react
+model_preference: haiku

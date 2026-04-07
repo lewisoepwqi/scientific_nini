@@ -9,11 +9,51 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import shutil
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, cast
 
 logger = logging.getLogger(__name__)
+
+# model_preference → ModelResolver purpose 映射表
+# 子 Agent 的 model_preference 声明按此表翻译为 resolver.chat() 的 purpose 参数
+# 注意：ModelResolver 中 "planning"/"verification" 等内部用途仍由 runner 自主决策
+_MODEL_PREFERENCE_TO_PURPOSE: dict[str | None, str] = {
+    "haiku": "fast",
+    "sonnet": "analysis",
+    "opus": "deep_reasoning",
+    None: "analysis",  # 未声明时与父 Agent 默认保持一致
+}
+
+
+class _FixedPurposeResolver:
+    """包装 ModelResolver，将子 Agent 的所有 chat 调用的 purpose 固定为指定值。
+
+    子 Agent 的 model_preference 通过此包装器影响模型选择，
+    父 Agent 的 resolver 及其 API key/base_url 配置完全保留。
+    """
+
+    def __init__(self, base: Any, purpose: str) -> None:
+        self._base = base
+        self._purpose = purpose
+
+    async def chat(
+        self,
+        messages: Any,
+        tools: Any = None,
+        *,
+        purpose: str = "default",
+        **kwargs: Any,
+    ):
+        """代理 chat 调用，强制使用固定 purpose。"""
+        async for chunk in self._base.chat(messages, tools, purpose=self._purpose, **kwargs):
+            yield chunk
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._base, name)
+
 
 # OpenTelemetry 集成（可选依赖，缺失时降级为无操作）
 try:
@@ -129,6 +169,7 @@ class SubAgentSpawner:
         retry_count: int = 0,
         parent_turn_id: str | None = None,
         stop_event: asyncio.Event | None = None,
+        subtask_index: int | None = None,
     ) -> SubAgentResult:
         """派生并执行单个子 Agent。
 
@@ -154,6 +195,7 @@ class SubAgentSpawner:
                 retry_count=retry_count,
                 parent_turn_id=parent_turn_id,
                 stop_event=stop_event,
+                subtask_index=subtask_index,
             )
 
     async def _spawn_impl(
@@ -167,6 +209,7 @@ class SubAgentSpawner:
         retry_count: int = 0,
         parent_turn_id: str | None = None,
         stop_event: asyncio.Event | None = None,
+        subtask_index: int | None = None,
     ) -> SubAgentResult:
         """spawn 的实际实现（由 spawn() 包装 OTel span 后调用）。"""
         agent_def = self._registry.get(agent_id)
@@ -181,13 +224,14 @@ class SubAgentSpawner:
                 stop_reason="missing_agent",
             )
 
-        run_id = self._build_run_id(parent_turn_id, agent_id, attempt)
+        run_id = self._build_run_id(parent_turn_id, agent_id, attempt, subtask_index)
         run_metadata = self._build_run_metadata(
             parent_turn_id=parent_turn_id,
             agent_id=agent_id,
             agent_name=agent_def.name,
             attempt=attempt,
             run_id=run_id,
+            subtask_index=subtask_index,
         )
 
         subagent_stop_events = getattr(session, "subagent_stop_events", None)
@@ -252,6 +296,7 @@ class SubAgentSpawner:
                     retry_count=retry_count,
                     run_id=run_id,
                     stop_event=child_stop_event,
+                    subtask_index=subtask_index,
                 )
             else:
                 _execute_coro = self._invoke_execute_impl(
@@ -264,6 +309,7 @@ class SubAgentSpawner:
                     retry_count=retry_count,
                     run_id=run_id,
                     stop_event=child_stop_event,
+                    subtask_index=subtask_index,
                 )
             try:
                 result = await asyncio.wait_for(
@@ -524,25 +570,46 @@ class SubAgentSpawner:
 
         semaphore = asyncio.Semaphore(max_concurrency)
 
-        async def run_with_semaphore(agent_id: str, task: str) -> SubAgentResult:
+        async def run_with_semaphore(
+            agent_id: str,
+            task: str,
+            task_index: int,
+        ) -> SubAgentResult:
             async with semaphore:
                 return await self.spawn(
                     agent_id,
                     task,
                     session,
                     parent_turn_id=parent_turn_id,
+                    subtask_index=task_index,
                 )
 
         raw_results = await asyncio.gather(
-            *(run_with_semaphore(agent_id, task) for agent_id, task in tasks),
+            *(
+                run_with_semaphore(agent_id, task, task_index)
+                for task_index, (agent_id, task) in enumerate(tasks, start=1)
+            ),
             return_exceptions=False,
         )
         results = cast(list[SubAgentResult], raw_results)
 
-        # 串行将子 Agent 产物回写到父会话
+        # 串行将子 Agent 产物回写到父会话，使用命名空间键 {agent_id}.{key} 防止多 Agent 同名覆盖
         for result in results:
-            session.artifacts.update(result.artifacts)
-            session.documents.update(result.documents)
+            agent_id = result.agent_id
+            for key, value in result.artifacts.items():
+                namespaced = f"{agent_id}.{key}"
+                if namespaced in session.artifacts:
+                    logger.warning(
+                        "spawn_batch: artifact 命名空间键冲突 '%s'，已覆盖", namespaced
+                    )
+                session.artifacts[namespaced] = value
+            for key, value in result.documents.items():
+                namespaced = f"{agent_id}.{key}"
+                if namespaced in session.documents:
+                    logger.warning(
+                        "spawn_batch: document 命名空间键冲突 '%s'，已覆盖", namespaced
+                    )
+                session.documents[namespaced] = value
 
         return list(results)
 
@@ -557,6 +624,7 @@ class SubAgentSpawner:
         retry_count: int = 0,
         run_id: str | None = None,
         stop_event: asyncio.Event | None = None,
+        subtask_index: int | None = None,
     ) -> SubAgentResult:
         """执行子 Agent ReAct 循环。
 
@@ -573,13 +641,18 @@ class SubAgentSpawner:
         from nini.logging_config import bind_log_context, reset_log_context
 
         effective_stop_event = stop_event or asyncio.Event()
-        effective_run_id = run_id or self._build_run_id(parent_turn_id, agent_def.agent_id, attempt)
+        effective_run_id = run_id or self._build_run_id(
+            parent_turn_id,
+            agent_def.agent_id,
+            attempt,
+            subtask_index,
+        )
 
-        # 构造子会话，共享父会话数据集和事件回调
+        # 构造子会话：datasets 浅拷贝以隔离键的增删（防止子 Agent 污染父会话的 datasets 键集）
         current_depth = getattr(parent_session, "spawn_depth", 0)
         sub_session = SubSession(
             parent_session_id=parent_session.id,
-            datasets=parent_session.datasets,
+            datasets=dict(parent_session.datasets),
             artifacts={},
             documents={},
             event_callback=self._make_subagent_event_callback(
@@ -589,6 +662,7 @@ class SubAgentSpawner:
                 attempt=attempt,
                 retry_count=retry_count,
                 run_id=effective_run_id,
+                subtask_index=subtask_index,
             ),
         )
         # 将派生深度写入子会话，使嵌套链路可感知（硬限制 ≤ 2）
@@ -596,6 +670,20 @@ class SubAgentSpawner:
             sub_session.spawn_depth = min(current_depth + 1, 2)
         except (AttributeError, TypeError):
             pass
+
+        # 创建沙箱目录，将子会话的 workspace_root 指向沙箱（隔离并行子 Agent 的写入）
+        from nini.config import settings as _settings
+        parent_session_id_str = str(getattr(parent_session, "id", "") or "")
+        parent_workspace = _settings.sessions_dir / parent_session_id_str / "workspace"
+        sandbox_dir = parent_workspace / "sandbox_tmp" / effective_run_id
+        try:
+            sandbox_dir.mkdir(parents=True, exist_ok=True)
+            sub_session.workspace_root = sandbox_dir
+        except OSError:
+            logger.warning(
+                "_execute_agent: 创建沙箱目录失败 %s，使用默认 workspace",
+                sandbox_dir,
+            )
 
         # 构造受限工具子集，深度控制 dispatch_agents 暴露
         from nini.agent.tool_exposure_policy import ToolExposurePolicy
@@ -610,8 +698,15 @@ class SubAgentSpawner:
             )
         subset_registry = policy.apply(self._tool_registry)
 
-        # 实例化 AgentRunner，注入受限工具集
-        runner = AgentRunner(tool_registry=subset_registry)
+        # 根据 model_preference 选择子 Agent 的 purpose，构造限定 purpose 的 resolver 包装
+        from nini.agent.model_resolver import model_resolver as _default_resolver
+
+        model_pref = getattr(agent_def, "model_preference", None)
+        sub_purpose = _MODEL_PREFERENCE_TO_PURPOSE.get(model_pref, "analysis")
+        sub_resolver = _FixedPurposeResolver(_default_resolver, sub_purpose)
+
+        # 实例化 AgentRunner，注入受限工具集和 purpose 限定的 resolver
+        runner = AgentRunner(resolver=sub_resolver, tool_registry=subset_registry)
 
         # 执行 ReAct 循环，收集输出
         output_parts: list[str] = []
@@ -639,6 +734,7 @@ class SubAgentSpawner:
                     attempt=attempt,
                     retry_count=retry_count,
                     run_id=effective_run_id,
+                    subtask_index=subtask_index,
                 )
                 if event.type == EventType.TEXT and event.data:
                     text = event.data if isinstance(event.data, str) else str(event.data)
@@ -646,22 +742,37 @@ class SubAgentSpawner:
         finally:
             reset_log_context(log_token)
 
+        success = not effective_stop_event.is_set()
+        detailed_output = "".join(output_parts)
+        summary: str
+        if effective_stop_event.is_set():
+            summary = "用户已终止该子 Agent"
+        else:
+            summary = (
+                detailed_output[:500] if detailed_output else f"Agent {agent_def.agent_id} 执行完成"
+            )
+
+        # 将沙箱产物移入主 workspace（成功 → artifacts/{agent_id}/，失败 → sandbox_tmp/.failed/{run_id}/）
+        await self._archive_sandbox(
+            sandbox_dir=sandbox_dir,
+            parent_workspace=parent_workspace,
+            agent_id=agent_def.agent_id,
+            run_id=effective_run_id,
+            success=success,
+            artifacts=sub_session.artifacts,
+        )
+
         if effective_stop_event.is_set():
             return SubAgentResult(
                 agent_id=agent_def.agent_id,
                 success=False,
-                summary="用户已终止该子 Agent",
+                summary=summary,
                 execution_time_ms=0,
                 stopped=True,
                 stop_reason="用户已终止该子 Agent",
                 artifacts=dict(sub_session.artifacts),
                 documents=dict(sub_session.documents),
             )
-
-        detailed_output = "".join(output_parts)
-        summary = (
-            detailed_output[:500] if detailed_output else f"Agent {agent_def.agent_id} 执行完成"
-        )
 
         return SubAgentResult(
             agent_id=agent_def.agent_id,
@@ -679,6 +790,78 @@ class SubAgentSpawner:
             resource_session_id=sub_session.get_resource_session_id(),
         )
 
+    async def _archive_sandbox(
+        self,
+        *,
+        sandbox_dir: Path,
+        parent_workspace: Path,
+        agent_id: str,
+        run_id: str,
+        success: bool,
+        artifacts: dict[str, Any],
+    ) -> None:
+        """将沙箱产物归档到主 workspace。
+
+        成功时移动到 workspace/artifacts/{agent_id}/，失败时移动到
+        workspace/sandbox_tmp/.failed/{run_id}/。同时更新 artifacts 中
+        ArtifactRef.path 为相对于 workspace 的最终路径。
+
+        Args:
+            sandbox_dir: 沙箱目录（workspace/sandbox_tmp/{run_id}/）
+            parent_workspace: 父会话 workspace 根目录
+            agent_id: 子 Agent ID
+            run_id: 本次执行 run_id
+            success: 执行是否成功
+            artifacts: 子会话 artifacts 字典（原地更新 ArtifactRef.path）
+        """
+        from nini.agent.artifact_ref import ArtifactRef
+
+        if not isinstance(sandbox_dir, Path) or not sandbox_dir.exists():
+            return
+
+        # 沙箱为空（无文件写入）时跳过，避免移动空目录
+        has_files = any(sandbox_dir.rglob("*"))
+        if not has_files:
+            try:
+                sandbox_dir.rmdir()
+            except OSError:
+                pass
+            return
+
+        if success:
+            dest = parent_workspace / "artifacts" / agent_id
+        else:
+            dest = parent_workspace / "sandbox_tmp" / ".failed" / run_id
+
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(shutil.move, str(sandbox_dir), str(dest))
+            logger.info(
+                "_archive_sandbox: 沙箱产物已归档 %s → %s",
+                sandbox_dir,
+                dest,
+            )
+        except OSError as exc:
+            logger.error(
+                "_archive_sandbox: 移动沙箱目录失败 %s → %s: %s，产物仍在沙箱路径",
+                sandbox_dir,
+                dest,
+                exc,
+            )
+            return
+
+        # 更新 artifacts 中 ArtifactRef 的 path 为相对于 workspace 的最终路径
+        if success:
+            rel_prefix = Path("artifacts") / agent_id
+        else:
+            rel_prefix = Path("sandbox_tmp") / ".failed" / run_id
+
+        for key, ref in artifacts.items():
+            if isinstance(ref, ArtifactRef):
+                filename = Path(ref.path).name
+                ref.path = (rel_prefix / filename).as_posix()
+                ref.agent_id = agent_id
+
     async def _spawn_hypothesis_driven(
         self,
         agent_def: Any,
@@ -690,6 +873,7 @@ class SubAgentSpawner:
         retry_count: int = 0,
         run_id: str | None = None,
         stop_event: asyncio.Event | None = None,
+        subtask_index: int | None = None,
     ) -> SubAgentResult:
         """执行 Hypothesis-Driven 推理循环。
 
@@ -711,7 +895,12 @@ class SubAgentSpawner:
         from nini.logging_config import bind_log_context, reset_log_context
 
         effective_stop_event = stop_event or asyncio.Event()
-        effective_run_id = run_id or self._build_run_id(parent_turn_id, agent_def.agent_id, attempt)
+        effective_run_id = run_id or self._build_run_id(
+            parent_turn_id,
+            agent_def.agent_id,
+            attempt,
+            subtask_index,
+        )
 
         # 推送范式切换事件
         callback = getattr(parent_session, "event_callback", None)
@@ -734,6 +923,7 @@ class SubAgentSpawner:
                 attempt=attempt,
                 retry_count=retry_count,
                 run_id=effective_run_id,
+                subtask_index=subtask_index,
             ),
         )
 
@@ -788,6 +978,7 @@ class SubAgentSpawner:
                         attempt=attempt,
                         retry_count=retry_count,
                         run_id=effective_run_id,
+                        subtask_index=subtask_index,
                     )
                     if event.type == EventType.TEXT and event.data:
                         text = event.data if isinstance(event.data, str) else str(event.data)
@@ -916,26 +1107,33 @@ class SubAgentSpawner:
 
     @staticmethod
     def _attach_snapshot(session: Any, result: Any, *, attempt: int) -> None:
-        """生成执行快照并追加到父会话的 sub_agent_snapshots 列表。"""
+        """生成执行快照并追加到父会话的 sub_agent_snapshots 列表。
+
+        sub_agent_snapshots 由 Session.__init__ 预创建，无需懒初始化。
+        """
         try:
             from nini.agent.snapshot import SubAgentRunSnapshot
             snapshot = SubAgentRunSnapshot.from_result(result, attempt=attempt)
             snapshots = getattr(session, "sub_agent_snapshots", None)
-            if snapshots is None:
-                snapshots = []
-                try:
-                    setattr(session, "sub_agent_snapshots", snapshots)
-                except (AttributeError, TypeError):
-                    return
             if isinstance(snapshots, list):
                 snapshots.append(snapshot)
         except Exception as exc:
             logger.debug("生成子 Agent 快照失败（非致命）: %s", exc)
 
     @staticmethod
-    def _build_run_id(parent_turn_id: str | None, agent_id: str, attempt: int) -> str:
+    def _build_run_id(
+        parent_turn_id: str | None,
+        agent_id: str,
+        attempt: int,
+        subtask_index: int | None = None,
+    ) -> str:
         turn_id = str(parent_turn_id or "unknown").strip() or "unknown"
-        return f"agent:{turn_id}:{agent_id}:{attempt}"
+        subtask_key = (
+            f"task{subtask_index}"
+            if isinstance(subtask_index, int) and subtask_index > 0
+            else "direct"
+        )
+        return f"agent:{turn_id}:{agent_id}:{subtask_key}:{attempt}"
 
     def _build_run_metadata(
         self,
@@ -945,6 +1143,7 @@ class SubAgentSpawner:
         agent_name: str,
         attempt: int,
         run_id: str,
+        subtask_index: int | None,
     ) -> dict[str, Any]:
         turn_id = str(parent_turn_id or "").strip() or None
         return {
@@ -954,6 +1153,7 @@ class SubAgentSpawner:
             "agent_id": agent_id,
             "agent_name": agent_name,
             "attempt": attempt,
+            "subtask_index": subtask_index,
             "phase": None,
             "turn_id": turn_id,
         }
@@ -1000,6 +1200,7 @@ class SubAgentSpawner:
         attempt: int,
         retry_count: int,
         run_id: str,
+        subtask_index: int | None,
     ):
         async def _callback(event: Any) -> None:
             await self._relay_child_event(
@@ -1010,6 +1211,7 @@ class SubAgentSpawner:
                 attempt=attempt,
                 retry_count=retry_count,
                 run_id=run_id,
+                subtask_index=subtask_index,
             )
 
         return _callback
@@ -1024,6 +1226,7 @@ class SubAgentSpawner:
         attempt: int,
         retry_count: int,
         run_id: str,
+        subtask_index: int | None,
     ) -> None:
         from nini.agent.events import EventType
 
@@ -1042,6 +1245,7 @@ class SubAgentSpawner:
             agent_name=agent_def.name,
             attempt=attempt,
             run_id=run_id,
+            subtask_index=subtask_index,
         )
         if isinstance(getattr(event, "metadata", None), dict):
             next_metadata.update(event.metadata)
@@ -1073,11 +1277,7 @@ class SubAgentSpawner:
         from nini.agent.events import EventType
 
         if event.type == EventType.REASONING:
-            return {
-                "phase": "thinking",
-                "message": "正在推理与规划下一步操作。",
-                "progress_hint": None,
-            }
+            return None
         if event.type == EventType.TOOL_CALL:
             tool_name = str(getattr(event, "tool_name", "") or "工具")
             return {
@@ -1092,18 +1292,7 @@ class SubAgentSpawner:
                 "progress_hint": None,
             }
         if event.type == EventType.TEXT:
-            raw = event.data
-            if isinstance(raw, dict):
-                content = str(raw.get("content") or "").strip()
-            else:
-                content = str(raw or "").strip()
-            if not content:
-                return None
-            return {
-                "phase": "responding",
-                "message": content[:120],
-                "progress_hint": None,
-            }
+            return None
         if event.type in {EventType.CHART, EventType.DATA, EventType.ARTIFACT, EventType.IMAGE}:
             return {
                 "phase": event.type.value,
