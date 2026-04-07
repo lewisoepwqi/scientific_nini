@@ -87,6 +87,13 @@ class HarnessRunner:
     ) -> AsyncGenerator[AgentEvent, None]:
         """执行带 harness 约束的一轮运行。"""
         turn_id = uuid.uuid4().hex[:12]
+
+        # 新 turn 开始时清理上一轮残留的 turn-scoped pending_actions
+        # 这三类 pending_action 的 key 包含 turn_id 前缀，新 turn 无法 resolve 旧 key
+        session.clear_pending_actions(action_type="artifact_promised_not_materialized")
+        session.clear_pending_actions(action_type="user_confirmation_pending")
+        session.clear_pending_actions(action_type="task_noop_blocked")
+
         run_id = uuid.uuid4().hex
         run_context = self._build_run_context(session, turn_id=turn_id)
         session.harness_runtime_context = run_context.to_runtime_block()
@@ -460,7 +467,7 @@ class HarnessRunner:
     @staticmethod
     def _record_event(trace: HarnessTraceRecord, event: AgentEvent) -> None:
         if isinstance(event.data, dict):
-            data: dict[str, Any] | str | None = dict(event.data)
+            data: dict[str, Any] | str | None = _sanitize_event_data(event.data)
         else:
             data = event.data
         trace.events.append(
@@ -470,7 +477,11 @@ class HarnessRunner:
                 tool_call_id=event.tool_call_id,
                 tool_name=event.tool_name,
                 data=data,
-                metadata=dict(event.metadata),
+                metadata=(
+                    _sanitize_event_data(event.metadata)
+                    if isinstance(event.metadata, dict)
+                    else event.metadata
+                ),
                 timestamp=event.timestamp.isoformat(),
             )
         )
@@ -649,6 +660,16 @@ class HarnessRunner:
             for msg in messages
             if str(msg.get("event_type", "")) in {"artifact", "image", "chart", "data"}
         )
+        # 补充检测：code_session 通过 matplotlib 等生成的图表不会产生 artifact 事件，
+        # 但工具结果中可能包含图表相关输出，应纳入统计避免误判为"产物未物化"
+        _CHART_OUTPUT_KEYWORDS = ("savefig", "plt.show", "图表已保存", "chart_", "已导出")
+        code_chart_count = sum(
+            1
+            for msg in messages
+            if str(msg.get("tool_name", "")) == "code_session"
+            and any(kw in str(msg.get("content", "")) for kw in _CHART_OUTPUT_KEYWORDS)
+        )
+        artifact_count += code_chart_count
         promised_artifact_missing = (
             bool(_PROMISED_ARTIFACT_RE.search(final_text)) and artifact_count == 0
         )
@@ -724,6 +745,14 @@ class HarnessRunner:
                 0.0, min(1.0, (total_tasks - remaining_tasks) / total_tasks)
             )
         pending_actions = session.list_pending_actions(status="pending")
+
+        # 兜底清理：所有任务完成时，自动清理残留的工具失败记录
+        # 理由：如果任务已全部完成，之前的工具失败已通过其他路径被克服，
+        # 残留的失败记录不应阻塞会话结束
+        if remaining_tasks == 0 and total_tasks > 0:
+            session.clear_pending_actions(action_type="tool_failure_unresolved")
+            pending_actions = session.list_pending_actions(status="pending")
+
         blocking_pending_actions = [
             dict(item) for item in pending_actions if bool(item.get("blocking", True))
         ]
@@ -886,7 +915,6 @@ class HarnessRunner:
                 if (
                     str(item.get("source_tool", "")).strip() == tool_name
                     and str(item_metadata.get("turn_id", "")).strip() == turn_id
-                    and not bool(item.get("blocking", True))
                 ):
                     session.resolve_pending_action(
                         action_type="tool_failure_unresolved",
@@ -1221,3 +1249,20 @@ class HarnessRunner:
             failure_types=list(trace.failure_tags),
             budget_warnings=[item.model_copy(deep=True) for item in trace.budget_warnings],
         )
+
+
+def _sanitize_event_data(data: dict[str, Any] | str | None) -> dict[str, Any] | str | None:
+    """深度清洗事件数据，将 pandas 等非标准类型转为 Python 原生类型。"""
+    if not isinstance(data, dict):
+        return data
+    return {_sanitize_value(k): _sanitize_value(v) for k, v in data.items()}
+
+
+def _sanitize_value(value: Any) -> Any:
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {_sanitize_value(k): _sanitize_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_value(item) for item in value]
+    return value
