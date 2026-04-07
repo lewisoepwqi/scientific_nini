@@ -576,7 +576,7 @@ export interface AppStateSubset {
   switchSession?: (sessionId: string) => Promise<void>;
 }
 
-interface RunMeta {
+export interface RunMeta {
   runScope: "root" | "subagent";
   runId: string | null;
   parentRunId: string | null;
@@ -587,7 +587,7 @@ interface RunMeta {
   phase: string | null;
 }
 
-function getRunMeta(evt: WSEvent): RunMeta {
+export function getRunMeta(evt: WSEvent): RunMeta {
   const metadata = isRecord(evt.metadata) ? evt.metadata : {};
   const turnId =
     typeof metadata.turn_id === "string" && metadata.turn_id.trim()
@@ -630,7 +630,7 @@ function getRunMeta(evt: WSEvent): RunMeta {
   };
 }
 
-function applyRunSlicePatch(
+export function applyRunSlicePatch(
   _target: Pick<
     AppStateSubset,
     "activeAgents" | "completedAgents" | "agentRuns" | "agentRunTabs" | "selectedRunId" | "unreadByRun" | "runGroupsByTurn"
@@ -648,7 +648,7 @@ function applyRunSlicePatch(
   };
 }
 
-function ensureSubagentThread(
+export function ensureSubagentThread(
   state: AgentSlice,
   runMeta: RunMeta,
   updatedAt: number,
@@ -675,11 +675,12 @@ function ensureSubagentThread(
     phase: runMeta.phase,
     progressMessage: null,
     progressHint: null,
+    eventsLoaded: true,
     messages: [],
   });
 }
 
-function attachRunMetaToMessage(message: Message, runMeta: RunMeta): Message {
+export function attachRunMetaToMessage(message: Message, runMeta: RunMeta): Message {
   return {
     ...message,
     runId: runMeta.runId ?? undefined,

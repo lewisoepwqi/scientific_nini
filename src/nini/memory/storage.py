@@ -16,7 +16,12 @@ class ArtifactStorage:
 
     def __init__(self, session_id: str | Any):
         self.session_id = resolve_session_resource_id(session_id)
-        self._dir = settings.sessions_dir / self.session_id / "workspace" / "artifacts"
+        # 沙箱模式：若 session 有 workspace_root，产物写入沙箱目录而非主 workspace
+        workspace_root = getattr(session_id, "workspace_root", None)
+        if isinstance(workspace_root, Path):
+            self._dir = workspace_root
+        else:
+            self._dir = settings.sessions_dir / self.session_id / "workspace" / "artifacts"
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def save(self, data: bytes, filename: str) -> Path:

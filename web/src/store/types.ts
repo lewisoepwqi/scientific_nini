@@ -821,6 +821,25 @@ export interface AgentSlice {
 
 export type AgentRunStatus = "running" | "completed" | "error" | "stopped";
 
+export interface AgentRunSummary {
+  run_id: string;
+  run_scope?: string | null;
+  parent_run_id?: string | null;
+  agent_id?: string | null;
+  agent_name?: string | null;
+  attempt?: number | null;
+  subtask_index?: number | null;
+  turn_id?: string | null;
+  latest_phase?: string | null;
+  updated_at?: string | null;
+  status?: AgentRunStatus | null;
+  task?: string | null;
+  summary?: string | null;
+  progress_message?: string | null;
+  progress_hint?: string | null;
+  latest_execution_time_ms?: number | null;
+}
+
 export interface AgentRunThread {
   runId: string;
   turnId: string;
@@ -840,6 +859,7 @@ export interface AgentRunThread {
   phase?: string | null;
   progressMessage?: string | null;
   progressHint?: string | null;
+  eventsLoaded?: boolean;
   messages: Message[];
 }
 

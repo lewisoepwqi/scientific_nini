@@ -418,8 +418,8 @@ def test_get_session_detail_message_count_includes_archived_history(
     assert payload["data"]["message_count"] == total_before
 
 
-def test_get_session_agent_runs_returns_runs_and_events(client: LocalASGIClient) -> None:
-    """agent-runs 端点应同时返回原始事件与按 run_id 聚合的摘要。"""
+def test_get_session_agent_runs_returns_run_summaries(client: LocalASGIClient) -> None:
+    """agent-runs 端点默认返回线程摘要，不再返回全量事件。"""
     resp = client.post("/api/sessions")
     assert resp.status_code == 201
     session_id = resp.json()["data"]["session_id"]
@@ -472,17 +472,68 @@ def test_get_session_agent_runs_returns_runs_and_events(client: LocalASGIClient)
     data = payload["data"]
     assert data["session_id"] == session_id
     assert data["turn_id"] == "turn-agent-1"
-    assert len(data["events"]) == 2
+    assert data["event_count"] == 2
+    assert "events" not in data
     assert len(data["runs"]) == 2
 
     dispatch_run = next(item for item in data["runs"] if item["run_id"] == "dispatch:call-1")
     child_run = next(
-        item for item in data["runs"] if item["run_id"] == "agent:turn-agent-1:statistician:1"
+        item
+        for item in data["runs"]
+        if item["run_id"] == "agent:turn-agent-1:statistician:1"
     )
     assert dispatch_run["run_scope"] == "dispatch"
     assert dispatch_run["latest_phase"] == "fused"
+    assert dispatch_run["status"] == "running"
     assert child_run["agent_name"] == "统计分析"
     assert child_run["parent_run_id"] == "dispatch:call-1"
+    assert child_run["progress_message"] == "处理中"
+
+
+def test_get_session_agent_run_events_supports_run_filter(client: LocalASGIClient) -> None:
+    """agent-runs/events 支持按 run_id 按需读取事件。"""
+    resp = client.post("/api/sessions")
+    assert resp.status_code == 201
+    session_id = resp.json()["data"]["session_id"]
+
+    session_manager.append_agent_run_event(
+        session_id,
+        {
+            "type": "agent_progress",
+            "turn_id": "turn-agent-2",
+            "data": {"event_type": "agent_progress", "message": "agent-a"},
+            "metadata": {
+                "run_scope": "subagent",
+                "run_id": "agent:turn-agent-2:agent-a:task1:1",
+                "turn_id": "turn-agent-2",
+            },
+        },
+    )
+    session_manager.append_agent_run_event(
+        session_id,
+        {
+            "type": "agent_progress",
+            "turn_id": "turn-agent-2",
+            "data": {"event_type": "agent_progress", "message": "agent-b"},
+            "metadata": {
+                "run_scope": "subagent",
+                "run_id": "agent:turn-agent-2:agent-b:task2:1",
+                "turn_id": "turn-agent-2",
+            },
+        },
+    )
+
+    events_resp = client.get(
+        f"/api/sessions/{session_id}/agent-runs/events?turn_id=turn-agent-2"
+        "&run_id=agent%3Aturn-agent-2%3Aagent-a%3Atask1%3A1&limit=10"
+    )
+    assert events_resp.status_code == 200
+    payload = events_resp.json()
+    assert payload["success"] is True
+    data = payload["data"]
+    assert data["total"] == 1
+    assert data["returned"] == 1
+    assert data["events"][0]["data"]["message"] == "agent-a"
 
 
 # ---- GET /api/sessions/{session_id}/messages 端点测试 ----
@@ -969,3 +1020,57 @@ def test_missing_session_read_routes_do_not_create_session(client: LocalASGIClie
 
     assert session_manager.session_exists(missing_session_id) is False
     assert all(item["id"] != missing_session_id for item in session_manager.list_sessions())
+
+
+def test_task_recovery_preserves_depends_on_after_update() -> None:
+    """会话恢复时 depends_on 字段在 update 操作后应保持完整。
+
+    修复：session.py 任务恢复逻辑读取 update 操作的参数键为 'tasks'（而非错误的 'updates'）。
+    """
+    session = session_manager.create_session()
+    session_id = session.id
+
+    # 初始化含 depends_on 的任务
+    session.add_message("user", "请分析数据", turn_id="turn-1")
+    session.add_tool_call(
+        "call_init",
+        "task_state",
+        json.dumps(
+            {
+                "operation": "init",
+                "tasks": [
+                    {"id": 1, "title": "清洗数据", "status": "pending", "depends_on": []},
+                    {"id": 2, "title": "统计分析", "status": "pending", "depends_on": [1]},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        turn_id="turn-1",
+    )
+    session.add_tool_result("call_init", '{"success": true}', turn_id="turn-1")
+
+    # 更新任务 1 为 completed（使用 'tasks' 键，与 task_state 工具一致）
+    session.add_tool_call(
+        "call_update",
+        "task_state",
+        json.dumps(
+            {
+                "operation": "update",
+                "tasks": [{"id": 1, "status": "completed"}],
+            },
+            ensure_ascii=False,
+        ),
+        turn_id="turn-1",
+    )
+    session.add_tool_result("call_update", '{"success": true}', turn_id="turn-1")
+
+    # 模拟进程重启
+    session_manager._sessions.clear()
+    restored = session_manager.get_or_create(session_id)
+
+    assert restored.task_manager.initialized
+    tasks = {t.id: t for t in restored.task_manager.tasks}
+    # 任务 2 的 depends_on 应在恢复后保持完整
+    assert tasks[2].depends_on == [1]
+    # 任务 1 的状态更新应被正确恢复
+    assert tasks[1].status == "completed"

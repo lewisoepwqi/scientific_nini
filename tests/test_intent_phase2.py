@@ -22,7 +22,7 @@ def test_multi_intent_sequential_with_punctuation():
     """5.1 有标点的顺序复合查询，返回两个子意图。"""
     result = detect_multi_intent("先做相关性分析，然后画散点图")
     assert result is not None
-    assert len(result) == 2
+    assert len(result.intents) == 2
 
 
 def test_multi_intent_single_intent_returns_none():
@@ -32,17 +32,19 @@ def test_multi_intent_single_intent_returns_none():
 
 
 def test_multi_intent_parallel():
-    """5.3 并行复合查询返回两个子意图。"""
+    """5.3 并行复合查询返回两个子意图，is_parallel=True。"""
     result = detect_multi_intent("同时帮我做相关分析和画柱状图")
     assert result is not None
-    assert len(result) == 2
+    assert len(result.intents) == 2
+    assert result.is_parallel is True
 
 
 def test_multi_intent_sequential_without_punctuation():
-    """5.4 无标点的顺序复合查询，通过连接词分割。"""
+    """5.4 无标点的顺序复合查询，通过连接词分割，is_sequential=True。"""
     result = detect_multi_intent("先做相关性分析然后画散点图")
     assert result is not None
-    assert len(result) == 2
+    assert len(result.intents) == 2
+    assert result.is_sequential is True
 
 
 # ============================================================================

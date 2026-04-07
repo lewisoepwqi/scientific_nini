@@ -81,6 +81,22 @@ class ResultFusionEngine:
         sources = [r.agent_id for r in results]
         return FusionResult(content=content, strategy="concatenate", sources=sources)
 
+    @staticmethod
+    def _clone_result(
+        result: FusionResult,
+        *,
+        strategy: str | None = None,
+        conflicts: list[dict[str, Any]] | None = None,
+        sources: list[str] | None = None,
+    ) -> FusionResult:
+        """基于现有结果构造新对象，避免修改冻结 dataclass。"""
+        return FusionResult(
+            content=result.content,
+            strategy=strategy or result.strategy,
+            conflicts=list(conflicts if conflicts is not None else result.conflicts),
+            sources=list(sources if sources is not None else result.sources),
+        )
+
     async def _summarize(self, results: list[Any]) -> FusionResult:
         """摘要策略：调用 LLM 生成整合摘要，超时 60s 降级为 concatenate。"""
         sources = [r.agent_id for r in results]
@@ -91,8 +107,7 @@ class ResultFusionEngine:
                 "ResultFusionEngine._summarize: model_resolver 未配置，降级为 concatenate"
             )
             fallback = self._concatenate(results)
-            fallback.conflicts = conflicts
-            return fallback
+            return self._clone_result(fallback, conflicts=conflicts)
 
         results_text = _format_results_for_llm(results)
         prompt = _SUMMARIZE_PROMPT_TEMPLATE.format(results_text=results_text)
@@ -127,12 +142,7 @@ class ResultFusionEngine:
                 "ResultFusionEngine._summarize: LLM 调用失败: %s，降级为 concatenate", exc
             )
             fallback = self._concatenate(results)
-            return FusionResult(
-                content=fallback.content,
-                strategy=fallback.strategy,
-                conflicts=conflicts,
-                sources=fallback.sources,
-            )
+            return self._clone_result(fallback, conflicts=conflicts)
 
     async def _consensus(self, results: list[Any]) -> FusionResult:
         """共识策略：LLM 共识提取 + 冲突标注。"""
@@ -144,8 +154,7 @@ class ResultFusionEngine:
                 "ResultFusionEngine._consensus: model_resolver 未配置，降级为 concatenate"
             )
             fallback = self._concatenate(results)
-            fallback.conflicts = conflicts
-            return fallback
+            return self._clone_result(fallback, conflicts=conflicts)
 
         results_text = _format_results_for_llm(results)
         prompt = _CONSENSUS_PROMPT_TEMPLATE.format(results_text=results_text)
@@ -167,8 +176,7 @@ class ResultFusionEngine:
                 "ResultFusionEngine._consensus: LLM 调用失败: %s，降级为 concatenate", exc
             )
             fallback = self._concatenate(results)
-            fallback.conflicts = conflicts
-            return fallback
+            return self._clone_result(fallback, conflicts=conflicts)
 
     async def _hierarchical(self, results: list[Any]) -> FusionResult:
         """分层策略：分批 summarize 后再汇总。
@@ -183,11 +191,10 @@ class ResultFusionEngine:
             for i in range(0, len(results), _HIERARCHICAL_BATCH_SIZE)
         ]
 
-        # 每批先 summarize
-        batch_results: list[FusionResult] = []
-        for batch in batches:
-            batch_fusion = await self._summarize(batch)
-            batch_results.append(batch_fusion)
+        # 每批并行 summarize（各批次输入独立，无副作用，可安全并行）
+        batch_results: list[FusionResult] = list(
+            await asyncio.gather(*(self._summarize(batch) for batch in batches))
+        )
 
         # 将批次结果转换为伪 SubAgentResult，再汇总
         if len(batch_results) <= 1:
@@ -196,16 +203,20 @@ class ResultFusionEngine:
                 if batch_results
                 else FusionResult(content="", strategy="hierarchical")
             )
-            result.sources = sources
-            result.strategy = "hierarchical"
-            return result
+            return self._clone_result(
+                result,
+                strategy="hierarchical",
+                sources=sources,
+            )
 
         # 批次间再做一次 summarize
         pseudo_results = [_FusionResultAdapter(r) for r in batch_results]
         final = await self._summarize(pseudo_results)
-        final.strategy = "hierarchical"
-        final.sources = sources
-        return final
+        return self._clone_result(
+            final,
+            strategy="hierarchical",
+            sources=sources,
+        )
 
     def _detect_conflicts(self, results: list[Any]) -> list[dict[str, Any]]:
         """冲突检测（仅标注，不阻断融合流程）。
@@ -241,6 +252,34 @@ class ResultFusionEngine:
                             "description": f"Agent 间数值结论存在显著差异：{max_values}",
                         }
                     )
+
+        # 产物文件名冲突检测：多个 Agent 产出同名文件
+        from pathlib import Path as _Path
+
+        all_artifact_names: dict[str, list[str]] = {}  # filename → [agent_ids]
+        for result in results:
+            agent_id = getattr(result, "agent_id", "")
+            artifacts = getattr(result, "artifacts", {}) or {}
+            for key, ref in artifacts.items():
+                if hasattr(ref, "path"):
+                    # ArtifactRef：从 path 提取文件名
+                    filename = _Path(ref.path).name if ref.path else key
+                elif isinstance(ref, dict) and ref.get("path"):
+                    # 旧字典格式兼容
+                    filename = _Path(str(ref["path"])).name
+                else:
+                    filename = key
+                all_artifact_names.setdefault(filename, []).append(agent_id)
+
+        for filename, agents in all_artifact_names.items():
+            if len(agents) > 1:
+                conflicts.append(
+                    {
+                        "type": "artifact_key_conflict",
+                        "filename": filename,
+                        "agents": agents,
+                    }
+                )
 
         return conflicts
 

@@ -945,6 +945,39 @@ describe("handleEvent 文本去重", () => {
     expect(state.messages[0]?.isError).not.toBe(true);
   });
 
+  it("子 agent 的 retrieval 事件应写入对应线程而不是主消息流", async () => {
+    const harness = createHarness({
+      sessionId: "session-current",
+      _currentTurnId: "turn-ret-sub-1",
+    });
+
+    await harness.dispatch({
+      type: "retrieval",
+      session_id: "session-current",
+      turn_id: "turn-ret-sub-1",
+      metadata: {
+        run_scope: "subagent",
+        run_id: "agent:turn-ret-sub-1:search:task1:1",
+        parent_run_id: "root:turn-ret-sub-1",
+        agent_id: "search",
+        agent_name: "搜索子代理",
+        attempt: 1,
+        turn_id: "turn-ret-sub-1",
+      },
+      data: {
+        query: "sub query",
+        results: [{ source: "paper-2", snippet: "evidence", score: 0.7 }],
+      },
+    });
+
+    const state = harness.getState();
+    expect(state.messages).toHaveLength(0);
+    expect(state.agentRuns["agent:turn-ret-sub-1:search:task1:1"]?.messages).toHaveLength(1);
+    expect(
+      state.agentRuns["agent:turn-ret-sub-1:search:task1:1"]?.messages[0]?.content,
+    ).toBe("检索上下文：sub query");
+  });
+
   it("skill_step 事件应更新当前会话的 skillExecution 状态", async () => {
     const harness = createHarness({ sessionId: "session-current" });
 

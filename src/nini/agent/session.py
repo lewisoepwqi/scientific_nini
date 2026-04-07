@@ -97,6 +97,8 @@ class Session:
     persist_runtime_state: bool = True
     resource_owner_session_id: str | None = None
     workspace_hydrated: bool = False
+    # 沙箱工作区根目录（子 Agent 执行期间由 spawner 设置，指向 sandbox_tmp/{run_id}/）
+    workspace_root: Path | None = None
     load_persisted_messages: bool = False
     harness_runtime_context: str = ""
     pending_actions: list[dict[str, Any]] = field(default_factory=list)
@@ -108,6 +110,7 @@ class Session:
     deep_task_state: dict[str, Any] = field(default_factory=dict)
     runtime_stop_event: Any = field(default=None, repr=False)
     subagent_stop_events: dict[str, Any] = field(default_factory=dict, repr=False)
+    sub_agent_snapshots: list[Any] = field(default_factory=list, repr=False)
     conversation_memory: ConversationMemory = field(init=False, repr=False)
     knowledge_memory: KnowledgeMemory = field(init=False, repr=False)
     task_manager: TaskManager = field(init=False, repr=False)
@@ -163,7 +166,7 @@ class Session:
                     if raw_tasks:
                         rebuilt = rebuilt.init_tasks(raw_tasks)
                 elif operation == "update":
-                    updates = args.get("updates", [])
+                    updates = args.get("tasks", [])
                     if updates and rebuilt.initialized:
                         result = rebuilt.update_tasks(updates)
                         rebuilt = result.manager
@@ -919,12 +922,19 @@ class SessionManager:
         session_id: str,
         *,
         turn_id: str | None = None,
+        run_id: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+        tail: bool = False,
     ) -> list[dict[str, Any]]:
-        """读取会话的子运行事件，可按 turn_id 过滤。"""
+        """读取会话的子运行事件，支持按 turn_id/run_id 过滤与分页。"""
         target_path = self._agent_runs_path(session_id)
         if not target_path.exists():
             return []
         events: list[dict[str, Any]] = []
+        normalized_run_id = str(run_id or "").strip() or None
+        normalized_limit = limit if isinstance(limit, int) and limit > 0 else None
+        normalized_offset = max(0, offset)
         try:
             with target_path.open("r", encoding="utf-8") as handle:
                 for raw_line in handle:
@@ -943,9 +953,20 @@ class SessionManager:
                         event_turn_id = str(metadata.get("turn_id") or "").strip() or None
                     if turn_id and event_turn_id != turn_id:
                         continue
+                    event_run_id = (
+                        str(metadata.get("run_id") or "").strip()
+                        if isinstance(metadata, dict)
+                        else ""
+                    )
+                    if normalized_run_id and event_run_id != normalized_run_id:
+                        continue
                     events.append(parsed)
         except OSError:
             return []
+        if normalized_offset:
+            events = events[normalized_offset:]
+        if normalized_limit is not None:
+            events = events[-normalized_limit:] if tail else events[:normalized_limit]
         return events
 
     def _load_cached_message_count(self, session_id: str, meta: dict[str, Any]) -> int:

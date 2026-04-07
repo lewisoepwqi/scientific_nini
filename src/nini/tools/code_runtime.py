@@ -229,8 +229,8 @@ def _save_python_figures(
         except Exception:
             logger.debug("标准化 Plotly 中文字体失败，回退原始图表", exc_info=True)
 
+        json_name = f"{base_name}.json"
         try:
-            json_name = f"{base_name}.json"
             path = storage.save_text(normalized_plotly_json, json_name)
             ws.add_artifact_record(
                 name=json_name,
@@ -319,12 +319,22 @@ def _save_python_figures(
         try:
             import json as json_mod
 
-            session.artifacts["latest_chart"] = {
-                "chart_data": normalized_chart_data or json_mod.loads(normalized_plotly_json),
-                "chart_type": "plotly_auto",
-                "render_engine": "plotly",
-                "style_key": style_spec.style_key,
-            }
+            # 沙箱子 Agent 模式下存储 ArtifactRef（引用），否则存储内容（供 export_chart 复用）
+            if getattr(session, "workspace_root", None) is not None:
+                from nini.agent.artifact_ref import ArtifactRef
+                session.artifacts["latest_chart"] = ArtifactRef(
+                    path=json_name,
+                    type="chart",
+                    summary="Plotly 图表（run_code 自动检测）",
+                    agent_id="",
+                )
+            else:
+                session.artifacts["latest_chart"] = {
+                    "chart_data": normalized_chart_data or json_mod.loads(normalized_plotly_json),
+                    "chart_type": "plotly_auto",
+                    "render_engine": "plotly",
+                    "style_key": style_spec.style_key,
+                }
         except Exception:
             logger.debug("写入 latest_chart 失败", exc_info=True)
 

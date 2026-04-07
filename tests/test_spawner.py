@@ -172,7 +172,8 @@ async def test_spawn_batch_single_failure_does_not_stop_others():
 
 
 @pytest.mark.asyncio
-async def test_spawn_batch_artifacts_written_to_parent():
+async def test_spawn_batch_artifacts_written_to_parent_with_namespace():
+    """spawn_batch 回写产物时使用命名空间键 {agent_id}.{key}。"""
     registry = MagicMock()
 
     def get_agent(agent_id: str):
@@ -182,7 +183,7 @@ async def test_spawn_batch_artifacts_written_to_parent():
     spawner = SubAgentSpawner(registry, make_tool_registry())
     parent_session = make_mock_session()
 
-    async def mock_execute(agent_def, task, session):
+    async def mock_execute(agent_def, task, session, **kwargs):
         return SubAgentResult(
             agent_id=agent_def.agent_id,
             success=True,
@@ -191,7 +192,8 @@ async def test_spawn_batch_artifacts_written_to_parent():
 
     with patch.object(spawner, "_execute_agent", side_effect=mock_execute):
         await spawner.spawn_batch([("test_agent", "任务")], parent_session)
-    assert "result.csv" in parent_session.artifacts
+    assert "test_agent.result.csv" in parent_session.artifacts
+    assert "result.csv" not in parent_session.artifacts
 
 
 @pytest.mark.asyncio
@@ -268,3 +270,278 @@ async def test_spawn_batch_stops_all_children_when_parent_stop_event_is_set():
 
     assert [result.stopped for result in results] == [True, True]
     assert parent_session.subagent_stop_events == {}
+
+
+def test_build_run_id_distinguishes_repeated_specialist_subtasks():
+    spawner = SubAgentSpawner(MagicMock(), make_tool_registry())
+
+    first = spawner._build_run_id("turn-1", "statistician", 1, 1)
+    second = spawner._build_run_id("turn-1", "statistician", 1, 2)
+
+    assert first != second
+    assert first == "agent:turn-1:statistician:task1:1"
+    assert second == "agent:turn-1:statistician:task2:1"
+
+
+def test_derive_progress_payload_skips_token_level_reasoning_and_text():
+    from nini.agent.events import AgentEvent, EventType
+
+    spawner = SubAgentSpawner(MagicMock(), make_tool_registry())
+    reasoning_event = AgentEvent(type=EventType.REASONING, data={"content": "思考中"})
+    text_event = AgentEvent(type=EventType.TEXT, data="分片输出")
+
+    assert spawner._derive_progress_payload(reasoning_event) is None
+    assert spawner._derive_progress_payload(text_event) is None
+
+
+# ─── datasets 隔离 ───────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_execute_agent_datasets_shallow_copy():
+    """_execute_agent 构造 SubSession 时使用父会话 datasets 的浅拷贝（而非共享引用）。"""
+    registry = MagicMock()
+    registry.get.return_value = make_agent_def()
+    spawner = SubAgentSpawner(registry, make_tool_registry())
+    parent_session = make_mock_session()
+    parent_session.datasets = {"original_key": "value"}
+
+    captured: dict = {}
+
+    class _CapturingSubSession:
+        """拦截 SubSession 构造，记录 datasets 参数后提前终止。"""
+
+        def __init__(self, **kwargs):
+            datasets_arg = kwargs.get("datasets", {})
+            captured["is_copy"] = datasets_arg is not parent_session.datasets
+            captured["has_original_key"] = "original_key" in datasets_arg
+            raise RuntimeError("stop early for test")
+
+    with patch("nini.agent.sub_session.SubSession", _CapturingSubSession):
+        try:
+            await spawner.spawn("test_agent", "任务", parent_session)
+        except RuntimeError:
+            pass
+
+    assert captured.get("is_copy") is True, "SubSession 应接收 datasets 的浅拷贝，而非父会话原始引用"
+    assert captured.get("has_original_key") is True, "浅拷贝应包含父会话原有键"
+
+
+# ─── 命名空间回写 ─────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_spawn_batch_namespace_writeback_multi_agent_same_key():
+    """多 Agent 同名键产物回写时，命名空间键 {agent_id}.{key} 相互独立，不丢失数据。"""
+    registry = MagicMock()
+
+    def get_agent(agent_id: str):
+        return make_agent_def(agent_id)
+
+    registry.get.side_effect = get_agent
+    spawner = SubAgentSpawner(registry, make_tool_registry())
+    parent_session = make_mock_session()
+
+    call_count = 0
+
+    async def mock_execute(agent_def, task, session, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        # 两个 agent 都产出同名键 "output.json"
+        return SubAgentResult(
+            agent_id=agent_def.agent_id,
+            success=True,
+            artifacts={"output.json": f"来自 {agent_def.agent_id}"},
+        )
+
+    with patch.object(spawner, "_execute_agent", side_effect=mock_execute):
+        await spawner.spawn_batch(
+            [("agent_a", "任务1"), ("agent_b", "任务2")], parent_session
+        )
+
+    assert parent_session.artifacts.get("agent_a.output.json") == "来自 agent_a"
+    assert parent_session.artifacts.get("agent_b.output.json") == "来自 agent_b"
+    assert "output.json" not in parent_session.artifacts
+
+
+# ─── 沙箱隔离与产物归档 ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_archive_sandbox_moves_files_on_success(tmp_path):
+    """_archive_sandbox 成功时将沙箱产物移入 artifacts/{agent_id}/。"""
+    from pathlib import Path
+    from nini.agent.artifact_ref import ArtifactRef
+
+    registry = make_registry("agent_a")
+    spawner = SubAgentSpawner(registry, make_tool_registry())
+
+    sandbox_dir = tmp_path / "sandbox_tmp" / "run_001"
+    sandbox_dir.mkdir(parents=True)
+    (sandbox_dir / "chart.json").write_text("plotly data")
+
+    artifacts: dict = {
+        "latest_chart": ArtifactRef(
+            path="chart.json", type="chart", summary="测试图表", agent_id=""
+        )
+    }
+
+    await spawner._archive_sandbox(
+        sandbox_dir=sandbox_dir,
+        parent_workspace=tmp_path,
+        agent_id="agent_a",
+        run_id="run_001",
+        success=True,
+        artifacts=artifacts,
+    )
+
+    dest = tmp_path / "artifacts" / "agent_a"
+    assert dest.exists(), "归档目录应存在"
+    assert (dest / "chart.json").exists(), "文件应已移动"
+    assert not sandbox_dir.exists(), "沙箱目录应已移走"
+
+    ref = artifacts["latest_chart"]
+    assert isinstance(ref, ArtifactRef)
+    assert "agent_a" in ref.path, f"路径应包含 agent_id，实际: {ref.path}"
+    assert ref.agent_id == "agent_a"
+
+
+@pytest.mark.asyncio
+async def test_archive_sandbox_moves_to_failed_on_failure(tmp_path):
+    """_archive_sandbox 失败时将沙箱产物移入 sandbox_tmp/.failed/{run_id}/。"""
+    from nini.agent.artifact_ref import ArtifactRef
+
+    registry = make_registry("agent_b")
+    spawner = SubAgentSpawner(registry, make_tool_registry())
+
+    sandbox_dir = tmp_path / "sandbox_tmp" / "run_002"
+    sandbox_dir.mkdir(parents=True)
+    (sandbox_dir / "partial.csv").write_text("incomplete data")
+
+    artifacts: dict = {}
+
+    await spawner._archive_sandbox(
+        sandbox_dir=sandbox_dir,
+        parent_workspace=tmp_path,
+        agent_id="agent_b",
+        run_id="run_002",
+        success=False,
+        artifacts=artifacts,
+    )
+
+    failed_dir = tmp_path / "sandbox_tmp" / ".failed" / "run_002"
+    assert failed_dir.exists(), "失败归档目录应存在"
+    assert (failed_dir / "partial.csv").exists(), "失败产物应保留"
+
+
+@pytest.mark.asyncio
+async def test_archive_sandbox_skips_empty_sandbox(tmp_path):
+    """沙箱目录为空时，_archive_sandbox 应跳过移动。"""
+    registry = make_registry("agent_c")
+    spawner = SubAgentSpawner(registry, make_tool_registry())
+
+    sandbox_dir = tmp_path / "sandbox_tmp" / "run_003"
+    sandbox_dir.mkdir(parents=True)
+    # 沙箱为空，不写入任何文件
+
+    await spawner._archive_sandbox(
+        sandbox_dir=sandbox_dir,
+        parent_workspace=tmp_path,
+        agent_id="agent_c",
+        run_id="run_003",
+        success=True,
+        artifacts={},
+    )
+
+    dest = tmp_path / "artifacts" / "agent_c"
+    assert not dest.exists(), "空沙箱不应创建归档目录"
+
+
+# ─── model_preference 路由 ────────────────────────────────────────────────────
+
+
+def make_agent_def_with_pref(
+    agent_id: str = "test_agent", model_preference: str | None = None
+) -> AgentDefinition:
+    return AgentDefinition(
+        agent_id=agent_id,
+        name=f"测试 {agent_id}",
+        description="测试用",
+        system_prompt="你是测试助手",
+        purpose="default",
+        allowed_tools=[],
+        timeout_seconds=5,
+        model_preference=model_preference,
+    )
+
+
+def make_mock_session_with_depth() -> MagicMock:
+    """创建带有 spawn_depth=0 的 mock 会话，避免 MagicMock < int 比较错误。"""
+    session = make_mock_session()
+    session.spawn_depth = 0
+    return session
+
+
+def make_tool_registry_with_list() -> MagicMock:
+    """创建支持 list_tools() 的 mock 工具注册表。"""
+    tool_registry = make_tool_registry()
+    tool_registry.list_tools.return_value = []
+    return tool_registry
+
+
+@pytest.mark.asyncio
+async def test_execute_agent_haiku_uses_fast_purpose(tmp_path):
+    """model_preference='haiku' 时，AgentRunner 应使用 purpose='fast' 的 resolver。"""
+    from nini.agent.spawner import _FixedPurposeResolver
+
+    registry = MagicMock()
+    registry.get.return_value = make_agent_def_with_pref("haiku_agent", model_preference="haiku")
+    spawner = SubAgentSpawner(registry, make_tool_registry_with_list())
+
+    captured_resolver = {}
+
+    def capture_runner(resolver=None, tool_registry=None, **kwargs):
+        captured_resolver["resolver"] = resolver
+        raise RuntimeError("stop early for test")
+
+    with patch("nini.agent.runner.AgentRunner", side_effect=capture_runner), \
+         patch("nini.config.settings") as mock_settings:
+        mock_settings.sessions_dir = tmp_path
+        try:
+            await spawner.spawn("haiku_agent", "任务", make_mock_session_with_depth())
+        except RuntimeError:
+            pass
+
+    resolver = captured_resolver.get("resolver")
+    assert isinstance(resolver, _FixedPurposeResolver), "应使用 _FixedPurposeResolver 包装"
+    assert resolver._purpose == "fast", f"haiku 应映射到 purpose='fast'，实际: {resolver._purpose}"
+
+
+@pytest.mark.asyncio
+async def test_execute_agent_none_preference_uses_analysis_purpose(tmp_path):
+    """model_preference=None 时，AgentRunner 应使用 purpose='analysis' 的 resolver。"""
+    from nini.agent.spawner import _FixedPurposeResolver
+
+    registry = MagicMock()
+    registry.get.return_value = make_agent_def_with_pref("default_agent", model_preference=None)
+    spawner = SubAgentSpawner(registry, make_tool_registry_with_list())
+
+    captured_resolver = {}
+
+    def capture_runner(resolver=None, tool_registry=None, **kwargs):
+        captured_resolver["resolver"] = resolver
+        raise RuntimeError("stop early for test")
+
+    with patch("nini.agent.runner.AgentRunner", side_effect=capture_runner), \
+         patch("nini.config.settings") as mock_settings:
+        mock_settings.sessions_dir = tmp_path
+        try:
+            await spawner.spawn("default_agent", "任务", make_mock_session_with_depth())
+        except RuntimeError:
+            pass
+
+    resolver = captured_resolver.get("resolver")
+    assert isinstance(resolver, _FixedPurposeResolver), "应使用 _FixedPurposeResolver 包装"
+    assert resolver._purpose == "analysis", (
+        f"None preference 应映射到 purpose='analysis'，实际: {resolver._purpose}"
+    )

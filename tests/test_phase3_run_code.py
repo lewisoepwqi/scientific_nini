@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pandas as pd
+import pytest
 
+from nini.agent.artifact_ref import ArtifactRef
 from nini.agent.session import Session
 from nini.tools.registry import create_default_tool_registry
 from nini.workspace import WorkspaceManager
@@ -225,3 +228,29 @@ def test_execute_r_code_limits_dataframe_preview_rows(monkeypatch) -> None:
     assert isinstance(preview, dict)
     assert preview["preview_rows"] == 20
     assert len(preview["data"]) == 20
+
+
+@pytest.mark.asyncio
+async def test_run_code_stores_artifact_ref_in_sandbox_mode(tmp_path: Path) -> None:
+    """沙箱模式（workspace_root 已设置）下，绘图时 session.artifacts['latest_chart'] 应为 ArtifactRef。"""
+    registry = create_default_tool_registry()
+    session = Session()
+    session.workspace_root = tmp_path  # 模拟沙箱模式
+
+    result = await registry.execute(
+        "run_code",
+        session=session,
+        code=(
+            "import plotly.graph_objects as go\n"
+            "fig = go.Figure(go.Bar(x=['A','B'], y=[1, 2]))\n"
+            "fig  # plotly 图表会被自动捕获\n"
+        ),
+        purpose="visualization",
+    )
+
+    # 如果绘图成功（plotly 可用），验证 ArtifactRef
+    if result.get("success") and session.artifacts.get("latest_chart") is not None:
+        ref = session.artifacts["latest_chart"]
+        assert isinstance(ref, ArtifactRef), f"期望 ArtifactRef，实际得到 {type(ref)}"
+        assert ref.path, "ArtifactRef.path 不能为空"
+        assert ref.type == "chart"

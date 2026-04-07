@@ -16,7 +16,15 @@ import type {
   StreamingMetrics,
   DeepTaskState,
 } from "./types";
-import type { AppStateSubset, GetStateFn, SetStateFn } from "./event-handler";
+import {
+  type AppStateSubset,
+  type GetStateFn,
+  type SetStateFn,
+  applyRunSlicePatch,
+  attachRunMetaToMessage,
+  ensureSubagentThread,
+  getRunMeta,
+} from "./event-handler";
 
 import {
   isRecord,
@@ -29,6 +37,7 @@ import {
   updateAnalysisTaskWithAttempt,
   findTaskIdByStepAndTurn,
 } from "./utils";
+import { replaceAgentRunMessages } from "./agent-slice";
 import {
   normalizeAnalysisSteps,
   normalizeTaskAttemptStatus,
@@ -143,6 +152,54 @@ function normalizeArtifactEventData(raw: unknown): ArtifactInfo | null {
     format,
     download_url: downloadUrl,
   };
+}
+
+function appendSubagentMessage(
+  set: SetStateFn,
+  runMeta: ReturnType<typeof getRunMeta>,
+  message: Message,
+): void {
+  set((s) => {
+    let nextAgentState = ensureSubagentThread(s, runMeta, message.timestamp);
+    const thread = nextAgentState.agentRuns[runMeta.runId!];
+    if (!thread) return {};
+    nextAgentState = replaceAgentRunMessages(nextAgentState, runMeta.runId!, [
+      ...thread.messages,
+      attachRunMetaToMessage(message, runMeta),
+    ]);
+    return applyRunSlicePatch(s, nextAgentState);
+  });
+}
+
+function updateBackgroundSubagentMessages(
+  sessionId: string,
+  runMeta: ReturnType<typeof getRunMeta>,
+  updater: (messages: Message[]) => Message[],
+): void {
+  updateSessionUiCacheEntry(sessionId, (entry) => {
+    const agentSliceState = {
+      activeAgents: {},
+      completedAgents: [],
+      agentRuns: entry.agentRuns,
+      agentRunTabs: entry.agentRunTabs,
+      selectedRunId: entry.selectedRunId,
+      unreadByRun: entry.unreadByRun,
+      runGroupsByTurn: entry.runGroupsByTurn,
+      lastViewedRunIdBySession: {},
+    };
+    let nextAgentState = ensureSubagentThread(agentSliceState, runMeta, Date.now());
+    const thread = nextAgentState.agentRuns[runMeta.runId!];
+    if (!thread) return entry;
+    nextAgentState = replaceAgentRunMessages(
+      nextAgentState,
+      runMeta.runId!,
+      updater(thread.messages).map((message) => attachRunMetaToMessage(message, runMeta)),
+    );
+    return {
+      ...entry,
+      ...applyRunSlicePatch(agentSliceState, nextAgentState),
+    };
+  });
 }
 
 export function handleExtendedEvent(
@@ -685,6 +742,7 @@ export function handleExtendedEvent(
 
     case "retrieval": {
       const data = isRecord(evt.data) ? evt.data : null;
+      const runMeta = getRunMeta(evt);
       const query = data && typeof data.query === "string" ? data.query : "检索结果";
       const rawResults = data && Array.isArray(data.results) ? data.results : [];
       const retrievals: RetrievalItem[] = rawResults
@@ -733,6 +791,18 @@ export function handleExtendedEvent(
         typeof evt.session_id === "string" && evt.session_id !== get().sessionId
           ? evt.session_id
           : null;
+      if (runMeta.runScope === "subagent" && runMeta.runId && runMeta.turnId) {
+        if (backgroundSessionId) {
+          updateBackgroundSubagentMessages(backgroundSessionId, runMeta, (messages) => [
+            ...messages,
+            msg,
+          ]);
+          return true;
+        }
+        if (!isActiveSessionEvent(evt, get)) return true;
+        appendSubagentMessage(set, runMeta, msg);
+        return true;
+      }
       if (backgroundSessionId) {
         updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
           ...entry,
@@ -748,10 +818,46 @@ export function handleExtendedEvent(
     case "chart": {
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
       const messageId = evt.metadata?.message_id as string | undefined;
+      const runMeta = getRunMeta(evt);
       const backgroundSessionId =
         typeof evt.session_id === "string" && evt.session_id !== get().sessionId
           ? evt.session_id
           : null;
+      if (runMeta.runScope === "subagent" && runMeta.runId && runMeta.turnId) {
+        if (backgroundSessionId) {
+          updateBackgroundSubagentMessages(backgroundSessionId, runMeta, (messages) =>
+            upsertAssistantTextMessage(messages, {
+              content: "图表已生成",
+              chartData: evt.data as ChartDataPayload,
+              messageId,
+              turnId: runMeta.turnId ?? undefined,
+              operation: "replace",
+              timestamp: Date.now(),
+            }),
+          );
+          return true;
+        }
+        if (!isActiveSessionEvent(evt, get)) return true;
+        set((s) => {
+          let nextAgentState = ensureSubagentThread(s, runMeta, Date.now());
+          const thread = nextAgentState.agentRuns[runMeta.runId!];
+          if (!thread) return {};
+          nextAgentState = replaceAgentRunMessages(
+            nextAgentState,
+            runMeta.runId!,
+            upsertAssistantTextMessage(thread.messages, {
+              content: "图表已生成",
+              chartData: evt.data as ChartDataPayload,
+              messageId,
+              turnId: runMeta.turnId ?? undefined,
+              operation: "replace",
+              timestamp: Date.now(),
+            }).map((message) => attachRunMetaToMessage(message, runMeta)),
+          );
+          return applyRunSlicePatch(s, nextAgentState);
+        });
+        return true;
+      }
       if (backgroundSessionId) {
         updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
           ...entry,
@@ -783,10 +889,46 @@ export function handleExtendedEvent(
     case "data": {
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
       const messageId = evt.metadata?.message_id as string | undefined;
+      const runMeta = getRunMeta(evt);
       const backgroundSessionId =
         typeof evt.session_id === "string" && evt.session_id !== get().sessionId
           ? evt.session_id
           : null;
+      if (runMeta.runScope === "subagent" && runMeta.runId && runMeta.turnId) {
+        if (backgroundSessionId) {
+          updateBackgroundSubagentMessages(backgroundSessionId, runMeta, (messages) =>
+            upsertAssistantTextMessage(messages, {
+              content: "数据预览如下",
+              dataPreview: evt.data as DataPreviewPayload,
+              messageId,
+              turnId: runMeta.turnId ?? undefined,
+              operation: "replace",
+              timestamp: Date.now(),
+            }),
+          );
+          return true;
+        }
+        if (!isActiveSessionEvent(evt, get)) return true;
+        set((s) => {
+          let nextAgentState = ensureSubagentThread(s, runMeta, Date.now());
+          const thread = nextAgentState.agentRuns[runMeta.runId!];
+          if (!thread) return {};
+          nextAgentState = replaceAgentRunMessages(
+            nextAgentState,
+            runMeta.runId!,
+            upsertAssistantTextMessage(thread.messages, {
+              content: "数据预览如下",
+              dataPreview: evt.data as DataPreviewPayload,
+              messageId,
+              turnId: runMeta.turnId ?? undefined,
+              operation: "replace",
+              timestamp: Date.now(),
+            }).map((message) => attachRunMetaToMessage(message, runMeta)),
+          );
+          return applyRunSlicePatch(s, nextAgentState);
+        });
+        return true;
+      }
       if (backgroundSessionId) {
         updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
           ...entry,
@@ -821,10 +963,66 @@ export function handleExtendedEvent(
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
       const messageId = evt.metadata?.message_id as string | undefined;
       const timestamp = Date.now();
+      const runMeta = getRunMeta(evt);
       const backgroundSessionId =
         typeof evt.session_id === "string" && evt.session_id !== get().sessionId
           ? evt.session_id
           : null;
+      if (runMeta.runScope === "subagent" && runMeta.runId && runMeta.turnId) {
+        if (backgroundSessionId) {
+          updateBackgroundSubagentMessages(backgroundSessionId, runMeta, (messages) => {
+            const nextMessages = [...messages];
+            const attached =
+              !messageId &&
+              attachArtifactsToLatestAssistantMessage(nextMessages, {
+                artifacts: [artifact],
+                turnId: runMeta.turnId ?? undefined,
+                timestamp,
+              });
+            return attached
+              ? nextMessages
+              : upsertAssistantTextMessage(messages, {
+                  content: "产物已生成",
+                  artifacts: [artifact],
+                  messageId,
+                  turnId: runMeta.turnId ?? undefined,
+                  operation: "replace",
+                  timestamp,
+                });
+          });
+          return true;
+        }
+        if (!isActiveSessionEvent(evt, get)) return true;
+        set((s) => {
+          let nextAgentState = ensureSubagentThread(s, runMeta, timestamp);
+          const thread = nextAgentState.agentRuns[runMeta.runId!];
+          if (!thread) return {};
+          const nextMessages = [...thread.messages];
+          const attached =
+            !messageId &&
+            attachArtifactsToLatestAssistantMessage(nextMessages, {
+              artifacts: [artifact],
+              turnId: runMeta.turnId ?? undefined,
+              timestamp,
+            });
+          nextAgentState = replaceAgentRunMessages(
+            nextAgentState,
+            runMeta.runId!,
+            (attached
+              ? nextMessages
+              : upsertAssistantTextMessage(thread.messages, {
+                  content: "产物已生成",
+                  artifacts: [artifact],
+                  messageId,
+                  turnId: runMeta.turnId ?? undefined,
+                  operation: "replace",
+                  timestamp,
+                })).map((message) => attachRunMetaToMessage(message, runMeta)),
+          );
+          return applyRunSlicePatch(s, nextAgentState);
+        });
+        return true;
+      }
       if (backgroundSessionId) {
         updateSessionUiCacheEntry(backgroundSessionId, (entry) => {
           const nextMessages = [...entry.messages];
@@ -885,10 +1083,46 @@ export function handleExtendedEvent(
       if (urls.length > 0) {
         const turnId = evt.turn_id || get()._currentTurnId || undefined;
         const messageId = evt.metadata?.message_id as string | undefined;
+        const runMeta = getRunMeta(evt);
         const backgroundSessionId =
           typeof evt.session_id === "string" && evt.session_id !== get().sessionId
             ? evt.session_id
             : null;
+        if (runMeta.runScope === "subagent" && runMeta.runId && runMeta.turnId) {
+          if (backgroundSessionId) {
+            updateBackgroundSubagentMessages(backgroundSessionId, runMeta, (messages) =>
+              upsertAssistantTextMessage(messages, {
+                content: "图片已生成",
+                images: urls,
+                messageId,
+                turnId: runMeta.turnId ?? undefined,
+                operation: "replace",
+                timestamp: Date.now(),
+              }),
+            );
+            return true;
+          }
+          if (!isActiveSessionEvent(evt, get)) return true;
+          set((s) => {
+            let nextAgentState = ensureSubagentThread(s, runMeta, Date.now());
+            const thread = nextAgentState.agentRuns[runMeta.runId!];
+            if (!thread) return {};
+            nextAgentState = replaceAgentRunMessages(
+              nextAgentState,
+              runMeta.runId!,
+              upsertAssistantTextMessage(thread.messages, {
+                content: "图片已生成",
+                images: urls,
+                messageId,
+                turnId: runMeta.turnId ?? undefined,
+                operation: "replace",
+                timestamp: Date.now(),
+              }).map((message) => attachRunMetaToMessage(message, runMeta)),
+            );
+            return applyRunSlicePatch(s, nextAgentState);
+          });
+          return true;
+        }
         if (backgroundSessionId) {
           updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
             ...entry,

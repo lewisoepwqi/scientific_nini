@@ -35,6 +35,7 @@ class AgentDefinition:
     timeout_seconds: int = 300
     paradigm: str = "react"
     max_spawn_depth: int = 0  # 允许派发子 Agent 的最大嵌套深度（0 = 禁止，1 = 允许一级嵌套）
+    model_preference: str | None = None  # 子 Agent 首选模型等级：haiku/sonnet/opus/None（继承父模型）
 
 
 class AgentRegistry:
@@ -118,6 +119,20 @@ class AgentRegistry:
             if not isinstance(data, dict):
                 logger.warning("YAML 文件格式无效（非 dict）: %s", yaml_path)
                 return
+            _valid_model_preferences = {"haiku", "sonnet", "opus"}
+            raw_model_pref = data.get("model_preference")
+            if raw_model_pref is None:
+                model_preference = None
+            elif str(raw_model_pref) in _valid_model_preferences:
+                model_preference = str(raw_model_pref)
+            else:
+                logger.warning(
+                    "Agent YAML '%s' 的 model_preference '%s' 非法，有效值为 %s，已重置为 None",
+                    yaml_path,
+                    raw_model_pref,
+                    _valid_model_preferences,
+                )
+                model_preference = None
             agent_def = AgentDefinition(
                 agent_id=str(data.get("agent_id", "")),
                 name=str(data.get("name", "")),
@@ -129,6 +144,7 @@ class AgentRegistry:
                 timeout_seconds=int(data.get("timeout_seconds", 300)),
                 paradigm=str(data.get("paradigm", "react")),
                 max_spawn_depth=int(data.get("max_spawn_depth", 0)),
+                model_preference=model_preference,
             )
             if not agent_def.agent_id:
                 logger.warning("YAML 缺少 agent_id 字段，跳过: %s", yaml_path)

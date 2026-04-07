@@ -8,6 +8,7 @@ import type {
   AgentAttemptInfo,
   AgentInfo,
   AgentRunGroup,
+  AgentRunSummary,
   AgentRunStatus,
   AgentRunThread,
   AgentSlice,
@@ -26,8 +27,13 @@ export function buildAgentRunId(
   turnId: string,
   agentId: string,
   attempt: number,
+  subtaskIndex?: number | null,
 ): string {
-  return `agent:${turnId}:${agentId}:${attempt}`;
+  const subtaskKey =
+    typeof subtaskIndex === "number" && Number.isFinite(subtaskIndex) && subtaskIndex > 0
+      ? `task${Math.floor(subtaskIndex)}`
+      : "direct";
+  return `agent:${turnId}:${agentId}:${subtaskKey}:${attempt}`;
 }
 
 export const initialAgentSlice: AgentSlice = {
@@ -177,7 +183,103 @@ export function replaceAgentRunMessages(
     ...thread,
     messages,
     updatedAt: messages[messages.length - 1]?.timestamp ?? thread.updatedAt,
+    eventsLoaded: true,
   });
+}
+
+function toTimestamp(raw: string | null | undefined, fallback: number): number {
+  if (typeof raw !== "string" || !raw.trim()) return fallback;
+  const parsed = Date.parse(raw);
+  return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+export function hydrateAgentRunsFromSummaries(
+  summaries: AgentRunSummary[],
+  preferredRunId: string | null = null,
+): Pick<
+  AgentSlice,
+  "agentRuns" | "agentRunTabs" | "selectedRunId" | "unreadByRun" | "runGroupsByTurn"
+> {
+  let nextState: AgentSlice = {
+    ...initialAgentSlice,
+    lastViewedRunIdBySession: {},
+  };
+  const now = Date.now();
+  for (const summary of summaries) {
+    const runId = typeof summary.run_id === "string" ? summary.run_id.trim() : "";
+    const turnId = typeof summary.turn_id === "string" ? summary.turn_id.trim() : "";
+    if (!runId || !turnId) continue;
+    const updatedAt = toTimestamp(summary.updated_at ?? undefined, now);
+    const runScope = summary.run_scope === "root" ? "root" : "subagent";
+    nextState = upsertAgentRun(nextState, {
+      runId,
+      turnId,
+      parentRunId:
+        typeof summary.parent_run_id === "string" && summary.parent_run_id.trim()
+          ? summary.parent_run_id.trim()
+          : runScope === "root"
+            ? null
+            : buildRootRunId(turnId),
+      runScope,
+      agentId:
+        typeof summary.agent_id === "string" && summary.agent_id.trim()
+          ? summary.agent_id.trim()
+          : null,
+      agentName:
+        typeof summary.agent_name === "string" && summary.agent_name.trim()
+          ? summary.agent_name.trim()
+          : runScope === "root"
+            ? ROOT_RUN_LABEL
+            : "子 Agent",
+      status: summary.status ?? "running",
+      task:
+        typeof summary.task === "string" && summary.task.trim() ? summary.task.trim() : "",
+      attempt:
+        typeof summary.attempt === "number" && Number.isFinite(summary.attempt) && summary.attempt > 0
+          ? Math.floor(summary.attempt)
+          : 1,
+      retryCount:
+        typeof summary.attempt === "number" && Number.isFinite(summary.attempt) && summary.attempt > 1
+          ? Math.floor(summary.attempt) - 1
+          : 0,
+      startTime: updatedAt,
+      updatedAt,
+      latestExecutionTimeMs:
+        typeof summary.latest_execution_time_ms === "number"
+          ? summary.latest_execution_time_ms
+          : null,
+      lastError: summary.status === "error" ? summary.summary ?? null : null,
+      summary:
+        typeof summary.summary === "string" && summary.summary.trim()
+          ? summary.summary.trim()
+          : undefined,
+      phase:
+        typeof summary.latest_phase === "string" && summary.latest_phase.trim()
+          ? summary.latest_phase.trim()
+          : null,
+      progressMessage:
+        typeof summary.progress_message === "string" && summary.progress_message.trim()
+          ? summary.progress_message.trim()
+          : null,
+      progressHint:
+        typeof summary.progress_hint === "string" && summary.progress_hint.trim()
+          ? summary.progress_hint.trim()
+          : null,
+      eventsLoaded: runScope === "root",
+      messages: [],
+    });
+  }
+  const selectedRunId =
+    preferredRunId && nextState.agentRuns[preferredRunId]
+      ? preferredRunId
+      : nextState.selectedRunId;
+  return {
+    agentRuns: nextState.agentRuns,
+    agentRunTabs: nextState.agentRunTabs,
+    selectedRunId,
+    unreadByRun: nextState.unreadByRun,
+    runGroupsByTurn: nextState.runGroupsByTurn,
+  };
 }
 
 export function selectAgentRun(

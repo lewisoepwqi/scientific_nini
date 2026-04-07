@@ -397,6 +397,70 @@ describe("store reconnect / retry / stop", () => {
     expect(useStore.getState().workspacePanelTab).toBe("tasks");
   });
 
+  it("switchSession 应恢复 agent 运行摘要而不依赖全量事件回放", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/api/sessions/session-agent-summary/messages")) {
+        return Promise.resolve({
+          json: async () => ({ success: true, data: { messages: [] } }),
+        } as Response);
+      }
+      if (url.endsWith("/api/sessions/session-agent-summary")) {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: { id: "session-agent-summary", title: "Agent Summary", message_count: 0 },
+          }),
+        } as Response);
+      }
+      if (url.endsWith("/api/sessions/session-agent-summary/agent-runs")) {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: {
+              runs: [
+                {
+                  run_id: "agent:turn-agent-summary:statistician:task1:1",
+                  run_scope: "subagent",
+                  parent_run_id: "root:turn-agent-summary",
+                  agent_id: "statistician",
+                  agent_name: "统计分析",
+                  attempt: 1,
+                  turn_id: "turn-agent-summary",
+                  latest_phase: "tool_result",
+                  status: "running",
+                  task: "执行统计分析",
+                  progress_message: "工具已返回结果",
+                  updated_at: "2026-03-04T10:00:00Z",
+                },
+              ],
+              event_count: 42,
+            },
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        json: async () => ({ success: true, data: {} }),
+        ok: true,
+      } as Response);
+    });
+
+    await useStore.getState().switchSession("session-agent-summary");
+
+    expect(useStore.getState().agentRunTabs).toContain(
+      "agent:turn-agent-summary:statistician:task1:1",
+    );
+    expect(
+      useStore.getState().agentRuns["agent:turn-agent-summary:statistician:task1:1"],
+    ).toMatchObject({
+      agentName: "统计分析",
+      task: "执行统计分析",
+      progressMessage: "工具已返回结果",
+      eventsLoaded: false,
+    });
+  });
+
   it("fetchWorkspaceFiles 应忽略过期会话请求返回，避免覆盖当前工作区", async () => {
     const fetchMock = vi.mocked(globalThis.fetch);
     const deferred = createDeferred<Response>();

@@ -172,6 +172,8 @@ export default function ChatInputArea() {
  const slashOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
  const dismissedSlashRef = useRef<DismissedSlashState | null>(null);
  const dragDepthRef = useRef(0);
+ const contextRefreshTimerRef = useRef<number | null>(null);
+ const lastContextRefreshAtRef = useRef(0);
 
  const availableSlashSkills = skills.filter(
  (s) =>
@@ -277,7 +279,30 @@ export default function ChatInputArea() {
 
  // 会话上下文空间估计
  useEffect(() => {
+ const now = Date.now();
+ const elapsed = now - lastContextRefreshAtRef.current;
+ const minIntervalMs = 1500;
+ const runRefresh = () => {
+ lastContextRefreshAtRef.current = Date.now();
  void refreshContextBudget();
+ };
+ if (elapsed >= minIntervalMs) {
+ runRefresh();
+ return;
+ }
+ if (contextRefreshTimerRef.current !== null) {
+ window.clearTimeout(contextRefreshTimerRef.current);
+ }
+ contextRefreshTimerRef.current = window.setTimeout(() => {
+ contextRefreshTimerRef.current = null;
+ runRefresh();
+ }, minIntervalMs - elapsed);
+ return () => {
+ if (contextRefreshTimerRef.current !== null) {
+ window.clearTimeout(contextRefreshTimerRef.current);
+ contextRefreshTimerRef.current = null;
+ }
+ };
  }, [refreshContextBudget, messageCount]);
 
  // 切换会话后重置进度条
@@ -291,6 +316,7 @@ export default function ChatInputArea() {
  useEffect(() => {
  if (contextCompressionTick <= 0) return;
  setContextRemainingRatio(1);
+ lastContextRefreshAtRef.current = Date.now();
  void refreshContextBudget();
  }, [contextCompressionTick, refreshContextBudget]);
 
