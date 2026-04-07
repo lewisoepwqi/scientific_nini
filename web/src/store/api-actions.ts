@@ -35,6 +35,8 @@ import type {
   DeepTaskState,
   OutputLevel,
   RecipeCard,
+  AgentRunEvent,
+  AgentRunSummary,
 } from "./types";
 import { apiFetch } from "./auth";
 
@@ -179,7 +181,7 @@ export async function switchSession(
 export async function fetchSessionAgentRuns(
   sessionId: string,
   turnId?: string | null,
-): Promise<unknown[]> {
+) : Promise<AgentRunSummary[]> {
   if (!sessionId) return [];
   try {
     const query = turnId ? `?turn_id=${encodeURIComponent(turnId)}` : "";
@@ -187,7 +189,38 @@ export async function fetchSessionAgentRuns(
     const payload = await resp.json();
     const data = isRecord(payload) ? payload.data : null;
     if (!isRecord(data)) return [];
-    return Array.isArray(data.events) ? data.events : [];
+    return Array.isArray(data.runs) ? (data.runs as AgentRunSummary[]) : [];
+  } catch (e) {
+    logError("获取 Agent 运行摘要失败:", e);
+    return [];
+  }
+}
+
+export async function fetchSessionAgentRunEvents(
+  sessionId: string,
+  {
+    turnId,
+    runId,
+    limit = 200,
+  }: {
+    turnId?: string | null;
+    runId?: string | null;
+    limit?: number;
+  } = {},
+): Promise<AgentRunEvent[]> {
+  if (!sessionId) return [];
+  try {
+    const params = new URLSearchParams();
+    if (turnId) params.set("turn_id", turnId);
+    if (runId) params.set("run_id", runId);
+    params.set("limit", String(limit));
+    params.set("tail", "true");
+    const query = params.toString();
+    const resp = await apiFetch(`/api/sessions/${sessionId}/agent-runs/events?${query}`);
+    const payload = await resp.json();
+    const data = isRecord(payload) ? payload.data : null;
+    if (!isRecord(data)) return [];
+    return Array.isArray(data.events) ? (data.events as AgentRunEvent[]) : [];
   } catch (e) {
     logError("获取 Agent 运行事件失败:", e);
     return [];

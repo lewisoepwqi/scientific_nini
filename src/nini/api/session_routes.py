@@ -14,6 +14,78 @@ from nini.models.schemas import APIResponse, SessionUpdateRequest
 router = APIRouter(prefix="/sessions")
 
 
+def _derive_agent_run_status(event_type: str) -> str:
+    if event_type == "agent_complete":
+        return "completed"
+    if event_type == "agent_error":
+        return "error"
+    if event_type == "agent_stopped":
+        return "stopped"
+    return "running"
+
+
+def _summarize_agent_runs(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    runs: dict[str, dict[str, Any]] = {}
+    for event in events:
+        metadata = event.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        run_id = metadata.get("run_id")
+        if not isinstance(run_id, str) or not run_id.strip():
+            continue
+        payload = event.get("data") if isinstance(event.get("data"), dict) else {}
+        event_type = str(event.get("type") or "")
+        entry = runs.setdefault(
+            run_id,
+            {
+                "run_id": run_id,
+                "run_scope": metadata.get("run_scope"),
+                "parent_run_id": metadata.get("parent_run_id"),
+                "agent_id": metadata.get("agent_id"),
+                "agent_name": metadata.get("agent_name"),
+                "attempt": metadata.get("attempt"),
+                "subtask_index": metadata.get("subtask_index"),
+                "turn_id": metadata.get("turn_id") or event.get("turn_id"),
+                "latest_phase": metadata.get("phase"),
+                "updated_at": event.get("_ts"),
+                "status": _derive_agent_run_status(event_type),
+                "task": None,
+                "summary": None,
+                "progress_message": None,
+                "progress_hint": None,
+                "latest_execution_time_ms": None,
+            },
+        )
+        if metadata.get("phase"):
+            entry["latest_phase"] = metadata.get("phase")
+        entry["updated_at"] = event.get("_ts")
+        entry["status"] = _derive_agent_run_status(event_type)
+        if event_type == "agent_start" and isinstance(payload, dict):
+            entry["task"] = payload.get("task") or entry["task"]
+        if event_type == "agent_progress" and isinstance(payload, dict):
+            entry["progress_message"] = payload.get("message") or entry["progress_message"]
+            entry["progress_hint"] = payload.get("progress_hint") or entry["progress_hint"]
+        if event_type == "agent_complete" and isinstance(payload, dict):
+            entry["summary"] = payload.get("summary") or entry["summary"]
+            entry["latest_execution_time_ms"] = (
+                payload.get("execution_time_ms") or entry["latest_execution_time_ms"]
+            )
+        if event_type in {"agent_error", "agent_stopped"} and isinstance(payload, dict):
+            entry["summary"] = (
+                payload.get("error")
+                or payload.get("reason")
+                or entry["summary"]
+            )
+            entry["latest_execution_time_ms"] = (
+                payload.get("execution_time_ms") or entry["latest_execution_time_ms"]
+            )
+    return sorted(
+        runs.values(),
+        key=lambda item: str(item.get("updated_at") or ""),
+        reverse=True,
+    )
+
+
 def _get_existing_session_or_404(session_id: str):
     """仅加载已存在的会话，避免查询接口隐式创建空会话。"""
     try:
@@ -80,49 +152,61 @@ async def get_session(session_id: str) -> APIResponse:
 async def get_session_agent_runs(
     session_id: str,
     turn_id: str | None = Query(default=None, description="按根回合过滤"),
+    include_events: bool = Query(default=False, description="是否返回原始事件"),
 ) -> APIResponse:
-    """读取会话的运行线程事件。"""
+    """读取会话的运行线程摘要。"""
     _get_existing_session_or_404(session_id)
     normalized_turn_id = (turn_id or "").strip() or None
     events = session_manager.load_agent_run_events(session_id, turn_id=normalized_turn_id)
-
-    runs: dict[str, dict[str, Any]] = {}
-    for event in events:
-        metadata = event.get("metadata")
-        if not isinstance(metadata, dict):
-            continue
-        run_id = metadata.get("run_id")
-        if not isinstance(run_id, str) or not run_id.strip():
-            continue
-        entry = runs.setdefault(
-            run_id,
-            {
-                "run_id": run_id,
-                "run_scope": metadata.get("run_scope"),
-                "parent_run_id": metadata.get("parent_run_id"),
-                "agent_id": metadata.get("agent_id"),
-                "agent_name": metadata.get("agent_name"),
-                "attempt": metadata.get("attempt"),
-                "turn_id": metadata.get("turn_id") or event.get("turn_id"),
-                "latest_phase": metadata.get("phase"),
-                "updated_at": event.get("_ts"),
-            },
-        )
-        if metadata.get("phase"):
-            entry["latest_phase"] = metadata.get("phase")
-        entry["updated_at"] = event.get("_ts")
 
     return APIResponse(
         success=True,
         data={
             "session_id": session_id,
             "turn_id": normalized_turn_id,
-            "runs": sorted(
-                runs.values(),
-                key=lambda item: str(item.get("updated_at") or ""),
-                reverse=True,
-            ),
-            "events": events,
+            "runs": _summarize_agent_runs(events),
+            "event_count": len(events),
+            **({"events": events} if include_events else {}),
+        },
+    )
+
+
+@router.get("/{session_id}/agent-runs/events", response_model=APIResponse)
+async def get_session_agent_run_events(
+    session_id: str,
+    turn_id: str | None = Query(default=None, description="按根回合过滤"),
+    run_id: str | None = Query(default=None, description="按运行实例过滤"),
+    limit: int = Query(default=200, ge=1, le=2000, description="返回事件条数"),
+    offset: int = Query(default=0, ge=0, description="起始偏移"),
+    tail: bool = Query(default=True, description="是否读取最近 N 条"),
+) -> APIResponse:
+    """按需读取会话中的运行事件。"""
+    _get_existing_session_or_404(session_id)
+    normalized_turn_id = (turn_id or "").strip() or None
+    normalized_run_id = (run_id or "").strip() or None
+    all_events = session_manager.load_agent_run_events(
+        session_id,
+        turn_id=normalized_turn_id,
+        run_id=normalized_run_id,
+    )
+    paged_events = session_manager.load_agent_run_events(
+        session_id,
+        turn_id=normalized_turn_id,
+        run_id=normalized_run_id,
+        limit=limit,
+        offset=offset,
+        tail=tail,
+    )
+    return APIResponse(
+        success=True,
+        data={
+            "session_id": session_id,
+            "turn_id": normalized_turn_id,
+            "run_id": normalized_run_id,
+            "events": paged_events,
+            "total": len(all_events),
+            "returned": len(paged_events),
+            "has_more": len(all_events) > len(paged_events) + offset,
         },
     )
 

@@ -153,16 +153,6 @@ class CreateChartTool(Tool):
             plotly_fig = self._create_plotly_figure(df, chart_type, kwargs, list(style_spec.colors))
             apply_plotly_style(plotly_fig, style_spec, title)
             chart_data = _to_plotly_json(plotly_fig)
-            # 保存最近一次图表，供 export_chart 等技能复用
-            session.artifacts["latest_chart"] = {
-                "chart_data": chart_data,
-                "chart_type": chart_type,
-                "journal_style": style_spec.style_key,
-                "dataset_name": dataset_name,
-                "title": title,
-                "render_engine": resolved_engine,
-                "style_key": style_spec.style_key,
-            }
 
             ws = WorkspaceManager(session)
             storage = ArtifactStorage(session)
@@ -205,6 +195,26 @@ class CreateChartTool(Tool):
                 "style_key": style_spec.style_key,
             }
             artifacts: list[dict[str, Any]] = [artifact]
+
+            # 保存最近一次图表：沙箱子 Agent 模式下存储 ArtifactRef，否则存储内容（供 export_chart 复用）
+            if getattr(session, "workspace_root", None) is not None:
+                from nini.agent.artifact_ref import ArtifactRef
+                session.artifacts["latest_chart"] = ArtifactRef(
+                    path=output_name,
+                    type="chart",
+                    summary=f"{chart_type} 图（{style_spec.style_key} 风格）",
+                    agent_id="",
+                )
+            else:
+                session.artifacts["latest_chart"] = {
+                    "chart_data": chart_data,
+                    "chart_type": chart_type,
+                    "journal_style": style_spec.style_key,
+                    "dataset_name": dataset_name,
+                    "title": title,
+                    "render_engine": resolved_engine,
+                    "style_key": style_spec.style_key,
+                }
 
             # matplotlib 模式额外导出发表级文件，保证双实现方式可用
             if resolved_engine == "matplotlib":

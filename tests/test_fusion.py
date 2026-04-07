@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from nini.agent.artifact_ref import ArtifactRef
 from nini.agent.fusion import FusionResult, ResultFusionEngine
 from nini.agent.spawner import SubAgentResult
 
@@ -135,6 +136,56 @@ async def test_summarize_timeout_fallback_to_concatenate(monkeypatch):
     fr = await engine.fuse(results, strategy="summarize")
     # 降级为 concatenate
     assert "结果 A" in fr.content or "结果 B" in fr.content
+    assert isinstance(fr.conflicts, list)
+
+
+@pytest.mark.asyncio
+async def test_summarize_without_resolver_keeps_conflicts_on_frozen_result():
+    """无 resolver 时也应返回新对象，而不是修改冻结结果。"""
+    engine = ResultFusionEngine(model_resolver=None)
+    results = [
+        _result("a", "均值为 100.5"),
+        _result("b", "均值为 5.2"),
+    ]
+    fr = await engine.fuse(results, strategy="summarize")
+    assert fr.strategy == "concatenate"
+    assert isinstance(fr.conflicts, list)
+
+
+@pytest.mark.asyncio
+async def test_hierarchical_strategy_returns_new_result_without_mutation():
+    """hierarchical 路径应返回新对象，不得修改冻结 FusionResult。"""
+    mock = _MockResolver(response="层级摘要")
+    engine = ResultFusionEngine(model_resolver=mock)
+    results = [_result(f"agent_{idx}", f"摘要 {idx}") for idx in range(6)]
+    fr = await engine.fuse(results, strategy="hierarchical")
+    assert fr.strategy == "hierarchical"
+    assert fr.sources == [f"agent_{idx}" for idx in range(6)]
+
+
+@pytest.mark.asyncio
+async def test_hierarchical_batches_run_concurrently(monkeypatch):
+    """hierarchical 策略多批次应通过 asyncio.gather 并发执行，而非串行。"""
+    import asyncio
+    import nini.agent.fusion as fusion_module
+
+    gather_calls: list[int] = []
+    original_gather = asyncio.gather
+
+    async def tracking_gather(*coros, **kwargs):
+        gather_calls.append(len(coros))
+        return await original_gather(*coros, **kwargs)
+
+    monkeypatch.setattr(asyncio, "gather", tracking_gather)
+
+    mock = _MockResolver(response="批次摘要")
+    engine = ResultFusionEngine(model_resolver=mock)
+    # 9 个结果 → 3 批（每批 _HIERARCHICAL_BATCH_SIZE=4）→ asyncio.gather 调用 1 次，包含 3 个协程
+    results = [_result(f"agent_{idx}", f"摘要 {idx}") for idx in range(9)]
+    fr = await engine.fuse(results, strategy="hierarchical")
+    assert fr.strategy == "hierarchical"
+    # 第一次 gather 调用应包含 3 个批次协程
+    assert any(n == 3 for n in gather_calls), f"期望 3 批并发，实际: {gather_calls}"
 
 
 # ─── 冲突检测 ────────────────────────────────────────────────────────────────
@@ -167,3 +218,58 @@ async def test_invalid_strategy_falls_back_to_concatenate():
     fr = await engine.fuse(results, strategy="unknown_strategy")
     assert "内容 A" in fr.content
     assert "内容 B" in fr.content
+
+
+# ─── 产物文件名冲突检测 ──────────────────────────────────────────────────────
+
+
+def test_detect_artifact_key_conflict_with_artifact_ref():
+    """两个子 Agent 产出同名文件时，检测到 artifact_key_conflict。"""
+    engine = ResultFusionEngine()
+    r1 = SubAgentResult(
+        agent_id="agent_a",
+        success=True,
+        summary="Agent A 完成",
+        artifacts={
+            "chart": ArtifactRef(path="chart.plotly.json", type="chart", summary="图A", agent_id="agent_a")
+        },
+    )
+    r2 = SubAgentResult(
+        agent_id="agent_b",
+        success=True,
+        summary="Agent B 完成",
+        artifacts={
+            "chart": ArtifactRef(path="chart.plotly.json", type="chart", summary="图B", agent_id="agent_b")
+        },
+    )
+    conflicts = engine._detect_conflicts([r1, r2])
+    conflict_types = [c["type"] for c in conflicts]
+    assert "artifact_key_conflict" in conflict_types
+    conflict = next(c for c in conflicts if c["type"] == "artifact_key_conflict")
+    assert conflict["filename"] == "chart.plotly.json"
+    assert "agent_a" in conflict["agents"]
+    assert "agent_b" in conflict["agents"]
+
+
+def test_detect_no_conflict_when_different_filenames():
+    """两个子 Agent 产出不同名文件时，不报告 artifact_key_conflict。"""
+    engine = ResultFusionEngine()
+    r1 = SubAgentResult(
+        agent_id="agent_a",
+        success=True,
+        summary="摘要 A",
+        artifacts={
+            "chart_a": ArtifactRef(path="chart_a.json", type="chart", summary="图A", agent_id="agent_a")
+        },
+    )
+    r2 = SubAgentResult(
+        agent_id="agent_b",
+        success=True,
+        summary="摘要 B",
+        artifacts={
+            "chart_b": ArtifactRef(path="chart_b.json", type="chart", summary="图B", agent_id="agent_b")
+        },
+    )
+    conflicts = engine._detect_conflicts([r1, r2])
+    conflict_types = [c["type"] for c in conflicts]
+    assert "artifact_key_conflict" not in conflict_types

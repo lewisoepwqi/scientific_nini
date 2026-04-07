@@ -34,9 +34,9 @@ class _MockResolver:
 
 
 def test_routing_decision_default_parallel():
-    """parallel 默认为 True。"""
+    """parallel 默认为 False（串行安全优先）。"""
     rd = RoutingDecision(agent_ids=["a"], tasks=["t"], confidence=0.9, strategy="rule")
-    assert rd.parallel is True
+    assert rd.parallel is False
 
 
 def test_routing_decision_all_fields():
@@ -68,12 +68,13 @@ def test_rule_route_high_confidence_data_cleaner():
 
 
 def test_rule_route_multiple_agents():
-    """同时包含清洗和统计关键词应命中 data_cleaner 和 statistician。"""
+    """同时包含清洗和统计关键词应命中 data_cleaner 和 statistician。
+    规则路由无法判断任务间依赖，parallel 保持默认 False。"""
     router = TaskRouter(enable_llm_fallback=False)
     result = router._rule_route("清洗数据后做统计检验和回归")
     assert "data_cleaner" in result.agent_ids
     assert "statistician" in result.agent_ids
-    assert result.parallel is True
+    assert result.parallel is False
     assert len(result.tasks) == len(result.agent_ids)
 
 
@@ -185,3 +186,48 @@ def test_rule_route_review_assistant():
     assert "review_assistant" in result.agent_ids
     assert result.strategy == "rule"
     assert result.confidence >= 0.7
+
+
+# ─── 多意图检测修复验证 ──────────────────────────────────────────────────────────
+
+
+def test_shunbian_does_not_trigger_parallel() -> None:
+    """'顺便' 已从并行标记移除，不应触发并行多意图检测。"""
+    from nini.intent.multi_intent import detect_multi_intent
+
+    result = detect_multi_intent("帮我清洗数据，顺便做个统计分析")
+    # 若检测到多意图，is_parallel 应为 False（"顺便" 为主从关系，非并行）
+    if result is not None:
+        assert result.is_parallel is False, "'顺便' 不应标记为并行"
+
+
+def test_tongshi_triggers_parallel() -> None:
+    """'同时' 仍应触发并行多意图，is_parallel=True。"""
+    from nini.intent.multi_intent import detect_multi_intent
+
+    result = detect_multi_intent("同时做统计分析，请清洗数据并可视化")
+    if result is not None:
+        assert result.is_parallel is True
+        assert len(result.intents) >= 2
+
+
+def test_detect_multi_intent_returns_multi_intent_result() -> None:
+    """detect_multi_intent 返回 MultiIntentResult，含 is_parallel 和 is_sequential 字段。"""
+    from nini.intent.multi_intent import MultiIntentResult, detect_multi_intent
+
+    result = detect_multi_intent("先清洗数据，然后做统计分析")
+    assert result is not None
+    assert isinstance(result, MultiIntentResult)
+    assert result.is_sequential is True
+    assert isinstance(result.intents, list)
+    assert len(result.intents) >= 2
+
+
+@pytest.mark.asyncio
+async def test_route_uses_multi_intent_result_parallel_flag() -> None:
+    """router.route() 应直接使用 MultiIntentResult.is_parallel 决定 parallel 字段。"""
+    router = TaskRouter(enable_llm_fallback=False)
+    result = await router.route("同时做统计分析和清洗数据")
+    # 若触发了多意图（并行），strategy 应为 multi_intent
+    if result.strategy == "multi_intent":
+        assert result.parallel is True

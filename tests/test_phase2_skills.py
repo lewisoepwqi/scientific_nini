@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from nini.agent.artifact_ref import ArtifactRef
 from nini.agent.session import Session
 from nini.tools.registry import create_default_tool_registry
 from nini.tools.visualization import CreateChartTool
@@ -99,3 +100,34 @@ async def test_create_line_chart_with_mixed_datetime_types() -> None:
     assert result["success"] is True, result
     assert result["has_chart"] is True
     assert isinstance(result["chart_data"], dict)
+
+
+@pytest.mark.asyncio
+async def test_create_chart_stores_artifact_ref_in_sandbox_mode(tmp_path: Path) -> None:
+    """沙箱模式（workspace_root 已设置）下，session.artifacts['latest_chart'] 应为 ArtifactRef。"""
+    skill = CreateChartTool()
+    session = Session()
+    session.workspace_root = tmp_path  # 模拟沙箱模式
+    session.datasets["experiment.csv"] = pd.DataFrame(
+        {
+            "group": ["A", "A", "B", "B"],
+            "value": [1.0, 1.5, 2.0, 2.5],
+        }
+    )
+
+    result = (
+        await skill.execute(
+            session=session,
+            dataset_name="experiment.csv",
+            chart_type="box",
+            y_column="value",
+            group_column="group",
+            title="沙箱图表测试",
+        )
+    ).to_dict()
+
+    assert result["success"] is True
+    ref = session.artifacts.get("latest_chart")
+    assert isinstance(ref, ArtifactRef), f"期望 ArtifactRef，实际得到 {type(ref)}"
+    assert ref.path, "ArtifactRef.path 不能为空"
+    assert ref.type == "chart"

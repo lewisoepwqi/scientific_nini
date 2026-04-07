@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from nini.agent.dag_executor import DagExecutor, DagTask
 from nini.agent.session import session_manager
 from nini.tools.base import Tool, ToolResult
 
@@ -49,11 +50,11 @@ class DispatchAgentsTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "将复杂任务分解并分发给多个专业 Agent 并行执行，融合结果后返回整合摘要。"
-            "适用于需要多领域协作的任务（如同时进行数据清洗、统计分析、作图）。"
-            "tasks 中每个元素都应是可独立并行的子任务，避免互相依赖。"
-            "参数 tasks 为任务描述列表，context 为可选背景信息。"
-            "最小示例：tasks=['清洗异常值','绘制分组箱线图']，context='数据集为 blood_pressure_cleaned'。"
+            "将复杂任务分解并分发给多个专业 Agent 并行/DAG 执行，融合结果后返回整合摘要。"
+            "tasks 支持两种格式：字符串（并行执行）或对象（可声明 id 和 depends_on 建立 DAG 依赖）。"
+            "存在 depends_on 时自动按拓扑排序分 wave 执行；否则按路由决策并行或串行。"
+            "最小示例：tasks=['清洗数据','绘图'] 或 "
+            "tasks=[{\"task\":\"清洗\",\"id\":\"t1\"},{\"task\":\"统计\",\"id\":\"t2\",\"depends_on\":[\"t1\"]}]。"
         )
 
     @property
@@ -64,8 +65,28 @@ class DispatchAgentsTool(Tool):
             "properties": {
                 "tasks": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "需要并行处理的任务描述列表，每个元素为一个独立子任务",
+                    "items": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "task": {"type": "string", "description": "任务描述文本"},
+                                    "id": {"type": "string", "description": "任务唯一标识符"},
+                                    "depends_on": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "description": "依赖的任务 id 列表",
+                                    },
+                                },
+                                "required": ["task"],
+                                "additionalProperties": False,
+                            },
+                        ]
+                    },
+                    "description": (
+                        "任务列表：字符串或带 id/depends_on 的对象，支持混合格式"
+                    ),
                 },
                 "context": {
                     "type": "string",
@@ -88,17 +109,17 @@ class DispatchAgentsTool(Tool):
         self,
         session: Any,
         *,
-        tasks: list[str] | None = None,
+        tasks: list[str | dict[str, Any]] | None = None,
         context: str = "",
         turn_id: str | None = None,
         tool_call_id: str | None = None,
-        **kwargs: Any,
+        **_kwargs: Any,
     ) -> ToolResult:
-        """执行多 Agent 并行派发。
+        """执行多 Agent 并行/DAG 派发。
 
         Args:
             session: 当前会话
-            tasks: 任务描述列表
+            tasks: 任务列表，支持字符串或带 id/depends_on 的对象，可混合使用
             context: 背景信息（可选）
 
         Returns:
@@ -117,10 +138,10 @@ class DispatchAgentsTool(Tool):
                 minimal_example='{"tasks":["清洗数据","绘制图表"],"context":"数据集为 demo"}',
             )
 
-        tasks = tasks or []
+        raw_tasks: list[str | dict[str, Any]] = tasks or []
 
         # 空任务快速返回
-        if not tasks:
+        if not raw_tasks:
             return ToolResult(
                 success=True,
                 message="",
@@ -131,41 +152,75 @@ class DispatchAgentsTool(Tool):
                 },
             )
 
-        # 为每个任务构造 (agent_id, task) 元组。
-        # 直接调用 execute() 时，这里也会进行真实路由，而不是退化到固定 agent。
-        task_pairs = await _build_task_pairs(
-            tasks,
-            task_router=self._task_router,
-            agent_registry=self._agent_registry,
-            context=context,
-        )
+        # 解析原始任务列表，统一转换为 DagTask 对象
+        dag_tasks = _parse_dag_tasks(raw_tasks)
 
-        if not task_pairs:
-            return self._input_error(
-                message="dispatch_agents 无法为当前任务找到可用的 Agent。",
-                error_code="DISPATCH_AGENTS_NO_MATCHED_AGENTS",
-                expected_fields=["tasks"],
-                recovery_hint="拆分为更明确的独立子任务，或检查 AgentRegistry 中是否存在可用 Agent。",
-                minimal_example='{"tasks":["清洗缺失值","执行独立样本 t 检验"],"context":"研究问题为干预组与对照组比较"}',
+        # 路径分叉：是否有任意任务声明了 depends_on
+        has_dependencies = any(t.depends_on for t in dag_tasks)
+
+        if has_dependencies:
+            # DAG 路径：拓扑排序分 wave 执行
+            sub_results, routed_agents, dag_error = await self._execute_dag(
+                dag_tasks, session, context=context, turn_id=turn_id
+            )
+        else:
+            # C1 路径：并行/串行分叉（保持现有行为）
+            task_texts = [t.task for t in dag_tasks]
+            task_pairs, should_run_parallel = await _build_task_pairs(
+                task_texts,
+                task_router=self._task_router,
+                agent_registry=self._agent_registry,
+                context=context,
             )
 
-        # 并行派发
-        sub_results = await self._spawner.spawn_batch(
-            task_pairs,
-            session,
-            parent_turn_id=turn_id,
-        )
+            if not task_pairs:
+                return self._input_error(
+                    message="dispatch_agents 无法为当前任务找到可用的 Agent。",
+                    error_code="DISPATCH_AGENTS_NO_MATCHED_AGENTS",
+                    expected_fields=["tasks"],
+                    recovery_hint=(
+                        "拆分为更明确的独立子任务，或检查 AgentRegistry 中是否存在可用 Agent。"
+                    ),
+                    minimal_example=(
+                        '{"tasks":["清洗缺失值","执行独立样本 t 检验"],'
+                        '"context":"研究问题为干预组与对照组比较"}'
+                    ),
+                )
+
+            if should_run_parallel:
+                sub_results = await self._spawner.spawn_batch(
+                    task_pairs,
+                    session,
+                    parent_turn_id=turn_id,
+                )
+            else:
+                sub_results = []
+                for agent_id, task_text in task_pairs:
+                    result = await self._spawner.spawn(
+                        agent_id,
+                        task_text,
+                        session,
+                        parent_turn_id=turn_id,
+                    )
+                    sub_results.append(result)
+                    if session is not None:
+                        for key, value in result.artifacts.items():
+                            session.artifacts[f"{result.agent_id}.{key}"] = value
+                        for key, value in result.documents.items():
+                            session.documents[f"{result.agent_id}.{key}"] = value
+
+            routed_agents = [agent_id for agent_id, _ in task_pairs]
+            dag_error = None
 
         # 融合结果
         fusion_result = await self._fusion_engine.fuse(sub_results)
-        routed_agents = [agent_id for agent_id, _ in task_pairs]
         subtask_results = [
             self._serialize_sub_result(
                 result,
-                routed_task=task_text,
-                fallback_agent_id=agent_id,
+                routed_task=getattr(result, "task", ""),
+                fallback_agent_id=result.agent_id,
             )
-            for (agent_id, task_text), result in zip(task_pairs, sub_results, strict=False)
+            for result in sub_results
         ]
         success_count = sum(1 for item in subtask_results if item["success"])
         stopped_count = sum(1 for item in subtask_results if item["stopped"])
@@ -183,23 +238,71 @@ class DispatchAgentsTool(Tool):
             fusion_result=fusion_result,
         )
 
+        metadata: dict[str, Any] = {
+            "task_count": len(raw_tasks),
+            "routed_agents": routed_agents,
+            "fusion_strategy": fusion_result.strategy,
+            "sources": fusion_result.sources,
+            "conflicts": fusion_result.conflicts,
+            "dispatch_run_id": dispatch_run_id,
+            "success_count": success_count,
+            "failure_count": failure_count,
+            "stopped_count": stopped_count,
+            "partial_failure": partial_failure,
+            "subtasks": subtask_results,
+        }
+        if dag_error:
+            metadata["dag_error"] = dag_error
+
         return ToolResult(
             success=True,
             message=fusion_result.content,
-            metadata={
-                "task_count": len(tasks),
-                "routed_agents": routed_agents,
-                "fusion_strategy": fusion_result.strategy,
-                "sources": fusion_result.sources,
-                "conflicts": fusion_result.conflicts,
-                "dispatch_run_id": dispatch_run_id,
-                "success_count": success_count,
-                "failure_count": failure_count,
-                "stopped_count": stopped_count,
-                "partial_failure": partial_failure,
-                "subtasks": subtask_results,
-            },
+            metadata=metadata,
         )
+
+    async def _execute_dag(
+        self,
+        dag_tasks: list[DagTask],
+        session: Any,
+        *,
+        context: str,
+        turn_id: str | None,
+    ) -> tuple[list[Any], list[str], str | None]:
+        """DAG 路径：路由任务、拓扑排序分 wave、逐 wave 执行。
+
+        Returns:
+            (sub_results, routed_agent_ids, dag_error_code_or_None)
+        """
+        # 为每个 DagTask 路由 agent_id
+        routed_dag_tasks = await _route_dag_tasks(
+            dag_tasks,
+            task_router=self._task_router,
+            agent_registry=self._agent_registry,
+            context=context,
+        )
+
+        executor = DagExecutor()
+        waves = executor.build_waves(routed_dag_tasks)
+
+        # 检测循环依赖降级（build_waves 将每任务单独 wave 时表示降级）
+        dag_error: str | None = None
+        total_in_waves = sum(len(w) for w in waves)
+        if total_in_waves == len(dag_tasks) and all(len(w) == 1 for w in waves) and len(dag_tasks) > 1:
+            # 可能是循环依赖降级，也可能是正常链式依赖；只有当所有任务都有依赖时才标注
+            all_have_deps = all(t.depends_on for t in dag_tasks)
+            if all_have_deps:
+                dag_error = "circular_dependency"
+
+        sub_results = await executor.execute(
+            waves,
+            session,
+            spawner=self._spawner,
+            router=self._task_router,
+            turn_id=turn_id,
+        )
+
+        routed_agents = [t.agent_id for t in routed_dag_tasks]
+        return sub_results, routed_agents, dag_error
 
     def _input_error(
         self,
@@ -344,29 +447,103 @@ class DispatchAgentsTool(Tool):
         )
 
 
+def _parse_dag_tasks(raw_tasks: list[str | dict[str, Any]]) -> list[DagTask]:
+    """将原始任务列表（字符串/字典混合）解析为 DagTask 列表。
+
+    字符串元素：自动分配 id（t1、t2…），depends_on=[]。
+    字典元素：使用声明的 id 和 depends_on（id 缺失时自动分配）。
+    """
+    dag_tasks: list[DagTask] = []
+    for idx, raw in enumerate(raw_tasks):
+        auto_id = f"t{idx + 1}"
+        if isinstance(raw, str):
+            dag_tasks.append(DagTask(task=raw, id=auto_id, depends_on=[]))
+        else:
+            task_text = str(raw.get("task", ""))
+            task_id = str(raw.get("id", auto_id)) or auto_id
+            depends_on = [str(d) for d in raw.get("depends_on", [])]
+            dag_tasks.append(DagTask(task=task_text, id=task_id, depends_on=depends_on))
+    return dag_tasks
+
+
+async def _route_dag_tasks(
+    dag_tasks: list[DagTask],
+    *,
+    task_router: Any,
+    agent_registry: Any,
+    context: str,
+) -> list[DagTask]:
+    """为每个 DagTask 路由 agent_id，返回更新后的 DagTask 列表。
+
+    无法路由时使用 agent_registry 第一个可用 Agent 作为兜底。
+    """
+    if agent_registry is None:
+        return dag_tasks
+
+    available_agents = agent_registry.list_agents()
+    if not available_agents:
+        return dag_tasks
+
+    available_agent_ids = {agent.agent_id for agent in available_agents}
+    default_agent_id = available_agents[0].agent_id
+
+    routed: list[DagTask] = []
+    for t in dag_tasks:
+        task_text = f"{t.task}\n背景：{context}" if context else t.task
+
+        routed_pairs, _ = await _route_task_pairs(
+            t.task,
+            task_router=task_router,
+            available_agent_ids=available_agent_ids,
+            context=context,
+        )
+
+        if routed_pairs:
+            # 取第一个路由结果的 agent_id 和 task_text
+            agent_id, routed_task = routed_pairs[0]
+        else:
+            agent_id = default_agent_id
+            routed_task = task_text
+
+        routed.append(
+            DagTask(
+                task=routed_task,
+                id=t.id,
+                depends_on=t.depends_on,
+                agent_id=agent_id,
+            )
+        )
+    return routed
+
+
 async def _build_task_pairs(
     tasks: list[str],
     *,
     task_router: Any,
     agent_registry: Any,
     context: str = "",
-) -> list[tuple[str, str]]:
-    """为任务列表构造 (agent_id, task_description) 元组。
+) -> tuple[list[tuple[str, str]], bool]:
+    """为任务列表构造 (agent_id, task_description) 元组，并返回是否可并行标志。
 
-    若 AgentRegistry 不可用或无已注册 Agent，返回空列表。
+    parallel 策略：所有路由决策均明确标注 parallel=True 时才返回 True；
+    任意一个任务走了默认兜底（无法路由）则视为串行不确定，返回 False。
+
+    若 AgentRegistry 不可用或无已注册 Agent，返回 ([], False)。
     """
     if agent_registry is None:
-        return []
+        return [], False
 
     available_agents = agent_registry.list_agents()
     if not available_agents:
-        return []
+        return [], False
 
     available_agent_ids = {agent.agent_id for agent in available_agents}
     default_agent_id = available_agents[0].agent_id
     pairs: list[tuple[str, str]] = []
+    parallel_flags: list[bool] = []
+
     for task in tasks:
-        routed_pairs = await _route_task_pairs(
+        routed_pairs, task_parallel = await _route_task_pairs(
             task,
             task_router=task_router,
             available_agent_ids=available_agent_ids,
@@ -374,11 +551,15 @@ async def _build_task_pairs(
         )
         if routed_pairs:
             pairs.extend(routed_pairs)
+            parallel_flags.append(task_parallel)
             continue
+        # 默认兜底：无法路由，串行安全优先
         task_text = f"{task}\n背景：{context}" if context else task
         pairs.append((default_agent_id, task_text))
+        parallel_flags.append(False)
 
-    return pairs
+    overall_parallel = bool(parallel_flags) and all(parallel_flags)
+    return pairs, overall_parallel
 
 
 async def _route_task_pairs(
@@ -387,17 +568,17 @@ async def _route_task_pairs(
     task_router: Any,
     available_agent_ids: set[str],
     context: str,
-) -> list[tuple[str, str]]:
-    """通过 TaskRouter 生成合法的 (agent_id, task) 对。"""
+) -> tuple[list[tuple[str, str]], bool]:
+    """通过 TaskRouter 生成合法的 (agent_id, task) 对，并返回路由决策的 parallel 标志。"""
     if task_router is None:
-        return []
+        return [], False
 
     decision = await task_router.route(
         task,
         context={"background": context} if context else None,
     )
     if not getattr(decision, "agent_ids", None):
-        return []
+        return [], False
 
     routed_pairs: list[tuple[str, str]] = []
     for index, agent_id in enumerate(decision.agent_ids):
@@ -410,4 +591,4 @@ async def _route_task_pairs(
                 routed_task = candidate
         task_text = f"{routed_task}\n背景：{context}" if context else routed_task
         routed_pairs.append((agent_id, task_text))
-    return routed_pairs
+    return routed_pairs, bool(getattr(decision, "parallel", False))

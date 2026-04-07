@@ -122,7 +122,10 @@ import type {
 } from "./store/types";
 
 // ---- Agent 切片导入 ----
-import { initialAgentSlice } from "./store/agent-slice";
+import {
+  hydrateAgentRunsFromSummaries,
+  initialAgentSlice,
+} from "./store/agent-slice";
 import { initialHypothesisSlice } from "./store/hypothesis-slice";
 
 // ---- 工具函数导入 ----
@@ -1044,6 +1047,35 @@ export const useStore = create<AppState>((set, get) => ({
           }
         : {}),
     }));
+    const { sessionId, agentRuns } = get();
+    if (!runId || !sessionId) return;
+    const thread = agentRuns[runId];
+    if (!thread || thread.runScope !== "subagent" || thread.eventsLoaded) return;
+    void (async () => {
+      const events = await api.fetchSessionAgentRunEvents(sessionId, {
+        runId,
+        turnId: thread.turnId,
+      });
+      if (get().sessionId !== sessionId) return;
+      for (const rawEvent of events) {
+        if (get().sessionId !== sessionId) return;
+        await handleEvent(rawEvent as WSEvent, set, get);
+      }
+      set((s) => {
+        if (s.sessionId !== sessionId) return {};
+        const nextThread = s.agentRuns[runId];
+        if (!nextThread) return {};
+        return {
+          agentRuns: {
+            ...s.agentRuns,
+            [runId]: {
+              ...nextThread,
+              eventsLoaded: true,
+            },
+          },
+        };
+      });
+    })();
   },
 
   stopAgentRun(runId: string, agentId: string) {
@@ -1441,18 +1473,35 @@ export const useStore = create<AppState>((set, get) => ({
       cachedSessionUi && shouldUseCachedUi
         ? clonePlanProgress(cachedSessionUi.analysisPlanProgress)
         : restored.analysisPlanProgress;
-    const restoredAgentRuns =
-      cachedSessionUi && shouldUseCachedUi ? { ...cachedSessionUi.agentRuns } : {};
-    const restoredAgentRunTabs =
-      cachedSessionUi && shouldUseCachedUi ? [...cachedSessionUi.agentRunTabs] : [];
-    const restoredSelectedRunId =
-      cachedSessionUi && shouldUseCachedUi ? cachedSessionUi.selectedRunId : null;
-    const restoredUnreadByRun =
-      cachedSessionUi && shouldUseCachedUi ? { ...cachedSessionUi.unreadByRun } : {};
-    const restoredRunGroups =
-      cachedSessionUi && shouldUseCachedUi ? { ...cachedSessionUi.runGroupsByTurn } : {};
-    const persistedAgentRunEvents =
+    const restoredAgentRunSummary =
       !shouldUseCachedUi ? await api.fetchSessionAgentRuns(targetSessionId) : [];
+    const hydratedAgentRunState =
+      cachedSessionUi && shouldUseCachedUi
+        ? null
+        : hydrateAgentRunsFromSummaries(
+            restoredAgentRunSummary,
+            get().lastViewedRunIdBySession[targetSessionId] ?? null,
+          );
+    const restoredAgentRuns =
+      cachedSessionUi && shouldUseCachedUi
+        ? { ...cachedSessionUi.agentRuns }
+        : hydratedAgentRunState?.agentRuns ?? {};
+    const restoredAgentRunTabs =
+      cachedSessionUi && shouldUseCachedUi
+        ? [...cachedSessionUi.agentRunTabs]
+        : hydratedAgentRunState?.agentRunTabs ?? [];
+    const restoredSelectedRunId =
+      cachedSessionUi && shouldUseCachedUi
+        ? cachedSessionUi.selectedRunId
+        : hydratedAgentRunState?.selectedRunId ?? null;
+    const restoredUnreadByRun =
+      cachedSessionUi && shouldUseCachedUi
+        ? { ...cachedSessionUi.unreadByRun }
+        : hydratedAgentRunState?.unreadByRun ?? {};
+    const restoredRunGroups =
+      cachedSessionUi && shouldUseCachedUi
+        ? { ...cachedSessionUi.runGroupsByTurn }
+        : hydratedAgentRunState?.runGroupsByTurn ?? {};
 
     await preloadRenderersForMessages(restoredMessages);
     if (requestSeq !== sessionSwitchRequestSeq) {
@@ -1544,6 +1593,13 @@ export const useStore = create<AppState>((set, get) => ({
       }));
     });
     localStorage.setItem("nini_last_session_id", targetSessionId);
+    if (
+      !shouldUseCachedUi &&
+      restoredSelectedRunId &&
+      restoredAgentRuns[restoredSelectedRunId]?.runScope === "subagent"
+    ) {
+      get().selectAgentRun(restoredSelectedRunId);
+    }
 
     await Promise.all([
       get().fetchDatasets(),
@@ -1552,15 +1608,6 @@ export const useStore = create<AppState>((set, get) => ({
       get().fetchFolders(),
       get().fetchTokenUsage(targetSessionId),
     ]);
-    if (
-      !shouldUseCachedUi &&
-      requestSeq === sessionSwitchRequestSeq &&
-      get().sessionId === targetSessionId
-    ) {
-      for (const rawEvent of persistedAgentRunEvents) {
-        await handleEvent(rawEvent as WSEvent, set, get);
-      }
-    }
   },
 
   async deleteSession(targetSessionId: string) {

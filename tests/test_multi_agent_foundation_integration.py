@@ -61,15 +61,16 @@ def _install_dispatch_stubs(
     tool = registry.get("dispatch_agents")
     assert tool is not None
 
-    async def fake_execute_agent(agent_def, task, session):
+    async def fake_execute_agent(agent_def, task, session, **kwargs):
         if failing_agent and agent_def.agent_id == failing_agent:
             raise RuntimeError(f"模拟 {agent_def.agent_id} 失败")
         return SubAgentResult(
             agent_id=agent_def.agent_id,
             success=True,
             summary=f"{agent_def.agent_id} 完成",
+            # 使用简单键名：命名空间回写后最终键为 "{agent_id}.output"
             artifacts={
-                f"{agent_def.agent_id}.txt": {
+                "output": {
                     "agent_id": agent_def.agent_id,
                     "task": task,
                 }
@@ -214,8 +215,9 @@ def test_websocket_dispatch_agents_writes_child_artifacts_to_parent_session(
 
     session = session_manager.get_session(session_id)
     assert session is not None
-    assert "data_cleaner.txt" in session.artifacts
-    assert "statistician.txt" in session.artifacts
+    # 命名空间键格式：{agent_id}.{artifact_key}
+    assert "data_cleaner.output" in session.artifacts
+    assert "statistician.output" in session.artifacts
     assert "done" in [event["type"] for event in events]
 
 

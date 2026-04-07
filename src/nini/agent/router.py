@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from nini.intent import detect_multi_intent
-from nini.intent.multi_intent import _PARALLEL_MARKERS
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +76,9 @@ citation_manager, research_planner, review_assistant
   {{"agent_ids": [...], "tasks": [...], "confidence": 0.9, "parallel": true}},
   ...
 ]
+
+如果某个任务需要其他任务的输出才能执行，请在该任务的路由结果中添加 "depends_on": ["被依赖的任务 ID"]。
+没有依赖关系时，不包含 "depends_on" 字段。
 """
 
 
@@ -91,7 +93,7 @@ class RoutingDecision:
     tasks: list[str]
     confidence: float
     strategy: str  # "rule" | "llm" | "multi_intent"
-    parallel: bool = True
+    parallel: bool = False  # 串行安全优先：规则路由不判断独立性，LLM 路由显式设置
 
 
 class TaskRouter:
@@ -254,16 +256,15 @@ class TaskRouter:
         context = context or {}
 
         # 多意图检测：在规则路由之前拆分复合查询
-        sub_intents = detect_multi_intent(intent)
-        if sub_intents is not None:
-            is_parallel = bool(_PARALLEL_MARKERS.search(intent))
-            batch = await self.route_batch(sub_intents)
+        multi_result = detect_multi_intent(intent)
+        if multi_result is not None:
+            batch = await self.route_batch(multi_result.intents)
             merged = RoutingDecision(
                 agent_ids=[aid for d in batch for aid in d.agent_ids],
                 tasks=[t for d in batch for t in d.tasks],
                 confidence=min((d.confidence for d in batch), default=0.0),
                 strategy="multi_intent",
-                parallel=is_parallel,
+                parallel=multi_result.is_parallel,
             )
             return merged
 

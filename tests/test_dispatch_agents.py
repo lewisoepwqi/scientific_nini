@@ -24,17 +24,47 @@ class _MockRegistry:
 
 
 class _MockSpawner:
-    """最小 SubAgentSpawner stub，返回固定结果。"""
+    """最小 SubAgentSpawner stub，返回固定结果。支持并行（spawn_batch）和串行（spawn）两条路径。"""
 
     def __init__(self, results=None):
         self._results = results or [
             SubAgentResult(agent_id="data_cleaner", success=True, summary="清洗完成")
         ]
-        self.call_count = 0
+        self.spawn_batch_count = 0
+        self.spawn_count = 0
+        self._spawn_index = 0
 
     async def spawn_batch(self, tasks, session, **kwargs):
-        self.call_count += 1
+        self.spawn_batch_count += 1
         return self._results
+
+    async def spawn(self, agent_id, task, session, **kwargs):
+        self.spawn_count += 1
+        if self._spawn_index < len(self._results):
+            result = self._results[self._spawn_index]
+            self._spawn_index += 1
+            return result
+        return SubAgentResult(agent_id=agent_id, success=True)
+
+
+class _MockRouter:
+    """最小 TaskRouter stub，可配置返回 parallel 标志。"""
+
+    def __init__(self, *, parallel: bool, agent_id: str = "data_cleaner"):
+        from nini.agent.router import RoutingDecision
+
+        self._decision_parallel = parallel
+        self._agent_id = agent_id
+        self._RoutingDecision = RoutingDecision
+
+    async def route(self, intent: str, context=None):
+        return self._RoutingDecision(
+            agent_ids=[self._agent_id],
+            tasks=[intent],
+            confidence=0.9,
+            strategy="llm",
+            parallel=self._decision_parallel,
+        )
 
 
 class _MockFusion:
@@ -78,16 +108,51 @@ async def test_execute_returns_skill_result():
 
 
 @pytest.mark.asyncio
-async def test_execute_calls_spawn_batch():
-    """execute() 调用 spawner.spawn_batch()。"""
+async def test_execute_calls_spawn_batch_when_parallel():
+    """路由决策 parallel=True 时 execute() 调用 spawn_batch()。"""
     spawner = _MockSpawner()
     tool = DispatchAgentsTool(
         agent_registry=_MockRegistry(),
         spawner=spawner,
         fusion_engine=_MockFusion(),
+        task_router=_MockRouter(parallel=True),
     )
     await tool.execute(None, tasks=["任务1", "任务2"])
-    assert spawner.call_count == 1
+    assert spawner.spawn_batch_count == 1
+    assert spawner.spawn_count == 0
+
+
+@pytest.mark.asyncio
+async def test_execute_calls_spawn_serially_when_not_parallel():
+    """路由决策 parallel=False 时 execute() 按顺序调用 spawn()，第 N+1 个任务在第 N 个完成后才开始。"""
+    execution_order: list[str] = []
+
+    class _OrderTrackingSpawner(_MockSpawner):
+        async def spawn(self, agent_id, task, session, **kwargs):
+            result = await super().spawn(agent_id, task, session, **kwargs)
+            execution_order.append(task)
+            return result
+
+    spawner = _OrderTrackingSpawner(
+        results=[
+            SubAgentResult(agent_id="data_cleaner", success=True, summary="任务1完成"),
+            SubAgentResult(agent_id="data_cleaner", success=True, summary="任务2完成"),
+        ]
+    )
+    tool = DispatchAgentsTool(
+        agent_registry=_MockRegistry(),
+        spawner=spawner,
+        fusion_engine=_MockFusion(),
+        task_router=_MockRouter(parallel=False),
+    )
+    result = await tool.execute(None, tasks=["任务1", "任务2"])
+    assert result.success is True
+    assert spawner.spawn_batch_count == 0
+    assert spawner.spawn_count == 2
+    # 任务按顺序执行：任务1 先于 任务2
+    assert len(execution_order) == 2
+    assert "任务1" in execution_order[0]
+    assert "任务2" in execution_order[1]
 
 
 @pytest.mark.asyncio
@@ -250,3 +315,93 @@ async def test_execute_records_structured_agent_run_events(isolated_data_dir: Pa
     assert dispatch_event["metadata"]["run_id"] == "dispatch:call-001"
     assert dispatch_event["data"]["failure_count"] == 1
     assert dispatch_event["data"]["subtasks"][0]["artifact_names"] == ["clean.csv"]
+
+
+# ─── DAG 路径测试 ─────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_execute_string_tasks_use_c1_path():
+    """旧格式字符串任务：走 C1 路径，不触发 DAG。"""
+    spawner = _MockSpawner()
+    tool = DispatchAgentsTool(
+        agent_registry=_MockRegistry(),
+        spawner=spawner,
+        fusion_engine=_MockFusion(),
+        task_router=_MockRouter(parallel=True),
+    )
+    result = await tool.execute(None, tasks=["清洗数据", "统计分析"])
+    assert result.success is True
+    # C1 路径：spawn_batch 被调用一次（并行）
+    assert spawner.spawn_batch_count == 1
+    assert "dag_error" not in result.metadata
+
+
+@pytest.mark.asyncio
+async def test_execute_dict_tasks_with_depends_on_trigger_dag():
+    """对象格式含 depends_on 时：触发 DAG 路径，按 wave 执行。"""
+    spawn_calls: list[list[tuple[str, str]]] = []
+
+    class _TrackingSpawner(_MockSpawner):
+        async def spawn_batch(self, tasks, session, **kwargs):
+            spawn_calls.append(list(tasks))
+            return [SubAgentResult(agent_id=a, success=True, summary="done") for a, _ in tasks]
+
+    tool = DispatchAgentsTool(
+        agent_registry=_MockRegistry(),
+        spawner=_TrackingSpawner(),
+        fusion_engine=_MockFusion(),
+        task_router=_MockRouter(parallel=True),
+    )
+    result = await tool.execute(
+        None,
+        tasks=[
+            {"task": "清洗数据", "id": "t1"},
+            {"task": "统计分析", "id": "t2", "depends_on": ["t1"]},
+        ],
+    )
+    assert result.success is True
+    # DAG 路径：链式依赖 → 2 个 wave → spawn_batch 调用 2 次
+    assert len(spawn_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_execute_mixed_format_tasks():
+    """字符串和字典混合格式：无 depends_on 则走 C1 路径。"""
+    spawner = _MockSpawner()
+    tool = DispatchAgentsTool(
+        agent_registry=_MockRegistry(),
+        spawner=spawner,
+        fusion_engine=_MockFusion(),
+        task_router=_MockRouter(parallel=True),
+    )
+    result = await tool.execute(
+        None,
+        tasks=["清洗数据", {"task": "统计分析", "id": "t2"}],
+    )
+    assert result.success is True
+    # 无 depends_on → C1 路径
+    assert spawner.spawn_batch_count == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_dag_invalid_depends_on_logs_warning(caplog):
+    """无效 depends_on 引用（不存在的 id）时：记录 WARNING，任务仍被执行。"""
+    import logging
+
+    spawner = _MockSpawner(
+        results=[SubAgentResult(agent_id="data_cleaner", success=True, summary="ok")]
+    )
+    tool = DispatchAgentsTool(
+        agent_registry=_MockRegistry(),
+        spawner=spawner,
+        fusion_engine=_MockFusion(),
+        task_router=_MockRouter(parallel=True),
+    )
+    with caplog.at_level(logging.WARNING, logger="nini.agent.dag_executor"):
+        result = await tool.execute(
+            None,
+            tasks=[{"task": "统计分析", "id": "t1", "depends_on": ["NONEXISTENT"]}],
+        )
+    assert result.success is True
+    assert "NONEXISTENT" in caplog.text
