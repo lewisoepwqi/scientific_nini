@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from nini.agent.model_resolver import ModelPreflightResult
 from nini.agent.spawner import SubAgentResult, SubAgentSpawner
 from nini.agent.registry import AgentDefinition, AgentRegistry
 
@@ -42,6 +44,24 @@ def make_tool_registry() -> MagicMock:
     tool_registry = MagicMock()
     tool_registry.create_subset.return_value = MagicMock()
     return tool_registry
+
+
+@pytest.fixture(autouse=True)
+def _mock_model_preflight():
+    """默认将模型预检固定为可用，避免无关测试依赖本机试用额度状态。"""
+    with patch(
+        "nini.agent.model_resolver.model_resolver.preflight",
+        AsyncMock(
+            return_value=ModelPreflightResult(
+                available=True,
+                purpose="analysis",
+                provider_id="mock",
+                provider_name="mock",
+                model="mock-model",
+            )
+        ),
+    ):
+        yield
 
 
 @pytest.mark.asyncio
@@ -323,7 +343,9 @@ async def test_execute_agent_datasets_shallow_copy():
         except RuntimeError:
             pass
 
-    assert captured.get("is_copy") is True, "SubSession 应接收 datasets 的浅拷贝，而非父会话原始引用"
+    assert (
+        captured.get("is_copy") is True
+    ), "SubSession 应接收 datasets 的浅拷贝，而非父会话原始引用"
     assert captured.get("has_original_key") is True, "浅拷贝应包含父会话原有键"
 
 
@@ -355,9 +377,7 @@ async def test_spawn_batch_namespace_writeback_multi_agent_same_key():
         )
 
     with patch.object(spawner, "_execute_agent", side_effect=mock_execute):
-        await spawner.spawn_batch(
-            [("agent_a", "任务1"), ("agent_b", "任务2")], parent_session
-        )
+        await spawner.spawn_batch([("agent_a", "任务1"), ("agent_b", "任务2")], parent_session)
 
     assert parent_session.artifacts.get("agent_a.output.json") == "来自 agent_a"
     assert parent_session.artifacts.get("agent_b.output.json") == "来自 agent_b"
@@ -490,9 +510,10 @@ def make_tool_registry_with_list() -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_execute_agent_haiku_uses_fast_purpose(tmp_path):
+async def test_execute_agent_haiku_uses_fast_purpose(tmp_path, monkeypatch):
     """model_preference='haiku' 时，AgentRunner 应使用 purpose='fast' 的 resolver。"""
     from nini.agent.spawner import _FixedPurposeResolver
+    from nini.config import settings
 
     registry = MagicMock()
     registry.get.return_value = make_agent_def_with_pref("haiku_agent", model_preference="haiku")
@@ -504,9 +525,10 @@ async def test_execute_agent_haiku_uses_fast_purpose(tmp_path):
         captured_resolver["resolver"] = resolver
         raise RuntimeError("stop early for test")
 
-    with patch("nini.agent.runner.AgentRunner", side_effect=capture_runner), \
-         patch("nini.config.settings") as mock_settings:
-        mock_settings.sessions_dir = tmp_path
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+
+    with patch("nini.agent.runner.AgentRunner", side_effect=capture_runner):
         try:
             await spawner.spawn("haiku_agent", "任务", make_mock_session_with_depth())
         except RuntimeError:
@@ -518,9 +540,10 @@ async def test_execute_agent_haiku_uses_fast_purpose(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_execute_agent_none_preference_uses_analysis_purpose(tmp_path):
+async def test_execute_agent_none_preference_uses_analysis_purpose(tmp_path, monkeypatch):
     """model_preference=None 时，AgentRunner 应使用 purpose='analysis' 的 resolver。"""
     from nini.agent.spawner import _FixedPurposeResolver
+    from nini.config import settings
 
     registry = MagicMock()
     registry.get.return_value = make_agent_def_with_pref("default_agent", model_preference=None)
@@ -532,9 +555,10 @@ async def test_execute_agent_none_preference_uses_analysis_purpose(tmp_path):
         captured_resolver["resolver"] = resolver
         raise RuntimeError("stop early for test")
 
-    with patch("nini.agent.runner.AgentRunner", side_effect=capture_runner), \
-         patch("nini.config.settings") as mock_settings:
-        mock_settings.sessions_dir = tmp_path
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+
+    with patch("nini.agent.runner.AgentRunner", side_effect=capture_runner):
         try:
             await spawner.spawn("default_agent", "任务", make_mock_session_with_depth())
         except RuntimeError:
@@ -542,6 +566,196 @@ async def test_execute_agent_none_preference_uses_analysis_purpose(tmp_path):
 
     resolver = captured_resolver.get("resolver")
     assert isinstance(resolver, _FixedPurposeResolver), "应使用 _FixedPurposeResolver 包装"
-    assert resolver._purpose == "analysis", (
-        f"None preference 应映射到 purpose='analysis'，实际: {resolver._purpose}"
+    assert (
+        resolver._purpose == "analysis"
+    ), f"None preference 应映射到 purpose='analysis'，实际: {resolver._purpose}"
+
+
+@pytest.mark.asyncio
+async def test_spawn_marks_child_tool_error_as_failure_and_persists_child_session(
+    tmp_path,
+    monkeypatch,
+):
+    """子 Agent 出现 error 型 tool_result 时，应返回失败并保留可审计子会话目录。"""
+    from nini.agent.events import AgentEvent, EventType
+    from nini.config import settings
+
+    registry = make_registry()
+    tool_registry = make_tool_registry_with_list()
+    tool_registry.list_tools.return_value = ["dataset_catalog", "task_state"]
+    spawner = SubAgentSpawner(registry, tool_registry)
+    parent_session = make_mock_session_with_depth()
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+
+    async def fake_iter(_runner, _session, _task, _stop_event):
+        yield AgentEvent(
+            type=EventType.TOOL_RESULT,
+            data={
+                "id": "call-1",
+                "name": "dataset_catalog",
+                "status": "error",
+                "message": "系统内置「快速」试用额度已用完",
+            },
+        )
+
+    with patch.object(spawner, "_iterate_runner_events", side_effect=fake_iter):
+        result = await spawner.spawn("test_agent", "任务", parent_session)
+
+    assert result.success is False
+    assert result.stop_reason == "child_execution_failed"
+    assert "试用额度已用完" in result.error
+    assert result.child_session_id
+
+    meta_path = tmp_path / "data" / "sessions" / result.child_session_id / "meta.json"
+    assert meta_path.exists(), "子会话审计元信息应落盘"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["is_subsession"] is True
+    assert meta["parent_session_id"] == parent_session.id
+
+
+@pytest.mark.asyncio
+async def test_execute_agent_strips_task_state_tools_from_regular_subagents(
+    tmp_path,
+    monkeypatch,
+):
+    """普通 specialist 子 Agent 不应再拿到 task_state/task_write。"""
+    from nini.config import settings
+
+    registry = MagicMock()
+    registry.get.return_value = AgentDefinition(
+        agent_id="plannerless_agent",
+        name="测试 Agent",
+        description="测试用",
+        system_prompt="你是测试助手",
+        purpose="analysis",
+        allowed_tools=["dataset_catalog", "task_state", "task_write"],
+        timeout_seconds=5,
     )
+    tool_registry = make_tool_registry_with_list()
+    tool_registry.list_tools.return_value = ["dataset_catalog", "task_state", "task_write"]
+    captured_tools: dict[str, list[str]] = {}
+
+    def capture_subset(tools):
+        captured_tools["tools"] = list(tools)
+        return MagicMock()
+
+    tool_registry.create_subset.side_effect = capture_subset
+    spawner = SubAgentSpawner(registry, tool_registry)
+    parent_session = make_mock_session_with_depth()
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+
+    async def fake_iter(_runner, _session, _task, _stop_event):
+        if False:
+            yield None
+
+    with patch.object(spawner, "_iterate_runner_events", side_effect=fake_iter):
+        result = await spawner.spawn("plannerless_agent", "执行字段检查", parent_session)
+
+    assert result.success is True
+    assert captured_tools["tools"] == ["dataset_catalog"]
+
+
+@pytest.mark.asyncio
+async def test_spawn_short_circuits_when_model_preflight_fails(tmp_path, monkeypatch):
+    """模型预检失败时，不应真正启动子 Agent 执行循环。"""
+    from nini.config import settings
+
+    registry = make_registry()
+    spawner = SubAgentSpawner(registry, make_tool_registry_with_list())
+    parent_session = make_mock_session_with_depth()
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+
+    with (
+        patch(
+            "nini.agent.model_resolver.model_resolver.preflight",
+            AsyncMock(
+                return_value=type(
+                    "R",
+                    (),
+                    {
+                        "available": False,
+                        "reason": "系统内置「快速」试用额度已用完，请切换到「深度」继续使用。",
+                    },
+                )()
+            ),
+        ),
+        patch.object(
+            spawner, "_iterate_runner_events", side_effect=AssertionError("不应进入实际执行")
+        ),
+    ):
+        result = await spawner.spawn("test_agent", "任务", parent_session)
+
+    assert result.success is False
+    assert result.stop_reason == "preflight_failed"
+    assert "试用额度已用完" in result.error
+
+
+@pytest.mark.asyncio
+async def test_spawn_batch_preflights_once_and_skips_failed_children(tmp_path, monkeypatch):
+    """批量执行应先完成预检，并跳过已知不可执行的子任务。"""
+    from nini.config import settings
+
+    registry = MagicMock()
+
+    def get_agent(agent_id: str):
+        return make_agent_def(agent_id)
+
+    registry.get.side_effect = get_agent
+    spawner = SubAgentSpawner(registry, make_tool_registry_with_list())
+    parent_session = make_mock_session_with_depth()
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+
+    preflight_mock = AsyncMock(
+        side_effect=[
+            type(
+                "R",
+                (),
+                {
+                    "available": False,
+                    "reason": "系统内置「快速」试用额度已用完，请切换到「深度」继续使用。",
+                },
+            )(),
+            ModelPreflightResult(
+                available=True,
+                purpose="analysis",
+                provider_id="mock",
+                provider_name="mock",
+                model="mock-model",
+            ),
+            ModelPreflightResult(
+                available=True,
+                purpose="analysis",
+                provider_id="mock",
+                provider_name="mock",
+                model="mock-model",
+            ),
+        ]
+    )
+
+    async def mock_execute(agent_def, task, session, **kwargs):
+        return SubAgentResult(agent_id=agent_def.agent_id, success=True, summary=f"{task} 完成")
+
+    with (
+        patch("nini.agent.model_resolver.model_resolver.preflight", preflight_mock),
+        patch.object(spawner, "_execute_agent", side_effect=mock_execute) as execute_mock,
+    ):
+        results = await spawner.spawn_batch(
+            [("agent_a", "任务A"), ("agent_b", "任务B"), ("agent_c", "任务C")],
+            parent_session,
+        )
+
+    assert [result.agent_id for result in results] == ["agent_a", "agent_b", "agent_c"]
+    assert results[0].success is False
+    assert results[0].stop_reason == "preflight_failed"
+    assert results[1].success is True
+    assert results[2].success is True
+    assert execute_mock.await_count == 2
+    assert preflight_mock.await_count == 3

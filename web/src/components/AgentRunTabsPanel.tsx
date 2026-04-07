@@ -59,6 +59,29 @@ export default function AgentRunTabsPanel() {
     return null;
   }
 
+  function renderDispatchSummary(run: (typeof tabs)[number]) {
+    if (run.runScope !== "dispatch") return null;
+    const parts: string[] = [];
+    if (typeof run.runnableCount === "number") {
+      parts.push(`可执行 ${run.runnableCount}`);
+    }
+    if (typeof run.preflightFailureCount === "number") {
+      parts.push(`预检失败 ${run.preflightFailureCount}`);
+    }
+    if (typeof run.routingFailureCount === "number" && run.routingFailureCount > 0) {
+      parts.push(`路由失败 ${run.routingFailureCount}`);
+    }
+    if (typeof run.executionFailureCount === "number" && run.executionFailureCount > 0) {
+      parts.push(`执行失败 ${run.executionFailureCount}`);
+    }
+    if (parts.length === 0) return null;
+    return (
+      <div className="mt-2 text-[11px] leading-4 text-[var(--text-secondary)]">
+        {parts.join(" · ")}
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] shadow-sm overflow-hidden">
       <div className="border-b border-[var(--border-subtle)] px-4 py-2.5">
@@ -121,6 +144,7 @@ export default function AgentRunTabsPanel() {
                 <div className="mt-2 min-h-[32px] overflow-hidden text-[11px] leading-4 text-[var(--text-secondary)]">
                   {run.progressMessage || run.task || "等待事件..."}
                 </div>
+                {renderDispatchSummary(run)}
               </button>
             );
           })}

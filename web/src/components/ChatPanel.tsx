@@ -20,6 +20,7 @@ import AskUserQuestionPanel from './AskUserQuestionPanel'
 import ChatInputArea from './ChatInputArea'
 import SkillProgressPanel from './SkillProgressPanel'
 import Button from './ui/Button'
+import type { AgentRunThread, DispatchFailureItem, DispatchLedgerItem } from '../store/types'
 
 const compactTokenFormatter = new Intl.NumberFormat('en-US', {
  notation: 'compact',
@@ -44,6 +45,136 @@ const selectedRunStatusClass = {
  stopped:
  'border-[color-mix(in_srgb,var(--text-muted)_24%,transparent)] bg-[var(--bg-elevated)] text-[var(--text-secondary)]',
 } as const
+
+function renderDispatchLedgerBadges(
+ run: AgentRunThread,
+) {
+ const badges: string[] = []
+ if (typeof run.runnableCount === 'number') {
+ badges.push(`可执行 ${run.runnableCount}`)
+ }
+ if (typeof run.preflightFailureCount === 'number') {
+ badges.push(`预检失败 ${run.preflightFailureCount}`)
+ }
+ if (typeof run.routingFailureCount === 'number' && run.routingFailureCount > 0) {
+ badges.push(`路由失败 ${run.routingFailureCount}`)
+ }
+ if (typeof run.executionFailureCount === 'number' && run.executionFailureCount > 0) {
+ badges.push(`执行失败 ${run.executionFailureCount}`)
+ }
+ return badges
+}
+
+function renderDispatchFailureSection(
+ title: string,
+ items: DispatchFailureItem[] | null | undefined,
+) {
+ if (!items || items.length === 0) return null
+ return (
+ <div className="mt-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
+ <p className="text-xs font-medium text-[var(--text-secondary)]">{title}</p>
+ <div className="mt-2 space-y-2">
+ {items.map((item, index) => (
+ <div
+ key={`${title}-${item.agent_id || 'unknown'}-${index}`}
+ className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2"
+ >
+ <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+ <span className="text-xs font-semibold text-[var(--text-primary)]">
+ {item.agent_id || '未匹配 agent'}
+ </span>
+ {item.task && (
+ <span className="text-xs text-[var(--text-secondary)]">{item.task}</span>
+ )}
+ </div>
+ <p className="mt-1 text-xs text-[var(--text-muted)] break-words">
+ {item.error || '未返回详细原因'}
+ </p>
+ </div>
+ ))}
+ </div>
+ </div>
+ )
+}
+
+const dispatchLedgerStatusLabel: Record<string, string> = {
+ success: '成功',
+ error: '失败',
+ stopped: '已停止',
+}
+
+const dispatchLedgerStatusClass: Record<string, string> = {
+ success:
+ 'border-[color-mix(in_srgb,var(--success)_22%,transparent)] bg-[color-mix(in_srgb,var(--success)_10%,var(--bg-base))] text-[var(--success)]',
+ error:
+ 'border-[color-mix(in_srgb,var(--error)_22%,transparent)] bg-[color-mix(in_srgb,var(--error)_10%,var(--bg-base))] text-[var(--error)]',
+ stopped:
+ 'border-[color-mix(in_srgb,var(--text-muted)_24%,transparent)] bg-[var(--bg-elevated)] text-[var(--text-secondary)]',
+}
+
+function renderDispatchLedgerSection(
+ items: DispatchLedgerItem[] | null | undefined,
+) {
+ if (!items || items.length === 0) return null
+ return (
+ <div className="mt-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
+ <p className="text-xs font-medium text-[var(--text-secondary)]">子任务账本</p>
+ <div className="mt-2 space-y-2">
+ {items.map((item, index) => {
+ const status = typeof item.status === 'string' ? item.status : 'success'
+ const statusLabel = dispatchLedgerStatusLabel[status] || status
+ const statusClass =
+ dispatchLedgerStatusClass[status] ||
+ 'border-[var(--border-subtle)] bg-[var(--bg-base)] text-[var(--text-secondary)]'
+ return (
+ <div
+ key={`${item.agent_id || item.agent_name || 'entry'}-${item.task || index}`}
+ className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2"
+ >
+ <div className="flex flex-wrap items-center justify-between gap-2">
+ <div className="min-w-0">
+ <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+ <span className="text-xs font-semibold text-[var(--text-primary)]">
+ {item.agent_name || item.agent_id || '未命名 agent'}
+ </span>
+ {item.task && (
+ <span className="text-xs text-[var(--text-secondary)]">{item.task}</span>
+ )}
+ </div>
+ </div>
+ <span
+ className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold leading-none ${statusClass}`}
+ >
+ {statusLabel}
+ </span>
+ </div>
+ {(item.summary || item.error || item.stop_reason) && (
+ <p className="mt-1 text-xs text-[var(--text-muted)] break-words">
+ {item.error || item.summary || item.stop_reason}
+ </p>
+ )}
+ {(typeof item.execution_time_ms === 'number' ||
+ typeof item.artifact_count === 'number' ||
+ typeof item.document_count === 'number') && (
+ <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-[var(--text-secondary)]">
+ {typeof item.execution_time_ms === 'number' && (
+ <span>耗时 {formatDuration(item.execution_time_ms)}</span>
+ )}
+ {typeof item.artifact_count === 'number' && item.artifact_count > 0 && (
+ <span>产物 {item.artifact_count}</span>
+ )}
+ {typeof item.document_count === 'number' && item.document_count > 0 && (
+ <span>文档 {item.document_count}</span>
+ )}
+ </div>
+ )}
+ </div>
+ )
+ })}
+ </div>
+ </div>
+ )
+}
 
 function formatDuration(durationMs: number): string {
  if (durationMs < 1000) return `${Math.max(1, durationMs)}ms`
@@ -117,6 +248,10 @@ export default function ChatPanel() {
  }, [agentRuns, selectedRunId])
  const selectedSubagentRun = useMemo(() => {
  if (!selectedRun || selectedRun.runScope !== 'subagent') return null
+ return selectedRun
+ }, [selectedRun])
+ const selectedDispatchRun = useMemo(() => {
+ if (!selectedRun || selectedRun.runScope !== 'dispatch') return null
  return selectedRun
  }, [selectedRun])
  const displayMessages = useMemo(() => {
@@ -290,6 +425,16 @@ export default function ChatPanel() {
  : typeof selectedSubagentRun?.latestExecutionTimeMs === 'number'
  ? formatDuration(selectedSubagentRun.latestExecutionTimeMs)
  : null
+ const selectedDispatchDuration =
+ selectedDispatchRun?.status === 'running'
+ ? formatDuration(Math.max(0, Date.now() - selectedDispatchRun.startTime))
+ : typeof selectedDispatchRun?.latestExecutionTimeMs === 'number'
+ ? formatDuration(selectedDispatchRun.latestExecutionTimeMs)
+ : null
+ const selectedDispatchLedger = useMemo(() => {
+ if (!selectedDispatchRun) return []
+ return renderDispatchLedgerBadges(selectedDispatchRun)
+ }, [selectedDispatchRun])
 
  return (
  <div className="flex flex-col flex-1 min-h-0">
@@ -438,6 +583,59 @@ export default function ChatPanel() {
  终止子 Agent
  </Button>
  )}
+ </div>
+ </div>
+ )}
+ {showConversationContent && selectedDispatchRun && (
+ <div
+ id="agent-run-thread-panel"
+ className="mb-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-base)] px-4 py-3 shadow-sm"
+ >
+ <div className="flex items-start justify-between gap-3">
+ <div className="min-w-0 flex-1">
+ <div className="flex flex-wrap items-start gap-2">
+ <span className="text-xs font-medium uppercase tracking-[0.16em] text-[var(--text-muted)]">
+ 派发账本
+ </span>
+ <span
+ className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold leading-none ${selectedRunStatusClass[selectedDispatchRun.status]}`}
+ >
+ {selectedRunStatusLabel[selectedDispatchRun.status]}
+ </span>
+ </div>
+ <div className="mt-2 flex flex-wrap items-start gap-x-3 gap-y-1">
+ <span className="text-sm font-semibold text-[var(--text-primary)]">
+ {selectedDispatchRun.agentName}
+ </span>
+ <span className="text-xs text-[var(--text-secondary)]">
+ 尝试 {selectedDispatchRun.attempt}
+ </span>
+ {selectedDispatchDuration && (
+ <span className="text-xs text-[var(--text-secondary)]">
+ 耗时 {selectedDispatchDuration}
+ </span>
+ )}
+ </div>
+ <p className="mt-2 text-xs text-[var(--text-secondary)] break-words">
+ {selectedDispatchRun.progressMessage || selectedDispatchRun.summary || selectedDispatchRun.task}
+ </p>
+ {selectedDispatchLedger.length > 0 && (
+ <div className="mt-3 flex flex-wrap gap-2">
+ {selectedDispatchLedger.map((item) => (
+ <span
+ key={item}
+ className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-2 py-1 text-[11px] text-[var(--text-secondary)]"
+ >
+ {item}
+ </span>
+ ))}
+ </div>
+ )}
+ {renderDispatchLedgerSection(selectedDispatchRun.dispatchLedger)}
+ {renderDispatchFailureSection('预检失败明细', selectedDispatchRun.preflightFailures)}
+ {renderDispatchFailureSection('路由失败明细', selectedDispatchRun.routingFailures)}
+ {renderDispatchFailureSection('执行失败明细', selectedDispatchRun.executionFailures)}
+ </div>
  </div>
  </div>
  )}

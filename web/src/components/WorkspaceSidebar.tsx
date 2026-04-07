@@ -10,6 +10,7 @@ import ArtifactGallery from './ArtifactGallery'
 import CodeExecutionPanel from './CodeExecutionPanel'
 import FilePreviewPane from './FilePreviewPane'
 import AnalysisTasksPanel from './AnalysisTasksPanel'
+import DispatchLedgerOverviewPanel from './DispatchLedgerOverviewPanel'
 import {
  FolderOpen,
  Terminal,
@@ -385,9 +386,14 @@ export default function WorkspaceSidebar() {
  <CodeExecutionPanel />
  )}
 
- {!previewFileId && workspacePanelTab === 'tasks' && (
+{!previewFileId && workspacePanelTab === 'tasks' && (
+ <div className="h-full min-h-0 flex flex-col">
+ <DispatchLedgerOverviewPanel />
+ <div className="min-h-0 flex-1">
  <AnalysisTasksPanel />
- )}
+ </div>
+ </div>
+)}
  </div>
  </div>
  )

@@ -6,7 +6,7 @@
  * 订阅 Zustand store，实时反映 agent_start/complete/error 事件。
  */
 import { useStore } from "../store";
-import type { AgentInfo } from "../store/types";
+import type { AgentInfo, AgentRunThread } from "../store/types";
 
 const STATUS_STYLES: Record<AgentInfo["status"], string> = {
  running: "bg-[var(--accent-subtle)] border-[var(--accent)] text-[var(--accent)]",
@@ -54,28 +54,90 @@ function AgentNode({ agent }: AgentNodeProps) {
  );
 }
 
+function buildDispatchSummary(dispatchRun: AgentRunThread): string[] {
+ const parts: string[] = [];
+ if (typeof dispatchRun.runnableCount === "number") {
+  parts.push(`可执行 ${dispatchRun.runnableCount}`);
+ }
+ if (typeof dispatchRun.preflightFailureCount === "number") {
+  parts.push(`预检失败 ${dispatchRun.preflightFailureCount}`);
+ }
+ if (
+  typeof dispatchRun.routingFailureCount === "number" &&
+  dispatchRun.routingFailureCount > 0
+ ) {
+  parts.push(`路由失败 ${dispatchRun.routingFailureCount}`);
+ }
+ if (
+  typeof dispatchRun.executionFailureCount === "number" &&
+  dispatchRun.executionFailureCount > 0
+ ) {
+  parts.push(`执行失败 ${dispatchRun.executionFailureCount}`);
+ }
+ return parts;
+}
+
 export default function WorkflowTopology() {
  const activeAgents = useStore((s) => s.activeAgents);
  const completedAgents = useStore((s) => s.completedAgents);
+ const agentRunTabs = useStore((s) => s.agentRunTabs);
+ const agentRuns = useStore((s) => s.agentRuns);
 
  const activeList = Object.values(activeAgents);
  const allAgents = [...activeList, ...completedAgents].sort(
  (left, right) => right.updatedAt - left.updatedAt,
  );
+ const dispatchRun = agentRunTabs
+  .map((runId) => agentRuns[runId])
+  .filter((run): run is AgentRunThread => Boolean(run))
+  .find((run) => run.runScope === "dispatch");
+ const dispatchSummary = dispatchRun ? buildDispatchSummary(dispatchRun) : [];
 
- // 少于 2 个 Agent 时不渲染
- if (allAgents.length < 2) {
+ if (!dispatchRun && allAgents.length < 2) {
  return null;
  }
 
  return (
  <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-4 py-3">
  <p className="mb-2 text-xs font-medium text-[var(--text-secondary)]">并行执行中</p>
+ {dispatchRun && (
+ <div className="mb-3 rounded-lg border border-[color-mix(in_srgb,var(--accent)_18%,transparent)] bg-[var(--bg-base)] px-3 py-2.5">
+ <div className="flex items-start justify-between gap-3">
+ <div className="min-w-0">
+ <p className="text-sm font-medium text-[var(--text-primary)]">任务派发预检</p>
+ <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">
+ {dispatchRun.progressMessage || dispatchRun.summary || dispatchRun.task}
+ </p>
+ </div>
+ <span
+ className={`inline-flex shrink-0 items-center rounded-full border px-2 py-1 text-[10px] font-semibold leading-none ${STATUS_STYLES[dispatchRun.status]}`}
+ >
+ {STATUS_LABEL[dispatchRun.status]}
+ </span>
+ </div>
+ {dispatchSummary.length > 0 && (
+ <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-[var(--text-secondary)]">
+ {dispatchSummary.map((item) => (
+ <span
+ key={item}
+ className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-2 py-1"
+ >
+ {item}
+ </span>
+ ))}
+ </div>
+ )}
+ </div>
+ )}
+ {allAgents.length > 0 ? (
  <div className="flex max-h-56 flex-wrap gap-2 overflow-y-auto">
  {allAgents.map((agent) => (
  <AgentNode key={agent.agentId} agent={agent} />
  ))}
  </div>
+ ) : (
+ <p className="text-xs text-[var(--text-secondary)]">等待子 Agent 启动...</p>
+ )}
  </div>
  );
 }

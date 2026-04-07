@@ -51,19 +51,13 @@ class DagExecutor:
         # 将 DagTask 转换为 TaskManager 识别的整数 id 映射
         # 使用字符串 id → 整数 id 的映射表（Kahn 算法基于整数 id）
         str_id_to_int: dict[str, int] = {t.id: idx + 1 for idx, t in enumerate(tasks)}
-        int_to_dag_task: dict[int, DagTask] = {
-            str_id_to_int[t.id]: t for t in tasks
-        }
+        int_to_dag_task: dict[int, DagTask] = {str_id_to_int[t.id]: t for t in tasks}
 
         raw_tasks: list[dict[str, Any]] = []
         for t in tasks:
             int_id = str_id_to_int[t.id]
             # 只保留在任务列表中存在的依赖（过滤无效引用）
-            valid_deps = [
-                str_id_to_int[dep]
-                for dep in t.depends_on
-                if dep in str_id_to_int
-            ]
+            valid_deps = [str_id_to_int[dep] for dep in t.depends_on if dep in str_id_to_int]
             if len(valid_deps) < len(t.depends_on):
                 invalid = [dep for dep in t.depends_on if dep not in str_id_to_int]
                 logger.warning(
@@ -108,6 +102,7 @@ class DagExecutor:
         spawner: Any,
         router: Any,
         turn_id: str | None = None,
+        preflight_reporter: Any = None,
     ) -> list[Any]:
         """按 wave 顺序执行所有任务，wave 间注入前序摘要。
 
@@ -132,9 +127,41 @@ class DagExecutor:
             # 构造 (agent_id, task_text) 对
             task_pairs = [(t.agent_id, t.task) for t in injected_wave]
 
+            preflight_plan = None
+            if hasattr(spawner, "preflight_batch"):
+                preflight_plan = await spawner.preflight_batch(
+                    task_pairs,
+                    session,
+                    parent_turn_id=turn_id,
+                    emit_agent_errors=False,
+                )
+                if preflight_reporter is not None:
+                    payload = {
+                        "task_count": len(task_pairs),
+                        "routed_task_count": len(task_pairs),
+                        "runnable_count": preflight_plan.runnable_count,
+                        "preflight_failure_count": preflight_plan.failure_count,
+                        "routing_failure_count": 0,
+                        "preflight_failures": [
+                            {
+                                "agent_id": result.agent_id,
+                                "agent_name": result.agent_name,
+                                "task": result.task,
+                                "error": result.error or result.summary,
+                            }
+                            for result in preflight_plan.failed_results
+                        ],
+                    }
+                    maybe_coro = preflight_reporter(payload)
+                    if hasattr(maybe_coro, "__await__"):
+                        await maybe_coro
+
             # 并行执行当前 wave
             wave_results = await spawner.spawn_batch(
-                task_pairs, session, parent_turn_id=turn_id
+                task_pairs,
+                session,
+                parent_turn_id=turn_id,
+                preflight_plan=preflight_plan,
             )
             all_results.extend(wave_results)
             prev_wave_results = list(wave_results)

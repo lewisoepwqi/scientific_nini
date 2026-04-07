@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from nini.agent.model_resolver import ModelResolver
+from nini.agent.model_resolver import ModelPreflightResult, ModelResolver
 from nini.agent.providers import BaseLLMClient, LLMChunk
 from nini.config_manager import BUILTIN_PROVIDER_ID
 
@@ -194,3 +194,51 @@ async def test_planning_purpose_inherits_chat_route_when_unset() -> None:
     assert len(chunks) == 1
     assert chunks[0].provider_id == "zhipu"
     assert chunks[0].model == "glm-5"
+
+
+@pytest.mark.asyncio
+async def test_preflight_reports_builtin_fast_quota_exhausted() -> None:
+    """预检应在调用前返回配额不足，而不是进入实际 chat。"""
+    resolver = ModelResolver(clients=[])
+    resolver.set_purpose_route("chat", provider_id=BUILTIN_PROVIDER_ID, model="fast")
+
+    async def fake_is_builtin_exhausted(mode: str) -> bool:
+        return mode == "fast"
+
+    with (
+        patch("nini.config_manager.is_builtin_exhausted", side_effect=fake_is_builtin_exhausted),
+        patch.object(
+            resolver,
+            "_get_user_configured_provider_ids",
+            AsyncMock(return_value=[]),
+        ),
+    ):
+        result = await resolver.preflight(purpose="chat")
+
+    assert isinstance(result, ModelPreflightResult)
+    assert result.available is False
+    assert "快速" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_preflight_reports_primary_available_client() -> None:
+    """预检应返回首选客户端及降级链信息。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(provider_id="openai", model="gpt-test", available=True),
+            FakeClient(provider_id="deepseek", model="deepseek-chat", available=True),
+        ]
+    )
+    resolver.set_purpose_route("chat", provider_id="openai", model="gpt-test")
+
+    with patch.object(
+        resolver,
+        "_get_user_configured_provider_ids",
+        AsyncMock(return_value=["openai", "deepseek"]),
+    ):
+        result = await resolver.preflight(purpose="chat")
+
+    assert result.available is True
+    assert result.provider_id == "openai"
+    assert result.model == "gpt-test"
+    assert [item["provider_id"] for item in result.fallback_chain] == ["openai", "deepseek"]

@@ -51,6 +51,10 @@ class _FixedPurposeResolver:
         async for chunk in self._base.chat(messages, tools, purpose=self._purpose, **kwargs):
             yield chunk
 
+    async def preflight(self, *, purpose: str = "default"):
+        """代理预检调用，强制使用固定 purpose。"""
+        return await self._base.preflight(purpose=self._purpose)
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._base, name)
 
@@ -118,6 +122,26 @@ class SubAgentResult:
     resource_session_id: str = ""
 
 
+@dataclass
+class BatchPreflightPlan:
+    """批量子任务的预检计划。"""
+
+    ordered_results: list[SubAgentResult | None]
+    executable_tasks: list[tuple[int, str, str]]
+
+    @property
+    def failed_results(self) -> list[SubAgentResult]:
+        return [result for result in self.ordered_results if result is not None]
+
+    @property
+    def runnable_count(self) -> int:
+        return len(self.executable_tasks)
+
+    @property
+    def failure_count(self) -> int:
+        return len(self.failed_results)
+
+
 class SubAgentSpawner:
     """子 Agent 动态派生器。
 
@@ -136,6 +160,103 @@ class SubAgentSpawner:
         self._tool_registry = tool_registry
         # 断路器：记录各 agent_id 的连续失败次数（跨 spawn_with_retry 调用有效）
         self._circuit_breaker_failures: dict[str, int] = {}
+
+    @staticmethod
+    def _build_subagent_task(task: str, *, allow_task_planning: bool) -> str:
+        """为子 Agent 注入执行边界，避免其在窄任务上重新规划整条流程。"""
+        if allow_task_planning:
+            return task
+        guardrail = (
+            "执行约束：这是主 Agent 分配给你的单个窄子任务。\n"
+            "只执行当前任务所需的分析，不要重新拆分全局任务，不要创建新的任务板，"
+            "不要调用 task_state 或 task_write。\n\n"
+        )
+        return guardrail + task
+
+    @staticmethod
+    def _extract_child_failure_message(event: Any) -> str | None:
+        """从子 Agent 事件中提取失败信号。"""
+        from nini.agent.events import EventType
+
+        if event.type == EventType.ERROR:
+            data = getattr(event, "data", None)
+            if isinstance(data, dict):
+                return (
+                    str(data.get("message") or data.get("error") or "").strip()
+                    or "子 Agent 执行失败"
+                )
+            return str(data or "").strip() or "子 Agent 执行失败"
+
+        if event.type == EventType.TOOL_RESULT:
+            data = getattr(event, "data", None)
+            if isinstance(data, dict) and str(data.get("status") or "").strip() == "error":
+                return str(data.get("message") or "工具执行失败").strip()
+        return None
+
+    @staticmethod
+    def _collect_session_level_failures(session: Any) -> list[str]:
+        """从子会话消息中补采集失败信号，兜底 runner 未显式抛错的场景。"""
+        failures: list[str] = []
+        for message in getattr(session, "messages", []):
+            if not isinstance(message, dict):
+                continue
+            if (
+                message.get("role") == "tool"
+                and str(message.get("status") or "").strip() == "error"
+            ):
+                content = str(message.get("content") or "").strip()
+                if content:
+                    failures.append(content)
+            elif (
+                message.get("role") == "assistant"
+                and str(message.get("event_type") or "").strip() == "error"
+            ):
+                content = str(message.get("content") or "").strip()
+                if content:
+                    failures.append(content)
+        return failures
+
+    def _record_child_audit_event(
+        self,
+        *,
+        child_session: Any,
+        event: Any,
+        agent_def: Any,
+        run_id: str,
+        parent_turn_id: str | None,
+        attempt: int,
+        subtask_index: int | None,
+    ) -> None:
+        """将子 Agent 原始事件写入子会话审计日志。"""
+        if (
+            child_session is None
+            or not getattr(child_session, "supports_persistent_state", lambda: False)()
+        ):
+            return
+        try:
+            from nini.agent.session import session_manager
+
+            session_manager.append_agent_run_event(
+                child_session.id,
+                {
+                    "type": getattr(event.type, "value", str(event.type)),
+                    "data": getattr(event, "data", None),
+                    "tool_call_id": getattr(event, "tool_call_id", None),
+                    "tool_name": getattr(event, "tool_name", None),
+                    "turn_id": parent_turn_id or getattr(event, "turn_id", None),
+                    "metadata": {
+                        "run_scope": "subagent",
+                        "run_id": run_id,
+                        "agent_id": agent_def.agent_id,
+                        "agent_name": agent_def.name,
+                        "attempt": attempt,
+                        "subtask_index": subtask_index,
+                        "phase": getattr(event.type, "value", str(event.type)),
+                    },
+                },
+            )
+        except Exception as exc:
+            logger.debug("写入子会话审计事件失败（非致命）: %s", exc)
 
     async def _invoke_execute_impl(self, impl: Any, *args: Any, **kwargs: Any) -> Any:
         """兼容旧测试桩的执行签名。"""
@@ -170,6 +291,7 @@ class SubAgentSpawner:
         parent_turn_id: str | None = None,
         stop_event: asyncio.Event | None = None,
         subtask_index: int | None = None,
+        skip_preflight: bool = False,
     ) -> SubAgentResult:
         """派生并执行单个子 Agent。
 
@@ -196,7 +318,141 @@ class SubAgentSpawner:
                 parent_turn_id=parent_turn_id,
                 stop_event=stop_event,
                 subtask_index=subtask_index,
+                skip_preflight=skip_preflight,
             )
+
+    async def _preflight_agent_execution(
+        self,
+        agent_def: Any,
+        task: str,
+        *,
+        parent_session: Any,
+        parent_turn_id: str | None,
+        attempt: int,
+        retry_count: int,
+        run_id: str,
+        subtask_index: int | None,
+        emit_agent_error: bool = True,
+        attach_snapshot: bool = True,
+    ) -> SubAgentResult | None:
+        """在真正启动子 Agent 前检查模型可执行性。"""
+        from nini.agent.model_resolver import model_resolver as _default_resolver
+
+        model_pref = getattr(agent_def, "model_preference", None)
+        sub_purpose = _MODEL_PREFERENCE_TO_PURPOSE.get(model_pref, "analysis")
+        preflight = await _default_resolver.preflight(purpose=sub_purpose)
+        if preflight.available:
+            return None
+
+        preflight_reason = preflight.reason or "模型预检失败"
+        result = SubAgentResult(
+            agent_id=agent_def.agent_id,
+            success=False,
+            agent_name=agent_def.name,
+            task=task,
+            summary=preflight_reason,
+            execution_time_ms=0,
+            error=preflight_reason,
+            stop_reason="preflight_failed",
+            run_id=run_id,
+            turn_id=parent_turn_id or "",
+            parent_session_id=str(getattr(parent_session, "id", "") or ""),
+        )
+        self._finalize_result(
+            result,
+            agent_def=agent_def,
+            task=task,
+            parent_session=parent_session,
+            parent_turn_id=parent_turn_id,
+            run_id=run_id,
+        )
+        if emit_agent_error:
+            await self._emit_preflight_failure_event(
+                parent_session=parent_session,
+                result=result,
+                parent_turn_id=parent_turn_id,
+                attempt=attempt,
+                retry_count=retry_count,
+                subtask_index=subtask_index,
+            )
+        if attach_snapshot:
+            self._attach_snapshot(parent_session, result, attempt=attempt)
+        return result
+
+    async def _emit_preflight_failure_event(
+        self,
+        *,
+        parent_session: Any,
+        result: SubAgentResult,
+        parent_turn_id: str | None,
+        attempt: int,
+        retry_count: int,
+        subtask_index: int | None,
+    ) -> None:
+        """将预检失败显式推送为子 Agent 错误事件。"""
+        await self._push_event(
+            parent_session,
+            "agent_error",
+            {
+                "event_type": "agent_error",
+                "agent_id": result.agent_id,
+                "agent_name": result.agent_name,
+                "error": result.error or result.summary,
+                "execution_time_ms": 0,
+                "attempt": attempt,
+                "retry_count": retry_count,
+            },
+            turn_id=parent_turn_id,
+            metadata=self._build_run_metadata(
+                parent_turn_id=parent_turn_id,
+                agent_id=result.agent_id,
+                agent_name=result.agent_name or result.agent_id,
+                attempt=attempt,
+                run_id=result.run_id,
+                subtask_index=subtask_index,
+            ),
+        )
+
+    async def preflight_batch(
+        self,
+        tasks: list[tuple[str, str]],
+        session: Any,
+        *,
+        parent_turn_id: str | None = None,
+        emit_agent_errors: bool = False,
+    ) -> BatchPreflightPlan:
+        """批量预检子任务，返回可执行计划。"""
+        ordered_results: list[SubAgentResult | None] = [None] * len(tasks)
+        executable_tasks: list[tuple[int, str, str]] = []
+
+        for task_index, (agent_id, task) in enumerate(tasks, start=1):
+            agent_def = self._registry.get(agent_id)
+            if agent_def is None:
+                executable_tasks.append((task_index, agent_id, task))
+                continue
+
+            run_id = self._build_run_id(parent_turn_id, agent_id, 1, task_index)
+            preflight_result = await self._preflight_agent_execution(
+                agent_def,
+                task,
+                parent_session=session,
+                parent_turn_id=parent_turn_id,
+                attempt=1,
+                retry_count=0,
+                run_id=run_id,
+                subtask_index=task_index,
+                emit_agent_error=emit_agent_errors,
+                attach_snapshot=emit_agent_errors,
+            )
+            if preflight_result is not None:
+                ordered_results[task_index - 1] = preflight_result
+            else:
+                executable_tasks.append((task_index, agent_id, task))
+
+        return BatchPreflightPlan(
+            ordered_results=ordered_results,
+            executable_tasks=executable_tasks,
+        )
 
     async def _spawn_impl(
         self,
@@ -210,6 +466,7 @@ class SubAgentSpawner:
         parent_turn_id: str | None = None,
         stop_event: asyncio.Event | None = None,
         subtask_index: int | None = None,
+        skip_preflight: bool = False,
     ) -> SubAgentResult:
         """spawn 的实际实现（由 spawn() 包装 OTel span 后调用）。"""
         agent_def = self._registry.get(agent_id)
@@ -233,6 +490,20 @@ class SubAgentSpawner:
             run_id=run_id,
             subtask_index=subtask_index,
         )
+
+        if not skip_preflight:
+            preflight_result = await self._preflight_agent_execution(
+                agent_def,
+                task,
+                parent_session=session,
+                parent_turn_id=parent_turn_id,
+                attempt=attempt,
+                retry_count=retry_count,
+                run_id=run_id,
+                subtask_index=subtask_index,
+            )
+            if preflight_result is not None:
+                return preflight_result
 
         subagent_stop_events = getattr(session, "subagent_stop_events", None)
         if not isinstance(subagent_stop_events, dict):
@@ -451,11 +722,14 @@ class SubAgentSpawner:
             subagent_stop_events.pop(run_id, None)
 
     # 不可重试的永久失败类型：这些情况下重试无意义
-    _PERMANENT_STOP_REASONS: frozenset[str] = frozenset({
-        "missing_agent",       # agent_id 不存在，重试也不会出现
-        "permission_denied",   # 权限拒绝，配置问题
-        "config_error",        # 配置错误
-    })
+    _PERMANENT_STOP_REASONS: frozenset[str] = frozenset(
+        {
+            "missing_agent",  # agent_id 不存在，重试也不会出现
+            "permission_denied",  # 权限拒绝，配置问题
+            "config_error",  # 配置错误
+            "preflight_failed",  # 模型额度/配置预检失败，短期内重试无意义
+        }
+    )
 
     # 断路器：同一 agent_id 在本次 spawner 实例中连续失败次数阈值
     _CIRCUIT_BREAKER_THRESHOLD: int = 3
@@ -554,6 +828,7 @@ class SubAgentSpawner:
         max_concurrency: int = 4,
         *,
         parent_turn_id: str | None = None,
+        preflight_plan: BatchPreflightPlan | None = None,
     ) -> list[SubAgentResult]:
         """批量并行执行子 Agent。
 
@@ -567,6 +842,29 @@ class SubAgentSpawner:
         """
         if not tasks:
             return []
+
+        plan = preflight_plan or await self.preflight_batch(
+            tasks,
+            session,
+            parent_turn_id=parent_turn_id,
+            emit_agent_errors=preflight_plan is None,
+        )
+        ordered_results: list[SubAgentResult | None] = list(plan.ordered_results)
+        executable_tasks = list(plan.executable_tasks)
+
+        if preflight_plan is not None:
+            for task_index, result in enumerate(ordered_results, start=1):
+                if result is None:
+                    continue
+                await self._emit_preflight_failure_event(
+                    parent_session=session,
+                    result=result,
+                    parent_turn_id=parent_turn_id,
+                    attempt=1,
+                    retry_count=0,
+                    subtask_index=task_index,
+                )
+                self._attach_snapshot(session, result, attempt=1)
 
         semaphore = asyncio.Semaphore(max_concurrency)
 
@@ -582,16 +880,23 @@ class SubAgentSpawner:
                     session,
                     parent_turn_id=parent_turn_id,
                     subtask_index=task_index,
+                    skip_preflight=True,
                 )
 
-        raw_results = await asyncio.gather(
-            *(
-                run_with_semaphore(agent_id, task, task_index)
-                for task_index, (agent_id, task) in enumerate(tasks, start=1)
-            ),
-            return_exceptions=False,
-        )
-        results = cast(list[SubAgentResult], raw_results)
+        if executable_tasks:
+            raw_results = await asyncio.gather(
+                *(
+                    run_with_semaphore(agent_id, task, task_index)
+                    for task_index, agent_id, task in executable_tasks
+                ),
+                return_exceptions=False,
+            )
+            for (task_index, _, _), result in zip(executable_tasks, raw_results, strict=False):
+                ordered_results[task_index - 1] = result
+
+        if any(result is None for result in ordered_results):
+            raise RuntimeError("spawn_batch 未能为所有子任务生成结果")
+        results = cast(list[SubAgentResult], ordered_results)
 
         # 串行将子 Agent 产物回写到父会话，使用命名空间键 {agent_id}.{key} 防止多 Agent 同名覆盖
         for result in results:
@@ -599,16 +904,12 @@ class SubAgentSpawner:
             for key, value in result.artifacts.items():
                 namespaced = f"{agent_id}.{key}"
                 if namespaced in session.artifacts:
-                    logger.warning(
-                        "spawn_batch: artifact 命名空间键冲突 '%s'，已覆盖", namespaced
-                    )
+                    logger.warning("spawn_batch: artifact 命名空间键冲突 '%s'，已覆盖", namespaced)
                 session.artifacts[namespaced] = value
             for key, value in result.documents.items():
                 namespaced = f"{agent_id}.{key}"
                 if namespaced in session.documents:
-                    logger.warning(
-                        "spawn_batch: document 命名空间键冲突 '%s'，已覆盖", namespaced
-                    )
+                    logger.warning("spawn_batch: document 命名空间键冲突 '%s'，已覆盖", namespaced)
                 session.documents[namespaced] = value
 
         return list(results)
@@ -655,6 +956,7 @@ class SubAgentSpawner:
             datasets=dict(parent_session.datasets),
             artifacts={},
             documents={},
+            persist_runtime_state=True,
             event_callback=self._make_subagent_event_callback(
                 parent_session=parent_session,
                 agent_def=agent_def,
@@ -673,6 +975,7 @@ class SubAgentSpawner:
 
         # 创建沙箱目录，将子会话的 workspace_root 指向沙箱（隔离并行子 Agent 的写入）
         from nini.config import settings as _settings
+
         parent_session_id_str = str(getattr(parent_session, "id", "") or "")
         parent_workspace = _settings.sessions_dir / parent_session_id_str / "workspace"
         sandbox_dir = parent_workspace / "sandbox_tmp" / effective_run_id
@@ -687,8 +990,16 @@ class SubAgentSpawner:
 
         # 构造受限工具子集，深度控制 dispatch_agents 暴露
         from nini.agent.tool_exposure_policy import ToolExposurePolicy
+
         max_depth = getattr(agent_def, "max_spawn_depth", 0)
+        allow_task_planning = bool(getattr(agent_def, "allow_subtask_planning", False))
         policy = ToolExposurePolicy.from_agent_def(agent_def)
+        if not allow_task_planning:
+            policy = ToolExposurePolicy(
+                allowed_tools=policy.allowed_tools,
+                deny_names=policy.deny_names | frozenset({"task_state", "task_write"}),
+                deny_prefixes=policy.deny_prefixes,
+            )
         if current_depth < max_depth:
             # 允许子 Agent 派发（移除 dispatch_agents 的黑名单屏蔽）
             policy = ToolExposurePolicy(
@@ -710,6 +1021,11 @@ class SubAgentSpawner:
 
         # 执行 ReAct 循环，收集输出
         output_parts: list[str] = []
+        child_failures: list[str] = []
+        effective_task = self._build_subagent_task(
+            task,
+            allow_task_planning=allow_task_planning,
+        )
         log_token = bind_log_context(session_id=sub_session.id)
         try:
             logger.info(
@@ -721,9 +1037,18 @@ class SubAgentSpawner:
             async for event in self._iterate_runner_events(
                 runner,
                 sub_session,
-                task,
+                effective_task,
                 effective_stop_event,
             ):
+                self._record_child_audit_event(
+                    child_session=sub_session,
+                    event=event,
+                    agent_def=agent_def,
+                    run_id=effective_run_id,
+                    parent_turn_id=parent_turn_id,
+                    attempt=attempt,
+                    subtask_index=subtask_index,
+                )
                 from nini.agent.events import EventType
 
                 await self._relay_child_event(
@@ -736,17 +1061,24 @@ class SubAgentSpawner:
                     run_id=effective_run_id,
                     subtask_index=subtask_index,
                 )
+                failure_message = self._extract_child_failure_message(event)
+                if failure_message:
+                    child_failures.append(failure_message)
                 if event.type == EventType.TEXT and event.data:
                     text = event.data if isinstance(event.data, str) else str(event.data)
                     output_parts.append(text)
         finally:
             reset_log_context(log_token)
 
-        success = not effective_stop_event.is_set()
+        child_failures.extend(self._collect_session_level_failures(sub_session))
+        child_failures = list(dict.fromkeys(msg for msg in child_failures if msg))
+        success = not effective_stop_event.is_set() and not child_failures
         detailed_output = "".join(output_parts)
         summary: str
         if effective_stop_event.is_set():
             summary = "用户已终止该子 Agent"
+        elif child_failures:
+            summary = child_failures[0]
         else:
             summary = (
                 detailed_output[:500] if detailed_output else f"Agent {agent_def.agent_id} 执行完成"
@@ -776,13 +1108,15 @@ class SubAgentSpawner:
 
         return SubAgentResult(
             agent_id=agent_def.agent_id,
-            success=True,
+            success=success,
             agent_name=agent_def.name,
             task=task,
             summary=summary,
             detailed_output=detailed_output,
             artifacts=dict(sub_session.artifacts),
             documents=dict(sub_session.documents),
+            error=summary if not success else "",
+            stop_reason="" if success else "child_execution_failed",
             run_id=effective_run_id,
             turn_id=parent_turn_id or "",
             parent_session_id=str(getattr(parent_session, "id", "") or ""),
@@ -835,7 +1169,7 @@ class SubAgentSpawner:
 
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
-            await asyncio.to_thread(shutil.move, str(sandbox_dir), str(dest))
+            shutil.move(str(sandbox_dir), str(dest))
             logger.info(
                 "_archive_sandbox: 沙箱产物已归档 %s → %s",
                 sandbox_dir,
@@ -916,6 +1250,7 @@ class SubAgentSpawner:
             datasets=parent_session.datasets,
             artifacts={},
             documents={},
+            persist_runtime_state=True,
             event_callback=self._make_subagent_event_callback(
                 parent_session=parent_session,
                 agent_def=agent_def,
@@ -933,6 +1268,7 @@ class SubAgentSpawner:
 
         # 构造受限工具子集（ToolExposurePolicy 自动排除 dispatch_agents 防递归）
         from nini.agent.tool_exposure_policy import ToolExposurePolicy
+
         subset_registry = ToolExposurePolicy.from_agent_def(agent_def).apply(self._tool_registry)
         runner = AgentRunner(tool_registry=subset_registry)
 
@@ -1102,6 +1438,8 @@ class SubAgentSpawner:
             result.parent_session_id = str(getattr(parent_session, "id", "") or "")
         if not result.resource_session_id:
             result.resource_session_id = resolve_session_resource_id(parent_session)
+        if result.success and not result.stop_reason:
+            result.stop_reason = "completed"
         if not result.error and not result.success:
             result.error = result.summary or "执行失败"
 
@@ -1113,6 +1451,7 @@ class SubAgentSpawner:
         """
         try:
             from nini.agent.snapshot import SubAgentRunSnapshot
+
             snapshot = SubAgentRunSnapshot.from_result(result, attempt=attempt)
             snapshots = getattr(session, "sub_agent_snapshots", None)
             if isinstance(snapshots, list):
