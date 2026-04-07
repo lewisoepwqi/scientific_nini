@@ -1713,8 +1713,8 @@ class AgentRunner:
                         except Exception as exc:
                             logger.debug("%s 事件发射失败: %s", func_name, exc)
 
-                    # ── task_state(update) 无操作重复检测 ─────────────────────
-                    # 跟踪连续的 task_state(update) 无操作调用，超过阈值后替换为强重定向消息
+                    # ── task_state(update) 无操作重复检测（梯度响应）─────────────
+                    # 跟踪连续的 task_state(update) 无操作调用，按梯度升级干预强度
                     _ts_result_data = result.get("data", {}) if isinstance(result, dict) else {}
                     if (
                         not has_error
@@ -1723,7 +1723,60 @@ class AgentRunner:
                         and isinstance(result, dict)
                     ):
                         task_state_noop_repeat_count += 1
-                        if task_state_noop_repeat_count >= 2:
+                        if task_state_noop_repeat_count >= 6:
+                            # 第三级：硬熔断，跳过执行并返回失败
+                            logger.warning(
+                                "task_state 无操作熔断触发: session=%s "
+                                "repeat_count=%d, 返回熔断错误",
+                                session.id,
+                                task_state_noop_repeat_count,
+                            )
+                            result = {
+                                "success": False,
+                                "message": (
+                                    f"task_state 已连续 {task_state_noop_repeat_count} 次无实际状态变更，"
+                                    "触发熔断。请立即调用实际的分析工具执行当前任务。"
+                                ),
+                                "error_code": "TASK_STATE_NOOP_CIRCUIT_BREAKER",
+                                "data": {
+                                    "loop_detected": True,
+                                    "noop_count": task_state_noop_repeat_count,
+                                    "recovery_hint": (
+                                        "请停止调用 task_state，直接调用分析工具（如 "
+                                        "dataset_catalog、stat_test、run_code、create_chart）。"
+                                    ),
+                                },
+                            }
+                            has_error = True
+                            if pending_loop_warn_message is None:
+                                pending_loop_warn_message = (
+                                    "你已连续多次调用 task_state 但任务状态未变化，已触发熔断。"
+                                    "请立即调用实际的分析工具。"
+                                )
+                        elif task_state_noop_repeat_count >= 4:
+                            # 第二级：注入 system prompt 警告 + 清理 data 中的 no_op_ids
+                            logger.warning(
+                                "task_state 无操作重复升级: session=%s "
+                                "repeat_count=%d, 注入 system prompt 警告",
+                                session.id,
+                                task_state_noop_repeat_count,
+                            )
+                            result["message"] = (
+                                f"⚠️ 你已连续 {task_state_noop_repeat_count} 次调用 task_state(update) "
+                                "但任务状态未发生变化，这表明你陷入了循环。"
+                                "请立即调用实际的分析工具执行当前任务，绝对不要再调用 task_state。"
+                            )
+                            # 清理 data 中的 no_op_ids，避免给 LLM 错误暗示
+                            if isinstance(result.get("data"), dict):
+                                result["data"]["no_op_ids"] = []
+                                result["data"]["loop_detected"] = True
+                            if pending_loop_warn_message is None:
+                                pending_loop_warn_message = (
+                                    "你已连续多次调用 task_state 但任务状态未变化。"
+                                    "请立即调用实际的分析工具（如 dataset_catalog、stat_test、run_code、create_chart）。"
+                                )
+                        elif task_state_noop_repeat_count >= 2:
+                            # 第一级：替换返回消息（轻量干预）
                             logger.warning(
                                 "检测到 task_state 无操作重复调用: session=%s "
                                 "repeat_count=%d, 替换为重定向消息",
@@ -3187,7 +3240,9 @@ class AgentRunner:
                     session=session,
                     tool_registry=self._tool_registry,
                 )
-                visible_tool_names = set(policy.get("visible_tools", [])) if _has_list_tools else None
+                visible_tool_names = (
+                    set(policy.get("visible_tools", [])) if _has_list_tools else None
+                )
             except Exception:
                 visible_tool_names = None
             raw = self._tool_registry.get_tool_definitions()

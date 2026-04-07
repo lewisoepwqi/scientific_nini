@@ -100,10 +100,11 @@ def _trim_text(value: Any, *, max_len: int = 180) -> str:
     return text
 
 
-def _summarize_messages(messages: list[dict[str, Any]], *, max_items: int = 30) -> str:
+def _summarize_messages(messages: list[dict[str, Any]], *, max_items: int = 20) -> str:
     """生成结构化轻量摘要（无 LLM 调用）。
 
     借鉴 claw-code 的结构化提取模式，按类别提取关键信息而非逐条截取。
+    组装顺序：timeline 在前（截断时优先丢弃），结构化信息在后（优先保留）。
     """
     # 1. 消息范围统计
     roles = Counter(str(m.get("role", "unknown")) for m in messages)
@@ -120,10 +121,13 @@ def _summarize_messages(messages: list[dict[str, Any]], *, max_items: int = 30) 
     recent_requests = _extract_recent_user_requests(messages, limit=3, max_chars=160)
     stat_results = _extract_stat_results(messages)
     pending = _extract_pending_tasks(messages)
-    timeline = _build_timeline(messages[:max_items], max_chars=160)
+    # timeline 降低预算：max_items=15, max_chars=100，减少空间占用
+    timeline = _build_timeline(messages[:max_items], max_chars=100)
 
-    # 3. 组装
-    parts = [scope]
+    # 3. 组装（timeline 在前，重要信息在后；截断从尾部保留时重要信息优先保留）
+    parts = []
+    if timeline:
+        parts.append("时间线:\n" + "\n".join(f"  - {t}" for t in timeline))
     if tools_used:
         parts.append(f"使用工具: {', '.join(tools_used)}")
     if datasets:
@@ -134,8 +138,7 @@ def _summarize_messages(messages: list[dict[str, Any]], *, max_items: int = 30) 
         parts.append("关键统计结果:\n" + "\n".join(f"  - {r}" for r in stat_results))
     if pending:
         parts.append("待办事项:\n" + "\n".join(f"  - {p}" for p in pending))
-    if timeline:
-        parts.append("时间线:\n" + "\n".join(f"  - {t}" for t in timeline))
+    parts.append(scope)
     return "\n".join(parts)
 
 
@@ -264,11 +267,6 @@ def _extract_pending_tasks(messages: list[dict[str, Any]]) -> list[str]:
                                 pending.append(f"[{status}] {title}")
                 if pending:
                     return pending[:8]
-        # 也检测包含 pending/todo 关键词的文本消息
-        if re.search(r"(?:pending|todo|待办|未完成|in.progress)", content, re.IGNORECASE):
-            pending.append(_trim_text(content, max_len=120))
-            if len(pending) >= 5:
-                break
     return pending[:8]
 
 
@@ -288,15 +286,32 @@ def _extract_recent_user_requests(
     return requests
 
 
+def _is_task_management_tool(name: str) -> bool:
+    """判断工具名是否属于任务管理类（应在 timeline 中折叠）。"""
+    return name in ("task_state", "task_write")
+
+
 def _build_timeline(messages: list[dict[str, Any]], *, max_chars: int = 160) -> list[str]:
-    """构建消息时间线摘要。"""
+    """构建消息时间线摘要，连续的 task_state/task_write 调用折叠为一行。"""
     timeline: list[str] = []
+    # 折叠计数器：连续的任务管理工具调用次数
+    _task_mgmt_count: int = 0
+
+    def _flush_task_mgmt() -> None:
+        """将累积的任务管理工具条目折叠写入 timeline。"""
+        nonlocal _task_mgmt_count
+        if _task_mgmt_count > 0:
+            if _task_mgmt_count == 1:
+                timeline.append("[助手] task_state")
+            else:
+                timeline.append(f"[助手] task_state (×{_task_mgmt_count}，已折叠)")
+            _task_mgmt_count = 0
+
     for msg in messages:
         role = str(msg.get("role", "unknown")).strip()
-        if role == "tool":
-            content = _trim_text(msg.get("content", ""), max_len=max_chars)
-            timeline.append(f"[工具结果] {content}")
-        elif role == "assistant" and msg.get("tool_calls"):
+
+        # 检测 assistant 消息是否仅包含任务管理工具
+        if role == "assistant" and msg.get("tool_calls"):
             names = []
             for tc in (msg.get("tool_calls") or [])[:4]:
                 if isinstance(tc, dict):
@@ -305,15 +320,42 @@ def _build_timeline(messages: list[dict[str, Any]], *, max_chars: int = 160) -> 
                         name = str(func.get("name", "")).strip()
                         if name:
                             names.append(name)
-            text = _trim_text(msg.get("content", ""), max_len=100)
-            tool_info = f"调用 {', '.join(names)}" if names else ""
-            entry = f"[助手] {tool_info}"
-            if text:
-                entry += f" {text}"
-            timeline.append(_trim_text(entry, max_len=max_chars))
-        else:
-            content = _trim_text(msg.get("content", ""), max_len=max_chars)
-            timeline.append(f"[{role}] {content}")
+            is_only_task_mgmt = names and all(_is_task_management_tool(n) for n in names)
+
+            if is_only_task_mgmt:
+                # 连续的任务管理工具：累加计数，不立即写入
+                _task_mgmt_count += 1
+                continue
+            else:
+                # 非任务管理工具：先 flush 累积的 task_mgmt 条目
+                _flush_task_mgmt()
+                text = _trim_text(msg.get("content", ""), max_len=100)
+                tool_info = f"调用 {', '.join(names)}" if names else ""
+                entry = f"[助手] {tool_info}"
+                if text:
+                    entry += f" {text}"
+                timeline.append(_trim_text(entry, max_len=max_chars))
+                continue
+
+        # tool 消息：跳过 task_state/task_write 的结果（已在上方折叠）
+        if role == "tool":
+            # 检查是否是任务管理工具的结果（通过上下文推断）
+            # task_state 结果的特征：content 包含 task_state 相关 JSON
+            content_str = str(msg.get("content", ""))
+            if _task_mgmt_count > 0:
+                # 跳过与折叠的 task_mgmt 调用配对的 tool result
+                continue
+            content = _trim_text(content_str, max_len=max_chars)
+            timeline.append(f"[工具结果] {content}")
+            continue
+
+        # 其他消息（user、reasoning 等）：先 flush
+        _flush_task_mgmt()
+        content = _trim_text(msg.get("content", ""), max_len=max_chars)
+        timeline.append(f"[{role}] {content}")
+
+    # 处理末尾残留的折叠条目
+    _flush_task_mgmt()
     return timeline
 
 

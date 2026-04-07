@@ -125,7 +125,7 @@ def test_task_state_update_no_op_returns_different_message() -> None:
     # 首次推进不应是 no_op
     assert not result1["data"].get("no_op_ids")
 
-    # 重复设置任务2 in_progress — 应返回差异化"无需重复"消息
+    # 重复设置任务2 in_progress — 应返回差异化"已处于请求的状态"消息
     result2 = asyncio.run(
         registry.execute(
             "task_state",
@@ -135,7 +135,7 @@ def test_task_state_update_no_op_returns_different_message() -> None:
         )
     )
     assert result2["success"] is True
-    assert "无需重复设置" in result2["message"]
+    assert "已处于请求的状态" in result2["message"]
     assert result2["data"]["no_op_ids"] == [2]
 
 
@@ -160,9 +160,8 @@ def test_task_state_init_does_not_auto_start_first_task() -> None:
     assert result["data"]["tasks"][0]["status"] == "pending"
     assert result["data"]["pending_count"] == 3
     assert "已自动开始" not in result["message"]
-    # 应明确要求先显式推进状态
-    assert "task_state" in result["message"]
-    assert "dataset_catalog" in result["message"]
+    # 应返回简洁的声明消息，包含建议从哪个任务开始
+    assert "已声明" in result["message"]
 
 
 def test_task_state_update_mixed_noop_and_change_reports_both() -> None:
@@ -205,7 +204,7 @@ def test_task_state_update_mixed_noop_and_change_reports_both() -> None:
         )
     )
     assert result["success"] is True
-    assert "无需重复设置" in result["message"]
+    assert "已处于请求的状态" in result["message"]
     # 应同时报告实际变更
     assert "同时已更新" in result["message"]
     assert 1 in result["data"]["no_op_ids"]

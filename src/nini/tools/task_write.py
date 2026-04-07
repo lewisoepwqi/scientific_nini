@@ -315,9 +315,7 @@ class TaskWriteTool(Tool):
                     success=False,
                     message=(
                         f"任务列表已初始化且「{in_progress.title}」正在执行中，无法重新初始化。"
-                        f"请继续执行当前任务，完成后调用 "
-                        f"task_state(operation='update', tasks=[{{id:{in_progress.id}, status:'completed'}}]) "
-                        f"推进到下一步。"
+                        f"请继续执行当前任务。"
                     ),
                 )
 
@@ -343,16 +341,9 @@ class TaskWriteTool(Tool):
                 "的初始状态归一化为 pending。"
             )
         if first_task:
-            tool_hint = first_task.tool_hint or "dataset_catalog、code_session、stat_test"
             message = (
-                warning_prefix
-                + (
-                f"已声明 {task_count} 个分析任务，"
-                f"当前尚未开始执行。"
-                f"如确认从任务1「{first_task.title}」开始，请先调用 "
-                f"task_state(operation='update', tasks=[{{id:{first_task.id}, status:'in_progress'}}])，"
-                f"再调用对应的分析工具（如 {tool_hint}）。"
-                )
+                warning_prefix + f"已声明 {task_count} 个分析任务。"
+                f"建议从任务1「{first_task.title}」开始。"
             )
         else:
             message = f"{warning_prefix}已声明 {task_count} 个分析任务。"
@@ -380,11 +371,7 @@ class TaskWriteTool(Tool):
             return self._input_error(
                 mode="update",
                 error_code="TASK_WRITE_NOT_INITIALIZED",
-                message=(
-                    "任务列表尚未初始化。"
-                    "请先调用 task_state(operation='init', tasks=[...]) 声明完整任务列表，"
-                    "再调用 update 推进状态。"
-                ),
+                message=("任务列表尚未初始化。请先声明完整任务列表，再更新状态。"),
                 expected_fields=["mode", "tasks"],
                 recovery_hint="请先用 init 声明完整任务列表，再用 update 推进状态。",
                 minimal_example=self._minimal_example_for_mode("init"),
@@ -414,7 +401,7 @@ class TaskWriteTool(Tool):
             no_op_desc = "、".join(
                 f"任务{t.id}「{t.title}」" for t in result.manager.tasks if t.id in result.no_op_ids
             )
-            parts = [f"{no_op_desc}已处于请求的状态，无需重复设置。"]
+            parts = [f"{no_op_desc}已处于请求的状态。"]
             # 同时报告实际变更的任务，避免 LLM 忽视同批次的成功更新
             actually_changed = [tid for tid in updated_ids if tid not in result.no_op_ids]
             all_changed_ids = actually_changed + result.auto_completed_ids
@@ -428,11 +415,8 @@ class TaskWriteTool(Tool):
                     parts.append(f"同时已更新：{'、'.join(changed_descs)}。")
             if current_in_progress:
                 parts.append(
-                    f"请直接调用对应的分析工具执行任务{current_in_progress.id}"
-                    f"「{current_in_progress.title}」。"
+                    f"当前任务：任务{current_in_progress.id}「{current_in_progress.title}」（进行中）。"
                 )
-            else:
-                parts.append("请直接调用对应的分析工具执行任务。")
             message = "".join(parts)
         elif all_done:
             message = (
@@ -449,10 +433,8 @@ class TaskWriteTool(Tool):
             )
         elif current_in_progress:
             message = (
-                f"任务{current_in_progress.id}「{current_in_progress.title}」已标记为进行中。"
-                f"请立即调用对应工具执行该任务；完成后请显式调用 task_state(operation='update') 将其更新为 completed，"
-                f"并按需启动下一任务。"
-                f"（还有 {pending} 个任务待开始）"
+                f"任务{current_in_progress.id}「{current_in_progress.title}」已标记为进行中，"
+                f"还有 {pending} 个任务待开始。"
             )
         else:
             message = f"任务状态已更新，还有 {pending} 个任务待开始。"
