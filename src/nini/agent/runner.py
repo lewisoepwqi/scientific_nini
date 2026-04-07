@@ -528,6 +528,10 @@ class AgentRunner:
         tool_failure_chains: dict[str, dict[str, Any]] = {}
         # 跟踪 task_state(update) 无操作重复调用次数，用于打破 LLM 循环
         task_state_noop_repeat_count: int = 0
+        # 跨工具连续失败计数：任意工具成功则重置，超阈值后注入强制恢复提示
+        consecutive_tool_failure_count: int = 0
+        _CONSECUTIVE_FAILURE_WARN_THRESHOLD = 3
+        _CONSECUTIVE_FAILURE_STOP_THRESHOLD = 6
         breaker_threshold = max(1, int(settings.tool_circuit_breaker_threshold))
         allowed_tool_whitelist, allowed_tool_sources = self._resolve_allowed_tool_recommendations(
             user_message
@@ -1419,6 +1423,53 @@ class AgentRunner:
                 )
             # ── 循环检测守卫结束 ──────────────────────────────────────────────
 
+            # ── 跨工具连续失败检测 ────────────────────────────────────────────
+            # 不依赖工具名/参数，只统计连续失败轮次数，覆盖工具名不同的语义死循环。
+            # 有别于 LoopGuard（检测相同调用重复）和 tool_failure_chains（检测同签名熔断）。
+            if consecutive_tool_failure_count >= _CONSECUTIVE_FAILURE_STOP_THRESHOLD:
+                _consec_stop_msg = (
+                    f"⚠️ 系统检测到连续 {consecutive_tool_failure_count} 次工具调用均失败，"
+                    "已自动终止当前任务，避免无效消耗。\n"
+                    "建议：(1) 直接使用 run_code(dataset_name='...') 在沙箱中执行分析；"
+                    "(2) 使用 dataset_catalog(operation='profile') 确认数据集名称；"
+                    "(3) 如有必要，告知用户当前工具不可用。"
+                )
+                logger.warning(
+                    "连续失败守卫触发 STOP: session=%s iteration=%d failure_count=%d",
+                    session.id,
+                    iteration,
+                    consecutive_tool_failure_count,
+                )
+                yield eb.build_text_event(
+                    content=_consec_stop_msg,
+                    turn_id=turn_id,
+                    metadata={"source": "consecutive_failure_guard", "decision": "force_stop"},
+                )
+                session.add_message(
+                    "assistant",
+                    _consec_stop_msg,
+                    turn_id=turn_id,
+                    operation="complete",
+                )
+                yield eb.build_done_event(turn_id=turn_id)
+                return
+            elif consecutive_tool_failure_count >= _CONSECUTIVE_FAILURE_WARN_THRESHOLD:
+                _consec_warn_msg = (
+                    f"⚠️ 已连续 {consecutive_tool_failure_count} 次工具调用失败。"
+                    "请立即改变策略：改用 run_code(dataset_name='xxx') 直接在沙箱执行代码，"
+                    "或用 dataset_catalog(operation='profile') 先确认可用的数据集名称。"
+                    "禁止继续调用 workspace_session(read) 读取数据集文件或不存在的路径。"
+                )
+                logger.warning(
+                    "连续失败守卫触发 WARN: session=%s iteration=%d failure_count=%d",
+                    session.id,
+                    iteration,
+                    consecutive_tool_failure_count,
+                )
+                if pending_loop_warn_message is None:
+                    pending_loop_warn_message = _consec_warn_msg
+            # ── 跨工具连续失败检测结束 ────────────────────────────────────────
+
             for tc in tool_calls:
                 if should_stop():
                     yield eb.build_done_event(turn_id=turn_id)
@@ -1690,6 +1741,7 @@ class AgentRunner:
                         task_state_noop_repeat_count = 0
                     # ── task_state 无操作重复检测结束 ─────────────────────────
 
+                    # task_write/task_state 成功不影响连续失败计数（状态管理工具不计入失败链）
                     result_str = serialize_tool_result_for_memory(result, tool_name=func_name)
                     session.add_tool_result(
                         tc_id,
@@ -1856,7 +1908,9 @@ class AgentRunner:
                     elif max_view == "full":
                         duplicate_profile_reason = (
                             f"同一轮中已成功获得数据集 '{dataset_name}' 的完整概况(full)，"
-                            f"无需再次请求 {requested_view} 视图"
+                            f"无需再次请求 {requested_view} 视图。"
+                            "full 视图是 quality/summary 的超集，已包含所有质量指标。"
+                            "请直接使用已获取的数据概况继续任务。"
                         )
 
                     if duplicate_profile_reason is not None:
@@ -2240,6 +2294,8 @@ class AgentRunner:
                             completed_profiles.add(dataset_name)
                             setattr(session, "_completed_dataset_profiles", completed_profiles)
                         tool_failure_chains.pop(tool_args_signature, None)
+                        # 工具成功：重置连续失败计数
+                        consecutive_tool_failure_count = 0
                         yield _new_task_attempt_event(
                             step_id=matched_step_id,
                             action_id=matched_action_id,
@@ -2251,6 +2307,8 @@ class AgentRunner:
                         )
                         break
 
+                    # 工具失败：递增连续失败计数
+                    consecutive_tool_failure_count += 1
                     existing_chain = tool_failure_chains.get(tool_args_signature)
                     if isinstance(existing_chain, dict) and str(
                         existing_chain.get("error_code", "")
@@ -3119,6 +3177,9 @@ class AgentRunner:
         tools: list[dict[str, Any]] = []
         visible_tool_names: set[str] | None = None
         if self._tool_registry is not None:
+            # compute_tool_exposure_policy 依赖 list_tools 确定可见工具集；
+            # 若注册表不支持 list_tools（如测试用 mock），跳过可见性过滤以避免误清空工具列表。
+            _has_list_tools = hasattr(self._tool_registry, "list_tools")
             try:
                 from nini.agent.tool_exposure_policy import compute_tool_exposure_policy
 
@@ -3126,7 +3187,7 @@ class AgentRunner:
                     session=session,
                     tool_registry=self._tool_registry,
                 )
-                visible_tool_names = set(policy.get("visible_tools", []))
+                visible_tool_names = set(policy.get("visible_tools", [])) if _has_list_tools else None
             except Exception:
                 visible_tool_names = None
             raw = self._tool_registry.get_tool_definitions()
@@ -3166,7 +3227,7 @@ class AgentRunner:
             and item["function"].get("name") == "ask_user_question"
             for item in tools
         )
-        if not has_ask_user_question:
+        if not has_ask_user_question and self._ask_user_question_handler is not None:
             tools.append(self._ask_user_question_tool_definition())
 
         normalized_preferred = {

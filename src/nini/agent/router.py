@@ -21,7 +21,13 @@ _BUILTIN_RULES: list[tuple[frozenset[str], str]] = [
     (frozenset({"文献", "论文", "引用", "期刊", "搜索", "检索"}), "literature_search"),
     (frozenset({"精读", "批注", "阅读", "理解"}), "literature_reading"),
     (frozenset({"清洗", "缺失值", "异常值", "预处理", "脏数据"}), "data_cleaner"),
+    # 数据变换/特征工程：衍生新列、时间特征提取、编码转换等
+    (
+        frozenset({"衍生", "新列", "特征", "derive", "提取时间", "时间变量", "编码", "归一化", "标准化"}),
+        "statistician",
+    ),
     (frozenset({"统计", "检验", "p值", "显著性", "回归", "方差", "anova"}), "statistician"),
+    (frozenset({"描述性统计", "均值", "中位数", "分位数", "分布", "频率"}), "statistician"),
     (frozenset({"图表", "可视化", "画图", "箱线图", "散点图", "柱状图"}), "viz_designer"),
     (frozenset({"写作", "润色", "摘要", "引言", "讨论", "结论"}), "writing_assistant"),
     (
@@ -52,7 +58,7 @@ _LLM_ROUTING_PROMPT = """\
 - literature_search：文献检索、论文搜索、引用获取
 - literature_reading：文献精读、批注、深度理解
 - data_cleaner：数据清洗、缺失值处理、异常值检测
-- statistician：统计检验、回归分析、方差分析、显著性检验
+- statistician：统计检验、回归分析、方差分析、显著性检验、描述性统计、特征衍生（衍生新列、提取时间变量如小时/星期/月份、编码、归一化）
 - viz_designer：数据可视化、图表制作
 - writing_assistant：科研写作、论文润色、摘要撰写
 - citation_manager：引用格式化、参考文献管理、文献引用规范
@@ -74,8 +80,8 @@ _LLM_BATCH_ROUTING_PROMPT = """\
 你是任务路由器。请批量分析以下任务并输出路由决策。
 
 可用 Agent（同上）：
-literature_search, literature_reading, data_cleaner, statistician, viz_designer, writing_assistant,
-citation_manager, research_planner, review_assistant
+literature_search, literature_reading, data_cleaner, statistician（含特征衍生/描述统计）, viz_designer,
+writing_assistant, citation_manager, research_planner, review_assistant
 
 任务列表：
 {tasks_json}

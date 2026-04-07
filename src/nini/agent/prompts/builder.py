@@ -125,7 +125,11 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
     "strategy_core.md": (
         "标准分析流程（必须遵循）：问题定义 → 数据审查 → 方法选择 → 假设检查 → 执行分析 → 结果报告 → 风险提示。\n"
         "优先使用结构化工具（dataset_catalog → dataset_transform → stat_test/stat_model → chart_session），"
-        "仅当无法表达时使用 code_session。\n"
+        "仅当无法表达时使用 code_session/run_code。\n"
+        "数据集访问规则：\n"
+        "- 查看/加载数据集用 dataset_catalog(operation='profile', dataset_name='xxx')，禁止用 workspace_session(read) 读取 xlsx/csv 等数据文件。\n"
+        "- 衍生新列/特征工程/直接计算用 run_code(dataset_name='xxx', code='...')，df 变量已预注入。\n"
+        "- dispatch_agents 失败后，直接改用 run_code 或 dataset_catalog 在当前 Agent 内完成任务，不要尝试读取不存在的文件。\n"
         "禁止空参数工具调用；继续操作已有资源时复用 resource_id。"
     ),
     "strategy_task.md": (
