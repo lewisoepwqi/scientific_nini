@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 import time
 from contextlib import suppress
@@ -154,6 +154,27 @@ class _LLMErrorDisposition:
     message: str
     should_fallback: bool
     log_level: int
+
+
+@dataclass(frozen=True)
+class _ResolvedClientPlan:
+    """一次用途路由解析后的候选客户端方案。"""
+
+    clients: list[BaseLLMClient]
+    builtin_mode_to_count: str | None = None
+
+
+@dataclass(frozen=True)
+class ModelPreflightResult:
+    """模型可执行性预检结果。"""
+
+    available: bool
+    purpose: str
+    provider_id: str = ""
+    provider_name: str = ""
+    model: str = ""
+    fallback_chain: list[dict[str, Any]] = field(default_factory=list)
+    reason: str = ""
 
 
 def _extract_http_status_code(exc: Exception) -> int | None:
@@ -652,31 +673,8 @@ class ModelResolver:
             log_level=logging.ERROR,
         )
 
-    async def chat(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]] | None = None,
-        *,
-        purpose: str = "default",
-        temperature: float = 0.3,
-        max_tokens: int = 4096,
-    ) -> AsyncGenerator[LLMChunk, None]:
-        """流式聊天（单一激活供应商模式）。
-
-        Args:
-            messages: OpenAI 格式的消息列表
-            tools: 可选的工具定义
-            purpose: 用途标识（title_generation 时自动使用廉价模型）
-            temperature: 采样温度
-            max_tokens: 最大生成 token 数
-
-        Yields:
-            LLMChunk: 流式输出块
-        """
-        # 单一激活模式：
-        # 1) 有激活供应商时，仅使用该供应商（title_generation 走廉价模型偏好）
-        # 2) 无激活供应商但有试用客户端时，仅使用试用客户端
-        # 3) 其余场景（主要是测试注入）保留多客户端故障转移能力
+    async def _resolve_client_plan(self, purpose: str) -> _ResolvedClientPlan:
+        """解析指定用途的候选客户端方案，不实际发起模型调用。"""
         route = self._get_effective_purpose_route(purpose)
         route_provider = route.get("provider_id")
         route_model = route.get("model")
@@ -684,12 +682,10 @@ class ModelResolver:
         configured_provider_ids = await self._get_user_configured_provider_ids()
         allow_user_fallback = len(configured_provider_ids) > 1
 
-        # 待计费的内置模式（title 不计入限额）
         builtin_mode_to_count: str | None = None
-
         clients: list[BaseLLMClient] = []
+
         if route_provider == BUILTIN_PROVIDER_ID:
-            # 显式路由到内置供应商：检查限额
             use_trial_fast_title = self._should_use_builtin_fast_for_trial_title(purpose)
             builtin_purpose = "default" if use_trial_fast_title else purpose
             builtin_mode = BUILTIN_MODE_FAST if use_trial_fast_title else route_model
@@ -727,18 +723,13 @@ class ModelResolver:
                 else:
                     clients = [selected_client]
             elif purpose == "title_generation":
-                # 标题生成遇到无效路由时，优先回退到当前激活/试用来源，
-                # 避免意外命中历史残留供应商。
                 title_client = await self._get_title_client()
                 if title_client:
                     clients = [title_client]
             elif allow_user_fallback:
                 clients = self._get_ordered_clients(purpose)
         else:
-            # 无显式路由：默认走系统内置；仅在用户明确配置多个服务商时才允许降级。
-            # 测试注入模式下跳过系统内置，直接使用注入的客户端
             if purpose == "title_generation":
-                # 试用模式下标题生成复用快速模式模型，避免依赖用户私有 AI 配置。
                 if self._should_use_builtin_fast_for_trial_title(purpose):
                     from nini.config_manager import is_builtin_exhausted
 
@@ -751,7 +742,6 @@ class ModelResolver:
                     else:
                         raise await self._build_builtin_quota_error(BUILTIN_MODE_FAST)
                 if not clients:
-                    # 已配置供应商时，标题生成仍优先走廉价模型偏好。
                     title_client = await self._get_title_client()
                     if title_client:
                         clients = [title_client]
@@ -779,6 +769,70 @@ class ModelResolver:
 
         if not clients:
             raise RuntimeError("未配置 AI 服务，请先在「AI 设置」中配置供应商密钥")
+
+        return _ResolvedClientPlan(
+            clients=clients,
+            builtin_mode_to_count=builtin_mode_to_count,
+        )
+
+    async def preflight(self, *, purpose: str = "default") -> ModelPreflightResult:
+        """预检指定用途的模型是否可执行，不消耗额度、不发起真实调用。"""
+        try:
+            plan = await self._resolve_client_plan(purpose)
+        except Exception as exc:
+            return ModelPreflightResult(
+                available=False,
+                purpose=purpose,
+                reason=str(exc),
+            )
+
+        fallback_chain = [
+            {
+                "provider_id": getattr(client, "provider_id", "") or "",
+                "provider_name": getattr(client, "provider_name", "") or "",
+                "model": client.get_model_name() or "unknown",
+                "attempt": attempt,
+            }
+            for attempt, client in enumerate(plan.clients, start=1)
+        ]
+        primary = plan.clients[0]
+        return ModelPreflightResult(
+            available=True,
+            purpose=purpose,
+            provider_id=getattr(primary, "provider_id", "") or "",
+            provider_name=getattr(primary, "provider_name", "") or "",
+            model=primary.get_model_name() or "unknown",
+            fallback_chain=fallback_chain,
+        )
+
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        *,
+        purpose: str = "default",
+        temperature: float = 0.3,
+        max_tokens: int = 4096,
+    ) -> AsyncGenerator[LLMChunk, None]:
+        """流式聊天（单一激活供应商模式）。
+
+        Args:
+            messages: OpenAI 格式的消息列表
+            tools: 可选的工具定义
+            purpose: 用途标识（title_generation 时自动使用廉价模型）
+            temperature: 采样温度
+            max_tokens: 最大生成 token 数
+
+        Yields:
+            LLMChunk: 流式输出块
+        """
+        # 单一激活模式：
+        # 1) 有激活供应商时，仅使用该供应商（title_generation 走廉价模型偏好）
+        # 2) 无激活供应商但有试用客户端时，仅使用试用客户端
+        # 3) 其余场景（主要是测试注入）保留多客户端故障转移能力
+        plan = await self._resolve_client_plan(purpose)
+        clients = plan.clients
+        builtin_mode_to_count = plan.builtin_mode_to_count
         fallback_chain: list[dict[str, Any]] = []
         last_error: Exception | None = None
         builtin_usage_counted = False

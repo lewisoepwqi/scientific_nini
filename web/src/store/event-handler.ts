@@ -23,6 +23,7 @@ import type {
   DeepTaskState,
   OutputLevel,
   SkillExecutionState,
+  AgentRunSummary,
 } from "./types";
 
 import {
@@ -562,6 +563,7 @@ export interface AppStateSubset {
   selectedRunId: string | null;
   unreadByRun: Record<string, number>;
   runGroupsByTurn: Record<string, import("./types").AgentRunGroup>;
+  dispatchLedgers: AgentRunSummary[];
   lastViewedRunIdBySession: Record<string, string>;
   // 假设驱动范式状态
   hypotheses: import("./types").HypothesisInfo[];
@@ -577,7 +579,7 @@ export interface AppStateSubset {
 }
 
 export interface RunMeta {
-  runScope: "root" | "subagent";
+  runScope: "root" | "dispatch" | "subagent";
   runId: string | null;
   parentRunId: string | null;
   turnId: string | null;
@@ -596,7 +598,11 @@ export function getRunMeta(evt: WSEvent): RunMeta {
         ? evt.turn_id.trim()
         : null;
   const runScope =
-    metadata.run_scope === "subagent" ? "subagent" : "root";
+    metadata.run_scope === "subagent"
+      ? "subagent"
+      : metadata.run_scope === "dispatch"
+        ? "dispatch"
+        : "root";
   const runId =
     typeof metadata.run_id === "string" && metadata.run_id.trim()
       ? metadata.run_id.trim()
@@ -648,6 +654,42 @@ export function applyRunSlicePatch(
   };
 }
 
+function upsertDispatchLedgerSummary(
+  ledgers: AgentRunSummary[],
+  thread: AgentRunThread,
+): AgentRunSummary[] {
+  if (thread.runScope !== "dispatch") return ledgers;
+  const nextSummary: AgentRunSummary = {
+    run_id: thread.runId,
+    run_scope: "dispatch",
+    parent_run_id: thread.parentRunId,
+    agent_id: thread.agentId,
+    agent_name: thread.agentName,
+    attempt: thread.attempt,
+    turn_id: thread.turnId,
+    latest_phase: thread.phase,
+    status: thread.status,
+    task: thread.task,
+    summary: thread.summary ?? null,
+    progress_message: thread.progressMessage ?? null,
+    progress_hint: thread.progressHint ?? null,
+    latest_execution_time_ms: thread.latestExecutionTimeMs,
+    preflight_failure_count: thread.preflightFailureCount ?? null,
+    routing_failure_count: thread.routingFailureCount ?? null,
+    execution_failure_count: thread.executionFailureCount ?? null,
+    runnable_count: thread.runnableCount ?? null,
+    preflight_failures: thread.preflightFailures ?? null,
+    routing_failures: thread.routingFailures ?? null,
+    execution_failures: thread.executionFailures ?? null,
+    dispatch_ledger: thread.dispatchLedger ?? null,
+    updated_at: new Date(thread.updatedAt).toISOString(),
+  };
+  const filtered = ledgers.filter((item) => item.run_id !== thread.runId);
+  return [nextSummary, ...filtered].sort((left, right) =>
+    String(right.updated_at || "").localeCompare(String(left.updated_at || "")),
+  );
+}
+
 export function ensureSubagentThread(
   state: AgentSlice,
   runMeta: RunMeta,
@@ -677,6 +719,195 @@ export function ensureSubagentThread(
     progressHint: null,
     eventsLoaded: true,
     messages: [],
+  });
+}
+
+export function ensureDispatchThread(
+  state: AgentSlice,
+  runMeta: RunMeta,
+  updatedAt: number,
+): AgentSlice {
+  if (!runMeta.runId || !runMeta.turnId) return state;
+  const ensured = ensureRootRun(state, runMeta.turnId, updatedAt);
+  if (ensured.agentRuns[runMeta.runId]) return ensured;
+  return upsertAgentRun(ensured, {
+    runId: runMeta.runId,
+    turnId: runMeta.turnId,
+    parentRunId: runMeta.parentRunId ?? buildRootRunId(runMeta.turnId),
+    runScope: "dispatch",
+    agentId: runMeta.agentId ?? "dispatch_agents",
+    agentName: runMeta.agentName || "任务派发",
+    status: "running",
+    task: "多 Agent 任务派发",
+    attempt: runMeta.attempt ?? 1,
+    retryCount: Math.max(0, (runMeta.attempt ?? 1) - 1),
+    startTime: updatedAt,
+    updatedAt,
+    latestExecutionTimeMs: null,
+    lastError: null,
+    summary: undefined,
+    phase: runMeta.phase,
+    progressMessage: null,
+    progressHint: null,
+    eventsLoaded: true,
+    messages: [],
+  });
+}
+
+interface DispatchWorkflowStatusSnapshot {
+  phase: string;
+  nextStatus: AgentRunThread["status"];
+  progressMessage: string;
+  preflightFailureCount: number | null;
+  routingFailureCount: number | null;
+  executionFailureCount: number | null;
+  runnableCount: number | null;
+  preflightFailures: AgentRunThread["preflightFailures"];
+  routingFailures: AgentRunThread["routingFailures"];
+  executionFailures: AgentRunThread["executionFailures"];
+  dispatchLedger: AgentRunThread["dispatchLedger"];
+}
+
+function normalizeDispatchFailureItems(
+  value: unknown,
+): AgentRunThread["preflightFailures"] {
+  return Array.isArray(value)
+    ? value
+        .filter((item) => isRecord(item))
+        .map((item) => ({
+          agent_id:
+            typeof item.agent_id === "string" && item.agent_id.trim()
+              ? item.agent_id.trim()
+              : null,
+          task: typeof item.task === "string" && item.task.trim() ? item.task.trim() : null,
+          error:
+            typeof item.error === "string" && item.error.trim() ? item.error.trim() : null,
+        }))
+    : null;
+}
+
+function normalizeDispatchLedgerItems(
+  value: unknown,
+): AgentRunThread["dispatchLedger"] {
+  return Array.isArray(value)
+    ? value
+        .filter((item) => isRecord(item))
+        .map((item) => ({
+          agent_id:
+            typeof item.agent_id === "string" && item.agent_id.trim()
+              ? item.agent_id.trim()
+              : null,
+          agent_name:
+            typeof item.agent_name === "string" && item.agent_name.trim()
+              ? item.agent_name.trim()
+              : null,
+          task: typeof item.task === "string" && item.task.trim() ? item.task.trim() : null,
+          status:
+            typeof item.status === "string" && item.status.trim() ? item.status.trim() : null,
+          stop_reason:
+            typeof item.stop_reason === "string" && item.stop_reason.trim()
+              ? item.stop_reason.trim()
+              : null,
+          summary:
+            typeof item.summary === "string" && item.summary.trim()
+              ? item.summary.trim()
+              : null,
+          error:
+            typeof item.error === "string" && item.error.trim() ? item.error.trim() : null,
+          execution_time_ms:
+            typeof item.execution_time_ms === "number" ? item.execution_time_ms : null,
+          artifact_count:
+            typeof item.artifact_count === "number" ? item.artifact_count : null,
+          document_count:
+            typeof item.document_count === "number" ? item.document_count : null,
+        }))
+    : null;
+}
+
+function buildDispatchWorkflowStatusSnapshot(
+  data: Record<string, unknown>,
+): DispatchWorkflowStatusSnapshot {
+  const phase = typeof data.phase === "string" ? data.phase : "running";
+  const preflightFailureCount =
+    typeof data.preflight_failure_count === "number" ? data.preflight_failure_count : null;
+  const routingFailureCount =
+    typeof data.routing_failure_count === "number" ? data.routing_failure_count : null;
+  const executionFailureCount =
+    typeof data.execution_failure_count === "number" ? data.execution_failure_count : null;
+  const runnableCount =
+    typeof data.runnable_count === "number" ? data.runnable_count : null;
+  const preflightFailures = normalizeDispatchFailureItems(data.preflight_failures);
+  const routingFailures = normalizeDispatchFailureItems(data.routing_failures);
+  const executionFailures = normalizeDispatchFailureItems(data.execution_failures);
+  const dispatchLedger = normalizeDispatchLedgerItems(data.subtasks);
+  const waveIndex = typeof data.wave_index === "number" ? data.wave_index : null;
+  const waveCount = typeof data.wave_count === "number" ? data.wave_count : null;
+  const successCount = typeof data.success_count === "number" ? data.success_count : null;
+  const failureCount = typeof data.failure_count === "number" ? data.failure_count : null;
+  const stoppedCount = typeof data.stopped_count === "number" ? data.stopped_count : null;
+  const progressMessage =
+    phase === "preflight"
+      ? `${waveIndex && waveCount ? `第 ${waveIndex}/${waveCount} 波次预检：` : "预检完成："}可执行 ${runnableCount ?? 0} 个，预检失败 ${preflightFailureCount ?? 0} 个`
+      : `执行汇总：成功 ${successCount ?? 0} 个，失败 ${failureCount ?? 0} 个，停止 ${stoppedCount ?? 0} 个`;
+  const nextStatus =
+    phase === "fused"
+      ? (failureCount ?? 0) > 0 && (successCount ?? 0) === 0
+        ? "error"
+        : "completed"
+      : "running";
+  return {
+    phase,
+    nextStatus,
+    progressMessage,
+    preflightFailureCount,
+    routingFailureCount,
+    executionFailureCount,
+    runnableCount,
+    preflightFailures,
+    routingFailures,
+    executionFailures,
+    dispatchLedger,
+  };
+}
+
+function applyDispatchWorkflowStatus(
+  state: AgentSlice,
+  runMeta: RunMeta,
+  snapshot: DispatchWorkflowStatusSnapshot,
+  updatedAt: number,
+): AgentSlice {
+  let nextState = ensureDispatchThread(state, runMeta, updatedAt);
+  const existing = nextState.agentRuns[runMeta.runId ?? ""];
+  if (!existing) return state;
+  return upsertAgentRun(nextState, {
+    ...existing,
+    agentId: runMeta.agentId ?? existing.agentId,
+    agentName: runMeta.agentName || existing.agentName,
+    status: snapshot.nextStatus,
+    updatedAt,
+    phase: snapshot.phase,
+    progressMessage: snapshot.progressMessage,
+    summary: snapshot.phase === "fused" ? snapshot.progressMessage : existing.summary,
+    preflightFailureCount: snapshot.preflightFailureCount,
+    routingFailureCount: snapshot.routingFailureCount,
+    executionFailureCount: snapshot.executionFailureCount,
+    runnableCount: snapshot.runnableCount,
+    preflightFailures:
+      snapshot.preflightFailures && snapshot.preflightFailures.length > 0
+        ? snapshot.preflightFailures
+        : existing.preflightFailures ?? snapshot.preflightFailures,
+    routingFailures:
+      snapshot.routingFailures && snapshot.routingFailures.length > 0
+        ? snapshot.routingFailures
+        : existing.routingFailures ?? snapshot.routingFailures,
+    executionFailures:
+      snapshot.executionFailures && snapshot.executionFailures.length > 0
+        ? snapshot.executionFailures
+        : existing.executionFailures ?? snapshot.executionFailures,
+    dispatchLedger:
+      snapshot.dispatchLedger && snapshot.dispatchLedger.length > 0
+        ? snapshot.dispatchLedger
+        : existing.dispatchLedger ?? snapshot.dispatchLedger,
   });
 }
 
@@ -2374,6 +2605,70 @@ export function handleEvent(
     case "agent_error":
     case "agent_stopped": {
       handleAgentEvent(evt, set, get);
+      break;
+    }
+
+    case "workflow_status": {
+      const data = evt.data;
+      const backgroundSessionId = getBackgroundSessionId(evt, get);
+      const runMeta = getRunMeta(evt);
+      if (
+        !isRecord(data) ||
+        data.scope !== "dispatch_agents" ||
+        runMeta.runScope !== "dispatch" ||
+        !runMeta.runId ||
+        !runMeta.turnId
+      ) {
+        break;
+      }
+      const snapshot = buildDispatchWorkflowStatusSnapshot(data);
+
+      if (backgroundSessionId) {
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => {
+          const nextAgentState = applyDispatchWorkflowStatus(
+            {
+              activeAgents: {},
+              completedAgents: [],
+              agentRuns: entry.agentRuns,
+              agentRunTabs: entry.agentRunTabs,
+              selectedRunId: entry.selectedRunId,
+              unreadByRun: entry.unreadByRun,
+              runGroupsByTurn: entry.runGroupsByTurn,
+              lastViewedRunIdBySession: {},
+            },
+            runMeta,
+            snapshot,
+            Date.now(),
+          );
+          return {
+            ...entry,
+            currentTurnId: evt.turn_id || entry.currentTurnId,
+            agentRuns: nextAgentState.agentRuns,
+            agentRunTabs: nextAgentState.agentRunTabs,
+            selectedRunId: nextAgentState.selectedRunId,
+            unreadByRun: nextAgentState.unreadByRun,
+            runGroupsByTurn: nextAgentState.runGroupsByTurn,
+            dispatchLedgers: (() => {
+              const thread = nextAgentState.agentRuns[runMeta.runId!];
+              return thread
+                ? upsertDispatchLedgerSummary(entry.dispatchLedgers, thread)
+                : entry.dispatchLedgers;
+            })(),
+          };
+        });
+        break;
+      }
+
+      set((s) => {
+        const nextState = applyDispatchWorkflowStatus(s, runMeta, snapshot, Date.now());
+        const thread = nextState.agentRuns[runMeta.runId!];
+        return {
+          ...applyRunSlicePatch(s, nextState),
+          dispatchLedgers: thread
+            ? upsertDispatchLedgerSummary(s.dispatchLedgers, thread)
+            : s.dispatchLedgers,
+        };
+      });
       break;
     }
 

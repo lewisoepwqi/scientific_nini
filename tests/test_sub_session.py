@@ -23,6 +23,26 @@ def test_subsession_no_disk_writes(tmp_path, monkeypatch):
         assert list(sessions_dir.iterdir()) == []
 
 
+def test_persistent_subsession_writes_audit_meta(tmp_path, monkeypatch):
+    """显式开启持久化时，SubSession 应写入可审计元信息。"""
+    import json
+
+    from nini.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    session = SubSession(
+        id=uuid.uuid4().hex[:12],
+        parent_session_id="parent-audit",
+        persist_runtime_state=True,
+    )
+
+    meta_path = tmp_path / "data" / "sessions" / session.id / "meta.json"
+    assert meta_path.exists()
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["is_subsession"] is True
+    assert meta["parent_session_id"] == "parent-audit"
+
+
 def test_conversation_memory_is_in_memory():
     session = SubSession(id=uuid.uuid4().hex[:12])
     assert isinstance(session.conversation_memory, InMemoryConversationMemory)

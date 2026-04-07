@@ -1141,6 +1141,23 @@ class SessionManager:
         normalized = [dict(item) for item in pending_actions if isinstance(item, dict)]
         self._save_session_meta_fields(session_id, {"pending_actions": normalized})
 
+    def save_subsession_metadata(
+        self,
+        session_id: str,
+        *,
+        parent_session_id: str,
+        resource_owner_session_id: str,
+    ) -> None:
+        """持久化子会话审计元信息。"""
+        self._save_session_meta_fields(
+            session_id,
+            {
+                "is_subsession": True,
+                "parent_session_id": str(parent_session_id or "").strip(),
+                "resource_owner_session_id": str(resource_owner_session_id or "").strip(),
+            },
+        )
+
     def save_session_tool_approvals(
         self,
         session_id: str,

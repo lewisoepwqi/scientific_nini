@@ -77,6 +77,8 @@ export type {
   AgentInfo,
   AgentRunThread,
   AgentRunGroup,
+  DispatchLedgerSummary,
+  DispatchLedgerAggregate,
 } from "./store/types";
 
 import type {
@@ -119,6 +121,8 @@ import type {
   AgentInfo,
   AgentRunThread,
   AgentRunGroup,
+  DispatchLedgerSummary,
+  DispatchLedgerAggregate,
 } from "./store/types";
 
 // ---- Agent 切片导入 ----
@@ -297,6 +301,8 @@ export interface AppState {
   unreadByRun: Record<string, number>;
   runGroupsByTurn: Record<string, AgentRunGroup>;
   lastViewedRunIdBySession: Record<string, string>;
+  dispatchLedgers: DispatchLedgerSummary[];
+  dispatchLedgerAggregate: DispatchLedgerAggregate | null;
 
   // Hypothesis-Driven 范式状态
   hypotheses: import("./store/types").HypothesisInfo[];
@@ -331,6 +337,8 @@ export interface AppState {
   fetchSessions: () => Promise<void>;
   fetchDatasets: () => Promise<void>;
   fetchWorkspaceFiles: () => Promise<void>;
+  fetchDispatchLedgers: () => Promise<void>;
+  fetchDispatchLedgerAggregate: () => Promise<void>;
   fetchSkills: () => Promise<void>;
   fetchCapabilities: () => Promise<void>;
   fetchRecipes: () => Promise<void>;
@@ -451,6 +459,8 @@ const SESSION_RESET_STATE = {
   selectedRunId: null as string | null,
   unreadByRun: {} as Record<string, number>,
   runGroupsByTurn: {} as Record<string, AgentRunGroup>,
+  dispatchLedgers: [] as DispatchLedgerSummary[],
+  dispatchLedgerAggregate: null as DispatchLedgerAggregate | null,
 };
 
 function resolveCurrentPendingAskUserQuestion(
@@ -586,6 +596,8 @@ export const useStore = create<AppState>((set, get) => ({
 
   // 多 Agent 执行状态初始值
   ...initialAgentSlice,
+  dispatchLedgers: [],
+  dispatchLedgerAggregate: null,
 
   // Hypothesis-Driven 范式状态初始值
   ...initialHypothesisSlice,
@@ -1234,14 +1246,15 @@ export const useStore = create<AppState>((set, get) => ({
     if (sessionId) {
       deleteSessionUiCacheEntry(sessionId);
     }
-    set({
+    set((s) => ({
       ...SESSION_RESET_STATE,
       messages: [],
       sessionId: null,
       datasets: [],
       workspaceFiles: [],
       pendingAskUserQuestionsBySession: {},
-    });
+      dispatchLedgerAggregate: s.dispatchLedgerAggregate,
+    }));
   },
 
   // ============================================================================
@@ -1249,8 +1262,11 @@ export const useStore = create<AppState>((set, get) => ({
   // ============================================================================
 
   async fetchSessions() {
-    const sessions = await api.fetchSessions();
-    set({ sessions });
+    const [sessions, dispatchLedgerAggregate] = await Promise.all([
+      api.fetchSessions(),
+      api.fetchDispatchLedgerAggregate(),
+    ]);
+    set({ sessions, dispatchLedgerAggregate });
     emitSessionsChanged({ reason: "refresh" });
   },
 
@@ -1270,6 +1286,20 @@ export const useStore = create<AppState>((set, get) => ({
       return;
     }
     set({ workspaceFiles: files });
+  },
+
+  async fetchDispatchLedgers() {
+    const targetSessionId = get().sessionId ?? "";
+    const ledgers = await api.fetchSessionDispatchLedger(targetSessionId);
+    if (get().sessionId !== targetSessionId) {
+      return;
+    }
+    set({ dispatchLedgers: ledgers });
+  },
+
+  async fetchDispatchLedgerAggregate() {
+    const aggregate = await api.fetchDispatchLedgerAggregate();
+    set({ dispatchLedgerAggregate: aggregate });
   },
 
   async fetchSkills() {
@@ -1386,6 +1416,7 @@ export const useStore = create<AppState>((set, get) => ({
         messages: [],
         datasets: [],
         workspaceFiles: [],
+        dispatchLedgerAggregate: s.dispatchLedgerAggregate,
         sessions: s.sessions.some((item) => item.id === newSessionId)
           ? s.sessions
           : [
@@ -1417,13 +1448,14 @@ export const useStore = create<AppState>((set, get) => ({
     }
     if (!result.success) {
       if (get().sessionId === targetSessionId) {
-        set({
+        set((s) => ({
           ...SESSION_RESET_STATE,
           sessionId: null,
           messages: [],
           datasets: [],
           workspaceFiles: [],
-        });
+          dispatchLedgerAggregate: s.dispatchLedgerAggregate,
+        }));
       }
       return;
     }
@@ -1473,8 +1505,12 @@ export const useStore = create<AppState>((set, get) => ({
       cachedSessionUi && shouldUseCachedUi
         ? clonePlanProgress(cachedSessionUi.analysisPlanProgress)
         : restored.analysisPlanProgress;
-    const restoredAgentRunSummary =
-      !shouldUseCachedUi ? await api.fetchSessionAgentRuns(targetSessionId) : [];
+    const [restoredAgentRunSummary, restoredDispatchLedgers] = !shouldUseCachedUi
+      ? await Promise.all([
+          api.fetchSessionAgentRuns(targetSessionId),
+          api.fetchSessionDispatchLedger(targetSessionId),
+        ])
+      : [[], []];
     const hydratedAgentRunState =
       cachedSessionUi && shouldUseCachedUi
         ? null
@@ -1585,6 +1621,11 @@ export const useStore = create<AppState>((set, get) => ({
         selectedRunId: restoredSelectedRunId,
         unreadByRun: restoredUnreadByRun,
         runGroupsByTurn: restoredRunGroups,
+        dispatchLedgers:
+          cachedSessionUi && shouldUseCachedUi
+            ? [...cachedSessionUi.dispatchLedgers]
+            : restoredDispatchLedgers,
+        dispatchLedgerAggregate: s.dispatchLedgerAggregate,
         _streamingMetrics: restoredStreamingMetrics,
         tokenUsage:
           cachedSessionUi && shouldUseCachedUi
@@ -1596,7 +1637,9 @@ export const useStore = create<AppState>((set, get) => ({
     if (
       !shouldUseCachedUi &&
       restoredSelectedRunId &&
-      restoredAgentRuns[restoredSelectedRunId]?.runScope === "subagent"
+      ["subagent", "dispatch"].includes(
+        restoredAgentRuns[restoredSelectedRunId]?.runScope ?? "",
+      )
     ) {
       get().selectAgentRun(restoredSelectedRunId);
     }

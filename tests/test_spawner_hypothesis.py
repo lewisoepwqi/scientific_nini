@@ -88,6 +88,7 @@ async def test_spawn_routes_react_to_execute_agent():
         return mock_result
 
     with (
+        patch.object(spawner, "_preflight_agent_execution", new=AsyncMock(return_value=None)),
         patch.object(spawner, "_execute_agent", side_effect=mock_execute),
         patch.object(spawner, "_spawn_hypothesis_driven", side_effect=AssertionError("不应调用")),
     ):
@@ -111,6 +112,7 @@ async def test_spawn_routes_hypothesis_driven():
         return mock_result
 
     with (
+        patch.object(spawner, "_preflight_agent_execution", new=AsyncMock(return_value=None)),
         patch.object(spawner, "_execute_agent", side_effect=AssertionError("不应调用")),
         patch.object(spawner, "_spawn_hypothesis_driven", side_effect=mock_hyp),
     ):
@@ -161,8 +163,11 @@ async def test_spawn_hypothesis_driven_timeout():
         await asyncio.sleep(100)
         return SubAgentResult(agent_id="hyp_agent", success=True)
 
-    with patch.object(spawner, "_spawn_hypothesis_driven", side_effect=slow_hyp):
-        result = await spawner.spawn("hyp_agent", "任务", make_mock_session(), timeout_seconds=0.01)
+    with (
+        patch.object(spawner, "_preflight_agent_execution", new=AsyncMock(return_value=None)),
+        patch.object(spawner, "_spawn_hypothesis_driven", side_effect=slow_hyp),
+    ):
+        result = await spawner.spawn("hyp_agent", "任务", make_mock_session(), timeout_seconds=1)
 
     assert result.success is False
     assert "超时" in result.summary
@@ -221,6 +226,7 @@ async def test_spawn_batch_mixed_paradigms():
         return SubAgentResult(agent_id=ad.agent_id, success=True, summary="hyp done")
 
     with (
+        patch.object(spawner, "_preflight_agent_execution", new=AsyncMock(return_value=None)),
         patch.object(spawner, "_execute_agent", side_effect=mock_execute),
         patch.object(spawner, "_spawn_hypothesis_driven", side_effect=mock_hyp),
     ):

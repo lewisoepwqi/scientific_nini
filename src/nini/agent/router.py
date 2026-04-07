@@ -32,6 +32,15 @@ _BUILTIN_RULES: list[tuple[frozenset[str], str]] = [
     (frozenset({"审稿", "同行评审", "评审意见", "回复审稿", "修改意见"}), "review_assistant"),
 ]
 
+_AGENT_COMPATIBILITY_HINTS: dict[str, frozenset[str]] = {
+    "citation_manager": frozenset(
+        {"引用格式", "参考文献", "文献管理", "bibliography", "citation", "gb/t", "apa", "mla"}
+    ),
+    "literature_search": frozenset({"文献", "论文", "检索", "搜索", "期刊", "doi"}),
+    "literature_reading": frozenset({"精读", "批注", "阅读", "理解", "解读", "全文"}),
+    "review_assistant": frozenset({"审稿", "评审", "review", "审稿意见", "回复意见"}),
+}
+
 # LLM 兜底路由的置信度阈值
 _LLM_FALLBACK_THRESHOLD = 0.7
 
@@ -118,6 +127,54 @@ class TaskRouter:
         self._enable_llm_fallback = enable_llm_fallback
         self._rules = list(_BUILTIN_RULES)
 
+    def _filter_incompatible_agents(
+        self,
+        intent: str,
+        *,
+        agent_ids: list[str],
+        tasks: list[str],
+        confidence: float,
+        strategy: str,
+        parallel: bool,
+    ) -> RoutingDecision:
+        """过滤与任务显著不兼容的 agent，避免误派发到危险默认角色。"""
+        intent_lower = intent.lower()
+        filtered_agent_ids: list[str] = []
+        filtered_tasks: list[str] = []
+        dropped: list[str] = []
+
+        for index, agent_id in enumerate(agent_ids):
+            required_keywords = _AGENT_COMPATIBILITY_HINTS.get(agent_id)
+            if required_keywords and not any(token in intent_lower for token in required_keywords):
+                dropped.append(agent_id)
+                continue
+            filtered_agent_ids.append(agent_id)
+            if index < len(tasks):
+                filtered_tasks.append(tasks[index])
+            else:
+                filtered_tasks.append(intent)
+
+        if dropped:
+            logger.info(
+                "TaskRouter: 过滤不兼容 agent",
+                extra={
+                    "routing_audit": {
+                        "strategy": strategy,
+                        "intent_preview": intent[:100],
+                        "dropped_agent_ids": dropped,
+                        "remaining_agent_ids": filtered_agent_ids,
+                    }
+                },
+            )
+
+        return RoutingDecision(
+            agent_ids=filtered_agent_ids,
+            tasks=filtered_tasks,
+            confidence=confidence if filtered_agent_ids else 0.0,
+            strategy=strategy,
+            parallel=parallel,
+        )
+
     def _rule_route(self, intent: str) -> RoutingDecision:
         """基于关键词的规则路由（< 5ms）。
 
@@ -150,11 +207,13 @@ class TaskRouter:
                 strategy="rule",
             )
 
-        return RoutingDecision(
+        return self._filter_incompatible_agents(
+            intent,
             agent_ids=matched_agents,
             tasks=[intent] * len(matched_agents),
             confidence=max_confidence,
             strategy="rule",
+            parallel=False,
         )
 
     async def _llm_route(self, intent: str, context: dict[str, Any]) -> RoutingDecision:
@@ -216,7 +275,8 @@ class TaskRouter:
                     }
                 },
             )
-            return RoutingDecision(
+            return self._filter_incompatible_agents(
+                intent,
                 agent_ids=agent_ids,
                 tasks=tasks,
                 confidence=confidence,

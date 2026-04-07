@@ -12,6 +12,7 @@ import type {
   TokenUsage,
   AgentRunThread,
   AgentRunGroup,
+  DispatchLedgerSummary,
 } from "./types";
 
 export interface SessionUiCacheEntry {
@@ -40,6 +41,7 @@ export interface SessionUiCacheEntry {
   selectedRunId: string | null;
   unreadByRun: Record<string, number>;
   runGroupsByTurn: Record<string, AgentRunGroup>;
+  dispatchLedgers: DispatchLedgerSummary[];
 }
 
 export interface SessionUiCacheSnapshotSource {
@@ -68,6 +70,7 @@ export interface SessionUiCacheSnapshotSource {
   selectedRunId: string | null;
   unreadByRun: Record<string, number>;
   runGroupsByTurn: Record<string, AgentRunGroup>;
+  dispatchLedgers: DispatchLedgerSummary[];
 }
 
 const MAX_SESSION_CACHE = 10;
@@ -154,7 +157,28 @@ export function createEmptySessionUiCacheEntry(): SessionUiCacheEntry {
     selectedRunId: null,
     unreadByRun: {},
     runGroupsByTurn: {},
+    dispatchLedgers: [],
   };
+}
+
+function cloneDispatchLedgers(
+  ledgers: DispatchLedgerSummary[],
+): DispatchLedgerSummary[] {
+  return ledgers.map((ledger) => ({
+    ...ledger,
+    preflight_failures: Array.isArray(ledger.preflight_failures)
+      ? ledger.preflight_failures.map((item) => ({ ...item }))
+      : ledger.preflight_failures ?? null,
+    routing_failures: Array.isArray(ledger.routing_failures)
+      ? ledger.routing_failures.map((item) => ({ ...item }))
+      : ledger.routing_failures ?? null,
+    execution_failures: Array.isArray(ledger.execution_failures)
+      ? ledger.execution_failures.map((item) => ({ ...item }))
+      : ledger.execution_failures ?? null,
+    dispatch_ledger: Array.isArray(ledger.dispatch_ledger)
+      ? ledger.dispatch_ledger.map((item) => ({ ...item }))
+      : ledger.dispatch_ledger ?? null,
+  }));
 }
 
 function cloneAgentRuns(
@@ -166,6 +190,18 @@ function cloneAgentRuns(
       {
         ...run,
         messages: cloneMessages(run.messages),
+        preflightFailures: Array.isArray(run.preflightFailures)
+          ? run.preflightFailures.map((item) => ({ ...item }))
+          : run.preflightFailures ?? null,
+        routingFailures: Array.isArray(run.routingFailures)
+          ? run.routingFailures.map((item) => ({ ...item }))
+          : run.routingFailures ?? null,
+        executionFailures: Array.isArray(run.executionFailures)
+          ? run.executionFailures.map((item) => ({ ...item }))
+          : run.executionFailures ?? null,
+        dispatchLedger: Array.isArray(run.dispatchLedger)
+          ? run.dispatchLedger.map((item) => ({ ...item }))
+          : run.dispatchLedger ?? null,
       },
     ]),
   );
@@ -224,6 +260,7 @@ export function cloneSessionUiCacheEntry(
     selectedRunId: entry.selectedRunId,
     unreadByRun: { ...entry.unreadByRun },
     runGroupsByTurn: cloneRunGroups(entry.runGroupsByTurn),
+    dispatchLedgers: cloneDispatchLedgers(entry.dispatchLedgers),
   };
 }
 
@@ -266,6 +303,7 @@ export function captureSessionUiCacheEntry(
     selectedRunId: source.selectedRunId,
     unreadByRun: { ...source.unreadByRun },
     runGroupsByTurn: cloneRunGroups(source.runGroupsByTurn),
+    dispatchLedgers: cloneDispatchLedgers(source.dispatchLedgers),
   };
 }
 

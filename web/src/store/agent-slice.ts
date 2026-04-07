@@ -55,10 +55,13 @@ function clampHistory(history: AgentAttemptInfo[]): AgentAttemptInfo[] {
 function sortRunIds(agentRuns: Record<string, AgentRunThread>, runIds: string[]): string[] {
   const uniqueRunIds = Array.from(new Set(runIds));
   const rootRunIds = uniqueRunIds.filter((runId) => agentRuns[runId]?.runScope === "root");
+  const dispatchRunIds = uniqueRunIds.filter(
+    (runId) => agentRuns[runId]?.runScope === "dispatch",
+  );
   const subagentRunIds = uniqueRunIds.filter(
     (runId) => agentRuns[runId]?.runScope === "subagent",
   );
-  return [...rootRunIds, ...subagentRunIds];
+  return [...rootRunIds, ...dispatchRunIds, ...subagentRunIds];
 }
 
 export function ensureRootRun(
@@ -210,7 +213,12 @@ export function hydrateAgentRunsFromSummaries(
     const turnId = typeof summary.turn_id === "string" ? summary.turn_id.trim() : "";
     if (!runId || !turnId) continue;
     const updatedAt = toTimestamp(summary.updated_at ?? undefined, now);
-    const runScope = summary.run_scope === "root" ? "root" : "subagent";
+    const runScope =
+      summary.run_scope === "root"
+        ? "root"
+        : summary.run_scope === "dispatch"
+          ? "dispatch"
+          : "subagent";
     nextState = upsertAgentRun(nextState, {
       runId,
       turnId,
@@ -230,6 +238,8 @@ export function hydrateAgentRunsFromSummaries(
           ? summary.agent_name.trim()
           : runScope === "root"
             ? ROOT_RUN_LABEL
+            : runScope === "dispatch"
+              ? "任务派发"
             : "子 Agent",
       status: summary.status ?? "running",
       task:
@@ -265,7 +275,105 @@ export function hydrateAgentRunsFromSummaries(
         typeof summary.progress_hint === "string" && summary.progress_hint.trim()
           ? summary.progress_hint.trim()
           : null,
-      eventsLoaded: runScope === "root",
+      preflightFailureCount:
+        typeof summary.preflight_failure_count === "number"
+          ? summary.preflight_failure_count
+          : null,
+      routingFailureCount:
+        typeof summary.routing_failure_count === "number"
+          ? summary.routing_failure_count
+          : null,
+      executionFailureCount:
+        typeof summary.execution_failure_count === "number"
+          ? summary.execution_failure_count
+          : null,
+      runnableCount:
+        typeof summary.runnable_count === "number" ? summary.runnable_count : null,
+      preflightFailures: Array.isArray(summary.preflight_failures)
+        ? summary.preflight_failures
+            .filter((item) => Boolean(item && typeof item === "object"))
+            .map((item) => ({
+              agent_id:
+                typeof item.agent_id === "string" && item.agent_id.trim()
+                  ? item.agent_id.trim()
+                  : null,
+              task:
+                typeof item.task === "string" && item.task.trim() ? item.task.trim() : null,
+              error:
+                typeof item.error === "string" && item.error.trim()
+                  ? item.error.trim()
+                  : null,
+            }))
+        : null,
+      routingFailures: Array.isArray(summary.routing_failures)
+        ? summary.routing_failures
+            .filter((item) => Boolean(item && typeof item === "object"))
+            .map((item) => ({
+              agent_id:
+                typeof item.agent_id === "string" && item.agent_id.trim()
+                  ? item.agent_id.trim()
+                  : null,
+              task:
+                typeof item.task === "string" && item.task.trim() ? item.task.trim() : null,
+              error:
+                typeof item.error === "string" && item.error.trim()
+                  ? item.error.trim()
+                  : null,
+            }))
+        : null,
+      executionFailures: Array.isArray(summary.execution_failures)
+        ? summary.execution_failures
+            .filter((item) => Boolean(item && typeof item === "object"))
+            .map((item) => ({
+              agent_id:
+                typeof item.agent_id === "string" && item.agent_id.trim()
+                  ? item.agent_id.trim()
+                  : null,
+              task:
+                typeof item.task === "string" && item.task.trim() ? item.task.trim() : null,
+              error:
+                typeof item.error === "string" && item.error.trim()
+                  ? item.error.trim()
+                  : null,
+            }))
+        : null,
+      dispatchLedger: Array.isArray(summary.dispatch_ledger)
+        ? summary.dispatch_ledger
+            .filter((item) => Boolean(item && typeof item === "object"))
+            .map((item) => ({
+              agent_id:
+                typeof item.agent_id === "string" && item.agent_id.trim()
+                  ? item.agent_id.trim()
+                  : null,
+              agent_name:
+                typeof item.agent_name === "string" && item.agent_name.trim()
+                  ? item.agent_name.trim()
+                  : null,
+              task:
+                typeof item.task === "string" && item.task.trim() ? item.task.trim() : null,
+              status:
+                typeof item.status === "string" && item.status.trim() ? item.status.trim() : null,
+              stop_reason:
+                typeof item.stop_reason === "string" && item.stop_reason.trim()
+                  ? item.stop_reason.trim()
+                  : null,
+              summary:
+                typeof item.summary === "string" && item.summary.trim()
+                  ? item.summary.trim()
+                  : null,
+              error:
+                typeof item.error === "string" && item.error.trim()
+                  ? item.error.trim()
+                  : null,
+              execution_time_ms:
+                typeof item.execution_time_ms === "number" ? item.execution_time_ms : null,
+              artifact_count:
+                typeof item.artifact_count === "number" ? item.artifact_count : null,
+              document_count:
+                typeof item.document_count === "number" ? item.document_count : null,
+            }))
+        : null,
+      eventsLoaded: runScope !== "subagent",
       messages: [],
     });
   }

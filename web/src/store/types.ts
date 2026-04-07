@@ -563,7 +563,7 @@ export interface Message {
   role: "user" | "assistant" | "tool";
   content: string;
   runId?: string;
-  runScope?: "root" | "subagent";
+  runScope?: "root" | "dispatch" | "subagent";
   parentRunId?: string | null;
   agentId?: string | null;
   agentName?: string | null;
@@ -821,6 +821,25 @@ export interface AgentSlice {
 
 export type AgentRunStatus = "running" | "completed" | "error" | "stopped";
 
+export interface DispatchFailureItem {
+  agent_id?: string | null;
+  task?: string | null;
+  error?: string | null;
+}
+
+export interface DispatchLedgerItem {
+  agent_id?: string | null;
+  agent_name?: string | null;
+  task?: string | null;
+  status?: "success" | "error" | "stopped" | string | null;
+  stop_reason?: string | null;
+  summary?: string | null;
+  error?: string | null;
+  execution_time_ms?: number | null;
+  artifact_count?: number | null;
+  document_count?: number | null;
+}
+
 export interface AgentRunSummary {
   run_id: string;
   run_scope?: string | null;
@@ -838,13 +857,57 @@ export interface AgentRunSummary {
   progress_message?: string | null;
   progress_hint?: string | null;
   latest_execution_time_ms?: number | null;
+  preflight_failure_count?: number | null;
+  routing_failure_count?: number | null;
+  execution_failure_count?: number | null;
+  runnable_count?: number | null;
+  preflight_failures?: DispatchFailureItem[] | null;
+  routing_failures?: DispatchFailureItem[] | null;
+  execution_failures?: DispatchFailureItem[] | null;
+  dispatch_ledger?: DispatchLedgerItem[] | null;
+}
+
+export interface DispatchLedgerSummary extends AgentRunSummary {
+  run_scope?: "dispatch" | string | null;
+}
+
+export interface DispatchLedgerAggregateSession {
+  session_id: string;
+  title: string;
+  updated_at?: string | null;
+  last_dispatch_at?: string | null;
+  latest_run_id?: string | null;
+  dispatch_run_count: number;
+  subtask_count: number;
+  success_count: number;
+  stopped_count: number;
+  preflight_failure_count: number;
+  routing_failure_count: number;
+  execution_failure_count: number;
+  failure_count: number;
+}
+
+export interface DispatchLedgerAggregate {
+  generated_at?: string | null;
+  total_session_count: number;
+  dispatch_session_count: number;
+  dispatch_run_count: number;
+  subtask_count: number;
+  success_count: number;
+  stopped_count: number;
+  preflight_failure_count: number;
+  routing_failure_count: number;
+  execution_failure_count: number;
+  failure_count: number;
+  returned_session_count: number;
+  sessions: DispatchLedgerAggregateSession[];
 }
 
 export interface AgentRunThread {
   runId: string;
   turnId: string;
   parentRunId: string | null;
-  runScope: "root" | "subagent";
+  runScope: "root" | "dispatch" | "subagent";
   agentId: string | null;
   agentName: string;
   status: AgentRunStatus;
@@ -859,6 +922,14 @@ export interface AgentRunThread {
   phase?: string | null;
   progressMessage?: string | null;
   progressHint?: string | null;
+  preflightFailureCount?: number | null;
+  routingFailureCount?: number | null;
+  executionFailureCount?: number | null;
+  runnableCount?: number | null;
+  preflightFailures?: DispatchFailureItem[] | null;
+  routingFailures?: DispatchFailureItem[] | null;
+  executionFailures?: DispatchFailureItem[] | null;
+  dispatchLedger?: DispatchLedgerItem[] | null;
   eventsLoaded?: boolean;
   messages: Message[];
 }

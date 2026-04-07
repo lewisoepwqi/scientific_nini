@@ -170,6 +170,22 @@ def test_rule_route_citation_manager():
     assert result.confidence >= 0.7
 
 
+@pytest.mark.asyncio
+async def test_route_filters_incompatible_citation_manager_from_llm_result():
+    """LLM 若将非引用任务误派给 citation_manager，应被兼容性过滤器剔除。"""
+    llm_json = (
+        '{"agent_ids": ["citation_manager"], "tasks": ["检查数据结构完整性"], '
+        '"confidence": 0.9, "parallel": true}'
+    )
+    mock = _MockResolver(response=llm_json)
+    router = TaskRouter(model_resolver=mock, enable_llm_fallback=True)
+
+    result = await router.route("检查数据结构是否完整")
+
+    assert result.agent_ids == []
+    assert result.confidence == 0.0
+
+
 def test_rule_route_research_planner():
     """实验设计相关关键词应命中 research_planner。"""
     router = TaskRouter(enable_llm_fallback=False)

@@ -445,12 +445,91 @@ def test_get_session_agent_runs_returns_run_summaries(client: LocalASGIClient) -
     session_manager.append_agent_run_event(
         session_id,
         {
+            "type": "dispatch_agents_preflight",
+            "turn_id": "turn-agent-1",
+            "data": {
+                "task_count": 1,
+                "routed_task_count": 1,
+                "runnable_count": 1,
+                "preflight_failure_count": 0,
+                "routing_failure_count": 0,
+                "preflight_failures": [],
+                "routed_agents": ["statistician"],
+            },
+            "metadata": {
+                "run_scope": "dispatch",
+                "run_id": "dispatch:call-1",
+                "parent_run_id": "root:turn-agent-1",
+                "agent_id": "dispatch_agents",
+                "agent_name": "dispatch_agents",
+                "attempt": 1,
+                "phase": "preflight",
+                "turn_id": "turn-agent-1",
+            },
+        },
+    )
+    session_manager.append_agent_run_event(
+        session_id,
+        {
+            "type": "dispatch_agents_result",
+            "turn_id": "turn-agent-2",
+            "data": {
+                "task_count": 2,
+                "success_count": 0,
+                "failure_count": 3,
+                "stopped_count": 0,
+                "preflight_failure_count": 1,
+                "routing_failure_count": 1,
+                "execution_failure_count": 1,
+                "preflight_failures": [
+                    {
+                        "agent_id": "statistician",
+                        "task": "执行正态性检验",
+                        "error": "模型额度不足",
+                    }
+                ],
+                "routing_failures": [
+                    {
+                        "agent_id": "router_guard",
+                        "task": "识别干预标记",
+                        "error": "未找到可用 agent",
+                    }
+                ],
+                "execution_failures": [
+                    {
+                        "agent_id": "viz_designer",
+                        "task": "绘制散点图",
+                        "error": "Plotly 导出失败",
+                    }
+                ],
+            },
+            "metadata": {
+                "run_scope": "dispatch",
+                "run_id": "dispatch:call-2",
+                "parent_run_id": "root:turn-agent-2",
+                "agent_id": "dispatch_agents",
+                "agent_name": "dispatch_agents",
+                "attempt": 1,
+                "phase": "fused",
+                "turn_id": "turn-agent-2",
+            },
+        },
+    )
+    session_manager.append_agent_run_event(
+        session_id,
+        {
             "type": "dispatch_agents_result",
             "turn_id": "turn-agent-1",
             "data": {
                 "task_count": 1,
                 "routed_agents": ["statistician"],
                 "subtasks": [],
+                "preflight_failure_count": 0,
+                "routing_failure_count": 0,
+                "execution_failure_count": 0,
+                "preflight_failures": [],
+                "routing_failures": [],
+                "execution_failures": [],
             },
             "metadata": {
                 "run_scope": "dispatch",
@@ -472,22 +551,267 @@ def test_get_session_agent_runs_returns_run_summaries(client: LocalASGIClient) -
     data = payload["data"]
     assert data["session_id"] == session_id
     assert data["turn_id"] == "turn-agent-1"
-    assert data["event_count"] == 2
+    assert data["event_count"] == 3
     assert "events" not in data
     assert len(data["runs"]) == 2
 
     dispatch_run = next(item for item in data["runs"] if item["run_id"] == "dispatch:call-1")
     child_run = next(
-        item
-        for item in data["runs"]
-        if item["run_id"] == "agent:turn-agent-1:statistician:1"
+        item for item in data["runs"] if item["run_id"] == "agent:turn-agent-1:statistician:1"
     )
     assert dispatch_run["run_scope"] == "dispatch"
     assert dispatch_run["latest_phase"] == "fused"
-    assert dispatch_run["status"] == "running"
+    assert dispatch_run["status"] == "completed"
+    assert dispatch_run["preflight_failure_count"] == 0
+    assert dispatch_run["routing_failure_count"] == 0
+    assert dispatch_run["execution_failure_count"] == 0
+    assert dispatch_run["preflight_failures"] == []
+    assert dispatch_run["routing_failures"] == []
+    assert dispatch_run["execution_failures"] == []
+    assert dispatch_run["dispatch_ledger"] == []
     assert child_run["agent_name"] == "统计分析"
     assert child_run["parent_run_id"] == "dispatch:call-1"
     assert child_run["progress_message"] == "处理中"
+
+
+def test_get_session_agent_runs_includes_preflight_failure_details(
+    client: LocalASGIClient,
+) -> None:
+    """dispatch 摘要应包含预检失败明细，便于前端账本直接消费。"""
+    resp = client.post("/api/sessions")
+    assert resp.status_code == 201
+    session_id = resp.json()["data"]["session_id"]
+
+    session_manager.append_agent_run_event(
+        session_id,
+        {
+            "type": "dispatch_agents_preflight",
+            "turn_id": "turn-agent-2",
+            "data": {
+                "task_count": 2,
+                "routed_task_count": 1,
+                "runnable_count": 1,
+                "preflight_failure_count": 1,
+                "routing_failure_count": 0,
+                "preflight_failures": [
+                    {
+                        "agent_id": "statistician",
+                        "task": "执行正态性检验",
+                        "error": "模型额度不足",
+                    }
+                ],
+            },
+            "metadata": {
+                "run_scope": "dispatch",
+                "run_id": "dispatch:call-2",
+                "parent_run_id": "root:turn-agent-2",
+                "agent_id": "dispatch_agents",
+                "agent_name": "dispatch_agents",
+                "attempt": 1,
+                "phase": "preflight",
+                "turn_id": "turn-agent-2",
+            },
+        },
+    )
+    session_manager.append_agent_run_event(
+        session_id,
+        {
+            "type": "dispatch_agents_result",
+            "turn_id": "turn-agent-2",
+            "data": {
+                "task_count": 2,
+                "success_count": 0,
+                "failure_count": 3,
+                "stopped_count": 0,
+                "preflight_failure_count": 1,
+                "routing_failure_count": 1,
+                "execution_failure_count": 1,
+                "preflight_failures": [
+                    {
+                        "agent_id": "statistician",
+                        "task": "执行正态性检验",
+                        "error": "模型额度不足",
+                    }
+                ],
+                "routing_failures": [
+                    {
+                        "agent_id": "router_guard",
+                        "task": "识别干预标记",
+                        "error": "未找到可用 agent",
+                    }
+                ],
+                "execution_failures": [
+                    {
+                        "agent_id": "viz_designer",
+                        "task": "绘制散点图",
+                        "error": "Plotly 导出失败",
+                    }
+                ],
+                "subtasks": [
+                    {
+                        "agent_id": "statistician",
+                        "agent_name": "统计分析",
+                        "task": "执行正态性检验",
+                        "status": "error",
+                        "stop_reason": "preflight_failed",
+                        "summary": "模型额度不足",
+                        "error": "模型额度不足",
+                        "execution_time_ms": 0,
+                        "artifact_count": 0,
+                        "document_count": 0,
+                    },
+                    {
+                        "agent_id": "router_guard",
+                        "agent_name": "路由守卫",
+                        "task": "识别干预标记",
+                        "status": "error",
+                        "stop_reason": "routing_failed",
+                        "summary": "未找到可用 agent",
+                        "error": "未找到可用 agent",
+                        "execution_time_ms": 0,
+                        "artifact_count": 0,
+                        "document_count": 0,
+                    },
+                    {
+                        "agent_id": "viz_designer",
+                        "agent_name": "可视化设计",
+                        "task": "绘制散点图",
+                        "status": "error",
+                        "stop_reason": "child_execution_failed",
+                        "summary": "Plotly 导出失败",
+                        "error": "Plotly 导出失败",
+                        "execution_time_ms": 3200,
+                        "artifact_count": 1,
+                        "document_count": 0,
+                    },
+                    {
+                        "agent_id": "data_cleaner",
+                        "agent_name": "数据清洗",
+                        "task": "标准化列名",
+                        "status": "success",
+                        "stop_reason": "",
+                        "summary": "已完成清洗",
+                        "error": "",
+                        "execution_time_ms": 1200,
+                        "artifact_count": 1,
+                        "document_count": 0,
+                    },
+                    {
+                        "agent_id": "scheduler",
+                        "agent_name": "调度器",
+                        "task": "等待人工确认",
+                        "status": "stopped",
+                        "stop_reason": "user_stopped",
+                        "summary": "用户手动终止",
+                        "error": "",
+                        "execution_time_ms": 50,
+                        "artifact_count": 0,
+                        "document_count": 0,
+                    },
+                ],
+            },
+            "metadata": {
+                "run_scope": "dispatch",
+                "run_id": "dispatch:call-2",
+                "parent_run_id": "root:turn-agent-2",
+                "agent_id": "dispatch_agents",
+                "agent_name": "dispatch_agents",
+                "attempt": 1,
+                "phase": "fused",
+                "turn_id": "turn-agent-2",
+            },
+        },
+    )
+
+    agent_runs_resp = client.get(f"/api/sessions/{session_id}/agent-runs?turn_id=turn-agent-2")
+    assert agent_runs_resp.status_code == 200
+    payload = agent_runs_resp.json()
+    dispatch_run = payload["data"]["runs"][0]
+    assert dispatch_run["run_id"] == "dispatch:call-2"
+    assert dispatch_run["preflight_failure_count"] == 1
+    assert dispatch_run["preflight_failures"] == [
+        {
+            "agent_id": "statistician",
+            "task": "执行正态性检验",
+            "error": "模型额度不足",
+        }
+    ]
+    assert dispatch_run["routing_failures"] == [
+        {
+            "agent_id": "router_guard",
+            "task": "识别干预标记",
+            "error": "未找到可用 agent",
+        }
+    ]
+    assert dispatch_run["execution_failures"] == [
+        {
+            "agent_id": "viz_designer",
+            "task": "绘制散点图",
+            "error": "Plotly 导出失败",
+        }
+    ]
+    assert dispatch_run["dispatch_ledger"] == [
+        {
+            "agent_id": "statistician",
+            "agent_name": "统计分析",
+            "task": "执行正态性检验",
+            "status": "error",
+            "stop_reason": "preflight_failed",
+            "summary": "模型额度不足",
+            "error": "模型额度不足",
+            "execution_time_ms": 0,
+            "artifact_count": 0,
+            "document_count": 0,
+        },
+        {
+            "agent_id": "router_guard",
+            "agent_name": "路由守卫",
+            "task": "识别干预标记",
+            "status": "error",
+            "stop_reason": "routing_failed",
+            "summary": "未找到可用 agent",
+            "error": "未找到可用 agent",
+            "execution_time_ms": 0,
+            "artifact_count": 0,
+            "document_count": 0,
+        },
+        {
+            "agent_id": "viz_designer",
+            "agent_name": "可视化设计",
+            "task": "绘制散点图",
+            "status": "error",
+            "stop_reason": "child_execution_failed",
+            "summary": "Plotly 导出失败",
+            "error": "Plotly 导出失败",
+            "execution_time_ms": 3200,
+            "artifact_count": 1,
+            "document_count": 0,
+        },
+        {
+            "agent_id": "data_cleaner",
+            "agent_name": "数据清洗",
+            "task": "标准化列名",
+            "status": "success",
+            "stop_reason": "",
+            "summary": "已完成清洗",
+            "error": "",
+            "execution_time_ms": 1200,
+            "artifact_count": 1,
+            "document_count": 0,
+        },
+        {
+            "agent_id": "scheduler",
+            "agent_name": "调度器",
+            "task": "等待人工确认",
+            "status": "stopped",
+            "stop_reason": "user_stopped",
+            "summary": "用户手动终止",
+            "error": "",
+            "execution_time_ms": 50,
+            "artifact_count": 0,
+            "document_count": 0,
+        },
+    ]
 
 
 def test_get_session_agent_run_events_supports_run_filter(client: LocalASGIClient) -> None:
@@ -534,6 +858,210 @@ def test_get_session_agent_run_events_supports_run_filter(client: LocalASGIClien
     assert data["total"] == 1
     assert data["returned"] == 1
     assert data["events"][0]["data"]["message"] == "agent-a"
+
+
+def test_get_session_dispatch_ledger_returns_independent_overview(
+    client: LocalASGIClient,
+) -> None:
+    """dispatch-ledger 端点应独立返回当前会话的派发账本。"""
+    resp = client.post("/api/sessions")
+    assert resp.status_code == 201
+    session_id = resp.json()["data"]["session_id"]
+
+    session_manager.append_agent_run_event(
+        session_id,
+        {
+            "type": "dispatch_agents_result",
+            "turn_id": "turn-ledger-1",
+            "data": {
+                "task_count": 2,
+                "success_count": 1,
+                "failure_count": 1,
+                "stopped_count": 0,
+                "preflight_failure_count": 0,
+                "routing_failure_count": 0,
+                "execution_failure_count": 1,
+                "subtasks": [
+                    {
+                        "agent_id": "data_cleaner",
+                        "agent_name": "数据清洗",
+                        "task": "标准化列名",
+                        "status": "success",
+                        "stop_reason": "",
+                        "summary": "已完成清洗",
+                        "error": "",
+                        "execution_time_ms": 1200,
+                        "artifact_count": 1,
+                        "document_count": 0,
+                    },
+                    {
+                        "agent_id": "viz_designer",
+                        "agent_name": "可视化设计",
+                        "task": "绘制散点图",
+                        "status": "error",
+                        "stop_reason": "child_execution_failed",
+                        "summary": "Plotly 导出失败",
+                        "error": "Plotly 导出失败",
+                        "execution_time_ms": 3200,
+                        "artifact_count": 0,
+                        "document_count": 0,
+                    },
+                ],
+            },
+            "metadata": {
+                "run_scope": "dispatch",
+                "run_id": "dispatch:call-ledger-1",
+                "parent_run_id": "root:turn-ledger-1",
+                "agent_id": "dispatch_agents",
+                "agent_name": "dispatch_agents",
+                "attempt": 1,
+                "phase": "fused",
+                "turn_id": "turn-ledger-1",
+            },
+        },
+    )
+
+    ledger_resp = client.get(f"/api/sessions/{session_id}/dispatch-ledger?turn_id=turn-ledger-1")
+    assert ledger_resp.status_code == 200
+    payload = ledger_resp.json()
+    assert payload["success"] is True
+    data = payload["data"]
+    assert data["ledger_count"] == 1
+    ledger = data["ledgers"][0]
+    assert ledger["run_id"] == "dispatch:call-ledger-1"
+    assert ledger["execution_failure_count"] == 1
+    assert ledger["dispatch_ledger"] == [
+        {
+            "agent_id": "data_cleaner",
+            "agent_name": "数据清洗",
+            "task": "标准化列名",
+            "status": "success",
+            "stop_reason": "",
+            "summary": "已完成清洗",
+            "error": "",
+            "execution_time_ms": 1200,
+            "artifact_count": 1,
+            "document_count": 0,
+        },
+        {
+            "agent_id": "viz_designer",
+            "agent_name": "可视化设计",
+            "task": "绘制散点图",
+            "status": "error",
+            "stop_reason": "child_execution_failed",
+            "summary": "Plotly 导出失败",
+            "error": "Plotly 导出失败",
+            "execution_time_ms": 3200,
+            "artifact_count": 0,
+            "document_count": 0,
+        },
+    ]
+
+
+def test_get_dispatch_ledger_aggregate_returns_cross_session_audit_summary(
+    client: LocalASGIClient,
+) -> None:
+    """dispatch-ledger 聚合端点应返回跨会话审计摘要。"""
+    resp_a = client.post("/api/sessions")
+    resp_b = client.post("/api/sessions")
+    assert resp_a.status_code == 201
+    assert resp_b.status_code == 201
+    session_a = resp_a.json()["data"]["session_id"]
+    session_b = resp_b.json()["data"]["session_id"]
+
+    session_manager.save_session_title(session_a, "统计分析 A")
+    session_manager.save_session_title(session_b, "统计分析 B")
+
+    session_manager.append_agent_run_event(
+        session_a,
+        {
+            "type": "dispatch_agents_result",
+            "turn_id": "turn-a-1",
+            "_ts": "2026-04-07T10:00:00Z",
+            "data": {
+                "preflight_failure_count": 1,
+                "routing_failure_count": 0,
+                "execution_failure_count": 1,
+                "subtasks": [
+                    {
+                        "agent_id": "data_cleaner",
+                        "agent_name": "数据清洗",
+                        "task": "补齐缺失值",
+                        "status": "success",
+                    },
+                    {
+                        "agent_id": "viz_designer",
+                        "agent_name": "可视化设计",
+                        "task": "导出散点图",
+                        "status": "error",
+                        "error": "Plotly 导出失败",
+                    },
+                    {
+                        "agent_id": "review_assistant",
+                        "agent_name": "复核助手",
+                        "task": "等待人工确认",
+                        "status": "stopped",
+                        "stop_reason": "user_stop",
+                    },
+                ],
+            },
+            "metadata": {
+                "run_scope": "dispatch",
+                "run_id": "dispatch:session-a:1",
+                "turn_id": "turn-a-1",
+                "phase": "fused",
+            },
+        },
+    )
+    session_manager.append_agent_run_event(
+        session_b,
+        {
+            "type": "dispatch_agents_result",
+            "turn_id": "turn-b-1",
+            "_ts": "2026-04-07T11:00:00Z",
+            "data": {
+                "preflight_failure_count": 0,
+                "routing_failure_count": 1,
+                "execution_failure_count": 0,
+                "subtasks": [
+                    {
+                        "agent_id": "statistician",
+                        "agent_name": "统计分析",
+                        "task": "执行正态性检验",
+                        "status": "success",
+                    }
+                ],
+            },
+            "metadata": {
+                "run_scope": "dispatch",
+                "run_id": "dispatch:session-b:1",
+                "turn_id": "turn-b-1",
+                "phase": "fused",
+            },
+        },
+    )
+
+    aggregate_resp = client.get("/api/sessions/dispatch-ledger/aggregate?limit=10")
+    assert aggregate_resp.status_code == 200
+    payload = aggregate_resp.json()
+    assert payload["success"] is True
+    data = payload["data"]
+    assert data["total_session_count"] >= 2
+    assert data["dispatch_session_count"] == 2
+    assert data["dispatch_run_count"] == 2
+    assert data["subtask_count"] == 4
+    assert data["success_count"] == 2
+    assert data["stopped_count"] == 1
+    assert data["preflight_failure_count"] == 1
+    assert data["routing_failure_count"] == 1
+    assert data["execution_failure_count"] == 1
+    assert data["failure_count"] == 3
+    assert data["returned_session_count"] == 2
+    assert [item["session_id"] for item in data["sessions"]] == [session_b, session_a]
+    assert data["sessions"][0]["latest_run_id"] == "dispatch:session-b:1"
+    assert data["sessions"][0]["failure_count"] == 1
+    assert data["sessions"][1]["failure_count"] == 2
+    assert data["sessions"][1]["stopped_count"] == 1
 
 
 # ---- GET /api/sessions/{session_id}/messages 端点测试 ----

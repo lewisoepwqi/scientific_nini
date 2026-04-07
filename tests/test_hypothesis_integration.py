@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from nini.agent.hypothesis_context import Hypothesis, HypothesisContext
 from nini.agent.spawner import SubAgentResult, SubAgentSpawner
@@ -262,7 +262,10 @@ async def test_spawn_entry_point_emits_hypothesis_events():
 
         yield AgentEvent(type=EventType.TEXT, data="假设推理")
 
-    with patch("nini.agent.runner.AgentRunner") as MockRunner:
+    with (
+        patch.object(spawner, "_preflight_agent_execution", new=AsyncMock(return_value=None)),
+        patch("nini.agent.runner.AgentRunner") as MockRunner,
+    ):
         instance = MockRunner.return_value
         instance.run = mock_runner_run
         result = await spawner.spawn("literature_reading", "综述近5年研究进展", session)

@@ -7,8 +7,7 @@ from typing import Any
 import pytest
 
 from nini.agent.dag_executor import DagExecutor, DagTask, _inject_context
-from nini.agent.spawner import SubAgentResult
-
+from nini.agent.spawner import BatchPreflightPlan, SubAgentResult
 
 # ─── 辅助 ──────────────────────────────────────────────────────────────────────
 
@@ -52,6 +51,19 @@ class _MockSpawner:
             results = [_result(agent_id) for agent_id, _ in tasks]
         self._call_index += 1
         return results
+
+    async def preflight_batch(
+        self,
+        tasks: list[tuple[str, str]],
+        _session: Any,
+        **_kwargs: Any,
+    ) -> BatchPreflightPlan:
+        return BatchPreflightPlan(
+            ordered_results=[None] * len(tasks),
+            executable_tasks=[
+                (index, agent_id, task) for index, (agent_id, task) in enumerate(tasks, start=1)
+            ],
+        )
 
 
 # ─── build_waves ───────────────────────────────────────────────────────────────
@@ -255,3 +267,25 @@ async def test_execute_empty_waves():
     results = await executor.execute([], session=None, spawner=spawner, router=None)
     assert results == []
     assert spawner.call_args == []
+
+
+@pytest.mark.asyncio
+async def test_execute_reports_wave_preflight_summary():
+    """DAG wave 执行前应上报每一波的预检摘要。"""
+    executor = DagExecutor()
+    wave1 = [_task("A", task="清洗数据", agent_id="cleaner")]
+    wave2 = [_task("B", task="统计分析", depends_on=["A"], agent_id="statistician")]
+    spawner = _MockSpawner()
+    reported: list[dict[str, Any]] = []
+
+    await executor.execute(
+        [wave1, wave2],
+        session=None,
+        spawner=spawner,
+        router=None,
+        preflight_reporter=lambda payload: reported.append(payload),
+    )
+
+    assert len(reported) == 2
+    assert reported[0]["task_count"] == 1
+    assert reported[0]["runnable_count"] == 1

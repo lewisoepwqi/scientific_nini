@@ -55,6 +55,7 @@ function createState(
     selectedRunId: null,
     unreadByRun: {},
     runGroupsByTurn: {},
+    dispatchLedgers: [],
     lastViewedRunIdBySession: {},
     hypotheses: [],
     currentPhase: "generation",
@@ -1204,6 +1205,240 @@ describe("handleEvent 多 Agent 聚合", () => {
       status: "completed",
       executionTimeMs: 1280,
       summary: "Shapiro-Wilk 检验已完成",
+    });
+  });
+
+  it("应为 dispatch workflow_status 创建独立运行线程并更新预检摘要", async () => {
+    const harness = createHarness();
+
+    await harness.dispatch({
+      type: "workflow_status",
+      turn_id: "turn-dispatch-1",
+      metadata: {
+        run_scope: "dispatch",
+        run_id: "dispatch:call-1",
+        parent_run_id: "root:turn-dispatch-1",
+        agent_id: "dispatch_agents",
+        agent_name: "任务派发",
+        attempt: 1,
+        phase: "preflight",
+        turn_id: "turn-dispatch-1",
+      },
+      data: {
+        scope: "dispatch_agents",
+        phase: "preflight",
+        runnable_count: 2,
+        preflight_failure_count: 1,
+        routing_failure_count: 0,
+        preflight_failures: [
+          {
+            agent_id: "statistician",
+            task: "正态性检验",
+            error: "模型额度不足",
+          },
+        ],
+        wave_index: 1,
+        wave_count: 2,
+      },
+    });
+
+    const state = harness.getState();
+    const dispatchRun = state.agentRuns["dispatch:call-1"];
+    expect(dispatchRun).toMatchObject({
+      runScope: "dispatch",
+      status: "running",
+      progressMessage: "第 1/2 波次预检：可执行 2 个，预检失败 1 个",
+      preflightFailureCount: 1,
+      runnableCount: 2,
+      preflightFailures: [
+        {
+          agent_id: "statistician",
+          task: "正态性检验",
+          error: "模型额度不足",
+        },
+      ],
+    });
+  });
+
+  it("后台会话的 dispatch workflow_status 应写入会话缓存", async () => {
+    const harness = createHarness({
+      sessionId: "session-current",
+    });
+
+    await harness.dispatch({
+      type: "workflow_status",
+      session_id: "session-bg",
+      turn_id: "turn-dispatch-bg",
+      metadata: {
+        run_scope: "dispatch",
+        run_id: "dispatch:bg-call-1",
+        parent_run_id: "root:turn-dispatch-bg",
+        agent_id: "dispatch_agents",
+        agent_name: "任务派发",
+        attempt: 1,
+        phase: "preflight",
+        turn_id: "turn-dispatch-bg",
+      },
+      data: {
+        scope: "dispatch_agents",
+        phase: "preflight",
+        runnable_count: 3,
+        preflight_failure_count: 2,
+        routing_failure_count: 1,
+        preflight_failures: [
+          {
+            agent_id: "statistician",
+            task: "执行正态性检验",
+            error: "模型额度不足",
+          },
+        ],
+        wave_index: 1,
+        wave_count: 1,
+      },
+    });
+
+    expect(harness.getState().agentRuns["dispatch:bg-call-1"]).toBeUndefined();
+    const cached = getSessionUiCacheEntry("session-bg");
+    expect(cached?.currentTurnId).toBe("turn-dispatch-bg");
+    expect(cached?.agentRuns["dispatch:bg-call-1"]).toMatchObject({
+      runScope: "dispatch",
+      status: "running",
+      progressMessage: "第 1/1 波次预检：可执行 3 个，预检失败 2 个",
+      preflightFailureCount: 2,
+      routingFailureCount: 1,
+      runnableCount: 3,
+      preflightFailures: [
+        {
+          agent_id: "statistician",
+          task: "执行正态性检验",
+          error: "模型额度不足",
+        },
+      ],
+    });
+    expect(cached?.agentRunTabs).toContain("dispatch:bg-call-1");
+    expect(cached?.dispatchLedgers[0]?.run_id).toBe("dispatch:bg-call-1");
+  });
+
+  it("dispatch fused workflow_status 应写入路由和执行失败明细", async () => {
+    const harness = createHarness();
+
+    await harness.dispatch({
+      type: "workflow_status",
+      turn_id: "turn-dispatch-fused",
+      metadata: {
+        run_scope: "dispatch",
+        run_id: "dispatch:call-fused",
+        parent_run_id: "root:turn-dispatch-fused",
+        agent_id: "dispatch_agents",
+        agent_name: "任务派发",
+        attempt: 1,
+        phase: "fused",
+        turn_id: "turn-dispatch-fused",
+      },
+      data: {
+        scope: "dispatch_agents",
+        phase: "fused",
+        success_count: 0,
+        failure_count: 2,
+        stopped_count: 0,
+        preflight_failure_count: 0,
+        routing_failure_count: 1,
+        execution_failure_count: 1,
+        routing_failures: [
+          {
+            agent_id: "router_guard",
+            task: "识别干预标记",
+            error: "未找到可用 agent",
+          },
+        ],
+        execution_failures: [
+          {
+            agent_id: "viz_designer",
+            task: "绘制散点图",
+            error: "Plotly 导出失败",
+          },
+        ],
+        subtasks: [
+          {
+            agent_id: "data_cleaner",
+            agent_name: "数据清洗",
+            task: "标准化列名",
+            status: "success",
+            stop_reason: "",
+            summary: "已完成清洗",
+            error: "",
+            execution_time_ms: 1200,
+            artifact_count: 1,
+            document_count: 0,
+          },
+          {
+            agent_id: "scheduler",
+            agent_name: "调度器",
+            task: "等待人工确认",
+            status: "stopped",
+            stop_reason: "user_stopped",
+            summary: "用户手动终止",
+            error: "",
+            execution_time_ms: 50,
+            artifact_count: 0,
+            document_count: 0,
+          },
+        ],
+      },
+    });
+
+    const dispatchRun = harness.getState().agentRuns["dispatch:call-fused"];
+    expect(dispatchRun).toMatchObject({
+      runScope: "dispatch",
+      status: "error",
+      progressMessage: "执行汇总：成功 0 个，失败 2 个，停止 0 个",
+      routingFailureCount: 1,
+      executionFailureCount: 1,
+      routingFailures: [
+        {
+          agent_id: "router_guard",
+          task: "识别干预标记",
+          error: "未找到可用 agent",
+        },
+      ],
+      executionFailures: [
+        {
+          agent_id: "viz_designer",
+          task: "绘制散点图",
+          error: "Plotly 导出失败",
+        },
+      ],
+      dispatchLedger: [
+        {
+          agent_id: "data_cleaner",
+          agent_name: "数据清洗",
+          task: "标准化列名",
+          status: "success",
+          stop_reason: null,
+          summary: "已完成清洗",
+          error: null,
+          execution_time_ms: 1200,
+          artifact_count: 1,
+          document_count: 0,
+        },
+        {
+          agent_id: "scheduler",
+          agent_name: "调度器",
+          task: "等待人工确认",
+          status: "stopped",
+          stop_reason: "user_stopped",
+          summary: "用户手动终止",
+          error: null,
+          execution_time_ms: 50,
+          artifact_count: 0,
+          document_count: 0,
+        },
+      ],
+    });
+    expect(harness.getState().dispatchLedgers[0]).toMatchObject({
+      run_id: "dispatch:call-fused",
+      routing_failure_count: 1,
+      execution_failure_count: 1,
     });
   });
 });

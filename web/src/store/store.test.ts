@@ -440,6 +440,38 @@ describe("store reconnect / retry / stop", () => {
           }),
         } as Response);
       }
+      if (url.endsWith("/api/sessions/session-agent-summary/dispatch-ledger")) {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: {
+              ledgers: [
+                {
+                  run_id: "dispatch:call-agent-summary",
+                  run_scope: "dispatch",
+                  parent_run_id: "root:turn-agent-summary",
+                  agent_id: "dispatch_agents",
+                  agent_name: "任务派发",
+                  attempt: 1,
+                  turn_id: "turn-agent-summary",
+                  latest_phase: "fused",
+                  status: "completed",
+                  progress_message: "执行汇总：成功 1 个，失败 0 个，停止 0 个",
+                  dispatch_ledger: [
+                    {
+                      agent_id: "statistician",
+                      agent_name: "统计分析",
+                      task: "执行统计分析",
+                      status: "success",
+                      summary: "已完成分析",
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        } as Response);
+      }
       return Promise.resolve({
         json: async () => ({ success: true, data: {} }),
         ok: true,
@@ -458,6 +490,86 @@ describe("store reconnect / retry / stop", () => {
       task: "执行统计分析",
       progressMessage: "工具已返回结果",
       eventsLoaded: false,
+    });
+    expect(useStore.getState().dispatchLedgers).toMatchObject([
+      {
+        run_id: "dispatch:call-agent-summary",
+        agent_name: "任务派发",
+      },
+    ]);
+  });
+
+  it("fetchSessions 应同步拉取跨会话 dispatch ledger 聚合摘要", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/api/sessions")) {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: [
+              {
+                id: "session-risk",
+                title: "风险会话",
+                message_count: 3,
+              },
+            ],
+          }),
+        } as Response);
+      }
+      if (url.includes("/api/sessions/dispatch-ledger/aggregate")) {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: {
+              total_session_count: 1,
+              dispatch_session_count: 1,
+              dispatch_run_count: 2,
+              subtask_count: 4,
+              success_count: 2,
+              stopped_count: 1,
+              preflight_failure_count: 0,
+              routing_failure_count: 1,
+              execution_failure_count: 1,
+              failure_count: 2,
+              returned_session_count: 1,
+              sessions: [
+                {
+                  session_id: "session-risk",
+                  title: "风险会话",
+                  latest_run_id: "dispatch:risk:1",
+                  dispatch_run_count: 2,
+                  subtask_count: 4,
+                  success_count: 2,
+                  stopped_count: 1,
+                  preflight_failure_count: 0,
+                  routing_failure_count: 1,
+                  execution_failure_count: 1,
+                  failure_count: 2,
+                },
+              ],
+            },
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        json: async () => ({ success: true, data: {} }),
+        ok: true,
+      } as Response);
+    });
+
+    await useStore.getState().fetchSessions();
+
+    expect(useStore.getState().sessions).toMatchObject([
+      {
+        id: "session-risk",
+        title: "风险会话",
+      },
+    ]);
+    expect(useStore.getState().dispatchLedgerAggregate).toMatchObject({
+      dispatch_session_count: 1,
+      dispatch_run_count: 2,
+      failure_count: 2,
     });
   });
 
