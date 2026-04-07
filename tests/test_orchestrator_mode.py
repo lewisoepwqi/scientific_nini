@@ -28,6 +28,14 @@ def _make_runner_with_dispatch_registered():
         async def spawn(self, agent_id, task, session, **kwargs):
             return SubAgentResult(agent_id=agent_id, success=True, summary="完成")
 
+        async def preflight_batch(self, tasks, session, **kwargs):
+            from nini.agent.spawner import BatchPreflightPlan
+
+            return BatchPreflightPlan(
+                ordered_results=[None] * len(tasks),
+                executable_tasks=[(i + 1, aid, t) for i, (aid, t) in enumerate(tasks)],
+            )
+
     class _MockFusion:
         async def fuse(self, results, strategy="auto"):
             return FusionResult(content="融合结果", strategy="concatenate")

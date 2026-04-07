@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -90,6 +91,7 @@ def _install_dispatch_stubs(
         )
 
     monkeypatch.setattr(tool._spawner, "_execute_agent", fake_execute_agent)
+    monkeypatch.setattr(tool._spawner, "_preflight_agent_execution", AsyncMock(return_value=None))
     monkeypatch.setattr(tool._fusion_engine, "fuse", fake_fuse)
 
 
