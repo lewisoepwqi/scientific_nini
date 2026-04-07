@@ -183,7 +183,9 @@ class DispatchAgentsTool(Tool):
                     error_code="DISPATCH_AGENTS_NO_MATCHED_AGENTS",
                     expected_fields=["tasks"],
                     recovery_hint=(
-                        "拆分为更明确的独立子任务，或检查 AgentRegistry 中是否存在可用 Agent。"
+                        "当前任务无法路由到子 Agent。请直接使用 run_code(dataset_name='...') "
+                        "在当前 Agent 内执行代码完成分析，或用 dataset_catalog(operation='profile') "
+                        "先确认数据集名称。禁止用 workspace_session(read) 读取数据集文件。"
                     ),
                     minimal_example=(
                         '{"tasks":["清洗缺失值","执行独立样本 t 检验"],'
@@ -359,6 +361,39 @@ class DispatchAgentsTool(Tool):
         }
         if dag_error:
             metadata["dag_error"] = dag_error
+
+        # 全部子任务均为 preflight 失败（模型额度/配置不可用）时，附加降级指引
+        all_preflight_failed = (
+            failure_count > 0
+            and success_count == 0
+            and stopped_count == 0
+            and failure_summary["preflight_failure_count"] == failure_count
+        )
+        if all_preflight_failed:
+            # 提取 preflight 失败原因（取第一条）
+            first_pf_error = ""
+            pf_failures = failure_summary.get("preflight_failures", [])
+            if pf_failures and isinstance(pf_failures[0], dict):
+                first_pf_error = str(pf_failures[0].get("error", ""))
+            fallback_hint = (
+                f"以下子任务因模型额度或配置不可执行：\n"
+                + "\n".join(
+                    f"[{r.get('task', '')[:120]}\n背景：{context}]"
+                    for r in pf_failures
+                )
+                + (f"\n{first_pf_error}" if first_pf_error else "")
+                + "\n\n【降级建议】dispatch_agents 无法继续。"
+                "请直接使用 run_code(dataset_name='...') 在当前 Agent 内执行任务，"
+                "或使用 dataset_catalog(operation='profile') 确认数据集名称后再执行分析。"
+                "禁止尝试 workspace_session(read) 读取数据集文件。"
+            )
+            metadata["fallback_hint"] = fallback_hint
+            metadata["all_preflight_failed"] = True
+            return ToolResult(
+                success=False,
+                message=fallback_hint,
+                metadata=metadata,
+            )
 
         return ToolResult(
             success=dispatch_success,
@@ -550,7 +585,15 @@ class DispatchAgentsTool(Tool):
         if execution_lines:
             sections.append("执行失败：\n" + "\n".join(execution_lines))
         if sections:
-            return "\n\n".join(sections)
+            msg = "\n\n".join(sections)
+            if execution_lines:
+                msg += (
+                    "\n\n【重要】子任务执行失败属于逻辑错误，"
+                    "重复调用 dispatch_agents 无法解决此类问题。"
+                    "请直接使用 run_code(dataset_name='...') 或 dataset_catalog "
+                    "在当前 Agent 内完成任务。"
+                )
+            return msg
 
         stopped_lines = [
             f"[{item['task']}] {item['stop_reason'] or '已停止'}"

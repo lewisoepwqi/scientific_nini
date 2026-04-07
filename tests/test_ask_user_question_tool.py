@@ -26,8 +26,13 @@ class _AskToolRegistry:
         ]
 
 
-def test_runner_injects_builtin_ask_user_question_tool() -> None:
-    runner = AgentRunner(tool_registry=_EmptyRegistry())
+async def _dummy_handler(*_args: object, **_kwargs: object) -> dict[str, str]:
+    return {}
+
+
+def test_runner_injects_builtin_ask_user_question_tool_when_handler_present() -> None:
+    """有 handler 时，ask_user_question 应注入工具列表。"""
+    runner = AgentRunner(tool_registry=_EmptyRegistry(), ask_user_question_handler=_dummy_handler)
     tools = runner._get_tool_definitions()  # noqa: SLF001
     names = [
         item["function"]["name"]
@@ -37,8 +42,21 @@ def test_runner_injects_builtin_ask_user_question_tool() -> None:
     assert "ask_user_question" in names
 
 
+def test_runner_does_not_inject_ask_user_question_without_handler() -> None:
+    """无 handler（子 Agent 场景）时，ask_user_question 不得注入工具列表。"""
+    runner = AgentRunner(tool_registry=_EmptyRegistry())
+    tools = runner._get_tool_definitions()  # noqa: SLF001
+    names = [
+        item["function"]["name"]
+        for item in tools
+        if isinstance(item, dict) and isinstance(item.get("function"), dict)
+    ]
+    assert "ask_user_question" not in names
+
+
 def test_runner_does_not_duplicate_ask_user_question_tool() -> None:
-    runner = AgentRunner(tool_registry=_AskToolRegistry())
+    """注册表已含 ask_user_question 时，不应重复注入（无论是否有 handler）。"""
+    runner = AgentRunner(tool_registry=_AskToolRegistry(), ask_user_question_handler=_dummy_handler)
     tools = runner._get_tool_definitions()  # noqa: SLF001
     names = [
         item["function"]["name"]
