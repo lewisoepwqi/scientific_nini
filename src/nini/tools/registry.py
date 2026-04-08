@@ -351,7 +351,7 @@ def create_default_tool_registry(*, plugin_registry: Any | None = None) -> ToolR
     _fusion_engine = ResultFusionEngine(model_resolver=_model_resolver)
     _task_router = TaskRouter(
         model_resolver=_model_resolver,
-        enable_llm_fallback=False,
+        enable_llm_fallback=True,
     )
     registry.register(
         DispatchAgentsTool(

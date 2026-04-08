@@ -341,9 +341,11 @@ class TaskWriteTool(Tool):
                 "的初始状态归一化为 pending。"
             )
         if first_task:
+            tool_hint_text = f"（可使用 {first_task.tool_hint}）" if first_task.tool_hint else ""
             message = (
                 warning_prefix + f"已声明 {task_count} 个分析任务。"
-                f"建议从任务1「{first_task.title}」开始。"
+                f"建议从任务1「{first_task.title}」开始{tool_hint_text}。"
+                f"先将任务1标记为 in_progress，再执行对应的分析操作。"
             )
         else:
             message = f"{warning_prefix}已声明 {task_count} 个分析任务。"
@@ -428,16 +430,30 @@ class TaskWriteTool(Tool):
             message = (
                 f"所有前序任务已完成，当前仅剩任务{current_in_progress.id}"
                 f"「{current_in_progress.title}」。"
-                "请直接检查前面的结果是否有明显错误，如有则修正，如无则直接输出最终总结。"
-                "不要再调用 task_state，不要重复列举已完成的任务。"
+                "请直接检查前面的结果是否有明显错误，如有则修正。"
+                "确认无误后，将本任务标记为 completed 再输出最终总结。"
+                "不要重复列举已完成的任务。"
             )
         elif current_in_progress:
+            hint_text = (
+                f"（可使用 {current_in_progress.tool_hint}）"
+                if current_in_progress.tool_hint
+                else ""
+            )
             message = (
-                f"任务{current_in_progress.id}「{current_in_progress.title}」已标记为进行中，"
-                f"还有 {pending} 个任务待开始。"
+                f"任务{current_in_progress.id}「{current_in_progress.title}」已标记为进行中"
+                f"{hint_text}。"
+                f"请直接执行分析操作，还有 {pending} 个任务待开始。"
             )
         else:
-            message = f"任务状态已更新，还有 {pending} 个任务待开始。"
+            next_pending = next((t for t in result.manager.tasks if t.status == "pending"), None)
+            if next_pending:
+                message = (
+                    f"任务状态已更新，还有 {pending} 个任务待开始。"
+                    f"下一步：将「{next_pending.title}」标记为 in_progress 再执行。"
+                )
+            else:
+                message = f"任务状态已更新，还有 {pending} 个任务待开始。"
 
         return ToolResult(
             success=True,

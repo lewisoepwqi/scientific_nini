@@ -417,7 +417,7 @@ function MessageBubble({
  aria-expanded="true"
  className="flex items-center gap-2 h-7 px-2 text-xs text-[var(--text-secondary)] bg-transparent border-none cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
  >
- <span className={`font-medium ${thinkingLabelClass}`}>Thinking</span>
+ <span className={`font-medium ${thinkingLabelClass}`}>思考中</span>
  <ChevronDown size={14} />
  </button>
  {/* 引用块样式容器：左边竖线 + 轻微背景 */}
@@ -441,7 +441,7 @@ function MessageBubble({
             aria-expanded="false"
             className="flex items-center gap-1.5 h-7 px-2 text-xs text-[var(--text-secondary)] bg-transparent border-none cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
           >
-            <span className={`font-medium ${thinkingLabelClass}`}>Thinking</span>
+            <span className={`font-medium ${thinkingLabelClass}`}>思考中</span>
             <ChevronRight size={14} />
           </button>
  )}

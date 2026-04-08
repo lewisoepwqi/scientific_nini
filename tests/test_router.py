@@ -247,3 +247,37 @@ async def test_route_uses_multi_intent_result_parallel_flag() -> None:
     # 若触发了多意图（并行），strategy 应为 multi_intent
     if result.strategy == "multi_intent":
         assert result.parallel is True
+
+
+# ─── 扩展关键词测试 ───────────────────────────────────────────────────────────
+
+
+def test_rule_route_statistician_correlation_keywords() -> None:
+    """相关性分析关键词应命中 statistician。"""
+    router = TaskRouter(enable_llm_fallback=False)
+    result = router._rule_route("帮我分析变量间的相关性和皮尔逊相关系数")
+    assert "statistician" in result.agent_ids
+    assert result.confidence >= 0.7
+
+
+def test_rule_route_statistician_trend_keyword() -> None:
+    """趋势分析关键词应命中 statistician。"""
+    router = TaskRouter(enable_llm_fallback=False)
+    result = router._rule_route("分析数据的趋势变化和非参数检验")
+    assert "statistician" in result.agent_ids
+    assert result.confidence >= 0.7
+
+
+def test_rule_route_statistician_confidence_interval() -> None:
+    """置信区间和效应量关键词应命中 statistician。"""
+    router = TaskRouter(enable_llm_fallback=False)
+    result = router._rule_route("计算效应量和95%置信区间")
+    assert "statistician" in result.agent_ids
+    assert result.confidence >= 0.7
+
+
+def test_rule_route_statistician_std_keyword() -> None:
+    """标准差关键词应命中 statistician。"""
+    router = TaskRouter(enable_llm_fallback=False)
+    result = router._rule_route("计算均值和标准差")
+    assert "statistician" in result.agent_ids

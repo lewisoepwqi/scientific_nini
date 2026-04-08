@@ -797,8 +797,14 @@ def test_completion_check_passes_when_only_in_progress_remains() -> None:
     )
     session.task_manager = result.manager
 
-    # LLM 输出了最终文本
-    session.add_message("assistant", "分析完成，核心结论如下。", turn_id=turn_id)
+    # LLM 输出了实质性的最终文本（需满足 substantive 检查）
+    session.add_message(
+        "assistant",
+        "## 分析总结\n\n数据质量良好，共2627条记录。"
+        "收缩压均值118.09mmHg，处于正常范围。"
+        "建议继续监测，重点关注舒张压趋势。",
+        turn_id=turn_id,
+    )
 
     check = runner._run_completion_check(session, turn_id=turn_id, attempt=0)  # noqa: SLF001
     task_item = next(item for item in check.items if item.key == "all_tasks_completed")

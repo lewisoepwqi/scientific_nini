@@ -32,6 +32,7 @@ _TOOL_STAGE_MAP: dict[str, AnalysisStage] = {
     "data_summary": AnalysisStage.DATA_PREP,
     "clean_data": AnalysisStage.DATA_PREP,
     "data_quality": AnalysisStage.DATA_PREP,
+    "dispatch_agents": AnalysisStage.ANALYSIS,
     "stat_test": AnalysisStage.ANALYSIS,
     "stat_model": AnalysisStage.ANALYSIS,
     "stat_interpret": AnalysisStage.ANALYSIS,

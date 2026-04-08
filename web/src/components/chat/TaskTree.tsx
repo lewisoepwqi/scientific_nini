@@ -45,8 +45,9 @@ function statusLabel(status: PlanStepStatus): string {
  switch (status) {
  case "in_progress": return "进行中";
  case "done": return "已完成";
- case "blocked": return "已阻塞";
- case "failed": return "失败";
+ case "failed":
+ case "blocked": return "失败";
+ case "skipped": return "已跳过";
  default: return "未开始";
  }
 }
@@ -129,6 +130,10 @@ export default function TaskTree({ plan, tasks }: TaskTreeProps) {
  ? "text-[var(--accent)] font-medium"
  : step.status === "done"
  ? "text-[var(--text-muted)]"
+ : step.status === "failed" || step.status === "blocked"
+ ? "text-[var(--error)]"
+ : step.status === "skipped"
+ ? "text-[var(--text-muted)] line-through"
  : "text-[var(--text-primary)]"
  }`}
  >

@@ -801,7 +801,8 @@ class AgentRunner:
 
             # 获取工具定义（传入 session 以区分主 Agent / 子 Agent，控制 Orchestrator 工具暴露）
             tools = self._get_tool_definitions(
-                preferred_tools=allowed_tool_whitelist, session=session
+                preferred_tools=allowed_tool_whitelist, session=session,
+                user_message=user_message,
             )
             followup_prompt_for_purpose = pending_followup_prompt
             if pending_followup_prompt:
@@ -3217,6 +3218,7 @@ class AgentRunner:
         self,
         preferred_tools: set[str] | None = None,
         session: Any = None,
+        user_message: str | None = None,
     ) -> list[dict[str, Any]]:
         """获取所有已注册技能的工具定义。
 
@@ -3239,6 +3241,7 @@ class AgentRunner:
                 policy = compute_tool_exposure_policy(
                     session=session,
                     tool_registry=self._tool_registry,
+                    user_message=user_message,
                 )
                 visible_tool_names = (
                     set(policy.get("visible_tools", [])) if _has_list_tools else None

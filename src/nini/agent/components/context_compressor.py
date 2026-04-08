@@ -24,6 +24,7 @@ async def compress_session_context(
     *,
     current_tokens: int,
     trigger: str,
+    target_tokens: int | None = None,
 ) -> AgentEvent | None:
     """Compress session context and return an event describing the result.
 
@@ -31,22 +32,26 @@ async def compress_session_context(
         session: The session to compress.
         current_tokens: Current token count before compression.
         trigger: The trigger reason (e.g., "threshold", "context_limit_error").
+        target_tokens: 压缩目标 token 数。若为 None 则使用阈值的一半。
 
     Returns:
         A CONTEXT_COMPRESSED event if successful, None otherwise.
     """
     threshold = settings.auto_compress_threshold_tokens
+    target = target_tokens if target_tokens is not None else threshold // 2
     min_messages = max(4, settings.memory_keep_recent_messages)
     logger.info(
-        "自动压缩触发(%s): 当前 %d tokens, 阈值 %d tokens",
+        "自动压缩触发(%s): 当前 %d tokens, 目标 %d tokens",
         trigger,
         current_tokens,
-        threshold,
+        target,
     )
     try:
+        # 根据当前 token 与目标的比例计算压缩比
+        ratio = min(0.8, max(0.3, 1.0 - (target / current_tokens))) if current_tokens > 0 else 0.5
         result = await compress_session_history_with_llm(
             session,
-            ratio=0.5,
+            ratio=ratio,
             min_messages=min_messages,
         )
         if not result.get("success"):
@@ -54,11 +59,11 @@ async def compress_session_context(
 
         # 验证压缩效果——使用实际 token 数而非估算
         post_tokens = count_messages_tokens(session.messages)
-        if post_tokens > threshold and len(session.messages) > min_messages:
+        if post_tokens > target and len(session.messages) > min_messages:
             logger.warning(
                 "首轮压缩后仍超限 (%d > %d)，执行二次压缩 (ratio=0.7)",
                 post_tokens,
-                threshold,
+                target,
             )
             result2 = await compress_session_history_with_llm(
                 session,
@@ -110,7 +115,8 @@ async def maybe_auto_compress(
     """
     if not settings.auto_compress_enabled:
         return None
-    threshold = settings.auto_compress_threshold_tokens
+    context_window = getattr(session, "_model_context_window", None)
+    threshold, target = get_compress_threshold_for_window(context_window)
     measured_tokens = (
         int(current_tokens)
         if current_tokens is not None
@@ -122,6 +128,7 @@ async def maybe_auto_compress(
         session,
         current_tokens=measured_tokens,
         trigger="threshold",
+        target_tokens=target,
     )
 
 
@@ -165,6 +172,21 @@ def calculate_compression_ratio(
         return 0.0
     ratio = 1.0 - (compressed_tokens / original_tokens)
     return max(0.0, min(1.0, ratio))
+
+
+def get_compress_threshold_for_window(context_window: int | None) -> tuple[int, int]:
+    """根据模型上下文窗口大小返回 (threshold, target) 元组。
+
+    FULL (>=64K)：使用窗口的 ~62% 作为压缩触发点，保留更多对话历史。
+    STANDARD (16-64K)：~75%，与当前行为比例一致。
+    COMPACT (<16K)：~75%，更早压缩保护小窗口。
+    未知窗口时回退到 settings 中的固定值。
+    """
+    if context_window is None or context_window >= 64_000:
+        return (80_000, 40_000)
+    if context_window >= 16_000:
+        return (24_000, 12_000)
+    return (6_000, 3_000)
 
 
 def sliding_window_trim(

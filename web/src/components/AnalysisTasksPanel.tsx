@@ -49,22 +49,22 @@ function statusLabel(status: PlanStepStatus): string {
  return "进行中";
  case "done":
  return "已完成";
- case "blocked":
- return "已阻塞";
  case "failed":
+ case "blocked":
  return "失败";
+ case "skipped":
+ return "已跳过";
  default:
  return "未开始";
  }
 }
 
-function statusToVariant(status: PlanStepStatus): "default" | "success" | "warning" | "error" {
+function statusToVariant(status: PlanStepStatus): "default" | "success" | "error" {
  switch (status) {
  case "done":
  return "success";
- case "blocked":
- return "warning";
  case "failed":
+ case "blocked":
  return "error";
  default:
  return "default";
@@ -77,9 +77,8 @@ function StepStatusIcon({ status }: { status: PlanStepStatus }) {
  return <Loader2 size={14} className="text-[var(--accent)] animate-spin" />;
  case "done":
  return <CheckCircle2 size={14} className="text-[var(--success)]" />;
- case "blocked":
- return <AlertTriangle size={14} className="text-[var(--warning)]" />;
  case "failed":
+ case "blocked":
  return <XCircle size={14} className="text-[var(--error)]" />;
  default:
  return <Circle size={14} className="text-[var(--text-muted)]" />;
@@ -251,25 +250,28 @@ function AnalysisPlanContent({
  </div>
  <ul className="space-y-1.5" role="list" aria-live="polite">
  {plan.steps.map((step) => {
- const isCurrent = step.id === safeCurrentIndex;
- const itemClass = isCurrent
+ const itemClass =
+ step.status === "in_progress"
  ? "border-[var(--accent)] text-[var(--accent)]"
  : step.status === "done"
  ? "border-[var(--success)] text-[var(--success)]"
- : step.status === "failed"
+ : step.status === "failed" || step.status === "blocked"
  ? "border-[var(--error)] text-[var(--error)]"
- : step.status === "blocked"
- ? "border-[var(--warning)] text-[var(--warning)]"
+ : step.status === "skipped"
+ ? "border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-muted)]"
  : "border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] dark:text-[var(--text-muted)]";
- const itemStyle = isCurrent
+ const itemStyle =
+ step.status === "in_progress"
  ? toneSurfaceStyle("accent", 12)
  : step.status === "done"
  ? toneSurfaceStyle("success", 10)
- : step.status === "failed"
+ : step.status === "failed" || step.status === "blocked"
  ? toneSurfaceStyle("error", 12)
- : step.status === "blocked"
- ? toneSurfaceStyle("warning", 10)
  : undefined;
+ const textStyle =
+ step.status === "done" || step.status === "skipped"
+ ? "line-through opacity-80"
+ : "";
 
  return (
  <li
@@ -280,7 +282,7 @@ function AnalysisPlanContent({
  <span className="mt-0.5">
  <StepStatusIcon status={step.status} />
  </span>
- <span className={step.status === "done" ? "line-through opacity-80" : ""}>
+ <span className={textStyle}>
  {step.id}. {truncateText(step.title, 88)}
  </span>
  </li>
@@ -323,21 +325,25 @@ function HistoryTasksContent({ tasks }: { tasks: AnalysisTaskItem[] }) {
  {tasks.map((task, index) => {
  const status = mapTaskStatusToPlanStatus(task.status);
  const itemClass =
- status === "done"
+ status === "in_progress"
+ ? "border-[var(--accent)] text-[var(--accent)]"
+ : status === "done"
  ? "border-[var(--success)] text-[var(--success)]"
- : status === "failed"
+ : status === "failed" || status === "blocked"
  ? "border-[var(--error)] text-[var(--error)]"
- : status === "blocked"
- ? "border-[var(--warning)] text-[var(--warning)]"
+ : status === "skipped"
+ ? "border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-muted)]"
  : "border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-secondary)]";
  const itemStyle =
- status === "done"
+ status === "in_progress"
+ ? toneSurfaceStyle("accent", 12)
+ : status === "done"
  ? toneSurfaceStyle("success", 10)
- : status === "failed"
+ : status === "failed" || status === "blocked"
  ? toneSurfaceStyle("error", 12)
- : status === "blocked"
- ? toneSurfaceStyle("warning", 10)
  : undefined;
+ const textStyle =
+ status === "done" || status === "skipped" ? "line-through opacity-80" : "";
 
  return (
  <li
@@ -349,7 +355,7 @@ function HistoryTasksContent({ tasks }: { tasks: AnalysisTaskItem[] }) {
  <StepStatusIcon status={status} />
  </span>
  <div className="flex-1 min-w-0">
- <span className={status === "done" ? "line-through opacity-80" : ""}>
+ <span className={textStyle}>
  {index + 1}. {truncateText(task.title, 88)}
  </span>
  {task.current_activity && (

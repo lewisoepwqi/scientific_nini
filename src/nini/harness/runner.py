@@ -12,6 +12,12 @@ _PROMISED_ARTIFACT_RE = re.compile(
     r"(已生成|已导出|已完成|以下是|请查看|如下)[\s\S]{0,15}(图表|报告|产物|附件)"
     r"|(图表|报告|产物|附件)[\s\S]{0,8}(已生成|已导出|已完成|已保存)",
 )
+# 压缩记忆中的产物生成记录（如"已生成 6 个产物"、"自动导出了 3 个图表"）
+_COMPRESSED_ARTIFACT_RE = re.compile(
+    r"已生成\s*\d+\s*个(图表|产物|附件)"
+    r"|自动导出\w{0,2}\s*\d+\s*个(图表|产物)"
+    r"|(图表|产物|附件).*?已(生成|导出|创建)",
+)
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Protocol
 
@@ -89,10 +95,11 @@ class HarnessRunner:
         turn_id = uuid.uuid4().hex[:12]
 
         # 新 turn 开始时清理上一轮残留的 turn-scoped pending_actions
-        # 这三类 pending_action 的 key 包含 turn_id 前缀，新 turn 无法 resolve 旧 key
+        # 这些 pending_action 的 key 与 turn 绑定，新 turn 无法 resolve 旧 key
         session.clear_pending_actions(action_type="artifact_promised_not_materialized")
         session.clear_pending_actions(action_type="user_confirmation_pending")
         session.clear_pending_actions(action_type="task_noop_blocked")
+        session.clear_pending_actions(action_type="script_not_run")
 
         run_id = uuid.uuid4().hex
         run_context = self._build_run_context(session, turn_id=turn_id)
@@ -349,6 +356,20 @@ class HarnessRunner:
                 )
 
                 if completion.passed:
+                    # 完成校验通过时，自动完成所有剩余任务（pending 或 in_progress）
+                    # 确保 snapshot 反映正确的任务终态
+                    if (
+                        session.task_manager.has_tasks()
+                        and session.task_manager.remaining_count() > 0
+                    ):
+                        force_updates = [
+                            {"id": t.id, "status": "completed"}
+                            for t in session.task_manager.tasks
+                            if t.status in ("pending", "in_progress")
+                        ]
+                        if force_updates:
+                            force_result = session.task_manager.update_tasks(force_updates)
+                            session.task_manager = force_result.manager
                     trace.status = "completed"
                     trace.finished_at = _utc_now_iso()
                     trace.failure_tags = self._classify_failures(
@@ -562,7 +583,11 @@ class HarnessRunner:
         all_tasks_completed = (
             not session.task_manager.has_tasks()
             or session.task_manager.all_completed()
-            or (session.task_manager.pending_count() == 0 and bool(evidence.final_text))
+            or (
+                session.task_manager.pending_count() == 0
+                and session.task_manager.remaining_count() == 1
+                and self._has_substantive_final_text(evidence.final_text)
+            )
         )
         substantive_final_text = self._has_substantive_final_text(evidence.final_text)
 
@@ -662,7 +687,15 @@ class HarnessRunner:
         )
         # 补充检测：code_session 通过 matplotlib 等生成的图表不会产生 artifact 事件，
         # 但工具结果中可能包含图表相关输出，应纳入统计避免误判为"产物未物化"
-        _CHART_OUTPUT_KEYWORDS = ("savefig", "plt.show", "图表已保存", "chart_", "已导出")
+        _CHART_OUTPUT_KEYWORDS = (
+            "savefig",
+            "plt.show",
+            "图表已保存",
+            "chart_",
+            "已导出",
+            "自动导出",
+            "图表产物",
+        )
         code_chart_count = sum(
             1
             for msg in messages
@@ -673,6 +706,19 @@ class HarnessRunner:
         promised_artifact_missing = (
             bool(_PROMISED_ARTIFACT_RE.search(final_text)) and artifact_count == 0
         )
+        # 正则匹配但当前 turn 无产物事件时，验证产物是否已存在于工作区或压缩记忆中
+        if promised_artifact_missing:
+            # 第一层：检查工作区实际产物文件（最可靠）
+            from nini.workspace.manager import WorkspaceManager
+
+            ws = WorkspaceManager(session.id)
+            if ws.list_artifacts():
+                promised_artifact_missing = False
+            # 第二层：检查压缩记忆中的产物生成记录
+            elif session.compressed_context and _COMPRESSED_ARTIFACT_RE.search(
+                session.compressed_context
+            ):
+                promised_artifact_missing = False
         user_confirmation_pending = bool(_USER_CONFIRMATION_RE.search(final_text))
         transitional_output = bool(_TRANSITIONAL_TEXT_RE.search(final_text)) and (
             not self._has_substantive_final_text(final_text)
@@ -746,11 +792,14 @@ class HarnessRunner:
             )
         pending_actions = session.list_pending_actions(status="pending")
 
-        # 兜底清理：所有任务完成时，自动清理残留的工具失败记录
-        # 理由：如果任务已全部完成，之前的工具失败已通过其他路径被克服，
+        # 兜底清理：所有任务完成时，自动清理残留的工具失败记录和脚本未执行记录
+        # 理由：如果任务已全部完成，之前的失败已通过其他路径被克服，
         # 残留的失败记录不应阻塞会话结束
         if remaining_tasks == 0 and total_tasks > 0:
             session.clear_pending_actions(action_type="tool_failure_unresolved")
+            session.clear_pending_actions(action_type="script_not_run")
+            session.clear_pending_actions(action_type="artifact_promised_not_materialized")
+            session.clear_pending_actions(action_type="task_noop_blocked")
             pending_actions = session.list_pending_actions(status="pending")
 
         blocking_pending_actions = [
@@ -893,6 +942,16 @@ class HarnessRunner:
                 metadata["purpose"] = HarnessRunner._infer_timeout_purpose(
                     tool_name=tool_name, data=data
                 )
+            # 保存 recovery_hint，供 pending_actions 摘要和压缩后恢复使用
+            result_payload = data.get("result") if isinstance(data.get("result"), dict) else None
+            if result_payload:
+                rh = str(result_payload.get("recovery_hint", "")).strip()[:200]
+                if rh:
+                    metadata["recovery_hint"] = rh
+            elif isinstance(data.get("data"), dict):
+                rh = str(data["data"].get("recovery_hint", "")).strip()[:200]
+                if rh:
+                    metadata["recovery_hint"] = rh
             session.upsert_pending_action(
                 action_type="tool_failure_unresolved",
                 key=signature,
@@ -982,6 +1041,29 @@ class HarnessRunner:
             error_code = str(payload.get("error_code", "")).strip()
             if error_code == "WORKSPACE_READ_BINARY_UNSUPPORTED":
                 return "recoverable_input_misuse", False
+        # 通用幂等/重复操作识别：DUPLICATE_* 和 ALREADY_* 前缀的 error_code
+        # 表示操作已成功完成过，重复调用不是真正的失败
+        # error_code 可能出现在多个层级：
+        #   data.error_code（顶层）
+        #   data.data.error_code（data 字段内）
+        #   data.result.error_code（result 字段内）
+        #   data.data.result.error_code（data 内的 result 字段）
+        _error_code_candidates = [
+            str(payload.get("error_code", "")).strip(),
+            str(data.get("error_code", "")).strip(),
+        ]
+        result_payload = data.get("result") if isinstance(data.get("result"), dict) else None
+        if result_payload:
+            _error_code_candidates.append(str(result_payload.get("error_code", "")).strip())
+        nested_result = payload.get("result") if isinstance(payload.get("result"), dict) else None
+        if nested_result:
+            _error_code_candidates.append(str(nested_result.get("error_code", "")).strip())
+        generic_error_code = next((c for c in _error_code_candidates if c), "")
+        if generic_error_code.startswith("DUPLICATE_") or generic_error_code.startswith("ALREADY_"):
+            return "idempotent_conflict", False
+        # Agent runner 的熔断错误：由于重复调用被阻止而触发的熔断，本质上也是幂等冲突
+        if generic_error_code == "TOOL_CALL_CIRCUIT_BREAKER":
+            return "idempotent_conflict", False
         return "blocking_failure", True
 
     @staticmethod

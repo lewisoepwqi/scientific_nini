@@ -407,6 +407,25 @@ class Session:
             source_tool = str(item.get("source_tool", "")).strip()
             tone = "阻塞" if item.get("blocking", True) else "提醒"
             suffix = f"（来源: {source_tool}）" if source_tool else ""
+            # 为 tool_failure 类型追加 recovery_hint（帮助 LLM 理解如何处理）
+            metadata = item.get("metadata", {})
+            if isinstance(metadata, dict):
+                if item.get("type") == "tool_failure_unresolved":
+                    recovery_hint = str(metadata.get("recovery_hint", "")).strip()
+                    if recovery_hint:
+                        suffix += f"| 建议: {recovery_hint[:150]}"
+                elif item.get("type") == "script_not_run":
+                    script_id = str(item.get("key", "")).strip()
+                    last_error = str(metadata.get("last_error", "")).strip()
+                    reason = str(metadata.get("reason", "")).strip()
+                    if reason == "auto_run_failed" and last_error:
+                        suffix += (
+                            f"| 建议: 修复脚本 {script_id} 的错误后使用 run_script 或 rerun 重试"
+                        )
+                    elif reason == "run_failed":
+                        suffix += f"| 建议: 修复脚本 {script_id} 后使用 rerun 重试"
+                    elif script_id:
+                        suffix += f"| 建议: 使用 run_script 执行脚本 {script_id}"
             lines.append(f"- [{tone}/{item.get('type', 'unknown')}] {summary}{suffix}")
         remaining = len(self.list_pending_actions(status="pending")) - len(items)
         if remaining > 0:

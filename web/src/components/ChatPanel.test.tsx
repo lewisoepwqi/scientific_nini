@@ -74,7 +74,7 @@ describe('ChatPanel', () => {
  it('streaming 时应显示运行时长和 token 消耗', () => {
  render(<ChatPanel />)
 
- expect(screen.getByText('Nini is working...')).toBeInTheDocument()
+ expect(screen.getByText('Nini 正在处理...')).toBeInTheDocument()
  expect(screen.getByText('37s')).toBeInTheDocument()
  expect(screen.getByTestId('streaming-token-usage')).toHaveTextContent('↓ 820 tokens')
  })

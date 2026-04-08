@@ -120,6 +120,7 @@ def _summarize_messages(messages: list[dict[str, Any]], *, max_items: int = 20) 
     datasets = _extract_datasets_referenced(messages)
     recent_requests = _extract_recent_user_requests(messages, limit=3, max_chars=160)
     stat_results = _extract_stat_results(messages)
+    tool_failures = _extract_tool_failures(messages)
     pending = _extract_pending_tasks(messages)
     # timeline 降低预算：max_items=15, max_chars=100，减少空间占用
     timeline = _build_timeline(messages[:max_items], max_chars=100)
@@ -136,6 +137,8 @@ def _summarize_messages(messages: list[dict[str, Any]], *, max_items: int = 20) 
         parts.append("最近用户请求:\n" + "\n".join(f"  - {r}" for r in recent_requests))
     if stat_results:
         parts.append("关键统计结果:\n" + "\n".join(f"  - {r}" for r in stat_results))
+    if tool_failures:
+        parts.append("工具失败记录:\n" + "\n".join(f"  - {f}" for f in tool_failures))
     if pending:
         parts.append("待办事项:\n" + "\n".join(f"  - {p}" for p in pending))
     parts.append(scope)
@@ -239,6 +242,37 @@ def _extract_stat_results(messages: list[dict[str, Any]]) -> list[str]:
         if len(results) >= 10:
             break
     return results
+
+
+def _extract_tool_failures(messages: list[dict[str, Any]]) -> list[str]:
+    """从工具结果中提取失败记录，确保压缩后 LLM 仍感知到错误状态。"""
+    failures: list[str] = []
+    for msg in messages:
+        if msg.get("role") != "tool":
+            continue
+        if msg.get("status") != "error":
+            continue
+        content = str(msg.get("content", ""))
+        try:
+            data = json.loads(content) if content.strip().startswith("{") else None
+        except (json.JSONDecodeError, ValueError):
+            data = None
+        if isinstance(data, dict):
+            tool_name = str(msg.get("tool_name", "") or msg.get("name", "")).strip()
+            error_code = str(data.get("error_code", "")).strip()
+            err_msg = _trim_text(data.get("message", ""), max_len=120)
+            is_duplicate = bool(data.get("metadata", {}).get("duplicate_profile_blocked", False))
+            if is_duplicate:
+                line = f"{tool_name or '未知工具'} 重复调用（已成功）: {err_msg}"
+            else:
+                line = f"{tool_name or '未知工具'} 失败: {err_msg}"
+                if error_code:
+                    line += f" [{error_code}]"
+            if line not in failures:
+                failures.append(line)
+        if len(failures) >= 5:
+            break
+    return failures
 
 
 def _extract_pending_tasks(messages: list[dict[str, Any]]) -> list[str]:
@@ -548,6 +582,24 @@ def _append_to_search_index(
         logger.warning("更新归档搜索索引失败: %s", archive_dir, exc_info=True)
 
 
+def _append_pending_actions_to_summary(summary: str, pending_actions: list[dict]) -> str:
+    """将 session.pending_actions 的摘要追加到压缩摘要末尾。
+
+    确保压缩后 LLM 仍能感知到未解决的待处理动作（如工具失败记录），
+    避免 recovery 阶段因丢失上下文而无法自救。
+    """
+    if not pending_actions:
+        return summary
+    pa_lines = []
+    for pa in pending_actions[:5]:
+        blocking_tag = "[阻塞]" if pa.get("blocking", True) else "[非阻塞]"
+        pa_type = str(pa.get("type", "unknown")).strip()
+        pa_key = str(pa.get("key", "")).strip()
+        key_hint = f" (key={pa_key})" if pa_key else ""
+        pa_lines.append(f"  - {blocking_tag} [{pa_type}]{key_hint} {pa.get('summary', '未知')}")
+    return summary + "\n\n当前待处理动作:\n" + "\n".join(pa_lines)
+
+
 def compress_session_history(
     session: Session,
     *,
@@ -583,6 +635,8 @@ def compress_session_history(
         }
 
     summary = _strip_upload_mentions(_summarize_messages(archived))
+    # 追加 pending_actions 状态到摘要，确保压缩后 LLM 仍感知待处理动作
+    summary = _append_pending_actions_to_summary(summary, session.pending_actions)
     archive_path: Path | None = None
     if session_persistence_enabled(session.id):
         archive_path = _archive_messages(session.id, archived)
@@ -650,6 +704,9 @@ async def compress_session_history_with_llm(
 
     # 过滤上传文件路径，防止污染长期记忆
     summary = _strip_upload_mentions(summary)
+
+    # 追加 pending_actions 状态到摘要，确保压缩后 LLM 仍感知待处理动作
+    summary = _append_pending_actions_to_summary(summary, session.pending_actions)
 
     archive_path = _archive_messages(session.id, archived)
 
