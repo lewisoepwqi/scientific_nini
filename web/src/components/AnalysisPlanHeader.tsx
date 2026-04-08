@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useIsDesktop } from '../hooks'
 import {
- AlertTriangle,
  CheckCircle2,
  ChevronDown,
  ChevronRight,
@@ -25,22 +24,22 @@ function statusLabel(status: PlanStepStatus): string {
  return '进行中'
  case 'done':
  return '已完成'
- case 'blocked':
- return '已阻塞'
  case 'failed':
+ case 'blocked':
  return '失败'
+ case 'skipped':
+ return '已跳过'
  default:
  return '未开始'
  }
 }
 
-function statusToVariant(status: PlanStepStatus): 'default' | 'success' | 'warning' | 'error' {
+function statusToVariant(status: PlanStepStatus): 'default' | 'success' | 'error' {
  switch (status) {
  case 'done':
  return 'success'
- case 'blocked':
- return 'warning'
  case 'failed':
+ case 'blocked':
  return 'error'
  default:
  return 'default'
@@ -53,9 +52,8 @@ function StepStatusIcon({ status }: { status: PlanStepStatus }) {
  return <Loader2 size={14} className="text-[var(--accent)] animate-spin" />
  case 'done':
  return <CheckCircle2 size={14} className="text-[var(--success)]" />
- case 'blocked':
- return <AlertTriangle size={14} className="text-[var(--warning)]" />
  case 'failed':
+ case 'blocked':
  return <XCircle size={14} className="text-[var(--error)]" />
  default:
  return <Circle size={14} className="text-[var(--text-muted)]" />
@@ -186,20 +184,22 @@ export default function AnalysisPlanHeader({ plan }: Props) {
  >
  <div className="flex items-center justify-between text-xs text-[var(--text-secondary)]">
  <span>已完成 {completedCount} / {plan.total_steps}</span>
- <span>当前步骤高亮显示</span>
+ <span>步骤按状态着色</span>
  </div>
  <ul className="mt-2 space-y-1.5">
  {plan.steps.map((step) => {
- const isCurrent = step.id === safeCurrentIndex
- const itemClass = isCurrent
- ? 'border-[var(--accent-subtle)] bg-[var(--accent-subtle)]/70 text-[var(--accent)]'
+ const itemClass =
+ step.status === 'in_progress'
+ ? 'border-[var(--accent)] bg-[var(--accent-subtle)]/70 text-[var(--accent)]'
  : step.status === 'done'
  ? 'border-[var(--success)] bg-[var(--accent-subtle)]/60 text-[var(--success)]'
- : step.status === 'failed'
+ : step.status === 'failed' || step.status === 'blocked'
  ? 'border-[var(--error)] bg-[var(--accent-subtle)]/60 text-[var(--error)]'
- : step.status === 'blocked'
- ? 'border-[var(--warning)] bg-[var(--accent-subtle)]/60 text-[var(--warning)]'
+ : step.status === 'skipped'
+ ? 'border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-muted)]'
  : 'border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-secondary)]'
+ const textStyle =
+ step.status === 'done' || step.status === 'skipped' ? 'line-through opacity-80' : ''
 
  return (
  <li
@@ -210,7 +210,7 @@ export default function AnalysisPlanHeader({ plan }: Props) {
  <span className="mt-0.5">
  <StepStatusIcon status={step.status} />
  </span>
- <span className={step.status === 'done' ? 'line-through opacity-80' : ''}>
+ <span className={textStyle}>
  {step.id}. {truncateText(step.title, 88)}
  </span>
  </li>

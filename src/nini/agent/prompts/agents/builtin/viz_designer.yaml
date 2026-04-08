@@ -10,6 +10,7 @@ purpose: analysis
 allowed_tools:
   - chart_session
   - dataset_catalog
+  - code_session
   - task_state
   - analysis_memory
 max_tokens: 8000

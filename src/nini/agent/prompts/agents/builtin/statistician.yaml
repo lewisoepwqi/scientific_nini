@@ -12,6 +12,7 @@ allowed_tools:
   - stat_model
   - stat_interpret
   - dataset_catalog
+  - code_session
   - task_state
   - analysis_memory
 max_tokens: 8000

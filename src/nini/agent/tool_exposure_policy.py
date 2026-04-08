@@ -118,10 +118,7 @@ class ToolExposurePolicy:
 
         # deny_prefixes 前缀黑名单
         if self.deny_prefixes:
-            filtered = [
-                t for t in filtered
-                if not any(t.startswith(p) for p in self.deny_prefixes)
-            ]
+            filtered = [t for t in filtered if not any(t.startswith(p) for p in self.deny_prefixes)]
 
         return tool_registry.create_subset(filtered)
 
@@ -142,9 +139,14 @@ def _collect_task_tool_hints(session: Any) -> list[str]:
     for item in steps:
         if not isinstance(item, dict):
             continue
-        hint = str(item.get("tool_hint", "") or "").strip()
-        if hint and hint not in hints:
-            hints.append(hint)
+        raw_hint = str(item.get("tool_hint", "") or "").strip()
+        if not raw_hint:
+            continue
+        # LLM 可能使用 "/" 分隔多个候选工具，如 "stat_test/code_session"
+        for hint in raw_hint.split("/"):
+            hint = hint.strip()
+            if hint and hint not in hints:
+                hints.append(hint)
     return hints
 
 

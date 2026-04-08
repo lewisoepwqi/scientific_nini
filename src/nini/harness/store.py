@@ -14,6 +14,13 @@ from nini.harness.models import HarnessRunSummary, HarnessSessionSnapshot, Harne
 from nini.models.database import get_db, init_db
 
 
+def _json_default(obj: Any) -> Any:
+    """JSON 序列化兜底：处理 pandas.Period 等非标准类型。"""
+    if hasattr(obj, "isoformat"):
+        return obj.isoformat()
+    return str(obj)
+
+
 class HarnessTraceStore:
     """管理 harness trace 的本地存储。"""
 
@@ -42,7 +49,12 @@ class HarnessTraceStore:
 
         trace_path = self._trace_path(record.session_id, record.run_id)
         trace_path.write_text(
-            json.dumps(record.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            json.dumps(
+                record.model_dump(mode="json"),
+                ensure_ascii=False,
+                indent=2,
+                default=_json_default,
+            ),
             encoding="utf-8",
         )
 
@@ -57,7 +69,14 @@ class HarnessTraceStore:
             self._save_snapshot(snapshot)
 
         with self._jsonl_path(record.session_id).open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record.model_dump(mode="json"), ensure_ascii=False) + "\n")
+            fh.write(
+                json.dumps(
+                    record.model_dump(mode="json"),
+                    ensure_ascii=False,
+                    default=_json_default,
+                )
+                + "\n"
+            )
 
         summary = HarnessRunSummary(
             run_id=record.run_id,
@@ -84,7 +103,12 @@ class HarnessTraceStore:
         snapshot_dir = self._snapshot_dir(snapshot.session_id)
         snapshot_dir.mkdir(parents=True, exist_ok=True)
         self._snapshot_path(snapshot.session_id, snapshot.turn_id).write_text(
-            json.dumps(snapshot.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            json.dumps(
+                snapshot.model_dump(mode="json"),
+                ensure_ascii=False,
+                indent=2,
+                default=_json_default,
+            ),
             encoding="utf-8",
         )
 

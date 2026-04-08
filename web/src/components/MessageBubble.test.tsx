@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 describe("MessageBubble reasoning", () => {
- it("Thinking 应默认折叠并在运行中显示扫光样式", () => {
+ it("思考中 应默认折叠并在运行中显示扫光样式", () => {
  render(
  <MessageBubble
  message={{
@@ -48,12 +48,12 @@ describe("MessageBubble reasoning", () => {
  />,
  );
 
- const thinking = screen.getByText("Thinking");
+ const thinking = screen.getByText("思考中");
  expect(thinking).toHaveClass("nini-thinking-shimmer");
  expect(screen.queryByText("正在分析变量关系")).not.toBeInTheDocument();
  });
 
- it("点击 Thinking 后应展开内容，结束后移除扫光样式", () => {
+ it("点击 思考中 后应展开内容，结束后移除扫光样式", () => {
  const { rerender } = render(
  <MessageBubble
  message={{
@@ -67,7 +67,7 @@ describe("MessageBubble reasoning", () => {
  />,
  );
 
- fireEvent.click(screen.getByRole("button", { name: /Thinking/u }));
+ fireEvent.click(screen.getByRole("button", { name: /思考中/u }));
 
  rerender(
  <MessageBubble
@@ -83,7 +83,7 @@ describe("MessageBubble reasoning", () => {
  );
 
  expect(screen.getByText("先检查数据质量，再执行相关分析。")).toBeInTheDocument();
- expect(screen.getByText("Thinking")).not.toHaveClass("nini-thinking-shimmer");
+ expect(screen.getByText("思考中")).not.toHaveClass("nini-thinking-shimmer");
  });
 
  it("工具结果展开后应显示 ask_user_question 的回答摘要", () => {
@@ -184,7 +184,7 @@ describe("MessageBubble reasoning", () => {
  );
 
  expect(screen.queryByText("分析计划与执行")).not.toBeInTheDocument();
- expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+ expect(screen.queryByText("思考中")).not.toBeInTheDocument();
  });
 
  it("generate_widget 工具结果应渲染内嵌组件", async () => {

@@ -24,6 +24,7 @@ purpose: analysis
 allowed_tools:
   - dataset_catalog
   - dataset_transform
+  - code_session
   - task_state
   - analysis_memory
   - workspace_session

@@ -680,7 +680,7 @@ export default function ChatPanel() {
  {isStreaming && (
  <div className="flex items-center gap-2 text-[var(--text-muted)] text-sm ml-11">
  <Loader2 size={14} className="animate-spin" />
- <span>Nini is working...</span>
+ <span>Nini 正在处理...</span>
  <span className="text-[var(--text-muted)]/90">{elapsedSeconds}s</span>
  {compactTokenText && (
  <span className="text-[var(--text-muted)]/90">·</span>

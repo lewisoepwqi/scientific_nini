@@ -149,6 +149,11 @@ class ContextBuilder:
         context_window: int | None = getattr(session, "_model_context_window", None)
         system_prompt = get_system_prompt(context_window=context_window, intent_hints=intent_hints)
 
+        # 提前计算 prompt profile，用于后续 reasoning 注入和预算控制的差异化处理
+        from nini.agent.prompts.builder import PromptProfile, detect_prompt_profile
+
+        _profile = detect_prompt_profile(context_window)
+
         intent_runtime_context = self.build_intent_runtime_context(
             last_user_msg, intent_analysis=_intent_analysis
         )
@@ -289,10 +294,45 @@ class ContextBuilder:
             tasks = session.task_manager.tasks
             remaining = session.task_manager.remaining_count()
             task_lines = [f"  - [{t.status}] {t.title}" for t in tasks]
-            task_body = f"共 {len(tasks)} 个任务，还剩 {remaining} 个待完成。\n" + "\n".join(
-                task_lines
+            # 追加描述性动作提示（非精确调用语法，避免 LLM 锚定）
+            action_hint = ""
+            if not session.task_manager.all_completed():
+                current = session.task_manager.current_in_progress()
+                if current:
+                    hint = current.tool_hint or ""
+                    action_hint = f"\n当前应执行：{current.title}"
+                    if hint:
+                        action_hint += f"（可考虑使用 {hint}）"
+                else:
+                    for t in tasks:
+                        if t.status == "pending":
+                            hint = t.tool_hint or ""
+                            action_hint = f"\n下一步应开始：{t.title}"
+                            if hint:
+                                action_hint += f"（可考虑使用 {hint}）"
+                            break
+            task_body = (
+                f"共 {len(tasks)} 个任务，还剩 {remaining} 个待完成。\n"
+                + "\n".join(task_lines)
+                + action_hint
             )
             context_parts.append(format_untrusted_context_block("task_progress", task_body))
+
+        # 注入 reasoning 关键决策（防止 LLM 在多轮迭代中丢失执行计划）
+        # COMPACT profile 跳过（空间不足），FULL 保留 5 条，STANDARD 保留 3 条
+        if _profile != PromptProfile.COMPACT:
+            max_reasoning = 5 if _profile == PromptProfile.FULL else 3
+            reasoning_lines = _extract_recent_reasoning_decisions(
+                session.messages,
+                max_entries=max_reasoning,
+            )
+            if reasoning_lines:
+                context_parts.append(
+                    format_untrusted_context_block(
+                        "reasoning_context",
+                        "最近的推理决策：\n" + "\n".join(f"  - {line}" for line in reasoning_lines),
+                    )
+                )
 
         pending_actions_summary = session.build_pending_actions_summary()
         if pending_actions_summary:
@@ -307,9 +347,7 @@ class ContextBuilder:
                 get_runtime_context_budget,
                 trim_runtime_context_by_priority,
             )
-            from nini.agent.prompts.builder import detect_prompt_profile
 
-            _profile = detect_prompt_profile(context_window)
             runtime_budget = get_runtime_context_budget(_profile.value)
             context_parts = trim_runtime_context_by_priority(
                 context_parts, max_chars=runtime_budget
@@ -339,11 +377,14 @@ class ContextBuilder:
         prepared_messages = prepare_messages_for_llm(valid_messages, context_ratio=context_ratio)
 
         if settings.auto_compress_enabled and prepared_messages:
-            threshold = settings.auto_compress_threshold_tokens
+            from nini.agent.components.context_compressor import (
+                get_compress_threshold_for_window,
+                sliding_window_trim,
+            )
+
+            threshold, _target = get_compress_threshold_for_window(context_window)
             current_tokens = count_messages_tokens(messages + prepared_messages)
             if current_tokens > threshold:
-                from nini.agent.components.context_compressor import sliding_window_trim
-
                 prepared_messages = sliding_window_trim(
                     prepared_messages,
                     threshold,
@@ -551,3 +592,30 @@ async def _build_dataset_history_memory(dataset_name: str) -> str:
     except Exception:
         logger.debug("主动记忆推送失败，忽略", exc_info=True)
         return ""
+
+
+def _extract_recent_reasoning_decisions(
+    messages: list[dict[str, Any]],
+    *,
+    max_entries: int = 5,
+) -> list[str]:
+    """从 session.messages 中提取最近 N 条 reasoning 的 key_decisions。
+
+    key_decisions 本身已经是 reasoning 的摘要，不做字符截断。
+    返回按时间正序排列的决策文本列表。
+    """
+    entries: list[str] = []
+    for msg in reversed(messages):
+        if msg.get("event_type") != "reasoning":
+            continue
+        decisions = msg.get("key_decisions")
+        if not decisions or not isinstance(decisions, list):
+            continue
+        r_type = msg.get("reasoning_type", "analysis")
+        for d in reversed(decisions):
+            if isinstance(d, str) and d.strip():
+                entries.append(f"[{r_type}] {d.strip()}")
+        if len(entries) >= max_entries:
+            break
+    entries.reverse()
+    return entries[:max_entries]
