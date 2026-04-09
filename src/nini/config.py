@@ -252,6 +252,9 @@ class Settings(BaseSettings):
     max_upload_size: int = 50 * 1024 * 1024  # 50 MB
     allowed_extensions: str = "csv,xlsx,xls,tsv,txt"
 
+    # ---- 多 Agent 并发 ----
+    max_sub_agent_concurrency: int = 4  # spawn_batch 最大并行子 Agent 数
+
     # ---- 沙箱 ----
     sandbox_timeout: int = 60  # 秒（含代码执行 + DataFrame 跨进程序列化时间）
     sandbox_max_memory_mb: int = 512

@@ -11,7 +11,6 @@ from nini.intent.multi_intent import detect_multi_intent
 from nini.intent.subtypes import get_difference_subtype
 from nini.intent.base import IntentAnalysis, IntentCandidate
 from nini.intent.optimized import OptimizedIntentAnalyzer
-from nini.agent.router import RoutingDecision, TaskRouter
 
 # ============================================================================
 # 5.1–5.4 多意图检测
@@ -52,14 +51,7 @@ def test_multi_intent_sequential_without_punctuation():
 # ============================================================================
 
 
-@pytest.mark.asyncio
-async def test_route_multi_intent_returns_merged_decision():
-    """5.5 顺序复合查询触发 multi_intent 策略，agent_ids 包含所有子意图路由目标。"""
-    router = TaskRouter(model_resolver=None, enable_llm_fallback=False)
-    # "统计检验" 命中 statistician, "画图" 命中 viz_designer
-    result = await router.route("先做统计检验，然后画图展示")
-    assert result.strategy == "multi_intent"
-    assert len(result.agent_ids) >= 2
+# test_route_multi_intent_returns_merged_decision 已随 TaskRouter 删除而移除
 
 
 # ============================================================================

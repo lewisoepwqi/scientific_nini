@@ -342,23 +342,13 @@ def create_default_tool_registry(*, plugin_registry: Any | None = None) -> ToolR
     # 注册 dispatch_agents 工具（不加入 LLM_EXPOSED_BASE_TOOL_NAMES，仅主 Agent 可用）
     from nini.agent.registry import AgentRegistry
     from nini.agent.spawner import SubAgentSpawner
-    from nini.agent.fusion import ResultFusionEngine
-    from nini.agent.router import TaskRouter
-    from nini.agent.model_resolver import model_resolver as _model_resolver
 
     _agent_registry = AgentRegistry(tool_registry=registry)
     _spawner = SubAgentSpawner(registry=_agent_registry, tool_registry=registry)
-    _fusion_engine = ResultFusionEngine(model_resolver=_model_resolver)
-    _task_router = TaskRouter(
-        model_resolver=_model_resolver,
-        enable_llm_fallback=True,
-    )
     registry.register(
         DispatchAgentsTool(
             agent_registry=_agent_registry,
             spawner=_spawner,
-            fusion_engine=_fusion_engine,
-            task_router=_task_router,
         )
     )
 

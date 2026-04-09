@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import pytest
 
 from nini.agent import event_builders as eb
-from nini.agent.fusion import FusionResult
 from nini.agent.runner import AgentRunner
 from nini.agent.session import session_manager
 from nini.agent.spawner import SubAgentResult
@@ -78,21 +76,7 @@ def _install_dispatch_stubs(
             },
         )
 
-    async def fake_fuse(results, strategy="auto"):
-        content = " | ".join(
-            result.summary
-            for result in results
-            if isinstance(result, SubAgentResult) and result.summary
-        )
-        return FusionResult(
-            content=content,
-            strategy="concatenate",
-            sources=[result.agent_id for result in results],
-        )
-
     monkeypatch.setattr(tool._spawner, "_execute_agent", fake_execute_agent)
-    monkeypatch.setattr(tool._spawner, "_preflight_agent_execution", AsyncMock(return_value=None))
-    monkeypatch.setattr(tool._fusion_engine, "fuse", fake_fuse)
 
 
 def _collect_until_terminal(ws, limit: int = 40) -> list[dict]:
@@ -128,8 +112,10 @@ def _install_harness_dispatch_flow(
         tool_call_id = "dispatch-call"
         dispatch_args = json.dumps(
             {
-                "tasks": ["清洗这份数据", "做统计分析"],
-                "context": "用户已上传 experiment.csv",
+                "agents": [
+                    {"agent_id": "data_cleaner", "task": "清洗这份数据"},
+                    {"agent_id": "statistician", "task": "做统计分析"},
+                ],
             },
             ensure_ascii=False,
         )
@@ -258,7 +244,6 @@ def test_websocket_dispatch_agents_partial_failure_does_not_interrupt_main_agent
     assert "data_cleaner" in agent_errors
     assert "statistician" in agent_completes
     assert tool_result["data"]["status"] == "success"
-    assert tool_result["data"]["result"]["metadata"]["partial_failure"] is True
     assert tool_result["data"]["result"]["metadata"]["failure_count"] == 1
     assert "done" in event_types
     assert "error" not in event_types
