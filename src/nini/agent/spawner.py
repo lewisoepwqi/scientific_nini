@@ -13,7 +13,7 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -59,44 +59,6 @@ class _FixedPurposeResolver:
         return getattr(self._base, name)
 
 
-# OpenTelemetry 集成（可选依赖，缺失时降级为无操作）
-try:
-    from opentelemetry import trace as _otel_trace
-
-    _tracer = _otel_trace.get_tracer("nini.agent.spawner")
-    _OTEL_AVAILABLE = True
-except ImportError:
-    _tracer = None  # type: ignore[assignment]
-    _OTEL_AVAILABLE = False
-
-
-def _start_span(name: str, attributes: dict[str, Any] | None = None):
-    """启动 OTel span，若 OTel 不可用则返回无操作上下文管理器。"""
-    if _OTEL_AVAILABLE and _tracer is not None:
-        span = _tracer.start_as_current_span(name)
-        if attributes:
-            import contextlib
-
-            @contextlib.contextmanager
-            def _span_ctx():
-                with span as s:
-                    for k, v in attributes.items():
-                        try:
-                            s.set_attribute(k, str(v))
-                        except Exception:
-                            pass
-                    yield s
-
-            return _span_ctx()
-        return span
-    import contextlib
-
-    @contextlib.contextmanager
-    def _noop():
-        yield None
-
-    return _noop()
-
 
 @dataclass
 class SubAgentResult:
@@ -122,25 +84,6 @@ class SubAgentResult:
     resource_session_id: str = ""
 
 
-@dataclass
-class BatchPreflightPlan:
-    """批量子任务的预检计划。"""
-
-    ordered_results: list[SubAgentResult | None]
-    executable_tasks: list[tuple[int, str, str]]
-
-    @property
-    def failed_results(self) -> list[SubAgentResult]:
-        return [result for result in self.ordered_results if result is not None]
-
-    @property
-    def runnable_count(self) -> int:
-        return len(self.executable_tasks)
-
-    @property
-    def failure_count(self) -> int:
-        return len(self.failed_results)
-
 
 class SubAgentSpawner:
     """子 Agent 动态派生器。
@@ -158,8 +101,6 @@ class SubAgentSpawner:
         """
         self._registry = registry
         self._tool_registry = tool_registry
-        # 断路器：记录各 agent_id 的连续失败次数（跨 spawn_with_retry 调用有效）
-        self._circuit_breaker_failures: dict[str, int] = {}
 
     @staticmethod
     def _build_subagent_task(task: str, *, allow_task_planning: bool) -> str:
@@ -287,11 +228,9 @@ class SubAgentSpawner:
         timeout_seconds: int = 300,
         *,
         attempt: int = 1,
-        retry_count: int = 0,
         parent_turn_id: str | None = None,
         stop_event: asyncio.Event | None = None,
         subtask_index: int | None = None,
-        skip_preflight: bool = False,
     ) -> SubAgentResult:
         """派生并执行单个子 Agent。
 
@@ -304,154 +243,15 @@ class SubAgentSpawner:
         Returns:
             SubAgentResult：执行结果
         """
-        with _start_span(
-            "sub_agent.spawn",
-            {"agent.id": agent_id, "agent.attempt": attempt, "task.preview": task[:100]},
-        ):
-            return await self._spawn_impl(
-                agent_id=agent_id,
-                task=task,
-                session=session,
-                timeout_seconds=timeout_seconds,
-                attempt=attempt,
-                retry_count=retry_count,
-                parent_turn_id=parent_turn_id,
-                stop_event=stop_event,
-                subtask_index=subtask_index,
-                skip_preflight=skip_preflight,
-            )
-
-    async def _preflight_agent_execution(
-        self,
-        agent_def: Any,
-        task: str,
-        *,
-        parent_session: Any,
-        parent_turn_id: str | None,
-        attempt: int,
-        retry_count: int,
-        run_id: str,
-        subtask_index: int | None,
-        emit_agent_error: bool = True,
-        attach_snapshot: bool = True,
-    ) -> SubAgentResult | None:
-        """在真正启动子 Agent 前检查模型可执行性。"""
-        from nini.agent.model_resolver import model_resolver as _default_resolver
-
-        model_pref = getattr(agent_def, "model_preference", None)
-        sub_purpose = _MODEL_PREFERENCE_TO_PURPOSE.get(model_pref, "analysis")
-        preflight = await _default_resolver.preflight(purpose=sub_purpose)
-        if preflight.available:
-            return None
-
-        preflight_reason = preflight.reason or "模型预检失败"
-        result = SubAgentResult(
-            agent_id=agent_def.agent_id,
-            success=False,
-            agent_name=agent_def.name,
+        return await self._spawn_impl(
+            agent_id=agent_id,
             task=task,
-            summary=preflight_reason,
-            execution_time_ms=0,
-            error=preflight_reason,
-            stop_reason="preflight_failed",
-            run_id=run_id,
-            turn_id=parent_turn_id or "",
-            parent_session_id=str(getattr(parent_session, "id", "") or ""),
-        )
-        self._finalize_result(
-            result,
-            agent_def=agent_def,
-            task=task,
-            parent_session=parent_session,
+            session=session,
+            timeout_seconds=timeout_seconds,
+            attempt=attempt,
             parent_turn_id=parent_turn_id,
-            run_id=run_id,
-        )
-        if emit_agent_error:
-            await self._emit_preflight_failure_event(
-                parent_session=parent_session,
-                result=result,
-                parent_turn_id=parent_turn_id,
-                attempt=attempt,
-                retry_count=retry_count,
-                subtask_index=subtask_index,
-            )
-        if attach_snapshot:
-            self._attach_snapshot(parent_session, result, attempt=attempt)
-        return result
-
-    async def _emit_preflight_failure_event(
-        self,
-        *,
-        parent_session: Any,
-        result: SubAgentResult,
-        parent_turn_id: str | None,
-        attempt: int,
-        retry_count: int,
-        subtask_index: int | None,
-    ) -> None:
-        """将预检失败显式推送为子 Agent 错误事件。"""
-        await self._push_event(
-            parent_session,
-            "agent_error",
-            {
-                "event_type": "agent_error",
-                "agent_id": result.agent_id,
-                "agent_name": result.agent_name,
-                "error": result.error or result.summary,
-                "execution_time_ms": 0,
-                "attempt": attempt,
-                "retry_count": retry_count,
-            },
-            turn_id=parent_turn_id,
-            metadata=self._build_run_metadata(
-                parent_turn_id=parent_turn_id,
-                agent_id=result.agent_id,
-                agent_name=result.agent_name or result.agent_id,
-                attempt=attempt,
-                run_id=result.run_id,
-                subtask_index=subtask_index,
-            ),
-        )
-
-    async def preflight_batch(
-        self,
-        tasks: list[tuple[str, str]],
-        session: Any,
-        *,
-        parent_turn_id: str | None = None,
-        emit_agent_errors: bool = False,
-    ) -> BatchPreflightPlan:
-        """批量预检子任务，返回可执行计划。"""
-        ordered_results: list[SubAgentResult | None] = [None] * len(tasks)
-        executable_tasks: list[tuple[int, str, str]] = []
-
-        for task_index, (agent_id, task) in enumerate(tasks, start=1):
-            agent_def = self._registry.get(agent_id)
-            if agent_def is None:
-                executable_tasks.append((task_index, agent_id, task))
-                continue
-
-            run_id = self._build_run_id(parent_turn_id, agent_id, 1, task_index)
-            preflight_result = await self._preflight_agent_execution(
-                agent_def,
-                task,
-                parent_session=session,
-                parent_turn_id=parent_turn_id,
-                attempt=1,
-                retry_count=0,
-                run_id=run_id,
-                subtask_index=task_index,
-                emit_agent_error=emit_agent_errors,
-                attach_snapshot=emit_agent_errors,
-            )
-            if preflight_result is not None:
-                ordered_results[task_index - 1] = preflight_result
-            else:
-                executable_tasks.append((task_index, agent_id, task))
-
-        return BatchPreflightPlan(
-            ordered_results=ordered_results,
-            executable_tasks=executable_tasks,
+            stop_event=stop_event,
+            subtask_index=subtask_index,
         )
 
     async def _spawn_impl(
@@ -462,13 +262,11 @@ class SubAgentSpawner:
         timeout_seconds: int = 300,
         *,
         attempt: int = 1,
-        retry_count: int = 0,
         parent_turn_id: str | None = None,
         stop_event: asyncio.Event | None = None,
         subtask_index: int | None = None,
-        skip_preflight: bool = False,
     ) -> SubAgentResult:
-        """spawn 的实际实现（由 spawn() 包装 OTel span 后调用）。"""
+        """spawn 的实际实现。"""
         agent_def = self._registry.get(agent_id)
         if agent_def is None:
             logger.warning("SubAgentSpawner.spawn: 未知 agent_id '%s'", agent_id)
@@ -490,20 +288,6 @@ class SubAgentSpawner:
             run_id=run_id,
             subtask_index=subtask_index,
         )
-
-        if not skip_preflight:
-            preflight_result = await self._preflight_agent_execution(
-                agent_def,
-                task,
-                parent_session=session,
-                parent_turn_id=parent_turn_id,
-                attempt=attempt,
-                retry_count=retry_count,
-                run_id=run_id,
-                subtask_index=subtask_index,
-            )
-            if preflight_result is not None:
-                return preflight_result
 
         subagent_stop_events = getattr(session, "subagent_stop_events", None)
         if not isinstance(subagent_stop_events, dict):
@@ -534,7 +318,6 @@ class SubAgentSpawner:
                 "agent_name": agent_def.name,
                 "task": task,
                 "attempt": attempt,
-                "retry_count": retry_count,
             },
             turn_id=parent_turn_id,
             metadata=run_metadata,
@@ -544,7 +327,6 @@ class SubAgentSpawner:
             agent_id=agent_id,
             agent_name=agent_def.name,
             attempt=attempt,
-            retry_count=retry_count,
             phase="starting",
             message="子 Agent 已启动，正在准备执行。",
             progress_hint=task[:120] if task else None,
@@ -554,34 +336,17 @@ class SubAgentSpawner:
 
         try:
             start_time = time.monotonic()
-            # 根据 paradigm 字段路由到对应执行路径
-            paradigm = getattr(agent_def, "paradigm", "react")
-            if paradigm == "hypothesis_driven":
-                _execute_coro = self._invoke_execute_impl(
-                    self._spawn_hypothesis_driven,
-                    agent_def,
-                    task,
-                    session,
-                    parent_turn_id=parent_turn_id,
-                    attempt=attempt,
-                    retry_count=retry_count,
-                    run_id=run_id,
-                    stop_event=child_stop_event,
-                    subtask_index=subtask_index,
-                )
-            else:
-                _execute_coro = self._invoke_execute_impl(
-                    self._execute_agent,
-                    agent_def,
-                    task,
-                    session,
-                    parent_turn_id=parent_turn_id,
-                    attempt=attempt,
-                    retry_count=retry_count,
-                    run_id=run_id,
-                    stop_event=child_stop_event,
-                    subtask_index=subtask_index,
-                )
+            _execute_coro = self._invoke_execute_impl(
+                self._execute_agent,
+                agent_def,
+                task,
+                session,
+                parent_turn_id=parent_turn_id,
+                attempt=attempt,
+                run_id=run_id,
+                stop_event=child_stop_event,
+                subtask_index=subtask_index,
+            )
             try:
                 result = await asyncio.wait_for(
                     _execute_coro,
@@ -603,7 +368,6 @@ class SubAgentSpawner:
                         "error": error_msg,
                         "execution_time_ms": elapsed_ms,
                         "attempt": attempt,
-                        "retry_count": retry_count,
                     },
                     turn_id=parent_turn_id,
                     metadata=run_metadata,
@@ -635,7 +399,6 @@ class SubAgentSpawner:
                         "error": str(exc),
                         "execution_time_ms": elapsed_ms,
                         "attempt": attempt,
-                        "retry_count": retry_count,
                     },
                     turn_id=parent_turn_id,
                     metadata=run_metadata,
@@ -676,7 +439,6 @@ class SubAgentSpawner:
                         "reason": result.stop_reason or "用户终止",
                         "execution_time_ms": elapsed_ms,
                         "attempt": attempt,
-                        "retry_count": retry_count,
                     },
                     turn_id=parent_turn_id,
                     metadata=run_metadata,
@@ -692,7 +454,6 @@ class SubAgentSpawner:
                         "summary": result.summary,
                         "execution_time_ms": elapsed_ms,
                         "attempt": attempt,
-                        "retry_count": retry_count,
                     },
                     turn_id=parent_turn_id,
                     metadata=run_metadata,
@@ -708,7 +469,6 @@ class SubAgentSpawner:
                         "error": result.summary or "执行失败",
                         "execution_time_ms": elapsed_ms,
                         "attempt": attempt,
-                        "retry_count": retry_count,
                     },
                     turn_id=parent_turn_id,
                     metadata=run_metadata,
@@ -721,121 +481,19 @@ class SubAgentSpawner:
                 stop_relay_task.cancel()
             subagent_stop_events.pop(run_id, None)
 
-    # 不可重试的永久失败类型：这些情况下重试无意义
-    _PERMANENT_STOP_REASONS: frozenset[str] = frozenset(
-        {
-            "missing_agent",  # agent_id 不存在，重试也不会出现
-            "permission_denied",  # 权限拒绝，配置问题
-            "config_error",  # 配置错误
-            "preflight_failed",  # 模型额度/配置预检失败，短期内重试无意义
-        }
-    )
-
-    # 断路器：同一 agent_id 在本次 spawner 实例中连续失败次数阈值
-    _CIRCUIT_BREAKER_THRESHOLD: int = 3
-
-    async def spawn_with_retry(
-        self,
-        agent_id: str,
-        task: str,
-        session: Any,
-        max_retries: int = 3,
-        *,
-        parent_turn_id: str | None = None,
-    ) -> SubAgentResult:
-        """派生子 Agent，失败时指数退避重试。
-
-        对 _PERMANENT_STOP_REASONS 中的失败类型立即返回，不重试。
-        瞬时失败（timeout、error）才走指数退避重试。
-
-        Args:
-            agent_id: Agent 定义 ID
-            task: 任务描述
-            session: 父会话
-            max_retries: 最大重试次数（含首次执行）
-
-        Returns:
-            最终执行结果（首次成功或达到上限后的失败结果）
-        """
-        agent_def = self._registry.get(agent_id)
-        timeout = agent_def.timeout_seconds if agent_def else 300
-
-        # 断路器检查：连续失败次数超阈值则立即拒绝
-        current_failures = self._circuit_breaker_failures.get(agent_id, 0)
-        if current_failures >= self._CIRCUIT_BREAKER_THRESHOLD:
-            logger.warning(
-                "Agent '%s' 断路器已触发（连续失败 %d 次），跳过本次执行",
-                agent_id,
-                current_failures,
-            )
-            return SubAgentResult(
-                agent_id=agent_id,
-                success=False,
-                task=task,
-                summary=f"Agent '{agent_id}' 断路器已触发，连续失败 {current_failures} 次",
-                stop_reason="circuit_breaker_open",
-                error=f"断路器触发（阈值={self._CIRCUIT_BREAKER_THRESHOLD}）",
-            )
-
-        last_result: SubAgentResult | None = None
-        for attempt in range(max_retries):
-            result = await self.spawn(
-                agent_id,
-                task,
-                session,
-                timeout_seconds=timeout,
-                attempt=attempt + 1,
-                retry_count=attempt,
-                parent_turn_id=parent_turn_id,
-            )
-            if result.success or result.stopped:
-                # 成功：重置断路器计数
-                self._circuit_breaker_failures.pop(agent_id, None)
-                return result
-            # 永久失败：不重试，更新断路器
-            if result.stop_reason in self._PERMANENT_STOP_REASONS:
-                logger.warning(
-                    "Agent '%s' 遇到永久失败（stop_reason=%s），跳过重试",
-                    agent_id,
-                    result.stop_reason,
-                )
-                self._circuit_breaker_failures[agent_id] = current_failures + 1
-                return result
-            last_result = result
-            if attempt < max_retries - 1:
-                wait_secs = 2**attempt
-                logger.info(
-                    "Agent '%s' 第 %d 次执行失败（stop_reason=%s），%ds 后重试",
-                    agent_id,
-                    attempt + 1,
-                    result.stop_reason or "unknown",
-                    wait_secs,
-                )
-                await asyncio.sleep(wait_secs)
-
-        # 所有重试耗尽，更新断路器
-        self._circuit_breaker_failures[agent_id] = (
-            self._circuit_breaker_failures.get(agent_id, 0) + 1
-        )
-        return last_result or SubAgentResult(
-            agent_id=agent_id, success=False, summary="重试次数耗尽", stop_reason="max_retries"
-        )
-
     async def spawn_batch(
         self,
         tasks: list[tuple[str, str]],
         session: Any,
-        max_concurrency: int = 4,
         *,
         parent_turn_id: str | None = None,
-        preflight_plan: BatchPreflightPlan | None = None,
     ) -> list[SubAgentResult]:
-        """批量并行执行子 Agent。
+        """批量并行执行子 Agent，使用 Semaphore 控制最大并发数。
 
         Args:
             tasks: (agent_id, task_description) 元组列表
             session: 父会话
-            max_concurrency: 最大并发数（asyncio.Semaphore 控制）
+            parent_turn_id: 父会话 turn ID
 
         Returns:
             与输入顺序一致的 SubAgentResult 列表
@@ -843,36 +501,12 @@ class SubAgentSpawner:
         if not tasks:
             return []
 
-        plan = preflight_plan or await self.preflight_batch(
-            tasks,
-            session,
-            parent_turn_id=parent_turn_id,
-            emit_agent_errors=preflight_plan is None,
-        )
-        ordered_results: list[SubAgentResult | None] = list(plan.ordered_results)
-        executable_tasks = list(plan.executable_tasks)
+        from nini.config import settings as _settings
 
-        if preflight_plan is not None:
-            for task_index, result in enumerate(ordered_results, start=1):
-                if result is None:
-                    continue
-                await self._emit_preflight_failure_event(
-                    parent_session=session,
-                    result=result,
-                    parent_turn_id=parent_turn_id,
-                    attempt=1,
-                    retry_count=0,
-                    subtask_index=task_index,
-                )
-                self._attach_snapshot(session, result, attempt=1)
-
+        max_concurrency = getattr(_settings, "max_sub_agent_concurrency", 4)
         semaphore = asyncio.Semaphore(max_concurrency)
 
-        async def run_with_semaphore(
-            agent_id: str,
-            task: str,
-            task_index: int,
-        ) -> SubAgentResult:
+        async def run_one(agent_id: str, task: str, task_index: int) -> SubAgentResult:
             async with semaphore:
                 return await self.spawn(
                     agent_id,
@@ -880,34 +514,23 @@ class SubAgentSpawner:
                     session,
                     parent_turn_id=parent_turn_id,
                     subtask_index=task_index,
-                    skip_preflight=True,
                 )
 
-        if executable_tasks:
-            raw_results = await asyncio.gather(
-                *(
-                    run_with_semaphore(agent_id, task, task_index)
-                    for task_index, agent_id, task in executable_tasks
-                ),
-                return_exceptions=False,
-            )
-            for (task_index, _, _), result in zip(executable_tasks, raw_results, strict=False):
-                ordered_results[task_index - 1] = result
-
-        if any(result is None for result in ordered_results):
-            raise RuntimeError("spawn_batch 未能为所有子任务生成结果")
-        results = cast(list[SubAgentResult], ordered_results)
+        results = await asyncio.gather(
+            *(run_one(agent_id, task, idx + 1) for idx, (agent_id, task) in enumerate(tasks)),
+            return_exceptions=False,
+        )
 
         # 串行将子 Agent 产物回写到父会话，使用命名空间键 {agent_id}.{key} 防止多 Agent 同名覆盖
         for result in results:
-            agent_id = result.agent_id
+            aid = result.agent_id
             for key, value in result.artifacts.items():
-                namespaced = f"{agent_id}.{key}"
+                namespaced = f"{aid}.{key}"
                 if namespaced in session.artifacts:
                     logger.warning("spawn_batch: artifact 命名空间键冲突 '%s'，已覆盖", namespaced)
                 session.artifacts[namespaced] = value
             for key, value in result.documents.items():
-                namespaced = f"{agent_id}.{key}"
+                namespaced = f"{aid}.{key}"
                 if namespaced in session.documents:
                     logger.warning("spawn_batch: document 命名空间键冲突 '%s'，已覆盖", namespaced)
                 session.documents[namespaced] = value
@@ -922,7 +545,6 @@ class SubAgentSpawner:
         *,
         parent_turn_id: str | None = None,
         attempt: int = 1,
-        retry_count: int = 0,
         run_id: str | None = None,
         stop_event: asyncio.Event | None = None,
         subtask_index: int | None = None,
@@ -962,7 +584,6 @@ class SubAgentSpawner:
                 agent_def=agent_def,
                 parent_turn_id=parent_turn_id,
                 attempt=attempt,
-                retry_count=retry_count,
                 run_id=effective_run_id,
                 subtask_index=subtask_index,
             ),
@@ -1057,7 +678,6 @@ class SubAgentSpawner:
                     event=event,
                     parent_turn_id=parent_turn_id,
                     attempt=attempt,
-                    retry_count=retry_count,
                     run_id=effective_run_id,
                     subtask_index=subtask_index,
                 )
@@ -1196,221 +816,6 @@ class SubAgentSpawner:
                 ref.path = (rel_prefix / filename).as_posix()
                 ref.agent_id = agent_id
 
-    async def _spawn_hypothesis_driven(
-        self,
-        agent_def: Any,
-        task: str,
-        parent_session: Any,
-        *,
-        parent_turn_id: str | None = None,
-        attempt: int = 1,
-        retry_count: int = 0,
-        run_id: str | None = None,
-        stop_event: asyncio.Event | None = None,
-        subtask_index: int | None = None,
-    ) -> SubAgentResult:
-        """执行 Hypothesis-Driven 推理循环。
-
-        创建 SubSession，初始化 HypothesisContext，外层 Python 循环调用
-        AgentRunner 单轮 ReAct，直到 HypothesisContext.should_conclude() 为 True。
-
-        Args:
-            agent_def: AgentDefinition（paradigm == "hypothesis_driven"）
-            task: 任务描述
-            parent_session: 父会话
-
-        Returns:
-            SubAgentResult，detailed_output 包含完整假设链
-        """
-        from nini.agent.runner import AgentRunner
-        from nini.agent.sub_session import SubSession
-        from nini.agent.hypothesis_context import HypothesisContext, Hypothesis
-        from nini.agent import event_builders as eb
-        from nini.logging_config import bind_log_context, reset_log_context
-
-        effective_stop_event = stop_event or asyncio.Event()
-        effective_run_id = run_id or self._build_run_id(
-            parent_turn_id,
-            agent_def.agent_id,
-            attempt,
-            subtask_index,
-        )
-
-        # 推送范式切换事件
-        callback = getattr(parent_session, "event_callback", None)
-        await self._push_event(
-            parent_session,
-            "paradigm_switched",
-            eb.build_paradigm_switched_event(agent_def.agent_id, "hypothesis_driven").data,
-        )
-
-        # 创建子会话
-        sub_session = SubSession(
-            parent_session_id=parent_session.id,
-            datasets=parent_session.datasets,
-            artifacts={},
-            documents={},
-            persist_runtime_state=True,
-            event_callback=self._make_subagent_event_callback(
-                parent_session=parent_session,
-                agent_def=agent_def,
-                parent_turn_id=parent_turn_id,
-                attempt=attempt,
-                retry_count=retry_count,
-                run_id=effective_run_id,
-                subtask_index=subtask_index,
-            ),
-        )
-
-        # 初始化假设上下文，存入子会话 artifacts
-        hypothesis_context = HypothesisContext()
-        sub_session.artifacts["_hypothesis_context"] = hypothesis_context
-
-        # 构造受限工具子集（ToolExposurePolicy 自动排除 dispatch_agents 防递归）
-        from nini.agent.tool_exposure_policy import ToolExposurePolicy
-
-        subset_registry = ToolExposurePolicy.from_agent_def(agent_def).apply(self._tool_registry)
-        runner = AgentRunner(tool_registry=subset_registry)
-
-        all_output_parts: list[str] = []
-
-        log_token = bind_log_context(session_id=sub_session.id)
-        try:
-            logger.info(
-                "启动子 Agent: agent=%s parent_session=%s child_session=%s paradigm=hypothesis_driven",
-                agent_def.agent_id,
-                parent_session.id,
-                sub_session.id,
-            )
-            while not hypothesis_context.should_conclude():
-                # 构建带假设链提示的任务消息
-                if hypothesis_context.hypotheses:
-                    hyp_summary = "\n".join(
-                        f"- [{h.status}] {h.content} (置信度: {h.confidence:.2f})"
-                        for h in hypothesis_context.hypotheses
-                    )
-                    round_task = (
-                        f"{task}\n\n当前假设列表：\n{hyp_summary}\n\n"
-                        "请根据现有假设收集证据或提出新假设，给出本轮分析结论。"
-                    )
-                else:
-                    round_task = f"{task}\n\n请提出 2-3 个初始假设并说明检验方法。"
-
-                # 执行单轮 ReAct
-                output_parts: list[str] = []
-                async for event in self._iterate_runner_events(
-                    runner,
-                    sub_session,
-                    round_task,
-                    effective_stop_event,
-                ):
-                    from nini.agent.events import EventType
-
-                    await self._relay_child_event(
-                        parent_session=parent_session,
-                        agent_def=agent_def,
-                        event=event,
-                        parent_turn_id=parent_turn_id,
-                        attempt=attempt,
-                        retry_count=retry_count,
-                        run_id=effective_run_id,
-                        subtask_index=subtask_index,
-                    )
-                    if event.type == EventType.TEXT and event.data:
-                        text = event.data if isinstance(event.data, str) else str(event.data)
-                        output_parts.append(text)
-
-                round_output = "".join(output_parts)
-                all_output_parts.append(round_output)
-                if effective_stop_event.is_set():
-                    break
-
-                # 首轮生成假设事件（如尚未生成）
-                if not hypothesis_context.hypotheses:
-                    hypothesis_context.hypotheses.append(
-                        Hypothesis(id="h1", content=round_output[:200] if round_output else task)
-                    )
-                    await self._push_event(
-                        parent_session,
-                        "hypothesis_generated",
-                        eb.build_hypothesis_generated_event(
-                            agent_def.agent_id,
-                            [
-                                {"id": h.id, "content": h.content, "confidence": h.confidence}
-                                for h in hypothesis_context.hypotheses
-                            ],
-                        ).data,
-                    )
-                else:
-                    # 后续轮次：推送证据收集事件（简化：将本轮输出视为支持证据）
-                    if round_output and hypothesis_context.hypotheses:
-                        h = hypothesis_context.hypotheses[0]
-                        hypothesis_context.update_confidence(h.id, "for")
-                        h.evidence_for.append(round_output[:200])
-                        await self._push_event(
-                            parent_session,
-                            "evidence_collected",
-                            eb.build_evidence_collected_event(
-                                agent_def.agent_id, h.id, "for", round_output[:200]
-                            ).data,
-                        )
-
-                hypothesis_context.iteration_count += 1
-        finally:
-            reset_log_context(log_token)
-
-        if effective_stop_event.is_set():
-            return SubAgentResult(
-                agent_id=agent_def.agent_id,
-                success=False,
-                summary="用户已终止该子 Agent",
-                execution_time_ms=0,
-                stopped=True,
-                stop_reason="用户已终止该子 Agent",
-                artifacts={k: v for k, v in sub_session.artifacts.items() if not k.startswith("_")},
-                documents=dict(sub_session.documents),
-            )
-
-        # 推送最终假设状态事件
-        for h in hypothesis_context.hypotheses:
-            if h.confidence >= 0.65:
-                h.status = "validated"
-                await self._push_event(
-                    parent_session,
-                    "hypothesis_validated",
-                    eb.build_hypothesis_validated_event(
-                        agent_def.agent_id, h.id, h.confidence
-                    ).data,
-                )
-            elif h.confidence <= 0.30:
-                h.status = "refuted"
-                await self._push_event(
-                    parent_session,
-                    "hypothesis_refuted",
-                    eb.build_hypothesis_refuted_event(agent_def.agent_id, h.id, "置信度过低").data,
-                )
-
-        detailed_output = "\n".join(all_output_parts)
-        summary = (
-            detailed_output[:500] if detailed_output else f"Agent {agent_def.agent_id} 完成假设推理"
-        )
-
-        return SubAgentResult(
-            agent_id=agent_def.agent_id,
-            success=True,
-            agent_name=agent_def.name,
-            task=task,
-            summary=summary,
-            detailed_output=detailed_output,
-            artifacts={k: v for k, v in sub_session.artifacts.items() if not k.startswith("_")},
-            documents=dict(sub_session.documents),
-            run_id=effective_run_id,
-            turn_id=parent_turn_id or "",
-            parent_session_id=str(getattr(parent_session, "id", "") or ""),
-            child_session_id=sub_session.id,
-            resource_session_id=sub_session.get_resource_session_id(),
-        )
-
     def _finalize_result(
         self,
         result: SubAgentResult,
@@ -1504,7 +909,6 @@ class SubAgentSpawner:
         agent_id: str,
         agent_name: str,
         attempt: int,
-        retry_count: int,
         phase: str,
         message: str,
         progress_hint: str | None,
@@ -1524,7 +928,6 @@ class SubAgentSpawner:
                 "message": message,
                 "progress_hint": progress_hint,
                 "attempt": attempt,
-                "retry_count": retry_count,
             },
             turn_id=turn_id,
             metadata=next_metadata,
@@ -1537,7 +940,6 @@ class SubAgentSpawner:
         agent_def: Any,
         parent_turn_id: str | None,
         attempt: int,
-        retry_count: int,
         run_id: str,
         subtask_index: int | None,
     ):
@@ -1548,7 +950,6 @@ class SubAgentSpawner:
                 event=event,
                 parent_turn_id=parent_turn_id,
                 attempt=attempt,
-                retry_count=retry_count,
                 run_id=run_id,
                 subtask_index=subtask_index,
             )
@@ -1563,7 +964,6 @@ class SubAgentSpawner:
         event: Any,
         parent_turn_id: str | None,
         attempt: int,
-        retry_count: int,
         run_id: str,
         subtask_index: int | None,
     ) -> None:
@@ -1604,7 +1004,6 @@ class SubAgentSpawner:
                 agent_id=agent_def.agent_id,
                 agent_name=agent_def.name,
                 attempt=attempt,
-                retry_count=retry_count,
                 phase=progress["phase"],
                 message=progress["message"],
                 progress_hint=progress.get("progress_hint"),

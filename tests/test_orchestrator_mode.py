@@ -12,38 +12,21 @@ from nini.agent.sub_session import SubSession
 
 def _make_runner_with_dispatch_registered():
     """构建已注册 dispatch_agents 工具的 AgentRunner。"""
-    from nini.agent.fusion import FusionResult, ResultFusionEngine
     from nini.agent.spawner import SubAgentResult
     from nini.tools.dispatch_agents import DispatchAgentsTool
     from nini.tools.registry import ToolRegistry
 
     class _MockRegistry:
         def list_agents(self):
-            return [type("Def", (), {"agent_id": "x"})()]
+            return [type("Def", (), {"agent_id": "literature_search"})()]
 
     class _MockSpawner:
         async def spawn_batch(self, tasks, session, **kwargs):
-            return [SubAgentResult(agent_id="x", success=True, summary="完成")]
-
-        async def spawn(self, agent_id, task, session, **kwargs):
-            return SubAgentResult(agent_id=agent_id, success=True, summary="完成")
-
-        async def preflight_batch(self, tasks, session, **kwargs):
-            from nini.agent.spawner import BatchPreflightPlan
-
-            return BatchPreflightPlan(
-                ordered_results=[None] * len(tasks),
-                executable_tasks=[(i + 1, aid, t) for i, (aid, t) in enumerate(tasks)],
-            )
-
-    class _MockFusion:
-        async def fuse(self, results, strategy="auto"):
-            return FusionResult(content="融合结果", strategy="concatenate")
+            return [SubAgentResult(agent_id=aid, success=True, summary="完成") for aid, _ in tasks]
 
     tool = DispatchAgentsTool(
         agent_registry=_MockRegistry(),
         spawner=_MockSpawner(),
-        fusion_engine=_MockFusion(),
     )
     registry = ToolRegistry()
     registry._tools.clear()
@@ -137,7 +120,7 @@ async def test_handle_dispatch_agents_produces_tool_result_event():
         "id": "call-123",
         "function": {
             "name": "dispatch_agents",
-            "arguments": '{"tasks": ["清洗数据"]}',
+            "arguments": '{"agents": [{"agent_id": "literature_search", "task": "检索文献"}]}',
         },
     }
 
@@ -153,7 +136,8 @@ async def test_handle_dispatch_agents_produces_tool_result_event():
     )
     result_payload = tool_result_event.data["data"]["result"]["metadata"]
     assert result_payload["dispatch_run_id"] == "dispatch:call-123"
-    assert result_payload["subtasks"][0]["agent_id"] == "x"
+    assert result_payload["agent_count"] == 1
+    assert result_payload["success_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -166,7 +150,7 @@ async def test_handle_dispatch_agents_injects_tool_result_to_session():
         "id": "call-456",
         "function": {
             "name": "dispatch_agents",
-            "arguments": '{"tasks": ["统计分析"]}',
+            "arguments": '{"agents": [{"agent_id": "literature_search", "task": "统计分析"}]}',
         },
     }
 
@@ -192,7 +176,7 @@ async def test_handle_dispatch_agents_no_registry_yields_error_event():
         "id": "call-789",
         "function": {
             "name": "dispatch_agents",
-            "arguments": '{"tasks": ["任务"]}',
+            "arguments": '{"agents": [{"agent_id": "literature_search", "task": "任务"}]}',
         },
     }
 

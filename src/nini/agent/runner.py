@@ -3998,8 +3998,7 @@ class AgentRunner:
         except json.JSONDecodeError:
             func_args = {}
 
-        tasks_list: list[str] = func_args.get("tasks", [])
-        context_str: str = func_args.get("context", "")
+        agents_list: list[dict] = func_args.get("agents", [])
 
         # 获取 dispatch_agents 工具实例
         if self._tool_registry is None:
@@ -4047,8 +4046,7 @@ class AgentRunner:
         try:
             skill_result = await skill.execute(
                 session,
-                tasks=tasks_list,
-                context=context_str,
+                agents=agents_list,
                 turn_id=turn_id,
                 tool_call_id=tc_id,
             )
