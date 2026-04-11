@@ -1,7 +1,5 @@
 """MemoryProvider ABC 测试。"""
 
-import asyncio
-
 from nini.memory.provider import MemoryProvider
 
 
@@ -27,7 +25,7 @@ def test_incomplete_subclass_cannot_instantiate():
         pass
 
 
-def test_minimal_provider_instantiates():
+async def test_minimal_provider_instantiates():
     """实现全部抽象方法的子类可实例化，可选钩子有合理默认值。"""
 
     class Minimal(MemoryProvider):
@@ -45,4 +43,4 @@ def test_minimal_provider_instantiates():
     assert p.name == "test"
     assert p.system_prompt_block() == ""
     assert p.on_pre_compress([]) == ""
-    assert asyncio.run(p.prefetch("test query")) == ""
+    assert await p.prefetch("test query") == ""

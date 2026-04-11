@@ -37,9 +37,11 @@ class MemoryProvider(ABC):
         session_id: str = "",
     ) -> None:
         """每轮结束后：持久化本轮对话摘要/发现。"""
+        return
 
     async def on_session_end(self, messages: list[dict[str, Any]]) -> None:
         """会话结束：从完整历史提取关键记忆沉淀。"""
+        return
 
     def on_pre_compress(self, messages: list[dict[str, Any]]) -> str:
         """上下文压缩前：提取关键数值，返回追加到压缩 prompt 的文本。"""
