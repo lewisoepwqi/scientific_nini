@@ -3255,6 +3255,20 @@ class AgentRunner:
                         in visible_tool_names
                     )
                 ]
+            task_manager = getattr(session, "task_manager", None) if session is not None else None
+            session_tasks = getattr(task_manager, "tasks", None)
+            has_task_context = isinstance(session_tasks, list) and bool(session_tasks)
+            has_explicit_allowlist = isinstance(
+                getattr(self._tool_registry, "_tool_execution_allowlist", None),
+                frozenset,
+            )
+            if (
+                session is not None
+                and visible_tool_names is not None
+                and (has_task_context or has_explicit_allowlist)
+            ):
+                setattr(session, "_current_visible_tool_names", frozenset(visible_tool_names))
+                setattr(session, "_current_visible_tool_message", str(user_message or "").strip())
 
         # Orchestrator 工具：从注册表中直接获取 tool_definition（不走 expose_to_llm 过滤）
         if (
@@ -3337,14 +3351,19 @@ class AgentRunner:
             return {str(name).strip() for name in explicit_allowlist if str(name).strip()}
         if session is None:
             return None
+        cached_visible = getattr(session, "_current_visible_tool_names", None)
+        if isinstance(cached_visible, frozenset):
+            return {str(name).strip() for name in cached_visible if str(name).strip()}
         task_manager = getattr(session, "task_manager", None)
         tasks = getattr(task_manager, "tasks", None)
         if not isinstance(tasks, list) or not tasks:
             return None
         try:
+            from nini.agent.components.context_utils import get_last_user_message
+
             return self._resolve_visible_tool_names(
                 session=session,
-                user_message=None,
+                user_message=get_last_user_message(session),
                 require_list_tools=hasattr(self._tool_registry, "list_tools"),
             )
         except Exception:

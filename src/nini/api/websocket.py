@@ -698,7 +698,8 @@ async def websocket_agent(ws: WebSocket):
                     stop_event.is_set(),
                 )
         except asyncio.CancelledError:
-            session._external_stop_reason = "websocket_disconnect_or_reload"
+            if not str(getattr(session, "_external_stop_reason", "") or "").strip():
+                session._external_stop_reason = "websocket_disconnect_or_reload"
             logger.info("请求已取消: session_id=%s", session.id)
             _cancel_pending_questions(session.id)
         except Exception as e:
@@ -775,6 +776,7 @@ async def websocket_agent(ws: WebSocket):
                                 stop_ev.set()
                             live_session = session_manager.get_session(stop_session_id)
                             if live_session is not None:
+                                live_session._external_stop_reason = "user_stop"
                                 live_session.stop_all_subagents()
                             task.cancel()
                             with suppress(asyncio.CancelledError):
@@ -809,6 +811,7 @@ async def websocket_agent(ws: WebSocket):
                                     stop_ev.set()
                                 live_session = session_manager.get_session(sid)
                                 if live_session is not None:
+                                    live_session._external_stop_reason = "user_stop"
                                     live_session.stop_all_subagents()
                                 task.cancel()
                                 with suppress(asyncio.CancelledError):
@@ -1189,7 +1192,8 @@ async def websocket_agent(ws: WebSocket):
             stop_ev.set()
             live_session = session_manager.get_session(sid)
             if live_session is not None:
-                live_session._external_stop_reason = "websocket_disconnect_or_reload"
+                if not str(getattr(live_session, "_external_stop_reason", "") or "").strip():
+                    live_session._external_stop_reason = "websocket_disconnect_or_reload"
                 live_session.stop_all_subagents()
         for sid, task in list(active_chat_tasks.items()):
             if not task.done():

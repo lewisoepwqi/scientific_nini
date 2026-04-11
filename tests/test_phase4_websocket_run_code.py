@@ -145,12 +145,15 @@ def test_websocket_stop_can_interrupt_and_continue(
 
     monkeypatch.setattr(model_resolver, "chat", fake_chat)
 
+    first_session_id = ""
     with live_websocket_connect(app_with_temp_data, "/ws") as ws:
         ws.send_text(json.dumps({"type": "chat", "content": "请开始长输出"}))
 
         # 至少收到一次文本流后再停止
         for _ in range(20):
             evt = ws.receive_json()
+            if evt["type"] == "session":
+                first_session_id = evt["data"]["session_id"]
             if evt["type"] == "text":
                 break
 
@@ -163,6 +166,7 @@ def test_websocket_stop_can_interrupt_and_continue(
                 stop_received = True
                 break
         assert stop_received is True
+        assert first_session_id
 
         ws.send_text(json.dumps({"type": "chat", "content": "继续请求"}))
         events = []
@@ -176,6 +180,9 @@ def test_websocket_stop_can_interrupt_and_continue(
     assert "done" in event_types
     assert "error" not in event_types
     assert any(e["type"] == "text" and "已继续新的请求" in e.get("data", "") for e in events)
+    stopped_session = session_manager.get_session(first_session_id)
+    assert stopped_session is not None
+    assert stopped_session._external_stop_reason == "user_stop"
 
 
 def test_websocket_retry_clears_last_agent_turn_and_regenerates(
