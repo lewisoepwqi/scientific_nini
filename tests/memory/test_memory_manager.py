@@ -1,6 +1,5 @@
 """MemoryManager 编排层测试。"""
 
-import pytest
 from nini.memory.manager import MemoryManager, build_memory_context_block, sanitize_context
 from nini.memory.provider import MemoryProvider
 
@@ -46,6 +45,7 @@ def test_build_memory_context_block_wraps_content():
     assert "<memory-context>" in result
     assert "重要记忆内容" in result
     assert "</memory-context>" in result
+    assert "系统注记" in result
 
 
 def test_build_memory_context_block_empty_input_returns_empty():
@@ -149,9 +149,19 @@ async def test_failing_provider_does_not_block_others():
 # ---- 全局单例 ----
 
 
-def test_get_set_memory_manager():
-    from nini.memory.manager import get_memory_manager, set_memory_manager
-
+def test_get_set_memory_manager(monkeypatch):
+    """set 后 get 返回同一实例。"""
+    import nini.memory.manager as m
+    monkeypatch.setattr(m, "_memory_manager_instance", None)
     mgr = MemoryManager()
-    set_memory_manager(mgr)
-    assert get_memory_manager() is mgr
+    m.set_memory_manager(mgr)
+    assert m.get_memory_manager() is mgr
+
+
+def test_get_memory_manager_returns_empty_instance_when_not_set(monkeypatch):
+    """未设置时 get_memory_manager 返回空 MemoryManager 而非 None。"""
+    import nini.memory.manager as m
+    monkeypatch.setattr(m, "_memory_manager_instance", None)
+    result = m.get_memory_manager()
+    assert isinstance(result, MemoryManager)
+    assert len(result.providers) == 0
