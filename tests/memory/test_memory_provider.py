@@ -1,5 +1,7 @@
 """MemoryProvider ABC 测试。"""
 
+import asyncio
+
 from nini.memory.provider import MemoryProvider
 
 
@@ -43,3 +45,4 @@ def test_minimal_provider_instantiates():
     assert p.name == "test"
     assert p.system_prompt_block() == ""
     assert p.on_pre_compress([]) == ""
+    assert asyncio.run(p.prefetch("test query")) == ""
