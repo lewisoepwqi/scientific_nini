@@ -372,7 +372,7 @@ class MemoryStore:
                     created_str = str(d.get("created_at", ""))
                     if created_str:
                         try:
-                            from datetime import datetime, timezone  # noqa: F401
+                            from datetime import datetime
 
                             created_ts = datetime.fromisoformat(created_str).timestamp()
                         except Exception:
