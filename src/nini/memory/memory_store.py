@@ -106,6 +106,96 @@ class MemoryStore:
         except sqlite3.OperationalError:
             pass
 
+    # ---- 写操作 ----
+
+    def upsert_fact(
+        self,
+        *,
+        content: str,
+        memory_type: str,
+        summary: str = "",
+        tags: list[str] | None = None,
+        importance: float = 0.5,
+        trust_score: float = 0.5,
+        source_session_id: str = "",
+        sci_metadata: dict[str, Any] | None = None,
+    ) -> str:
+        """插入 fact；相同 dedup_key 时更新访问计数并返回已有 id（幂等）。"""
+        sci = sci_metadata or {}
+        dedup_key = hashlib.md5(
+            f"{memory_type}|{sci.get('dataset_name', '')}|{content}".encode()
+        ).hexdigest()
+
+        existing = self._conn.execute(
+            "SELECT id FROM facts WHERE dedup_key = ?", (dedup_key,)
+        ).fetchone()
+        if existing:
+            now = time.time()
+            with self._conn:
+                self._conn.execute(
+                    "UPDATE facts SET access_count = access_count + 1, last_accessed_at = ? "
+                    "WHERE id = ?",
+                    (now, existing[0]),
+                )
+            return str(existing[0])
+
+        fact_id = str(uuid.uuid4())
+        now = time.time()
+        with self._conn:
+            self._conn.execute(
+                """INSERT INTO facts
+                   (id, content, memory_type, summary, tags, importance, trust_score,
+                    source_session_id, created_at, updated_at, dedup_key, sci_metadata)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    fact_id,
+                    content,
+                    memory_type,
+                    summary,
+                    json.dumps(tags or [], ensure_ascii=False),
+                    importance,
+                    trust_score,
+                    source_session_id,
+                    now,
+                    now,
+                    dedup_key,
+                    json.dumps(sci, ensure_ascii=False),
+                ),
+            )
+        return fact_id
+
+    def upsert_profile(self, profile_id: str, data_json: dict[str, Any], narrative_md: str) -> None:
+        """更新研究画像（ON CONFLICT 覆盖）。"""
+        with self._conn:
+            self._conn.execute(
+                """INSERT INTO research_profiles (profile_id, data_json, narrative_md, updated_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(profile_id) DO UPDATE SET
+                       data_json    = excluded.data_json,
+                       narrative_md = excluded.narrative_md,
+                       updated_at   = excluded.updated_at""",
+                (
+                    profile_id,
+                    json.dumps(data_json, ensure_ascii=False),
+                    narrative_md,
+                    time.time(),
+                ),
+            )
+
+    def get_profile(self, profile_id: str) -> dict[str, Any] | None:
+        """获取研究画像，不存在时返回 None。"""
+        row = self._conn.execute(
+            "SELECT * FROM research_profiles WHERE profile_id = ?", (profile_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "profile_id": row["profile_id"],
+            "data_json": json.loads(row["data_json"]),
+            "narrative_md": row["narrative_md"],
+            "updated_at": row["updated_at"],
+        }
+
     def close(self) -> None:
         """关闭数据库连接。"""
         try:
