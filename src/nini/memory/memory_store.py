@@ -325,6 +325,112 @@ class MemoryStore:
             results.append(d)
         return results
 
+    # ---- 旧数据迁移 ----
+
+    def migrate_from_jsonl(self, jsonl_path: Path) -> int:
+        """将旧 entries.jsonl 迁移到 facts 表。返回实际写入条数（幂等）。
+
+        字段映射：
+        - source_dataset → sci_metadata.dataset_name
+        - importance_score → importance
+        - analysis_type → sci_metadata.analysis_type
+        - metadata.dedup_key → dedup_key（无则重新计算 MD5）
+        """
+        jsonl_path = Path(jsonl_path)
+        if not jsonl_path.exists():
+            logger.debug("JSONL 迁移文件不存在，跳过：%s", jsonl_path)
+            return 0
+        count = 0
+        with open(jsonl_path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                    sci: dict[str, Any] = {}
+                    if d.get("source_dataset"):
+                        sci["dataset_name"] = d["source_dataset"]
+                    if d.get("analysis_type"):
+                        sci["analysis_type"] = d["analysis_type"]
+                    meta = d.get("metadata") or {}
+                    for key in ("p_value", "effect_size", "significant", "sample_size"):
+                        if key in meta:
+                            sci[key] = meta[key]
+
+                    dedup_key = hashlib.md5(
+                        f"{d.get('memory_type', '')}|{sci.get('dataset_name', '')}|"
+                        f"{d.get('content', '')}".encode()
+                    ).hexdigest()
+                    existing = self._conn.execute(
+                        "SELECT id FROM facts WHERE dedup_key = ?", (dedup_key,)
+                    ).fetchone()
+                    if existing:
+                        continue
+
+                    created_ts = time.time()
+                    created_str = str(d.get("created_at", ""))
+                    if created_str:
+                        try:
+                            from datetime import datetime, timezone  # noqa: F401
+
+                            created_ts = datetime.fromisoformat(created_str).timestamp()
+                        except Exception:
+                            pass
+
+                    fact_id = str(d.get("id") or uuid.uuid4())
+                    with self._conn:
+                        self._conn.execute(
+                            """INSERT OR IGNORE INTO facts
+                               (id, content, memory_type, summary, tags, importance,
+                                source_session_id, created_at, updated_at, dedup_key,
+                                sci_metadata)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (
+                                fact_id,
+                                str(d.get("content", "")),
+                                str(d.get("memory_type", "insight")),
+                                str(d.get("summary", "")),
+                                json.dumps(d.get("tags") or [], ensure_ascii=False),
+                                float(d.get("importance_score", 0.5)),
+                                str(d.get("source_session_id", "")),
+                                created_ts,
+                                created_ts,
+                                dedup_key,
+                                json.dumps(sci, ensure_ascii=False),
+                            ),
+                        )
+                    count += 1
+                except Exception as exc:
+                    logger.warning("迁移 JSONL 条目失败: %s", exc)
+        return count
+
+    def migrate_profile_json(self, json_path: Path, narrative_path: Path | None = None) -> None:
+        """将旧 profiles/*.json + *_profile.md 迁移到 research_profiles 表。
+
+        已存在的 profile 不覆盖（保护新数据）。
+        """
+        json_path = Path(json_path)
+        if not json_path.exists():
+            return
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            profile_id = str(data.get("user_id", json_path.stem))
+            existing = self._conn.execute(
+                "SELECT profile_id FROM research_profiles WHERE profile_id = ?",
+                (profile_id,),
+            ).fetchone()
+            if existing:
+                return
+            narrative = ""
+            if narrative_path is not None:
+                narrative_path = Path(narrative_path)
+                if narrative_path.exists():
+                    narrative = narrative_path.read_text(encoding="utf-8")
+            self.upsert_profile(profile_id, data, narrative)
+        except Exception as exc:
+            logger.warning("迁移 profile JSON 失败 %s: %s", json_path, exc)
+
     def close(self) -> None:
         """关闭数据库连接。"""
         try:
