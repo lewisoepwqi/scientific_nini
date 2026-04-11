@@ -148,6 +148,12 @@ class ContextBuilder:
         # 根据模型上下文窗口和意图关键词构建系统提示词
         context_window: int | None = getattr(session, "_model_context_window", None)
         system_prompt = get_system_prompt(context_window=context_window, intent_hints=intent_hints)
+        extra_system_prompt = str(getattr(session, "_extra_system_prompt", "") or "").strip()
+        if extra_system_prompt:
+            system_prompt = (
+                f"{system_prompt}\n\n## Specialist Instructions\n"
+                f"{extra_system_prompt}"
+            )
 
         # 提前计算 prompt profile，用于后续 reasoning 注入和预算控制的差异化处理
         from nini.agent.prompts.builder import PromptProfile, detect_prompt_profile

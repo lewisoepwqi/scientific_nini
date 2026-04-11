@@ -127,13 +127,15 @@ async def test_execute_invalid_agent_id_returns_error():
     )
     result = await tool.execute(
         None,
-        agents=[{"agent_id": "nonexistent_agent", "task": "做些事"}],
+        agents=[{"agent_id": "data_engineer", "task": "做些事"}],
     )
     assert result.success is False
     assert result.metadata["error_code"] == "INVALID_AGENT_IDS"
-    assert "nonexistent_agent" in result.metadata["invalid_ids"]
+    assert "data_engineer" in result.metadata["invalid_ids"]
     assert "literature_search" in result.metadata["available_ids"]
     assert "data_cleaner" in result.metadata["available_ids"]
+    assert result.recovery_hint
+    assert "data_cleaner" in result.metadata["suggested_agent_ids"]["data_engineer"]
 
 
 @pytest.mark.asyncio

@@ -1064,6 +1064,8 @@ class HarnessRunner:
         # Agent runner 的熔断错误：由于重复调用被阻止而触发的熔断，本质上也是幂等冲突
         if generic_error_code == "TOOL_CALL_CIRCUIT_BREAKER":
             return "idempotent_conflict", False
+        if generic_error_code == "TOOL_NOT_ALLOWED_IN_CURRENT_STAGE":
+            return "recoverable_input_misuse", False
         return "blocking_failure", True
 
     @staticmethod
@@ -1191,11 +1193,15 @@ class HarnessRunner:
             for task in session.task_manager.tasks
             if task.status in {"pending", "in_progress"}
         ]
+        external_stop_reason = str(getattr(session, "_external_stop_reason", "") or "").strip()
+        stop_reason = trace.blocked.reason_code if trace.blocked else trace.status
+        if external_stop_reason and trace.status == "stopped":
+            stop_reason = external_stop_reason
         return HarnessSessionSnapshot(
             session_id=session.id,
             turn_id=trace.turn_id,
             run_id=trace.run_id,
-            stop_reason=trace.blocked.reason_code if trace.blocked else trace.status,
+            stop_reason=stop_reason,
             pending_actions=session.list_pending_actions(status="pending"),
             task_progress={
                 "total": len(session.task_manager.tasks),

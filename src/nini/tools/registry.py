@@ -244,6 +244,11 @@ class ToolRegistry:
         # 清空新实例的默认注册工具（空白基础，只放入指定工具）
         subset._tools.clear()
         subset._llm_exposed_function_tools = set()
+        subset._final_visible_tool_names = frozenset(str(name).strip() for name in allowed_tool_names)
+        subset._tool_execution_allowlist = frozenset(
+            str(name).strip() for name in allowed_tool_names
+        )
+        subset._skip_stage_filter = True
 
         for name in allowed_tool_names:
             skill = self._tools.get(name)

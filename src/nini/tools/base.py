@@ -20,6 +20,7 @@ class ToolResult:
     data: Any = None
     message: str = ""
     retryable: bool = False
+    recovery_hint: str = ""
     # 图表相关
     has_chart: bool = False
     chart_data: Any = None
@@ -39,6 +40,8 @@ class ToolResult:
         }
         if self.retryable:
             result["retryable"] = True
+        if self.recovery_hint:
+            result["recovery_hint"] = self.recovery_hint
         if self.data is not None:
             result["data"] = self.data
         if self.has_chart:

@@ -105,6 +105,30 @@ def test_none_session_exposes_dispatch_agents():
     assert "dispatch_agents" in names
 
 
+@pytest.mark.asyncio
+async def test_execute_tool_rejects_hidden_tool_even_if_registry_contains_it(tmp_path):
+    from nini.agent.session import Session
+    from nini.tools.registry import ToolRegistry
+
+    registry = ToolRegistry()
+    registry._tools.clear()
+    registry._llm_exposed_function_tools = set()
+    registry._tool_execution_allowlist = frozenset({"dataset_transform"})
+
+    async def _unexpected_execute(*args, **kwargs):
+        raise AssertionError("不应实际执行被隐藏的工具")
+
+    registry.execute_with_fallback = _unexpected_execute
+    runner = AgentRunner(tool_registry=registry)
+    session = _make_plain_session(tmp_path)
+
+    result = await runner._execute_tool(session, "workspace_session", '{"operation":"read"}')
+
+    assert result["success"] is False
+    assert result["error_code"] == "TOOL_NOT_ALLOWED_IN_CURRENT_STAGE"
+    assert "dataset_transform" in result["metadata"]["visible_tools"]
+
+
 # ─── Orchestrator 钩子拦截 ────────────────────────────────────────────────────
 
 

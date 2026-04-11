@@ -45,3 +45,16 @@ def test_get_tool_definitions_only_has_subset_tools():
     defs = subset.get_tool_definitions()
     names = [d["function"]["name"] for d in defs]
     assert all(n == "stat_test" for n in names)
+
+
+def test_subset_marks_final_visible_and_execution_allowlist():
+    registry = create_default_tool_registry()
+    subset = registry.create_subset(["stat_test", "dataset_catalog"])
+
+    assert getattr(subset, "_skip_stage_filter", False) is True
+    assert getattr(subset, "_final_visible_tool_names", frozenset()) == frozenset(
+        {"stat_test", "dataset_catalog"}
+    )
+    assert getattr(subset, "_tool_execution_allowlist", frozenset()) == frozenset(
+        {"stat_test", "dataset_catalog"}
+    )

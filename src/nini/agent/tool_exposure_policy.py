@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -75,6 +76,8 @@ _HIGH_RISK_TOOLS = {
     "workspace_session",
 }
 
+_KNOWN_TOOL_NAMES = _ALWAYS_ALLOWED | _PROFILE_TOOLS | _ANALYSIS_TOOLS | _EXPORT_TOOLS
+
 
 @dataclass(frozen=True)
 class ToolExposurePolicy:
@@ -142,11 +145,87 @@ def _collect_task_tool_hints(session: Any) -> list[str]:
         raw_hint = str(item.get("tool_hint", "") or "").strip()
         if not raw_hint:
             continue
-        # LLM 可能使用 "/" 分隔多个候选工具，如 "stat_test/code_session"
-        for hint in raw_hint.split("/"):
-            hint = hint.strip()
-            if hint and hint not in hints:
+        for hint in _extract_hint_tool_names(raw_hint):
+            if hint not in hints:
                 hints.append(hint)
+    return hints
+
+
+def _extract_hint_tool_names(raw_hint: str) -> list[str]:
+    """从自由文本 tool_hint 中提取真实工具名。
+
+    支持以下常见格式：
+    - "dataset_transform derive_column"
+    - "code_session + dataset_transform"
+    - "stat_test/code_session"
+    """
+    normalized = str(raw_hint or "").strip().lower()
+    if not normalized:
+        return []
+    names: list[str] = []
+    for token in re.findall(r"[a-z_]+", normalized):
+        if token not in _KNOWN_TOOL_NAMES or token in names:
+            continue
+        names.append(token)
+    return names
+
+
+def _collect_relevant_task_tool_hints(session: Any) -> list[str]:
+    """只收集当前执行上下文相关的 tool_hint，避免未来步骤污染当前阶段。"""
+    if session is None or not hasattr(session, "task_manager"):
+        return []
+    manager = getattr(session, "task_manager", None)
+    if manager is None or not hasattr(manager, "to_analysis_plan_dict"):
+        return []
+    plan = manager.to_analysis_plan_dict()
+    steps = plan.get("steps") if isinstance(plan, dict) else None
+    if not isinstance(steps, list):
+        return []
+
+    selected_step: dict[str, Any] | None = None
+    selected_index: int | None = None
+    for index, item in enumerate(steps):
+        if isinstance(item, dict) and str(item.get("status", "")).strip() == "in_progress":
+            selected_step = item
+            selected_index = index
+            break
+    if selected_step is None:
+        for index, item in enumerate(steps):
+            status = str(item.get("status", "")).strip() if isinstance(item, dict) else ""
+            if status in {"pending", "not_started"}:
+                selected_step = item
+                selected_index = index
+                break
+    if selected_step is None:
+        for index in range(len(steps) - 1, -1, -1):
+            item = steps[index]
+            if isinstance(item, dict):
+                selected_step = item
+                selected_index = index
+                break
+    if not isinstance(selected_step, dict):
+        return []
+
+    hints = _extract_hint_tool_names(str(selected_step.get("tool_hint", "") or "").strip())
+    if any(hint not in _ALWAYS_ALLOWED for hint in hints):
+        return hints
+
+    if selected_index is None:
+        return hints
+
+    for item in steps[selected_index + 1 :]:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status", "")).strip()
+        if status not in {"pending", "not_started"}:
+            continue
+        next_hints = _extract_hint_tool_names(str(item.get("tool_hint", "") or "").strip())
+        if next_hints:
+            merged = list(hints)
+            for hint in next_hints:
+                if hint not in merged:
+                    merged.append(hint)
+            return merged
     return hints
 
 
@@ -158,11 +237,13 @@ def resolve_surface_stage(session: Any, *, user_message: str | None = None) -> s
     if any(token in normalized_message for token in ("概览", "质量", "摘要", "预览", "字段")):
         return "profile"
 
-    task_tool_hints = _collect_task_tool_hints(session)
+    task_tool_hints = _collect_relevant_task_tool_hints(session)
     if any(hint in _EXPORT_TOOLS for hint in task_tool_hints):
         return "export"
     if any(hint in _ANALYSIS_TOOLS for hint in task_tool_hints):
         return "analysis"
+    if any(hint in _PROFILE_TOOLS for hint in task_tool_hints):
+        return "profile"
 
     stage = detect_current_stage(session) if session is not None else AnalysisStage.UNKNOWN
     if stage in {AnalysisStage.PLANNING, AnalysisStage.DATA_PREP, AnalysisStage.UNKNOWN}:
@@ -190,12 +271,17 @@ def compute_tool_exposure_policy(
         session, user_message=user_message
     )
     allowed = set(_ALWAYS_ALLOWED)
+    relevant_hints = _collect_relevant_task_tool_hints(session)
     if stage == "profile":
         allowed |= _PROFILE_TOOLS
     elif stage == "export":
         allowed |= _EXPORT_TOOLS
     else:
         allowed |= _ANALYSIS_TOOLS
+
+    allowed.update(relevant_hints)
+    if stage != "export" and relevant_hints:
+        allowed.add("code_session")
 
     authorization_state: dict[str, bool] = {}
     for tool_name in list(allowed):
