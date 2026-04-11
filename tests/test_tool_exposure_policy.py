@@ -82,6 +82,28 @@ def test_collect_task_tool_hints_splits_slash_separated() -> None:
     assert "stat_test/code_session" not in hints
 
 
+def test_collect_task_tool_hints_extracts_tool_names_from_free_text() -> None:
+    session = Session()
+    session.task_manager = session.task_manager.init_tasks(
+        [
+            {
+                "id": 1,
+                "title": "时间变量衍生",
+                "status": "in_progress",
+                "tool_hint": "dataset_transform derive_column",
+            },
+            {
+                "id": 2,
+                "title": "异常值检测",
+                "status": "pending",
+                "tool_hint": "code_session + dataset_transform",
+            },
+        ]
+    )
+    hints = _collect_task_tool_hints(session)
+    assert hints == ["dataset_transform", "code_session"]
+
+
 def test_resolve_surface_stage_detects_analysis_with_slash_hint() -> None:
     """当 tool_hint 包含 '/' 分隔的分析工具时，阶段应为 analysis。"""
     session = Session()
@@ -130,3 +152,35 @@ def test_compute_tool_exposure_policy_with_user_message_export() -> None:
     assert policy["stage"] == "export"
     assert "export_chart" in policy["visible_tools"]
     assert "stat_test" not in policy["visible_tools"]
+
+
+def test_compute_tool_exposure_policy_does_not_let_future_export_hint_pollute_current_step() -> None:
+    session = Session()
+    session.task_manager = session.task_manager.init_tasks(
+        [
+            {
+                "id": 1,
+                "title": "时间变量衍生",
+                "status": "in_progress",
+                "tool_hint": "dataset_transform derive_column",
+            },
+            {
+                "id": 2,
+                "title": "结果可视化",
+                "status": "pending",
+                "tool_hint": "chart_session",
+            },
+        ]
+    )
+    registry = _FakeRegistry(
+        ["task_state", "dataset_transform", "chart_session", "code_session", "workspace_session"]
+    )
+    policy = compute_tool_exposure_policy(
+        session=session,
+        tool_registry=registry,
+        user_message="继续做时间变量衍生",
+    )
+    assert policy["stage"] == "profile"
+    assert "dataset_transform" in policy["visible_tools"]
+    assert "code_session" in policy["visible_tools"]
+    assert "workspace_session" not in policy["visible_tools"]

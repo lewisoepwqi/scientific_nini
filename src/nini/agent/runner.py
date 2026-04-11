@@ -3236,15 +3236,10 @@ class AgentRunner:
             # 若注册表不支持 list_tools（如测试用 mock），跳过可见性过滤以避免误清空工具列表。
             _has_list_tools = hasattr(self._tool_registry, "list_tools")
             try:
-                from nini.agent.tool_exposure_policy import compute_tool_exposure_policy
-
-                policy = compute_tool_exposure_policy(
+                visible_tool_names = self._resolve_visible_tool_names(
                     session=session,
-                    tool_registry=self._tool_registry,
                     user_message=user_message,
-                )
-                visible_tool_names = (
-                    set(policy.get("visible_tools", [])) if _has_list_tools else None
+                    require_list_tools=_has_list_tools,
                 )
             except Exception:
                 visible_tool_names = None
@@ -3260,6 +3255,20 @@ class AgentRunner:
                         in visible_tool_names
                     )
                 ]
+            task_manager = getattr(session, "task_manager", None) if session is not None else None
+            session_tasks = getattr(task_manager, "tasks", None)
+            has_task_context = isinstance(session_tasks, list) and bool(session_tasks)
+            has_explicit_allowlist = isinstance(
+                getattr(self._tool_registry, "_tool_execution_allowlist", None),
+                frozenset,
+            )
+            if (
+                session is not None
+                and visible_tool_names is not None
+                and (has_task_context or has_explicit_allowlist)
+            ):
+                setattr(session, "_current_visible_tool_names", frozenset(visible_tool_names))
+                setattr(session, "_current_visible_tool_message", str(user_message or "").strip())
 
         # Orchestrator 工具：从注册表中直接获取 tool_definition（不走 expose_to_llm 过滤）
         if (
@@ -3309,6 +3318,56 @@ class AgentRunner:
                 str(item.get("function", {}).get("name", "")),
             ),
         )
+
+    def _resolve_visible_tool_names(
+        self,
+        *,
+        session: Any,
+        user_message: str | None,
+        require_list_tools: bool,
+    ) -> set[str] | None:
+        """解析当前轮对 LLM 可见的工具集合。"""
+        if self._tool_registry is None or not require_list_tools:
+            return None
+        frozen_visible = getattr(self._tool_registry, "_final_visible_tool_names", None)
+        if isinstance(frozen_visible, frozenset):
+            return {str(name).strip() for name in frozen_visible if str(name).strip()}
+
+        from nini.agent.tool_exposure_policy import compute_tool_exposure_policy
+
+        policy = compute_tool_exposure_policy(
+            session=session,
+            tool_registry=self._tool_registry,
+            user_message=user_message,
+        )
+        return set(policy.get("visible_tools", []))
+
+    def _resolve_executable_tool_names(self, session: Session | None) -> set[str] | None:
+        """解析当前轮真正允许执行的工具集合。"""
+        if self._tool_registry is None:
+            return None
+        explicit_allowlist = getattr(self._tool_registry, "_tool_execution_allowlist", None)
+        if isinstance(explicit_allowlist, frozenset):
+            return {str(name).strip() for name in explicit_allowlist if str(name).strip()}
+        if session is None:
+            return None
+        cached_visible = getattr(session, "_current_visible_tool_names", None)
+        if isinstance(cached_visible, frozenset):
+            return {str(name).strip() for name in cached_visible if str(name).strip()}
+        task_manager = getattr(session, "task_manager", None)
+        tasks = getattr(task_manager, "tasks", None)
+        if not isinstance(tasks, list) or not tasks:
+            return None
+        try:
+            from nini.agent.components.context_utils import get_last_user_message
+
+            return self._resolve_visible_tool_names(
+                session=session,
+                user_message=get_last_user_message(session),
+                require_list_tools=hasattr(self._tool_registry, "list_tools"),
+            )
+        except Exception:
+            return None
 
     @staticmethod
     def _annotate_tool_definition(
@@ -4104,6 +4163,23 @@ class AgentRunner:
             args = json.loads(arguments)
         except json.JSONDecodeError:
             return {"error": f"工具参数解析失败: {arguments}"}
+
+        executable_tool_names = self._resolve_executable_tool_names(session)
+        if executable_tool_names is not None and name not in executable_tool_names:
+            visible_names = ", ".join(sorted(executable_tool_names)) or "无"
+            return {
+                "success": False,
+                "error": f"当前阶段不允许执行工具 {name}",
+                "message": f"当前阶段不允许执行工具 {name}",
+                "error_code": "TOOL_NOT_ALLOWED_IN_CURRENT_STAGE",
+                "recovery_hint": (
+                    f"请改用当前允许工具，或推进任务阶段后再重试。当前允许工具：{visible_names}"
+                ),
+                "metadata": {
+                    "error_code": "TOOL_NOT_ALLOWED_IN_CURRENT_STAGE",
+                    "visible_tools": sorted(executable_tool_names),
+                },
+            }
 
         start_time = time.monotonic()
         try:

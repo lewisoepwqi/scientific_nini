@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import inspect
 import logging
 import shutil
@@ -113,6 +114,26 @@ class SubAgentSpawner:
             "不要调用 task_state 或 task_write。\n\n"
         )
         return guardrail + task
+
+    @staticmethod
+    def _normalize_workspace_write_signature(event: Any) -> tuple[str, str] | None:
+        """提取 workspace_session 写文件签名，用于检测坏循环。"""
+        from nini.agent.events import EventType
+
+        if getattr(event, "type", None) != EventType.TOOL_CALL:
+            return None
+        if str(getattr(event, "tool_name", "") or "").strip() != "workspace_session":
+            return None
+        payload = event.data if isinstance(event.data, dict) else {}
+        arguments = payload.get("arguments") if isinstance(payload.get("arguments"), dict) else {}
+        operation = str(arguments.get("operation", "") or "").strip().lower()
+        if operation not in {"write", "edit", "append"}:
+            return None
+        file_path = str(arguments.get("file_path", "") or "").strip()
+        content = str(arguments.get("content", "") or "")
+        if not file_path:
+            return None
+        return file_path, content
 
     @staticmethod
     def _extract_child_failure_message(event: Any) -> str | None:
@@ -354,6 +375,39 @@ class SubAgentSpawner:
                 )
                 if not isinstance(result, SubAgentResult):
                     raise TypeError("子 Agent 返回值不是 SubAgentResult")
+            except asyncio.CancelledError:
+                elapsed_ms = int((time.monotonic() - start_time) * 1000)
+                stop_reason = str(
+                    getattr(session, "_external_stop_reason", "") or "父会话已取消，子 Agent 停止"
+                ).strip()
+                await self._push_event(
+                    session,
+                    "agent_stopped",
+                    {
+                        "event_type": "agent_stopped",
+                        "agent_id": agent_id,
+                        "agent_name": agent_def.name,
+                        "reason": stop_reason,
+                        "execution_time_ms": elapsed_ms,
+                        "attempt": attempt,
+                    },
+                    turn_id=parent_turn_id,
+                    metadata=run_metadata,
+                )
+                return SubAgentResult(
+                    agent_id=agent_id,
+                    success=False,
+                    agent_name=agent_def.name,
+                    task=task,
+                    summary=stop_reason,
+                    execution_time_ms=elapsed_ms,
+                    stopped=True,
+                    stop_reason=stop_reason,
+                    error=stop_reason,
+                    run_id=effective_run_id,
+                    turn_id=parent_turn_id or "",
+                    parent_session_id=str(getattr(session, "id", "") or ""),
+                )
             except asyncio.TimeoutError:
                 elapsed_ms = int((time.monotonic() - start_time) * 1000)
                 error_msg = f"Agent '{agent_id}' 执行超时（{timeout_seconds}s）"
@@ -593,6 +647,9 @@ class SubAgentSpawner:
             sub_session.spawn_depth = min(current_depth + 1, 2)
         except (AttributeError, TypeError):
             pass
+        specialist_prompt = str(getattr(agent_def, "system_prompt", "") or "").strip()
+        if specialist_prompt:
+            setattr(sub_session, "_extra_system_prompt", specialist_prompt)
 
         # 创建沙箱目录，将子会话的 workspace_root 指向沙箱（隔离并行子 Agent 的写入）
         from nini.config import settings as _settings
@@ -629,6 +686,17 @@ class SubAgentSpawner:
                 deny_prefixes=policy.deny_prefixes,
             )
         subset_registry = policy.apply(self._tool_registry)
+        if subset_registry is not None:
+            try:
+                final_tool_names = subset_registry.list_tools()
+            except Exception:
+                final_tool_names = list(policy.allowed_tools)
+            normalized_tool_names = frozenset(
+                str(name).strip() for name in final_tool_names if str(name).strip()
+            )
+            setattr(subset_registry, "_final_visible_tool_names", normalized_tool_names)
+            setattr(subset_registry, "_tool_execution_allowlist", normalized_tool_names)
+            setattr(subset_registry, "_skip_stage_filter", True)
 
         # 根据 model_preference 选择子 Agent 的 purpose，构造限定 purpose 的 resolver 包装
         from nini.agent.model_resolver import model_resolver as _default_resolver
@@ -643,6 +711,7 @@ class SubAgentSpawner:
         # 执行 ReAct 循环，收集输出
         output_parts: list[str] = []
         child_failures: list[str] = []
+        repeated_write_state: dict[str, tuple[str, int]] = {}
         effective_task = self._build_subagent_task(
             task,
             allow_task_planning=allow_task_planning,
@@ -684,6 +753,26 @@ class SubAgentSpawner:
                 failure_message = self._extract_child_failure_message(event)
                 if failure_message:
                     child_failures.append(failure_message)
+                write_signature = self._normalize_workspace_write_signature(event)
+                if write_signature is not None:
+                    file_path, content = write_signature
+                    previous = repeated_write_state.get(file_path)
+                    repeat_count = 1
+                    if previous is not None:
+                        last_content, last_count = previous
+                        similarity = difflib.SequenceMatcher(
+                            a=last_content,
+                            b=content,
+                        ).ratio()
+                        repeat_count = last_count + 1 if similarity >= 0.9 else 1
+                    repeated_write_state[file_path] = (content, repeat_count)
+                    if repeat_count >= 3:
+                        repeated_msg = (
+                            f"子 Agent 连续重复写入 {file_path}，但未形成可执行结果；"
+                            "当前缺少正确的数据变换闭环。"
+                        )
+                        child_failures.append(repeated_msg)
+                        effective_stop_event.set()
                 if event.type == EventType.TEXT and event.data:
                     text = event.data if isinstance(event.data, str) else str(event.data)
                     output_parts.append(text)
@@ -696,7 +785,13 @@ class SubAgentSpawner:
         detailed_output = "".join(output_parts)
         summary: str
         if effective_stop_event.is_set():
-            summary = "用户已终止该子 Agent"
+            summary = (
+                child_failures[0]
+                if child_failures
+                else str(
+                    getattr(parent_session, "_external_stop_reason", "") or "用户已终止该子 Agent"
+                ).strip()
+            )
         elif child_failures:
             summary = child_failures[0]
         else:
@@ -715,15 +810,26 @@ class SubAgentSpawner:
         )
 
         if effective_stop_event.is_set():
+            stop_reason = (
+                child_failures[0]
+                if child_failures
+                else str(getattr(parent_session, "_external_stop_reason", "") or "用户已终止该子 Agent")
+            )
             return SubAgentResult(
                 agent_id=agent_def.agent_id,
                 success=False,
                 summary=summary,
                 execution_time_ms=0,
                 stopped=True,
-                stop_reason="用户已终止该子 Agent",
+                stop_reason=stop_reason,
                 artifacts=dict(sub_session.artifacts),
                 documents=dict(sub_session.documents),
+                error=stop_reason,
+                run_id=effective_run_id,
+                turn_id=parent_turn_id or "",
+                parent_session_id=str(getattr(parent_session, "id", "") or ""),
+                child_session_id=sub_session.id,
+                resource_session_id=sub_session.get_resource_session_id(),
             )
 
         return SubAgentResult(

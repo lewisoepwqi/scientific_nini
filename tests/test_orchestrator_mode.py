@@ -105,6 +105,81 @@ def test_none_session_exposes_dispatch_agents():
     assert "dispatch_agents" in names
 
 
+@pytest.mark.asyncio
+async def test_execute_tool_rejects_hidden_tool_even_if_registry_contains_it(tmp_path):
+    from nini.agent.session import Session
+    from nini.tools.registry import ToolRegistry
+
+    registry = ToolRegistry()
+    registry._tools.clear()
+    registry._llm_exposed_function_tools = set()
+    registry._tool_execution_allowlist = frozenset({"dataset_transform"})
+
+    async def _unexpected_execute(*args, **kwargs):
+        raise AssertionError("不应实际执行被隐藏的工具")
+
+    registry.execute_with_fallback = _unexpected_execute
+    runner = AgentRunner(tool_registry=registry)
+    session = _make_plain_session(tmp_path)
+
+    result = await runner._execute_tool(session, "workspace_session", '{"operation":"read"}')
+
+    assert result["success"] is False
+    assert result["error_code"] == "TOOL_NOT_ALLOWED_IN_CURRENT_STAGE"
+    assert "dataset_transform" in result["metadata"]["visible_tools"]
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_reuses_visible_tool_context_from_same_turn(tmp_path):
+    from nini.tools.registry import ToolRegistry
+
+    registry = ToolRegistry()
+    registry._tools.clear()
+    registry._llm_exposed_function_tools = set()
+
+    async def _execute_export(tool_name, session, **kwargs):
+        return {"success": True, "tool_name": tool_name, "kwargs": kwargs}
+
+    registry.list_tools = lambda: ["task_state", "export_chart"]
+    registry.get_tool_definitions = lambda: [
+        {
+            "type": "function",
+            "function": {
+                "name": "export_chart",
+                "description": "导出图表",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+    registry.execute_with_fallback = _execute_export
+
+    runner = AgentRunner(tool_registry=registry)
+    session = _make_plain_session(tmp_path)
+    session.task_manager = session.task_manager.init_tasks(
+        [
+            {
+                "id": 1,
+                "title": "结果整理",
+                "status": "in_progress",
+                "tool_hint": "dataset_transform",
+            }
+        ]
+    )
+
+    tool_defs = runner._get_tool_definitions(session=session, user_message="请导出图表")
+    tool_names = {
+        item.get("function", {}).get("name")
+        for item in tool_defs
+        if isinstance(item.get("function"), dict)
+    }
+    assert "export_chart" in tool_names
+
+    result = await runner._execute_tool(session, "export_chart", "{}")
+
+    assert result["success"] is True
+    assert result["tool_name"] == "export_chart"
+
+
 # ─── Orchestrator 钩子拦截 ────────────────────────────────────────────────────
 
 

@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from nini.agent.components.context_builder import ContextBuilder
+from nini.agent.session import Session
 from nini.agent.prompts.scientific import get_system_prompt
 from nini.config import settings
 
@@ -72,3 +74,16 @@ def test_prompt_component_files_do_not_describe_implicit_task_progression() -> N
     assert "当前任务自动完成" not in combined
     assert "自动将当前 in_progress 的任务标记为 completed" not in combined
     assert "init 只负责声明任务" in combined
+
+
+@pytest.mark.asyncio
+async def test_context_builder_appends_specialist_prompt_to_system_message() -> None:
+    session = Session(id="prompt-test-session")
+    session._extra_system_prompt = "请优先使用 dataset_transform。"
+
+    builder = ContextBuilder()
+    messages, _ = await builder.build_messages_and_retrieval(session)
+
+    assert messages[0]["role"] == "system"
+    assert "## Specialist Instructions" in messages[0]["content"]
+    assert "请优先使用 dataset_transform。" in messages[0]["content"]

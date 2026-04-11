@@ -535,6 +535,89 @@ async def test_execute_agent_none_preference_uses_analysis_purpose(tmp_path, mon
 
 
 @pytest.mark.asyncio
+async def test_execute_agent_marks_subset_registry_as_final_visible_set(tmp_path, monkeypatch):
+    from nini.config import settings
+
+    registry = MagicMock()
+    registry.get.return_value = AgentDefinition(
+        agent_id="data_cleaner",
+        name="数据清洗专家",
+        description="测试用",
+        system_prompt="你是数据清洗专家",
+        purpose="analysis",
+        allowed_tools=["dataset_transform", "code_session", "workspace_session"],
+        timeout_seconds=5,
+    )
+    tool_registry = make_tool_registry_with_list()
+    captured_subset: dict[str, object] = {}
+
+    def capture_subset(tools):
+        subset = MagicMock()
+        subset.get_tool_definitions.return_value = []
+        subset.list_tools.return_value = list(tools)
+        captured_subset["subset"] = subset
+        captured_subset["tools"] = list(tools)
+        return subset
+
+    tool_registry.create_subset.side_effect = capture_subset
+    spawner = SubAgentSpawner(registry, tool_registry)
+
+    def capture_runner(resolver=None, tool_registry=None, **kwargs):
+        captured_subset["runner_tool_registry"] = tool_registry
+        raise RuntimeError("stop early for test")
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+
+    with patch("nini.agent.runner.AgentRunner", side_effect=capture_runner):
+        try:
+            await spawner.spawn("data_cleaner", "任务", make_mock_session_with_depth())
+        except RuntimeError:
+            pass
+
+    subset = captured_subset["runner_tool_registry"]
+    assert captured_subset["tools"] == ["dataset_transform", "code_session", "workspace_session"]
+    assert getattr(subset, "_skip_stage_filter", False) is True
+    assert set(getattr(subset, "_final_visible_tool_names", frozenset())) == {
+        "dataset_transform",
+        "code_session",
+        "workspace_session",
+    }
+
+
+@pytest.mark.asyncio
+async def test_execute_agent_sets_specialist_prompt_on_sub_session(tmp_path, monkeypatch):
+    from nini.config import settings
+
+    registry = MagicMock()
+    registry.get.return_value = AgentDefinition(
+        agent_id="data_cleaner",
+        name="数据清洗专家",
+        description="测试用",
+        system_prompt="请优先使用 dataset_transform。",
+        purpose="analysis",
+        allowed_tools=["dataset_transform"],
+        timeout_seconds=5,
+    )
+    spawner = SubAgentSpawner(registry, make_tool_registry_with_list())
+    captured_session: dict[str, object] = {}
+
+    async def fake_iter(_runner, sub_session, _task, _stop_event):
+        captured_session["extra_prompt"] = getattr(sub_session, "_extra_system_prompt", "")
+        if False:
+            yield None
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+
+    with patch.object(spawner, "_iterate_runner_events", side_effect=fake_iter):
+        result = await spawner.spawn("data_cleaner", "任务", make_mock_session_with_depth())
+
+    assert result.success is True
+    assert captured_session["extra_prompt"] == "请优先使用 dataset_transform。"
+
+
+@pytest.mark.asyncio
 async def test_spawn_marks_child_tool_error_as_failure_and_persists_child_session(
     tmp_path,
     monkeypatch,
@@ -620,5 +703,4 @@ async def test_execute_agent_strips_task_state_tools_from_regular_subagents(
 
     assert result.success is True
     assert captured_tools["tools"] == ["dataset_catalog"]
-
 

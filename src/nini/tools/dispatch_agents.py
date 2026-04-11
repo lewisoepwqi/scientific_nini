@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import difflib
 import logging
 from typing import Any
 
@@ -120,6 +121,20 @@ class DispatchAgentsTool(Tool):
         invalid_ids = self._validate_agent_ids(agents_list)
         if invalid_ids:
             available = self._list_available_agent_ids()
+            suggestions = {
+                invalid_id: difflib.get_close_matches(invalid_id, available, n=3, cutoff=0.3)
+                for invalid_id in invalid_ids
+            }
+            recovery_lines = []
+            for invalid_id, matches in suggestions.items():
+                if matches:
+                    recovery_lines.append(
+                        f"{invalid_id} 可改用：{', '.join(matches)}"
+                    )
+            recovery_hint = (
+                "请改用可用 agent_id 后重试。"
+                + (f" 建议：{'；'.join(recovery_lines)}" if recovery_lines else "")
+            )
             return ToolResult(
                 success=False,
                 message=(
@@ -130,7 +145,10 @@ class DispatchAgentsTool(Tool):
                     "error_code": "INVALID_AGENT_IDS",
                     "invalid_ids": invalid_ids,
                     "available_ids": available,
+                    "suggested_agent_ids": suggestions,
+                    "recovery_hint": recovery_hint,
                 },
+                recovery_hint=recovery_hint,
             )
 
         # 构造 (agent_id, task) 对
