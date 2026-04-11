@@ -56,3 +56,39 @@ async def test_system_prompt_block_includes_profile(provider: ScientificMemoryPr
     )
     block = provider.system_prompt_block()
     assert "心理学" in block
+
+
+# ---- prefetch 测试 ----
+
+
+async def test_prefetch_returns_empty_when_no_facts(provider: ScientificMemoryProvider):
+    """facts 表为空时 prefetch 返回空字符串。"""
+    result = await provider.prefetch("t检验")
+    assert result == ""
+
+
+async def test_prefetch_returns_relevant_facts(provider: ScientificMemoryProvider):
+    """facts 表有相关记录时 prefetch 应返回包含内容的字符串。"""
+    provider._store.upsert_fact(
+        content="t(58)=3.14, p=0.002，独立样本 t 检验结果显著",
+        memory_type="statistic",
+        summary="t检验显著",
+        importance=0.8,
+        sci_metadata={"p_value": 0.002, "dataset_name": "survey.csv"},
+    )
+    result = await provider.prefetch("t检验")
+    assert "t(58)=3.14" in result or "t检验" in result
+
+
+async def test_prefetch_applies_fencing(provider: ScientificMemoryProvider):
+    """prefetch 返回的内容应包含 memory-context 标签。"""
+    provider._store.upsert_fact(
+        content="显著性结果 p=0.001",
+        memory_type="statistic",
+        summary="显著",
+        importance=0.9,
+    )
+    result = await provider.prefetch("显著性")
+    if result:
+        assert "<memory-context>" in result
+        assert "</memory-context>" in result

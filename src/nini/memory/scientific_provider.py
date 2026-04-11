@@ -111,6 +111,46 @@ class ScientificMemoryProvider(MemoryProvider):
 
         return "\n\n".join(parts)
 
+    async def prefetch(self, query: str, *, session_id: str = "") -> str:
+        """三段式检索：FTS5 召回 → 时间衰减+情境加权排序 → fencing 包裹。
+
+        返回值包含 <memory-context> 标签，供调用方直接追加到 prompt。
+        """
+        if self._store is None or not query.strip():
+            return ""
+        try:
+            candidates = self._store.search_fts(query, top_k=15)
+            if not candidates:
+                return ""
+            now = time.time()
+            scored: list[tuple[float, dict[str, Any]]] = []
+            for fact in candidates:
+                importance = float(fact.get("importance", 0.5))
+                access_count = int(fact.get("access_count") or 0)
+                created_at = float(fact.get("created_at") or now)
+                days = max(0.0, (now - created_at) / 86400)
+                # 高频访问记忆衰减更慢（更"经典"）
+                decay_lambda = 0.005 if access_count > 5 else 0.01
+                score = importance * math.exp(-decay_lambda * days)
+                scored.append((score, fact))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            top = [f for _, f in scored[:5]]
+            lines: list[str] = []
+            for fact in top:
+                memory_type = fact.get("memory_type", "")
+                summary = fact.get("summary") or fact.get("content", "")[:80]
+                sci = fact.get("sci_metadata") or {}
+                dataset = sci.get("dataset_name", "") if isinstance(sci, dict) else ""
+                line = f"[{memory_type.upper()}] {summary}"
+                if dataset:
+                    line += f"（来源：{dataset}）"
+                lines.append(line)
+            raw = "\n".join(lines)
+            return build_memory_context_block(raw)
+        except Exception as exc:
+            logger.warning("ScientificMemoryProvider.prefetch 失败: %s", exc)
+            return ""
+
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """返回暴露给 LLM 的工具 schema。"""
         return [
