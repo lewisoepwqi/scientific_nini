@@ -196,6 +196,135 @@ class MemoryStore:
             "updated_at": row["updated_at"],
         }
 
+    # ---- 读操作 ----
+
+    def search_fts(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
+        """全文检索；FTS5 不可用时降级为 LIKE 匹配（特殊字符已转义）。"""
+        if not query or not query.strip():
+            rows = self._conn.execute(
+                "SELECT * FROM facts ORDER BY importance DESC, trust_score DESC LIMIT ?",
+                (top_k,),
+            ).fetchall()
+            return [self._row_to_dict(r) for r in rows]
+
+        # LIKE 降级路径：转义 % 和 _ 特殊字符
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like_q = f"%{escaped}%"
+        rows = self._conn.execute(
+            "SELECT * FROM facts WHERE content LIKE ? ESCAPE '\\' "
+            "OR summary LIKE ? ESCAPE '\\' ORDER BY importance DESC, trust_score DESC LIMIT ?",
+            (like_q, like_q, top_k),
+        ).fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
+    def filter_by_sci(
+        self,
+        *,
+        dataset_name: str | None = None,
+        analysis_type: str | None = None,
+        max_p_value: float | None = None,
+        min_effect_size: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """按 sci_metadata JSON 字段过滤。JSON1 不可用时降级为全表扫描内存过滤。"""
+        # 先尝试 json_extract 路径
+        try:
+            return self._filter_by_sci_sql(
+                dataset_name=dataset_name,
+                analysis_type=analysis_type,
+                max_p_value=max_p_value,
+                min_effect_size=min_effect_size,
+            )
+        except sqlite3.OperationalError:
+            # JSON1 不可用，降级为全表扫描+内存过滤
+            return self._filter_by_sci_memory(
+                dataset_name=dataset_name,
+                analysis_type=analysis_type,
+                max_p_value=max_p_value,
+                min_effect_size=min_effect_size,
+            )
+
+    def _filter_by_sci_sql(
+        self,
+        *,
+        dataset_name: str | None,
+        analysis_type: str | None,
+        max_p_value: float | None,
+        min_effect_size: float | None,
+    ) -> list[dict[str, Any]]:
+        """json_extract 路径（JSON1 可用时）。"""
+        conditions: list[str] = []
+        params: list[Any] = []
+
+        if dataset_name is not None:
+            conditions.append("json_extract(sci_metadata, '$.dataset_name') = ?")
+            params.append(dataset_name)
+        if analysis_type is not None:
+            conditions.append("json_extract(sci_metadata, '$.analysis_type') = ?")
+            params.append(analysis_type)
+        if max_p_value is not None:
+            conditions.append(
+                "json_extract(sci_metadata, '$.p_value') IS NOT NULL "
+                "AND CAST(json_extract(sci_metadata, '$.p_value') AS REAL) <= ?"
+            )
+            params.append(max_p_value)
+        if min_effect_size is not None:
+            conditions.append(
+                "json_extract(sci_metadata, '$.effect_size') IS NOT NULL "
+                "AND CAST(json_extract(sci_metadata, '$.effect_size') AS REAL) >= ?"
+            )
+            params.append(min_effect_size)
+
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        rows = self._conn.execute(  # noqa: S608
+            f"SELECT * FROM facts {where} ORDER BY importance DESC",
+            params,
+        ).fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
+    def _filter_by_sci_memory(
+        self,
+        *,
+        dataset_name: str | None,
+        analysis_type: str | None,
+        max_p_value: float | None,
+        min_effect_size: float | None,
+    ) -> list[dict[str, Any]]:
+        """全表扫描+内存过滤降级路径（JSON1 不可用时）。"""
+        rows = self._conn.execute("SELECT * FROM facts ORDER BY importance DESC").fetchall()
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            d = self._row_to_dict(row)
+            sci = d.get("sci_metadata") or {}
+            if not isinstance(sci, dict):
+                try:
+                    sci = json.loads(sci)
+                except Exception:
+                    continue
+            if dataset_name is not None and sci.get("dataset_name") != dataset_name:
+                continue
+            if analysis_type is not None and sci.get("analysis_type") != analysis_type:
+                continue
+            if max_p_value is not None:
+                p = sci.get("p_value")
+                if p is None:
+                    continue
+                try:
+                    if float(p) > max_p_value:
+                        continue
+                except (TypeError, ValueError):
+                    continue
+            if min_effect_size is not None:
+                e = sci.get("effect_size")
+                if e is None:
+                    continue
+                try:
+                    if float(e) < min_effect_size:
+                        continue
+                except (TypeError, ValueError):
+                    continue
+            results.append(d)
+        return results
+
     def close(self) -> None:
         """关闭数据库连接。"""
         try:
