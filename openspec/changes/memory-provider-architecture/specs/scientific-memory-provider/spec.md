@@ -39,27 +39,37 @@
 - **AND** 调用 `sync_turn()` 的代码 SHALL NOT 收到异常
 
 ### Requirement: ScientificMemoryProvider 会话结束时重度沉淀分析记忆（on_session_end）
-系统 SHALL 在 `on_session_end()` 中，将本会话 `AnalysisMemory` 中的 Finding、StatisticResult、Decision 按置信度阈值写入 `facts` 表，并更新 `research_profiles` 表。
+系统 SHALL 在 `on_session_end()` 中，通过 `list_session_analysis_memories(session_id)` 读取本会话所有 `AnalysisMemory`，将其中 Finding、StatisticResult、Decision 按置信度阈值写入 `facts` 表，并更新 `research_profiles` 表。
+
+`session_id` 在 `initialize(session_id)` 时存储于 provider 实例，`on_session_end(messages)` 中通过 `self._session_id` 访问，不依赖 `messages` 参数读取 AnalysisMemory。
+
+`AnalysisMemory` 数据结构来自 `compression.py`，字段为：
+- `Finding`：`summary`（短摘要）、`detail`（详细描述）、`confidence`（0-1）、`category`
+- `StatisticResult`：`test_name`、`p_value`、`effect_size`、`significant`、`test_statistic`
+- `Decision`：`decision_type`、`chosen`、`rationale`、`confidence`
+- `AnalysisMemory`：`dataset_name`（直接字段，非 `sci_metadata` 内层）
 
 #### Scenario: 高置信度 Finding 被沉淀到 facts 表
 - **WHEN** 会话包含 `confidence >= 0.7` 的 `Finding`
 - **AND** `on_session_end(messages)` 被调用
-- **THEN** 该 Finding 的 content 和 summary SHALL 写入 `facts(memory_type='finding')`
-- **AND** 写入 SHALL 包含 `source_session_id`
+- **THEN** 该 Finding 的 `summary` 作为 `content`，`detail` 作为补充，写入 `facts(memory_type='finding')`
+- **AND** 写入 SHALL 包含 `source_session_id` 和 `sci_metadata.dataset_name`（来自 AnalysisMemory.dataset_name）
 
 #### Scenario: 显著统计结果被沉淀
 - **WHEN** 会话包含 `significant=True` 的 `StatisticResult`
 - **AND** `on_session_end(messages)` 被调用
 - **THEN** 该结果 SHALL 写入 `facts(memory_type='statistic', importance=0.8)`
-- **AND** `sci_metadata` SHALL 包含 `p_value`、`effect_size`、`dataset_name`（如有）
+- **AND** `sci_metadata` SHALL 包含 `p_value`、`effect_size`、`significant`、`test_name`、`dataset_name`（来自所属 AnalysisMemory）
 
 #### Scenario: on_session_end 幂等
 - **WHEN** 同一会话的 `on_session_end()` 被调用两次
 - **THEN** `facts` 表中 SHALL NOT 出现重复记录（`dedup_key` 约束保护）
 
-#### Scenario: on_session_end 接受 session.messages 列表
-- **WHEN** 传入 `session.messages`（`list[dict]` 类型）
-- **THEN** `on_session_end()` SHALL 正常处理，不要求 `session` 对象本身
+#### Scenario: on_session_end 通过 session_id 读取 AnalysisMemory
+- **WHEN** `initialize(session_id="abc123")` 已被调用
+- **AND** `on_session_end([])` 被调用（messages 参数可为空列表）
+- **THEN** provider SHALL 使用 `self._session_id` 调用 `list_session_analysis_memories("abc123")`
+- **AND** SHALL NOT 依赖 messages 参数内容来读取 AnalysisMemory
 
 ### Requirement: ScientificMemoryProvider 压缩前保护统计数值（on_pre_compress）
 系统 SHALL 在上下文压缩前，通过 `on_pre_compress()` 从待压缩消息中提取含统计数值的行，生成「必须完整保留」提示，追加到压缩 prompt，防止统计结果被摘要化丢失。
@@ -74,6 +84,20 @@
 - **WHEN** messages 中所有 assistant 消息均不含统计数值模式
 - **AND** `on_pre_compress(messages)` 被调用
 - **THEN** 返回值 SHALL 为空字符串
+
+### Requirement: ScientificMemoryProvider 的 system_prompt_block 声明可用记忆工具
+系统 SHALL 在 `system_prompt_block()` 中返回一段静态文本，说明记忆系统的存在和可用工具，让 LLM 知道可以主动调用记忆工具查询历史分析结果。
+
+#### Scenario: system_prompt_block 返回非空提示
+- **WHEN** `system_prompt_block()` 被调用
+- **THEN** 返回值 SHALL 包含 `nini_memory_find` 和 `nini_memory_save` 工具名称
+- **AND** 返回值 SHALL 说明工具用途（查询历史分析 / 保存发现）
+- **AND** 返回值 SHALL 为纯文本，可直接追加到 system prompt
+
+#### Scenario: system_prompt_block 在 initialize 前也可安全调用
+- **WHEN** `initialize()` 尚未调用
+- **AND** `system_prompt_block()` 被调用
+- **THEN** SHALL 返回静态文本字符串，不抛出异常
 
 ### Requirement: ScientificMemoryProvider 向 LLM 暴露 nini_memory_find 和 nini_memory_save 工具
 系统 SHALL 通过 `get_tool_schemas()` 向 LLM 暴露两个记忆工具：`nini_memory_find`（全文 + sci_metadata 过滤检索）和 `nini_memory_save`（主动保存发现），并通过 `handle_tool_call()` 路由执行。

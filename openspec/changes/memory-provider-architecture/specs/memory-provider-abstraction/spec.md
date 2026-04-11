@@ -14,18 +14,19 @@
 - **AND** `on_pre_compress([])` SHALL 返回空字符串
 - **AND** `prefetch(query)` SHALL 返回空字符串
 
-### Requirement: MemoryManager 编排内置 provider 与最多 1 个外部 provider
-系统 SHALL 提供 `MemoryManager` 类，管理 1 个 `name="builtin"` 的内置 provider 和最多 1 个外部（非内置）provider，并为所有 provider 的钩子调用提供异常隔离。
+### Requirement: MemoryManager 编排内置 provider 与可选的外部 provider
+系统 SHALL 提供 `MemoryManager` 类，要求内置 provider（`name="builtin"`）始终存在于 `providers` 列表首位，允许注册任意数量的外部 provider，并为所有 provider 的钩子调用提供异常隔离。
+
+当前版本（P005）只实现 `ScientificMemoryProvider` 这一个内置 provider，不实现任何外部 provider。
 
 #### Scenario: 内置 provider 注册成功
 - **WHEN** 向 `MemoryManager` 注册 `name="builtin"` 的 provider
 - **THEN** 该 provider SHALL 出现在 `providers` 列表中
 
-#### Scenario: 第二个外部 provider 被拒绝
-- **WHEN** `MemoryManager` 已注册一个外部 provider（`name != "builtin"`）
-- **AND** 尝试注册第二个外部 provider
-- **THEN** 第二个 provider SHALL NOT 被添加到 `providers` 列表
-- **AND** 系统 SHALL 记录警告日志（不抛出异常）
+#### Scenario: 可以注册多个外部 provider
+- **WHEN** 依次向 `MemoryManager` 注册 `name="ext1"` 和 `name="ext2"` 的 provider
+- **THEN** 两个 provider SHALL 均出现在 `providers` 列表中
+- **AND** 均参与 `prefetch_all` / `sync_all` / `on_session_end` 调用
 
 #### Scenario: Provider 的 prefetch 钩子抛出异常时不影响其他 provider
 - **WHEN** `MemoryManager.prefetch_all()` 被调用

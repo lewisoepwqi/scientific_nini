@@ -57,7 +57,7 @@ nini 的记忆系统当前由 5 个独立组件构成，各自持有不同的持
 
 **理由**：
 - 统一生命周期接口后，`AgentRunner` 只需调用 `MemoryManager` 的方法，不再直接依赖具体实现
-- 预留外部 provider 槽位（最多 1 个）允许未来接入 Honcho/Mem0 而不修改 agent 核心
+- 外部 provider 槽位无数量限制，允许未来接入 Honcho/Mem0 而不修改 agent 核心（当前版本不实现任何外部 provider）
 - 异常隔离：任何 provider 失败只记录 warning，不影响 agent 主循环
 
 **备选方案**：直接重构 `LongTermMemoryStore` 替换底层存储 → 拒绝，原因：无法解决架构碎片化，也无法预留扩展槽位。
@@ -97,6 +97,11 @@ nini 的记忆系统当前由 5 个独立组件构成，各自持有不同的持
 
 **选择**：P4 阶段在 `runner.py` 的会话结束处，同时保留旧的 `consolidate_session_memories`（JSONL 路径）和新的 `MemoryManager.on_session_end()`（SQLite 路径），两者均以 `asyncio.create_task` 后台执行。
 
+**实现说明**：
+- `ScientificMemoryProvider.on_session_end(messages)` 中，`messages` 参数传递给基类备用，但读取 AnalysisMemory 使用 `self._session_id`（在 `initialize(session_id)` 时存储）调用 `list_session_analysis_memories(session_id)`
+- 两条路径均各自调用 `list_session_analysis_memories`（重复一次读取），均受 `dedup_key UNIQUE` 约束保护，不会写入重复条目
+- `AnalysisMemory.dataset_name` 直接字段映射到 `sci_metadata.dataset_name`；`Finding.summary`→`content`、`Finding.detail`→`summary`
+
 **理由**：P5 删除旧路径前，双写保证数据不丢失；回滚时注释新路径即可，零破坏性。
 
 ---
@@ -106,7 +111,8 @@ nini 的记忆系统当前由 5 个独立组件构成，各自持有不同的持
 | 风险 | 缓解措施 |
 |---|---|
 | SQLite WAL 锁竞争（多会话并发写 `nini_memory.db`） | `timeout=10.0` 参数；`sync_turn` 写入轻量，争用概率低 |
-| FTS5 在目标 SQLite 版本不可用 | 启动时探测，自动降级为 `LIKE` 匹配 |
+| FTS5 在目标 SQLite 版本不可用 | 启动时探测，自动降级为 `LIKE` 匹配（含 `%`/`_` 特殊字符转义） |
+| JSON1 在目标 SQLite 版本不可用 | `filter_by_sci` 降级为全表扫描 + 内存 JSON 解析过滤；索引创建失败静默跳过 |
 | `on_session_end` 增加会话关闭延迟 | `asyncio.create_task` 后台执行，不阻塞 WebSocket 关闭响应 |
 | 迁移幂等失败导致重复记忆条目 | `dedup_key UNIQUE` 约束，`INSERT OR IGNORE`；迁移失败记录警告，不阻止启动 |
 | `sync_turn` 正则误触发（非统计文本命中 p 值规则） | `importance < 0.4` 门槛过滤；FTS5 重排序进一步压制低质量条目 |
@@ -128,7 +134,7 @@ nini 的记忆系统当前由 5 个独立组件构成，各自持有不同的持
 
 **P5（清理，独立 PR）**：验收测试全部通过后，删除 `long_term_memory.py`、`research_profile.py`、`profile_narrative.py`、`knowledge.py` 及旧路径调用。
 
-**数据迁移（自动）**：`MemoryStore.__init__()` 首次初始化时自动读取 `long_term_memory/entries.jsonl` 和 `profiles/*.json`，幂等写入 SQLite，原文件保留不删除。
+**数据迁移（自动）**：`MemoryStore.__init__()` 首次初始化时自动读取 `long_term_memory/entries.jsonl` 和 `profiles/*.json`，幂等写入 SQLite，原文件保留不删除。字段映射：`source_dataset`→`sci_metadata.dataset_name`，`importance_score`→`importance`，`analysis_type`→`sci_metadata.analysis_type`。
 
 ---
 

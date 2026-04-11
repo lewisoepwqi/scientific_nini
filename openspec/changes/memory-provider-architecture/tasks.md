@@ -9,7 +9,7 @@
 
 ## 2. MemoryManager 编排层
 
-- [ ] 2.1 编写 `tests/memory/test_memory_manager.py`：fencing 函数（空输入/非空输入/嵌套标签剥离）、provider 注册规则（内置 OK、第二外部拒绝）、工具路由、prefetch_all 汇总、provider 异常隔离、全局单例 get/set
+- [ ] 2.1 编写 `tests/memory/test_memory_manager.py`：fencing 函数（空输入/非空输入/嵌套标签剥离）、provider 注册规则（内置 OK、多个外部 provider 均可注册）、工具路由、prefetch_all 汇总、provider 异常隔离、全局单例 get/set
 - [ ] 2.2 运行测试，确认失败
 - [ ] 2.3 创建 `src/nini/memory/manager.py`：`sanitize_context`、`build_memory_context_block`、`MemoryManager`（add_provider/build_system_prompt/prefetch_all/sync_all/on_session_end/on_pre_compress/get_all_tool_schemas/handle_tool_call/initialize_all/shutdown_all）、`get_memory_manager`/`set_memory_manager` 全局单例
 - [ ] 2.4 运行测试，确认全部通过
@@ -35,7 +35,7 @@
 
 - [ ] 5.1 在 `test_memory_store.py` 追加读操作测试：`search_fts` 命中匹配内容、空查询返回空列表、`filter_by_sci` 按 `max_p_value` 过滤、按 `dataset_name` 过滤
 - [ ] 5.2 运行测试，确认失败
-- [ ] 5.3 实现 `search_fts`（FTS5 路径 + LIKE 降级路径）和 `filter_by_sci`（`json_extract` 查询）
+- [ ] 5.3 实现 `search_fts`（FTS5 路径；LIKE 降级路径需转义 `%`/`_` 特殊字符，使用 `ESCAPE '\\'` 子句）和 `filter_by_sci`（JSON1 `json_extract` 路径；不可用时全表扫描 + 内存过滤）
 - [ ] 5.4 运行测试，确认通过
 - [ ] 5.5 提交：`feat(memory): MemoryStore search_fts + filter_by_sci`
 
@@ -44,7 +44,7 @@
 - [ ] 6.1 创建 `tests/fixtures/sample_entries.jsonl`（2 条 JSONL 样本，含 `content`、`memory_type`、`importance_score`、`source_dataset` 字段）
 - [ ] 6.2 编写 `tests/memory/test_migration.py`：JSONL 迁移条数正确、迁移幂等（二次调用不增加行数）、文件不存在时静默跳过、profile JSON 迁移
 - [ ] 6.3 运行测试，确认失败
-- [ ] 6.4 实现 `MemoryStore.migrate_from_jsonl` 和 `migrate_profile_json`；在 `__init__` 中自动探测并调用（`data_dir` 路径存在时执行）
+- [ ] 6.4 实现 `MemoryStore.migrate_from_jsonl`（字段映射：`source_dataset`→`sci_metadata.dataset_name`、`importance_score`→`importance`、`analysis_type`→`sci_metadata.analysis_type`）和 `migrate_profile_json`；在 `__init__` 中自动探测并调用（`data_dir` 路径存在时执行）
 - [ ] 6.5 运行测试，确认通过
 - [ ] 6.6 提交：`feat(memory): MemoryStore 旧数据迁移（JSONL + profile JSON）`
 
@@ -66,9 +66,9 @@
 
 ## 9. ScientificMemoryProvider — on_session_end
 
-- [ ] 9.1 在 `test_scientific_provider.py` 追加 on_session_end 测试：高置信度 Finding 写入 facts、显著统计写入 statistic、幂等（dedup_key）、空 messages 安全降级、空列表不写入记录
+- [ ] 9.1 在 `test_scientific_provider.py` 追加 on_session_end 测试：高置信度 Finding 写入 facts（使用 Finding.summary 作 content）、显著统计写入 statistic（sci_metadata 含 p_value/effect_size/dataset_name）、幂等（dedup_key）、空 messages 传入不抛出异常
 - [ ] 9.2 运行测试，确认失败
-- [ ] 9.3 实现 `on_session_end`：读取 session AnalysisMemory → 按阈值写入 facts → 更新 research_profiles；接受 `list[dict]` 参数（`session.messages`，非 `session.get_messages()`）
+- [ ] 9.3 实现 `on_session_end`：使用 `self._session_id`（存于 `initialize()`）调用 `list_session_analysis_memories(session_id)` 读取 AnalysisMemory；`Finding.summary`→`content`、`Finding.detail`→`summary`、`AnalysisMemory.dataset_name`→`sci_metadata.dataset_name`；按阈值写入 facts → 更新 research_profiles；messages 参数可为空（仅传递给基类或用于轻量提取，不用于读取 AnalysisMemory）
 - [ ] 9.4 运行测试，确认通过
 - [ ] 9.5 提交：`feat(memory): ScientificMemoryProvider on_session_end 重度沉淀`
 
@@ -76,9 +76,16 @@
 
 - [ ] 10.1 在 `test_scientific_provider.py` 追加测试：含统计数值的消息触发保留提示、无统计数值返回空、`nini_memory_find` 按 max_p_value 过滤、`nini_memory_save` 写入新发现、未初始化时工具返回错误 JSON
 - [ ] 10.2 运行测试，确认失败
-- [ ] 10.3 实现 `on_pre_compress`（抽取统计行，最多 10 条）和 `handle_tool_call`（路由到 `_handle_find` / `_handle_save`）；实现 `get_tool_schemas` 返回 `nini_memory_find` / `nini_memory_save` schema
+- [ ] 10.3 实现 `on_pre_compress`（抽取统计行，最多 10 条）和 `handle_tool_call`（路由到 `_handle_find` / `_handle_save`）；实现 `get_tool_schemas` 返回 `nini_memory_find` / `nini_memory_save` schema；实现 `system_prompt_block` 返回包含两个工具名称和用途说明的静态文本
 - [ ] 10.4 运行 `tests/memory/` 全量测试，确认通过
-- [ ] 10.5 提交：`feat(memory): ScientificMemoryProvider on_pre_compress + LLM 工具`
+- [ ] 10.5 提交：`feat(memory): ScientificMemoryProvider on_pre_compress + LLM 工具 + system_prompt_block`
+
+## 10b. AnalysisMemoryTool 适配 MemoryManager
+
+- [ ] 10b.1 读取 `src/nini/tools/analysis_memory_tool.py`，了解当前 list/find 实现
+- [ ] 10b.2 在 `execute()` 中添加 MemoryManager 优先路径：`find` 操作优先调用 `get_memory_manager().handle_tool_call("nini_memory_find", ...)` ；失败或 manager 未初始化时降级到原有路径
+- [ ] 10b.3 验证：现有 `AnalysisMemoryTool` 测试仍通过（`pytest tests/ -k analysis_memory -q`）
+- [ ] 10b.4 提交：`feat(memory): AnalysisMemoryTool 适配 MemoryManager（保留向后兼容降级路径）`
 
 ## 11. memory/__init__.py 导出 + 向后兼容
 

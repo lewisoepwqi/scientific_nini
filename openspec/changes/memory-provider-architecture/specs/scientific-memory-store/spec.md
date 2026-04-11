@@ -47,9 +47,10 @@
 - **AND** `search_fts("关键词")` 被调用
 - **THEN** 系统 SHALL NOT 抛出异常
 - **AND** 包含关键词的 `content` 行 SHALL 被返回
+- **AND** LIKE 匹配中的 `%` 和 `_` 特殊字符 SHALL 被转义（使用 `ESCAPE '\\'` 子句）防止查询字符串中的特殊字符被解释为通配符
 
 ### Requirement: filter_by_sci 通过 sci_metadata JSON 字段过滤 facts
-系统 SHALL 提供 `filter_by_sci()` 方法，支持按 `dataset_name`、`analysis_type`、`max_p_value`、`min_effect_size` 过滤 `sci_metadata` JSON 列，实现科研数值的精确查询。
+系统 SHALL 提供 `filter_by_sci()` 方法，支持按 `dataset_name`、`analysis_type`、`max_p_value`、`min_effect_size` 过滤 `sci_metadata` JSON 列。JSON1 扩展可用时使用 `json_extract()` 查询，不可用时降级为全表扫描 + 内存过滤，两种路径均不抛出异常。
 
 #### Scenario: 按 max_p_value 过滤返回显著结果
 - **WHEN** `facts` 表中存在 `sci_metadata.p_value=0.002` 和 `sci_metadata.p_value=0.4` 的两条记录
@@ -60,13 +61,30 @@
 - **WHEN** `filter_by_sci(dataset_name="survey.csv")` 被调用
 - **THEN** 返回列表中所有记录的 `sci_metadata.dataset_name` SHALL 等于 `"survey.csv"`
 
+#### Scenario: JSON1 不可用时降级为内存过滤
+- **WHEN** SQLite 编译版本不支持 JSON1 扩展（`json_extract` 不可用）
+- **AND** `filter_by_sci(max_p_value=0.05)` 被调用
+- **THEN** 系统 SHALL 全表扫描 `facts`，在内存中解析 `sci_metadata` JSON 执行过滤
+- **AND** 返回结果 SHALL 与 JSON1 路径一致
+- **AND** SHALL NOT 抛出异常（解析失败的行静默跳过）
+
 ### Requirement: MemoryStore 自动迁移旧格式记忆数据
 系统 SHALL 在首次初始化时自动将旧格式数据迁移到 SQLite，迁移为幂等操作，失败时记录警告日志，不阻止 agent 启动。
+
+字段映射规则（`LongTermMemoryEntry` → `facts`）：
+- `content` → `content`
+- `memory_type` → `memory_type`
+- `importance_score` → `importance`
+- `source_dataset` → `sci_metadata.dataset_name`
+- `source_session_id` → `source_session_id`
+- `analysis_type` → `sci_metadata.analysis_type`
+- `metadata.dedup_key` → `dedup_key`（如有，否则重新计算 `MD5(memory_type|source_dataset|content)`）
 
 #### Scenario: JSONL 文件迁移到 facts 表
 - **WHEN** `migrate_from_jsonl(jsonl_path)` 被调用，文件包含 N 条有效 JSONL 记录
 - **THEN** `facts` 表中 SHALL 新增最多 N 条记录（已存在的通过 dedup_key 跳过）
 - **AND** 返回值 SHALL 为实际新增的条目数
+- **AND** `source_dataset` 字段 SHALL 映射到 `sci_metadata.dataset_name`
 
 #### Scenario: JSONL 迁移幂等
 - **WHEN** `migrate_from_jsonl()` 对同一文件调用两次
