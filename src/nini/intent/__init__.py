@@ -1,7 +1,6 @@
 """意图分析模块。"""
 
 from nini.intent.base import IntentAnalysis, IntentCandidate, QueryType
-from nini.intent.multi_intent import MultiIntentResult, detect_multi_intent
 from nini.intent.service import IntentAnalyzer, default_intent_analyzer
 from nini.intent.optimized import OptimizedIntentAnalyzer, optimized_intent_analyzer
 from nini.intent.profile_booster import apply_boost
@@ -28,8 +27,6 @@ __all__ = [
     "default_intent_analyzer",
     "OptimizedIntentAnalyzer",
     "optimized_intent_analyzer",
-    "MultiIntentResult",
-    "detect_multi_intent",
     "get_difference_subtype",
     "apply_boost",
 ]
