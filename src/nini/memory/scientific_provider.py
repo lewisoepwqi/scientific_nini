@@ -276,6 +276,86 @@ class ScientificMemoryProvider(MemoryProvider):
         except Exception as exc:
             logger.warning("ScientificMemoryProvider.on_session_end 失败: %s", exc)
 
+    def on_pre_compress(self, messages: list[dict[str, Any]]) -> str:
+        """压缩前：提取 assistant 回复中含统计数值的行，追加保留提示到压缩 prompt。"""
+        stat_lines: list[str] = []
+        for msg in messages:
+            if msg.get("role") != "assistant":
+                continue
+            content = str(msg.get("content") or "")
+            for pattern in _STAT_PATTERNS:
+                for match in pattern.finditer(content):
+                    start = max(0, match.start() - 10)
+                    end = min(len(content), match.end() + 60)
+                    stat_lines.append(content[start:end].strip())
+        if not stat_lines:
+            return ""
+        return "以下统计结果必须完整保留在摘要中：\n" + "\n".join(
+            f"- {line}" for line in stat_lines[:10]
+        )
+
+    async def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs: Any) -> str:
+        """路由工具调用到对应处理方法，返回 JSON 字符串。"""
+        if self._store is None:
+            return json.dumps({"success": False, "error": "记忆存储未初始化"}, ensure_ascii=False)
+        if tool_name == "nini_memory_find":
+            return await self._handle_find(args)
+        if tool_name == "nini_memory_save":
+            return await self._handle_save(args)
+        return json.dumps({"success": False, "error": f"未知工具：{tool_name}"}, ensure_ascii=False)
+
+    async def _handle_find(self, args: dict[str, Any]) -> str:
+        """处理 nini_memory_find 工具调用。"""
+        assert self._store is not None
+        query = str(args.get("query") or "")
+        top_k = int(args.get("top_k") or 5)
+        dataset_name = args.get("dataset_name") or None
+        max_p_value = args.get("max_p_value")
+
+        if max_p_value is not None or dataset_name:
+            candidates = self._store.filter_by_sci(
+                dataset_name=dataset_name,
+                max_p_value=float(max_p_value) if max_p_value is not None else None,
+            )
+            if query:
+                q_lower = query.lower()
+                candidates = [
+                    r
+                    for r in candidates
+                    if q_lower in r.get("content", "").lower()
+                    or q_lower in r.get("summary", "").lower()
+                ]
+            candidates = candidates[:top_k]
+        else:
+            candidates = self._store.search_fts(query, top_k=top_k)
+
+        formatted = [
+            {
+                "memory_type": r.get("memory_type"),
+                "summary": r.get("summary") or r.get("content", "")[:100],
+                "content": r.get("content"),
+                "dataset": (r.get("sci_metadata") or {}).get("dataset_name"),
+            }
+            for r in candidates
+        ]
+        return json.dumps({"success": True, "results": formatted}, ensure_ascii=False)
+
+    async def _handle_save(self, args: dict[str, Any]) -> str:
+        """处理 nini_memory_save 工具调用。"""
+        assert self._store is not None
+        content = str(args.get("content") or "").strip()
+        if not content:
+            return json.dumps({"success": False, "error": "content 不能为空"}, ensure_ascii=False)
+        memory_type = str(args.get("memory_type") or "insight")
+        importance = float(args.get("importance") or 0.7)
+        fact_id = self._store.upsert_fact(
+            content=content,
+            memory_type=memory_type,
+            importance=importance,
+            source_session_id=self._session_id,
+        )
+        return json.dumps({"success": True, "id": fact_id}, ensure_ascii=False)
+
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """返回暴露给 LLM 的工具 schema。"""
         return [

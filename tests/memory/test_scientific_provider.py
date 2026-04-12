@@ -214,3 +214,113 @@ async def test_on_session_end_is_graceful_on_error(provider: ScientificMemoryPro
         side_effect=RuntimeError("故意失败"),
     ):
         await provider.on_session_end([])  # 不应抛出
+
+
+# ---- on_pre_compress 测试 ----
+
+
+def test_on_pre_compress_extracts_stat_lines(provider: ScientificMemoryProvider):
+    """含统计数值的 assistant 消息应触发保留提示。"""
+    messages = [
+        {"role": "user", "content": "分析这个数据集"},
+        {"role": "assistant", "content": "t(58)=3.14, p=0.002, Cohen's d=0.45，差异显著。"},
+    ]
+    result = provider.on_pre_compress(messages)
+    assert "p=0.002" in result or "3.14" in result
+    assert "保留" in result or "必须" in result
+
+
+def test_on_pre_compress_empty_when_no_stats(provider: ScientificMemoryProvider):
+    """无统计数值的消息应返回空字符串。"""
+    messages = [
+        {"role": "user", "content": "你好"},
+        {"role": "assistant", "content": "你好！有什么我可以帮你的？"},
+    ]
+    result = provider.on_pre_compress(messages)
+    assert result == ""
+
+
+# ---- 工具调用测试 ----
+
+
+async def test_tool_find_returns_results(provider: ScientificMemoryProvider):
+    """nini_memory_find 应返回含 success=True 和 results 的 JSON。"""
+    import json as _json
+
+    provider._store.upsert_fact(
+        content="t(58)=3.14, p=0.002",
+        memory_type="statistic",
+        summary="t检验显著",
+        importance=0.8,
+    )
+    result = await provider.handle_tool_call("nini_memory_find", {"query": "t检验"})
+    data = _json.loads(result)
+    assert data["success"] is True
+    assert "results" in data
+
+
+async def test_tool_save_stores_fact(provider: ScientificMemoryProvider):
+    """nini_memory_save 应写入 facts 并返回含 id 的 JSON。"""
+    import json as _json
+
+    result = await provider.handle_tool_call(
+        "nini_memory_save",
+        {"content": "数据正态性不满足，应使用非参数检验", "memory_type": "decision", "importance": 0.8},
+    )
+    data = _json.loads(result)
+    assert data["success"] is True
+    assert "id" in data
+
+
+async def test_tool_save_empty_content_returns_error(provider: ScientificMemoryProvider):
+    """nini_memory_save 空 content 应返回 success=False。"""
+    import json as _json
+
+    result = await provider.handle_tool_call("nini_memory_save", {"content": ""})
+    data = _json.loads(result)
+    assert data["success"] is False
+
+
+async def test_tool_find_with_p_value_filter(provider: ScientificMemoryProvider):
+    """nini_memory_find 的 max_p_value 过滤应只返回显著结果。"""
+    import json as _json
+
+    provider._store.upsert_fact(
+        content="显著结果",
+        memory_type="statistic",
+        sci_metadata={"p_value": 0.001},
+    )
+    provider._store.upsert_fact(
+        content="不显著结果",
+        memory_type="statistic",
+        sci_metadata={"p_value": 0.4},
+    )
+    result = await provider.handle_tool_call(
+        "nini_memory_find", {"query": "结果", "max_p_value": 0.05}
+    )
+    data = _json.loads(result)
+    assert data["success"] is True
+    contents = [r["content"] for r in data["results"]]
+    assert any("显著结果" in c for c in contents)
+    assert not any("不显著结果" in c for c in contents)
+
+
+async def test_tool_returns_error_when_not_initialized():
+    """未初始化时工具调用应返回 success=False 而非抛出异常。"""
+    import json as _json
+    from pathlib import Path
+
+    p = ScientificMemoryProvider(db_path=Path(":memory:"))
+    result = await p.handle_tool_call("nini_memory_find", {"query": "test"})
+    data = _json.loads(result)
+    assert data["success"] is False
+
+
+def test_system_prompt_block_contains_tool_names():
+    """system_prompt_block 应包含 nini_memory_find 和 nini_memory_save。"""
+    from pathlib import Path
+
+    p = ScientificMemoryProvider(db_path=Path(":memory:"))
+    block = p.system_prompt_block()
+    assert "nini_memory_find" in block
+    assert "nini_memory_save" in block
