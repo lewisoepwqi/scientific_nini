@@ -92,3 +92,39 @@ async def test_prefetch_applies_fencing(provider: ScientificMemoryProvider):
     if result:
         assert "<memory-context>" in result
         assert "</memory-context>" in result
+
+
+# ---- sync_turn 测试 ----
+
+
+async def test_sync_turn_extracts_statistical_values(provider: ScientificMemoryProvider):
+    """含统计数值的回复应被提取为 statistic 记忆。"""
+    extracted = provider._extract_from_text(
+        "独立样本 t 检验：t(58)=3.14, p=0.002, Cohen's d=0.45，差异显著。",
+        "sess001",
+    )
+    assert len(extracted) >= 1
+    assert any("p" in item["content"].lower() for item in extracted)
+
+
+async def test_sync_turn_ignores_no_stat_content(provider: ScientificMemoryProvider):
+    """普通对话不应触发统计提取。"""
+    extracted = provider._extract_from_text("你好！今天天气怎么样？", "sess001")
+    assert extracted == []
+
+
+async def test_sync_turn_extracts_conclusion(provider: ScientificMemoryProvider):
+    """含结论标记的文本应提取为 finding 记忆。"""
+    extracted = provider._extract_from_text(
+        "结论：两组之间存在统计学上的显著差异，建议进一步分析。",
+        "sess001",
+    )
+    assert any(item["memory_type"] == "finding" for item in extracted)
+
+
+async def test_sync_turn_does_not_raise(provider: ScientificMemoryProvider):
+    """sync_turn 异常不应向外抛出。"""
+    # 关闭 store 后调用，模拟内部错误
+    provider._store.close()
+    provider._store._conn = None  # type: ignore[assignment]
+    await provider.sync_turn("用户", "p=0.001 显著", session_id="sess001")  # 不抛出

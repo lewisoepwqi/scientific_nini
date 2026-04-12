@@ -151,6 +151,56 @@ class ScientificMemoryProvider(MemoryProvider):
             logger.warning("ScientificMemoryProvider.prefetch 失败: %s", exc)
             return ""
 
+    async def sync_turn(
+        self,
+        user_content: str,
+        assistant_content: str,
+        *,
+        session_id: str = "",
+    ) -> None:
+        """轻量提取：扫描 assistant 回复，写入统计数值和结论（importance ≥ 0.4）。"""
+        if self._store is None:
+            return
+        try:
+            items = self._extract_from_text(assistant_content, session_id or self._session_id)
+            for item in items:
+                self._store.upsert_fact(**item)
+        except Exception as exc:
+            logger.warning("ScientificMemoryProvider.sync_turn 失败: %s", exc)
+
+    def _extract_from_text(self, text: str, session_id: str) -> list[dict[str, Any]]:
+        """从文本中提取统计数值和结论，返回 upsert_fact kwargs 列表。
+
+        importance < 0.4 的片段不写入（噪声过滤）。
+        """
+        results: list[dict[str, Any]] = []
+        for pattern in _STAT_PATTERNS:
+            for match in pattern.finditer(text):
+                start = max(0, match.start() - 20)
+                end = min(len(text), match.end() + 60)
+                snippet = text[start:end].strip()
+                results.append(
+                    {
+                        "content": snippet,
+                        "memory_type": "statistic",
+                        "summary": match.group(0)[:80],
+                        "importance": 0.7,
+                        "source_session_id": session_id,
+                    }
+                )
+        for pattern in _CONCLUSION_PATTERNS:
+            for match in pattern.finditer(text):
+                results.append(
+                    {
+                        "content": match.group(0),
+                        "memory_type": "finding",
+                        "summary": match.group(0)[:80],
+                        "importance": 0.65,
+                        "source_session_id": session_id,
+                    }
+                )
+        return results
+
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """返回暴露给 LLM 的工具 schema。"""
         return [
