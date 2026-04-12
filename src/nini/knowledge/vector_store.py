@@ -6,13 +6,14 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import json
 import logging
 import os
 from pathlib import Path
 from typing import Any
+
+from nini.knowledge._utils import compute_knowledge_file_hashes
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +163,7 @@ class VectorKnowledgeStore:
 
     def _needs_rebuild(self) -> bool:
         """通过 SHA-256 哈希检测知识文件是否变更。"""
-        current_hashes = self._compute_file_hashes()
+        current_hashes = compute_knowledge_file_hashes(self._knowledge_dir)
         if not (self._storage_dir / "docstore.json").exists():
             return True
         if not self._hash_path.exists():
@@ -177,20 +178,6 @@ class VectorKnowledgeStore:
             return True
         normalized_saved = {str(key): str(value) for key, value in saved_hashes.items()}
         return current_hashes != normalized_saved
-
-    def _compute_file_hashes(self) -> dict[str, str]:
-        """计算知识目录下所有 .md 文件的 SHA-256 哈希。"""
-        hashes: dict[str, str] = {}
-        if not self._knowledge_dir.is_dir():
-            return hashes
-        for md_path in sorted(self._knowledge_dir.rglob("*.md")):
-            if md_path.name.lower() == "readme.md":
-                continue
-            content = md_path.read_bytes()
-            hashes[str(md_path.relative_to(self._knowledge_dir))] = hashlib.sha256(
-                content
-            ).hexdigest()
-        return hashes
 
     def _build_index(self) -> bool:
         """从知识文件构建向量索引并持久化。"""
@@ -232,7 +219,7 @@ class VectorKnowledgeStore:
         self._index.storage_context.persist(persist_dir=str(self._storage_dir))
 
         # 保存文件哈希
-        hashes = self._compute_file_hashes()
+        hashes = compute_knowledge_file_hashes(self._knowledge_dir)
         self._hash_path.write_text(
             json.dumps(hashes, ensure_ascii=False, indent=2), encoding="utf-8"
         )
