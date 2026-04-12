@@ -53,14 +53,8 @@ function renderDispatchLedgerBadges(
  if (typeof run.runnableCount === 'number') {
  badges.push(`可执行 ${run.runnableCount}`)
  }
- if (typeof run.preflightFailureCount === 'number') {
- badges.push(`预检失败 ${run.preflightFailureCount}`)
- }
- if (typeof run.routingFailureCount === 'number' && run.routingFailureCount > 0) {
- badges.push(`路由失败 ${run.routingFailureCount}`)
- }
- if (typeof run.executionFailureCount === 'number' && run.executionFailureCount > 0) {
- badges.push(`执行失败 ${run.executionFailureCount}`)
+ if (typeof run.failureCount === 'number' && run.failureCount > 0) {
+ badges.push(`失败 ${run.failureCount}`)
  }
  return badges
 }
@@ -632,9 +626,7 @@ export default function ChatPanel() {
  </div>
  )}
  {renderDispatchLedgerSection(selectedDispatchRun.dispatchLedger)}
- {renderDispatchFailureSection('预检失败明细', selectedDispatchRun.preflightFailures)}
- {renderDispatchFailureSection('路由失败明细', selectedDispatchRun.routingFailures)}
- {renderDispatchFailureSection('执行失败明细', selectedDispatchRun.executionFailures)}
+ {renderDispatchFailureSection('失败明细', selectedDispatchRun.failures)}
  </div>
  </div>
  </div>

@@ -59,20 +59,8 @@ function buildDispatchSummary(dispatchRun: AgentRunThread): string[] {
  if (typeof dispatchRun.runnableCount === "number") {
   parts.push(`可执行 ${dispatchRun.runnableCount}`);
  }
- if (typeof dispatchRun.preflightFailureCount === "number") {
-  parts.push(`预检失败 ${dispatchRun.preflightFailureCount}`);
- }
- if (
-  typeof dispatchRun.routingFailureCount === "number" &&
-  dispatchRun.routingFailureCount > 0
- ) {
-  parts.push(`路由失败 ${dispatchRun.routingFailureCount}`);
- }
- if (
-  typeof dispatchRun.executionFailureCount === "number" &&
-  dispatchRun.executionFailureCount > 0
- ) {
-  parts.push(`执行失败 ${dispatchRun.executionFailureCount}`);
+ if (typeof dispatchRun.failureCount === "number" && dispatchRun.failureCount > 0) {
+  parts.push(`失败 ${dispatchRun.failureCount}`);
  }
  return parts;
 }

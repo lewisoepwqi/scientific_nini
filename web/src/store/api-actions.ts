@@ -38,7 +38,6 @@ import type {
   AgentRunEvent,
   AgentRunSummary,
   DispatchLedgerSummary,
-  DispatchLedgerAggregate,
 } from "./types";
 import { apiFetch } from "./auth";
 
@@ -245,45 +244,6 @@ export async function fetchSessionDispatchLedger(
   } catch (e) {
     logError("获取 dispatch ledger 失败:", e);
     return [];
-  }
-}
-
-function normalizeDispatchLedgerAggregate(value: unknown): DispatchLedgerAggregate | null {
-  if (!isRecord(value) || !Array.isArray(value.sessions)) {
-    return null;
-  }
-  const toNumber = (input: unknown): number =>
-    typeof input === "number" && Number.isFinite(input) ? input : 0;
-  return {
-    generated_at: typeof value.generated_at === "string" ? value.generated_at : null,
-    total_session_count: toNumber(value.total_session_count),
-    dispatch_session_count: toNumber(value.dispatch_session_count),
-    dispatch_run_count: toNumber(value.dispatch_run_count),
-    subtask_count: toNumber(value.subtask_count),
-    success_count: toNumber(value.success_count),
-    stopped_count: toNumber(value.stopped_count),
-    preflight_failure_count: toNumber(value.preflight_failure_count),
-    routing_failure_count: toNumber(value.routing_failure_count),
-    execution_failure_count: toNumber(value.execution_failure_count),
-    failure_count: toNumber(value.failure_count),
-    returned_session_count: toNumber(value.returned_session_count),
-    sessions: value.sessions as DispatchLedgerAggregate["sessions"],
-  };
-}
-
-export async function fetchDispatchLedgerAggregate(
-  limit = 20,
-): Promise<DispatchLedgerAggregate | null> {
-  try {
-    const params = new URLSearchParams();
-    params.set("limit", String(limit));
-    const resp = await apiFetch(`/api/sessions/dispatch-ledger/aggregate?${params.toString()}`);
-    const payload = await resp.json();
-    const data = isRecord(payload) ? payload.data : null;
-    return normalizeDispatchLedgerAggregate(data);
-  } catch (e) {
-    logError("获取跨会话 dispatch ledger 聚合失败:", e);
-    return null;
   }
 }
 

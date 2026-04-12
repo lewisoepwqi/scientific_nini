@@ -214,26 +214,20 @@ describe('ChatPanel', () => {
  startTime: new Date('2026-03-04T12:00:10Z').getTime(),
  updatedAt: new Date('2026-03-04T12:00:36Z').getTime(),
  latestExecutionTimeMs: null,
- progressMessage: '第 1/2 波次预检：可执行 2 个，预检失败 1 个',
- preflightFailureCount: 1,
- routingFailureCount: 1,
- executionFailureCount: 0,
+ progressMessage: '第 1/2 波次预检：可执行 2 个，失败 2 个',
+ failureCount: 3,
  runnableCount: 2,
- preflightFailures: [
+ failures: [
  {
  agent_id: 'statistician',
  task: '执行正态性检验',
  error: '模型额度不足',
  },
- ],
- routingFailures: [
  {
  agent_id: 'router_guard',
  task: '识别干预标记',
  error: '未找到可用 agent',
  },
- ],
- executionFailures: [
  {
  agent_id: 'viz_designer',
  task: '绘制散点图',
@@ -276,8 +270,7 @@ describe('ChatPanel', () => {
  expect(screen.getByText('派发账本')).toBeInTheDocument()
  expect(screen.getByText('任务派发')).toBeInTheDocument()
  expect(screen.getByText('可执行 2')).toBeInTheDocument()
- expect(screen.getByText('预检失败 1')).toBeInTheDocument()
- expect(screen.getByText('路由失败 1')).toBeInTheDocument()
+ expect(screen.getByText('失败 3')).toBeInTheDocument()
  expect(screen.getByText('子任务账本')).toBeInTheDocument()
  expect(screen.getByText('数据清洗')).toBeInTheDocument()
  expect(screen.getByText('已完成清洗')).toBeInTheDocument()
@@ -285,13 +278,11 @@ describe('ChatPanel', () => {
  expect(screen.getByText('调度器')).toBeInTheDocument()
  expect(screen.getByText('用户手动终止')).toBeInTheDocument()
  expect(screen.getByText('已停止')).toBeInTheDocument()
- expect(screen.getByText('预检失败明细')).toBeInTheDocument()
+ expect(screen.getByText('失败明细')).toBeInTheDocument()
  expect(screen.getByText('执行正态性检验')).toBeInTheDocument()
  expect(screen.getByText('模型额度不足')).toBeInTheDocument()
- expect(screen.getByText('路由失败明细')).toBeInTheDocument()
  expect(screen.getByText('识别干预标记')).toBeInTheDocument()
  expect(screen.getByText('未找到可用 agent')).toBeInTheDocument()
- expect(screen.getByText('执行失败明细')).toBeInTheDocument()
  expect(screen.getByText('绘制散点图')).toBeInTheDocument()
  expect(screen.getByText('Plotly 导出失败')).toBeInTheDocument()
  expect(screen.queryByRole('button', { name: '终止子 Agent' })).not.toBeInTheDocument()

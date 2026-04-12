@@ -166,15 +166,9 @@ function cloneDispatchLedgers(
 ): DispatchLedgerSummary[] {
   return ledgers.map((ledger) => ({
     ...ledger,
-    preflight_failures: Array.isArray(ledger.preflight_failures)
-      ? ledger.preflight_failures.map((item) => ({ ...item }))
-      : ledger.preflight_failures ?? null,
-    routing_failures: Array.isArray(ledger.routing_failures)
-      ? ledger.routing_failures.map((item) => ({ ...item }))
-      : ledger.routing_failures ?? null,
-    execution_failures: Array.isArray(ledger.execution_failures)
-      ? ledger.execution_failures.map((item) => ({ ...item }))
-      : ledger.execution_failures ?? null,
+    failures: Array.isArray(ledger.failures)
+      ? ledger.failures.map((item) => ({ ...item }))
+      : ledger.failures ?? null,
     dispatch_ledger: Array.isArray(ledger.dispatch_ledger)
       ? ledger.dispatch_ledger.map((item) => ({ ...item }))
       : ledger.dispatch_ledger ?? null,
@@ -190,15 +184,9 @@ function cloneAgentRuns(
       {
         ...run,
         messages: cloneMessages(run.messages),
-        preflightFailures: Array.isArray(run.preflightFailures)
-          ? run.preflightFailures.map((item) => ({ ...item }))
-          : run.preflightFailures ?? null,
-        routingFailures: Array.isArray(run.routingFailures)
-          ? run.routingFailures.map((item) => ({ ...item }))
-          : run.routingFailures ?? null,
-        executionFailures: Array.isArray(run.executionFailures)
-          ? run.executionFailures.map((item) => ({ ...item }))
-          : run.executionFailures ?? null,
+        failures: Array.isArray(run.failures)
+          ? run.failures.map((item) => ({ ...item }))
+          : run.failures ?? null,
         dispatchLedger: Array.isArray(run.dispatchLedger)
           ? run.dispatchLedger.map((item) => ({ ...item }))
           : run.dispatchLedger ?? null,

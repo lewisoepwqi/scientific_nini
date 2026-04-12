@@ -183,7 +183,12 @@ def get_compress_threshold_for_window(context_window: int | None) -> tuple[int, 
     未知窗口时回退到 settings 中的固定值。
     """
     if context_window is None or context_window >= 64_000:
-        return (80_000, 40_000)
+        # 按比例计算：触发点 = 窗口 * 62%，目标 = 触发点 * 50%
+        # 128K → (79K, 40K)，200K → (124K, 62K)
+        effective_window = context_window or 128_000
+        threshold = int(effective_window * 0.62)
+        target = int(threshold * 0.5)
+        return (threshold, target)
     if context_window >= 16_000:
         return (24_000, 12_000)
     return (6_000, 3_000)

@@ -65,14 +65,8 @@ export default function AgentRunTabsPanel() {
     if (typeof run.runnableCount === "number") {
       parts.push(`可执行 ${run.runnableCount}`);
     }
-    if (typeof run.preflightFailureCount === "number") {
-      parts.push(`预检失败 ${run.preflightFailureCount}`);
-    }
-    if (typeof run.routingFailureCount === "number" && run.routingFailureCount > 0) {
-      parts.push(`路由失败 ${run.routingFailureCount}`);
-    }
-    if (typeof run.executionFailureCount === "number" && run.executionFailureCount > 0) {
-      parts.push(`执行失败 ${run.executionFailureCount}`);
+    if (typeof run.failureCount === "number" && run.failureCount > 0) {
+      parts.push(`失败 ${run.failureCount}`);
     }
     if (parts.length === 0) return null;
     return (

@@ -54,6 +54,9 @@ dependencies = [
     # 工具
     "aiofiles>=24.1.0",
 
+    # 终端颜色
+    "rich>=13.0.0",
+
     # 加密
     "cryptography>=44.0.0",
 

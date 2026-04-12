@@ -1267,9 +1267,8 @@ describe("handleEvent 多 Agent 聚合", () => {
         scope: "dispatch_agents",
         phase: "preflight",
         runnable_count: 2,
-        preflight_failure_count: 1,
-        routing_failure_count: 0,
-        preflight_failures: [
+        failure_count: 1,
+        failures: [
           {
             agent_id: "statistician",
             task: "正态性检验",
@@ -1286,10 +1285,10 @@ describe("handleEvent 多 Agent 聚合", () => {
     expect(dispatchRun).toMatchObject({
       runScope: "dispatch",
       status: "running",
-      progressMessage: "第 1/2 波次预检：可执行 2 个，预检失败 1 个",
-      preflightFailureCount: 1,
+      progressMessage: "第 1/2 波次预检：可执行 2 个，失败 1 个",
+      failureCount: 1,
       runnableCount: 2,
-      preflightFailures: [
+      failures: [
         {
           agent_id: "statistician",
           task: "正态性检验",
@@ -1322,9 +1321,8 @@ describe("handleEvent 多 Agent 聚合", () => {
         scope: "dispatch_agents",
         phase: "preflight",
         runnable_count: 3,
-        preflight_failure_count: 2,
-        routing_failure_count: 1,
-        preflight_failures: [
+        failure_count: 3,
+        failures: [
           {
             agent_id: "statistician",
             task: "执行正态性检验",
@@ -1342,11 +1340,10 @@ describe("handleEvent 多 Agent 聚合", () => {
     expect(cached?.agentRuns["dispatch:bg-call-1"]).toMatchObject({
       runScope: "dispatch",
       status: "running",
-      progressMessage: "第 1/1 波次预检：可执行 3 个，预检失败 2 个",
-      preflightFailureCount: 2,
-      routingFailureCount: 1,
+      progressMessage: "第 1/1 波次预检：可执行 3 个，失败 3 个",
+      failureCount: 3,
       runnableCount: 3,
-      preflightFailures: [
+      failures: [
         {
           agent_id: "statistician",
           task: "执行正态性检验",
@@ -1380,17 +1377,12 @@ describe("handleEvent 多 Agent 聚合", () => {
         success_count: 0,
         failure_count: 2,
         stopped_count: 0,
-        preflight_failure_count: 0,
-        routing_failure_count: 1,
-        execution_failure_count: 1,
-        routing_failures: [
+        failures: [
           {
             agent_id: "router_guard",
             task: "识别干预标记",
             error: "未找到可用 agent",
           },
-        ],
-        execution_failures: [
           {
             agent_id: "viz_designer",
             task: "绘制散点图",
@@ -1431,16 +1423,13 @@ describe("handleEvent 多 Agent 聚合", () => {
       runScope: "dispatch",
       status: "error",
       progressMessage: "执行汇总：成功 0 个，失败 2 个，停止 0 个",
-      routingFailureCount: 1,
-      executionFailureCount: 1,
-      routingFailures: [
+      failureCount: 2,
+      failures: [
         {
           agent_id: "router_guard",
           task: "识别干预标记",
           error: "未找到可用 agent",
         },
-      ],
-      executionFailures: [
         {
           agent_id: "viz_designer",
           task: "绘制散点图",
@@ -1476,8 +1465,7 @@ describe("handleEvent 多 Agent 聚合", () => {
     });
     expect(harness.getState().dispatchLedgers[0]).toMatchObject({
       run_id: "dispatch:call-fused",
-      routing_failure_count: 1,
-      execution_failure_count: 1,
+      failure_count: 2,
     });
   });
 });
