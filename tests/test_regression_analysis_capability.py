@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from nini.agent.session import Session
-from nini.capabilities.implementations import (
+from nini.capabilities.executors import (
     RegressionAnalysisCapability,
     RegressionAnalysisResult,
 )

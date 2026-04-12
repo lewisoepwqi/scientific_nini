@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 
 from nini.agent.session import Session
-from nini.capabilities.implementations import DifferenceAnalysisCapability, DifferenceAnalysisResult
+from nini.capabilities.executors import DifferenceAnalysisCapability, DifferenceAnalysisResult
 
 
 @pytest.fixture

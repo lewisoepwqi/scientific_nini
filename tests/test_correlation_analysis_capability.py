@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from nini.agent.session import Session
-from nini.capabilities.implementations import (
+from nini.capabilities.executors import (
     CorrelationAnalysisCapability,
     CorrelationAnalysisResult,
 )
@@ -196,7 +196,7 @@ class TestCorrelationAnalysisCapability:
 
     def test_interpretation_generation(self, capability):
         """测试解释生成。"""
-        from nini.capabilities.implementations.correlation_analysis import CorrelationPair
+        from nini.capabilities.executors.correlation_analysis import CorrelationPair
 
         result = CorrelationAnalysisResult(
             success=True,
