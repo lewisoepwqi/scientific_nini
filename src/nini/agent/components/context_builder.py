@@ -560,6 +560,20 @@ async def _build_dataset_history_memory(dataset_name: str) -> str:
     """
     if not dataset_name or not dataset_name.strip():
         return ""
+
+    # MemoryManager 优先路径（dataset_name 精确过滤 + FTS5）；失败或未初始化时降级
+    try:
+        from nini.memory.manager import build_memory_context_block, get_memory_manager
+
+        mm = get_memory_manager()
+        if mm is not None:
+            raw = await mm.prefetch_all(dataset_name)
+            if raw:
+                logger.debug("主动记忆推送（MemoryManager）: dataset=%s", dataset_name)
+                return build_memory_context_block(raw)
+    except Exception:
+        logger.debug("MemoryManager 主动推送失败，降级到旧路径", exc_info=True)
+
     try:
         from nini.memory.long_term_memory import (
             format_memories_for_context,

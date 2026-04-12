@@ -399,6 +399,8 @@ class AgentRunner:
         self._loop_guard = LoopGuard()
         # 累计需要从 Agent 超时预算中扣除的人工等待时长
         self._timeout_excluded_seconds: float = 0.0
+        # MemoryManager 实例（惰性初始化）
+        self._memory_manager: Any | None = None
 
     async def _await_user_question_answers(
         self,
@@ -440,6 +442,22 @@ class AgentRunner:
         turn_id = turn_id or uuid.uuid4().hex[:12]
         if append_user_message:
             session.add_message("user", user_message, turn_id=turn_id)
+
+        # ---- MemoryManager 惰性初始化（每个 AgentRunner 实例仅执行一次） ----
+        if self._memory_manager is None:
+            try:
+                from nini.memory.manager import MemoryManager, set_memory_manager
+                from nini.memory.scientific_provider import ScientificMemoryProvider
+
+                db_path = settings.sessions_dir.parent / "nini_memory.db"
+                _mm = MemoryManager()
+                _mm.add_provider(ScientificMemoryProvider(db_path=db_path))
+                await _mm.initialize_all(session.id)
+                set_memory_manager(_mm)
+                self._memory_manager = _mm
+                logger.debug("MemoryManager 初始化完成: session=%s", session.id[:8])
+            except Exception:
+                logger.debug("MemoryManager 初始化失败，跳过", exc_info=True)
 
         skill_detection_text = get_last_user_message(session) or user_message
         active_markdown_tools = self._select_active_markdown_tools(skill_detection_text)
@@ -1291,7 +1309,7 @@ class AgentRunner:
                     ),
                 )
 
-                # 会话结束后异步沉淀分析记忆为跨会话长期记忆
+                # 会话结束后异步沉淀分析记忆为跨会话长期记忆（双路径）
                 try:
                     from nini.memory.long_term_memory import consolidate_session_memories
                     from nini.utils.background_tasks import track_background_task
@@ -1299,6 +1317,17 @@ class AgentRunner:
                     track_background_task(consolidate_session_memories(session.id))
                 except Exception:
                     logger.debug("长期记忆沉淀失败", exc_info=True)
+
+                # MemoryManager 新路径：on_session_end 后台任务（P4 双路径）
+                if self._memory_manager is not None:
+                    try:
+                        from nini.utils.background_tasks import track_background_task
+
+                        track_background_task(
+                            self._memory_manager.on_session_end(session.messages)
+                        )
+                    except Exception:
+                        logger.debug("MemoryManager.on_session_end 后台任务注册失败", exc_info=True)
 
                 return
 
