@@ -45,10 +45,8 @@ vi.mock("../store", () => ({
           startTime: 0,
           updatedAt: 0,
           latestExecutionTimeMs: null,
-          progressMessage: "第 1/2 波次预检：可执行 2 个，预检失败 1 个",
-          preflightFailureCount: 1,
-          routingFailureCount: 0,
-          executionFailureCount: 0,
+          progressMessage: "第 1/2 波次预检：可执行 2 个，失败 1 个",
+          failureCount: 1,
           runnableCount: 2,
           messages: [],
         },
@@ -114,7 +112,7 @@ describe("AgentRunTabsPanel", () => {
     expect(screen.getByText("调度线程")).toBeInTheDocument();
     expect(screen.getAllByText("执行线程").length).toBeGreaterThan(0);
     expect(screen.getByText("新消息 3")).toBeInTheDocument();
-    expect(screen.getByText("可执行 2 · 预检失败 1")).toBeInTheDocument();
+    expect(screen.getByText("可执行 2 · 失败 1")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "终止" })).not.toBeInTheDocument();
   });
 });

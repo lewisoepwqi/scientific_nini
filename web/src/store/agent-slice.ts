@@ -275,54 +275,12 @@ export function hydrateAgentRunsFromSummaries(
         typeof summary.progress_hint === "string" && summary.progress_hint.trim()
           ? summary.progress_hint.trim()
           : null,
-      preflightFailureCount:
-        typeof summary.preflight_failure_count === "number"
-          ? summary.preflight_failure_count
-          : null,
-      routingFailureCount:
-        typeof summary.routing_failure_count === "number"
-          ? summary.routing_failure_count
-          : null,
-      executionFailureCount:
-        typeof summary.execution_failure_count === "number"
-          ? summary.execution_failure_count
-          : null,
+      failureCount:
+        typeof summary.failure_count === "number" ? summary.failure_count : null,
       runnableCount:
         typeof summary.runnable_count === "number" ? summary.runnable_count : null,
-      preflightFailures: Array.isArray(summary.preflight_failures)
-        ? summary.preflight_failures
-            .filter((item) => Boolean(item && typeof item === "object"))
-            .map((item) => ({
-              agent_id:
-                typeof item.agent_id === "string" && item.agent_id.trim()
-                  ? item.agent_id.trim()
-                  : null,
-              task:
-                typeof item.task === "string" && item.task.trim() ? item.task.trim() : null,
-              error:
-                typeof item.error === "string" && item.error.trim()
-                  ? item.error.trim()
-                  : null,
-            }))
-        : null,
-      routingFailures: Array.isArray(summary.routing_failures)
-        ? summary.routing_failures
-            .filter((item) => Boolean(item && typeof item === "object"))
-            .map((item) => ({
-              agent_id:
-                typeof item.agent_id === "string" && item.agent_id.trim()
-                  ? item.agent_id.trim()
-                  : null,
-              task:
-                typeof item.task === "string" && item.task.trim() ? item.task.trim() : null,
-              error:
-                typeof item.error === "string" && item.error.trim()
-                  ? item.error.trim()
-                  : null,
-            }))
-        : null,
-      executionFailures: Array.isArray(summary.execution_failures)
-        ? summary.execution_failures
+      failures: Array.isArray(summary.failures)
+        ? summary.failures
             .filter((item) => Boolean(item && typeof item === "object"))
             .map((item) => ({
               agent_id:

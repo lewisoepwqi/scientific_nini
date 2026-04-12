@@ -40,10 +40,8 @@ vi.mock("../store", () => ({
           startTime: 0,
           updatedAt: 0,
           latestExecutionTimeMs: null,
-          progressMessage: "第 1/2 波次预检：可执行 2 个，预检失败 1 个",
-          preflightFailureCount: 1,
-          routingFailureCount: 1,
-          executionFailureCount: 0,
+          progressMessage: "第 1/2 波次预检：可执行 2 个，失败 2 个",
+          failureCount: 2,
           runnableCount: 2,
           messages: [],
         },
@@ -58,11 +56,10 @@ describe("WorkflowTopology", () => {
     expect(screen.getByText("并行执行中")).toBeInTheDocument();
     expect(screen.getByText("任务派发预检")).toBeInTheDocument();
     expect(
-      screen.getByText("第 1/2 波次预检：可执行 2 个，预检失败 1 个"),
+      screen.getByText("第 1/2 波次预检：可执行 2 个，失败 2 个"),
     ).toBeInTheDocument();
     expect(screen.getByText("可执行 2")).toBeInTheDocument();
-    expect(screen.getByText("预检失败 1")).toBeInTheDocument();
-    expect(screen.getByText("路由失败 1")).toBeInTheDocument();
+    expect(screen.getByText("失败 2")).toBeInTheDocument();
     expect(screen.getByText("等待子 Agent 启动...")).toBeInTheDocument();
   });
 });

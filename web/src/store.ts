@@ -78,7 +78,6 @@ export type {
   AgentRunThread,
   AgentRunGroup,
   DispatchLedgerSummary,
-  DispatchLedgerAggregate,
 } from "./store/types";
 
 import type {
@@ -122,7 +121,6 @@ import type {
   AgentRunThread,
   AgentRunGroup,
   DispatchLedgerSummary,
-  DispatchLedgerAggregate,
 } from "./store/types";
 
 // ---- Agent 切片导入 ----
@@ -302,7 +300,6 @@ export interface AppState {
   runGroupsByTurn: Record<string, AgentRunGroup>;
   lastViewedRunIdBySession: Record<string, string>;
   dispatchLedgers: DispatchLedgerSummary[];
-  dispatchLedgerAggregate: DispatchLedgerAggregate | null;
 
   // Hypothesis-Driven 范式状态
   hypotheses: import("./store/types").HypothesisInfo[];
@@ -338,7 +335,6 @@ export interface AppState {
   fetchDatasets: () => Promise<void>;
   fetchWorkspaceFiles: () => Promise<void>;
   fetchDispatchLedgers: () => Promise<void>;
-  fetchDispatchLedgerAggregate: () => Promise<void>;
   fetchSkills: () => Promise<void>;
   fetchCapabilities: () => Promise<void>;
   fetchRecipes: () => Promise<void>;
@@ -460,7 +456,6 @@ const SESSION_RESET_STATE = {
   unreadByRun: {} as Record<string, number>,
   runGroupsByTurn: {} as Record<string, AgentRunGroup>,
   dispatchLedgers: [] as DispatchLedgerSummary[],
-  dispatchLedgerAggregate: null as DispatchLedgerAggregate | null,
 };
 
 function resolveCurrentPendingAskUserQuestion(
@@ -597,7 +592,6 @@ export const useStore = create<AppState>((set, get) => ({
   // 多 Agent 执行状态初始值
   ...initialAgentSlice,
   dispatchLedgers: [],
-  dispatchLedgerAggregate: null,
 
   // Hypothesis-Driven 范式状态初始值
   ...initialHypothesisSlice,
@@ -1246,14 +1240,13 @@ export const useStore = create<AppState>((set, get) => ({
     if (sessionId) {
       deleteSessionUiCacheEntry(sessionId);
     }
-    set((s) => ({
+    set(() => ({
       ...SESSION_RESET_STATE,
       messages: [],
       sessionId: null,
       datasets: [],
       workspaceFiles: [],
       pendingAskUserQuestionsBySession: {},
-      dispatchLedgerAggregate: s.dispatchLedgerAggregate,
     }));
   },
 
@@ -1262,11 +1255,8 @@ export const useStore = create<AppState>((set, get) => ({
   // ============================================================================
 
   async fetchSessions() {
-    const [sessions, dispatchLedgerAggregate] = await Promise.all([
-      api.fetchSessions(),
-      api.fetchDispatchLedgerAggregate(),
-    ]);
-    set({ sessions, dispatchLedgerAggregate });
+    const sessions = await api.fetchSessions();
+    set({ sessions });
     emitSessionsChanged({ reason: "refresh" });
   },
 
@@ -1295,11 +1285,6 @@ export const useStore = create<AppState>((set, get) => ({
       return;
     }
     set({ dispatchLedgers: ledgers });
-  },
-
-  async fetchDispatchLedgerAggregate() {
-    const aggregate = await api.fetchDispatchLedgerAggregate();
-    set({ dispatchLedgerAggregate: aggregate });
   },
 
   async fetchSkills() {
@@ -1416,7 +1401,6 @@ export const useStore = create<AppState>((set, get) => ({
         messages: [],
         datasets: [],
         workspaceFiles: [],
-        dispatchLedgerAggregate: s.dispatchLedgerAggregate,
         sessions: s.sessions.some((item) => item.id === newSessionId)
           ? s.sessions
           : [
@@ -1448,13 +1432,12 @@ export const useStore = create<AppState>((set, get) => ({
     }
     if (!result.success) {
       if (get().sessionId === targetSessionId) {
-        set((s) => ({
+        set(() => ({
           ...SESSION_RESET_STATE,
           sessionId: null,
           messages: [],
           datasets: [],
           workspaceFiles: [],
-          dispatchLedgerAggregate: s.dispatchLedgerAggregate,
         }));
       }
       return;
@@ -1640,7 +1623,6 @@ export const useStore = create<AppState>((set, get) => ({
           cachedSessionUi && shouldUseCachedUi
             ? [...cachedSessionUi.dispatchLedgers]
             : restoredDispatchLedgers,
-        dispatchLedgerAggregate: s.dispatchLedgerAggregate,
         _streamingMetrics: restoredStreamingMetrics,
         tokenUsage:
           cachedSessionUi && shouldUseCachedUi

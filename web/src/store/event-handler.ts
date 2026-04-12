@@ -677,13 +677,9 @@ function upsertDispatchLedgerSummary(
     progress_message: thread.progressMessage ?? null,
     progress_hint: thread.progressHint ?? null,
     latest_execution_time_ms: thread.latestExecutionTimeMs,
-    preflight_failure_count: thread.preflightFailureCount ?? null,
-    routing_failure_count: thread.routingFailureCount ?? null,
-    execution_failure_count: thread.executionFailureCount ?? null,
+    failure_count: thread.failureCount ?? null,
     runnable_count: thread.runnableCount ?? null,
-    preflight_failures: thread.preflightFailures ?? null,
-    routing_failures: thread.routingFailures ?? null,
-    execution_failures: thread.executionFailures ?? null,
+    failures: thread.failures ?? null,
     dispatch_ledger: thread.dispatchLedger ?? null,
     updated_at: new Date(thread.updatedAt).toISOString(),
   };
@@ -761,19 +757,15 @@ interface DispatchWorkflowStatusSnapshot {
   phase: string;
   nextStatus: AgentRunThread["status"];
   progressMessage: string;
-  preflightFailureCount: number | null;
-  routingFailureCount: number | null;
-  executionFailureCount: number | null;
+  failureCount: number | null;
   runnableCount: number | null;
-  preflightFailures: AgentRunThread["preflightFailures"];
-  routingFailures: AgentRunThread["routingFailures"];
-  executionFailures: AgentRunThread["executionFailures"];
+  failures: AgentRunThread["failures"];
   dispatchLedger: AgentRunThread["dispatchLedger"];
 }
 
 function normalizeDispatchFailureItems(
   value: unknown,
-): AgentRunThread["preflightFailures"] {
+): AgentRunThread["failures"] {
   return Array.isArray(value)
     ? value
         .filter((item) => isRecord(item))
@@ -831,26 +823,39 @@ function buildDispatchWorkflowStatusSnapshot(
   data: Record<string, unknown>,
 ): DispatchWorkflowStatusSnapshot {
   const phase = typeof data.phase === "string" ? data.phase : "running";
-  const preflightFailureCount =
-    typeof data.preflight_failure_count === "number" ? data.preflight_failure_count : null;
-  const routingFailureCount =
-    typeof data.routing_failure_count === "number" ? data.routing_failure_count : null;
-  const executionFailureCount =
-    typeof data.execution_failure_count === "number" ? data.execution_failure_count : null;
+  // 向后兼容：优先用新字段，回退到旧三分法求和
+  const failureCount =
+    typeof data.failure_count === "number"
+      ? data.failure_count
+      : (typeof data.preflight_failure_count === "number"
+            ? data.preflight_failure_count
+            : 0) +
+          (typeof data.routing_failure_count === "number" ? data.routing_failure_count : 0) +
+          (typeof data.execution_failure_count === "number" ? data.execution_failure_count : 0) ||
+        null;
   const runnableCount =
     typeof data.runnable_count === "number" ? data.runnable_count : null;
-  const preflightFailures = normalizeDispatchFailureItems(data.preflight_failures);
-  const routingFailures = normalizeDispatchFailureItems(data.routing_failures);
-  const executionFailures = normalizeDispatchFailureItems(data.execution_failures);
+  const failures = [
+    ...(normalizeDispatchFailureItems(data.failures) ?? []),
+    ...(normalizeDispatchFailureItems(data.preflight_failures) ?? []),
+    ...(normalizeDispatchFailureItems(data.routing_failures) ?? []),
+    ...(normalizeDispatchFailureItems(data.execution_failures) ?? []),
+  ].length > 0
+    ? [
+        ...(normalizeDispatchFailureItems(data.failures) ?? []),
+        ...(normalizeDispatchFailureItems(data.preflight_failures) ?? []),
+        ...(normalizeDispatchFailureItems(data.routing_failures) ?? []),
+        ...(normalizeDispatchFailureItems(data.execution_failures) ?? []),
+      ]
+    : null;
   const dispatchLedger = normalizeDispatchLedgerItems(data.subtasks);
   const waveIndex = typeof data.wave_index === "number" ? data.wave_index : null;
   const waveCount = typeof data.wave_count === "number" ? data.wave_count : null;
   const successCount = typeof data.success_count === "number" ? data.success_count : null;
-  const failureCount = typeof data.failure_count === "number" ? data.failure_count : null;
   const stoppedCount = typeof data.stopped_count === "number" ? data.stopped_count : null;
   const progressMessage =
     phase === "preflight"
-      ? `${waveIndex && waveCount ? `第 ${waveIndex}/${waveCount} 波次预检：` : "预检完成："}可执行 ${runnableCount ?? 0} 个，预检失败 ${preflightFailureCount ?? 0} 个`
+      ? `${waveIndex && waveCount ? `第 ${waveIndex}/${waveCount} 波次预检：` : "预检完成："}可执行 ${runnableCount ?? 0} 个，失败 ${failureCount ?? 0} 个`
       : `执行汇总：成功 ${successCount ?? 0} 个，失败 ${failureCount ?? 0} 个，停止 ${stoppedCount ?? 0} 个`;
   const nextStatus =
     phase === "fused"
@@ -862,13 +867,9 @@ function buildDispatchWorkflowStatusSnapshot(
     phase,
     nextStatus,
     progressMessage,
-    preflightFailureCount,
-    routingFailureCount,
-    executionFailureCount,
+    failureCount,
     runnableCount,
-    preflightFailures,
-    routingFailures,
-    executionFailures,
+    failures,
     dispatchLedger,
   };
 }
@@ -891,22 +892,12 @@ function applyDispatchWorkflowStatus(
     phase: snapshot.phase,
     progressMessage: snapshot.progressMessage,
     summary: snapshot.phase === "fused" ? snapshot.progressMessage : existing.summary,
-    preflightFailureCount: snapshot.preflightFailureCount,
-    routingFailureCount: snapshot.routingFailureCount,
-    executionFailureCount: snapshot.executionFailureCount,
+    failureCount: snapshot.failureCount,
     runnableCount: snapshot.runnableCount,
-    preflightFailures:
-      snapshot.preflightFailures && snapshot.preflightFailures.length > 0
-        ? snapshot.preflightFailures
-        : existing.preflightFailures ?? snapshot.preflightFailures,
-    routingFailures:
-      snapshot.routingFailures && snapshot.routingFailures.length > 0
-        ? snapshot.routingFailures
-        : existing.routingFailures ?? snapshot.routingFailures,
-    executionFailures:
-      snapshot.executionFailures && snapshot.executionFailures.length > 0
-        ? snapshot.executionFailures
-        : existing.executionFailures ?? snapshot.executionFailures,
+    failures:
+      snapshot.failures && snapshot.failures.length > 0
+        ? snapshot.failures
+        : existing.failures ?? snapshot.failures,
     dispatchLedger:
       snapshot.dispatchLedger && snapshot.dispatchLedger.length > 0
         ? snapshot.dispatchLedger
