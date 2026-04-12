@@ -309,10 +309,23 @@ class HarnessRunner:
                             combined_stop_event.set()
                             yield recovery_event
                             append_flag = False
-                            pending_prompt = (
-                                "检测到同类工具路径连续失败。请退一步重新规划，"
-                                "避免重复同一参数路径，优先解释失败原因并尝试替代方法。"
-                            )
+                            recovery_kind = ""
+                            if isinstance(recovery_event.data, dict):
+                                recovery_kind = str(
+                                    recovery_event.data.get("recovery_kind", "") or ""
+                                ).strip()
+                            if recovery_kind == "stage_pollution_loop":
+                                pending_prompt = (
+                                    "检测到展示型工具误代替执行型任务。"
+                                    "请忽略 generate_widget 等展示工具，"
+                                    "直接调用当前任务提示对应的真实执行工具完成分析。"
+                                    "如果当前任务是统计检验，请优先使用 code_session、run_code 或 stat_test。"
+                                )
+                            else:
+                                pending_prompt = (
+                                    "检测到同类工具路径连续失败。请退一步重新规划，"
+                                    "避免重复同一参数路径，优先解释失败原因并尝试替代方法。"
+                                )
                         if blocked_state is not None:
                             combined_stop_event.set()
 
@@ -983,26 +996,44 @@ class HarnessRunner:
 
         count = tool_error_counts[signature]
         if count >= 2 and signature in recovered_tool_signatures:
+            is_stage_pollution = failure_category == "stage_pollution_loop"
             return None, BlockedState(
                 turn_id=turn_id,
-                reason_code="tool_loop",
-                message=f"工具 `{tool_name}` 连续失败，恢复后仍未推进，当前轮已阻塞。",
+                reason_code="stage_pollution_loop" if is_stage_pollution else "tool_loop",
+                message=(
+                    f"工具 `{tool_name}` 连续误用于展示占位，恢复后仍未切回真实执行工具，当前轮已阻塞。"
+                    if is_stage_pollution
+                    else f"工具 `{tool_name}` 连续失败，恢复后仍未推进，当前轮已阻塞。"
+                ),
                 recoverable=True,
                 task_id=task_id,
                 attempt_id=attempt_id,
-                suggested_action="检查参数、切换分析方法，或补充更明确的输入。",
+                suggested_action=(
+                    "停止使用展示型工具，切回当前任务提示对应的执行工具。"
+                    if is_stage_pollution
+                    else "检查参数、切换分析方法，或补充更明确的输入。"
+                ),
             )
         if count >= 2:
             recovered_tool_signatures.add(signature)
+            is_stage_pollution = failure_category == "stage_pollution_loop"
             return (
                 eb.build_reasoning_event(
                     content=(
-                        f"检测到工具 `{tool_name}` 连续失败，系统将触发一次重规划，"
-                        "避免继续重复同一路径。"
+                        (
+                            f"检测到工具 `{tool_name}` 连续被用作展示占位，"
+                            "系统将强制切回真实执行工具路径。"
+                        )
+                        if is_stage_pollution
+                        else (
+                            f"检测到工具 `{tool_name}` 连续失败，系统将触发一次重规划，"
+                            "避免继续重复同一路径。"
+                        )
                     ),
                     turn_id=turn_id,
                     reasoning_live=False,
-                    source="loop_recovery",
+                    source="stage_pollution_recovery" if is_stage_pollution else "loop_recovery",
+                    recovery_kind="stage_pollution_loop" if is_stage_pollution else "tool_loop",
                 ),
                 None,
             )
@@ -1059,6 +1090,8 @@ class HarnessRunner:
         if nested_result:
             _error_code_candidates.append(str(nested_result.get("error_code", "")).strip())
         generic_error_code = next((c for c in _error_code_candidates if c), "")
+        if generic_error_code in {"WIDGET_RESULT_REQUIRED", "STEP_TOOL_MISMATCH"}:
+            return "stage_pollution_loop", False
         if generic_error_code.startswith("DUPLICATE_") or generic_error_code.startswith("ALREADY_"):
             return "idempotent_conflict", False
         # Agent runner 的熔断错误：由于重复调用被阻止而触发的熔断，本质上也是幂等冲突
@@ -1131,6 +1164,8 @@ class HarnessRunner:
                 tags.append("premature_completion")
         if tool_failure_messages:
             tags.append("tool_loop")
+        if blocked_state is not None and blocked_state.reason_code == "stage_pollution_loop":
+            tags.append("stage_pollution_loop")
         if (
             blocked_state is not None
             and blocked_state.reason_code == "completion_verification_failed"

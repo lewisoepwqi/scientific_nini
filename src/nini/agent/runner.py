@@ -47,6 +47,10 @@ from nini.agent.plan_parser import AnalysisPlan, parse_analysis_plan
 from nini.agent import event_builders as eb
 
 from nini.agent.loop_guard import LoopGuard, LoopGuardDecision, build_loop_warn_message
+from nini.agent.tool_exposure_policy import (
+    compute_tool_exposure_policy,
+    is_presentation_tool,
+)
 from nini.capabilities import create_default_capabilities
 from nini.models.risk import OutputLevel, TRUST_CEILING_MAP, TrustLevel
 from nini.models.skill_contract import SkillContract
@@ -397,6 +401,8 @@ class AgentRunner:
         self._context_ratio: float = 0.0
         # 循环检测守卫
         self._loop_guard = LoopGuard()
+        # 最近一轮工具暴露策略快照（用于恢复提示与观测）
+        self._last_tool_exposure_policy: dict[str, Any] | None = None
         # 累计需要从 Agent 超时预算中扣除的人工等待时长
         self._timeout_excluded_seconds: float = 0.0
         # MemoryManager 实例（惰性初始化）
@@ -823,6 +829,17 @@ class AgentRunner:
                 session=session,
                 user_message=user_message,
             )
+            if isinstance(self._last_tool_exposure_policy, dict):
+                logger.debug(
+                    "工具暴露策略: session=%s stage=%s reason=%s active_task=%s visible=%s forced=%s warnings=%s",
+                    session.id,
+                    self._last_tool_exposure_policy.get("stage"),
+                    self._last_tool_exposure_policy.get("stage_reason"),
+                    self._last_tool_exposure_policy.get("active_task_title"),
+                    self._last_tool_exposure_policy.get("visible_tools"),
+                    self._last_tool_exposure_policy.get("forced_visible_tools"),
+                    self._last_tool_exposure_policy.get("policy_warnings"),
+                )
             followup_prompt_for_purpose = pending_followup_prompt
             if pending_followup_prompt:
                 messages = [
@@ -2545,6 +2562,33 @@ class AgentRunner:
                         turn_id=turn_id,
                         metadata=result_metadata if isinstance(result_metadata, dict) else None,
                     )
+                    if (
+                        has_error
+                        and isinstance(result_metadata, dict)
+                        and str(result_metadata.get("error_code", "")).strip()
+                        in {"WIDGET_RESULT_REQUIRED", "STEP_TOOL_MISMATCH"}
+                        and is_presentation_tool(func_name)
+                    ):
+                        active_task_title = ""
+                        active_task_hint = ""
+                        if isinstance(self._last_tool_exposure_policy, dict):
+                            active_task_title = str(
+                                self._last_tool_exposure_policy.get("active_task_title", "") or ""
+                            ).strip()
+                            active_task_hint = str(
+                                self._last_tool_exposure_policy.get("active_task_hint", "") or ""
+                            ).strip()
+                        result_data = result.get("data") if isinstance(result, dict) else None
+                        recovery_hint = ""
+                        if isinstance(result_data, dict):
+                            recovery_hint = str(result_data.get("recovery_hint", "") or "").strip()
+                        pending_breaker_fallback_prompt = (
+                            f"当前任务「{active_task_title or '未命名任务'}」需要使用 "
+                            f"`{active_task_hint or '真实执行工具'}` 等执行工具推进。"
+                            f"你刚才调用了仅用于展示结果的 `{func_name}`，没有产生真实分析进展。"
+                            "下一步必须直接调用真实执行工具，禁止再次生成“进行中”或占位 widget。"
+                            + (f"\n恢复建议：{recovery_hint}" if recovery_hint else "")
+                        )
                     # 检查是否有图表数据
                     if isinstance(result, dict) and result.get("has_chart"):
                         raw_chart_data = result.get("chart_data")
@@ -3259,6 +3303,7 @@ class AgentRunner:
 
         tools: list[dict[str, Any]] = []
         visible_tool_names: set[str] | None = None
+        self._last_tool_exposure_policy = None
         if self._tool_registry is not None:
             if is_sub_session:
                 raw = self._tool_registry.get_tool_definitions()
@@ -3269,17 +3314,17 @@ class AgentRunner:
                 # 若注册表不支持 list_tools（如测试用 mock），跳过可见性过滤以避免误清空工具列表。
                 _has_list_tools = hasattr(self._tool_registry, "list_tools")
                 try:
-                    from nini.agent.tool_exposure_policy import compute_tool_exposure_policy
-
                     policy = compute_tool_exposure_policy(
                         session=session,
                         tool_registry=self._tool_registry,
                         user_message=user_message,
                     )
+                    self._last_tool_exposure_policy = policy
                     visible_tool_names = (
                         set(policy.get("visible_tools", [])) if _has_list_tools else None
                     )
                 except Exception:
+                    self._last_tool_exposure_policy = None
                     visible_tool_names = None
                 raw = self._tool_registry.get_tool_definitions()
                 if isinstance(raw, list):

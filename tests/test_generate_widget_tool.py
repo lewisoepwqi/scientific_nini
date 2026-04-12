@@ -36,6 +36,33 @@ def test_generate_widget_tool_requires_html() -> None:
     assert result.message == "缺少必填参数: html"
 
 
+def test_generate_widget_tool_rejects_in_progress_execution_task() -> None:
+    tool = GenerateWidgetTool()
+    session = Session()
+    session.task_manager = session.task_manager.init_tasks(
+        [
+            {
+                "id": 1,
+                "title": "执行正态性检验",
+                "status": "in_progress",
+                "tool_hint": "code_session",
+            },
+        ]
+    )
+
+    result = asyncio.run(
+        tool.execute(
+            session,
+            title="检验进行中",
+            html="<section><h1>正在分析</h1></section>",
+        )
+    )
+
+    assert result.success is False
+    assert result.data["error_code"] == "WIDGET_RESULT_REQUIRED"
+    assert result.data["active_task_title"] == "执行正态性检验"
+
+
 def test_generate_widget_tool_is_registered_and_exposed() -> None:
     registry = create_default_tool_registry()
 

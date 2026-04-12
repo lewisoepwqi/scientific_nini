@@ -85,6 +85,53 @@ class _LoopRunner:
         yield eb.build_done_event(turn_id=turn_id)
 
 
+class _StagePollutionRunner:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def run(
+        self,
+        session: Session,
+        user_message: str,
+        *,
+        append_user_message: bool = True,
+        stop_event=None,
+        turn_id: str | None = None,
+        stage_override: str | None = None,
+    ):
+        _ = user_message, stage_override, stop_event
+        self.calls += 1
+        assert turn_id is not None
+        if append_user_message:
+            session.add_message("user", "分析数据", turn_id=turn_id)
+        for idx in range(2):
+            tool_call_id = f"widget-{self.calls}-{idx}"
+            result_payload = {
+                "success": False,
+                "message": "generate_widget 只能展示已完成结果。",
+                "error_code": "WIDGET_RESULT_REQUIRED",
+                "data": {
+                    "recovery_hint": "请先执行 code_session 或 stat_test，再展示结果。",
+                },
+            }
+            session.add_tool_result(
+                tool_call_id,
+                json.dumps(result_payload, ensure_ascii=False),
+                tool_name="generate_widget",
+                status="error",
+                turn_id=turn_id,
+            )
+            yield eb.build_tool_result_event(
+                tool_call_id=tool_call_id,
+                name="generate_widget",
+                status="error",
+                message="generate_widget 只能展示已完成结果。",
+                data={"result": result_payload},
+                turn_id=turn_id,
+            )
+        yield eb.build_done_event(turn_id=turn_id)
+
+
 class _IncompleteTaskRunner:
     def __init__(self) -> None:
         self.calls = 0
@@ -428,6 +475,18 @@ async def test_harness_runner_blocks_after_repeated_loop_recovery() -> None:
 
     assert "blocked" in event_types
     assert event_types[-1] == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_harness_runner_marks_stage_pollution_loop() -> None:
+    runner = HarnessRunner(agent_runner=_StagePollutionRunner())
+    session = Session()
+
+    events = [event async for event in runner.run(session, "请分析数据差异")]
+    blocked_events = [event for event in events if event.type.value == "blocked"]
+
+    assert blocked_events
+    assert blocked_events[-1].data["reason_code"] == "stage_pollution_loop"
 
 
 @pytest.mark.asyncio
