@@ -477,6 +477,25 @@ def compute_tool_exposure_policy(
     visible_tools = [name for name in all_tools if name in allowed]
     hidden_tools = [name for name in all_tools if name not in allowed]
     removed_by_policy = [name for name in hidden_tools if name not in _ALWAYS_ALLOWED]
+
+    # ── 构建阶段过渡提示（供 runner 注入 LLM 上下文）──
+    stage_transition_hint: str | None = None
+    if removed_by_policy and active_task_id is not None:
+        next_stage = _resolve_next_pending_stage(session)
+        if next_stage:
+            representative_tools = [
+                name for name in removed_by_policy[:3]
+                if name not in _ALWAYS_ALLOWED
+            ]
+            tool_list = "、".join(f"`{n}`" for n in representative_tools)
+            if len(removed_by_policy) > 3:
+                tool_list += f"等 {len(removed_by_policy)} 个工具"
+            stage_transition_hint = (
+                f"当前处于「{stage}」阶段，{tool_list} 等工具暂不可用。"
+                f"完成任务{active_task_id}后调用 task_state 更新状态，"
+                f"将自动解锁「{next_stage}」阶段工具。"
+            )
+
     return {
         "stage": stage,
         "stage_reason": stage_reason,
@@ -490,4 +509,5 @@ def compute_tool_exposure_policy(
         "high_risk_tools": [name for name in all_tools if name in _HIGH_RISK_TOOLS],
         "forced_visible_tools": forced_visible_tools,
         "policy_warnings": policy_warnings,
+        "stage_transition_hint": stage_transition_hint,
     }
