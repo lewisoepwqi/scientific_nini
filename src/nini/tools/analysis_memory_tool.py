@@ -62,11 +62,39 @@ class AnalysisMemoryTool(Tool):
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         """执行分析记忆查询。"""
+        import json
+
         from nini.memory.compression import list_session_analysis_memories
 
         operation = str(kwargs.get("operation", "list")).strip()
         keyword = str(kwargs.get("keyword", "") or "").strip().lower()
         dataset_filter = str(kwargs.get("dataset_name", "") or "").strip().lower()
+
+        # find 操作优先使用 MemoryManager（跨会话长期记忆）；失败或未初始化时降级
+        if operation == "find":
+            try:
+                from nini.memory.manager import get_memory_manager
+
+                manager = get_memory_manager()
+                if manager is not None:
+                    raw = await manager.handle_tool_call(
+                        "nini_memory_find",
+                        {
+                            "query": keyword,
+                            "dataset_name": dataset_filter or None,
+                            "top_k": 10,
+                        },
+                    )
+                    parsed = json.loads(raw)
+                    if parsed.get("success") and parsed.get("results"):
+                        results = parsed["results"]
+                        return ToolResult(
+                            success=True,
+                            message=f"从长期记忆中找到 {len(results)} 条匹配结果。",
+                            data={"results": results},
+                        )
+            except Exception:
+                pass  # 降级到原有路径
 
         memories = list_session_analysis_memories(resolve_session_resource_id(session))
 
