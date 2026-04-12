@@ -51,32 +51,6 @@ def _normalize_dispatch_ledger(items: Any) -> list[dict[str, Any]]:
     return ledger
 
 
-def _safe_int(value: Any) -> int:
-    """将可能为空的数值安全转为整数。"""
-    if isinstance(value, bool):
-        return 0
-    if isinstance(value, (int, float)):
-        return int(value)
-    return 0
-
-
-def _count_dispatch_ledger_statuses(items: Any) -> dict[str, int]:
-    """统计 dispatch ledger 中的子任务状态分布。"""
-    counts = {
-        "subtask_count": 0,
-        "success_count": 0,
-        "stopped_count": 0,
-    }
-    for item in _normalize_dispatch_ledger(items):
-        counts["subtask_count"] += 1
-        status = str(item.get("status") or "").strip().lower()
-        if status == "success":
-            counts["success_count"] += 1
-        elif status == "stopped":
-            counts["stopped_count"] += 1
-    return counts
-
-
 def _summarize_agent_runs(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     runs: dict[str, dict[str, Any]] = {}
     for event in events:
@@ -107,13 +81,9 @@ def _summarize_agent_runs(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "progress_message": None,
                 "progress_hint": None,
                 "latest_execution_time_ms": None,
-                "preflight_failure_count": None,
-                "routing_failure_count": None,
-                "execution_failure_count": None,
+                "failure_count": None,
                 "runnable_count": None,
-                "preflight_failures": [],
-                "routing_failures": [],
-                "execution_failures": [],
+                "failures": [],
                 "dispatch_ledger": [],
             },
         )
@@ -127,28 +97,45 @@ def _summarize_agent_runs(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             entry["progress_message"] = payload.get("message") or entry["progress_message"]
             entry["progress_hint"] = payload.get("progress_hint") or entry["progress_hint"]
         if event_type == "dispatch_agents_preflight" and isinstance(payload, dict):
-            entry["summary"] = (
-                f"预检完成：可执行 {payload.get('runnable_count', 0)} 个，"
-                f"预检失败 {payload.get('preflight_failure_count', 0)} 个"
-            )
-            entry["preflight_failure_count"] = payload.get("preflight_failure_count")
-            entry["routing_failure_count"] = payload.get("routing_failure_count")
+            fc = payload.get("failure_count")
+            if fc is None:
+                fc = payload.get("preflight_failure_count", 0)
+            entry["failure_count"] = fc
             entry["runnable_count"] = payload.get("runnable_count")
+            entry["summary"] = (
+                f"预检完成：可执行 {payload.get('runnable_count', 0)} 个，" f"失败 {fc or 0} 个"
+            )
             entry["progress_message"] = entry["summary"]
-            entry["preflight_failures"] = payload.get("preflight_failures") or []
+            raw_failures = payload.get("failures") or payload.get("preflight_failures") or []
+            entry["failures"] = raw_failures if isinstance(raw_failures, list) else []
         if event_type == "dispatch_agents_result" and isinstance(payload, dict):
-            if "preflight_failure_count" in payload:
-                entry["preflight_failure_count"] = payload.get("preflight_failure_count")
-            if "routing_failure_count" in payload:
-                entry["routing_failure_count"] = payload.get("routing_failure_count")
-            if "execution_failure_count" in payload:
-                entry["execution_failure_count"] = payload.get("execution_failure_count")
-            if "preflight_failures" in payload:
-                entry["preflight_failures"] = payload.get("preflight_failures") or []
-            if "routing_failures" in payload:
-                entry["routing_failures"] = payload.get("routing_failures") or []
-            if "execution_failures" in payload:
-                entry["execution_failures"] = payload.get("execution_failures") or []
+            # 向后兼容：优先读取新格式 failure_count，回退到旧三分法求和
+            if "failure_count" in payload:
+                entry["failure_count"] = payload["failure_count"]
+            elif any(
+                k in payload
+                for k in (
+                    "preflight_failure_count",
+                    "routing_failure_count",
+                    "execution_failure_count",
+                )
+            ):
+                entry["failure_count"] = (
+                    payload.get("preflight_failure_count", 0)
+                    + payload.get("routing_failure_count", 0)
+                    + payload.get("execution_failure_count", 0)
+                )
+            # 向后兼容：优先读取新格式 failures，回退到旧三分法合并
+            if "failures" in payload:
+                entry["failures"] = payload.get("failures") or []
+            else:
+                merged: list[Any] = []
+                for key in ("preflight_failures", "routing_failures", "execution_failures"):
+                    arr = payload.get(key)
+                    if isinstance(arr, list):
+                        merged.extend(arr)
+                if merged:
+                    entry["failures"] = merged
             if "subtasks" in payload:
                 entry["dispatch_ledger"] = _normalize_dispatch_ledger(payload.get("subtasks"))
         if event_type == "agent_complete" and isinstance(payload, dict):
@@ -171,95 +158,6 @@ def _summarize_agent_runs(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _summarize_dispatch_ledgers(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """提取独立的 dispatch ledger 查询结果。"""
     return [item for item in _summarize_agent_runs(events) if item.get("run_scope") == "dispatch"]
-
-
-def _aggregate_dispatch_ledgers(
-    session_items: list[dict[str, Any]],
-    *,
-    limit: int,
-) -> dict[str, Any]:
-    """跨会话聚合 dispatch 账本，供全局审计视图使用。"""
-    sessions: list[dict[str, Any]] = []
-    totals = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "total_session_count": len(session_items),
-        "dispatch_session_count": 0,
-        "dispatch_run_count": 0,
-        "subtask_count": 0,
-        "success_count": 0,
-        "stopped_count": 0,
-        "preflight_failure_count": 0,
-        "routing_failure_count": 0,
-        "execution_failure_count": 0,
-        "failure_count": 0,
-    }
-    for session in session_items:
-        session_id = str(session.get("id") or "").strip()
-        if not session_id:
-            continue
-        ledgers = _summarize_dispatch_ledgers(session_manager.load_agent_run_events(session_id))
-        if not ledgers:
-            continue
-        summary = {
-            "session_id": session_id,
-            "title": session.get("title") or "新会话",
-            "updated_at": session.get("updated_at"),
-            "last_dispatch_at": None,
-            "latest_run_id": None,
-            "dispatch_run_count": len(ledgers),
-            "subtask_count": 0,
-            "success_count": 0,
-            "stopped_count": 0,
-            "preflight_failure_count": 0,
-            "routing_failure_count": 0,
-            "execution_failure_count": 0,
-            "failure_count": 0,
-        }
-        for ledger in ledgers:
-            ledger_updated_at = ledger.get("updated_at")
-            if summary["last_dispatch_at"] is None or str(ledger_updated_at or "") > str(
-                summary["last_dispatch_at"] or ""
-            ):
-                summary["last_dispatch_at"] = ledger_updated_at
-                summary["latest_run_id"] = ledger.get("run_id")
-            status_counts = _count_dispatch_ledger_statuses(ledger.get("dispatch_ledger"))
-            summary["subtask_count"] += status_counts["subtask_count"]
-            summary["success_count"] += status_counts["success_count"]
-            summary["stopped_count"] += status_counts["stopped_count"]
-            summary["preflight_failure_count"] += _safe_int(ledger.get("preflight_failure_count"))
-            summary["routing_failure_count"] += _safe_int(ledger.get("routing_failure_count"))
-            summary["execution_failure_count"] += _safe_int(ledger.get("execution_failure_count"))
-        summary["failure_count"] = (
-            summary["preflight_failure_count"]
-            + summary["routing_failure_count"]
-            + summary["execution_failure_count"]
-        )
-        totals["dispatch_session_count"] += 1
-        totals["dispatch_run_count"] += summary["dispatch_run_count"]
-        totals["subtask_count"] += summary["subtask_count"]
-        totals["success_count"] += summary["success_count"]
-        totals["stopped_count"] += summary["stopped_count"]
-        totals["preflight_failure_count"] += summary["preflight_failure_count"]
-        totals["routing_failure_count"] += summary["routing_failure_count"]
-        totals["execution_failure_count"] += summary["execution_failure_count"]
-        totals["failure_count"] += summary["failure_count"]
-        sessions.append(summary)
-
-    sessions.sort(
-        key=lambda item: (
-            str(item.get("last_dispatch_at") or ""),
-            str(item.get("updated_at") or ""),
-            str(item.get("session_id") or ""),
-        ),
-        reverse=True,
-    )
-    if limit > 0:
-        sessions = sessions[:limit]
-    return {
-        **totals,
-        "sessions": sessions,
-        "returned_session_count": len(sessions),
-    }
 
 
 def _get_existing_session_or_404(session_id: str):
@@ -302,18 +200,6 @@ async def list_sessions(
             }
             for s in sessions
         ],
-    )
-
-
-@router.get("/dispatch-ledger/aggregate", response_model=APIResponse)
-async def get_dispatch_ledger_aggregate(
-    limit: int = Query(default=20, ge=1, le=200, description="返回最近会话条数"),
-) -> APIResponse:
-    """读取跨会话 dispatch ledger 聚合摘要。"""
-    sessions = session_manager.list_sessions()
-    return APIResponse(
-        success=True,
-        data=_aggregate_dispatch_ledgers(sessions, limit=limit),
     )
 
 
