@@ -106,25 +106,26 @@ async def test_execute_calls_spawn_batch_with_correct_pairs():
 
 
 @pytest.mark.asyncio
-async def test_execute_empty_agents_returns_empty():
-    """agents=[] 时快速返回 ToolResult(message='')，不调用 spawn_batch。"""
+async def test_execute_empty_agents_returns_error():
+    """agents=[] 且 tasks 未提供时，应返回 success=False 并给出明确错误，
+    不能静默返回 success=True（会让 LLM 误以为派发成功）。"""
     spawner = _MockSpawner()
     tool = DispatchAgentsTool(agent_registry=_MockRegistry(), spawner=spawner)
     result = await tool.execute(None, agents=[])
-    assert result.success is True
-    assert result.message == ""
+    assert result.success is False
+    assert result.metadata["error_code"] == "DISPATCH_AGENTS_NO_TASKS"
     assert result.metadata["agent_count"] == 0
     assert spawner.spawn_batch_calls == []
 
 
 @pytest.mark.asyncio
-async def test_execute_none_agents_treated_as_empty():
-    """agents=None 等同于空列表，不抛出异常。"""
+async def test_execute_none_agents_and_no_tasks_returns_error():
+    """agents=None 且 tasks 未提供时，同样返回 success=False。"""
     spawner = _MockSpawner()
     tool = DispatchAgentsTool(agent_registry=_MockRegistry(), spawner=spawner)
     result = await tool.execute(None, agents=None)
-    assert result.success is True
-    assert result.message == ""
+    assert result.success is False
+    assert result.metadata["error_code"] == "DISPATCH_AGENTS_NO_TASKS"
     assert spawner.spawn_batch_calls == []
 
 
@@ -345,3 +346,19 @@ def test_tool_parameters_schema():
     assert "agent_id" in task_item["properties"]
     assert "task" in task_item["properties"]
     assert "anyOf" in params
+
+
+@pytest.mark.asyncio
+async def test_execute_tasks_format_dispatches_correctly():
+    """tasks=[{task_id, agent_id, task}] 格式应正常派发，不走空列表分支。"""
+    spawner = _MockSpawner(
+        results=[SubAgentResult(agent_id="literature_search", success=True, summary="检索完成")]
+    )
+    tool = DispatchAgentsTool(agent_registry=_MockRegistry(), spawner=spawner)
+    result = await tool.execute(
+        None,
+        tasks=[{"task_id": 1, "agent_id": "literature_search", "task": "执行检索"}],
+    )
+    assert result.success is True
+    assert result.metadata["agent_count"] == 1
+    assert len(spawner.spawn_batch_calls) == 1

@@ -174,10 +174,19 @@ class DispatchAgentsTool(Tool):
         task_specs = self._normalize_task_specs(tasks=tasks, agents=agents)
         dispatch_run_id = self._build_dispatch_run_id(turn_id=turn_id, tool_call_id=tool_call_id)
 
-        # 空列表快速返回
+        # 空任务列表：agents 和 tasks 均为空，视为参数错误
         if not task_specs:
             return ToolResult(
-                success=True, message="", metadata={"agent_count": 0, "wave_id": wave_id}
+                success=False,
+                message=(
+                    "dispatch_agents 未收到任何任务：agents 和 tasks 均为空或未提供。"
+                    "请使用 tasks=[{task_id, agent_id, task}] 格式指定至少一个任务。"
+                ),
+                metadata={
+                    "error_code": "DISPATCH_AGENTS_NO_TASKS",
+                    "agent_count": 0,
+                    "wave_id": wave_id,
+                },
             )
 
         # 校验所有 agent_id 合法性
@@ -389,7 +398,9 @@ class DispatchAgentsTool(Tool):
     ) -> dict[str, Any] | None:
         """拒绝跨 wave 或存在读写冲突的任务，确保 dispatch 仅做当前 wave 并行。"""
         seen_task_ids: set[int] = set()
-        current_wave = self._collect_current_wave_task_map(session) if enforce_current_wave else None
+        current_wave = (
+            self._collect_current_wave_task_map(session) if enforce_current_wave else None
+        )
         for item in task_specs:
             task_id = int(item.get("task_id", 0))
             if task_id in seen_task_ids:
