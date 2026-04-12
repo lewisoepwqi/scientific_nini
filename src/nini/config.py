@@ -305,13 +305,6 @@ class Settings(BaseSettings):
     knowledge_openai_embedding_model: str = "text-embedding-3-small"
     knowledge_local_embedding_model: str = "BAAI/bge-small-zh-v1.5"
 
-    # ---- 层次化知识检索（新架构）----
-    enable_hierarchical_index: bool = False  # 启用层次化索引（实验性功能）
-    hierarchical_reranker_model: str = "BAAI/bge-reranker-base"  # Cross-Encoder 重排序模型
-    hierarchical_cache_ttl: int = 300  # 检索结果缓存 TTL（秒）
-    hierarchical_chunk_size: int = 256  # 段落分块大小
-    hierarchical_chunk_overlap: int = 32  # 分块重叠大小
-    hierarchical_rrf_k: int = 60  # RRF 融合参数
     prompt_component_max_chars: int = 20000
     prompt_total_max_chars: int = 60000
     # ---- Skills 目录配置 ----
