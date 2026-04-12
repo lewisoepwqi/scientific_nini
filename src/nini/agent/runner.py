@@ -840,6 +840,18 @@ class AgentRunner:
                     self._last_tool_exposure_policy.get("forced_visible_tools"),
                     self._last_tool_exposure_policy.get("policy_warnings"),
                 )
+            # 注入阶段过渡提示：告知 LLM 当前隐藏工具及解锁方式
+            if isinstance(self._last_tool_exposure_policy, dict):
+                _transition_hint = str(
+                    self._last_tool_exposure_policy.get("stage_transition_hint") or ""
+                ).strip()
+                if _transition_hint:
+                    if pending_followup_prompt:
+                        pending_followup_prompt = (
+                            pending_followup_prompt + "\n" + _transition_hint
+                        )
+                    else:
+                        pending_followup_prompt = _transition_hint
             followup_prompt_for_purpose = pending_followup_prompt
             if pending_followup_prompt:
                 messages = [
