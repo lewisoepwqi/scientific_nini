@@ -486,10 +486,21 @@ class TaskWriteTool(Tool):
                 if current_in_progress.tool_hint
                 else ""
             )
+            next_pending = next((t for t in result.manager.tasks if t.status == "pending"), None)
+            transition_reminder = ""
+            if next_pending:
+                transition_reminder = (
+                    f" 完成后请先调用 task_state 将本任务标为 completed、"
+                    f"再将任务{next_pending.id}「{next_pending.title}」标为 in_progress，"
+                    "以解锁下一阶段工具。"
+                )
+            else:
+                transition_reminder = " 完成后请调用 task_state 将本任务标为 completed。"
             message = (
                 f"任务{current_in_progress.id}「{current_in_progress.title}」已标记为进行中"
                 f"{hint_text}。"
                 f"请直接执行分析操作，还有 {pending} 个任务待开始。"
+                f"{transition_reminder}"
             )
         else:
             next_pending = next((t for t in result.manager.tasks if t.status == "pending"), None)

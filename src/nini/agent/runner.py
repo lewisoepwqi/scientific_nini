@@ -840,6 +840,16 @@ class AgentRunner:
                     self._last_tool_exposure_policy.get("forced_visible_tools"),
                     self._last_tool_exposure_policy.get("policy_warnings"),
                 )
+            # 注入阶段过渡提示：告知 LLM 当前隐藏工具及解锁方式
+            if isinstance(self._last_tool_exposure_policy, dict):
+                _transition_hint = str(
+                    self._last_tool_exposure_policy.get("stage_transition_hint") or ""
+                ).strip()
+                if _transition_hint:
+                    if pending_followup_prompt:
+                        pending_followup_prompt = pending_followup_prompt + "\n" + _transition_hint
+                    else:
+                        pending_followup_prompt = _transition_hint
             followup_prompt_for_purpose = pending_followup_prompt
             if pending_followup_prompt:
                 messages = [
@@ -4076,7 +4086,9 @@ class AgentRunner:
         except json.JSONDecodeError:
             func_args = {}
 
-        agents_list: list[dict] = func_args.get("agents", [])
+        agents_list: list[dict[str, Any]] | None = func_args.get("agents") or None
+        tasks_list: list[dict[str, Any]] | None = func_args.get("tasks") or None
+        wave_id: str | None = func_args.get("wave_id") or None
 
         # 获取 dispatch_agents 工具实例
         if self._tool_registry is None:
@@ -4125,6 +4137,8 @@ class AgentRunner:
             skill_result = await skill.execute(
                 session,
                 agents=agents_list,
+                tasks=tasks_list,
+                wave_id=wave_id,
                 turn_id=turn_id,
                 tool_call_id=tc_id,
             )

@@ -343,6 +343,32 @@ def resolve_surface_stage(session: Any, *, user_message: str | None = None) -> s
     return recent_stage or "profile"
 
 
+# 阶段 → 工具集的映射（用于 look-ahead）
+_STAGE_TOOLS_MAP: dict[str, set[str]] = {
+    "profile": _PROFILE_TOOLS,
+    "analysis": _ANALYSIS_TOOLS,
+    "visualization": _VISUALIZATION_TOOLS,
+    "export": _EXPORT_TOOLS,
+}
+
+
+def _resolve_next_pending_stage(session: Any) -> str | None:
+    """查找下一个 pending 任务的阶段（look-ahead 用）。
+
+    只检查第一个 pending 任务，不递归查找。
+    """
+    if session is None or not hasattr(session, "task_manager"):
+        return None
+    manager = getattr(session, "task_manager", None)
+    tasks = getattr(manager, "tasks", None)
+    if not isinstance(tasks, list):
+        return None
+    for task in tasks:
+        if getattr(task, "status", None) == "pending":
+            return resolve_stage_from_tool_hint(getattr(task, "tool_hint", None))
+    return None
+
+
 def compute_tool_exposure_policy(
     *,
     session: Any,
@@ -384,6 +410,10 @@ def compute_tool_exposure_policy(
                 stage, recent_reason = _resolve_stage_from_recent_messages(session)
                 stage_reason = recent_reason
 
+    authorization_state: dict[str, bool] = {}
+    forced_visible_tools: list[str] = []
+    policy_warnings: list[str] = []
+
     allowed = set(_ALWAYS_ALLOWED)
     if stage == "profile":
         allowed |= _PROFILE_TOOLS
@@ -394,9 +424,20 @@ def compute_tool_exposure_policy(
     else:
         allowed |= _ANALYSIS_TOOLS
 
-    authorization_state: dict[str, bool] = {}
-    forced_visible_tools: list[str] = []
-    policy_warnings: list[str] = []
+    # ── look-ahead：当前任务未标记 completed 时，预解锁下一阶段工具 ──
+    if stage in {"profile", "visualization"} and session is not None:
+        next_pending_stage = _resolve_next_pending_stage(session)
+        if next_pending_stage and next_pending_stage != stage:
+            lookahead_tools = _STAGE_TOOLS_MAP.get(next_pending_stage, set())
+            lookahead_visible = [name for name in all_tools if name in lookahead_tools]
+            if lookahead_visible:
+                allowed.update(lookahead_visible)
+                policy_warnings.append(
+                    f"当前阶段为 {stage}，但下一待执行任务属于 {next_pending_stage} 阶段，"
+                    "已预解锁其工具（look-ahead）。"
+                    "请完成当前任务后调用 task_state 更新状态。"
+                )
+
     for tool_name in list(allowed):
         if tool_name not in _HIGH_RISK_TOOLS:
             continue
@@ -436,6 +477,24 @@ def compute_tool_exposure_policy(
     visible_tools = [name for name in all_tools if name in allowed]
     hidden_tools = [name for name in all_tools if name not in allowed]
     removed_by_policy = [name for name in hidden_tools if name not in _ALWAYS_ALLOWED]
+
+    # ── 构建阶段过渡提示（供 runner 注入 LLM 上下文）──
+    stage_transition_hint: str | None = None
+    if removed_by_policy and active_task_id is not None:
+        next_stage = _resolve_next_pending_stage(session)
+        if next_stage:
+            representative_tools = [
+                name for name in removed_by_policy[:3] if name not in _ALWAYS_ALLOWED
+            ]
+            tool_list = "、".join(f"`{n}`" for n in representative_tools)
+            if len(removed_by_policy) > 3:
+                tool_list += f"等 {len(removed_by_policy)} 个工具"
+            stage_transition_hint = (
+                f"当前处于「{stage}」阶段，{tool_list} 等工具暂不可用。"
+                f"完成任务{active_task_id}后调用 task_state 更新状态，"
+                f"将自动解锁「{next_stage}」阶段工具。"
+            )
+
     return {
         "stage": stage,
         "stage_reason": stage_reason,
@@ -449,4 +508,5 @@ def compute_tool_exposure_policy(
         "high_risk_tools": [name for name in all_tools if name in _HIGH_RISK_TOOLS],
         "forced_visible_tools": forced_visible_tools,
         "policy_warnings": policy_warnings,
+        "stage_transition_hint": stage_transition_hint,
     }

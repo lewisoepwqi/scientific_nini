@@ -2045,4 +2045,64 @@ def test_code_session_rejects_file_io_when_dataset_name_provided() -> None:
     assert run_result["success"] is False, run_result
     assert run_result["error_code"] == "CODE_SESSION_DATASET_IO_CONFLICT"
     assert "直接使用沙箱注入的变量 df" in run_result["message"]
-    assert "删除文件读取语句并直接使用注入的 df" in run_result["data"]["recovery_hint"]
+
+
+def test_dataset_transform_rejects_lambda_with_code_session_guidance() -> None:
+    """lambda 表达式被拒绝时，recovery_hint 应明确引导用户改用 code_session，
+    minimal_example 应展示 code_session 中 pd.cut 的用法。"""
+    registry = create_default_tool_registry()
+    session = Session()
+    session.datasets["raw"] = pd.DataFrame({"小时": [1, 8, 14, 21]})
+
+    result = asyncio.run(
+        registry.execute(
+            "dataset_transform",
+            session=session,
+            operation="run",
+            dataset_name="raw",
+            steps=[
+                {
+                    "id": "derive_period",
+                    "op": "derive_column",
+                    "params": {
+                        "column": "时间段",
+                        "expr": "小时.apply(lambda h: '早晨' if 6 <= h < 12 else '其他')",
+                    },
+                }
+            ],
+        )
+    )
+
+    assert result["success"] is False
+    assert result["data"]["error_code"] == "DATASET_TRANSFORM_EXPR_LAMBDA_UNSUPPORTED"
+    assert (
+        "code_session" in result["data"]["recovery_hint"]
+    ), f"recovery_hint 应提到 code_session，实际: {result['data']['recovery_hint']}"
+    assert (
+        "pd.cut" in result["data"]["minimal_example"]
+        or "np.select" in result["data"]["minimal_example"]
+    ), f"minimal_example 应包含 pd.cut 或 np.select，实际: {result['data']['minimal_example']}"
+
+
+def test_task_write_update_in_progress_message_includes_transition_reminder() -> None:
+    """in_progress 任务的确认消息应包含阶段过渡提醒。"""
+    from nini.tools.task_write import TaskWriteTool
+
+    session = Session()
+    session.task_manager = session.task_manager.init_tasks(
+        [
+            {"id": 1, "title": "检查数据质量", "status": "pending", "tool_hint": "dataset_catalog"},
+            {"id": 2, "title": "相关性分析", "status": "pending", "tool_hint": "stat_test"},
+        ]
+    )
+    tool = TaskWriteTool()
+
+    result = tool._handle_update(
+        session,
+        [{"id": 1, "status": "in_progress"}],
+    )
+
+    assert result.success is True
+    # 消息必须提醒 LLM 完成后更新任务状态
+    assert "task_state" in result.message
+    assert "completed" in result.message

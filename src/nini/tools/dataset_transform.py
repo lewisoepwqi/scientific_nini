@@ -918,8 +918,15 @@ class DatasetTransformTool(Tool):
                     "表达式不支持 lambda",
                     error_code="DATASET_TRANSFORM_EXPR_LAMBDA_UNSUPPORTED",
                     expected_params=["expr"],
-                    recovery_hint="请改写为列运算、布尔表达式或拆成多步处理。",
-                    minimal_example='{"column":"白天标志","expr":"(小时 >= 6) & (小时 < 22)"}',
+                    recovery_hint=(
+                        "lambda 需要逐行执行自由 Python，请改用 code_session 并传入 dataset_name。"
+                        "多条件分类示例：df['时间段'] = pd.cut(df['小时'], bins=[0,6,12,18,24], "
+                        "labels=['夜间','早晨','下午','晚上'], right=False)"
+                    ),
+                    minimal_example=(
+                        "code_session 中: df['时间段'] = pd.cut(df['小时'], "
+                        "bins=[0,6,12,18,24], labels=['夜间','早晨','下午','晚上'], right=False)"
+                    ),
                     step_id=step_id,
                     op=op,
                 )

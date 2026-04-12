@@ -10,6 +10,16 @@ from nini.agent.sub_session import SubSession
 # ─── 辅助 ───────────────────────────────────────────────────────────────────
 
 
+class _FakeRegistry:
+    """最小工具注册表，仅供 compute_tool_exposure_policy 测试使用。"""
+
+    def __init__(self, tools: list[str]) -> None:
+        self._tools = tools
+
+    def list_tools(self) -> list[str]:
+        return list(self._tools)
+
+
 def _make_runner_with_dispatch_registered():
     """构建已注册 dispatch_agents 工具的 AgentRunner。"""
     from nini.agent.spawner import SubAgentResult
@@ -221,3 +231,106 @@ async def test_handle_dispatch_agents_no_registry_yields_error_event():
 
     # 应产生至少一个事件（错误事件）
     assert len(events) >= 1
+
+
+@pytest.mark.asyncio
+async def test_handle_dispatch_agents_passes_tasks_format():
+    """_handle_dispatch_agents 应正确透传 tasks=[...] 格式给 skill.execute，
+    使 agent_count > 0 而非静默返回 0。"""
+    from nini.agent.events import EventType
+
+    runner = _make_runner_with_dispatch_registered()
+    sub_session = _make_sub_session()
+    # 置空 task_manager，使 wave 校验跳过（无任务图时不约束 wave）
+    sub_session.task_manager = None  # type: ignore[assignment]
+
+    dispatch_tc = {
+        "id": "call-tasks-001",
+        "function": {
+            "name": "dispatch_agents",
+            "arguments": '{"tasks": [{"task_id": 1, "agent_id": "literature_search", "task": "执行检索"}]}',
+        },
+    }
+
+    events = []
+    async for evt in runner._handle_dispatch_agents(dispatch_tc, sub_session, "turn-t01"):
+        events.append(evt)
+
+    tool_result_event = next(
+        (e for e in events if getattr(e, "type", None) == EventType.TOOL_RESULT), None
+    )
+    assert tool_result_event is not None
+    result_payload = tool_result_event.data["data"]["result"]["metadata"]
+    assert result_payload["agent_count"] == 1, (
+        f"期望 agent_count=1，实际 {result_payload['agent_count']}。"
+        "runner.py 可能未将 tasks 透传给 skill.execute()。"
+    )
+    assert result_payload["success_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_dispatch_agents_passes_wave_id():
+    """wave_id 字段应从 func_args 透传给 skill.execute，出现在 metadata 中。"""
+    from nini.agent.events import EventType
+
+    runner = _make_runner_with_dispatch_registered()
+    sub_session = _make_sub_session()
+
+    dispatch_tc = {
+        "id": "call-wave-001",
+        "function": {
+            "name": "dispatch_agents",
+            "arguments": '{"wave_id": "wave-abc", "agents": [{"agent_id": "literature_search", "task": "检索"}]}',
+        },
+    }
+
+    events = []
+    async for evt in runner._handle_dispatch_agents(dispatch_tc, sub_session, "turn-w01"):
+        events.append(evt)
+
+    tool_result_event = next(
+        (e for e in events if getattr(e, "type", None) == EventType.TOOL_RESULT), None
+    )
+    assert tool_result_event is not None
+    result_payload = tool_result_event.data["data"]["result"]["metadata"]
+    assert result_payload.get("wave_id") == "wave-abc"
+
+
+# ─── stage_transition_hint 注入 ─────────────────────────────────────────────
+
+
+def test_stage_transition_hint_injected_into_followup_prompt() -> None:
+    """当 _last_tool_exposure_policy 包含 stage_transition_hint 时，
+    runner 应将其追加到 pending_followup_prompt 中。"""
+    # 此测试验证 runner 的上下文注入逻辑读取 hint 并设置 followup prompt
+    # 由于 runner 测试环境复杂，这里通过集成路径验证 hint 的传递链
+    from nini.agent.tool_exposure_policy import compute_tool_exposure_policy
+    from nini.agent.session import Session
+
+    session = Session()
+    session.task_manager = session.task_manager.init_tasks(
+        [
+            {
+                "id": 1,
+                "title": "数据预处理",
+                "status": "completed",
+                "tool_hint": "dataset_transform",
+            },
+            {"id": 2, "title": "相关性分析", "status": "in_progress", "tool_hint": "stat_test"},
+            {"id": 3, "title": "导出报告", "status": "pending", "tool_hint": "export_document"},
+        ]
+    )
+    registry = _FakeRegistry(
+        ["task_state", "stat_test", "code_session", "export_chart", "export_document"]
+    )
+
+    policy = compute_tool_exposure_policy(
+        session=session,
+        tool_registry=registry,
+        user_message="继续分析",
+    )
+
+    # 验证 hint 存在且格式正确
+    assert policy["stage_transition_hint"] is not None
+    assert "task_state" in policy["stage_transition_hint"]
+    assert "export_chart" in policy["stage_transition_hint"]
