@@ -111,8 +111,8 @@ def test_setup_logging_normalizes_uvicorn_error_logger_name(
     _flush_managed_handlers()
 
     log_text = settings.log_file_path.read_text(encoding="utf-8")
-    assert "INFO uvicorn [request_id=" in log_text
-    assert "INFO uvicorn.error [request_id=" not in log_text
+    assert "INFO uvicorn " in log_text
+    assert "INFO uvicorn.error " not in log_text
 
 
 @pytest.mark.asyncio

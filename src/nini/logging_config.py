@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from contextvars import ContextVar, Token
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
@@ -16,8 +17,6 @@ _CONTEXT_FIELDS = (
     "request_id",
     "connection_id",
     "session_id",
-    "turn_id",
-    "tool_call_id",
 )
 _MANAGED_HANDLER_ATTR = "_nini_managed_handler"
 _ORIGINAL_RECORD_FACTORY = logging.getLogRecordFactory()
@@ -110,16 +109,123 @@ def _remove_managed_handlers(logger: logging.Logger) -> None:
             continue
 
 
+def _build_context_tag(record: logging.LogRecord) -> str:
+    """根据日志记录的上下文字段动态构建标签，省略值为 '-' 的字段。"""
+    parts: list[str] = []
+    for field in _CONTEXT_FIELDS:
+        value = getattr(record, field, "-")
+        if value and value != "-":
+            parts.append(f"{field}={value}")
+    if not parts:
+        return ""
+    return f"[{' '.join(parts)}] "
+
+
+class _ContextFormatter(logging.Formatter):
+    """动态上下文格式化基类，省略空上下文字段。"""
+
+    # 子类共用同一模板，上下文部分由 format() 动态插入。
+    _BASE_FMT = "%(asctime)s %(levelname)s %(logger_name)s %(message)s"
+
+    def __init__(self) -> None:
+        super().__init__(self._BASE_FMT)
+
+    def format(self, record: logging.LogRecord) -> str:
+        msg = super().format(record)
+        context_tag = _build_context_tag(record)
+        if not context_tag:
+            return msg
+        # 在模块名和消息之间插入上下文标签。
+        logger_name = getattr(record, "logger_name", record.name)
+        # 基类 format 后的格式: "asctime LEVELNAME module message"
+        # 找到模块名后、消息前的位置插入。
+        name_end = msg.find(logger_name) + len(logger_name) if logger_name else 0
+        return msg[:name_end] + " " + context_tag + msg[name_end:].lstrip()
+
+
 def _build_formatter() -> logging.Formatter:
-    """构建统一日志格式。"""
-    return logging.Formatter(
-        (
-            "%(asctime)s %(levelname)s %(logger_name)s "
-            "[request_id=%(request_id)s connection_id=%(connection_id)s "
-            "session_id=%(session_id)s turn_id=%(turn_id)s "
-            "tool_call_id=%(tool_call_id)s] %(message)s"
-        )
-    )
+    """构建统一日志格式（纯文本，用于文件 handler）。"""
+    return _ContextFormatter()
+
+
+# ANSI 终端颜色标记，供 ColoredFormatter 使用。
+_LEVEL_STYLES: dict[int, str] = {
+    logging.CRITICAL: "bold red",
+    logging.ERROR: "bold red",
+    logging.WARNING: "yellow",
+    logging.INFO: "green",
+    logging.DEBUG: "dim",
+    TRACE_LEVEL: "dim",
+}
+
+
+class ColoredFormatter(_ContextFormatter):
+    """控制台日志着色 Formatter，仅对终端（tty）输出 ANSI 颜色。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        from rich.console import Console
+
+        self._console = Console(file=sys.stderr, force_terminal=True)
+        self._is_tty = sys.stderr.isatty()
+
+    def format(self, record: logging.LogRecord) -> str:
+        # 非终端时回退到纯文本。
+        if not self._is_tty:
+            return super().format(record)
+
+        from rich.text import Text
+
+        # 先通过基类获取完整纯文本（含动态上下文）。
+        text = super().format(record)
+        level_style = _LEVEL_STYLES.get(record.levelno, "")
+
+        # 拆分结构化部分：时间戳 | 级别 | 模块名 | 上下文 | 消息
+        asctime = record.asctime  # type: ignore[attr-defined]
+        ts_end = text.find(asctime) + len(asctime) if asctime else 0
+        ts_part = text[:ts_end]
+        remainder = text[ts_end:].lstrip()
+
+        level_name = record.levelname
+        level_end = remainder.find(level_name) + len(level_name) if level_name else 0
+        level_part = remainder[:level_end]
+        remainder = remainder[level_end:].lstrip()
+
+        logger_name = getattr(record, "logger_name", record.name)
+        name_end = remainder.find(logger_name) + len(logger_name) if logger_name else 0
+        name_part = remainder[:name_end]
+        remainder = remainder[name_end:].lstrip()
+
+        # remainder 现在是 [context] message 或直接 message
+        context_part = ""
+        if remainder.startswith("["):
+            bracket_end = remainder.find("] ")
+            if bracket_end != -1:
+                context_part = remainder[: bracket_end + 1]
+                remainder = remainder[bracket_end + 1 :].lstrip()
+
+        # 组装带颜色的 Text 对象
+        rich_text = Text()
+        if ts_part:
+            rich_text.append(ts_part, style="dim")
+            rich_text.append(" ")
+        rich_text.append(level_part, style=level_style or "")
+        rich_text.append(" ")
+        rich_text.append(name_part, style="blue")
+        rich_text.append(" ")
+        if context_part:
+            rich_text.append(context_part, style="dim")
+            rich_text.append(" ")
+        rich_text.append(remainder)
+
+        with self._console.capture() as capture:
+            self._console.print(rich_text, end="", highlight=False)
+        return capture.get()
+
+
+def _build_colored_formatter() -> ColoredFormatter:
+    """构建带颜色的控制台日志格式。"""
+    return ColoredFormatter()
 
 
 def _mark_managed(handler: logging.Handler) -> logging.Handler:
@@ -156,7 +262,7 @@ def setup_logging(
 
     console_handler = _mark_managed(logging.StreamHandler())
     console_handler.setLevel(resolved_level)
-    console_handler.setFormatter(formatter)
+    console_handler.setFormatter(_build_colored_formatter())
     root_logger.addHandler(console_handler)
 
     log_path: Path | None = target_dir / target_name
