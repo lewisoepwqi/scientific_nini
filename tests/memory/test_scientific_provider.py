@@ -154,7 +154,7 @@ async def test_on_session_end_consolidates_statistics(provider: ScientificMemory
         ],
     )
     with patch(
-        "nini.memory.scientific_provider.list_session_analysis_memories",
+        "nini.memory.compression.list_session_analysis_memories",
         return_value=[memory],
     ):
         await provider.on_session_end([])
@@ -175,7 +175,7 @@ async def test_on_session_end_consolidates_findings(provider: ScientificMemoryPr
         findings=[Finding(category="distribution", summary="正偏斜分布", confidence=0.85)],
     )
     with patch(
-        "nini.memory.scientific_provider.list_session_analysis_memories",
+        "nini.memory.compression.list_session_analysis_memories",
         return_value=[memory],
     ):
         await provider.on_session_end([])
@@ -196,7 +196,7 @@ async def test_on_session_end_skips_low_confidence(provider: ScientificMemoryPro
         findings=[Finding(category="noise", summary="不确定的发现低置信度", confidence=0.3)],
     )
     with patch(
-        "nini.memory.scientific_provider.list_session_analysis_memories",
+        "nini.memory.compression.list_session_analysis_memories",
         return_value=[memory],
     ):
         await provider.on_session_end([])
@@ -210,7 +210,7 @@ async def test_on_session_end_is_graceful_on_error(provider: ScientificMemoryPro
     from unittest.mock import patch
 
     with patch(
-        "nini.memory.scientific_provider.list_session_analysis_memories",
+        "nini.memory.compression.list_session_analysis_memories",
         side_effect=RuntimeError("故意失败"),
     ):
         await provider.on_session_end([])  # 不应抛出

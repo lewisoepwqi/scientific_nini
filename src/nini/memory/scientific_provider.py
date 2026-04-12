@@ -10,7 +10,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from nini.memory.compression import list_session_analysis_memories
 from nini.memory.manager import build_memory_context_block
 from nini.memory.memory_store import MemoryStore
 from nini.memory.provider import MemoryProvider
@@ -211,6 +210,8 @@ class ScientificMemoryProvider(MemoryProvider):
         if self._store is None:
             return
         try:
+            from nini.memory.compression import list_session_analysis_memories
+
             sid = self._session_id
             memories = list_session_analysis_memories(sid)
             count = 0
