@@ -7,50 +7,11 @@ from __future__ import annotations
 
 import pytest
 
-from nini.intent.multi_intent import detect_multi_intent
 from nini.intent.subtypes import get_difference_subtype
 from nini.intent.base import IntentAnalysis, IntentCandidate
 from nini.intent.optimized import OptimizedIntentAnalyzer
 
-# ============================================================================
-# 5.1–5.4 多意图检测
-# ============================================================================
-
-
-def test_multi_intent_sequential_with_punctuation():
-    """5.1 有标点的顺序复合查询，返回两个子意图。"""
-    result = detect_multi_intent("先做相关性分析，然后画散点图")
-    assert result is not None
-    assert len(result.intents) == 2
-
-
-def test_multi_intent_single_intent_returns_none():
-    """5.2 单一意图返回 None。"""
-    result = detect_multi_intent("帮我做差异分析")
-    assert result is None
-
-
-def test_multi_intent_parallel():
-    """5.3 并行复合查询返回两个子意图，is_parallel=True。"""
-    result = detect_multi_intent("同时帮我做相关分析和画柱状图")
-    assert result is not None
-    assert len(result.intents) == 2
-    assert result.is_parallel is True
-
-
-def test_multi_intent_sequential_without_punctuation():
-    """5.4 无标点的顺序复合查询，通过连接词分割，is_sequential=True。"""
-    result = detect_multi_intent("先做相关性分析然后画散点图")
-    assert result is not None
-    assert len(result.intents) == 2
-    assert result.is_sequential is True
-
-
-# ============================================================================
-# 5.5 多意图路由集成
-# ============================================================================
-
-
+# 5.1–5.4 多意图检测已随 detect_multi_intent 删除而移除
 # test_route_multi_intent_returns_merged_decision 已随 TaskRouter 删除而移除
 
 
