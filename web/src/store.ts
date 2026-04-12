@@ -1585,9 +1585,7 @@ export const useStore = create<AppState>((set, get) => ({
         workspacePanelTab:
           cachedSessionUi && shouldUseCachedUi
             ? cachedSessionUi.workspacePanelTab
-            : restoredPlanProgress || restoredAnalysisTasks.length > 0
-              ? "tasks"
-              : "files",
+            : "files",
         _currentTurnId:
           cachedSessionUi && shouldUseCachedUi
             ? cachedSessionUi.currentTurnId

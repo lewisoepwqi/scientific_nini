@@ -120,17 +120,26 @@ class MarkdownToolRegistryOps:
         markdown_skills = scan_markdown_tools(settings.skills_search_dirs)
         deduped: list[dict[str, Any]] = []
         seen_markdown_names: set[str] = set()
+        duplicate_names: list[str] = []
 
         for skill in markdown_skills:
             if skill.name in seen_markdown_names:
-                logger.warning(
-                    "检测到同名 Markdown 技能，低优先级版本将被忽略: %s (%s)",
+                duplicate_names.append(skill.name)
+                logger.debug(
+                    "忽略低优先级 Markdown 技能: %s (%s)",
                     skill.name,
                     skill.location,
                 )
                 continue
             seen_markdown_names.add(skill.name)
             deduped.append(skill.to_dict())
+
+        if duplicate_names:
+            logger.info(
+                "检测到 %d 个同名 Markdown 技能覆盖，已按优先级忽略低优先级版本: %s",
+                len(duplicate_names),
+                ", ".join(sorted(set(duplicate_names))),
+            )
 
         items: list[dict[str, Any]] = []
         markdown_names: set[str] = set()

@@ -44,11 +44,20 @@ class TestAnalysisPlanEventBuilder:
                 "status": "completed",
                 "action_id": "task_1",
                 "raw_status": "completed",
+                "depends_on": [],
+                "executor": "subagent",
+                "owner": "data_cleaner",
+                "input_refs": ["dataset:raw.v1"],
+                "output_refs": ["dataset:cleaned.v1"],
+                "handoff_contract": {"required_columns": ["age"]},
+                "tool_profile": "cleaning_execution",
+                "failure_policy": "stop_pipeline",
+                "acceptance_checks": ["缺失率已下降"],
             },
             {
                 "id": 2,
                 "title": "步骤2",
-                "status": "in_progress",
+                "status": "blocked",
                 "action_id": "task_2",
             },
         ]
@@ -63,6 +72,9 @@ class TestAnalysisPlanEventBuilder:
         assert event.data["steps"][1]["action_id"] == "task_2"
         # 验证 raw_status 被正确传递
         assert event.data["steps"][0]["raw_status"] == "completed"
+        assert event.data["steps"][0]["executor"] == "subagent"
+        assert event.data["steps"][0]["handoff_contract"] == {"required_columns": ["age"]}
+        assert event.data["steps"][1]["status"] == "blocked"
         # 验证 turn_id 和 seq
         assert event.turn_id == "turn_1"
         assert event.metadata["seq"] == 1
@@ -79,6 +91,9 @@ class TestAnalysisPlanEventBuilder:
         assert step["status"] == "pending"
         assert step["action_id"] is None
         assert step["raw_status"] is None
+        assert step["depends_on"] == []
+        assert step["input_refs"] == []
+        assert step["acceptance_checks"] == []
         # 验证 turn_id 与 metadata 默认值
         assert event.turn_id is None
         assert event.metadata == {}
@@ -108,7 +123,14 @@ class TestPlanProgressEventBuilder:
         """构造计划进度事件。"""
         steps = [
             {"id": 1, "title": "步骤1", "status": "completed"},
-            {"id": 2, "title": "步骤2", "status": "in_progress"},
+            {
+                "id": 2,
+                "title": "步骤2",
+                "status": "blocked",
+                "executor": "subagent",
+                "input_refs": ["dataset:cleaned.v1"],
+                "failure_policy": "retryable",
+            },
         ]
 
         event = build_plan_progress_event(
@@ -116,14 +138,17 @@ class TestPlanProgressEventBuilder:
             current_step_index=2,
             total_steps=2,
             step_title="步骤2",
-            step_status="in_progress",
+            step_status="blocked",
             next_hint="下一步操作",
+            block_reason="等待用户补充字段映射",
         )
 
         assert event.type == EventType.PLAN_PROGRESS
         assert event.data["current_step_index"] == 2
         assert event.data["next_hint"] == "下一步操作"
-        assert event.data["block_reason"] is None
+        assert event.data["block_reason"] == "等待用户补充字段映射"
+        assert event.data["steps"][1]["status"] == "blocked"
+        assert event.data["steps"][1]["executor"] == "subagent"
 
 
 class TestTaskAttemptEventBuilder:

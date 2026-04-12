@@ -235,6 +235,43 @@ export function normalizeAnalysisSteps(rawSteps: unknown): AnalysisStep[] {
         typeof item.raw_status === "string" && item.raw_status.trim()
           ? item.raw_status.trim()
           : undefined;
+      const dependsOn = Array.isArray(item.depends_on)
+        ? item.depends_on.filter((dep): dep is number => typeof dep === "number" && Number.isFinite(dep))
+        : undefined;
+      const executor =
+        item.executor === "main_agent" || item.executor === "subagent" || item.executor === "local_tool"
+          ? item.executor
+          : null;
+      const owner =
+        typeof item.owner === "string" && item.owner.trim() ? item.owner.trim() : null;
+      const inputRefs = Array.isArray(item.input_refs)
+        ? item.input_refs
+            .map((ref: unknown) => (typeof ref === "string" ? ref.trim() : ""))
+            .filter(Boolean)
+        : [];
+      const outputRefs = Array.isArray(item.output_refs)
+        ? item.output_refs
+            .map((ref: unknown) => (typeof ref === "string" ? ref.trim() : ""))
+            .filter(Boolean)
+        : [];
+      const handoffContract = isRecord(item.handoff_contract)
+        ? { ...item.handoff_contract }
+        : null;
+      const toolProfile =
+        typeof item.tool_profile === "string" && item.tool_profile.trim()
+          ? item.tool_profile.trim()
+          : null;
+      const failurePolicy =
+        item.failure_policy === "stop_pipeline" ||
+        item.failure_policy === "allow_partial" ||
+        item.failure_policy === "retryable"
+          ? item.failure_policy
+          : null;
+      const acceptanceChecks = Array.isArray(item.acceptance_checks)
+        ? item.acceptance_checks
+            .map((check: unknown) => (typeof check === "string" ? check.trim() : ""))
+            .filter(Boolean)
+        : [];
       return {
         id,
         title,
@@ -242,6 +279,15 @@ export function normalizeAnalysisSteps(rawSteps: unknown): AnalysisStep[] {
         status,
         action_id: actionId,
         raw_status: rawStatus,
+        depends_on: dependsOn,
+        executor,
+        owner,
+        input_refs: inputRefs,
+        output_refs: outputRefs,
+        handoff_contract: handoffContract,
+        tool_profile: toolProfile,
+        failure_policy: failurePolicy,
+        acceptance_checks: acceptanceChecks,
       };
     });
 }

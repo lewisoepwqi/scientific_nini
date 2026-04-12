@@ -21,11 +21,24 @@ class AnalysisPlanStep(BaseModel):
     id: int = Field(..., description="步骤 ID（1-based）")
     title: str = Field(..., description="步骤标题")
     tool_hint: Optional[str] = Field(None, description="推荐工具提示")
-    status: Literal["pending", "in_progress", "completed", "failed", "skipped"] = Field(
+    status: Literal["pending", "in_progress", "completed", "failed", "blocked", "skipped"] = Field(
         "pending", description="步骤状态"
     )
     action_id: Optional[str] = Field(None, description="动作 ID，用于任务关联")
     raw_status: Optional[str] = Field(None, description="后端原始状态")
+    depends_on: list[int] = Field(default_factory=list, description="依赖的前置步骤 ID 列表")
+    executor: Optional[Literal["main_agent", "subagent", "local_tool"]] = Field(
+        None, description="执行器类型"
+    )
+    owner: Optional[str] = Field(None, description="责任归属")
+    input_refs: list[str] = Field(default_factory=list, description="输入引用列表")
+    output_refs: list[str] = Field(default_factory=list, description="输出引用列表")
+    handoff_contract: Optional[dict[str, Any]] = Field(None, description="任务交接契约")
+    tool_profile: Optional[str] = Field(None, description="子 Agent 工具档位")
+    failure_policy: Optional[Literal["stop_pipeline", "allow_partial", "retryable"]] = Field(
+        None, description="失败处理策略"
+    )
+    acceptance_checks: list[str] = Field(default_factory=list, description="验收检查项")
 
 
 class AnalysisPlanEventData(BaseModel):

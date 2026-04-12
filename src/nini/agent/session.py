@@ -848,10 +848,15 @@ class SessionManager:
         """判断会话是否存在（内存或磁盘）。"""
         return session_id in self._sessions or self._session_exists_on_disk(session_id)
 
-    def list_sessions(self) -> list[dict[str, Any]]:
+    def list_sessions(self, *, include_subsessions: bool = False) -> list[dict[str, Any]]:
         sessions: dict[str, dict[str, Any]] = {}
 
         for sid, session in list(self._sessions.items()):
+            if (
+                not include_subsessions
+                and str(getattr(session, "parent_session_id", "") or "").strip()
+            ):
+                continue
             updated_at = self._get_session_updated_at_in_memory(session)
             created_at = self._get_session_created_at_in_memory(session)
             sessions[sid] = {
@@ -868,6 +873,8 @@ class SessionManager:
             if sid in sessions:
                 continue
             meta = self._load_session_meta(sid)
+            if not include_subsessions and bool(meta.get("is_subsession")):
+                continue
             message_count = self.get_total_message_count(sid, meta=meta)
             title = str(meta.get("title", "新会话") or "新会话")
             updated_at = self._derive_session_updated_at_iso(sid, meta)

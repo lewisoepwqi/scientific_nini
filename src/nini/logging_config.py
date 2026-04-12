@@ -24,6 +24,13 @@ _ORIGINAL_RECORD_FACTORY = logging.getLogRecordFactory()
 _RECORD_FACTORY_INSTALLED = False
 
 
+def _normalize_logger_name(name: str) -> str:
+    """归一化日志来源名称，避免第三方 logger 名称造成误解。"""
+    if name == "uvicorn.error":
+        return "uvicorn"
+    return name
+
+
 def _install_record_factory() -> None:
     """安装带上下文字段的 LogRecord 工厂。"""
     global _RECORD_FACTORY_INSTALLED
@@ -34,6 +41,7 @@ def _install_record_factory() -> None:
     def _record_factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
         record = _ORIGINAL_RECORD_FACTORY(*args, **kwargs)
         context = _LOG_CONTEXT.get()
+        setattr(record, "logger_name", _normalize_logger_name(record.name))
         for field in _CONTEXT_FIELDS:
             value = context.get(field)
             setattr(record, field, value if value else "-")
@@ -106,7 +114,7 @@ def _build_formatter() -> logging.Formatter:
     """构建统一日志格式。"""
     return logging.Formatter(
         (
-            "%(asctime)s %(levelname)s %(name)s "
+            "%(asctime)s %(levelname)s %(logger_name)s "
             "[request_id=%(request_id)s connection_id=%(connection_id)s "
             "session_id=%(session_id)s turn_id=%(turn_id)s "
             "tool_call_id=%(tool_call_id)s] %(message)s"
@@ -179,5 +187,14 @@ def setup_logging(
         uvicorn_logger.handlers.clear()
         uvicorn_logger.setLevel(resolved_level)
         uvicorn_logger.propagate = True
+
+    # httpx/httpcore 在 INFO 级别会打印每一条外部请求，启动探测和工具调用时噪声较大。
+    # 仅在 DEBUG 模式下保留逐请求日志，其他级别统一抬到 WARNING。
+    third_party_http_level = resolved_level if resolved_level <= logging.DEBUG else logging.WARNING
+    for logger_name in ("httpx", "httpcore"):
+        http_logger = logging.getLogger(logger_name)
+        http_logger.handlers.clear()
+        http_logger.setLevel(third_party_http_level)
+        http_logger.propagate = True
 
     return log_path

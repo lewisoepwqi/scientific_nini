@@ -105,6 +105,41 @@ def test_none_session_exposes_dispatch_agents():
     assert "dispatch_agents" in names
 
 
+def test_sub_session_keeps_subset_tools_without_stage_filter():
+    """子会话应直接使用 subset registry，不再被主 Agent 阶段策略二次裁剪。"""
+    from nini.tools.registry import ToolRegistry
+
+    class _SubsetOnlyTool:
+        name = "code_session"
+        description = "代码会话"
+        category = "utility"
+        expose_to_llm = True
+        parameters = {"type": "object", "properties": {}, "additionalProperties": False}
+
+        def get_tool_definition(self):
+            return {
+                "type": "function",
+                "function": {
+                    "name": "code_session",
+                    "description": "代码会话",
+                    "parameters": self.parameters,
+                },
+            }
+
+    registry = ToolRegistry()
+    registry._tools.clear()
+    registry._llm_exposed_function_tools = {"code_session"}
+    registry._tools["code_session"] = _SubsetOnlyTool()
+
+    runner = AgentRunner(tool_registry=registry)
+    sub_session = _make_sub_session()
+    tool_defs = runner._get_tool_definitions(session=sub_session)
+    names = {
+        t.get("function", {}).get("name") for t in tool_defs if isinstance(t.get("function"), dict)
+    }
+    assert "code_session" in names
+
+
 # ─── Orchestrator 钩子拦截 ────────────────────────────────────────────────────
 
 

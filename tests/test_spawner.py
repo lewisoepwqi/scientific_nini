@@ -534,6 +534,18 @@ async def test_execute_agent_none_preference_uses_analysis_purpose(tmp_path, mon
     ), f"None preference 应映射到 purpose='analysis'，实际: {resolver._purpose}"
 
 
+def test_extract_text_content_prefers_text_payload_content() -> None:
+    """子 Agent TEXT 事件的摘要应取 content，而不是整个 dict 的字符串化结果。"""
+    from nini.agent.events import AgentEvent, EventType
+
+    event = AgentEvent(
+        type=EventType.TEXT,
+        data={"content": "图表建议已生成", "output_level": None},
+    )
+
+    assert SubAgentSpawner._extract_text_content(event) == "图表建议已生成"
+
+
 @pytest.mark.asyncio
 async def test_spawn_marks_child_tool_error_as_failure_and_persists_child_session(
     tmp_path,
@@ -622,3 +634,62 @@ async def test_execute_agent_strips_task_state_tools_from_regular_subagents(
     assert captured_tools["tools"] == ["dataset_catalog"]
 
 
+@pytest.mark.asyncio
+async def test_execute_agent_prefers_tool_profile_over_allowed_tools(
+    tmp_path,
+    monkeypatch,
+):
+    """声明 tool_profile 时，运行时工具集应由 profile 决定而不是沿用宽松 allowed_tools。"""
+    from nini.config import settings
+
+    registry = MagicMock()
+    registry.get.return_value = AgentDefinition(
+        agent_id="profiled_stat_agent",
+        name="统计 Agent",
+        description="测试用",
+        system_prompt="你是统计助手",
+        purpose="analysis",
+        allowed_tools=["dataset_catalog", "task_state", "workspace_session"],
+        tool_profile="analysis_execution",
+        timeout_seconds=5,
+    )
+    tool_registry = make_tool_registry_with_list()
+    tool_registry.list_tools.return_value = [
+        "dataset_catalog",
+        "task_state",
+        "workspace_session",
+        "code_session",
+        "stat_test",
+        "stat_model",
+        "stat_interpret",
+        "analysis_memory",
+    ]
+    captured_tools: dict[str, list[str]] = {}
+
+    def capture_subset(tools):
+        captured_tools["tools"] = list(tools)
+        return MagicMock()
+
+    tool_registry.create_subset.side_effect = capture_subset
+    spawner = SubAgentSpawner(registry, tool_registry)
+    parent_session = make_mock_session_with_depth()
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+
+    async def fake_iter(_runner, _session, _task, _stop_event):
+        if False:
+            yield None
+
+    with patch.object(spawner, "_iterate_runner_events", side_effect=fake_iter):
+        result = await spawner.spawn("profiled_stat_agent", "执行统计分析", parent_session)
+
+    assert result.success is True
+    assert captured_tools["tools"] == [
+        "dataset_catalog",
+        "code_session",
+        "stat_test",
+        "stat_model",
+        "stat_interpret",
+        "analysis_memory",
+    ]

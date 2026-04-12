@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import uuid
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
+from nini.config import settings
 from nini.knowledge.hybrid_retriever import get_hybrid_retriever
 from nini.models.knowledge import (
     KnowledgeDocumentMetadata,
@@ -27,23 +27,38 @@ router = APIRouter(prefix="/api/knowledge")
 # 文档元数据存储（持久化到 JSON 文件）
 _document_store: dict[str, dict[str, Any]] = {}
 
-# 元数据文件路径（项目根目录下的 data/knowledge）
-_METADATA_FILE = Path(__file__).parent.parent.parent.parent / "data" / "knowledge" / "metadata.json"
+
+def _knowledge_dir() -> Path:
+    """返回知识库持久化目录。"""
+    return settings.knowledge_dir
+
+
+def _metadata_file() -> Path:
+    """返回知识库元数据文件路径。"""
+    return _knowledge_dir() / "metadata.json"
+
+
+def _document_file(doc_id: str) -> Path:
+    """返回知识库文档正文文件路径。"""
+    return _knowledge_dir() / f"{doc_id}.txt"
 
 
 def _load_document_store() -> None:
     """从文件加载文档元数据。如果 metadata.json 不存在，扫描现有文档文件。"""
     global _document_store
-    knowledge_dir = _METADATA_FILE.parent
+    knowledge_dir = _knowledge_dir()
+    metadata_file = _metadata_file()
+    _document_store = {}
 
-    if _METADATA_FILE.exists():
+    if metadata_file.exists():
         # 从 metadata.json 加载
         try:
-            with open(_METADATA_FILE, "r", encoding="utf-8") as f:
+            has_stale_metadata = False
+            with open(metadata_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 # 确保只加载有效的文档（文件仍然存在）
                 for doc_id, doc_meta in data.items():
-                    doc_file = knowledge_dir / f"{doc_id}.txt"
+                    doc_file = _document_file(doc_id)
                     if doc_file.exists():
                         # 读取文件内容
                         try:
@@ -54,6 +69,10 @@ def _load_document_store() -> None:
                             logger.warning(f"加载文档内容失败 {doc_id}: {e}")
                     else:
                         logger.warning(f"文档文件不存在，跳过: {doc_id}")
+                        has_stale_metadata = True
+            if has_stale_metadata:
+                # 启动时自动清理失效元数据，避免后续每次重启都重复告警。
+                _save_document_store()
             logger.info(f"已加载 {len(_document_store)} 个知识库文档")
         except Exception as e:
             logger.error(f"加载文档元数据失败: {e}")
@@ -100,13 +119,14 @@ def _load_document_store() -> None:
 def _save_document_store() -> None:
     """保存文档元数据到文件（不包含 content 字段）。"""
     try:
-        _METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+        metadata_file = _metadata_file()
+        metadata_file.parent.mkdir(parents=True, exist_ok=True)
         # 保存时不包含 content 字段（内容存储在单独的文件中）
         metadata_to_save = {}
         for doc_id, doc_meta in _document_store.items():
             meta_copy = {k: v for k, v in doc_meta.items() if k != "content"}
             metadata_to_save[doc_id] = meta_copy
-        with open(_METADATA_FILE, "w", encoding="utf-8") as f:
+        with open(metadata_file, "w", encoding="utf-8") as f:
             json.dump(metadata_to_save, f, ensure_ascii=False, indent=2)
     except Exception as e:
         logger.error(f"保存文档元数据失败: {e}")
@@ -217,6 +237,9 @@ async def upload_document(
             "chunk_count": 0,
         }
 
+        # 仅在索引成功后持久化正文，避免失败请求留下可被误恢复的孤儿文件。
+        doc_file = _document_file(doc_id)
+
         # 添加到混合检索器
         retriever = await get_hybrid_retriever()
         metadata = {
@@ -238,6 +261,8 @@ async def upload_document(
             _document_store[doc_id]["index_status"] = "indexed"
             # 估算 chunk 数量（简单按 1000 字符一个 chunk）
             _document_store[doc_id]["chunk_count"] = max(1, len(content_str) // 1000)
+            doc_file.parent.mkdir(parents=True, exist_ok=True)
+            doc_file.write_text(content_str, encoding="utf-8")
         else:
             _document_store[doc_id]["index_status"] = "failed"
 
@@ -252,6 +277,13 @@ async def upload_document(
         }
 
     except Exception as e:
+        _document_store.pop(doc_id, None)
+        doc_file = _document_file(doc_id) if "doc_id" in locals() else None
+        if doc_file is not None:
+            try:
+                doc_file.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("清理失败知识文档正文失败: %s", doc_file)
         logger.error(f"文档上传失败: {e}")
         raise HTTPException(status_code=500, detail=f"上传失败: {e}")
 
@@ -282,7 +314,7 @@ async def delete_document(document_id: str) -> dict[str, Any]:
 
         # 删除文档文件
         try:
-            doc_file = _METADATA_FILE.parent / f"{document_id}.txt"
+            doc_file = _document_file(document_id)
             if doc_file.exists():
                 doc_file.unlink()
         except Exception as e:

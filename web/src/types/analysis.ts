@@ -32,6 +32,22 @@ export interface AnalysisStep {
   raw_status?: string;
   /** 依赖的步骤 ID 列表，用于依赖关系展示 */
   depends_on?: number[];
+  /** 执行器类型 */
+  executor?: "main_agent" | "subagent" | "local_tool" | null;
+  /** 责任归属 */
+  owner?: string | null;
+  /** 输入引用列表 */
+  input_refs?: string[];
+  /** 输出引用列表 */
+  output_refs?: string[];
+  /** 任务交接契约 */
+  handoff_contract?: Record<string, unknown> | null;
+  /** 子 Agent 工具档位 */
+  tool_profile?: string | null;
+  /** 失败处理策略 */
+  failure_policy?: "stop_pipeline" | "allow_partial" | "retryable" | null;
+  /** 验收检查项 */
+  acceptance_checks?: string[];
 }
 
 /** 分析计划数据结构
@@ -96,6 +112,14 @@ export interface AnalysisTaskItem {
   updated_at: number;
   turn_id?: string | null;
   depends_on?: number[]; // 依赖的步骤 ID 列表
+  executor?: "main_agent" | "subagent" | "local_tool" | null;
+  owner?: string | null;
+  input_refs?: string[];
+  output_refs?: string[];
+  handoff_contract?: Record<string, unknown> | null;
+  tool_profile?: string | null;
+  failure_policy?: "stop_pipeline" | "allow_partial" | "retryable" | null;
+  acceptance_checks?: string[];
 }
 
 /** 计划步骤更新数据

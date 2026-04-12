@@ -8,7 +8,36 @@ from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
 from nini.tools.task_write import TaskWriteTool
 
-_TASK_STATUS_ENUM = ["pending", "in_progress", "completed", "failed", "skipped"]
+_TASK_STATUS_ENUM = ["pending", "in_progress", "completed", "failed", "blocked", "skipped"]
+
+
+def _task_metadata_properties() -> dict[str, Any]:
+    """任务扩展元数据字段。"""
+    return {
+        "executor": {
+            "type": "string",
+            "enum": ["main_agent", "subagent", "local_tool"],
+        },
+        "owner": {"type": "string"},
+        "input_refs": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "output_refs": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "handoff_contract": {"type": "object"},
+        "tool_profile": {"type": "string"},
+        "failure_policy": {
+            "type": "string",
+            "enum": ["stop_pipeline", "allow_partial", "retryable"],
+        },
+        "acceptance_checks": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+    }
 
 
 def _build_init_task_item_schema() -> dict[str, Any]:
@@ -27,6 +56,7 @@ def _build_init_task_item_schema() -> dict[str, Any]:
                 "type": "array",
                 "items": {"type": "integer"},
             },
+            **_task_metadata_properties(),
         },
         "required": ["id", "title", "status"],
         "additionalProperties": False,
@@ -45,6 +75,7 @@ def _build_update_task_item_schema() -> dict[str, Any]:
                 "enum": _TASK_STATUS_ENUM,
             },
             "tool_hint": {"type": "string"},
+            **_task_metadata_properties(),
         },
         "required": ["id", "status"],
         "additionalProperties": False,
@@ -67,6 +98,7 @@ def _build_generic_task_item_schema() -> dict[str, Any]:
                 "type": "array",
                 "items": {"type": "integer"},
             },
+            **_task_metadata_properties(),
         },
         "required": ["id", "status"],
         "additionalProperties": False,

@@ -254,6 +254,14 @@ export function handleExtendedEvent(
             updated_at: now,
             turn_id: currentTurnId,
             depends_on: step.depends_on,
+            executor: step.executor ?? null,
+            owner: step.owner ?? null,
+            input_refs: step.input_refs ?? [],
+            output_refs: step.output_refs ?? [],
+            handoff_contract: step.handoff_contract ?? null,
+            tool_profile: step.tool_profile ?? null,
+            failure_policy: step.failure_policy ?? null,
+            acceptance_checks: step.acceptance_checks ?? [],
           }));
           const filteredActionMap = currentTurnId
             ? Object.fromEntries(
@@ -328,6 +336,14 @@ export function handleExtendedEvent(
           updated_at: now,
           turn_id: currentTurnId,
           depends_on: step.depends_on,
+          executor: step.executor ?? null,
+          owner: step.owner ?? null,
+          input_refs: step.input_refs ?? [],
+          output_refs: step.output_refs ?? [],
+          handoff_contract: step.handoff_contract ?? null,
+          tool_profile: step.tool_profile ?? null,
+          failure_policy: step.failure_policy ?? null,
+          acceptance_checks: step.acceptance_checks ?? [],
         }));
         const filteredActionMap = currentTurnId
           ? Object.fromEntries(

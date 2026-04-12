@@ -86,6 +86,15 @@ def build_analysis_plan_event(
                 status=step.get("status", "pending"),
                 action_id=step.get("action_id"),
                 raw_status=step.get("raw_status"),
+                depends_on=list(step.get("depends_on") or []),
+                executor=step.get("executor"),
+                owner=step.get("owner"),
+                input_refs=list(step.get("input_refs") or []),
+                output_refs=list(step.get("output_refs") or []),
+                handoff_contract=step.get("handoff_contract"),
+                tool_profile=step.get("tool_profile"),
+                failure_policy=step.get("failure_policy"),
+                acceptance_checks=list(step.get("acceptance_checks") or []),
             )
         )
 
@@ -162,6 +171,15 @@ def build_plan_progress_event(
             status=s.get("status", "pending"),
             action_id=s.get("action_id"),
             raw_status=s.get("raw_status"),
+            depends_on=list(s.get("depends_on") or []),
+            executor=s.get("executor"),
+            owner=s.get("owner"),
+            input_refs=list(s.get("input_refs") or []),
+            output_refs=list(s.get("output_refs") or []),
+            handoff_contract=s.get("handoff_contract"),
+            tool_profile=s.get("tool_profile"),
+            failure_policy=s.get("failure_policy"),
+            acceptance_checks=list(s.get("acceptance_checks") or []),
         )
         for s in steps
     ]

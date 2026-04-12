@@ -1,5 +1,5 @@
 /**
- * AgentRunTabsPanel —— 并行子 Agent 的 tab 切换区
+ * AgentRunTabsPanel —— 主线程 / 调度线程 / 执行线程切换区
  */
 
 import { useMemo } from "react";
@@ -87,7 +87,7 @@ export default function AgentRunTabsPanel() {
       <div className="border-b border-[var(--border-subtle)] px-4 py-2.5">
         <div
           role="tablist"
-          aria-label="并行子 Agent"
+          aria-label="运行线程"
           className="flex gap-2 overflow-x-auto pb-1"
         >
           {tabs.map((run) => {
@@ -124,6 +124,13 @@ export default function AgentRunTabsPanel() {
                         {run.agentName}
                       </span>
                     </div>
+                    <span className="mt-2 inline-flex items-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-0.5 text-[10px] font-medium leading-none text-[var(--text-secondary)]">
+                      {run.runScope === "root"
+                        ? "主线程"
+                        : run.runScope === "dispatch"
+                          ? "调度线程"
+                          : "执行线程"}
+                    </span>
                     {unread > 0 && (
                       <span className="mt-2 inline-flex items-center rounded-full border border-[color-mix(in_srgb,var(--accent)_18%,transparent)] bg-[var(--accent-subtle)] px-2 py-0.5 text-[10px] font-semibold leading-none text-[var(--accent)]">
                         {formatUnreadLabel(unread)}

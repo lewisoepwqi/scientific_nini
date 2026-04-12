@@ -14,7 +14,50 @@ from nini.tools.base import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
 
-_TASK_STATUS_ENUM = ["pending", "in_progress", "completed", "failed", "skipped"]
+_TASK_STATUS_ENUM = ["pending", "in_progress", "completed", "failed", "blocked", "skipped"]
+
+
+def _task_metadata_properties() -> dict[str, Any]:
+    """任务扩展元数据字段。"""
+    return {
+        "executor": {
+            "type": "string",
+            "enum": ["main_agent", "subagent", "local_tool"],
+            "description": "（可选）执行器类型",
+        },
+        "owner": {
+            "type": "string",
+            "description": "（可选）责任归属，如 main、data_cleaner、statistician",
+        },
+        "input_refs": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "（可选）任务输入引用列表，如 dataset:raw.v1",
+        },
+        "output_refs": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "（可选）任务输出引用列表，如 dataset:cleaned.v1",
+        },
+        "handoff_contract": {
+            "type": "object",
+            "description": "（可选）任务交接契约，供下游任务消费",
+        },
+        "tool_profile": {
+            "type": "string",
+            "description": "（可选）子 Agent 工具档位，如 analysis_execution",
+        },
+        "failure_policy": {
+            "type": "string",
+            "enum": ["stop_pipeline", "allow_partial", "retryable"],
+            "description": "（可选）失败处理策略",
+        },
+        "acceptance_checks": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "（可选）主 Agent 验收检查项",
+        },
+    }
 
 
 def _build_init_task_item_schema() -> dict[str, Any]:
@@ -47,6 +90,7 @@ def _build_init_task_item_schema() -> dict[str, Any]:
                 "items": {"type": "integer"},
                 "description": "（可选）依赖的前置任务 ID 列表",
             },
+            **_task_metadata_properties(),
         },
         "required": ["id", "title", "status"],
         "additionalProperties": False,
@@ -78,6 +122,7 @@ def _build_update_task_item_schema() -> dict[str, Any]:
                 "type": "string",
                 "description": "（可选）预期使用的工具名称，如 t_test、create_chart",
             },
+            **_task_metadata_properties(),
         },
         "required": ["id", "status"],
         "additionalProperties": False,
@@ -114,6 +159,7 @@ def _build_generic_task_item_schema() -> dict[str, Any]:
                 "items": {"type": "integer"},
                 "description": "（可选）依赖的前置任务 ID 列表",
             },
+            **_task_metadata_properties(),
         },
         "required": ["id", "status"],
         "additionalProperties": False,

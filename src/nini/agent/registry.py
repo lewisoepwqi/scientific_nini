@@ -35,7 +35,11 @@ class AgentDefinition:
     timeout_seconds: int = 300
     paradigm: str = "react"
     max_spawn_depth: int = 0  # 允许派发子 Agent 的最大嵌套深度（0 = 禁止，1 = 允许一级嵌套）
-    model_preference: str | None = None  # 子 Agent 首选模型等级：haiku/sonnet/opus/None（继承父模型）
+    model_preference: str | None = (
+        None  # 子 Agent 首选模型等级：haiku/sonnet/opus/None（继承父模型）
+    )
+    tool_profile: str | None = None  # 子 Agent 工具档位，作为运行时唯一真源
+    dispatchable: bool = True  # 是否允许通过 dispatch_agents 被派发
 
 
 class AgentRegistry:
@@ -89,6 +93,10 @@ class AgentRegistry:
     def list_agents(self) -> list[AgentDefinition]:
         """返回所有已注册 Agent 定义列表。"""
         return list(self._agents.values())
+
+    def list_dispatchable_agents(self) -> list[AgentDefinition]:
+        """返回允许被 dispatch_agents 派发的 Agent 定义列表。"""
+        return [agent for agent in self._agents.values() if getattr(agent, "dispatchable", True)]
 
     def _load_builtin_agents(self) -> None:
         """加载内置 Agent YAML 配置（builtin/ 目录）。"""
@@ -145,6 +153,12 @@ class AgentRegistry:
                 paradigm=str(data.get("paradigm", "react")),
                 max_spawn_depth=int(data.get("max_spawn_depth", 0)),
                 model_preference=model_preference,
+                tool_profile=(
+                    str(data.get("tool_profile")).strip() or None
+                    if data.get("tool_profile") is not None
+                    else None
+                ),
+                dispatchable=bool(data.get("dispatchable", True)),
             )
             if not agent_def.agent_id:
                 logger.warning("YAML 缺少 agent_id 字段，跳过: %s", yaml_path)

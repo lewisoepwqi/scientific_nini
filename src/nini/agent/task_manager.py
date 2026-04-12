@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-TaskStatus = Literal["pending", "in_progress", "completed", "failed", "skipped"]
+TaskStatus = Literal["pending", "in_progress", "completed", "failed", "blocked", "skipped"]
+TaskExecutor = Literal["main_agent", "subagent", "local_tool"]
+TaskFailurePolicy = Literal["stop_pipeline", "allow_partial", "retryable"]
 
 
 @dataclass(frozen=True)
@@ -23,6 +25,14 @@ class TaskItem:
     tool_hint: str | None = None
     action_id: str | None = None  # 格式 "task_{id}"，用于 TASK_ATTEMPT 事件关联
     depends_on: list[int] = field(default_factory=list)  # 依赖的任务 id 列表，用于 wave 并行调度
+    executor: TaskExecutor | None = None
+    owner: str | None = None
+    input_refs: list[str] = field(default_factory=list)
+    output_refs: list[str] = field(default_factory=list)
+    handoff_contract: dict[str, Any] | None = None
+    tool_profile: str | None = None
+    failure_policy: TaskFailurePolicy | None = None
+    acceptance_checks: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -32,6 +42,14 @@ class TaskItem:
             "tool_hint": self.tool_hint,
             "action_id": self.action_id,
             "depends_on": self.depends_on,
+            "executor": self.executor,
+            "owner": self.owner,
+            "input_refs": list(self.input_refs),
+            "output_refs": list(self.output_refs),
+            "handoff_contract": self.handoff_contract,
+            "tool_profile": self.tool_profile,
+            "failure_policy": self.failure_policy,
+            "acceptance_checks": list(self.acceptance_checks),
         }
 
 
@@ -55,6 +73,17 @@ class TaskManager:
     tasks: list[TaskItem] = field(default_factory=list)
     initialized: bool = False
 
+    @staticmethod
+    def _normalize_ref_list(raw_refs: Any) -> list[str]:
+        if not isinstance(raw_refs, list):
+            return []
+        refs: list[str] = []
+        for item in raw_refs:
+            ref = str(item or "").strip()
+            if ref and ref not in refs:
+                refs.append(ref)
+        return refs
+
     def init_tasks(self, raw_tasks: list[dict[str, Any]]) -> "TaskManager":
         """用完整任务列表初始化，返回新的 TaskManager。"""
         items: list[TaskItem] = []
@@ -74,9 +103,53 @@ class TaskManager:
                     tool_hint=t.get("tool_hint") or None,
                     action_id=f"task_{task_id}",
                     depends_on=depends_on,
+                    executor=t.get("executor") or None,
+                    owner=t.get("owner") or None,
+                    input_refs=self._normalize_ref_list(t.get("input_refs")),
+                    output_refs=self._normalize_ref_list(t.get("output_refs")),
+                    handoff_contract=(
+                        dict(t.get("handoff_contract"))
+                        if isinstance(t.get("handoff_contract"), dict)
+                        else None
+                    ),
+                    tool_profile=t.get("tool_profile") or None,
+                    failure_policy=t.get("failure_policy") or None,
+                    acceptance_checks=self._normalize_ref_list(t.get("acceptance_checks")),
                 )
             )
         return TaskManager(tasks=items, initialized=True)
+
+    @staticmethod
+    def _tasks_conflict(left: TaskItem, right: TaskItem) -> bool:
+        """判断两个任务是否存在读写冲突，冲突任务不能落入同一 wave。"""
+        left_inputs = set(left.input_refs)
+        left_outputs = set(left.output_refs)
+        right_inputs = set(right.input_refs)
+        right_outputs = set(right.output_refs)
+        if not left_outputs and not right_outputs:
+            return False
+        if left_outputs & right_outputs:
+            return True
+        if left_outputs & right_inputs:
+            return True
+        if right_outputs & left_inputs:
+            return True
+        return False
+
+    def _take_conflict_free_wave(
+        self, ready: list[TaskItem]
+    ) -> tuple[list[TaskItem], list[TaskItem]]:
+        """从 ready 中贪心取出一个无冲突 wave，并返回剩余任务。"""
+        if not ready:
+            return [], []
+        selected: list[TaskItem] = []
+        deferred: list[TaskItem] = []
+        for task in sorted(ready, key=lambda item: item.id):
+            if any(self._tasks_conflict(task, existing) for existing in selected):
+                deferred.append(task)
+                continue
+            selected.append(task)
+        return selected, deferred
 
     def group_into_waves(self) -> list[list[TaskItem]]:
         """拓扑排序将任务分组为并行 wave。
@@ -102,16 +175,23 @@ class TaskManager:
         ready = [t for t in pending if in_degree[t.id] == 0]
 
         while ready:
-            wave = sorted(ready, key=lambda x: x.id)
+            wave, deferred = self._take_conflict_free_wave(ready)
+            if not wave:
+                break
             waves.append(wave)
-            ready = []
+            next_ready = list(deferred)
             for task in wave:
                 # 找出依赖当前 task 的后继
                 for other in pending:
                     if task.id in other.depends_on:
                         in_degree[other.id] -= 1
-                        if in_degree[other.id] == 0:
-                            ready.append(other)
+                        if (
+                            in_degree[other.id] == 0
+                            and other not in next_ready
+                            and other not in wave
+                        ):
+                            next_ready.append(other)
+            ready = next_ready
 
         # 检测循环依赖：若有 pending 任务未被分组，退化为顺序执行
         grouped_ids = {t.id for wave in waves for t in wave}
@@ -144,6 +224,22 @@ class TaskManager:
                         tool_hint=upd.get("tool_hint", task.tool_hint),
                         action_id=task.action_id,
                         depends_on=list(task.depends_on),
+                        executor=upd.get("executor", task.executor),
+                        owner=upd.get("owner", task.owner),
+                        input_refs=self._normalize_ref_list(upd.get("input_refs", task.input_refs)),
+                        output_refs=self._normalize_ref_list(
+                            upd.get("output_refs", task.output_refs)
+                        ),
+                        handoff_contract=(
+                            dict(upd["handoff_contract"])
+                            if isinstance(upd.get("handoff_contract"), dict)
+                            else task.handoff_contract
+                        ),
+                        tool_profile=upd.get("tool_profile", task.tool_profile),
+                        failure_policy=upd.get("failure_policy", task.failure_policy),
+                        acceptance_checks=self._normalize_ref_list(
+                            upd.get("acceptance_checks", task.acceptance_checks)
+                        ),
                     )
                 )
             else:
@@ -182,6 +278,14 @@ class TaskManager:
                     "status": t.status,
                     "action_id": t.action_id,
                     "depends_on": t.depends_on,
+                    "executor": t.executor,
+                    "owner": t.owner,
+                    "input_refs": list(t.input_refs),
+                    "output_refs": list(t.output_refs),
+                    "handoff_contract": t.handoff_contract,
+                    "tool_profile": t.tool_profile,
+                    "failure_policy": t.failure_policy,
+                    "acceptance_checks": list(t.acceptance_checks),
                 }
                 for t in self.tasks
             ],

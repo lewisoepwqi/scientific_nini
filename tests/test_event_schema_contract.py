@@ -43,14 +43,23 @@ class TestAnalysisPlanEventContract:
                     "status": "completed",
                     "action_id": "task_1",
                     "raw_status": "completed",
+                    "depends_on": [],
+                    "executor": "subagent",
+                    "owner": "data_cleaner",
+                    "input_refs": ["dataset:raw.v1"],
+                    "output_refs": ["dataset:cleaned.v1"],
+                    "handoff_contract": {"required_columns": ["age"]},
+                    "tool_profile": "cleaning_execution",
+                    "failure_policy": "stop_pipeline",
+                    "acceptance_checks": ["缺失率已下降"],
                 },
                 {
                     "id": 2,
                     "title": "步骤2",
                     "tool_hint": None,
-                    "status": "in_progress",
+                    "status": "blocked",
                     "action_id": "task_2",
-                    "raw_status": "in_progress",
+                    "raw_status": "blocked",
                 },
             ],
             "raw_text": "分析计划",
@@ -62,7 +71,11 @@ class TestAnalysisPlanEventContract:
         assert event_data.steps[0].id == 1
         assert event_data.steps[0].action_id == "task_1"
         assert event_data.steps[0].raw_status == "completed"
-        assert event_data.steps[1].status == "in_progress"
+        assert event_data.steps[0].executor == "subagent"
+        assert event_data.steps[0].input_refs == ["dataset:raw.v1"]
+        assert event_data.steps[0].handoff_contract == {"required_columns": ["age"]}
+        assert event_data.steps[0].failure_policy == "stop_pipeline"
+        assert event_data.steps[1].status == "blocked"
 
     def test_analysis_plan_step_defaults(self) -> None:
         """分析步骤应提供合理的默认值。"""
@@ -80,6 +93,10 @@ class TestAnalysisPlanEventContract:
         assert step.tool_hint is None
         assert step.action_id is None
         assert step.raw_status is None
+        assert step.depends_on == []
+        assert step.input_refs == []
+        assert step.output_refs == []
+        assert step.acceptance_checks == []
 
     def test_analysis_plan_step_to_dict(self) -> None:
         """步骤转换为字典时应包含所有字段。"""
@@ -87,9 +104,18 @@ class TestAnalysisPlanEventContract:
             id=1,
             title="测试步骤",
             tool_hint="t_test",
-            status="in_progress",
+            status="blocked",
             action_id="task_1",
-            raw_status="in_progress",
+            raw_status="blocked",
+            depends_on=[1],
+            executor="subagent",
+            owner="statistician",
+            input_refs=["dataset:cleaned.v1"],
+            output_refs=["artifact:stats.v1"],
+            handoff_contract={"required_metrics": ["mean"]},
+            tool_profile="analysis_execution",
+            failure_policy="retryable",
+            acceptance_checks=["统计结果已生成"],
         )
 
         result = step.model_dump()
@@ -97,9 +123,14 @@ class TestAnalysisPlanEventContract:
         assert result["id"] == 1
         assert result["title"] == "测试步骤"
         assert result["tool_hint"] == "t_test"
-        assert result["status"] == "in_progress"
+        assert result["status"] == "blocked"
         assert result["action_id"] == "task_1"
-        assert result["raw_status"] == "in_progress"
+        assert result["raw_status"] == "blocked"
+        assert result["depends_on"] == [1]
+        assert result["executor"] == "subagent"
+        assert result["handoff_contract"] == {"required_metrics": ["mean"]}
+        assert result["failure_policy"] == "retryable"
+        assert result["acceptance_checks"] == ["统计结果已生成"]
 
 
 class TestPlanStepUpdateEventContract:
