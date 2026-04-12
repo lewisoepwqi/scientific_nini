@@ -486,9 +486,7 @@ class TaskWriteTool(Tool):
                 if current_in_progress.tool_hint
                 else ""
             )
-            next_pending = next(
-                (t for t in result.manager.tasks if t.status == "pending"), None
-            )
+            next_pending = next((t for t in result.manager.tasks if t.status == "pending"), None)
             transition_reminder = ""
             if next_pending:
                 transition_reminder = (
@@ -497,9 +495,7 @@ class TaskWriteTool(Tool):
                     "以解锁下一阶段工具。"
                 )
             else:
-                transition_reminder = (
-                    " 完成后请调用 task_state 将本任务标为 completed。"
-                )
+                transition_reminder = " 完成后请调用 task_state 将本任务标为 completed。"
             message = (
                 f"任务{current_in_progress.id}「{current_in_progress.title}」已标记为进行中"
                 f"{hint_text}。"

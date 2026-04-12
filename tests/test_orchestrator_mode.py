@@ -310,7 +310,12 @@ def test_stage_transition_hint_injected_into_followup_prompt() -> None:
     session = Session()
     session.task_manager = session.task_manager.init_tasks(
         [
-            {"id": 1, "title": "数据预处理", "status": "completed", "tool_hint": "dataset_transform"},
+            {
+                "id": 1,
+                "title": "数据预处理",
+                "status": "completed",
+                "tool_hint": "dataset_transform",
+            },
             {"id": 2, "title": "相关性分析", "status": "in_progress", "tool_hint": "stat_test"},
             {"id": 3, "title": "导出报告", "status": "pending", "tool_hint": "export_document"},
         ]

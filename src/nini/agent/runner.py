@@ -847,9 +847,7 @@ class AgentRunner:
                 ).strip()
                 if _transition_hint:
                     if pending_followup_prompt:
-                        pending_followup_prompt = (
-                            pending_followup_prompt + "\n" + _transition_hint
-                        )
+                        pending_followup_prompt = pending_followup_prompt + "\n" + _transition_hint
                     else:
                         pending_followup_prompt = _transition_hint
             followup_prompt_for_purpose = pending_followup_prompt
