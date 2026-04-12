@@ -4076,7 +4076,9 @@ class AgentRunner:
         except json.JSONDecodeError:
             func_args = {}
 
-        agents_list: list[dict] = func_args.get("agents", [])
+        agents_list: list[dict] | None = func_args.get("agents") or None
+        tasks_list: list[dict] | None = func_args.get("tasks") or None
+        wave_id_val: str | None = func_args.get("wave_id") or None
 
         # 获取 dispatch_agents 工具实例
         if self._tool_registry is None:
@@ -4125,6 +4127,8 @@ class AgentRunner:
             skill_result = await skill.execute(
                 session,
                 agents=agents_list,
+                tasks=tasks_list,
+                wave_id=wave_id_val,
                 turn_id=turn_id,
                 tool_call_id=tc_id,
             )

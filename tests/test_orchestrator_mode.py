@@ -221,3 +221,66 @@ async def test_handle_dispatch_agents_no_registry_yields_error_event():
 
     # 应产生至少一个事件（错误事件）
     assert len(events) >= 1
+
+
+@pytest.mark.asyncio
+async def test_handle_dispatch_agents_passes_tasks_format():
+    """_handle_dispatch_agents 应正确透传 tasks=[...] 格式给 skill.execute，
+    使 agent_count > 0 而非静默返回 0。"""
+    from nini.agent.events import EventType
+
+    runner = _make_runner_with_dispatch_registered()
+    sub_session = _make_sub_session()
+    # 置空 task_manager，使 wave 校验跳过（无任务图时不约束 wave）
+    sub_session.task_manager = None  # type: ignore[assignment]
+
+    dispatch_tc = {
+        "id": "call-tasks-001",
+        "function": {
+            "name": "dispatch_agents",
+            "arguments": '{"tasks": [{"task_id": 1, "agent_id": "literature_search", "task": "执行检索"}]}',
+        },
+    }
+
+    events = []
+    async for evt in runner._handle_dispatch_agents(dispatch_tc, sub_session, "turn-t01"):
+        events.append(evt)
+
+    tool_result_event = next(
+        (e for e in events if getattr(e, "type", None) == EventType.TOOL_RESULT), None
+    )
+    assert tool_result_event is not None
+    result_payload = tool_result_event.data["data"]["result"]["metadata"]
+    assert result_payload["agent_count"] == 1, (
+        f"期望 agent_count=1，实际 {result_payload['agent_count']}。"
+        "runner.py 可能未将 tasks 透传给 skill.execute()。"
+    )
+    assert result_payload["success_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_dispatch_agents_passes_wave_id():
+    """wave_id 字段应从 func_args 透传给 skill.execute，出现在 metadata 中。"""
+    from nini.agent.events import EventType
+
+    runner = _make_runner_with_dispatch_registered()
+    sub_session = _make_sub_session()
+
+    dispatch_tc = {
+        "id": "call-wave-001",
+        "function": {
+            "name": "dispatch_agents",
+            "arguments": '{"wave_id": "wave-abc", "agents": [{"agent_id": "literature_search", "task": "检索"}]}',
+        },
+    }
+
+    events = []
+    async for evt in runner._handle_dispatch_agents(dispatch_tc, sub_session, "turn-w01"):
+        events.append(evt)
+
+    tool_result_event = next(
+        (e for e in events if getattr(e, "type", None) == EventType.TOOL_RESULT), None
+    )
+    assert tool_result_event is not None
+    result_payload = tool_result_event.data["data"]["result"]["metadata"]
+    assert result_payload.get("wave_id") == "wave-abc"
