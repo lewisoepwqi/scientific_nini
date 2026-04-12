@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from nini.intent.subtypes import get_difference_subtype
 from nini.intent.base import IntentAnalysis, IntentCandidate
 from nini.intent.optimized import OptimizedIntentAnalyzer
