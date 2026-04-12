@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from nini.memory.compression import list_session_analysis_memories
 from nini.memory.manager import build_memory_context_block
 from nini.memory.memory_store import MemoryStore
 from nini.memory.provider import MemoryProvider
@@ -200,6 +201,80 @@ class ScientificMemoryProvider(MemoryProvider):
                     }
                 )
         return results
+
+    async def on_session_end(self, messages: list[dict[str, Any]]) -> None:
+        """重度沉淀：将本会话的 AnalysisMemory 写入 facts 表。
+
+        通过 self._session_id 调用 list_session_analysis_memories()，
+        不依赖 messages 参数读取 AnalysisMemory。
+        """
+        if self._store is None:
+            return
+        try:
+            sid = self._session_id
+            memories = list_session_analysis_memories(sid)
+            count = 0
+            for memory in memories:
+                dataset = memory.dataset_name
+                for finding in memory.findings:
+                    if finding.confidence < 0.7:
+                        continue
+                    self._store.upsert_fact(
+                        content=finding.summary,
+                        memory_type="finding",
+                        summary=finding.detail or "",
+                        tags=[finding.category] if finding.category else [],
+                        importance=finding.confidence,
+                        source_session_id=sid,
+                        sci_metadata={"dataset_name": dataset},
+                    )
+                    count += 1
+                for stat in memory.statistics:
+                    importance = (
+                        0.8
+                        if stat.significant is True
+                        else 0.6 if stat.significant is False else 0.45
+                    )
+                    self._store.upsert_fact(
+                        content=(
+                            f"{stat.test_name}: 统计量={stat.test_statistic}, "
+                            f"p={stat.p_value}, 效应量={stat.effect_size}"
+                        ),
+                        memory_type="statistic",
+                        summary=f"{stat.test_name} 结果",
+                        importance=importance,
+                        source_session_id=sid,
+                        sci_metadata={
+                            "dataset_name": dataset,
+                            "test_name": stat.test_name,
+                            "test_statistic": stat.test_statistic,
+                            "p_value": stat.p_value,
+                            "effect_size": stat.effect_size,
+                            "effect_type": stat.effect_type or None,
+                            "significant": stat.significant,
+                            "analysis_type": stat.test_name,
+                        },
+                    )
+                    count += 1
+                for decision in memory.decisions:
+                    if decision.confidence < 0.7:
+                        continue
+                    self._store.upsert_fact(
+                        content=(
+                            f"{decision.decision_type}: 选择 {decision.chosen}。"
+                            f"理由：{decision.rationale}"
+                        ),
+                        memory_type="decision",
+                        summary=f"{decision.decision_type} → {decision.chosen}",
+                        importance=decision.confidence * 0.8,
+                        source_session_id=sid,
+                        sci_metadata={"dataset_name": dataset},
+                    )
+                    count += 1
+            if count:
+                logger.info("on_session_end: 会话 %s 沉淀 %d 条记忆", sid[:8], count)
+        except Exception as exc:
+            logger.warning("ScientificMemoryProvider.on_session_end 失败: %s", exc)
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """返回暴露给 LLM 的工具 schema。"""

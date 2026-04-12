@@ -128,3 +128,89 @@ async def test_sync_turn_does_not_raise(provider: ScientificMemoryProvider):
     provider._store.close()
     provider._store._conn = None  # type: ignore[assignment]
     await provider.sync_turn("用户", "p=0.001 显著", session_id="sess001")  # 不抛出
+
+
+# ---- on_session_end 测试 ----
+
+
+async def test_on_session_end_consolidates_statistics(provider: ScientificMemoryProvider):
+    """显著统计结果应被沉淀到 facts 表。"""
+    from unittest.mock import patch
+
+    from nini.memory.compression import AnalysisMemory, StatisticResult
+
+    memory = AnalysisMemory(
+        session_id="sess001",
+        dataset_name="survey_2024.csv",
+        statistics=[
+            StatisticResult(
+                test_name="独立样本t检验",
+                test_statistic=3.14,
+                p_value=0.002,
+                effect_size=0.45,
+                effect_type="cohen_d",
+                significant=True,
+            )
+        ],
+    )
+    with patch(
+        "nini.memory.scientific_provider.list_session_analysis_memories",
+        return_value=[memory],
+    ):
+        await provider.on_session_end([])
+
+    results = provider._store.filter_by_sci(max_p_value=0.05)
+    assert len(results) >= 1
+
+
+async def test_on_session_end_consolidates_findings(provider: ScientificMemoryProvider):
+    """高置信度 Finding 应被沉淀到 facts 表。"""
+    from unittest.mock import patch
+
+    from nini.memory.compression import AnalysisMemory, Finding
+
+    memory = AnalysisMemory(
+        session_id="sess001",
+        dataset_name="data.csv",
+        findings=[Finding(category="distribution", summary="正偏斜分布", confidence=0.85)],
+    )
+    with patch(
+        "nini.memory.scientific_provider.list_session_analysis_memories",
+        return_value=[memory],
+    ):
+        await provider.on_session_end([])
+
+    results = provider._store.search_fts("正偏斜")
+    assert any("正偏斜" in r["content"] or "正偏斜" in r.get("summary", "") for r in results)
+
+
+async def test_on_session_end_skips_low_confidence(provider: ScientificMemoryProvider):
+    """置信度不足 0.7 的 finding 不应沉淀。"""
+    from unittest.mock import patch
+
+    from nini.memory.compression import AnalysisMemory, Finding
+
+    memory = AnalysisMemory(
+        session_id="sess001",
+        dataset_name="data.csv",
+        findings=[Finding(category="noise", summary="不确定的发现低置信度", confidence=0.3)],
+    )
+    with patch(
+        "nini.memory.scientific_provider.list_session_analysis_memories",
+        return_value=[memory],
+    ):
+        await provider.on_session_end([])
+
+    results = provider._store.search_fts("不确定的发现低置信度")
+    assert len(results) == 0
+
+
+async def test_on_session_end_is_graceful_on_error(provider: ScientificMemoryProvider):
+    """on_session_end 遇到异常不应向外抛出。"""
+    from unittest.mock import patch
+
+    with patch(
+        "nini.memory.scientific_provider.list_session_analysis_memories",
+        side_effect=RuntimeError("故意失败"),
+    ):
+        await provider.on_session_end([])  # 不应抛出
