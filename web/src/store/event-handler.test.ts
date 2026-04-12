@@ -922,6 +922,45 @@ describe("handleEvent 文本去重", () => {
     expect(state.workspacePanelTab).toBe("tasks");
   });
 
+  it("task_state 工具结果应实时更新任务并打开工作区任务面板", async () => {
+    const harness = createHarness({
+      sessionId: "session-task-live",
+      _currentTurnId: "turn-task-live",
+      workspacePanelOpen: false,
+      workspacePanelTab: "files",
+    });
+
+    await harness.dispatch({
+      type: "tool_result",
+      session_id: "session-task-live",
+      turn_id: "turn-task-live",
+      tool_name: "task_state",
+      tool_call_id: "task-call-1",
+      data: {
+        status: "success",
+        message: "已声明 2 个分析任务",
+        data: {
+          mode: "init",
+          tasks: [
+            { id: 1, title: "检查数据质量", status: "pending", tool_hint: "dataset_catalog" },
+            { id: 2, title: "执行相关性分析", status: "in_progress", tool_hint: "stat_test" },
+          ],
+        },
+      },
+    });
+
+    const state = harness.getState();
+    expect(state.analysisTasks).toHaveLength(2);
+    expect(state.analysisTasks[1]).toMatchObject({
+      title: "执行相关性分析",
+      status: "in_progress",
+      turn_id: "turn-task-live",
+    });
+    expect(state.analysisPlanProgress?.current_step_index).toBe(2);
+    expect(state.workspacePanelOpen).toBe(true);
+    expect(state.workspacePanelTab).toBe("tasks");
+  });
+
   it("retrieval 事件不应误触发试用到期状态", async () => {
     const harness = createHarness({
       sessionId: "session-current",

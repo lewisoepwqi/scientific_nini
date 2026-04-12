@@ -1,15 +1,1 @@
-{
-  "226fa84a-0c71-457a-9ac3-f36f4d12726c": {
-    "id": "226fa84a-0c71-457a-9ac3-f36f4d12726c",
-    "title": "测试文档",
-    "file_type": "txt",
-    "file_size": 87,
-    "index_status": "indexed",
-    "created_at": "2026-04-07T04:09:22.799095+00:00",
-    "updated_at": "2026-04-07T04:09:22.799104+00:00",
-    "description": "",
-    "domain": "statistics",
-    "tags": [],
-    "chunk_count": 1
-  }
-}
+{}

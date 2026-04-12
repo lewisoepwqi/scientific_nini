@@ -3,6 +3,11 @@
 提供两套接口：
 - ToolExposurePolicy 数据类：面向子 Agent 工具子集构建，支持白名单/黑名单/前缀黑名单过滤。
 - compute_tool_exposure_policy()：面向主 Agent，基于会话阶段动态计算暴露面。
+
+设计原则：
+- 当前轮工具面优先由“当前激活任务”决定，避免未来步骤污染当前执行阶段。
+- visualization 与 export 分离：画图不等于导出交付。
+- 若阶段判定异常导致当前任务缺少执行工具，自动补入最小执行集合并记录告警。
 """
 
 from __future__ import annotations
@@ -45,15 +50,20 @@ _ANALYSIS_TOOLS = {
     "code_session",
     "run_code",
     "run_r_code",
-    "chart_session",
     "collect_artifacts",
     "analysis_memory",
     "search_literature",
     "search_archive",
 }
 
-_EXPORT_TOOLS = {
+_VISUALIZATION_TOOLS = {
     "chart_session",
+    "code_session",
+    "collect_artifacts",
+    "analysis_memory",
+}
+
+_EXPORT_TOOLS = {
     "export_chart",
     "export_document",
     "generate_report",
@@ -65,6 +75,31 @@ _EXPORT_TOOLS = {
     "generate_widget",
     "edit_file",
 }
+
+_EXECUTION_TOOLS = {
+    "load_dataset",
+    "data_summary",
+    "dataset_catalog",
+    "dataset_transform",
+    "clean_data",
+    "data_quality",
+    "stat_test",
+    "sample_size",
+    "stat_model",
+    "stat_interpret",
+    "t_test",
+    "anova",
+    "mann_whitney",
+    "kruskal_wallis",
+    "correlation",
+    "regression",
+    "multiple_comparison",
+    "code_session",
+    "run_code",
+    "run_r_code",
+}
+
+_PRESENTATION_TOOLS = {"generate_widget"}
 
 _HIGH_RISK_TOOLS = {
     "edit_file",
@@ -98,6 +133,9 @@ _SUBAGENT_TOOL_PROFILES: dict[str, tuple[str, ...]] = {
     "citation_management": ("workspace_session", "analysis_memory"),
     "review_execution": ("workspace_session", "analysis_memory"),
 }
+
+_EXPORT_MESSAGE_HINTS = ("导出", "报告", "交付", "下载", "保存")
+_PROFILE_MESSAGE_HINTS = ("概览", "质量", "摘要", "预览", "字段")
 
 
 @dataclass(frozen=True)
@@ -178,26 +216,131 @@ def _collect_task_tool_hints(session: Any) -> list[str]:
     return hints
 
 
-def resolve_surface_stage(session: Any, *, user_message: str | None = None) -> str:
-    """将当前会话映射到 profile / analysis / export 三段式阶段。"""
-    normalized_message = str(user_message or "").lower()
-    if any(token in normalized_message for token in ("导出", "报告", "交付", "下载", "保存")):
-        return "export"
-    if any(token in normalized_message for token in ("概览", "质量", "摘要", "预览", "字段")):
-        return "profile"
+def _split_tool_hint(tool_hint: str | None) -> list[str]:
+    """拆分 tool_hint 中的候选工具列表。"""
+    raw_hint = str(tool_hint or "").strip()
+    if not raw_hint:
+        return []
+    hints: list[str] = []
+    for item in raw_hint.split("/"):
+        normalized = item.strip()
+        if normalized and normalized not in hints:
+            hints.append(normalized)
+    return hints
 
-    task_tool_hints = _collect_task_tool_hints(session)
-    if any(hint in _EXPORT_TOOLS for hint in task_tool_hints):
-        return "export"
-    if any(hint in _ANALYSIS_TOOLS for hint in task_tool_hints):
-        return "analysis"
 
+def is_execution_tool(tool_name: str) -> bool:
+    """判断工具是否属于真实执行工具。"""
+    return str(tool_name or "").strip() in _EXECUTION_TOOLS
+
+
+def is_presentation_tool(tool_name: str) -> bool:
+    """判断工具是否属于纯展示工具。"""
+    return str(tool_name or "").strip() in _PRESENTATION_TOOLS
+
+
+def resolve_stage_from_tool_hint(tool_hint: str | None) -> str | None:
+    """根据单个 task tool_hint 解析阶段。
+
+    按 hint 声明顺序解析，保留任务编写者的优先意图。
+    """
+    for hint in _split_tool_hint(tool_hint):
+        if hint in _PROFILE_TOOLS:
+            return "profile"
+        if hint in _ANALYSIS_TOOLS or hint in _EXECUTION_TOOLS:
+            return "analysis"
+        if hint in _VISUALIZATION_TOOLS:
+            return "visualization"
+        if hint in _EXPORT_TOOLS:
+            return "export"
+    return None
+
+
+def tool_satisfies_tool_hint(tool_name: str, tool_hint: str | None) -> bool:
+    """判断某工具是否可满足当前任务提示。
+
+    规则偏保守：展示工具不允许替代执行型任务。
+    """
+    normalized_name = str(tool_name or "").strip()
+    hints = _split_tool_hint(tool_hint)
+    if not normalized_name or not hints:
+        return False
+    if normalized_name in hints:
+        return True
+    if normalized_name in _PRESENTATION_TOOLS:
+        return False
+    if is_execution_tool(normalized_name) and any(is_execution_tool(hint) for hint in hints):
+        return True
+    if normalized_name in _VISUALIZATION_TOOLS and any(
+        hint in _VISUALIZATION_TOOLS for hint in hints
+    ):
+        return True
+    if normalized_name in _EXPORT_TOOLS and any(hint in _EXPORT_TOOLS for hint in hints):
+        return True
+    if normalized_name in _PROFILE_TOOLS and any(hint in _PROFILE_TOOLS for hint in hints):
+        return True
+    return False
+
+
+def _resolve_stage_from_task_manager(session: Any) -> tuple[str | None, str | None, Any | None]:
+    """根据任务状态解析当前阶段，优先使用 in_progress 任务。"""
+    if session is None or not hasattr(session, "task_manager"):
+        return None, None, None
+    manager = getattr(session, "task_manager", None)
+    tasks = getattr(manager, "tasks", None)
+    if not isinstance(tasks, list) or not tasks:
+        return None, None, None
+
+    for task in tasks:
+        if getattr(task, "status", None) != "in_progress":
+            continue
+        stage = resolve_stage_from_tool_hint(getattr(task, "tool_hint", None))
+        if stage:
+            return stage, "active_task", task
+
+    for task in tasks:
+        if getattr(task, "status", None) != "pending":
+            continue
+        stage = resolve_stage_from_tool_hint(getattr(task, "tool_hint", None))
+        if stage:
+            return stage, "next_pending_task", task
+
+    for task in reversed(tasks):
+        if getattr(task, "status", None) not in {"completed", "failed", "blocked", "skipped"}:
+            continue
+        stage = resolve_stage_from_tool_hint(getattr(task, "tool_hint", None))
+        if stage:
+            return stage, "recent_task", task
+
+    return None, None, None
+
+
+def _resolve_stage_from_recent_messages(session: Any) -> tuple[str | None, str]:
+    """根据最近真实工具轨迹解析阶段。"""
     stage = detect_current_stage(session) if session is not None else AnalysisStage.UNKNOWN
     if stage in {AnalysisStage.PLANNING, AnalysisStage.DATA_PREP, AnalysisStage.UNKNOWN}:
-        return "profile"
-    if stage in {AnalysisStage.REPORTING, AnalysisStage.VISUALIZATION}:
+        return "profile", "recent_messages"
+    if stage == AnalysisStage.VISUALIZATION:
+        return "visualization", "recent_messages"
+    if stage == AnalysisStage.REPORTING:
+        return "export", "recent_messages"
+    return "analysis", "recent_messages"
+
+
+def resolve_surface_stage(session: Any, *, user_message: str | None = None) -> str:
+    """将当前会话映射到 profile / analysis / visualization / export 阶段。"""
+    task_stage, _, _task = _resolve_stage_from_task_manager(session)
+    if task_stage:
+        return task_stage
+
+    normalized_message = str(user_message or "").lower()
+    if any(token in normalized_message for token in _EXPORT_MESSAGE_HINTS):
         return "export"
-    return "analysis"
+    if any(token in normalized_message for token in _PROFILE_MESSAGE_HINTS):
+        return "profile"
+
+    recent_stage, _reason = _resolve_stage_from_recent_messages(session)
+    return recent_stage or "profile"
 
 
 def compute_tool_exposure_policy(
@@ -214,18 +357,46 @@ def compute_tool_exposure_policy(
         if isinstance(listed, list):
             all_tools = [str(item).strip() for item in listed if str(item).strip()]
 
-    stage = str(stage_override or "").strip() or resolve_surface_stage(
-        session, user_message=user_message
-    )
+    active_task_id: int | None = None
+    active_task_title: str | None = None
+    active_task_hint: str | None = None
+    stage_reason = "fallback_profile"
+    if stage_override:
+        stage = str(stage_override).strip()
+        stage_reason = "stage_override"
+    else:
+        task_stage, task_reason, active_task = _resolve_stage_from_task_manager(session)
+        if task_stage:
+            stage = task_stage
+            stage_reason = str(task_reason or "task_manager")
+            active_task_id = getattr(active_task, "id", None)
+            active_task_title = getattr(active_task, "title", None)
+            active_task_hint = getattr(active_task, "tool_hint", None)
+        else:
+            normalized_message = str(user_message or "").lower()
+            if any(token in normalized_message for token in _EXPORT_MESSAGE_HINTS):
+                stage = "export"
+                stage_reason = "user_message_export"
+            elif any(token in normalized_message for token in _PROFILE_MESSAGE_HINTS):
+                stage = "profile"
+                stage_reason = "user_message_profile"
+            else:
+                stage, recent_reason = _resolve_stage_from_recent_messages(session)
+                stage_reason = recent_reason
+
     allowed = set(_ALWAYS_ALLOWED)
     if stage == "profile":
         allowed |= _PROFILE_TOOLS
+    elif stage == "visualization":
+        allowed |= _VISUALIZATION_TOOLS
     elif stage == "export":
         allowed |= _EXPORT_TOOLS
     else:
         allowed |= _ANALYSIS_TOOLS
 
     authorization_state: dict[str, bool] = {}
+    forced_visible_tools: list[str] = []
+    policy_warnings: list[str] = []
     for tool_name in list(allowed):
         if tool_name not in _HIGH_RISK_TOOLS:
             continue
@@ -236,14 +407,46 @@ def compute_tool_exposure_policy(
         if stage != "export" and not approved:
             allowed.discard(tool_name)
 
+    if active_task_hint:
+        compatible_tools = [
+            name for name in all_tools if tool_satisfies_tool_hint(name, active_task_hint)
+        ]
+        if compatible_tools and not any(name in allowed for name in compatible_tools):
+            forced_visible_tools = list(compatible_tools)
+            allowed.update(compatible_tools)
+            policy_warnings.append(
+                f"当前任务提示 `{active_task_hint}` 对应工具未出现在 {stage} 阶段工具面，已强制补入兼容工具。"
+            )
+
+    if stage in {"analysis", "visualization"}:
+        visible_execution_tools = [name for name in allowed if is_execution_tool(name)]
+        if not visible_execution_tools:
+            fallback_execution_tools = [
+                name
+                for name in ("code_session", "run_code", "run_r_code", "stat_test")
+                if name in all_tools
+            ]
+            if fallback_execution_tools:
+                for name in fallback_execution_tools:
+                    if name not in forced_visible_tools:
+                        forced_visible_tools.append(name)
+                allowed.update(fallback_execution_tools)
+                policy_warnings.append("当前阶段缺少执行工具，已自动补入最小执行集合。")
+
     visible_tools = [name for name in all_tools if name in allowed]
     hidden_tools = [name for name in all_tools if name not in allowed]
     removed_by_policy = [name for name in hidden_tools if name not in _ALWAYS_ALLOWED]
     return {
         "stage": stage,
+        "stage_reason": stage_reason,
+        "active_task_id": active_task_id,
+        "active_task_title": active_task_title,
+        "active_task_hint": active_task_hint,
         "visible_tools": visible_tools,
         "hidden_tools": hidden_tools,
         "removed_by_policy": removed_by_policy,
         "authorization_state": authorization_state,
         "high_risk_tools": [name for name in all_tools if name in _HIGH_RISK_TOOLS],
+        "forced_visible_tools": forced_visible_tools,
+        "policy_warnings": policy_warnings,
     }

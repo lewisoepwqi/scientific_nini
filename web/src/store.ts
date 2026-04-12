@@ -1546,10 +1546,27 @@ export const useStore = create<AppState>((set, get) => ({
 
     startTransition(() => {
       set((s) => ({
+        runningSessions: (() => {
+          const nextRunning = new Set(s.runningSessions);
+          if (sessionDetail?.is_running === true) {
+            nextRunning.add(targetSessionId);
+          } else if (sessionDetail?.is_running === false) {
+            nextRunning.delete(targetSessionId);
+          }
+          return nextRunning;
+        })(),
         sessionId: targetSessionId,
         ...SESSION_RESET_STATE,
         // 若目标会话有后台任务在运行，切换后 isStreaming 应保持 true
-        isStreaming: s.runningSessions.has(targetSessionId),
+        isStreaming: (() => {
+          const nextRunning = new Set(s.runningSessions);
+          if (sessionDetail?.is_running === true) {
+            nextRunning.add(targetSessionId);
+          } else if (sessionDetail?.is_running === false) {
+            nextRunning.delete(targetSessionId);
+          }
+          return nextRunning.has(targetSessionId);
+        })(),
         pendingAskUserQuestion: resolveCurrentPendingAskUserQuestion(
           targetSessionId,
           s.pendingAskUserQuestionsBySession,

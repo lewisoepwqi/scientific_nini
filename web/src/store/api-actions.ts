@@ -128,6 +128,7 @@ export interface SessionDetail {
   recipe_id?: string | null;
   recipe_inputs?: Record<string, string>;
   deep_task_state?: DeepTaskState | null;
+  is_running?: boolean;
 }
 
 export async function fetchSessionDetail(

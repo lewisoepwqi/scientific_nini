@@ -109,6 +109,7 @@ class Session:
     recipe_inputs: dict[str, Any] = field(default_factory=dict)
     deep_task_state: dict[str, Any] = field(default_factory=dict)
     runtime_stop_event: Any = field(default=None, repr=False)
+    runtime_chat_task: Any = field(default=None, repr=False)
     subagent_stop_events: dict[str, Any] = field(default_factory=dict, repr=False)
     sub_agent_snapshots: list[Any] = field(default_factory=list, repr=False)
     conversation_memory: ConversationMemory = field(init=False, repr=False)

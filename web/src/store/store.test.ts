@@ -397,6 +397,47 @@ describe("store reconnect / retry / stop", () => {
     expect(useStore.getState().workspacePanelTab).toBe("files");
   });
 
+  it("switchSession 应根据后端 is_running 校正运行状态", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/api/sessions/session-running/messages")) {
+        return Promise.resolve({
+          json: async () => ({ success: true, data: { messages: [] } }),
+        } as Response);
+      }
+      if (url.endsWith("/api/sessions/session-running")) {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: {
+              id: "session-running",
+              title: "运行中会话",
+              message_count: 0,
+              is_running: false,
+            },
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        json: async () => ({ success: true, data: {} }),
+        ok: true,
+      } as Response);
+    });
+
+    useStore.setState({
+      ...useStore.getInitialState(),
+      sessionId: "session-running",
+      runningSessions: new Set(["session-running"]),
+      isStreaming: true,
+    });
+
+    await useStore.getState().switchSession("session-running");
+
+    expect(useStore.getState().runningSessions.has("session-running")).toBe(false);
+    expect(useStore.getState().isStreaming).toBe(false);
+  });
+
   it("switchSession 应恢复 agent 运行摘要而不依赖全量事件回放", async () => {
     const fetchMock = vi.mocked(globalThis.fetch);
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
