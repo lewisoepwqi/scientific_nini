@@ -484,8 +484,7 @@ def compute_tool_exposure_policy(
         next_stage = _resolve_next_pending_stage(session)
         if next_stage:
             representative_tools = [
-                name for name in removed_by_policy[:3]
-                if name not in _ALWAYS_ALLOWED
+                name for name in removed_by_policy[:3] if name not in _ALWAYS_ALLOWED
             ]
             tool_list = "、".join(f"`{n}`" for n in representative_tools)
             if len(removed_by_policy) > 3:

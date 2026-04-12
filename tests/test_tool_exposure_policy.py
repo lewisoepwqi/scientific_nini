@@ -214,8 +214,18 @@ def test_profile_stage_with_analysis_pending_includes_analysis_tools() -> None:
     session = Session()
     session.task_manager = session.task_manager.init_tasks(
         [
-            {"id": 1, "title": "检查数据质量", "status": "completed", "tool_hint": "dataset_catalog"},
-            {"id": 2, "title": "数据预处理", "status": "in_progress", "tool_hint": "dataset_transform"},
+            {
+                "id": 1,
+                "title": "检查数据质量",
+                "status": "completed",
+                "tool_hint": "dataset_catalog",
+            },
+            {
+                "id": 2,
+                "title": "数据预处理",
+                "status": "in_progress",
+                "tool_hint": "dataset_transform",
+            },
             {"id": 3, "title": "相关性分析", "status": "pending", "tool_hint": "stat_test"},
             {"id": 4, "title": "绘制热图", "status": "pending", "tool_hint": "chart_session"},
         ]
@@ -251,7 +261,12 @@ def test_stage_transition_hint_informs_llm_about_hidden_tools() -> None:
     session = Session()
     session.task_manager = session.task_manager.init_tasks(
         [
-            {"id": 1, "title": "数据预处理", "status": "completed", "tool_hint": "dataset_transform"},
+            {
+                "id": 1,
+                "title": "数据预处理",
+                "status": "completed",
+                "tool_hint": "dataset_transform",
+            },
             {"id": 2, "title": "相关性分析", "status": "in_progress", "tool_hint": "stat_test"},
             {"id": 3, "title": "导出报告", "status": "pending", "tool_hint": "export_document"},
         ]
