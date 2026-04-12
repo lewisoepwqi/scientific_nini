@@ -156,7 +156,7 @@ class TestDifferenceAnalysisCapability:
         assert "结论" in interpretation
         assert "t_test" in interpretation or "t 检验" in interpretation
 
-    def test_result_to_dict(self, capability):
+    def test_result_to_dict(self):
         """测试结果转换为字典。"""
         result = DifferenceAnalysisResult(
             success=True,
