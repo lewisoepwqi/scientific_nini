@@ -29,6 +29,8 @@ import type {
 import {
   isRecord,
   nextId,
+  nextAnalysisTaskId,
+  makePlanProgressFromSteps,
   applyPlanStepUpdateToProgress,
   updateAnalysisTaskById,
   findTaskIdByStepAndTurn,
@@ -37,6 +39,7 @@ import {
 import {
   looksLikeToolCallReasoningPollution,
   mergePlanStepStatus,
+  normalizePlanStepStatus,
   stripReasoningMarkers,
 } from "./normalizers";
 import {
@@ -981,6 +984,137 @@ function buildPendingAskUserQuestionPatch(
       { ...state, pendingAskUserQuestionsBySession: nextPendingBySession },
       state.sessionId,
     ),
+  };
+}
+
+function buildTaskPlannerStateFromToolResult(
+  rawTasks: unknown,
+  existingTasks: AnalysisTaskItem[],
+  turnId: string | null,
+): {
+  analysisTasks: AnalysisTaskItem[];
+  analysisPlanProgress: AnalysisPlanProgress | null;
+} | null {
+  if (!Array.isArray(rawTasks) || rawTasks.length === 0) {
+    return null;
+  }
+  const currentTurnId = turnId || null;
+  const now = Date.now();
+  const existingTasksForTurn = existingTasks.filter(
+    (task) => (task.turn_id || null) === currentTurnId,
+  );
+  const existingByStepId = new Map(
+    existingTasksForTurn.map((task) => [task.plan_step_id, task] as const),
+  );
+
+  const nextTasksForTurn: AnalysisTaskItem[] = [];
+  for (const item of rawTasks) {
+    if (!isRecord(item)) continue;
+    const planStepId =
+      typeof item.id === "number" && Number.isFinite(item.id) ? Math.floor(item.id) : null;
+    if (planStepId === null || planStepId <= 0) continue;
+    const existing = existingByStepId.get(planStepId);
+    const normalizedStatus = normalizePlanStepStatus(
+      typeof item.status === "string" ? item.status : undefined,
+    );
+    nextTasksForTurn.push({
+      id: existing?.id ?? nextAnalysisTaskId(),
+      plan_step_id: planStepId,
+      action_id:
+        typeof item.action_id === "string" && item.action_id.trim()
+          ? item.action_id.trim()
+          : existing?.action_id ?? null,
+      title:
+        typeof item.title === "string" && item.title.trim()
+          ? item.title.trim()
+          : existing?.title ?? `任务 ${planStepId}`,
+      tool_hint:
+        typeof item.tool_hint === "string" && item.tool_hint.trim()
+          ? item.tool_hint.trim()
+          : existing?.tool_hint ?? null,
+      status: normalizedStatus,
+      raw_status:
+        typeof item.status === "string" && item.status.trim()
+          ? item.status.trim()
+          : existing?.raw_status,
+      current_activity:
+        normalizedStatus === "in_progress" ? "任务执行中" : null,
+      last_error:
+        normalizedStatus === "failed"
+          ? existing?.last_error ?? "任务执行失败"
+          : null,
+      attempts: existing?.attempts ?? [],
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+      turn_id: currentTurnId,
+      depends_on: Array.isArray(item.depends_on)
+        ? item.depends_on.filter(
+            (dep): dep is number => typeof dep === "number" && Number.isFinite(dep),
+          )
+        : existing?.depends_on ?? [],
+      executor:
+        item.executor === "main_agent" ||
+        item.executor === "subagent" ||
+        item.executor === "local_tool"
+          ? item.executor
+          : existing?.executor ?? null,
+      owner:
+        typeof item.owner === "string" && item.owner.trim()
+          ? item.owner.trim()
+          : existing?.owner ?? null,
+      input_refs: Array.isArray(item.input_refs)
+        ? item.input_refs.filter((ref): ref is string => typeof ref === "string")
+        : existing?.input_refs ?? [],
+      output_refs: Array.isArray(item.output_refs)
+        ? item.output_refs.filter((ref): ref is string => typeof ref === "string")
+        : existing?.output_refs ?? [],
+      handoff_contract: isRecord(item.handoff_contract)
+        ? item.handoff_contract
+        : existing?.handoff_contract ?? null,
+      tool_profile:
+        typeof item.tool_profile === "string" && item.tool_profile.trim()
+          ? item.tool_profile.trim()
+          : existing?.tool_profile ?? null,
+      failure_policy:
+        item.failure_policy === "stop_pipeline" ||
+        item.failure_policy === "allow_partial" ||
+        item.failure_policy === "retryable"
+          ? item.failure_policy
+          : existing?.failure_policy ?? null,
+      acceptance_checks: Array.isArray(item.acceptance_checks)
+        ? item.acceptance_checks.filter((check): check is string => typeof check === "string")
+        : existing?.acceptance_checks ?? [],
+    });
+  }
+  nextTasksForTurn.sort((a, b) => a.plan_step_id - b.plan_step_id);
+
+  if (nextTasksForTurn.length === 0) {
+    return null;
+  }
+
+  const preservedTasks = existingTasks.filter((task) => (task.turn_id || null) !== currentTurnId);
+  const analysisTasks = [...preservedTasks, ...nextTasksForTurn];
+  const steps: AnalysisStep[] = nextTasksForTurn.map((task) => ({
+    id: task.plan_step_id,
+    title: task.title,
+    tool_hint: task.tool_hint,
+    status: task.status,
+    raw_status: task.raw_status,
+    action_id: task.action_id,
+    depends_on: task.depends_on,
+    executor: task.executor,
+    owner: task.owner,
+    input_refs: task.input_refs,
+    output_refs: task.output_refs,
+    handoff_contract: task.handoff_contract,
+    tool_profile: task.tool_profile,
+    failure_policy: task.failure_policy,
+    acceptance_checks: task.acceptance_checks,
+  }));
+
+  return {
+    analysisTasks,
+    analysisPlanProgress: makePlanProgressFromSteps(steps, ""),
   };
 }
 
@@ -1970,6 +2104,14 @@ export function handleEvent(
         normalized.message ||
         (status === "error" ? "工具执行失败" : "工具执行完成");
       const toolCallId = evt.tool_call_id;
+      const plannerPayload =
+        (evt.tool_name === "task_state" || evt.tool_name === "task_write") &&
+        status === "success" &&
+        isRecord(data.data) &&
+        (data.data.mode === "init" || data.data.mode === "update") &&
+        Array.isArray(data.data.tasks)
+          ? data.data.tasks
+          : null;
       if (runMeta.runScope === "subagent" && runMeta.runId && runMeta.turnId) {
         if (backgroundSessionId) break;
         set((s) => {
@@ -1996,27 +2138,44 @@ export function handleEvent(
         break;
       }
       if (backgroundSessionId) {
-        updateSessionUiCacheEntry(backgroundSessionId, (entry) => ({
-          ...entry,
-          messages: upsertToolResultMessage(entry.messages, {
-            content: resultMessage,
-            toolName: evt.tool_name || undefined,
-            toolCallId: toolCallId || undefined,
-            toolResult: resultMessage,
-            toolStatus: status,
-            toolIntent:
-              typeof evt.metadata?.intent === "string"
-                ? evt.metadata.intent
-                : undefined,
-            widget: normalized.widget,
-            turnId: evt.turn_id || entry.currentTurnId || undefined,
-            timestamp: Date.now(),
-          }),
-        }));
+        updateSessionUiCacheEntry(backgroundSessionId, (entry) => {
+          const turnId = evt.turn_id || entry.currentTurnId || null;
+          const plannerState = buildTaskPlannerStateFromToolResult(
+            plannerPayload,
+            entry.analysisTasks,
+            turnId,
+          );
+          return {
+            ...entry,
+            messages: upsertToolResultMessage(entry.messages, {
+              content: resultMessage,
+              toolName: evt.tool_name || undefined,
+              toolCallId: toolCallId || undefined,
+              toolResult: resultMessage,
+              toolStatus: status,
+              toolIntent:
+                typeof evt.metadata?.intent === "string"
+                  ? evt.metadata.intent
+                  : undefined,
+              widget: normalized.widget,
+              turnId: evt.turn_id || entry.currentTurnId || undefined,
+              timestamp: Date.now(),
+            }),
+            analysisTasks: plannerState?.analysisTasks ?? entry.analysisTasks,
+            analysisPlanProgress:
+              plannerState?.analysisPlanProgress ?? entry.analysisPlanProgress,
+            workspacePanelTab: plannerState ? "tasks" : entry.workspacePanelTab,
+          };
+        });
         break;
       }
       const turnId = evt.turn_id || get()._currentTurnId || undefined;
       set((s) => {
+        const plannerState = buildTaskPlannerStateFromToolResult(
+          plannerPayload,
+          s.analysisTasks,
+          (turnId as string | undefined) ?? null,
+        );
         const msgs = upsertToolResultMessage(s.messages, {
           content: resultMessage,
           toolName: evt.tool_name || undefined,
@@ -2033,6 +2192,12 @@ export function handleEvent(
         });
         return {
           messages: msgs,
+          analysisTasks: plannerState?.analysisTasks ?? s.analysisTasks,
+          analysisPlanProgress:
+            plannerState?.analysisPlanProgress ?? s.analysisPlanProgress,
+          workspacePanelOpen: plannerState ? true : s.workspacePanelOpen,
+          workspacePanelTab: plannerState ? "tasks" : s.workspacePanelTab,
+          previewFileId: plannerState ? null : s.previewFileId,
           ...(shouldClearPendingQuestion
             ? buildPendingAskUserQuestionPatch(s, pendingQuestionSessionId, null)
             : {}),

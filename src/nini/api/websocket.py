@@ -56,6 +56,51 @@ def _load_existing_session(session_id: str) -> Session | None:
         return None
 
 
+def _is_task_running(task: Any) -> bool:
+    """判断 asyncio 任务是否仍在运行。"""
+    return isinstance(task, asyncio.Task) and not task.done()
+
+
+def _resolve_session_chat_task(
+    session_id: str,
+    active_chat_tasks: dict[str, asyncio.Task[None]],
+) -> asyncio.Task[None] | None:
+    """优先从连接上下文，其次从 Session 运行时状态获取主会话任务。"""
+    local_task = active_chat_tasks.get(session_id)
+    if _is_task_running(local_task):
+        return local_task
+    live_session = session_manager.get_session(session_id)
+    runtime_task = getattr(live_session, "runtime_chat_task", None) if live_session else None
+    if _is_task_running(runtime_task):
+        return runtime_task
+    return None
+
+
+def _resolve_session_stop_event(
+    session_id: str,
+    active_stop_events: dict[str, asyncio.Event],
+) -> asyncio.Event | None:
+    """优先从连接上下文，其次从 Session 运行时状态获取停止信号。"""
+    local_event = active_stop_events.get(session_id)
+    if isinstance(local_event, asyncio.Event):
+        return local_event
+    live_session = session_manager.get_session(session_id)
+    runtime_event = getattr(live_session, "runtime_stop_event", None) if live_session else None
+    return runtime_event if isinstance(runtime_event, asyncio.Event) else None
+
+
+def _websocket_is_disconnected(ws: WebSocket) -> bool:
+    """兼容不同 WebSocket 实现判断连接是否已断开。"""
+    for attr in ("client_state", "application_state"):
+        state = getattr(ws, attr, None)
+        if state == WebSocketState.DISCONNECTED:
+            return True
+        state_name = getattr(state, "name", None)
+        if isinstance(state_name, str) and state_name.upper() == "DISCONNECTED":
+            return True
+    return False
+
+
 def _with_root_run_metadata(
     metadata: dict[str, Any] | None,
     *,
@@ -404,6 +449,7 @@ async def websocket_agent(ws: WebSocket):
         )
         stop_event = active_stop_events.get(session.id) or asyncio.Event()
         session.runtime_stop_event = stop_event
+        session.runtime_chat_task = asyncio.current_task()
 
         # 会话首次恢复时，从工作空间补齐已上传数据集
         if not getattr(session, "workspace_hydrated", False):
@@ -727,12 +773,18 @@ async def websocket_agent(ws: WebSocket):
                 )
         finally:
             session.event_callback = previous_event_callback
-            session.runtime_stop_event = None
+            current_task = asyncio.current_task()
+            if getattr(session, "runtime_chat_task", None) is current_task:
+                session.runtime_chat_task = None
+            if session.runtime_stop_event is stop_event:
+                session.runtime_stop_event = None
             session.stop_all_subagents()
             _cancel_pending_questions(session.id)
             # 从字典中移除该会话的任务和停止事件
-            active_chat_tasks.pop(session.id, None)
-            active_stop_events.pop(session.id, None)
+            if active_chat_tasks.get(session.id) is current_task:
+                active_chat_tasks.pop(session.id, None)
+            if active_stop_events.get(session.id) is stop_event:
+                active_stop_events.pop(session.id, None)
             reset_log_context(session_token)
 
     try:
@@ -767,14 +819,17 @@ async def websocket_agent(ws: WebSocket):
                     # 停止指定会话的任务
                     try:
                         logger.info("处理 WebSocket 消息: type=stop")
-                        task = active_chat_tasks.get(stop_session_id)
-                        if task and not task.done():
-                            stop_ev = active_stop_events.get(stop_session_id)
-                            if stop_ev:
+                        task = _resolve_session_chat_task(stop_session_id, active_chat_tasks)
+                        if _is_task_running(task):
+                            stop_ev = _resolve_session_stop_event(
+                                stop_session_id, active_stop_events
+                            )
+                            if isinstance(stop_ev, asyncio.Event):
                                 stop_ev.set()
                             live_session = session_manager.get_session(stop_session_id)
                             if live_session is not None:
                                 live_session.stop_all_subagents()
+                            assert task is not None
                             task.cancel()
                             with suppress(asyncio.CancelledError):
                                 await task
@@ -800,20 +855,28 @@ async def websocket_agent(ws: WebSocket):
                         reset_log_context(session_token)
                 else:
                     # 向后兼容：无 session_id 时停止所有运行中任务
-                    if active_chat_tasks:
-                        for sid, task in list(active_chat_tasks.items()):
-                            if not task.done():
-                                stop_ev = active_stop_events.get(sid)
-                                if stop_ev:
-                                    stop_ev.set()
-                                live_session = session_manager.get_session(sid)
-                                if live_session is not None:
-                                    live_session.stop_all_subagents()
+                    live_session_ids = list(getattr(session_manager, "_sessions", {}).keys())
+                    running_session_ids = {
+                        sid
+                        for sid in live_session_ids
+                        if _is_task_running(_resolve_session_chat_task(sid, active_chat_tasks))
+                    }
+                    if running_session_ids:
+                        for sid in list(running_session_ids):
+                            task = _resolve_session_chat_task(sid, active_chat_tasks)
+                            stop_ev = _resolve_session_stop_event(sid, active_stop_events)
+                            if isinstance(stop_ev, asyncio.Event):
+                                stop_ev.set()
+                            live_session = session_manager.get_session(sid)
+                            if live_session is not None:
+                                live_session.stop_all_subagents()
+                            if _is_task_running(task):
+                                assert task is not None
                                 task.cancel()
                                 with suppress(asyncio.CancelledError):
                                     await task
-                                stopped_session = _load_existing_session(sid)
-                                _trigger_memory_consolidation(stopped_session)
+                            stopped_session = _load_existing_session(sid)
+                            _trigger_memory_consolidation(stopped_session)
                         _cancel_pending_questions()
                         await _send_event(
                             ws,
@@ -953,8 +1016,8 @@ async def websocket_agent(ws: WebSocket):
                 try:
                     logger.info("处理 WebSocket 消息: type=retry")
                     # 检查该会话是否已有运行中任务
-                    existing_task = active_chat_tasks.get(session_id)
-                    if existing_task and not existing_task.done():
+                    existing_task = _resolve_session_chat_task(session_id, active_chat_tasks)
+                    if _is_task_running(existing_task):
                         await _send_event(
                             ws,
                             "error",
@@ -1008,7 +1071,7 @@ async def websocket_agent(ws: WebSocket):
                     # 运行 Agent（后台任务，按 session_id 注册）
                     stop_event = asyncio.Event()
                     active_stop_events[retry_session.id] = stop_event
-                    active_chat_tasks[retry_session.id] = asyncio.create_task(
+                    retry_task = asyncio.create_task(
                         _run_chat(
                             retry_session,
                             retry_content,
@@ -1016,6 +1079,9 @@ async def websocket_agent(ws: WebSocket):
                             recipe=recipe_registry.get(retry_session.recipe_id),
                         )
                     )
+                    retry_session.runtime_stop_event = stop_event
+                    retry_session.runtime_chat_task = retry_task
+                    active_chat_tasks[retry_session.id] = retry_task
                 finally:
                     reset_log_context(session_token)
                 continue
@@ -1114,8 +1180,8 @@ async def websocket_agent(ws: WebSocket):
                     _persist_task_context(chat_session)
 
                     # 检查该会话是否已有运行中任务（不阻塞其他会话）
-                    existing_task = active_chat_tasks.get(chat_session.id)
-                    if existing_task and not existing_task.done():
+                    existing_task = _resolve_session_chat_task(chat_session.id, active_chat_tasks)
+                    if _is_task_running(existing_task):
                         await _send_event(
                             ws,
                             "error",
@@ -1145,7 +1211,7 @@ async def websocket_agent(ws: WebSocket):
                     # 运行 Agent（后台任务，按 session_id 注册）
                     stop_event = asyncio.Event()
                     active_stop_events[chat_session.id] = stop_event
-                    active_chat_tasks[chat_session.id] = asyncio.create_task(
+                    chat_task = asyncio.create_task(
                         _run_chat(
                             chat_session,
                             (
@@ -1157,6 +1223,9 @@ async def websocket_agent(ws: WebSocket):
                             recipe=bound_recipe,
                         )
                     )
+                    chat_session.runtime_stop_event = stop_event
+                    chat_session.runtime_chat_task = chat_task
+                    active_chat_tasks[chat_session.id] = chat_task
                 finally:
                     reset_log_context(session_token)
                 continue
@@ -1183,20 +1252,20 @@ async def websocket_agent(ws: WebSocket):
             logger.debug("WebSocket 异常后发送错误事件失败", exc_info=True)
     finally:
         _cancel_pending_questions()
-        # 断开连接时 cancel 所有会话的后台任务，并触发各自的记忆沉淀
-        for sid, stop_ev in list(active_stop_events.items()):
-            stop_ev.set()
-            live_session = session_manager.get_session(sid)
-            if live_session is not None:
-                live_session.stop_all_subagents()
+        # 连接断开后，不再强制取消根会话运行；任务继续在后台完成，
+        # 前端重连后通过 switchSession 补拉最新状态。
+        detached_sessions = [
+            sid for sid, task in list(active_chat_tasks.items()) if _is_task_running(task)
+        ]
+        if detached_sessions:
+            logger.info(
+                "WebSocket 已断开，保留后台运行中的会话: %s",
+                ",".join(detached_sessions),
+            )
         for sid, task in list(active_chat_tasks.items()):
-            if not task.done():
-                task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
-            # 断开连接时触发各会话的记忆沉淀
-            disconnected_session = _load_existing_session(sid)
-            _trigger_memory_consolidation(disconnected_session)
+            if task.done():
+                disconnected_session = _load_existing_session(sid)
+                _trigger_memory_consolidation(disconnected_session)
         active_chat_tasks.clear()
         active_stop_events.clear()
         keepalive_task.cancel()
@@ -1350,7 +1419,7 @@ async def _send_event(
 ) -> None:
     """发送 WebSocket 事件。使用自定义编码器兜底处理 numpy 类型。"""
     # 检查连接是否仍然打开
-    if ws.client_state == WebSocketState.DISCONNECTED:
+    if _websocket_is_disconnected(ws):
         logger.debug("WebSocket 已断开，跳过发送事件: %s", event_type)
         return
 
@@ -1385,10 +1454,8 @@ async def _send_event(
         event_dict = event.model_dump(exclude_none=True)
         await ws.send_text(json.dumps(event_dict, cls=_NumpySafeEncoder, ensure_ascii=False))
     except RuntimeError as e:
-        # 连接可能在发送过程中关闭，通知对应会话的 Agent 停止
+        # 连接可能在发送过程中关闭；主任务继续运行，前端稍后可通过重连补拉状态
         if "close message has been sent" in str(e):
             logger.debug("WebSocket 连接已关闭，无法发送事件: %s", event_type)
-            if active_stop_events is not None and session_id and session_id in active_stop_events:
-                active_stop_events[session_id].set()
         else:
             raise

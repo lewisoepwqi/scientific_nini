@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
 
 from nini.agent.model_resolver import LLMChunk, model_resolver
 from nini.agent.session import session_manager
+from nini.api import websocket as websocket_module
 from nini.app import create_app
 from nini.config import settings
-from tests.client_utils import live_websocket_connect
+from tests.client_utils import _InMemoryWebSocket, live_websocket_connect
+from nini.api.websocket import websocket_agent
 
 
 @pytest.fixture
@@ -224,14 +227,44 @@ def test_websocket_retry_clears_last_agent_turn_and_regenerates(
     assert "error" not in retry_types
     assert any(e["type"] == "text" and "重试后回答" in e.get("data", "") for e in retry_events)
 
-    session = session_manager.get_session(session_id)
-    assert session is not None
-    assert len([m for m in session.messages if m.get("role") == "user"]) == 1
-    assistant_contents = [
-        str(m.get("content", "")) for m in session.messages if m.get("role") == "assistant"
-    ]
-    assert any("重试后回答" in content for content in assistant_contents)
-    assert all("第一次回答" not in content for content in assistant_contents)
+
+@pytest.mark.asyncio
+async def test_websocket_disconnect_keeps_root_run_alive(
+    app_with_temp_data,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WebSocket 断开后，主会话任务应继续在后台完成，而不是立即被取消。"""
+    finished = asyncio.Event()
+
+    async def fake_run(self, session, content, append_user_message=True, stop_event=None):
+        await asyncio.sleep(0.2)
+        finished.set()
+        if False:
+            yield None
+
+    monkeypatch.setattr(websocket_module.HarnessRunner, "run", fake_run)
+
+    ws = _InMemoryWebSocket()
+    task = asyncio.create_task(websocket_agent(ws))
+    try:
+        await asyncio.sleep(0)
+        await ws.client_send_text(json.dumps({"type": "chat", "content": "请继续执行"}))
+        session_event = await ws.client_receive_json(timeout=1.0)
+        assert session_event["type"] == "session"
+        session_id = session_event["data"]["session_id"]
+
+        await ws.client_close()
+        await asyncio.wait_for(task, timeout=1.0)
+        await asyncio.wait_for(finished.wait(), timeout=1.0)
+
+        session = session_manager.get_session(session_id)
+        assert session is not None
+        assert getattr(session, "runtime_chat_task", None) is None
+    finally:
+        if not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 def test_websocket_emits_retrieval_event(

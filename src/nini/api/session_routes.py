@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -320,6 +321,8 @@ async def get_dispatch_ledger_aggregate(
 async def get_session(session_id: str) -> APIResponse:
     """获取单个会话信息。"""
     session = _get_existing_session_or_404(session_id)
+    runtime_task = getattr(session, "runtime_chat_task", None)
+    is_running = isinstance(runtime_task, asyncio.Task) and not runtime_task.done()
 
     return APIResponse(
         success=True,
@@ -331,6 +334,7 @@ async def get_session(session_id: str) -> APIResponse:
             "recipe_id": session.recipe_id,
             "recipe_inputs": session.recipe_inputs,
             "deep_task_state": session.deep_task_state,
+            "is_running": is_running,
         },
     )
 
