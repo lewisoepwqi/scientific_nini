@@ -120,7 +120,7 @@ class TestCapabilityRegistry:
                     {
                         "success": True,
                         "message": "ok",
-                        "to_dict": lambda self: {"echo": kwargs, "session_id": session.id},
+                        "to_dict": lambda _: {"echo": kwargs, "session_id": session.id},
                     },
                 )()
 
@@ -130,7 +130,7 @@ class TestCapabilityRegistry:
                 display_name="演示能力",
                 description="测试执行器工厂",
                 is_executable=True,
-                executor_factory=lambda tool_registry: _ExecutableCapability(),
+                executor_factory=lambda _: _ExecutableCapability(),
             )
         )
         session = session_manager.get_or_create("cap-registry-exec")
@@ -325,7 +325,7 @@ def test_execute_capability_api_passes_through_extra_params(
                 {
                     "success": True,
                     "message": "ok",
-                    "to_dict": lambda self: {"session_id": session.id, "echo": kwargs},
+                    "to_dict": lambda _: {"session_id": session.id, "echo": kwargs},
                 },
             )()
 
@@ -335,7 +335,7 @@ def test_execute_capability_api_passes_through_extra_params(
             display_name="演示能力",
             description="验证参数透传",
             is_executable=True,
-            executor_factory=lambda tool_registry: _ExecutableCapability(),
+            executor_factory=lambda _: _ExecutableCapability(),
         )
     )
 
