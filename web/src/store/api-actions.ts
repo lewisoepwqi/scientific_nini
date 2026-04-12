@@ -1739,6 +1739,14 @@ function toPlanStep(task: AnalysisTaskItem): AnalysisStep {
     raw_status: task.raw_status,
     action_id: task.action_id,
     depends_on: task.depends_on,
+    executor: task.executor ?? null,
+    owner: task.owner ?? null,
+    input_refs: task.input_refs ?? [],
+    output_refs: task.output_refs ?? [],
+    handoff_contract: task.handoff_contract ?? null,
+    tool_profile: task.tool_profile ?? null,
+    failure_policy: task.failure_policy ?? null,
+    acceptance_checks: task.acceptance_checks ?? [],
   };
 }
 

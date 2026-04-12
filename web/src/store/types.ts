@@ -174,6 +174,14 @@ export interface AnalysisStep {
   action_id?: string | null;
   /** 依赖的步骤 ID 列表，用于依赖关系展示 */
   depends_on?: number[];
+  executor?: "main_agent" | "subagent" | "local_tool" | null;
+  owner?: string | null;
+  input_refs?: string[];
+  output_refs?: string[];
+  handoff_contract?: Record<string, unknown> | null;
+  tool_profile?: string | null;
+  failure_policy?: "stop_pipeline" | "allow_partial" | "retryable" | null;
+  acceptance_checks?: string[];
 }
 
 export interface AnalysisPlanData {
@@ -224,6 +232,14 @@ export interface AnalysisTaskItem {
   updated_at: number;
   turn_id?: string | null; // 关联的回合ID，用于区分不同对话的任务
   depends_on?: number[]; // 依赖的步骤 ID 列表
+  executor?: "main_agent" | "subagent" | "local_tool" | null;
+  owner?: string | null;
+  input_refs?: string[];
+  output_refs?: string[];
+  handoff_contract?: Record<string, unknown> | null;
+  tool_profile?: string | null;
+  failure_policy?: "stop_pipeline" | "allow_partial" | "retryable" | null;
+  acceptance_checks?: string[];
 }
 
 export interface HarnessRunContextState {

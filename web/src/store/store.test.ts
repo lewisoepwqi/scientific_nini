@@ -341,7 +341,7 @@ describe("store reconnect / retry / stop", () => {
       status: "in_progress",
     });
     expect(useStore.getState().analysisPlanProgress).not.toBeNull();
-    expect(useStore.getState().workspacePanelTab).toBe("tasks");
+    expect(useStore.getState().workspacePanelTab).toBe("files");
   });
 
   it("switchSession 应恢复 task_state 历史任务状态", async () => {
@@ -394,7 +394,7 @@ describe("store reconnect / retry / stop", () => {
       status: "in_progress",
     });
     expect(useStore.getState().analysisPlanProgress).not.toBeNull();
-    expect(useStore.getState().workspacePanelTab).toBe("tasks");
+    expect(useStore.getState().workspacePanelTab).toBe("files");
   });
 
   it("switchSession 应恢复 agent 运行摘要而不依赖全量事件回放", async () => {

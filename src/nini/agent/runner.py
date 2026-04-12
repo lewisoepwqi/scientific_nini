@@ -819,7 +819,8 @@ class AgentRunner:
 
             # 获取工具定义（传入 session 以区分主 Agent / 子 Agent，控制 Orchestrator 工具暴露）
             tools = self._get_tool_definitions(
-                preferred_tools=allowed_tool_whitelist, session=session,
+                preferred_tools=allowed_tool_whitelist,
+                session=session,
                 user_message=user_message,
             )
             followup_prompt_for_purpose = pending_followup_prompt
@@ -1323,9 +1324,7 @@ class AgentRunner:
                     try:
                         from nini.utils.background_tasks import track_background_task
 
-                        track_background_task(
-                            self._memory_manager.on_session_end(session.messages)
-                        )
+                        track_background_task(self._memory_manager.on_session_end(session.messages))
                     except Exception:
                         logger.debug("MemoryManager.on_session_end 后台任务注册失败", exc_info=True)
 
@@ -3261,34 +3260,39 @@ class AgentRunner:
         tools: list[dict[str, Any]] = []
         visible_tool_names: set[str] | None = None
         if self._tool_registry is not None:
-            # compute_tool_exposure_policy 依赖 list_tools 确定可见工具集；
-            # 若注册表不支持 list_tools（如测试用 mock），跳过可见性过滤以避免误清空工具列表。
-            _has_list_tools = hasattr(self._tool_registry, "list_tools")
-            try:
-                from nini.agent.tool_exposure_policy import compute_tool_exposure_policy
+            if is_sub_session:
+                raw = self._tool_registry.get_tool_definitions()
+                if isinstance(raw, list):
+                    tools = [item for item in raw if isinstance(item, dict)]
+            else:
+                # compute_tool_exposure_policy 依赖 list_tools 确定可见工具集；
+                # 若注册表不支持 list_tools（如测试用 mock），跳过可见性过滤以避免误清空工具列表。
+                _has_list_tools = hasattr(self._tool_registry, "list_tools")
+                try:
+                    from nini.agent.tool_exposure_policy import compute_tool_exposure_policy
 
-                policy = compute_tool_exposure_policy(
-                    session=session,
-                    tool_registry=self._tool_registry,
-                    user_message=user_message,
-                )
-                visible_tool_names = (
-                    set(policy.get("visible_tools", [])) if _has_list_tools else None
-                )
-            except Exception:
-                visible_tool_names = None
-            raw = self._tool_registry.get_tool_definitions()
-            if isinstance(raw, list):
-                tools = [
-                    item
-                    for item in raw
-                    if isinstance(item, dict)
-                    and (
-                        visible_tool_names is None
-                        or str(item.get("function", {}).get("name", "")).strip()
-                        in visible_tool_names
+                    policy = compute_tool_exposure_policy(
+                        session=session,
+                        tool_registry=self._tool_registry,
+                        user_message=user_message,
                     )
-                ]
+                    visible_tool_names = (
+                        set(policy.get("visible_tools", [])) if _has_list_tools else None
+                    )
+                except Exception:
+                    visible_tool_names = None
+                raw = self._tool_registry.get_tool_definitions()
+                if isinstance(raw, list):
+                    tools = [
+                        item
+                        for item in raw
+                        if isinstance(item, dict)
+                        and (
+                            visible_tool_names is None
+                            or str(item.get("function", {}).get("name", "")).strip()
+                            in visible_tool_names
+                        )
+                    ]
 
         # Orchestrator 工具：从注册表中直接获取 tool_definition（不走 expose_to_llm 过滤）
         if (

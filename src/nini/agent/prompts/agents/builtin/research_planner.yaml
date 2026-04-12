@@ -8,6 +8,8 @@ system_prompt: |
   请使用 task_state 管理研究计划，使用 dataset_catalog 评估可用数据，
   使用 analysis_memory 记录规划决策。
 purpose: planning
+tool_profile: planning_execution
+dispatchable: false
 allowed_tools:
   - task_state
   - dataset_catalog

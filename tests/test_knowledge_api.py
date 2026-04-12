@@ -3,9 +3,10 @@
 测试知识库相关的REST API端点。
 """
 
+import json
+
 import pytest
-from unittest.mock import Mock, patch
-from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock, Mock, patch
 
 from nini.app import create_app
 from nini.config import settings
@@ -17,6 +18,9 @@ def client(tmp_path, monkeypatch):
     """创建测试客户端。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
     settings.ensure_dirs()
+    from nini.api import knowledge_routes
+
+    knowledge_routes._document_store.clear()
     app = create_app()
     return LocalASGIClient(app)
 
@@ -89,6 +93,98 @@ class TestKnowledgeDocumentsEndpoint:
 
         # 应该返回错误
         assert response.status_code == 422
+
+    def test_upload_document_persists_content_file(self, client):
+        """测试上传文档后正文会被持久化，避免重启后丢失。"""
+        from nini.api import knowledge_routes
+
+        mock_retriever = AsyncMock()
+        mock_retriever.add_document.return_value = True
+
+        with patch(
+            "nini.api.knowledge_routes.get_hybrid_retriever",
+            new=AsyncMock(return_value=mock_retriever),
+        ):
+            response = client.post(
+                "/api/knowledge/documents",
+                files={"file": ("test_knowledge.txt", "统计学测试文档", "text/plain")},
+                data={"title": "测试文档", "domain": "statistics"},
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        document_id = payload["document_id"]
+        document_path = settings.knowledge_dir / f"{document_id}.txt"
+        metadata_path = settings.knowledge_dir / "metadata.json"
+
+        assert document_path.exists()
+        assert document_path.read_text(encoding="utf-8") == "统计学测试文档"
+
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        assert document_id in metadata
+        assert metadata[document_id]["title"] == "测试文档"
+
+        knowledge_routes._document_store.clear()
+        knowledge_routes._load_document_store()
+        assert document_id in knowledge_routes._document_store
+
+    def test_load_document_store_prunes_stale_metadata(self, tmp_path, monkeypatch):
+        """测试启动时会清理缺失正文文件的失效元数据。"""
+        from nini.api import knowledge_routes
+
+        monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+        settings.ensure_dirs()
+        knowledge_routes._document_store.clear()
+
+        metadata_path = settings.knowledge_dir / "metadata.json"
+        metadata_path.write_text(
+            json.dumps(
+                {
+                    "stale-doc": {
+                        "id": "stale-doc",
+                        "title": "已丢失正文",
+                        "file_type": "txt",
+                        "file_size": 10,
+                        "index_status": "indexed",
+                        "created_at": "2026-04-09T05:18:45.534751+00:00",
+                        "updated_at": "2026-04-09T05:18:45.534758+00:00",
+                        "description": "",
+                        "domain": "statistics",
+                        "tags": [],
+                        "chunk_count": 1,
+                    }
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        knowledge_routes._load_document_store()
+
+        assert knowledge_routes._document_store == {}
+        assert json.loads(metadata_path.read_text(encoding="utf-8")) == {}
+
+    def test_upload_document_failure_does_not_leave_orphan_content_file(self, client):
+        """索引抛错时不应残留正文文件或内存文档项。"""
+        from nini.api import knowledge_routes
+
+        mock_retriever = AsyncMock()
+        mock_retriever.add_document.side_effect = RuntimeError("向量索引失败")
+
+        with patch(
+            "nini.api.knowledge_routes.get_hybrid_retriever",
+            new=AsyncMock(return_value=mock_retriever),
+        ):
+            response = client.post(
+                "/api/knowledge/documents",
+                files={"file": ("failed.txt", "失败文档", "text/plain")},
+                data={"title": "失败文档", "domain": "statistics"},
+            )
+
+        assert response.status_code == 500
+        assert list(settings.knowledge_dir.glob("*.txt")) == []
+        assert knowledge_routes._document_store == {}
 
 
 class TestKnowledgeContextEndpoint:

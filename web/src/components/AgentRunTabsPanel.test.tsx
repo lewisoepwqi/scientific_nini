@@ -99,6 +99,7 @@ describe("AgentRunTabsPanel", () => {
   it("应展示清晰状态和未读文案，并移除 tab 内终止按钮", () => {
     render(<AgentRunTabsPanel />);
 
+    expect(screen.getByRole("tablist", { name: "运行线程" })).toBeInTheDocument();
     const tabs = screen.getAllByRole("tab");
     expect(tabs).toHaveLength(4);
     expect(tabs[0]).toHaveTextContent("主 Agent");
@@ -109,6 +110,9 @@ describe("AgentRunTabsPanel", () => {
 
     expect(screen.getAllByText("运行中").length).toBeGreaterThan(0);
     expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
+    expect(screen.getByText("主线程")).toBeInTheDocument();
+    expect(screen.getByText("调度线程")).toBeInTheDocument();
+    expect(screen.getAllByText("执行线程").length).toBeGreaterThan(0);
     expect(screen.getByText("新消息 3")).toBeInTheDocument();
     expect(screen.getByText("可执行 2 · 预检失败 1")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "终止" })).not.toBeInTheDocument();

@@ -326,8 +326,18 @@ def test_select_title_model_from_available_prefers_dynamic_matchers() -> None:
         "dashscope",
         ["qwen-max", "qwen-turbo-latest", "qwen-plus"],
     )
-
     assert selected == "qwen-turbo-latest"
+
+
+def test_analysis_and_fast_purposes_inherit_configured_chat_route() -> None:
+    """子 Agent 使用的别名 purpose 应回退到用户配置的 chat 路由。"""
+    resolver = ModelResolver(clients=[])
+    resolver.set_purpose_route("chat", provider_id="zhipu", model="glm-5")
+    resolver.set_purpose_route("planning", provider_id="dashscope", model="qwen-plus")
+
+    assert resolver.get_preferred_provider("analysis") == "zhipu"
+    assert resolver.get_preferred_provider("fast") == "zhipu"
+    assert resolver.get_preferred_provider("deep_reasoning") == "dashscope"
 
 
 @pytest.mark.asyncio

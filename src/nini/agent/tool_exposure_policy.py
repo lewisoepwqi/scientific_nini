@@ -75,6 +75,30 @@ _HIGH_RISK_TOOLS = {
     "workspace_session",
 }
 
+_SUBAGENT_TOOL_PROFILES: dict[str, tuple[str, ...]] = {
+    "planning_execution": ("task_state", "dataset_catalog", "analysis_memory", "workspace_session"),
+    "cleaning_execution": (
+        "dataset_catalog",
+        "dataset_transform",
+        "code_session",
+        "analysis_memory",
+    ),
+    "analysis_execution": (
+        "dataset_catalog",
+        "code_session",
+        "stat_test",
+        "stat_model",
+        "stat_interpret",
+        "analysis_memory",
+    ),
+    "chart_execution": ("chart_session", "code_session", "analysis_memory"),
+    "writing_execution": ("report_session", "workspace_session", "analysis_memory"),
+    "literature_search": ("workspace_session", "analysis_memory", "search_literature"),
+    "literature_reading": ("workspace_session", "analysis_memory"),
+    "citation_management": ("workspace_session", "analysis_memory"),
+    "review_execution": ("workspace_session", "analysis_memory"),
+}
+
 
 @dataclass(frozen=True)
 class ToolExposurePolicy:
@@ -95,7 +119,11 @@ class ToolExposurePolicy:
     @classmethod
     def from_agent_def(cls, agent_def: Any) -> "ToolExposurePolicy":
         """从 AgentDefinition 构建策略（始终排除 dispatch_agents 防递归）。"""
-        allowed = tuple(getattr(agent_def, "allowed_tools", ()) or ())
+        tool_profile = str(getattr(agent_def, "tool_profile", "") or "").strip()
+        if tool_profile and tool_profile in _SUBAGENT_TOOL_PROFILES:
+            allowed = _SUBAGENT_TOOL_PROFILES[tool_profile]
+        else:
+            allowed = tuple(getattr(agent_def, "allowed_tools", ()) or ())
         return cls(
             allowed_tools=allowed,
             deny_names=frozenset({"dispatch_agents"}),

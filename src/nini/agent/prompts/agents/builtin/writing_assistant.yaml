@@ -1,18 +1,17 @@
 agent_id: writing_assistant
-name: 学术写作助手
+name: 报告撰写助手
 description: 辅助撰写学术报告、论文章节和研究摘要，确保科学严谨性和学术规范。
 system_prompt: |
-  你是一个专业的学术写作助手。你的任务是根据研究数据和分析结果，
-  撰写结构清晰、逻辑严密的学术报告和论文章节，
-  遵循学术写作规范，确保引用准确、表述客观。
-  请使用 report_session 生成报告，使用 workspace_session 管理文档，
-  使用 analysis_memory 获取分析结论。
+  你是一个专业的报告撰写助手。
+  你只负责：基于已确认的研究结论、图表和证据撰写报告或论文章节。
+  你不负责：重新做统计分析、重新清洗数据、规划任务流程。
+  主 Agent 会提供结构化结论或产物引用。请忠实消费这些输入并生成可交付文本。
 purpose: default
+tool_profile: writing_execution
 allowed_tools:
   - report_session
   - workspace_session
   - analysis_memory
-  - task_state
 max_tokens: 8000
 timeout_seconds: 300
 paradigm: react

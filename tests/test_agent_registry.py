@@ -16,6 +16,16 @@ def test_builtin_agents_loaded():
     assert len(agents) >= 9
 
 
+def test_research_planner_not_dispatchable():
+    """research_planner 仍保留注册，但不应出现在可派发 specialist 列表中。"""
+    registry = AgentRegistry()
+    planner = registry.get("research_planner")
+    assert planner is not None
+    assert planner.dispatchable is False
+    dispatchable_ids = {agent.agent_id for agent in registry.list_dispatchable_agents()}
+    assert "research_planner" not in dispatchable_ids
+
+
 def test_get_known_agent():
     registry = AgentRegistry()
     agent = registry.get("data_cleaner")

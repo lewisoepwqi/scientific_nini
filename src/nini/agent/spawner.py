@@ -135,6 +135,23 @@ class SubAgentSpawner:
         return None
 
     @staticmethod
+    def _extract_text_content(event: Any) -> str:
+        """从 TEXT 事件中提取可读文本。"""
+        data = getattr(event, "data", None)
+        if isinstance(data, dict):
+            content = data.get("content")
+            if isinstance(content, str):
+                return content
+            if content is not None:
+                return str(content)
+            return ""
+        if isinstance(data, str):
+            return data
+        if data is None:
+            return ""
+        return str(data)
+
+    @staticmethod
     def _collect_session_level_failures(session: Any) -> list[str]:
         """从子会话消息中补采集失败信号，兜底 runner 未显式抛错的场景。"""
         failures: list[str] = []
@@ -685,7 +702,7 @@ class SubAgentSpawner:
                 if failure_message:
                     child_failures.append(failure_message)
                 if event.type == EventType.TEXT and event.data:
-                    text = event.data if isinstance(event.data, str) else str(event.data)
+                    text = self._extract_text_content(event)
                     output_parts.append(text)
         finally:
             reset_log_context(log_token)

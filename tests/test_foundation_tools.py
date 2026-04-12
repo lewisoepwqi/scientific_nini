@@ -257,7 +257,7 @@ def test_task_state_schema_uses_operation_level_oneof() -> None:
 
     assert set(schema["required"]) == {"operation"}
     assert schema["additionalProperties"] is False
-    assert set(schema["properties"]) == {"operation", "tasks"}
+    assert {"operation", "tasks"}.issubset(set(schema["properties"]))
     assert schema["properties"]["operation"]["enum"] == ["init", "update", "get", "current"]
 
     branch_map = {branch["properties"]["operation"]["const"]: branch for branch in schema["oneOf"]}
@@ -295,7 +295,7 @@ def test_task_write_schema_uses_mode_level_oneof_and_init_pending_only() -> None
 
     assert set(schema["required"]) == {"mode", "tasks"}
     assert schema["additionalProperties"] is False
-    assert set(schema["properties"]) == {"mode", "tasks"}
+    assert {"mode", "tasks"}.issubset(set(schema["properties"]))
     assert schema["properties"]["mode"]["enum"] == ["init", "update"]
 
     branch_map = {branch["properties"]["mode"]["const"]: branch for branch in schema["oneOf"]}

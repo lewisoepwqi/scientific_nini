@@ -161,21 +161,22 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
         "\n"
         "## 多 Agent 并行调度（dispatch_agents）\n"
         "\n"
-        "使用 dispatch_agents 工具时，直接在 `agents` 参数中声明目标 agent_id 和任务描述。\n"
-        "仅在适合并行执行的场景使用（如文献批量检索、并行调研、多数据集同步处理）。\n"
+        "使用 dispatch_agents 工具时，优先传 `tasks=[{task_id, agent_id, task, input_refs, output_refs}]`。\n"
+        "仅在同一 wave 内、彼此独立、且与同批任务无读写冲突的场景使用。\n"
+        "若任务存在上下游关系（如先清洗后统计），必须等上游任务完成并进入当前 wave 后再派发。\n"
+        "`code_session`、`chart_session`、`run_code` 是工具，不是 agent_id，绝不能放进 dispatch_agents。\n"
         "最小调用示例：\n"
-        '  agents=[{"agent_id": "literature_search", "task": "检索高血压相关文献"}]\n'
+        '  tasks=[{"task_id": 1, "agent_id": "literature_search", "task": "检索高血压相关文献"}]\n'
         "\n"
         "可用 Specialist Agent（agent_id → 职责）：\n"
         "- citation_manager：管理参考文献，标准化引用格式，生成引用列表\n"
         "- data_cleaner：数据质量检测、缺失值处理、异常值识别、数据标准化\n"
         "- literature_reading：深度阅读科学文献，提取关键信息，生成结构化摘要\n"
         "- literature_search：科学文献检索与筛选，关键词搜索，文献列表整理\n"
-        "- research_planner：分析研究问题，制定系统性研究方案和分析计划\n"
         "- review_assistant：审查研究报告/论文草稿，识别逻辑漏洞和方法问题\n"
         "- statistician：统计检验、建模和结果解释（假设检验、回归、相关性分析）\n"
-        "- viz_designer：设计科学数据可视化图表（统计图、分布图、关系图）\n"
-        "- writing_assistant：撰写学术报告、论文章节和研究摘要\n"
+        "- viz_designer：基于已确认数据和结论构建图表\n"
+        "- writing_assistant：基于已确认结论撰写报告和章节\n"
     ),
     "user.md": "用户画像：默认未知。若用户提供偏好，按会话内最新信息更新。",
     "memory.md": "长期记忆：当前会话未提供额外长期记忆。",

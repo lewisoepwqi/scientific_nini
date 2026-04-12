@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from nini.agent.session import Session
 from nini.agent.session import session_manager
 from nini.agent.sub_session import SubSession
 from nini.memory.conversation import InMemoryConversationMemory
@@ -77,6 +78,36 @@ def test_datasets_shared_reference():
 def test_parent_session_id_field():
     session = SubSession(id=uuid.uuid4().hex[:12], parent_session_id="parent123")
     assert session.parent_session_id == "parent123"
+
+
+def test_list_sessions_hides_persistent_subsessions_by_default(tmp_path, monkeypatch):
+    """默认会话列表不应暴露子会话；审计场景可显式包含。"""
+    from nini.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+
+    parent = Session(id="parent-session", title="父会话")
+    parent.add_message("user", "主会话消息")
+    child = SubSession(
+        id="child-session",
+        parent_session_id=parent.id,
+        persist_runtime_state=True,
+    )
+    child.add_message("assistant", "子会话审计消息")
+
+    original_sessions = dict(session_manager._sessions)
+    try:
+        session_manager._sessions.clear()
+        visible_ids = {item["id"] for item in session_manager.list_sessions()}
+        all_ids = {item["id"] for item in session_manager.list_sessions(include_subsessions=True)}
+    finally:
+        session_manager._sessions.clear()
+        session_manager._sessions.update(original_sessions)
+
+    assert parent.id in visible_ids
+    assert child.id not in visible_ids
+    assert {parent.id, child.id}.issubset(all_ids)
 
 
 @pytest.mark.asyncio

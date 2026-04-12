@@ -142,8 +142,11 @@ DEFAULT_PURPOSE_ROUTES: dict[str, PurposeRoute] = {
 }
 
 PURPOSE_ROUTE_FALLBACKS: dict[str, str] = {
+    "analysis": "chat",
+    "fast": "chat",
     "planning": "chat",
     "verification": "chat",
+    "deep_reasoning": "planning",
 }
 
 

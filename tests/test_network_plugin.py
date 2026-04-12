@@ -16,15 +16,12 @@ async def test_network_available_when_probe_succeeds() -> None:
     """网络连通时 is_available() 返回 True。"""
     plugin = NetworkPlugin()
 
-    # Mock httpx.AsyncClient，通用探测和 Semantic Scholar 探测都返回 200
+    # Mock httpx.AsyncClient，通用探测返回 200
     mock_probe_response = MagicMock()
     mock_probe_response.status_code = 200
-    mock_semantic_response = MagicMock()
-    mock_semantic_response.status_code = 200
 
     mock_client = AsyncMock()
     mock_client.head = AsyncMock(return_value=mock_probe_response)
-    mock_client.get = AsyncMock(return_value=mock_semantic_response)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
@@ -44,7 +41,6 @@ async def test_network_unavailable_when_connection_error() -> None:
 
     mock_client = AsyncMock()
     mock_client.head = AsyncMock(side_effect=httpx.ConnectError("连接失败"))
-    mock_client.get = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
@@ -79,7 +75,6 @@ async def test_network_unavailable_when_server_error() -> None:
 
     mock_client = AsyncMock()
     mock_client.head = AsyncMock(return_value=mock_probe_response)
-    mock_client.get = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
@@ -186,12 +181,9 @@ async def test_network_uses_configured_timeout(monkeypatch: pytest.MonkeyPatch) 
     plugin = NetworkPlugin()
     mock_probe_response = MagicMock()
     mock_probe_response.status_code = 200
-    mock_semantic_response = MagicMock()
-    mock_semantic_response.status_code = 200
 
     mock_client = AsyncMock()
     mock_client.head = AsyncMock(return_value=mock_probe_response)
-    mock_client.get = AsyncMock(return_value=mock_semantic_response)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
@@ -213,12 +205,9 @@ async def test_network_uses_configured_proxy(monkeypatch: pytest.MonkeyPatch) ->
     plugin = NetworkPlugin()
     mock_probe_response = MagicMock()
     mock_probe_response.status_code = 200
-    mock_semantic_response = MagicMock()
-    mock_semantic_response.status_code = 200
 
     mock_client = AsyncMock()
     mock_client.head = AsyncMock(return_value=mock_probe_response)
-    mock_client.get = AsyncMock(return_value=mock_semantic_response)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
@@ -235,18 +224,15 @@ async def test_network_uses_configured_proxy(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.asyncio
-async def test_network_unavailable_when_semantic_scholar_probe_fails() -> None:
-    """Semantic Scholar 端点不可达时 is_available() 返回 False。"""
+async def test_network_available_when_probe_returns_client_error() -> None:
+    """探测地址返回 4xx 时仍视为网络可达。"""
     plugin = NetworkPlugin()
 
     mock_probe_response = MagicMock()
-    mock_probe_response.status_code = 200
-    mock_semantic_response = MagicMock()
-    mock_semantic_response.status_code = 503
+    mock_probe_response.status_code = 429
 
     mock_client = AsyncMock()
     mock_client.head = AsyncMock(return_value=mock_probe_response)
-    mock_client.get = AsyncMock(return_value=mock_semantic_response)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
@@ -254,4 +240,4 @@ async def test_network_unavailable_when_semantic_scholar_probe_fails() -> None:
         mock_httpx.AsyncClient.return_value = mock_client
         result = await plugin.is_available()
 
-    assert result is False
+    assert result is True

@@ -88,6 +88,33 @@ def test_setup_logging_is_idempotent_and_compatible_with_stdlib_logger(
     assert "stdlib logger 兼容性验证" in settings.log_file_path.read_text(encoding="utf-8")
 
 
+def test_setup_logging_quiets_httpx_request_logs_outside_debug(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _prepare_runtime(tmp_path, monkeypatch, log_level="INFO")
+
+    setup_logging(log_level="info")
+
+    assert logging.getLogger("httpx").level == logging.WARNING
+    assert logging.getLogger("httpcore").level == logging.WARNING
+
+
+def test_setup_logging_normalizes_uvicorn_error_logger_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _prepare_runtime(tmp_path, monkeypatch, log_level="INFO")
+
+    setup_logging(log_level="info")
+    logging.getLogger("uvicorn.error").info("uvicorn logger 名称归一化验证")
+    _flush_managed_handlers()
+
+    log_text = settings.log_file_path.read_text(encoding="utf-8")
+    assert "INFO uvicorn [request_id=" in log_text
+    assert "INFO uvicorn.error [request_id=" not in log_text
+
+
 @pytest.mark.asyncio
 async def test_http_logs_bind_request_id(
     tmp_path: Path,

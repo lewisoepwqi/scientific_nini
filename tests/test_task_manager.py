@@ -63,6 +63,39 @@ def test_to_analysis_plan_dict_exposes_depends_on():
     assert plan_dict["steps"][1]["depends_on"] == [1]
 
 
+def test_init_tasks_reads_execution_metadata():
+    """init_tasks 应保留执行器、输入输出引用和交接契约。"""
+    tm = _make_manager(
+        [
+            {
+                "id": 1,
+                "title": "清洗数据",
+                "executor": "subagent",
+                "owner": "data_cleaner",
+                "input_refs": ["dataset:raw.v1"],
+                "output_refs": ["dataset:cleaned.v1"],
+                "handoff_contract": {"required_columns": ["age", "sbp"]},
+                "tool_profile": "cleaning_execution",
+                "failure_policy": "stop_pipeline",
+                "acceptance_checks": ["缺失率已下降"],
+            }
+        ]
+    )
+    task = tm.tasks[0]
+    assert task.executor == "subagent"
+    assert task.owner == "data_cleaner"
+    assert task.input_refs == ["dataset:raw.v1"]
+    assert task.output_refs == ["dataset:cleaned.v1"]
+    assert task.handoff_contract == {"required_columns": ["age", "sbp"]}
+    assert task.tool_profile == "cleaning_execution"
+    assert task.failure_policy == "stop_pipeline"
+    assert task.acceptance_checks == ["缺失率已下降"]
+    plan_dict = tm.to_analysis_plan_dict()
+    assert plan_dict["steps"][0]["handoff_contract"] == {"required_columns": ["age", "sbp"]}
+    assert plan_dict["steps"][0]["failure_policy"] == "stop_pipeline"
+    assert plan_dict["steps"][0]["acceptance_checks"] == ["缺失率已下降"]
+
+
 # ---- group_into_waves 拓扑排序 ----
 
 
@@ -119,6 +152,48 @@ def test_group_into_waves_empty():
     tm = TaskManager()
     waves = tm.group_into_waves()
     assert waves == []
+
+
+def test_group_into_waves_splits_write_conflicts():
+    """同一拓扑层中存在共享输出时，应拆成多个 wave。"""
+    tm = _make_manager(
+        [
+            {"id": 1, "title": "清洗 A", "output_refs": ["dataset:cleaned.v1"]},
+            {"id": 2, "title": "清洗 B", "output_refs": ["dataset:cleaned.v1"]},
+        ]
+    )
+    waves = tm.group_into_waves()
+    assert len(waves) == 2
+    assert [waves[0][0].id, waves[1][0].id] == [1, 2]
+
+
+def test_group_into_waves_splits_read_after_write_conflicts():
+    """同层任务若一个写入另一个读取的引用，也应拆分 wave。"""
+    tm = _make_manager(
+        [
+            {"id": 1, "title": "清洗", "output_refs": ["dataset:cleaned.v1"]},
+            {"id": 2, "title": "统计", "input_refs": ["dataset:cleaned.v1"]},
+        ]
+    )
+    waves = tm.group_into_waves()
+    assert len(waves) == 2
+    assert waves[0][0].id == 1
+    assert waves[1][0].id == 2
+
+
+def test_group_into_waves_reuses_later_subwave_for_newly_unlocked_tasks():
+    """前一子 wave 解锁的新任务，应能进入后续无冲突子 wave。"""
+    tm = _make_manager(
+        [
+            {"id": 1, "title": "A", "output_refs": ["dataset:cleaned.v1"]},
+            {"id": 2, "title": "B", "input_refs": ["dataset:cleaned.v1"]},
+            {"id": 3, "title": "C", "depends_on": [1], "input_refs": ["dataset:cleaned.v1"]},
+        ]
+    )
+    waves = tm.group_into_waves()
+    assert len(waves) == 2
+    assert [task.id for task in waves[0]] == [1]
+    assert {task.id for task in waves[1]} == {2, 3}
 
 
 def test_group_into_waves_skips_completed():
@@ -194,3 +269,28 @@ def test_update_tasks_preserves_depends_on_when_status_changes():
     )
     result = tm.update_tasks([{"id": 2, "status": "in_progress"}])
     assert result.manager.tasks[1].depends_on == [1]
+
+
+def test_update_tasks_preserves_extended_metadata():
+    """状态更新时不应丢失新增的任务协作元数据。"""
+    tm = _make_manager(
+        [
+            {
+                "id": 1,
+                "title": "统计分析",
+                "status": "pending",
+                "executor": "subagent",
+                "owner": "statistician",
+                "input_refs": ["dataset:cleaned.v1"],
+                "output_refs": ["artifact:stats.v1"],
+                "tool_profile": "analysis_execution",
+            }
+        ]
+    )
+    result = tm.update_tasks([{"id": 1, "status": "in_progress"}])
+    task = result.manager.tasks[0]
+    assert task.executor == "subagent"
+    assert task.owner == "statistician"
+    assert task.input_refs == ["dataset:cleaned.v1"]
+    assert task.output_refs == ["artifact:stats.v1"]
+    assert task.tool_profile == "analysis_execution"

@@ -153,6 +153,26 @@ def test_markdown_registry_ops_reload_disable_conflict_and_persist_override(
     assert settings.skills_state_path.exists()
 
 
+def test_markdown_registry_ops_duplicate_skills_log_summary_instead_of_warning(
+    registry_owner,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """同名 Markdown 技能覆盖应输出汇总日志，而不是逐条 warning。"""
+    skills_dir = tmp_path / "skills"
+    extra_dir = tmp_path / "skills-extra"
+    _write_skill_md(skills_dir / "guide" / "SKILL.md", name="guide", description="高优先级版本")
+    _write_skill_md(extra_dir / "guide" / "SKILL.md", name="guide", description="低优先级版本")
+
+    with caplog.at_level(logging.INFO):
+        items = registry_owner._markdown_ops.reload_markdown_tools(set(registry_owner._tools.keys()))
+
+    guide_items = [item for item in items if item["name"] == "guide"]
+    assert len(guide_items) == 1
+    assert any("同名 Markdown 技能覆盖" in record.message for record in caplog.records)
+    assert not any("低优先级版本将被忽略" in record.message for record in caplog.records)
+
+
 def test_catalog_ops_semantic_catalog_contains_matching_metadata(registry_owner) -> None:
     """ToolCatalogOps 应输出语义检索所需字段。"""
     registry_owner._function_ops.register(_DummySkill("alpha"))

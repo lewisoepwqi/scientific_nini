@@ -274,6 +274,15 @@ describe('normalizers', () => {
         status: 'not_started',
         action_id: null,
         raw_status: undefined,
+        depends_on: undefined,
+        executor: null,
+        owner: null,
+        input_refs: [],
+        output_refs: [],
+        handoff_contract: null,
+        tool_profile: null,
+        failure_policy: null,
+        acceptance_checks: [],
       })
     })
 

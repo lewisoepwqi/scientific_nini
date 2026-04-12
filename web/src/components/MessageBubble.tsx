@@ -97,7 +97,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
  task_state: "任务状态",
 
  // 多 Agent
- dispatch_agents: "派发子 Agent",
+ dispatch_agents: "派发执行线程",
 
  // 复合模板
  complete_comparison: "完整两组比较分析",
@@ -283,9 +283,10 @@ function MessageBubble({
  onRetry,
  retryDisabled = false,
 }: Props) {
- const completedAgents = useStore((s) => s.completedAgents);
- const runGroupsByTurn = useStore((s) => s.runGroupsByTurn);
- const selectAgentRun = useStore((s) => s.selectAgentRun);
+const completedAgents = useStore((s) => s.completedAgents);
+const agentRuns = useStore((s) => s.agentRuns);
+const runGroupsByTurn = useStore((s) => s.runGroupsByTurn);
+const selectAgentRun = useStore((s) => s.selectAgentRun);
  const isUser = message.role === "user";
  const isTool = message.role === "tool";
  const isReasoning = !!message.isReasoning;
@@ -499,7 +500,9 @@ function MessageBubble({
  ? completedAgents.slice(0, 6)
  : [];
  const relatedRunGroup = message.turnId ? runGroupsByTurn[message.turnId] : undefined;
- const firstSubagentRunId = relatedRunGroup?.runIds.find((runId) => runId !== relatedRunGroup.rootRunId);
+ const firstSubagentRunId = relatedRunGroup?.runIds.find(
+ runId => runId !== relatedRunGroup.rootRunId && agentRuns[runId]?.runScope === 'subagent',
+ );
 
  return (
  <div className="flex gap-3 mb-3">
@@ -509,7 +512,7 @@ function MessageBubble({
  <Wrench size={14} />
  </div>
  <div className="flex-1 min-w-0">
- {/* 快捷跳转到子 Agent 线程 */}
+ {/* 快捷跳转到执行线程 */}
  {isDispatchAgents && firstSubagentRunId && (
  <div className="mb-2">
  <Button
@@ -518,11 +521,11 @@ function MessageBubble({
  variant="ghost"
  onClick={() => selectAgentRun(firstSubagentRunId)}
  >
- 查看子 Agent 线程
- </Button>
+ 查看执行线程
+  </Button>
  </div>
  )}
- {/* 子 Agent 来源标签（仅 dispatch_agents 工具结果展示） */}
+ {/* 执行线程来源标签（仅 dispatch_agents 工具结果展示） */}
  {sourceAgents.length > 0 && (
  <div className="mb-1 flex flex-wrap gap-1">
  {sourceAgents.map((agent) => (
