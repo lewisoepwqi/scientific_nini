@@ -1,8 +1,8 @@
-# Capability: dispatch-agents-tool
+# Capability: Multi-Agent Dispatch
 
 ## Purpose
 
-提供 `DispatchAgentsTool`（工具名 `dispatch_agents`），作为主 Agent 发起多 Agent 并行派发的入口。主 Agent 直接声明 `agents: [{agent_id, task}]`，工具并行调用 `SubAgentSpawner.spawn_batch`，返回带 agent_id 标签的拼接原始输出，由主 Agent 在下一轮自行综合。
+定义简化后的 `DispatchAgentsTool` 接口规范。移除 TaskRouter 和 ResultFusionEngine 层后，dispatch_agents 直接接受 `agents: [{agent_id, task}]` 参数，并行执行所有子 Agent，返回带 agent_id 标签的拼接原始输出供主 Agent 综合。
 
 ## Requirements
 
@@ -30,8 +30,6 @@
 - **AND** 失败子 Agent 的错误信息 SHALL 以 `[{agent_id}] 执行失败: {error}` 格式包含在返回文本中
 - **AND** `ToolResult.success` SHALL 为 `True`（至少一个成功时）
 
----
-
 ### Requirement: DispatchAgentsTool 注册到 ToolRegistry
 `DispatchAgentsTool` SHALL 在 `create_default_tool_registry()` 中注册；工具名 `"dispatch_agents"` SHALL 不出现在任何子 Agent 的 `allowed_tools` 白名单中（通过 `ToolExposurePolicy` 的 `deny_names` 强制排除），防止递归派发。
 
@@ -42,8 +40,6 @@
 #### Scenario: 子 Agent 不可见 dispatch_agents
 - **WHEN** 构建子 Agent 的受限工具注册表
 - **THEN** `dispatch_agents` SHALL 不出现在子 Agent 可调用工具列表中
-
----
 
 ### Requirement: 子 Agent 并发上限
 `spawn_batch` SHALL 使用 `asyncio.Semaphore` 限制并发子 Agent 数量；默认上限 SHALL 为 4，可通过 settings 配置。

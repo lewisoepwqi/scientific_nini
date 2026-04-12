@@ -1,8 +1,5 @@
-# context-aware-memory-ranking Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change optimize-memory-prompt-system. Update Purpose after archive.
-## Requirements
 ### Requirement: 长期记忆检索使用情境加权 + 时间衰减复合评分
 系统 SHALL 在长期记忆检索排序中，综合考虑记忆的基础重要性、访问次数、当前情境匹配度和时间衰减因子，而非仅按 importance_score 排序。
 
@@ -56,4 +53,3 @@ TBD - created by archiving change optimize-memory-prompt-system. Update Purpose 
 - **AND** `build_long_term_memory_context(query)` 被调用
 - **THEN** 系统 SHALL 降级到 `LongTermMemoryStore.search()` 执行
 - **AND** SHALL NOT 向调用方抛出异常
-

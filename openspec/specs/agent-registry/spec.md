@@ -6,14 +6,32 @@
 
 ## Requirements
 
-### Requirement: AgentDefinition 声明模型
-系统 SHALL 提供 `AgentDefinition` 数据类，用于声明一个 Specialist Agent 的完整配置，字段包括：`agent_id`（唯一标识）、`name`（显示名称）、`description`（能力描述）、`system_prompt`（系统提示词）、`purpose`（用途路由键）、`allowed_tools`（工具白名单列表）、`max_tokens`（默认 8000）、`timeout_seconds`（默认 300）、`paradigm`（默认 `"react"`）。
+### Requirement: AgentDefinition 数据结构
+系统 SHALL 提供 `AgentDefinition` 数据类，用于声明一个 Specialist Agent 的完整配置，字段包括：`agent_id`（唯一标识）、`name`（显示名称）、`description`（能力描述）、`system_prompt`（系统提示词）、`purpose`（用途路由键）、`allowed_tools`（工具白名单列表）、`max_tokens`（默认 8000）、`timeout_seconds`（默认 300）、`paradigm`（默认 `"react"`），以及 `model_preference: str | None`（可选，默认 `None`）。
+
+`model_preference` 的合法值 SHALL 为 `"haiku"`、`"sonnet"`、`"opus"` 或 `None`。`None` 表示继承父 Agent 的模型选择。
+
+YAML Agent 定义文件中 `model_preference` 字段为可选——缺失时等同于 `None`，现有 YAML 无需修改。
 
 #### Scenario: 创建有效的 AgentDefinition
 - **WHEN** 以合法字段实例化 `AgentDefinition`
 - **THEN** 实例 SHALL 可通过属性访问所有字段
 - **AND** `paradigm` 未传入时 SHALL 默认为 `"react"`
 - **AND** `max_tokens` 未传入时 SHALL 默认为 8000
+
+#### Scenario: YAML 中无 model_preference 字段时默认 None
+- **WHEN** 加载不含 `model_preference` 字段的 Agent YAML 文件
+- **THEN** `AgentDefinition.model_preference` SHALL 为 `None`
+- **AND** 系统 SHALL 不抛出异常、不记录 WARNING
+
+#### Scenario: YAML 中 model_preference 合法值被正确解析
+- **WHEN** YAML 文件包含 `model_preference: haiku`
+- **THEN** `AgentDefinition.model_preference` SHALL 为字符串 `"haiku"`
+
+#### Scenario: YAML 中 model_preference 非法值时降级
+- **WHEN** YAML 文件包含非法值（如 `model_preference: gpt4`）
+- **THEN** 系统 SHALL 记录 WARNING 并将 `model_preference` 设为 `None`
+- **AND** SHALL 不抛出异常
 
 #### Scenario: allowed_tools 为空列表时仍可创建
 - **WHEN** `allowed_tools` 传入空列表

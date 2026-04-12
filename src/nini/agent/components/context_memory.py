@@ -31,6 +31,19 @@ async def build_long_term_memory_context(
     """
     if not query or not query.strip():
         return ""
+
+    # MemoryManager 优先路径（SQLite FTS5）；失败或未初始化时降级
+    try:
+        from nini.memory.manager import build_memory_context_block, get_memory_manager
+
+        mm = get_memory_manager()
+        if mm is not None:
+            raw = await mm.prefetch_all(query)
+            if raw:
+                return build_memory_context_block(raw)
+    except Exception:
+        logger.debug("MemoryManager.prefetch_all 失败，降级到旧路径", exc_info=True)
+
     try:
         from nini.memory.long_term_memory import (
             format_memories_for_context,

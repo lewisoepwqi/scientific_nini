@@ -17,6 +17,29 @@ TBD - created by archiving change consolidate-tool-foundation. Update Purpose af
 - **THEN** 系统读取该脚本资源并执行
 - **AND** 将执行结果与脚本资源关联保存
 
+#### Scenario: 创建脚本后默认自动执行
+- **WHEN** 编排层创建脚本且未显式关闭自动执行
+- **THEN** 系统 SHALL 在创建成功后继续执行该脚本
+- **AND** SHALL 直接返回包含执行结果或失败结果的脚本会话响应
+
+#### Scenario: 显式关闭自动执行时保留待处理状态
+- **WHEN** 编排层创建脚本并显式要求不自动执行
+- **THEN** 系统 SHALL 保留该脚本资源而不立即执行
+- **AND** SHALL 将该脚本登记为待处理动作，供后续恢复与完成校验使用
+
+### Requirement: 未完成脚本必须显式登记为待处理动作
+系统 SHALL 对已创建但未执行成功的脚本维护显式待处理状态，而不是仅通过文本警告提示模型继续执行。
+
+#### Scenario: 自动执行失败后登记待处理脚本
+- **WHEN** 创建脚本后的自动执行失败
+- **THEN** 系统 SHALL 将该脚本登记为 `script_not_run` 或等价待处理动作
+- **AND** 后续运行时摘要 SHALL 能引用该脚本的待处理状态
+
+#### Scenario: 脚本执行成功后移除待处理状态
+- **WHEN** 某个待处理脚本在后续运行中执行成功
+- **THEN** 系统 SHALL 清除对应的待处理脚本状态
+- **AND** SHALL 保留已执行结果供后续步骤引用
+
 ### Requirement: 脚本会话必须支持局部 patch 与增量重跑
 系统 SHALL 支持对脚本内容进行局部修改，并在失败后只重跑修补后的脚本，而不是要求重新生成整段代码。
 

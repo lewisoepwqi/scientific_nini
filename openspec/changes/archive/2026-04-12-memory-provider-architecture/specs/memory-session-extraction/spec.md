@@ -1,8 +1,5 @@
-# memory-session-extraction Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change optimize-memory-prompt-system. Update Purpose after archive.
-## Requirements
 ### Requirement: 会话结束时自动将高置信度 AnalysisMemory 提取到长期记忆
 系统 SHALL 在 Agent 会话交互完成后，自动将本次会话中置信度达标的分析发现沉淀为跨会话可检索的长期记忆。
 
@@ -50,4 +47,3 @@ TBD - created by archiving change optimize-memory-prompt-system. Update Purpose 
 - **WHEN** `on_session_end([])` 被调用
 - **THEN** 系统 SHALL 正常完成（无 AnalysisMemory 可提取）
 - **AND** SHALL NOT 向 `facts` 表写入任何记录
-
