@@ -2,7 +2,7 @@
 
 覆盖场景：
 - 正常并行执行，结果正确拼接
-- agents 为空时快速返回
+- agents/tasks 均为空时返回结构化错误（success=False）
 - 非法 agent_id 返回结构化错误
 - 部分子 Agent 失败时结果仍完整返回
 """
@@ -116,6 +116,7 @@ async def test_execute_empty_agents_returns_error():
     assert result.metadata["error_code"] == "DISPATCH_AGENTS_NO_TASKS"
     assert result.metadata["agent_count"] == 0
     assert spawner.spawn_batch_calls == []
+    assert "至少一个任务" in result.message
 
 
 @pytest.mark.asyncio
@@ -127,6 +128,7 @@ async def test_execute_none_agents_and_no_tasks_returns_error():
     assert result.success is False
     assert result.metadata["error_code"] == "DISPATCH_AGENTS_NO_TASKS"
     assert spawner.spawn_batch_calls == []
+    assert "至少一个任务" in result.message
 
 
 # ─── 非法 agent_id ────────────────────────────────────────────────────────────

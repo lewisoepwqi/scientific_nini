@@ -179,7 +179,7 @@ class DispatchAgentsTool(Tool):
             return ToolResult(
                 success=False,
                 message=(
-                    "dispatch_agents 未收到任何任务：agents 和 tasks 均为空或未提供。"
+                    "dispatch_agents 未收到任何任务：agents 和 tasks 均为空或未提供。\n"
                     "请使用 tasks=[{task_id, agent_id, task}] 格式指定至少一个任务。"
                 ),
                 metadata={
