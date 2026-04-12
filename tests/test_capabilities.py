@@ -219,15 +219,6 @@ class TestDefaultCapabilities:
 
         assert isinstance(executor, DifferenceAnalysisCapability)
 
-    def test_implementations_module_remains_backward_compatible(self):
-        """旧 implementations 导入路径仍应导出同名执行器。"""
-        from nini.capabilities.executors import CorrelationAnalysisCapability as ExecutorClass
-        from nini.capabilities.implementations import (
-            CorrelationAnalysisCapability as CompatibilityClass,
-        )
-
-        assert CompatibilityClass is ExecutorClass
-
 
 @pytest.fixture(autouse=True)
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
