@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from nini.agent._event_builder_helpers import _make_agent_event, _make_event
 from nini.agent.events import AgentEvent, EventType
 from nini.models.event_schemas import (
     AnalysisPlanEventData,
@@ -128,24 +129,12 @@ def build_plan_step_update_event(
     **extra,
 ) -> AgentEvent:
     """构造 PLAN_STEP_UPDATE 事件。"""
-    event_data = PlanStepUpdateEventData(
-        id=step_id,
-        status=status,
-        error=error,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    metadata: dict[str, Any] = {}
-    if seq is not None:
-        metadata["seq"] = seq
-
-    return AgentEvent(
-        type=EventType.PLAN_STEP_UPDATE,
-        data=data,
-        turn_id=turn_id,
-        metadata=metadata,
+    return _make_event(
+        EventType.PLAN_STEP_UPDATE,
+        PlanStepUpdateEventData(id=step_id, status=status, error=error),
+        turn_id,
+        seq,
+        extra or None,
     )
 
 
@@ -228,29 +217,23 @@ def build_task_attempt_event(
     **extra,
 ) -> AgentEvent:
     """构造 TASK_ATTEMPT 事件。"""
-    event_data = TaskAttemptEventData(
-        action_id=action_id or "",
-        step_id=step_id or 0,
-        tool_name=tool_name,
-        attempt=attempt,
-        max_attempts=max_attempts,
-        status=status,  # type: ignore
-        note=note,
-        error=error,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    metadata: dict[str, Any] = {}
-    if seq is not None:
-        metadata["seq"] = seq
-
-    return AgentEvent(
-        type=EventType.TASK_ATTEMPT,
-        data=data,
-        turn_id=turn_id,
-        metadata=metadata,
+    return _make_event(
+        EventType.TASK_ATTEMPT,
+        TaskAttemptEventData(
+            action_id=action_id or "",
+            step_id=step_id or 0,
+            tool_name=tool_name,
+            attempt=attempt,
+            max_attempts=max_attempts,
+            status=status,  # type: ignore[arg-type]
+            task_id=None,
+            attempt_id=None,
+            note=note,
+            error=error,
+        ),
+        turn_id,
+        seq,
+        extra or None,
     )
 
 
@@ -344,23 +327,20 @@ def build_blocked_event(
     **extra,
 ) -> AgentEvent:
     """构造 BLOCKED 事件。"""
-    event_data = BlockedEventData(
-        turn_id=turn_id,
-        reason_code=reason_code,
-        message=message,
-        recoverable=recoverable,
-        task_id=None,
-        attempt_id=None,
-        suggested_action=suggested_action,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.BLOCKED,
-        data=data,
-        turn_id=turn_id,
+    return _make_event(
+        EventType.BLOCKED,
+        BlockedEventData(
+            turn_id=turn_id,
+            reason_code=reason_code,
+            message=message,
+            recoverable=recoverable,
+            task_id=None,
+            attempt_id=None,
+            suggested_action=suggested_action,
+        ),
+        turn_id,
+        None,
+        extra or None,
     )
 
 
@@ -377,23 +357,20 @@ def build_budget_warning_event(
     **extra,
 ) -> AgentEvent:
     """构造 BUDGET_WARNING 事件。"""
-    event_data = BudgetWarningEventData(
-        task_id=task_id,
-        metric=metric,  # type: ignore[arg-type]
-        threshold=threshold,
-        current_value=current_value,
-        warning_level=warning_level,  # type: ignore[arg-type]
-        message=message,
-        recipe_id=recipe_id,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.BUDGET_WARNING,
-        data=data,
-        turn_id=turn_id,
+    return _make_event(
+        EventType.BUDGET_WARNING,
+        BudgetWarningEventData(
+            task_id=task_id,
+            metric=metric,  # type: ignore
+            threshold=threshold,
+            current_value=current_value,
+            warning_level=warning_level,  # type: ignore
+            message=message,
+            recipe_id=recipe_id,
+        ),
+        turn_id,
+        None,
+        extra or None,
     )
 
 
@@ -407,20 +384,17 @@ def build_token_usage_event(
     **extra,
 ) -> AgentEvent:
     """构造 TOKEN_USAGE 事件。"""
-    event_data = TokenUsageEventData(
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        model=model,
-        cost_usd=cost_usd,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.TOKEN_USAGE,
-        data=data,
-        turn_id=turn_id,
+    return _make_event(
+        EventType.TOKEN_USAGE,
+        TokenUsageEventData(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            model=model,
+            cost_usd=cost_usd,
+        ),
+        turn_id,
+        None,
+        extra or None,
     )
 
 
@@ -440,26 +414,23 @@ def build_model_fallback_event(
     **extra,
 ) -> AgentEvent:
     """构造 MODEL_FALLBACK 事件。"""
-    event_data = ModelFallbackEventData(
-        purpose=purpose,
-        attempt=attempt,
-        from_provider_id=from_provider_id,
-        from_provider_name=from_provider_name,
-        from_model=from_model,
-        to_provider_id=to_provider_id,
-        to_provider_name=to_provider_name,
-        to_model=to_model,
-        reason=reason,
-        fallback_chain=fallback_chain or [],
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.MODEL_FALLBACK,
-        data=data,
-        turn_id=turn_id,
+    return _make_event(
+        EventType.MODEL_FALLBACK,
+        ModelFallbackEventData(
+            purpose=purpose,
+            attempt=attempt,
+            from_provider_id=from_provider_id,
+            from_provider_name=from_provider_name,
+            from_model=from_model,
+            to_provider_id=to_provider_id,
+            to_provider_name=to_provider_name,
+            to_model=to_model,
+            reason=reason,
+            fallback_chain=fallback_chain or [],
+        ),
+        turn_id,
+        None,
+        extra or None,
     )
 
 
@@ -598,65 +569,35 @@ def build_error_event(
     message: str, code: str | None = None, *, turn_id: str | None = None, **extra
 ) -> AgentEvent:
     """构造 ERROR 事件。"""
-    event_data = ErrorEventData(message=message, code=code)
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.ERROR,
-        data=data,
-        turn_id=turn_id,
-    )
+    return _make_event(EventType.ERROR, ErrorEventData(message=message, code=code), turn_id, None, extra or None)
 
 
 def build_done_event(
     reason: str = "completed", *, turn_id: str | None = None, **extra
 ) -> AgentEvent:
     """构造 DONE 事件。"""
-    event_data = DoneEventData(reason=reason)  # type: ignore
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.DONE,
-        data=data,
-        turn_id=turn_id,
-    )
+    return _make_event(EventType.DONE, DoneEventData(reason=reason), turn_id, None, extra or None)  # type: ignore
 
 
 def build_session_event(session_id: str, **extra) -> AgentEvent:
     """构造 SESSION 事件。"""
-    event_data = SessionEventData(
-        session_id=session_id,
-        task_kind=None,
-        recipe_id=None,
-        deep_task_state=None,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.SESSION,
-        data=data,
+    return _make_event(
+        EventType.SESSION,
+        SessionEventData(session_id=session_id, task_kind=None, recipe_id=None, deep_task_state=None),
+        None,
+        None,
+        extra or None,
     )
 
 
 def build_session_title_event(session_id: str, title: str, **extra) -> AgentEvent:
     """构造 SESSION_TITLE 事件。"""
-    event_data = SessionTitleEventData(
-        session_id=session_id,
-        title=title,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.SESSION_TITLE,
-        data=data,
+    return _make_event(
+        EventType.SESSION_TITLE,
+        SessionTitleEventData(session_id=session_id, title=title),
+        None,
+        None,
+        extra or None,
     )
 
 
@@ -664,18 +605,12 @@ def build_workspace_update_event(
     action: str, file_id: str | None = None, folder_id: str | None = None, **extra
 ) -> AgentEvent:
     """构造 WORKSPACE_UPDATE 事件。"""
-    event_data = WorkspaceUpdateEventData(
-        action=action,  # type: ignore
-        file_id=file_id,
-        folder_id=folder_id,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.WORKSPACE_UPDATE,
-        data=data,
+    return _make_event(
+        EventType.WORKSPACE_UPDATE,
+        WorkspaceUpdateEventData(action=action, file_id=file_id, folder_id=folder_id),  # type: ignore
+        None,
+        None,
+        extra or None,
     )
 
 
@@ -683,21 +618,12 @@ def build_code_execution_event(
     execution_id: str, code: str, output: str, status: str, language: str, created_at: str, **extra
 ) -> AgentEvent:
     """构造 CODE_EXECUTION 事件。"""
-    event_data = CodeExecutionEventData(
-        id=execution_id,
-        code=code,
-        output=output,
-        status=status,  # type: ignore
-        language=language,
-        created_at=created_at,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.CODE_EXECUTION,
-        data=data,
+    return _make_event(
+        EventType.CODE_EXECUTION,
+        CodeExecutionEventData(id=execution_id, code=code, output=output, status=status, language=language, created_at=created_at),  # type: ignore[arg-type]
+        None,
+        None,
+        extra or None,
     )
 
 
@@ -705,46 +631,20 @@ def build_stopped_event(
     message: str = "已停止", *, turn_id: str | None = None, **extra
 ) -> AgentEvent:
     """构造 STOPPED 事件。"""
-    event_data = StoppedEventData(message=message)
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.STOPPED,
-        data=data,
-        turn_id=turn_id,
-    )
+    return _make_event(EventType.STOPPED, StoppedEventData(message=message), turn_id, None, extra or None)
 
 
 def build_iteration_start_event(iteration: int, **extra) -> AgentEvent:
     """构造 ITERATION_START 事件。"""
-    event_data = IterationStartEventData(iteration=iteration)
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.ITERATION_START,
-        data=data,
-    )
+    return _make_event(EventType.ITERATION_START, IterationStartEventData(iteration=iteration), None, None, extra or None)
 
 
 def build_retrieval_event(
     query: str = "", results: list[dict[str, Any]] | None = None, **extra
 ) -> AgentEvent:
     """构造 RETRIEVAL 事件。"""
-    event_data = RetrievalEventData(
-        query=query,
-        results=results or [],
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.RETRIEVAL,
-        data=data,
+    return _make_event(
+        EventType.RETRIEVAL, RetrievalEventData(query=query, results=results or []), None, None, extra or None
     )
 
 
@@ -757,19 +657,12 @@ def build_reasoning_event(
     **extra,
 ) -> AgentEvent:
     """构造 REASONING 事件（流式/简单格式）。"""
-    event_data = ReasoningEventData(
-        content=content,
-        reasoning_id=reasoning_id,
-        reasoning_live=reasoning_live,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.REASONING,
-        data=data,
-        turn_id=turn_id,
+    return _make_event(
+        EventType.REASONING,
+        ReasoningEventData(content=content, reasoning_id=reasoning_id, reasoning_live=reasoning_live),
+        turn_id,
+        None,
+        extra or None,
     )
 
 
@@ -855,20 +748,12 @@ def build_artifact_event(
     **extra,
 ) -> AgentEvent:
     """构造 ARTIFACT 事件。"""
-    event_data = ArtifactEventData(
-        artifact_id=artifact_id,
-        artifact_type=artifact_type,
-        name=name,
-        url=url,
-        mime_type=mime_type,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.ARTIFACT,
-        data=data,
+    return _make_event(
+        EventType.ARTIFACT,
+        ArtifactEventData(artifact_id=artifact_id, artifact_type=artifact_type, name=name, url=url, mime_type=mime_type),
+        None,
+        None,
+        extra or None,
     )
 
 
@@ -876,19 +761,12 @@ def build_chart_event(
     chart_id: str, name: str, url: str, chart_type: str | None = None, **extra
 ) -> AgentEvent:
     """构造 CHART 事件。"""
-    event_data = ChartEventData(
-        chart_id=chart_id,
-        name=name,
-        url=url,
-        chart_type=chart_type,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.CHART,
-        data=data,
+    return _make_event(
+        EventType.CHART,
+        ChartEventData(chart_id=chart_id, name=name, url=url, chart_type=chart_type),
+        None,
+        None,
+        extra or None,
     )
 
 
@@ -901,20 +779,12 @@ def build_data_event(
     **extra,
 ) -> AgentEvent:
     """构造 DATA 事件。"""
-    event_data = DataEventData(
-        data_id=data_id,
-        name=name,
-        url=url,
-        row_count=row_count,
-        column_count=column_count,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.DATA,
-        data=data,
+    return _make_event(
+        EventType.DATA,
+        DataEventData(data_id=data_id, name=name, url=url, row_count=row_count, column_count=column_count),
+        None,
+        None,
+        extra or None,
     )
 
 
@@ -922,19 +792,12 @@ def build_image_event(
     image_id: str, name: str, url: str, mime_type: str | None = None, **extra
 ) -> AgentEvent:
     """构造 IMAGE 事件。"""
-    event_data = ImageEventData(
-        image_id=image_id,
-        name=name,
-        url=url,
-        mime_type=mime_type,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.IMAGE,
-        data=data,
+    return _make_event(
+        EventType.IMAGE,
+        ImageEventData(image_id=image_id, name=name, url=url, mime_type=mime_type),
+        None,
+        None,
+        extra or None,
     )
 
 
@@ -951,23 +814,21 @@ def build_context_compressed_event(
     **extra,
 ) -> AgentEvent:
     """构造 CONTEXT_COMPRESSED 事件。"""
-    event_data = ContextCompressedEventData(
-        original_tokens=original_tokens,
-        compressed_tokens=compressed_tokens,
-        compression_ratio=compression_ratio,
-        message=message,
-        archived_count=archived_count,
-        remaining_count=remaining_count,
-        previous_tokens=previous_tokens,
-        trigger=trigger,
-    )
-
-    data = event_data.model_dump()
-    data.update(extra)
-
-    return AgentEvent(
-        type=EventType.CONTEXT_COMPRESSED,
-        data=data,
+    return _make_event(
+        EventType.CONTEXT_COMPRESSED,
+        ContextCompressedEventData(
+            original_tokens=original_tokens,
+            compressed_tokens=compressed_tokens,
+            compression_ratio=compression_ratio,
+            message=message,
+            archived_count=archived_count,
+            remaining_count=remaining_count,
+            previous_tokens=previous_tokens,
+            trigger=trigger,
+        ),
+        None,
+        None,
+        extra or None,
     )
 
 
@@ -981,17 +842,11 @@ def build_agent_start_event(
     turn_id: str | None = None,
 ) -> AgentEvent:
     """构造 AGENT_START 事件。"""
-    event_data = AgentStartEventData(
-        agent_id=agent_id,
-        agent_name=agent_name,
-        task=task,
-        attempt=attempt,
-        retry_count=retry_count,
-    )
-    return AgentEvent(
-        type=EventType.AGENT_START,
-        data={"event_type": "agent_start", **event_data.model_dump()},
-        turn_id=turn_id,
+    return _make_agent_event(
+        EventType.AGENT_START,
+        AgentStartEventData(agent_id=agent_id, agent_name=agent_name, task=task, attempt=attempt, retry_count=retry_count),
+        "agent_start",
+        turn_id,
     )
 
 
@@ -1006,18 +861,11 @@ def build_agent_complete_event(
     turn_id: str | None = None,
 ) -> AgentEvent:
     """构造 AGENT_COMPLETE 事件。"""
-    event_data = AgentCompleteEventData(
-        agent_id=agent_id,
-        agent_name=agent_name,
-        summary=summary,
-        execution_time_ms=execution_time_ms,
-        attempt=attempt,
-        retry_count=retry_count,
-    )
-    return AgentEvent(
-        type=EventType.AGENT_COMPLETE,
-        data={"event_type": "agent_complete", **event_data.model_dump()},
-        turn_id=turn_id,
+    return _make_agent_event(
+        EventType.AGENT_COMPLETE,
+        AgentCompleteEventData(agent_id=agent_id, agent_name=agent_name, summary=summary, execution_time_ms=execution_time_ms, attempt=attempt, retry_count=retry_count),
+        "agent_complete",
+        turn_id,
     )
 
 
@@ -1033,19 +881,11 @@ def build_agent_progress_event(
     turn_id: str | None = None,
 ) -> AgentEvent:
     """构造 AGENT_PROGRESS 事件。"""
-    event_data = AgentProgressEventData(
-        agent_id=agent_id,
-        agent_name=agent_name,
-        phase=phase,
-        message=message,
-        progress_hint=progress_hint,
-        attempt=attempt,
-        retry_count=retry_count,
-    )
-    return AgentEvent(
-        type=EventType.AGENT_PROGRESS,
-        data={"event_type": "agent_progress", **event_data.model_dump()},
-        turn_id=turn_id,
+    return _make_agent_event(
+        EventType.AGENT_PROGRESS,
+        AgentProgressEventData(agent_id=agent_id, agent_name=agent_name, phase=phase, message=message, progress_hint=progress_hint, attempt=attempt, retry_count=retry_count),
+        "agent_progress",
+        turn_id,
     )
 
 
@@ -1060,18 +900,11 @@ def build_agent_error_event(
     turn_id: str | None = None,
 ) -> AgentEvent:
     """构造 AGENT_ERROR 事件。"""
-    event_data = AgentErrorEventData(
-        agent_id=agent_id,
-        agent_name=agent_name,
-        error=error,
-        execution_time_ms=execution_time_ms,
-        attempt=attempt,
-        retry_count=retry_count,
-    )
-    return AgentEvent(
-        type=EventType.AGENT_ERROR,
-        data={"event_type": "agent_error", **event_data.model_dump()},
-        turn_id=turn_id,
+    return _make_agent_event(
+        EventType.AGENT_ERROR,
+        AgentErrorEventData(agent_id=agent_id, agent_name=agent_name, error=error, execution_time_ms=execution_time_ms, attempt=attempt, retry_count=retry_count),
+        "agent_error",
+        turn_id,
     )
 
 
@@ -1086,18 +919,11 @@ def build_agent_stopped_event(
     turn_id: str | None = None,
 ) -> AgentEvent:
     """构造 AGENT_STOPPED 事件。"""
-    event_data = AgentStoppedEventData(
-        agent_id=agent_id,
-        agent_name=agent_name,
-        reason=reason,
-        execution_time_ms=execution_time_ms,
-        attempt=attempt,
-        retry_count=retry_count,
-    )
-    return AgentEvent(
-        type=EventType.AGENT_STOPPED,
-        data={"event_type": "agent_stopped", **event_data.model_dump()},
-        turn_id=turn_id,
+    return _make_agent_event(
+        EventType.AGENT_STOPPED,
+        AgentStoppedEventData(agent_id=agent_id, agent_name=agent_name, reason=reason, execution_time_ms=execution_time_ms, attempt=attempt, retry_count=retry_count),
+        "agent_stopped",
+        turn_id,
     )
 
 
