@@ -368,7 +368,7 @@ async def test_increment_builtin_usage_is_atomic(
 ) -> None:
     """并发递增时不应丢失计数。"""
     usage_file = tmp_path / "builtin_usage.json"
-    monkeypatch.setattr("nini.config_manager._get_system_usage_path", lambda: usage_file)
+    monkeypatch.setattr("nini._config_usage._get_system_usage_path", lambda: usage_file)
     await init_db()
 
     await asyncio.gather(*(increment_builtin_usage("fast") for _ in range(20)))
