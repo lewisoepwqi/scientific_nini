@@ -12,11 +12,13 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
+from nini.memory.memory_store import MemoryStore
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/memory")
 
 
-def _get_store() -> "MemoryStore":  # noqa: F821
+def _get_store() -> MemoryStore:
     """获取全局 MemoryStore 实例（懒加载，线程安全）。"""
     from nini.memory.manager import get_memory_manager
 
@@ -30,7 +32,6 @@ def _get_store() -> "MemoryStore":  # noqa: F821
 
     # fallback：直接构造（API 端点独立调用时）
     from nini.config import settings
-    from nini.memory.memory_store import MemoryStore
 
     db_path = settings.sessions_dir.parent / "nini_memory.db"
     return MemoryStore(db_path)
@@ -181,8 +182,6 @@ async def delete_memory(memory_id: str) -> dict[str, Any]:
         删除结果
     """
     try:
-        from nini.memory.memory_store import MemoryStore
-
         store = _get_store()
         # MemoryStore 暂无独立 delete 方法，通过 sqlite3 直接删除
         conn = store._conn  # type: ignore[attr-defined]

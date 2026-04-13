@@ -9,14 +9,17 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nini.memory.memory_store import MemoryStore
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def _migrate_one_jsonl(jsonl_path: Path, store: "MemoryStore") -> int:  # noqa: F821
+def _migrate_one_jsonl(jsonl_path: Path, store: "MemoryStore") -> int:
     """将单个 entries.jsonl 迁移到 MemoryStore，返回实际写入条数。"""
     count = store.migrate_from_jsonl(jsonl_path)
     if count:
