@@ -10,10 +10,7 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from nini.memory.memory_store import MemoryStore
+from nini.memory.memory_store import MemoryStore
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -54,9 +51,6 @@ def main() -> None:
             db_path = Path("data") / "nini_memory.db"
     else:
         db_path = Path(args.db_path)
-
-    # 延迟导入，避免早期 settings 副作用
-    from nini.memory.memory_store import MemoryStore
 
     store = MemoryStore(db_path)
     logger.info("目标数据库：%s", db_path.resolve())
