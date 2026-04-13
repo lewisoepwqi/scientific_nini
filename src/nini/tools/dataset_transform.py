@@ -522,6 +522,12 @@ class DatasetTransformTool(Tool):
             if not by or not metrics:
                 raise ValueError("group_aggregate 需要提供 by 和 metrics")
             current = current.groupby(by, dropna=False).agg(metrics).reset_index()
+            # 展平 MultiIndex 列名：("收缩压", "mean") → "收缩压_mean"
+            if isinstance(current.columns, pd.MultiIndex):
+                current.columns = [
+                    "_".join(str(c) for c in col if c != "").strip("_")
+                    for col in current.columns.values
+                ]
             return current, {"rows": len(current), "columns": len(current.columns)}
 
         if op == "sort_rows":

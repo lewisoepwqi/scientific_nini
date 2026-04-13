@@ -325,14 +325,14 @@ def _summarize_dataset_profile(data_obj: dict[str, Any]) -> dict[str, Any]:
     # 列类型信息
     dtypes = data_obj.get("dtypes") or (isinstance(basic, dict) and basic.get("dtypes"))
     if isinstance(dtypes, dict):
-        summary["dtypes"] = dtypes
+        summary["dtypes"] = {str(k): v for k, v in dtypes.items()}
 
     # 缺失值信息
     null_counts = data_obj.get("null_counts") or (
         isinstance(basic, dict) and basic.get("null_counts")
     )
     if isinstance(null_counts, dict):
-        summary["null_counts"] = null_counts
+        summary["null_counts"] = {str(k): v for k, v in null_counts.items()}
 
     return summary
 
