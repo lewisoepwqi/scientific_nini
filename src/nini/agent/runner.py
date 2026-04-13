@@ -1337,16 +1337,7 @@ class AgentRunner:
                     ),
                 )
 
-                # 会话结束后异步沉淀分析记忆为跨会话长期记忆（双路径）
-                try:
-                    from nini.memory.long_term_memory import consolidate_session_memories
-                    from nini.utils.background_tasks import track_background_task
-
-                    track_background_task(consolidate_session_memories(session.id))
-                except Exception:
-                    logger.debug("长期记忆沉淀失败", exc_info=True)
-
-                # MemoryManager 新路径：on_session_end 后台任务（P4 双路径）
+                # MemoryManager 路径：on_session_end 后台任务（统一 SQLite 存储）
                 if self._memory_manager is not None:
                     try:
                         from nini.utils.background_tasks import track_background_task

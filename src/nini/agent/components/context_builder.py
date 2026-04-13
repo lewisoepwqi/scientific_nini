@@ -574,38 +574,7 @@ async def _build_dataset_history_memory(dataset_name: str) -> str:
     except Exception:
         logger.debug("MemoryManager 主动推送失败，降级到旧路径", exc_info=True)
 
-    try:
-        from nini.memory.long_term_memory import (
-            format_memories_for_context,
-            get_long_term_memory_store,
-        )
-        from nini.agent.prompt_policy import format_untrusted_context_block
-
-        store = get_long_term_memory_store()
-        # 使用 dataset_name 作为查询，并通过 context 感知重排序过滤
-        entries = await store.search(
-            dataset_name,
-            top_k=5,
-            min_importance=0.4,
-            context={"dataset_name": dataset_name},
-        )
-        if not entries:
-            return ""
-        text = format_memories_for_context(entries)
-        if not text:
-            return ""
-        logger.debug(
-            "主动记忆推送: dataset=%s injected_count=%d",
-            dataset_name,
-            len(entries),
-        )
-        return format_untrusted_context_block(
-            "long_term_memory",
-            f"[数据集 {dataset_name} 历史分析记忆]\n{text}",
-        )
-    except Exception:
-        logger.debug("主动记忆推送失败，忽略", exc_info=True)
-        return ""
+    return ""
 
 
 def _extract_recent_reasoning_decisions(

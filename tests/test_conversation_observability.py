@@ -1327,18 +1327,6 @@ async def test_runner_auto_compresses_and_retries_on_context_overflow(
 
 @pytest.mark.asyncio
 async def test_runner_emits_reasoning_event_and_keeps_final_answer_clean(monkeypatch) -> None:
-    async def _fake_consolidate_session_memories(session_id: str) -> None:
-        return None
-
-    monkeypatch.setattr(
-        "nini.memory.long_term_memory.consolidate_session_memories",
-        _fake_consolidate_session_memories,
-    )
-    monkeypatch.setattr(
-        "nini.agent.runner.asyncio.create_task",
-        lambda coro: coro.close(),
-    )
-
     session = Session()
     runner = AgentRunner(
         resolver=_ReasoningOnlyResolver(),
@@ -1363,18 +1351,6 @@ async def test_runner_emits_reasoning_event_and_keeps_final_answer_clean(monkeyp
 
 @pytest.mark.asyncio
 async def test_runner_skips_polluted_reasoning_from_persistence(monkeypatch) -> None:
-    async def _fake_consolidate_session_memories(session_id: str) -> None:
-        return None
-
-    monkeypatch.setattr(
-        "nini.memory.long_term_memory.consolidate_session_memories",
-        _fake_consolidate_session_memories,
-    )
-    monkeypatch.setattr(
-        "nini.agent.runner.asyncio.create_task",
-        lambda coro: coro.close(),
-    )
-
     session = Session()
     runner = AgentRunner(
         resolver=_PollutedReasoningResolver(),
@@ -1460,18 +1436,6 @@ async def test_runner_retries_when_model_outputs_transitional_text_without_tool_
 
 @pytest.mark.asyncio
 async def test_runner_deduplicates_repeated_data_preview_events_in_same_turn(monkeypatch) -> None:
-    async def _fake_consolidate_session_memories(session_id: str) -> None:
-        return None
-
-    monkeypatch.setattr(
-        "nini.memory.long_term_memory.consolidate_session_memories",
-        _fake_consolidate_session_memories,
-    )
-    monkeypatch.setattr(
-        "nini.agent.runner.asyncio.create_task",
-        lambda coro: coro.close(),
-    )
-
     session = Session()
     resolver = _RepeatedDataPreviewResolver()
     registry = _DataPreviewRegistry()

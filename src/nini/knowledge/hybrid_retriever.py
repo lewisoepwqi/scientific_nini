@@ -12,10 +12,6 @@ from pathlib import Path
 from typing import Any
 
 from nini.knowledge.vector_store import VectorKnowledgeStore
-from nini.memory.long_term_memory import (
-    format_memories_for_context,
-    search_long_term_memories,
-)
 from nini.models.knowledge import (
     HybridSearchConfig,
     KnowledgeDocument,
@@ -227,7 +223,6 @@ class HybridRetriever:
         query: str,
         top_k: int | None = None,
         domain: str | None = None,
-        include_long_term_memory: bool = True,
     ) -> KnowledgeSearchResult:
         """执行混合检索。
 
@@ -235,7 +230,6 @@ class HybridRetriever:
             query: 查询文本
             top_k: 返回结果数量
             domain: 领域过滤
-            include_long_term_memory: 是否包含长期记忆检索
 
         Returns:
             搜索结果
@@ -338,17 +332,6 @@ class HybridRetriever:
 
             documents.append(doc)
 
-        # 长期记忆检索
-        long_term_memories = []
-        if include_long_term_memory:
-            try:
-                long_term_memories = await search_long_term_memories(
-                    query,
-                    top_k=min(3, top_k),
-                )
-            except Exception as e:
-                logger.warning(f"长期记忆检索失败: {e}")
-
         search_time_ms = int((time.time() - start_time) * 1000)
 
         result = KnowledgeSearchResult(
@@ -358,10 +341,6 @@ class HybridRetriever:
             search_method="hybrid",
             search_time_ms=search_time_ms,
         )
-
-        # 添加长期记忆到结果
-        if long_term_memories:
-            result.metadata = {"long_term_memories": long_term_memories}
 
         logger.info(
             "混合检索完成: query=%s results=%d duration_ms=%d",
