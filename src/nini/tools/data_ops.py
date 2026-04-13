@@ -173,8 +173,8 @@ class LoadDatasetTool(Tool):
                 "name": name,
                 "rows": len(df),
                 "columns": len(df.columns),
-                "column_names": df.columns.tolist(),
-                "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
+                "column_names": [str(c) for c in df.columns.tolist()],
+                "dtypes": {str(col): str(dtype) for col, dtype in df.dtypes.items()},
                 "memory_mb": round(df.memory_usage(deep=True).sum() / 1024 / 1024, 2),
             }
 
