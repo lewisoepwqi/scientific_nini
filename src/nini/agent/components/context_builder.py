@@ -41,7 +41,7 @@ from nini.agent.prompts.scientific import get_system_prompt
 from nini.agent.session import Session
 from nini.capabilities import create_default_capabilities
 from nini.config import settings
-from nini.intent import default_intent_analyzer, optimized_intent_analyzer
+from nini.intent import default_intent_analyzer
 from nini.knowledge.loader import KnowledgeLoader
 from nini.memory.compression import list_session_analysis_memories
 from nini.memory.research_profile import (
@@ -63,10 +63,7 @@ _PHASE_SKILL_MAP: dict[ResearchPhase, tuple[str, ...]] = {
 
 
 def _get_intent_analyzer():
-    """获取配置的意图分析器。"""
-    strategy = getattr(settings, "intent_strategy", "optimized_rules")
-    if strategy == "optimized_rules":
-        return optimized_intent_analyzer
+    """返回意图分析器实例（intent_strategy 配置已废弃，统一使用 IntentAnalyzer）。"""
     return default_intent_analyzer
 
 

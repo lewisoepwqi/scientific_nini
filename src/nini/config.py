@@ -293,7 +293,8 @@ class Settings(BaseSettings):
     enable_knowledge: bool = True  # 启用知识库 RAG
 
     # ---- 本地优先配置 ----
-    intent_strategy: str = "optimized_rules"  # 意图理解策略: optimized_rules | rules | semantic
+    # 已废弃：IntentAnalyzer 现已内置 Trie 优化，optimized_rules/rules 无区别，保留字段仅为兼容旧配置
+    intent_strategy: str = "optimized_rules"  # 废弃字段，不再影响实际行为
     knowledge_strategy: str = "bm25"  # 知识检索策略: bm25 | vector | hybrid
     enable_cloud_fallback: bool = False  # 是否允许云端服务回退
 

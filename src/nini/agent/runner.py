@@ -25,7 +25,7 @@ from nini.agent.providers import ReasoningStreamParser
 from nini.agent.session import Session, session_manager
 from nini.config import settings
 from nini.knowledge.loader import KnowledgeLoader
-from nini.intent import default_intent_analyzer, optimized_intent_analyzer
+from nini.intent import default_intent_analyzer
 from nini.intent.service import SLASH_SKILL_WITH_ARGS_RE
 from nini.memory.compression import (
     compress_session_history_with_llm,
@@ -141,16 +141,19 @@ def _detect_chart_preference_from_answers(questions: list[dict], answers: dict) 
 
 
 def _get_intent_analyzer():
-    """获取配置的意图分析器。
+    """返回意图分析器实例。
 
-    根据 settings.intent_strategy 返回对应的分析器：
-    - optimized_rules: 优化版规则分析器（默认，本地优先）
-    - rules: 原始规则分析器
+    intent_strategy 配置已废弃，IntentAnalyzer 现已内置 Trie 优化。
     """
     strategy = getattr(settings, "intent_strategy", "optimized_rules")
+    if strategy not in ("optimized_rules", "rules"):
+        import logging as _logging
 
-    if strategy == "optimized_rules":
-        return optimized_intent_analyzer
+        _logging.getLogger(__name__).warning(
+            "intent_strategy=%r 已废弃，当前统一使用 IntentAnalyzer（含 Trie 优化）。"
+            "请从 .env 中移除此配置。",
+            strategy,
+        )
     return default_intent_analyzer
 
 
