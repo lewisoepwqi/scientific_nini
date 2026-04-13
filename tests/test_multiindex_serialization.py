@@ -96,3 +96,27 @@ class TestMultiIndexColumnSerialization:
         assert isinstance(result_str, str)
         parsed = json.loads(result_str)
         assert parsed["success"] is True
+
+    def test_summarize_dataset_profile_normalizes_null_counts_tuple_keys(self):
+        """_summarize_dataset_profile 应将 null_counts 的 tuple key 规范化为字符串。"""
+        data_obj = {
+            "dataset_name": "test",
+            "basic": {
+                "rows": 100,
+                "columns": 3,
+                "null_counts": {
+                    ("月份", ""): 0,
+                    ("收缩压", "mean"): 5,
+                    ("收缩压", "std"): 0,
+                },
+            },
+        }
+        summary = _summarize_dataset_profile(data_obj)
+
+        # summary 应可直接 JSON 序列化
+        json.dumps(summary, ensure_ascii=False)
+
+        # null_counts 的 key 应为字符串
+        if "null_counts" in summary:
+            for key in summary["null_counts"]:
+                assert isinstance(key, str), f"null_counts key {key!r} 不是字符串"
