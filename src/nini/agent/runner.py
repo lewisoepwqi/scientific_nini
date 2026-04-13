@@ -1199,81 +1199,10 @@ class AgentRunner:
                     continue
                 confirmation_payload = self._build_confirmation_question_payload(final_text)
                 if confirmation_payload and self._ask_user_question_handler is not None:
-                    tool_call_id = f"confirm-ask-{uuid.uuid4().hex[:8]}"
-                    arguments = json.dumps(confirmation_payload, ensure_ascii=False)
-                    session.add_tool_call(
-                        tool_call_id,
-                        "ask_user_question",
-                        arguments,
-                        turn_id=turn_id,
-                        message_id=f"tool-call-{tool_call_id}",
-                    )
-                    yield eb.build_tool_call_event(
-                        tool_call_id=tool_call_id,
-                        name="ask_user_question",
-                        arguments={"name": "ask_user_question", "arguments": arguments},
-                        turn_id=turn_id,
-                        metadata={"source": "confirmation_fallback"},
-                    )
-                    yield eb.build_ask_user_question_event(
-                        questions=confirmation_payload.get("questions", []),
-                        turn_id=turn_id,
-                        tool_call_id=tool_call_id,
-                        tool_name="ask_user_question",
-                        source="confirmation_fallback",
-                    )
-
-                    try:
-                        raw_answers = await self._await_user_question_answers(
-                            session,
-                            tool_call_id,
-                            confirmation_payload,
-                        )
-                        normalized_answers = self._normalize_ask_user_question_answers(raw_answers)
-                        result = {
-                            "success": True,
-                            "message": "已收到用户回答。",
-                            "data": {
-                                "questions": confirmation_payload["questions"],
-                                "answers": normalized_answers,
-                            },
-                        }
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as exc:
-                        logger.warning(
-                            "确认型 ask_user_question 等待用户回答失败: session=%s err=%s",
-                            session.id,
-                            exc,
-                        )
-                        result = {
-                            "success": False,
-                            "message": f"等待用户回答失败: {exc}",
-                        }
-
-                    has_error = bool(
-                        isinstance(result, dict)
-                        and (result.get("error") or result.get("success") is False)
-                    )
-                    result_str = serialize_tool_result_for_memory(result)
-                    session.add_tool_result(
-                        tool_call_id,
-                        result_str,
-                        tool_name="ask_user_question",
-                        status="error" if has_error else "success",
-                        intent="confirmation_fallback",
-                        turn_id=turn_id,
-                        message_id=f"tool-result-{tool_call_id}",
-                    )
-                    yield eb.build_tool_result_event(
-                        tool_call_id=tool_call_id,
-                        name="ask_user_question",
-                        status="error" if has_error else "success",
-                        message=_tool_result_message(result, is_error=has_error),
-                        data={"result": result},
-                        turn_id=turn_id,
-                        metadata={"source": "confirmation_fallback"},
-                    )
+                    async for event in self._handle_confirmation_fallback(
+                        session, turn_id=turn_id, confirmation_payload=confirmation_payload
+                    ):
+                        yield event
                     iteration += 1
                     continue
 
@@ -1874,92 +1803,10 @@ class AgentRunner:
                 # ── ask_user_question 特殊处理 ─────────────────────────────────
                 # ask_user_question 会暂停当前回合，等待用户完成回答后继续。
                 if func_name == "ask_user_question":
-                    try:
-                        parsed_payload = json.loads(func_args)
-                    except json.JSONDecodeError:
-                        parsed_payload = None
-
-                    questions, question_error = self._normalize_ask_user_question_questions(
-                        parsed_payload
-                    )
-                    if question_error:
-                        result = {"success": False, "message": question_error}
-                    elif self._ask_user_question_handler is None:
-                        result = {
-                            "success": False,
-                            "message": "当前通道不支持 ask_user_question 交互。",
-                        }
-                    else:
-                        if questions is None:
-                            raise RuntimeError("内部错误: questions 不应为 None")
-                        yield eb.build_ask_user_question_event(
-                            questions=questions,
-                            turn_id=turn_id,
-                            tool_call_id=tc_id,
-                            tool_name=func_name,
-                        )
-                        try:
-                            raw_answers = await self._await_user_question_answers(
-                                session,
-                                tc_id,
-                                {"questions": questions},
-                            )
-                            normalized_answers = self._normalize_ask_user_question_answers(
-                                raw_answers
-                            )
-                            # 从答案中检测图表格式偏好并持久化
-                            detected_pref = _detect_chart_preference_from_answers(
-                                questions, normalized_answers
-                            )
-                            if detected_pref and detected_pref != session.chart_output_preference:
-                                session.chart_output_preference = detected_pref
-                                session_manager.save_session_chart_preference(
-                                    session.id, detected_pref
-                                )
-                            result = {
-                                "success": True,
-                                "message": "已收到用户回答。",
-                                "data": {
-                                    "questions": questions,
-                                    "answers": normalized_answers,
-                                },
-                            }
-                        except asyncio.CancelledError:
-                            raise
-                        except Exception as exc:
-                            logger.warning(
-                                "ask_user_question 等待用户回答失败: session=%s tc_id=%s err=%s",
-                                session.id,
-                                tc_id,
-                                exc,
-                            )
-                            result = {
-                                "success": False,
-                                "message": f"等待用户回答失败: {exc}",
-                            }
-
-                    has_error = bool(
-                        isinstance(result, dict)
-                        and (result.get("error") or result.get("success") is False)
-                    )
-                    status = "error" if has_error else "success"
-                    result_str = serialize_tool_result_for_memory(result, tool_name=func_name)
-                    session.add_tool_result(
-                        tc_id,
-                        result_str,
-                        tool_name=func_name,
-                        status=status,
-                        turn_id=turn_id,
-                        message_id=f"tool-result-{tc_id}",
-                    )
-                    yield eb.build_tool_result_event(
-                        tool_call_id=tc_id,
-                        name=func_name,
-                        status=status,
-                        message=_tool_result_message(result, is_error=has_error),
-                        data={"result": result},
-                        turn_id=turn_id,
-                    )
+                    async for event in self._handle_ask_user_question_tool(
+                        session, tc_id=tc_id, func_args=func_args, turn_id=turn_id
+                    ):
+                        yield event
                     continue
                 # ── ask_user_question 特殊处理结束 ─────────────────────────────
 
@@ -4060,6 +3907,177 @@ class AgentRunner:
             )
         payload["extra_allowed_imports"] = sorted(merged_packages)
         return json.dumps(payload, ensure_ascii=False)
+
+    async def _handle_ask_user_question_tool(
+        self,
+        session: Session,
+        *,
+        tc_id: str,
+        func_args: str,
+        turn_id: str,
+    ) -> AsyncGenerator[AgentEvent, None]:
+        """处理 LLM 主动调用的 ask_user_question 工具。含图表偏好检测。"""
+        try:
+            parsed_payload = json.loads(func_args)
+        except json.JSONDecodeError:
+            parsed_payload = None
+
+        questions, question_error = self._normalize_ask_user_question_questions(parsed_payload)
+        if question_error:
+            result: dict[str, Any] = {"success": False, "message": question_error}
+        elif self._ask_user_question_handler is None:
+            result = {
+                "success": False,
+                "message": "当前通道不支持 ask_user_question 交互。",
+            }
+        else:
+            if questions is None:
+                raise RuntimeError("内部错误: questions 不应为 None")
+            yield eb.build_ask_user_question_event(
+                questions=questions,
+                turn_id=turn_id,
+                tool_call_id=tc_id,
+                tool_name="ask_user_question",
+            )
+            try:
+                raw_answers = await self._await_user_question_answers(
+                    session,
+                    tc_id,
+                    {"questions": questions},
+                )
+                normalized_answers = self._normalize_ask_user_question_answers(raw_answers)
+                # 从答案中检测图表格式偏好并持久化
+                detected_pref = _detect_chart_preference_from_answers(questions, normalized_answers)
+                if detected_pref and detected_pref != session.chart_output_preference:
+                    session.chart_output_preference = detected_pref
+                    session_manager.save_session_chart_preference(session.id, detected_pref)
+                result = {
+                    "success": True,
+                    "message": "已收到用户回答。",
+                    "data": {
+                        "questions": questions,
+                        "answers": normalized_answers,
+                    },
+                }
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "ask_user_question 等待用户回答失败: session=%s tc_id=%s err=%s",
+                    session.id,
+                    tc_id,
+                    exc,
+                )
+                result = {
+                    "success": False,
+                    "message": f"等待用户回答失败: {exc}",
+                }
+
+        has_error = bool(
+            isinstance(result, dict) and (result.get("error") or result.get("success") is False)
+        )
+        status = "error" if has_error else "success"
+        result_str = serialize_tool_result_for_memory(result, tool_name="ask_user_question")
+        session.add_tool_result(
+            tc_id,
+            result_str,
+            tool_name="ask_user_question",
+            status=status,
+            turn_id=turn_id,
+            message_id=f"tool-result-{tc_id}",
+        )
+        yield eb.build_tool_result_event(
+            tool_call_id=tc_id,
+            name="ask_user_question",
+            status=status,
+            message=_tool_result_message(result, is_error=has_error),
+            data={"result": result},
+            turn_id=turn_id,
+        )
+
+    async def _handle_confirmation_fallback(
+        self,
+        session: Session,
+        *,
+        turn_id: str,
+        confirmation_payload: dict[str, Any],
+    ) -> AsyncGenerator[AgentEvent, None]:
+        """处理无意图时的确认型兜底 ask_user_question。"""
+        tool_call_id = f"confirm-ask-{uuid.uuid4().hex[:8]}"
+        arguments = json.dumps(confirmation_payload, ensure_ascii=False)
+        session.add_tool_call(
+            tool_call_id,
+            "ask_user_question",
+            arguments,
+            turn_id=turn_id,
+            message_id=f"tool-call-{tool_call_id}",
+        )
+        yield eb.build_tool_call_event(
+            tool_call_id=tool_call_id,
+            name="ask_user_question",
+            arguments={"name": "ask_user_question", "arguments": arguments},
+            turn_id=turn_id,
+            metadata={"source": "confirmation_fallback"},
+        )
+        yield eb.build_ask_user_question_event(
+            questions=confirmation_payload.get("questions", []),
+            turn_id=turn_id,
+            tool_call_id=tool_call_id,
+            tool_name="ask_user_question",
+            source="confirmation_fallback",
+        )
+
+        try:
+            raw_answers = await self._await_user_question_answers(
+                session,
+                tool_call_id,
+                confirmation_payload,
+            )
+            normalized_answers = self._normalize_ask_user_question_answers(raw_answers)
+            result: dict[str, Any] = {
+                "success": True,
+                "message": "已收到用户回答。",
+                "data": {
+                    "questions": confirmation_payload["questions"],
+                    "answers": normalized_answers,
+                },
+            }
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "确认型 ask_user_question 等待用户回答失败: session=%s err=%s",
+                session.id,
+                exc,
+            )
+            result = {
+                "success": False,
+                "message": f"等待用户回答失败: {exc}",
+            }
+
+        has_error = bool(
+            isinstance(result, dict)
+            and (result.get("error") or result.get("success") is False)
+        )
+        result_str = serialize_tool_result_for_memory(result)
+        session.add_tool_result(
+            tool_call_id,
+            result_str,
+            tool_name="ask_user_question",
+            status="error" if has_error else "success",
+            intent="confirmation_fallback",
+            turn_id=turn_id,
+            message_id=f"tool-result-{tool_call_id}",
+        )
+        yield eb.build_tool_result_event(
+            tool_call_id=tool_call_id,
+            name="ask_user_question",
+            status="error" if has_error else "success",
+            message=_tool_result_message(result, is_error=has_error),
+            data={"result": result},
+            turn_id=turn_id,
+            metadata={"source": "confirmation_fallback"},
+        )
 
     async def _handle_dispatch_agents(
         self,
