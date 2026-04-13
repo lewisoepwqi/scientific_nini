@@ -33,8 +33,8 @@ class TestMultiIndexColumnSerialization:
     def test_data_ops_info_stringifies_multiindex_columns(self):
         """data_ops 提取的列名和 dtypes key 应为字符串。"""
         df = _make_multiindex_df()
-        column_names = df.columns.tolist()
-        dtypes = {col: str(dtype) for col, dtype in df.dtypes.items()}
+        column_names = [str(c) for c in df.columns.tolist()]
+        dtypes = {str(col): str(dtype) for col, dtype in df.dtypes.items()}
 
         for name in column_names:
             assert isinstance(name, str), f"列名 {name!r} 不是字符串而是 {type(name)}"
@@ -49,8 +49,8 @@ class TestMultiIndexColumnSerialization:
             "name": "test",
             "rows": len(df),
             "columns": len(df.columns),
-            "column_names": df.columns.tolist(),
-            "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
+            "column_names": [str(c) for c in df.columns.tolist()],
+            "dtypes": {str(col): str(dtype) for col, dtype in df.dtypes.items()},
         }
         json.dumps(info, ensure_ascii=False)
 
