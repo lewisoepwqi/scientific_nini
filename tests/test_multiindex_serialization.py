@@ -6,11 +6,8 @@
 import json
 
 import pandas as pd
-import pytest
-
 from nini.agent.components.tool_executor import (
     serialize_tool_result_for_memory,
-    summarize_tool_result_dict,
     _summarize_dataset_profile,
 )
 
