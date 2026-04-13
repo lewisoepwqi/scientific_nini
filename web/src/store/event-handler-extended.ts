@@ -24,6 +24,7 @@ import {
   attachRunMetaToMessage,
   ensureSubagentThread,
   getRunMeta,
+  isActiveSessionEvent,
 } from "./event-handler";
 
 import {
@@ -69,15 +70,6 @@ function extractPlanEventOrder(
     }
   }
   return Date.now();
-}
-
-function isActiveSessionEvent(evt: WSEvent, get: GetStateFn): boolean {
-  const currentSessionId = get().sessionId;
-  return (
-    typeof evt.session_id === "string" &&
-    evt.session_id.length > 0 &&
-    currentSessionId === evt.session_id
-  );
 }
 
 import { emitSessionsChanged } from "./session-lifecycle";
