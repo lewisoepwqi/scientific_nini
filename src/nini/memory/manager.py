@@ -1,13 +1,14 @@
-"""MemoryManager：编排内置 Provider 与可选外部 Provider 的生命周期。"""
+"""MemoryManager：管理 ScientificMemoryProvider 的生命周期。"""
 
 from __future__ import annotations
 
 import json
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from nini.memory.provider import MemoryProvider
+if TYPE_CHECKING:
+    from nini.memory.scientific_provider import ScientificMemoryProvider
 
 logger = logging.getLogger(__name__)
 
@@ -33,137 +34,125 @@ def build_memory_context_block(raw_context: str) -> str:
 
 
 class MemoryManager:
-    """编排所有 MemoryProvider 的生命周期。
+    """管理 ScientificMemoryProvider 的生命周期。
 
-    支持 1 个内置 Provider（name='builtin'）和任意数量外部 Provider。
-    Provider 间完全异常隔离：任何 Provider 的任何钩子抛出异常，
-    仅记录警告，不影响其他 Provider 和 agent 主循环。
+    持有单一内置 Provider，各钩子出现异常时仅记录警告，不影响 agent 主循环。
     """
 
-    def __init__(self) -> None:
-        self._providers: list[MemoryProvider] = []
-        self._tool_to_provider: dict[str, MemoryProvider] = {}
+    def __init__(self, provider: ScientificMemoryProvider | None = None) -> None:
+        self._provider: ScientificMemoryProvider | None = provider
 
     @property
-    def providers(self) -> list[MemoryProvider]:
-        return list(self._providers)
+    def providers(self) -> list[ScientificMemoryProvider]:
+        """返回当前 Provider 列表（0 或 1 个）。"""
+        return [self._provider] if self._provider is not None else []
 
-    def add_provider(self, provider: MemoryProvider) -> None:
-        """注册 Provider（允许任意数量）。"""
-        self._providers.append(provider)
-        for schema in provider.get_tool_schemas():
-            tool_name = schema.get("name", "")
-            if tool_name and tool_name not in self._tool_to_provider:
-                self._tool_to_provider[tool_name] = provider
+    def set_provider(self, provider: ScientificMemoryProvider) -> None:
+        """设置 Provider（替换已有）。"""
+        self._provider = provider
         logger.info(
-            "Memory Provider '%s' 已注册（%d 个工具）",
-            provider.name,
+            "ScientificMemoryProvider 已设置（%d 个工具）",
             len(provider.get_tool_schemas()),
         )
 
     def build_system_prompt(self) -> str:
-        """收集所有 Provider 的 system prompt 块。"""
-        blocks: list[str] = []
-        for provider in self._providers:
-            try:
-                block = provider.system_prompt_block()
-                if block and block.strip():
-                    blocks.append(block)
-            except Exception as exc:
-                logger.warning("Provider '%s' system_prompt_block 失败: %s", provider.name, exc)
-        return "\n\n".join(blocks)
+        """返回 Provider 的 system prompt 块。"""
+        if self._provider is None:
+            return ""
+        try:
+            block = self._provider.system_prompt_block()
+            return block if block and block.strip() else ""
+        except Exception as exc:
+            logger.warning("ScientificMemoryProvider system_prompt_block 失败: %s", exc)
+            return ""
 
     async def prefetch_all(self, query: str, *, session_id: str = "") -> str:
-        """汇总所有 Provider 的召回结果（原始文本，不含 fencing）。"""
-        parts: list[str] = []
-        for provider in self._providers:
-            try:
-                result = await provider.prefetch(query, session_id=session_id)
-                if result and result.strip():
-                    parts.append(result)
-            except Exception as exc:
-                logger.warning("Provider '%s' prefetch 失败（已跳过）: %s", provider.name, exc)
-        return "\n\n".join(parts)
+        """召回记忆上下文（原始文本，不含 fencing）。"""
+        if self._provider is None:
+            return ""
+        try:
+            result = await self._provider.prefetch(query, session_id=session_id)
+            return result if result and result.strip() else ""
+        except Exception as exc:
+            logger.warning("ScientificMemoryProvider prefetch 失败（已跳过）: %s", exc)
+            return ""
 
     async def sync_all(
         self, user_content: str, assistant_content: str, *, session_id: str = ""
     ) -> None:
-        """通知所有 Provider 持久化本轮对话。"""
-        for provider in self._providers:
-            try:
-                await provider.sync_turn(user_content, assistant_content, session_id=session_id)
-            except Exception as exc:
-                logger.warning("Provider '%s' sync_turn 失败: %s", provider.name, exc)
+        """持久化本轮对话。"""
+        if self._provider is None:
+            return
+        try:
+            await self._provider.sync_turn(user_content, assistant_content, session_id=session_id)
+        except Exception as exc:
+            logger.warning("ScientificMemoryProvider sync_turn 失败: %s", exc)
 
     async def on_session_end(self, messages: list[dict[str, Any]]) -> None:
-        """通知所有 Provider 会话结束（重度沉淀）。"""
-        for provider in self._providers:
-            try:
-                await provider.on_session_end(messages)
-            except Exception as exc:
-                logger.warning("Provider '%s' on_session_end 失败: %s", provider.name, exc)
+        """通知 Provider 会话结束（重度沉淀）。"""
+        if self._provider is None:
+            return
+        try:
+            await self._provider.on_session_end(messages)
+        except Exception as exc:
+            logger.warning("ScientificMemoryProvider on_session_end 失败: %s", exc)
 
     def on_pre_compress(self, messages: list[dict[str, Any]]) -> str:
-        """收集所有 Provider 的压缩前提示。"""
-        parts: list[str] = []
-        for provider in self._providers:
-            try:
-                result = provider.on_pre_compress(messages)
-                if result and result.strip():
-                    parts.append(result)
-            except Exception as exc:
-                logger.warning("Provider '%s' on_pre_compress 失败: %s", provider.name, exc)
-        return "\n\n".join(parts)
+        """收集压缩前提示。"""
+        if self._provider is None:
+            return ""
+        try:
+            result = self._provider.on_pre_compress(messages)
+            return result if result and result.strip() else ""
+        except Exception as exc:
+            logger.warning("ScientificMemoryProvider on_pre_compress 失败: %s", exc)
+            return ""
 
     def get_all_tool_schemas(self) -> list[dict[str, Any]]:
-        """收集所有 Provider 的工具 schema（去重）。"""
-        schemas: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for provider in self._providers:
-            try:
-                for schema in provider.get_tool_schemas():
-                    name = schema.get("name", "")
-                    if name and name not in seen:
-                        schemas.append(schema)
-                        seen.add(name)
-            except Exception as exc:
-                logger.warning("Provider '%s' get_tool_schemas 失败: %s", provider.name, exc)
-        return schemas
+        """返回 Provider 的工具 schema 列表。"""
+        if self._provider is None:
+            return []
+        try:
+            return self._provider.get_tool_schemas()
+        except Exception as exc:
+            logger.warning("ScientificMemoryProvider get_tool_schemas 失败: %s", exc)
+            return []
 
     def has_tool(self, tool_name: str) -> bool:
         """检查指定工具名是否已注册。"""
-        return tool_name in self._tool_to_provider
+        return self._provider is not None and any(
+            s.get("name") == tool_name for s in self._provider.get_tool_schemas()
+        )
 
     async def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs: Any) -> str:
-        """路由工具调用到对应 Provider，返回 JSON 字符串。"""
-        provider = self._tool_to_provider.get(tool_name)
-        if provider is None:
+        """路由工具调用到 Provider，返回 JSON 字符串。"""
+        if self._provider is None or not self.has_tool(tool_name):
             return json.dumps(
                 {"error": f"没有 Provider 处理工具 '{tool_name}'"}, ensure_ascii=False
             )
         try:
-            return await provider.handle_tool_call(tool_name, args, **kwargs)
+            return await self._provider.handle_tool_call(tool_name, args, **kwargs)
         except Exception as exc:
-            logger.error(
-                "Provider '%s' handle_tool_call(%s) 失败: %s", provider.name, tool_name, exc
-            )
+            logger.error("ScientificMemoryProvider handle_tool_call(%s) 失败: %s", tool_name, exc)
             return json.dumps({"error": f"工具 '{tool_name}' 执行失败: {exc}"}, ensure_ascii=False)
 
     async def initialize_all(self, session_id: str, **kwargs: Any) -> None:
-        """初始化所有 Provider。"""
-        for provider in self._providers:
-            try:
-                await provider.initialize(session_id=session_id, **kwargs)
-            except Exception as exc:
-                logger.warning("Provider '%s' initialize 失败: %s", provider.name, exc)
+        """初始化 Provider。"""
+        if self._provider is None:
+            return
+        try:
+            await self._provider.initialize(session_id=session_id, **kwargs)
+        except Exception as exc:
+            logger.warning("ScientificMemoryProvider initialize 失败: %s", exc)
 
     async def shutdown_all(self) -> None:
-        """关闭所有 Provider（逆序）。"""
-        for provider in reversed(self._providers):
-            try:
-                await provider.shutdown()
-            except Exception as exc:
-                logger.warning("Provider '%s' shutdown 失败: %s", provider.name, exc)
+        """关闭 Provider，释放资源。"""
+        if self._provider is None:
+            return
+        try:
+            await self._provider.shutdown()
+        except Exception as exc:
+            logger.warning("ScientificMemoryProvider shutdown 失败: %s", exc)
 
 
 # ---- 全局单例 ----

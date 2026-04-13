@@ -456,8 +456,7 @@ class AgentRunner:
                 from nini.memory.scientific_provider import ScientificMemoryProvider
 
                 db_path = settings.sessions_dir.parent / "nini_memory.db"
-                _mm = MemoryManager()
-                _mm.add_provider(ScientificMemoryProvider(db_path=db_path))
+                _mm = MemoryManager(provider=ScientificMemoryProvider(db_path=db_path))
                 await _mm.initialize_all(session.id)
                 set_memory_manager(_mm)
                 self._memory_manager = _mm
