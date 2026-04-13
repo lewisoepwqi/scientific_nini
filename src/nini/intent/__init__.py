@@ -1,10 +1,13 @@
 """意图分析模块。"""
 
 from nini.intent.base import IntentAnalysis, IntentCandidate, QueryType
-from nini.intent.service import IntentAnalyzer, default_intent_analyzer
-from nini.intent.optimized import OptimizedIntentAnalyzer, optimized_intent_analyzer
-from nini.intent.profile_booster import apply_boost
-from nini.intent.subtypes import get_difference_subtype
+from nini.intent.service import (
+    IntentAnalyzer,
+    _load_synonym_map,
+    apply_boost,
+    default_intent_analyzer,
+    get_difference_subtype,
+)
 
 # 导出增强版语义分析（可选依赖）
 try:
@@ -25,10 +28,9 @@ __all__ = [
     "QueryType",
     "IntentAnalyzer",
     "default_intent_analyzer",
-    "OptimizedIntentAnalyzer",
-    "optimized_intent_analyzer",
     "get_difference_subtype",
     "apply_boost",
+    "_load_synonym_map",
 ]
 
 # 如果增强版可用，添加到导出
