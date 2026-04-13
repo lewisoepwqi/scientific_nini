@@ -78,6 +78,59 @@ class RunState:
         """外层循环是否应继续。"""
         return self.max_iter <= 0 or self.iteration < self.max_iter
 
+    @staticmethod
+    def build_plan_progress_payload_for(
+        active_plan: Any,
+        *,
+        current_idx: int,
+        step_status: str,
+        next_hint: str | None = None,
+        block_reason: str | None = None,
+    ) -> dict[str, Any]:
+        """构建 plan_progress 标准载荷（纯函数版本，可独立于 RunState 实例调用）。"""
+        if active_plan is None or not active_plan.steps:
+            return {
+                "current_step_index": 0,
+                "total_steps": 0,
+                "step_title": "",
+                "step_status": "not_started",
+                "next_hint": next_hint,
+            }
+
+        safe_idx = max(0, min(current_idx, len(active_plan.steps) - 1))
+        current_step = active_plan.steps[safe_idx]
+        total_steps = len(active_plan.steps)
+        resolved_status = RunState.to_plan_status(step_status)
+
+        auto_next_hint = next_hint
+        if auto_next_hint is None:
+            next_idx = safe_idx + 1
+            if resolved_status in {"failed", "blocked"}:
+                auto_next_hint = "可尝试重试当前步骤或补充输入后继续。"
+            elif resolved_status == "done" and next_idx < total_steps:
+                auto_next_hint = f"下一步：{active_plan.steps[next_idx].title}"
+            elif resolved_status == "done" and next_idx >= total_steps:
+                auto_next_hint = "全部步骤已完成。"
+            elif resolved_status == "in_progress":
+                auto_next_hint = (
+                    f"完成后将进入：{active_plan.steps[next_idx].title}"
+                    if next_idx < total_steps
+                    else "当前为最后一步，完成后将结束流程。"
+                )
+            else:
+                auto_next_hint = f"下一步：{current_step.title}"
+
+        payload: dict[str, Any] = {
+            "current_step_index": safe_idx + 1,
+            "total_steps": total_steps,
+            "step_title": current_step.title,
+            "step_status": resolved_status,
+            "next_hint": auto_next_hint,
+        }
+        if block_reason:
+            payload["block_reason"] = block_reason
+        return payload
+
     # ---- 原 run() 内的闭包辅助函数（提升为 RunState 方法） ----
 
     def build_tool_args_signature(self, name: str, raw_arguments: str) -> str:

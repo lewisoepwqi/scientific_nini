@@ -41,6 +41,7 @@ from nini.workspace import WorkspaceManager
 
 # 导入事件模块
 from nini.agent.events import EventType, AgentEvent, create_reasoning_event
+from nini.agent._run_state import RunState
 from nini.agent.plan_parser import AnalysisPlan, parse_analysis_plan
 
 # 导入类型安全的事件构造器（逐步迁移中）
@@ -590,19 +591,8 @@ class AgentRunner:
             return f"{name}::{normalized}"
 
         def _to_plan_status(raw_status: str) -> str:
-            """将历史计划状态映射为前端统一状态。"""
-            mapping = {
-                "pending": "not_started",
-                "in_progress": "in_progress",
-                "completed": "done",
-                "error": "failed",
-                "not_started": "not_started",
-                "done": "done",
-                "failed": "failed",
-                "skipped": "skipped",
-                "blocked": "blocked",
-            }
-            return mapping.get(raw_status, "not_started")
+            """将历史计划状态映射为前端统一状态（委托 RunState）。"""
+            return RunState.to_plan_status(raw_status)
 
         def _build_plan_progress_payload(
             *,
@@ -611,49 +601,14 @@ class AgentRunner:
             next_hint: str | None = None,
             block_reason: str | None = None,
         ) -> dict[str, Any]:
-            """构建 plan_progress 标准载荷。"""
-            if active_plan is None or not active_plan.steps:
-                return {
-                    "current_step_index": 0,
-                    "total_steps": 0,
-                    "step_title": "",
-                    "step_status": "not_started",
-                    "next_hint": next_hint,
-                }
-
-            safe_idx = max(0, min(current_idx, len(active_plan.steps) - 1))
-            current_step = active_plan.steps[safe_idx]
-            total_steps = len(active_plan.steps)
-            resolved_status = _to_plan_status(step_status)
-
-            auto_next_hint = next_hint
-            if auto_next_hint is None:
-                next_idx = safe_idx + 1
-                if resolved_status in {"failed", "blocked"}:
-                    auto_next_hint = "可尝试重试当前步骤或补充输入后继续。"
-                elif resolved_status == "done" and next_idx < total_steps:
-                    auto_next_hint = f"下一步：{active_plan.steps[next_idx].title}"
-                elif resolved_status == "done" and next_idx >= total_steps:
-                    auto_next_hint = "全部步骤已完成。"
-                elif resolved_status == "in_progress":
-                    auto_next_hint = (
-                        f"完成后将进入：{active_plan.steps[next_idx].title}"
-                        if next_idx < total_steps
-                        else "当前为最后一步，完成后将结束流程。"
-                    )
-                else:
-                    auto_next_hint = f"下一步：{current_step.title}"
-
-            payload: dict[str, Any] = {
-                "current_step_index": safe_idx + 1,
-                "total_steps": total_steps,
-                "step_title": current_step.title,
-                "step_status": resolved_status,
-                "next_hint": auto_next_hint,
-            }
-            if block_reason:
-                payload["block_reason"] = block_reason
-            return payload
+            """构建 plan_progress 标准载荷（委托 RunState 静态方法）。"""
+            return RunState.build_plan_progress_payload_for(
+                active_plan,
+                current_idx=current_idx,
+                step_status=step_status,
+                next_hint=next_hint,
+                block_reason=block_reason,
+            )
 
         def _new_plan_progress_event(
             *,
