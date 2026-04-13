@@ -169,8 +169,9 @@ def test_repair_analysis_memories_rebuilds_correlation_statistics() -> None:
         encoding="utf-8",
     )
 
+    fake_conn = MagicMock()
     fake_store = MagicMock()
-    fake_store.delete_memory = MagicMock(return_value=True)
+    fake_store._conn = fake_conn
 
     with (
         patch(
@@ -189,7 +190,8 @@ def test_repair_analysis_memories_rebuilds_correlation_statistics() -> None:
 
     repaired = get_analysis_memory(session_id, "demo.csv")
     assert report["repaired_statistics"] == 3
-    assert fake_store.delete_memory.called
+    # _delete_fact 通过 store._conn.execute 删除条目
+    assert fake_conn.__enter__.called or fake_conn.execute.called
     assert len(repaired.statistics) == 3
     assert all(item.p_value is not None for item in repaired.statistics)
     assert all(isinstance(item.significant, bool) for item in repaired.statistics)
