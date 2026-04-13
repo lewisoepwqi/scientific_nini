@@ -47,10 +47,18 @@ class PromptProfile(str, Enum):
 def detect_prompt_profile(context_window: int | None) -> PromptProfile:
     """根据模型上下文窗口大小检测合适的 prompt profile。"""
     if context_window is None or context_window >= 64_000:
-        return PromptProfile.FULL
-    if context_window >= 16_000:
-        return PromptProfile.STANDARD
-    return PromptProfile.COMPACT
+        result = PromptProfile.FULL
+    elif context_window >= 16_000:
+        result = PromptProfile.STANDARD
+    else:
+        result = PromptProfile.COMPACT
+
+    logger.debug(
+        "Prompt profile 检测: context_window=%s → %s",
+        context_window,
+        result.value,
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +138,8 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
         "- 查看/加载数据集用 dataset_catalog(operation='profile', dataset_name='xxx')，禁止用 workspace_session(read) 读取 xlsx/csv 等数据文件。\n"
         "- 衍生新列/特征工程/直接计算用 run_code(dataset_name='xxx', code='...')，df 变量已预注入。\n"
         "- dispatch_agents 失败后，直接改用 run_code 或 dataset_catalog 在当前 Agent 内完成任务，不要尝试读取不存在的文件。\n"
-        "禁止空参数工具调用；继续操作已有资源时复用 resource_id。"
+        "禁止空参数工具调用；继续操作已有资源时复用 resource_id。\n"
+        "Markdown 表格的分隔行必须包含短横线，正确格式：|:---| 或 |---|；禁止使用 |:| 缩写。"
     ),
     "strategy_task.md": (
         "多步分析时调用 task_state(operation='init') 管理 PDCA 闭环。\n"

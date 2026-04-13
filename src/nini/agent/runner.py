@@ -2792,13 +2792,25 @@ class AgentRunner:
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         """通过 canonical context builder 构建发送给 LLM 的消息列表。"""
         # 将模型上下文窗口信息传递给 session，供 ContextBuilder 选择 prompt profile
+        _get_cw = getattr(self._resolver, "get_model_context_window", None)
+        resolved_cw = _get_cw() if callable(_get_cw) else None
         if not hasattr(session, "_model_context_window"):
-            _get_cw = getattr(self._resolver, "get_model_context_window", None)
-            setattr(
-                session,
-                "_model_context_window",
-                _get_cw() if callable(_get_cw) else None,
+            # 首次设置
+            setattr(session, "_model_context_window", resolved_cw)
+            logger.info(
+                "模型上下文窗口: session=%s context_window=%s",
+                session.id,
+                resolved_cw,
             )
+        elif resolved_cw is not None and resolved_cw != session._model_context_window:
+            # 模型切换时刷新（fallback 场景）
+            logger.warning(
+                "模型上下文窗口变更: session=%s old=%s new=%s",
+                session.id,
+                session._model_context_window,
+                resolved_cw,
+            )
+            setattr(session, "_model_context_window", resolved_cw)
         start_time = time.monotonic()
         messages, retrieval_event = await self._context_builder.build_messages_and_retrieval(
             session, context_ratio=self._context_ratio
