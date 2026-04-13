@@ -14,7 +14,7 @@ from nini.app import create_app
 from nini.api.websocket import set_tool_registry
 from nini.capabilities import Capability, CapabilityRegistry
 from nini.config import settings
-from nini.intent import IntentAnalyzer, OptimizedIntentAnalyzer, QueryType
+from nini.intent import IntentAnalyzer, QueryType
 from nini.intent.base import QueryType as QueryTypeBase  # noqa: F401（向后兼容导入路径验证）
 from nini.tools.registry import create_default_tool_registry
 from tests.client_utils import LocalASGIClient
@@ -24,84 +24,27 @@ from tests.client_utils import LocalASGIClient
 # ============================================================================
 
 
-@pytest.fixture(params=["standard", "optimized"])
-def intent_analyzer(request: pytest.FixtureRequest) -> IntentAnalyzer | OptimizedIntentAnalyzer:
-    """参数化夹具：返回标准或优化版意图分析器。"""
-    if request.param == "standard":
-        return IntentAnalyzer()
-    return OptimizedIntentAnalyzer()
-
-
 @pytest.fixture
-def standard_analyzer() -> IntentAnalyzer:
-    """返回标准版意图分析器。"""
+def intent_analyzer() -> IntentAnalyzer:
+    """返回意图分析器。"""
     return IntentAnalyzer()
 
 
 @pytest.fixture
-def optimized_analyzer() -> OptimizedIntentAnalyzer:
-    """返回优化版意图分析器。"""
-    return OptimizedIntentAnalyzer()
+def standard_analyzer() -> IntentAnalyzer:
+    """返回意图分析器（backward-compat alias）。"""
+    return IntentAnalyzer()
+
+
+@pytest.fixture
+def optimized_analyzer() -> IntentAnalyzer:
+    """返回意图分析器（已合并，原 OptimizedIntentAnalyzer 功能已并入）。"""
+    return IntentAnalyzer()
 
 
 # ============================================================================
 # 接口契约测试：确保两种分析器实现相同接口
 # ============================================================================
-
-
-class TestIntentAnalyzerInterfaceContract:
-    """接口契约测试：验证 OptimizedIntentAnalyzer 与 IntentAnalyzer 接口一致性。"""
-
-    def test_both_analyzers_have_analyze_method(self, standard_analyzer, optimized_analyzer):
-        """两种分析器都应有 analyze 方法。"""
-        assert hasattr(standard_analyzer, "analyze")
-        assert hasattr(optimized_analyzer, "analyze")
-        assert callable(standard_analyzer.analyze)
-        assert callable(optimized_analyzer.analyze)
-
-    def test_both_analyzers_have_parse_explicit_skill_calls_method(
-        self, standard_analyzer, optimized_analyzer
-    ):
-        """两种分析器都应有 parse_explicit_skill_calls 方法（这是关键接口）。"""
-        assert hasattr(standard_analyzer, "parse_explicit_skill_calls")
-        assert hasattr(optimized_analyzer, "parse_explicit_skill_calls")
-        assert callable(standard_analyzer.parse_explicit_skill_calls)
-        assert callable(optimized_analyzer.parse_explicit_skill_calls)
-
-    def test_parse_explicit_skill_calls_same_signature(self, standard_analyzer, optimized_analyzer):
-        """parse_explicit_skill_calls 方法签名应一致。"""
-        import inspect
-
-        standard_sig = inspect.signature(standard_analyzer.parse_explicit_skill_calls)
-        optimized_sig = inspect.signature(optimized_analyzer.parse_explicit_skill_calls)
-
-        # 参数名应相同
-        standard_params = list(standard_sig.parameters.keys())
-        optimized_params = list(optimized_sig.parameters.keys())
-        assert (
-            standard_params == optimized_params
-        ), f"参数不匹配: {standard_params} vs {optimized_params}"
-
-    def test_analyze_method_core_signature(self, standard_analyzer, optimized_analyzer):
-        """analyze 方法核心参数应一致（允许有额外参数）。"""
-        import inspect
-
-        standard_sig = inspect.signature(standard_analyzer.analyze)
-        optimized_sig = inspect.signature(optimized_analyzer.analyze)
-
-        # 核心参数应相同
-        standard_params = set(standard_sig.parameters.keys())
-        optimized_params = set(optimized_sig.parameters.keys())
-
-        # 两种实现都应有的核心参数
-        core_params = {"user_message", "capabilities", "skill_limit"}
-
-        assert core_params.issubset(
-            standard_params
-        ), f"标准版缺少核心参数: {core_params - standard_params}"
-        assert core_params.issubset(
-            optimized_params
-        ), f"优化版缺少核心参数: {core_params - optimized_params}"
 
 
 # ============================================================================
@@ -110,7 +53,7 @@ class TestIntentAnalyzerInterfaceContract:
 
 
 class TestParseExplicitSkillCalls:
-    """显式 skill 调用解析测试（针对两种实现）。"""
+    """显式 skill 调用解析测试。"""
 
     _TEST_CASES: list[tuple[str, list[dict[str, str]]]] = [
         # (输入消息, 期望调用列表)
@@ -150,14 +93,6 @@ class TestParseExplicitSkillCalls:
     ):
         """标准分析器应正确解析显式 skill 调用。"""
         result = standard_analyzer.parse_explicit_skill_calls(user_message)
-        assert result == expected_calls
-
-    @pytest.mark.parametrize("user_message,expected_calls", _TEST_CASES)
-    def test_optimized_analyzer_parse_explicit_skill_calls(
-        self, optimized_analyzer, user_message, expected_calls
-    ):
-        """优化版分析器应正确解析显式 skill 调用。"""
-        result = optimized_analyzer.parse_explicit_skill_calls(user_message)
         assert result == expected_calls
 
     def test_parse_explicit_skill_calls_with_limit(self, intent_analyzer):
@@ -705,12 +640,11 @@ def test_empty_message_defaults_to_rag_enabled(intent_analyzer):
     assert analysis.rag_needed is True
 
 
-def test_query_type_consistency_for_casual_chat(sample_capabilities):
-    """两种分析器对同一闲聊消息应返回相同 QueryType。"""
+def test_query_type_casual_chat(sample_capabilities):
+    """闲聊消息应返回 CASUAL_CHAT QueryType。"""
     msg = "你好"
-    r1 = IntentAnalyzer().analyze(msg, capabilities=sample_capabilities)
-    r2 = OptimizedIntentAnalyzer().analyze(msg, capabilities=sample_capabilities)
-    assert r1.query_type == r2.query_type == QueryType.CASUAL_CHAT
+    result = IntentAnalyzer().analyze(msg, capabilities=sample_capabilities)
+    assert result.query_type == QueryType.CASUAL_CHAT
 
 
 def test_intent_analysis_to_dict_includes_query_type_fields() -> None:
@@ -805,22 +739,20 @@ class TestIntentStrategyConfiguration:
     """测试不同 intent_strategy 配置下的行为。"""
 
     def test_get_intent_analyzer_returns_correct_implementation(self, monkeypatch):
-        """_get_intent_analyzer 应返回配置指定的实现。"""
+        """_get_intent_analyzer 应返回 IntentAnalyzer（已合并双规则实现）。"""
         from nini.agent.runner import _get_intent_analyzer
 
-        # 测试标准规则
         monkeypatch.setattr(settings, "intent_strategy", "rules")
         analyzer = _get_intent_analyzer()
         assert isinstance(analyzer, IntentAnalyzer)
-        assert not isinstance(analyzer, OptimizedIntentAnalyzer)
 
-    def test_get_intent_analyzer_returns_optimized_when_configured(self, monkeypatch):
-        """intent_strategy = 'optimized_rules' 时应返回 OptimizedIntentAnalyzer。"""
+    def test_get_intent_analyzer_returns_intent_analyzer_for_optimized_strategy(self, monkeypatch):
+        """intent_strategy = 'optimized_rules' 时应返回 IntentAnalyzer（已合并）。"""
         from nini.agent.runner import _get_intent_analyzer
 
         monkeypatch.setattr(settings, "intent_strategy", "optimized_rules")
         analyzer = _get_intent_analyzer()
-        assert isinstance(analyzer, OptimizedIntentAnalyzer)
+        assert isinstance(analyzer, IntentAnalyzer)
 
     def test_optimized_analyzer_has_parse_method_after_fix(self, monkeypatch):
         """修复后 OptimizedIntentAnalyzer 应有 parse_explicit_skill_calls 方法。"""
