@@ -12,7 +12,6 @@ from typing import Any
 
 from nini.memory.manager import build_memory_context_block
 from nini.memory.memory_store import MemoryStore
-from nini.memory.provider import MemoryProvider
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ _CONCLUSION_PATTERNS = [
 ]
 
 
-class ScientificMemoryProvider(MemoryProvider):
+class ScientificMemoryProvider:
     """nini 内置记忆 Provider，管理跨会话科研记忆与研究画像。"""
 
     def __init__(
