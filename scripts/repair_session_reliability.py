@@ -22,7 +22,69 @@ from scipy.stats import kendalltau, pearsonr, spearmanr
 from nini.config import settings
 from nini.memory.db import get_session_db, load_meta_from_db, upsert_meta_fields
 from nini.memory.compression import AnalysisMemory, StatisticResult, list_session_analysis_memories
-from nini.memory.long_term_memory import consolidate_session_memories, get_long_term_memory_store
+from nini.memory.memory_store import MemoryStore as _MemoryStore
+
+
+def get_long_term_memory_store() -> _MemoryStore:
+    """获取统一 SQLite 记忆存储（替代旧 LongTermMemoryStore）。"""
+    db_path = settings.sessions_dir.parent / "nini_memory.db"
+    return _MemoryStore(db_path)
+
+
+async def consolidate_session_memories(session_id: str) -> int:
+    """通过 ScientificMemoryProvider.on_session_end 重新沉淀会话记忆到 SQLite。
+
+    在 repair 脚本回写修正后调用，确保修正结果写入持久化存储。
+    """
+    from nini.memory.manager import get_memory_manager
+
+    mm = get_memory_manager()
+    if mm is None:
+        return 0
+    # MemoryManager 会调用所有已注册 provider 的 on_session_end
+    # 此处直接从 compression 模块获取会话记忆并写入 MemoryStore
+    from nini.memory.compression import list_session_analysis_memories
+
+    memories = list_session_analysis_memories(session_id)
+    store = get_long_term_memory_store()
+    count = 0
+    for memory in memories:
+        for finding in memory.findings:
+            if finding.confidence < 0.7:
+                continue
+            store.upsert_fact(
+                content=finding.summary,
+                memory_type="finding",
+                summary=finding.detail or "",
+                tags=[finding.category] if finding.category else [],
+                importance=finding.confidence,
+                source_session_id=session_id,
+                sci_metadata={"dataset_name": memory.dataset_name},
+            )
+            count += 1
+        for stat in memory.statistics:
+            importance = 0.8 if stat.significant is True else 0.6 if stat.significant is False else 0.45
+            store.upsert_fact(
+                content=(
+                    f"{stat.test_name}: 统计量={stat.test_statistic}, "
+                    f"p={stat.p_value}, 效应量={stat.effect_size}"
+                ),
+                memory_type="statistic",
+                summary=f"{stat.test_name} 结果",
+                importance=importance,
+                source_session_id=session_id,
+                sci_metadata={
+                    "dataset_name": memory.dataset_name,
+                    "test_name": stat.test_name,
+                    "p_value": stat.p_value,
+                    "effect_size": stat.effect_size,
+                    "significant": stat.significant,
+                    "analysis_type": stat.test_name,
+                },
+            )
+            count += 1
+    store.close()
+    return count
 
 _CORRELATION_TEST_RE = re.compile(r"^(Pearson|Spearman|Kendall) 相关性分析")
 _PAIRWISE_CORRELATION_RE = re.compile(
@@ -381,6 +443,12 @@ def repair_analysis_memories(
             invocations_by_dataset.setdefault(dataset_name, []).append(invocation)
 
     store = get_long_term_memory_store()
+
+    def _delete_fact(fact_id: str) -> None:
+        """从 SQLite MemoryStore 删除指定 id 的 fact 行。"""
+        with store._conn:
+            store._conn.execute("DELETE FROM facts WHERE id = ?", (fact_id,))
+
     deleted_ltm_ids: set[str] = set()
     repaired_statistics = 0
     downgraded_statistics = 0
@@ -423,7 +491,7 @@ def repair_analysis_memories(
                         and statistic.ltm_id not in deleted_ltm_ids
                         and apply_changes
                     ):
-                        store.delete_memory(statistic.ltm_id)
+                        _delete_fact(statistic.ltm_id)
                         deleted_ltm_ids.add(statistic.ltm_id)
                     continue
 
@@ -444,7 +512,7 @@ def repair_analysis_memories(
                         and statistic.ltm_id not in deleted_ltm_ids
                         and apply_changes
                     ):
-                        store.delete_memory(statistic.ltm_id)
+                        _delete_fact(statistic.ltm_id)
                         deleted_ltm_ids.add(statistic.ltm_id)
                     continue
 

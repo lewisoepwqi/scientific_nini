@@ -926,7 +926,7 @@ function resetStreamingMetrics(): StreamingMetrics {
   };
 }
 
-function isActiveSessionEvent(evt: WSEvent, get: GetStateFn): boolean {
+export function isActiveSessionEvent(evt: WSEvent, get: GetStateFn): boolean {
   const currentSessionId = get().sessionId;
   return (
     typeof evt.session_id === "string" &&

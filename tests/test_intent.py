@@ -14,7 +14,7 @@ from nini.app import create_app
 from nini.api.websocket import set_tool_registry
 from nini.capabilities import Capability, CapabilityRegistry
 from nini.config import settings
-from nini.intent import IntentAnalyzer, OptimizedIntentAnalyzer, QueryType
+from nini.intent import IntentAnalyzer, QueryType
 from nini.intent.base import QueryType as QueryTypeBase  # noqa: F401（向后兼容导入路径验证）
 from nini.tools.registry import create_default_tool_registry
 from tests.client_utils import LocalASGIClient
@@ -25,11 +25,9 @@ from tests.client_utils import LocalASGIClient
 
 
 @pytest.fixture(params=["standard", "optimized"])
-def intent_analyzer(request: pytest.FixtureRequest) -> IntentAnalyzer | OptimizedIntentAnalyzer:
-    """参数化夹具：返回标准或优化版意图分析器。"""
-    if request.param == "standard":
-        return IntentAnalyzer()
-    return OptimizedIntentAnalyzer()
+def intent_analyzer(request: pytest.FixtureRequest) -> IntentAnalyzer:
+    """参数化夹具：返回意图分析器（两个参数均返回 IntentAnalyzer，保留参数化结构以向后兼容）。"""
+    return IntentAnalyzer()
 
 
 @pytest.fixture
@@ -39,9 +37,9 @@ def standard_analyzer() -> IntentAnalyzer:
 
 
 @pytest.fixture
-def optimized_analyzer() -> OptimizedIntentAnalyzer:
-    """返回优化版意图分析器。"""
-    return OptimizedIntentAnalyzer()
+def optimized_analyzer() -> IntentAnalyzer:
+    """返回意图分析器（已合并，内置 Trie 优化）。"""
+    return IntentAnalyzer()
 
 
 # ============================================================================
@@ -50,7 +48,7 @@ def optimized_analyzer() -> OptimizedIntentAnalyzer:
 
 
 class TestIntentAnalyzerInterfaceContract:
-    """接口契约测试：验证 OptimizedIntentAnalyzer 与 IntentAnalyzer 接口一致性。"""
+    """接口契约测试：验证 IntentAnalyzer 同时提供 capability 和 skill 接口。"""
 
     def test_both_analyzers_have_analyze_method(self, standard_analyzer, optimized_analyzer):
         """两种分析器都应有 analyze 方法。"""
@@ -706,11 +704,10 @@ def test_empty_message_defaults_to_rag_enabled(intent_analyzer):
 
 
 def test_query_type_consistency_for_casual_chat(sample_capabilities):
-    """两种分析器对同一闲聊消息应返回相同 QueryType。"""
+    """IntentAnalyzer 对闲聊消息应返回 CASUAL_CHAT QueryType。"""
     msg = "你好"
     r1 = IntentAnalyzer().analyze(msg, capabilities=sample_capabilities)
-    r2 = OptimizedIntentAnalyzer().analyze(msg, capabilities=sample_capabilities)
-    assert r1.query_type == r2.query_type == QueryType.CASUAL_CHAT
+    assert r1.query_type == QueryType.CASUAL_CHAT
 
 
 def test_intent_analysis_to_dict_includes_query_type_fields() -> None:
@@ -725,11 +722,11 @@ def test_intent_analysis_to_dict_includes_query_type_fields() -> None:
     assert d["rag_needed"] is False
 
 
-# ---- OptimizedIntentAnalyzer 专项测试 ----
+# ---- IntentAnalyzer Trie 优化专项测试 ----
 
 
 class TestOptimizedIntentAnalyzerSpecific:
-    """OptimizedIntentAnalyzer 特有功能测试。"""
+    """IntentAnalyzer 内置 Trie 优化功能测试（原 OptimizedIntentAnalyzer 专项测试）。"""
 
     def test_optimized_analyzer_uses_trie_matching(self, optimized_analyzer):
         """优化版应使用 Trie 树进行名称前缀匹配。"""
@@ -802,28 +799,26 @@ class TestOptimizedIntentAnalyzerSpecific:
 
 
 class TestIntentStrategyConfiguration:
-    """测试不同 intent_strategy 配置下的行为。"""
+    """测试 intent_strategy 配置（废弃字段，统一返回 IntentAnalyzer）。"""
 
-    def test_get_intent_analyzer_returns_correct_implementation(self, monkeypatch):
-        """_get_intent_analyzer 应返回配置指定的实现。"""
+    def test_get_intent_analyzer_returns_intent_analyzer_for_rules(self, monkeypatch):
+        """intent_strategy='rules' 时应返回 IntentAnalyzer 实例。"""
         from nini.agent.runner import _get_intent_analyzer
 
-        # 测试标准规则
         monkeypatch.setattr(settings, "intent_strategy", "rules")
         analyzer = _get_intent_analyzer()
         assert isinstance(analyzer, IntentAnalyzer)
-        assert not isinstance(analyzer, OptimizedIntentAnalyzer)
 
-    def test_get_intent_analyzer_returns_optimized_when_configured(self, monkeypatch):
-        """intent_strategy = 'optimized_rules' 时应返回 OptimizedIntentAnalyzer。"""
+    def test_get_intent_analyzer_returns_intent_analyzer_for_optimized_rules(self, monkeypatch):
+        """intent_strategy='optimized_rules' 时应返回 IntentAnalyzer 实例（已内置 Trie 优化）。"""
         from nini.agent.runner import _get_intent_analyzer
 
         monkeypatch.setattr(settings, "intent_strategy", "optimized_rules")
         analyzer = _get_intent_analyzer()
-        assert isinstance(analyzer, OptimizedIntentAnalyzer)
+        assert isinstance(analyzer, IntentAnalyzer)
 
-    def test_optimized_analyzer_has_parse_method_after_fix(self, monkeypatch):
-        """修复后 OptimizedIntentAnalyzer 应有 parse_explicit_skill_calls 方法。"""
+    def test_analyzer_has_parse_method(self, monkeypatch):
+        """IntentAnalyzer 应有 parse_explicit_skill_calls 方法且可调用。"""
         from nini.agent.runner import _get_intent_analyzer
 
         monkeypatch.setattr(settings, "intent_strategy", "optimized_rules")

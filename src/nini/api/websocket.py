@@ -189,17 +189,6 @@ async def websocket_agent(ws: WebSocket):
                 if pending_future is not None and not pending_future.done():
                     pending_future.cancel()
 
-    def _trigger_memory_consolidation(s: Any) -> None:
-        """安全地异步触发会话记忆沉淀，忽略导入或运行错误。"""
-        if s is None:
-            return
-        try:
-            from nini.memory.long_term_memory import consolidate_session_memories
-
-            asyncio.create_task(consolidate_session_memories(s.id))
-        except Exception:
-            logger.debug("记忆沉淀触发失败，忽略", exc_info=True)
-
     async def _wait_for_ask_user_question_answers(
         session: Session,
         tool_call_id: str,
@@ -834,8 +823,6 @@ async def websocket_agent(ws: WebSocket):
                             with suppress(asyncio.CancelledError):
                                 await task
                             _cancel_pending_questions(stop_session_id)
-                            stopped_session = _load_existing_session(stop_session_id)
-                            _trigger_memory_consolidation(stopped_session)
                             await _send_event(
                                 ws,
                                 EventType.STOPPED.value,
@@ -875,8 +862,6 @@ async def websocket_agent(ws: WebSocket):
                                 task.cancel()
                                 with suppress(asyncio.CancelledError):
                                     await task
-                            stopped_session = _load_existing_session(sid)
-                            _trigger_memory_consolidation(stopped_session)
                         _cancel_pending_questions()
                         await _send_event(
                             ws,
@@ -1262,10 +1247,6 @@ async def websocket_agent(ws: WebSocket):
                 "WebSocket 已断开，保留后台运行中的会话: %s",
                 ",".join(detached_sessions),
             )
-        for sid, task in list(active_chat_tasks.items()):
-            if task.done():
-                disconnected_session = _load_existing_session(sid)
-                _trigger_memory_consolidation(disconnected_session)
         active_chat_tasks.clear()
         active_stop_events.clear()
         keepalive_task.cancel()

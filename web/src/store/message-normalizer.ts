@@ -10,6 +10,7 @@ import type {
 } from "./types";
 
 import { mergeReasoningContent, nextId } from "./utils";
+import { cloneMessages } from "./session-ui-cache";
 
 const INTERNAL_STATUS_ALLOWED_KEYS = new Set([
   "success",
@@ -81,10 +82,6 @@ interface ToolResultPayload {
   toolStatus: "success" | "error";
   toolIntent?: string;
   widget?: GeneratedWidgetPayload;
-}
-
-function cloneMessages(messages: Message[]): Message[] {
-  return messages.map((msg) => ({ ...msg }));
 }
 
 export function normalizeMessageTimestamp(rawTimestamp: unknown): number {

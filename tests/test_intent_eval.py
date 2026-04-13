@@ -10,7 +10,7 @@ import yaml
 
 from nini.capabilities import create_default_capabilities
 from nini.intent.base import QueryType
-from nini.intent.optimized import OptimizedIntentAnalyzer
+from nini.intent.service import IntentAnalyzer
 
 _DATASET_PATH = Path(__file__).parent / "fixtures" / "intent_eval_dataset.yaml"
 _CAPABILITIES = [cap.to_dict() for cap in create_default_capabilities()]
@@ -32,9 +32,9 @@ _oos_results: list[bool] = []
 
 
 @pytest.fixture(scope="module")
-def analyzer() -> OptimizedIntentAnalyzer:
+def analyzer() -> IntentAnalyzer:
     """提供已初始化的优化版意图分析器。"""
-    analyzer = OptimizedIntentAnalyzer()
+    analyzer = IntentAnalyzer()
     analyzer.initialize(_CAPABILITIES)
     return analyzer
 
@@ -52,7 +52,7 @@ def intent_eval_reporter():
 
 
 @pytest.mark.parametrize("case", _DOMAIN_CASES, ids=lambda case: case["query"][:30])
-def test_intent_eval_domain_top1(analyzer: OptimizedIntentAnalyzer, case: dict[str, Any]) -> None:
+def test_intent_eval_domain_top1(analyzer: IntentAnalyzer, case: dict[str, Any]) -> None:
     """域内查询应命中标注的 Top-1 能力。"""
     analysis = analyzer.analyze(case["query"])
     top1 = analysis.capability_candidates[0].name if analysis.capability_candidates else None
@@ -61,7 +61,7 @@ def test_intent_eval_domain_top1(analyzer: OptimizedIntentAnalyzer, case: dict[s
 
 
 @pytest.mark.parametrize("case", _OOS_CASES, ids=lambda case: case["query"][:30])
-def test_intent_eval_out_of_scope(analyzer: OptimizedIntentAnalyzer, case: dict[str, Any]) -> None:
+def test_intent_eval_out_of_scope(analyzer: IntentAnalyzer, case: dict[str, Any]) -> None:
     """OOS 查询应被识别为超出支持范围。"""
     analysis = analyzer.analyze(case["query"])
     matched = analysis.query_type == QueryType.OUT_OF_SCOPE

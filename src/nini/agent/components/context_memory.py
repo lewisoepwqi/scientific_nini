@@ -44,37 +44,7 @@ async def build_long_term_memory_context(
     except Exception:
         logger.debug("MemoryManager.prefetch_all 失败，降级到旧路径", exc_info=True)
 
-    try:
-        from nini.memory.long_term_memory import (
-            format_memories_for_context,
-            get_long_term_memory_store,
-        )
-
-        store = get_long_term_memory_store()
-        min_importance = 0.3
-        entries = await store.search(
-            query.strip(),
-            top_k=top_k,
-            min_importance=min_importance,
-            context=context,
-        )
-        logger.debug(
-            "长期记忆检索完成: injected_count=%d query_len=%d min_importance=%.2f",
-            len(entries),
-            len(query.strip()),
-            min_importance,
-        )
-        if not entries:
-            return ""
-        text = format_memories_for_context(entries)
-        if not text:
-            return ""
-        return format_untrusted_context_block("long_term_memory", text)
-    except Exception:
-        import logging
-
-        logging.getLogger(__name__).warning("长期记忆检索失败，跳过注入", exc_info=True)
-        return ""
+    return ""
 
 
 def build_analysis_memory_context(

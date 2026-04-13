@@ -32,10 +32,10 @@ async def _call_get_trial_status(
         return db
 
     with (
-        patch("nini.config_manager.get_db", fake_get_db),
-        patch("nini.config_manager.settings") as mock_settings,
+        patch("nini._config_trial.get_db", fake_get_db),
+        patch("nini._config_trial.settings") as mock_settings,
         patch(
-            "nini.config_manager.get_builtin_usage",
+            "nini._config_trial.get_builtin_usage",
             AsyncMock(return_value={"fast": usage[0], "deep": usage[1]}),
         ),
     ):

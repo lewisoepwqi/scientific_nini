@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
+from nini.knowledge._utils import compute_knowledge_file_hashes
+
 logger = logging.getLogger(__name__)
 
 # 延迟导入（避免未安装时导入失败）
@@ -458,7 +460,7 @@ class LocalBM25Retriever:
                 pickle.dump(cache_data, f)
 
             # 保存元信息（文件哈希）
-            file_hashes = self._compute_file_hashes()
+            file_hashes = compute_knowledge_file_hashes(self.knowledge_dir)
             meta = {
                 "file_hashes": file_hashes,
                 "doc_count": len(self._documents),
@@ -476,32 +478,12 @@ class LocalBM25Retriever:
                 meta = json.load(f)
 
             saved_hashes = cast(dict[str, str], meta.get("file_hashes", {}))
-            current_hashes = self._compute_file_hashes()
+            current_hashes = compute_knowledge_file_hashes(self.knowledge_dir)
 
             return bool(saved_hashes != current_hashes)
 
         except Exception:
             return True
-
-    def _compute_file_hashes(self) -> dict[str, str]:
-        """计算知识文件哈希。"""
-        import hashlib
-
-        hashes: dict[str, str] = {}
-        if not self.knowledge_dir.exists():
-            return hashes
-
-        for md_path in sorted(self.knowledge_dir.rglob("*.md")):
-            if md_path.name.lower() == "readme.md":
-                continue
-            try:
-                content = md_path.read_bytes()
-                file_id = str(md_path.relative_to(self.knowledge_dir))
-                hashes[file_id] = hashlib.sha256(content).hexdigest()
-            except Exception:
-                pass
-
-        return hashes
 
     def get_stats(self) -> dict[str, Any]:
         """获取检索器统计信息。"""
