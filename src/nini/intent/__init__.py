@@ -3,7 +3,6 @@
 from nini.intent.base import IntentAnalysis, IntentCandidate, QueryType
 from nini.intent.service import (
     IntentAnalyzer,
-    _load_synonym_map,
     apply_boost,
     default_intent_analyzer,
     get_difference_subtype,
@@ -30,7 +29,6 @@ __all__ = [
     "default_intent_analyzer",
     "get_difference_subtype",
     "apply_boost",
-    "_load_synonym_map",
 ]
 
 # 如果增强版可用，添加到导出
