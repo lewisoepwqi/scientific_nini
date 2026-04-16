@@ -350,6 +350,7 @@ def _build_data_preview_signature(data_preview: dict[str, Any]) -> str:
         "total_rows": data_preview.get("total_rows"),
         "preview_rows": data_preview.get("preview_rows"),
         "preview_strategy": data_preview.get("preview_strategy"),
+        "sheet_name": data_preview.get("sheet_name"),
         "columns": data_preview.get("columns"),
         "data": data_preview.get("data"),
     }
@@ -368,6 +369,17 @@ def _parse_dataset_profile_request(arguments: str) -> tuple[str, str] | None:
         return None
     view = str(parsed_args.get("view", "basic")).strip().lower() or "basic"
     return dataset_name, view
+
+
+def _all_columns_unnamed(df: Any) -> bool:
+    """判断 DataFrame 的列是否全部形如 'Unnamed: N'。
+
+    Pandas 读取无表头 Excel/CSV 时会自动生成此类列名；LLM 需要再次
+    profile 才能获取真实列名，因此应豁免重复调用保护。
+    """
+    unnamed_pattern = re.compile(r"^Unnamed:\s*\d+$")
+    cols = df.columns.tolist()
+    return bool(cols) and all(unnamed_pattern.match(str(c)) for c in cols)
 
 
 # ---- Agent Runner ----
@@ -1817,10 +1829,17 @@ class AgentRunner:
                         "下一步：直接调用 run_code / code_session 进行统计分析，"
                         "或调用 task_state 更新任务进度，或输出分析结论。"
                     )
+                    # 当数据集所有列均为 'Unnamed: N' 时，说明 pandas 尚未读取到真实表头，
+                    # LLM 必须再次 profile 才能获得列名——此时豁免重复调用保护。
+                    _existing_df = session.datasets.get(dataset_name)
+                    _skip_duplicate_guard = _existing_df is not None and _all_columns_unnamed(
+                        _existing_df
+                    )
                     if tool_args_signature in successful_dataset_profile_signatures:
-                        duplicate_profile_reason = (
-                            f"同一轮中已成功调用过相同的 dataset_catalog(profile): {dataset_name}"
-                        )
+                        if not _skip_duplicate_guard:
+                            duplicate_profile_reason = (
+                                f"同一轮中已成功调用过相同的 dataset_catalog(profile): {dataset_name}"
+                            )
                     elif max_view == "full":
                         duplicate_profile_reason = (
                             f"同一轮中已成功获得数据集 '{dataset_name}' 的完整概况(full)，"
@@ -2473,6 +2492,7 @@ class AgentRunner:
                                 total_rows=data_preview.get("total_rows"),
                                 preview_rows=data_preview.get("preview_rows"),
                                 preview_strategy=data_preview.get("preview_strategy"),
+                                sheet_name=data_preview.get("sheet_name"),
                                 turn_id=turn_id,
                             )
 
@@ -4028,8 +4048,7 @@ class AgentRunner:
             }
 
         has_error = bool(
-            isinstance(result, dict)
-            and (result.get("error") or result.get("success") is False)
+            isinstance(result, dict) and (result.get("error") or result.get("success") is False)
         )
         result_str = serialize_tool_result_for_memory(result)
         session.add_tool_result(
@@ -4261,9 +4280,7 @@ class AgentRunner:
                 return {
                     "success": False,
                     "error_code": "DISPATCH_GUARD_BLOCKED",
-                    "message": (
-                        f"agent_id `{agent_id}` 已在本轮被判定为非法，禁止继续重复派发。"
-                    ),
+                    "message": (f"agent_id `{agent_id}` 已在本轮被判定为非法，禁止继续重复派发。"),
                     "recovery_action": "use_registered_agent_ids",
                     "recovery_hint": state.get("recovery_hint")
                     or "请改用已注册的 agent_id，或切回当前 Agent 直接执行。",
@@ -4283,7 +4300,9 @@ class AgentRunner:
             return {
                 "success": False,
                 "error_code": "DISPATCH_GUARD_BLOCKED",
-                "message": str(blocked_meta.get("message") or "该 task_id 在本轮已被限制重复派发。"),
+                "message": str(
+                    blocked_meta.get("message") or "该 task_id 在本轮已被限制重复派发。"
+                ),
                 "recovery_action": blocked_meta.get("recovery_action")
                 or state.get("recovery_action")
                 or "run_direct_tool_or_use_parent_task_id",
@@ -4319,7 +4338,9 @@ class AgentRunner:
 
         state["last_error_code"] = error_code
         state["current_in_progress_task_id"] = payload.get("current_in_progress_task_id")
-        state["current_pending_wave_task_ids"] = list(payload.get("current_pending_wave_task_ids", []))
+        state["current_pending_wave_task_ids"] = list(
+            payload.get("current_pending_wave_task_ids", [])
+        )
         state["recovery_action"] = str(payload.get("recovery_action", "") or "").strip()
         state["recovery_hint"] = str(payload.get("recovery_hint", "") or "").strip()
         state["recommended_tools"] = list(payload.get("recommended_tools", []) or [])
