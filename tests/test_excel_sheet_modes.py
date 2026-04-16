@@ -136,3 +136,114 @@ async def test_load_dataset_single_mode_missing_sheet_name_shows_available_sheet
     assert "sheet_mode=single" in message
     assert "SheetA" in message
     assert "SheetB" in message
+
+
+# ---- profile 操作的 sheet 支持 ----
+
+
+@pytest.mark.asyncio
+async def test_profile_with_sheet_name_loads_specific_sheet() -> None:
+    """profile 操作指定 sheet_name 应加载并预览该 sheet。"""
+    registry = create_default_tool_registry()
+    session = Session()
+    _prepare_multi_sheet_excel(session)
+
+    result = await registry.execute(
+        "dataset_catalog",
+        session=session,
+        operation="profile",
+        dataset_name="multi.xlsx",
+        view="preview",
+        sheet_name="SheetB",
+    )
+
+    assert result["success"] is True, result
+    data = result["data"]
+    assert data["sheet_name"] == "SheetB"
+    assert "preview" in data
+    preview = data["preview"]
+    assert preview["sheet_name"] == "SheetB"
+    # SheetB 的数据是 id=[3,4], value_b=[30,40]
+    assert preview["total_rows"] == 2
+    col_names = [c["name"] for c in preview["columns"]]
+    assert "value_b" in col_names
+    assert "value_a" not in col_names
+
+
+@pytest.mark.asyncio
+async def test_profile_without_sheet_name_shows_available_sheets() -> None:
+    """profile 操作未指定 sheet_name 时，多 sheet Excel 应返回 available_sheets 提示。"""
+    registry = create_default_tool_registry()
+    session = Session()
+    _prepare_multi_sheet_excel(session)
+
+    result = await registry.execute(
+        "dataset_catalog",
+        session=session,
+        operation="profile",
+        dataset_name="multi.xlsx",
+        view="basic",
+    )
+
+    assert result["success"] is True, result
+    data = result["data"]
+    assert "available_sheets" in data
+    assert "SheetA" in data["available_sheets"]
+    assert "SheetB" in data["available_sheets"]
+
+
+@pytest.mark.asyncio
+async def test_profile_with_invalid_sheet_name_returns_error() -> None:
+    """profile 操作指定不存在的 sheet_name 应返回包含可用 sheet 的错误信息。"""
+    registry = create_default_tool_registry()
+    session = Session()
+    _prepare_multi_sheet_excel(session)
+
+    result = await registry.execute(
+        "dataset_catalog",
+        session=session,
+        operation="profile",
+        dataset_name="multi.xlsx",
+        view="preview",
+        sheet_name="NonExistent",
+    )
+
+    assert result["success"] is False
+    message = str(result["message"])
+    assert "NonExistent" in message or "读取 sheet 失败" in message
+
+
+@pytest.mark.asyncio
+async def test_load_via_dataset_catalog_with_sheet_name_no_mode() -> None:
+    """dataset_catalog load 传 sheet_name 但不传 sheet_mode 时，应加载指定 sheet 而非第一个 sheet。"""
+    registry = create_default_tool_registry()
+    session = Session()
+    _prepare_multi_sheet_excel(session)
+
+    # 先用 default 模式加载一次，确保 session.datasets 中缓存了第一个 sheet（SheetA）
+    await registry.execute(
+        "dataset_catalog",
+        session=session,
+        operation="load",
+        dataset_name="multi.xlsx",
+    )
+    assert "multi.xlsx" in session.datasets
+    assert list(session.datasets["multi.xlsx"].columns) == ["id", "value_a"]
+
+    # 不传 sheet_mode，只传 sheet_name="SheetB"
+    result = await registry.execute(
+        "dataset_catalog",
+        session=session,
+        operation="load",
+        dataset_name="multi.xlsx",
+        sheet_name="SheetB",
+    )
+
+    assert result["success"] is True, result.get("message")
+    output_name = result["data"]["dataset_name"]
+    # 修复后 output_name 应为 "multi.xlsx[SheetB]"
+    assert "SheetB" in output_name
+    assert output_name in session.datasets
+    df = session.datasets[output_name]
+    assert list(df.columns) == ["id", "value_b"]
+    assert df["id"].tolist() == [3, 4]
