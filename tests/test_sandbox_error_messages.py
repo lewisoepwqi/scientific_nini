@@ -41,3 +41,45 @@ val = row[0]       # KeyError(0) — integer label lookup on string index
         hint in message
         for hint in ("KeyError", "iloc", "整数", "列名", "label")
     ), f"错误消息应包含诊断提示，实际: {message!r}"
+
+
+@pytest.mark.asyncio
+async def test_key_error_string_key_gives_readable_message() -> None:
+    """字典字符串键缺失时，消息走 else 分支，应包含"列名或字典键"提示而非 iloc 建议。"""
+    session = Session()
+
+    code = """
+d = {"a": 1, "b": 2}
+val = d["missing_key"]  # KeyError('missing_key')
+"""
+
+    result = await execute_python_code(session, code=code, dataset_name=None)
+
+    assert result.success is False
+    message = result.message
+    assert "missing_key" in message or "列名" in message or "键" in message, (
+        f"错误消息应提及缺失的键，实际: {message!r}"
+    )
+    # 不应触发 iloc 建议（那是整数下标专属）
+    assert "iloc" not in message, f"字符串键不应建议 iloc，实际: {message!r}"
+
+
+@pytest.mark.asyncio
+async def test_key_error_empty_args_gives_readable_message() -> None:
+    """裸 raise KeyError() 时（exc.args 为空），消息应包含 '<unknown>'，不含异常对象 repr。"""
+    session = Session()
+
+    code = """
+raise KeyError()  # 空 args——触发 fallback 分支
+"""
+
+    result = await execute_python_code(session, code=code, dataset_name=None)
+
+    assert result.success is False
+    message = result.message
+    assert "KeyError()" not in message, (
+        f"消息不应含异常对象 repr 'KeyError()'，实际: {message!r}"
+    )
+    assert "<unknown>" in message or "键" in message or "KeyError" in message, (
+        f"消息应包含可读兜底提示，实际: {message!r}"
+    )
