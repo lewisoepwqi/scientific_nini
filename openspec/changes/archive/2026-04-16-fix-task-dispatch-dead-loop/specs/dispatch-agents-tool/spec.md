@@ -1,10 +1,4 @@
-# Capability: dispatch-agents-tool
-
-## Purpose
-
-提供 `DispatchAgentsTool`（工具名 `dispatch_agents`），作为主 Agent 发起多 Agent 并行派发的入口。工具同时支持 `pending wave` 派发和当前任务内部子派发，并向恢复器与调试视图返回统一的调度诊断信息。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: DispatchAgentsTool 工具接口
 系统 SHALL 提供 `DispatchAgentsTool`，继承 `src/nini/tools/base.py:Tool`，名称为 `"dispatch_agents"`；工具 SHALL 支持两类调度形态：
@@ -53,30 +47,7 @@
 - **AND** 返回数据 SHALL 包含非法 agent 列表、可用 agent 列表和恢复建议
 - **AND** 不得继续执行其余派发项
 
----
-
-### Requirement: DispatchAgentsTool 注册到 ToolRegistry
-`DispatchAgentsTool` SHALL 在 `create_default_tool_registry()` 中注册；工具名 `"dispatch_agents"` SHALL 不出现在任何子 Agent 的 `allowed_tools` 白名单中（通过 `ToolExposurePolicy` 的 `deny_names` 强制排除），防止递归派发。
-
-#### Scenario: dispatch_agents 可通过 ToolRegistry 获取
-- **WHEN** 调用 `registry.get("dispatch_agents")`
-- **THEN** SHALL 返回 `DispatchAgentsTool` 实例
-
-#### Scenario: 子 Agent 不可见 dispatch_agents
-- **WHEN** 构建子 Agent 的受限工具注册表
-- **THEN** `dispatch_agents` SHALL 不出现在子 Agent 可调用工具列表中
-
----
-
-### Requirement: 子 Agent 并发上限
-`spawn_batch` SHALL 使用 `asyncio.Semaphore` 限制并发子 Agent 数量；默认上限 SHALL 为 4，可通过 settings 配置。
-
-#### Scenario: 并发数超过上限时排队等待
-- **WHEN** `agents` 列表包含 6 个子 Agent，并发上限为 4
-- **THEN** 前 4 个子 Agent SHALL 立即启动，后 2 个 SHALL 等待前序完成后再启动
-- **AND** 最终所有子 Agent 的结果 SHALL 全部包含在返回文本中
-
----
+## ADDED Requirements
 
 ### Requirement: DispatchAgentsTool 必须返回调度诊断元数据
 `dispatch_agents` 在成功或失败时 SHALL 返回统一的调度诊断元数据，以支持 harness 恢复器、runtime snapshot 和前端调试视图。

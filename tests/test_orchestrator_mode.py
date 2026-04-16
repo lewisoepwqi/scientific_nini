@@ -296,6 +296,39 @@ async def test_handle_dispatch_agents_passes_wave_id():
     assert result_payload.get("wave_id") == "wave-abc"
 
 
+@pytest.mark.asyncio
+async def test_handle_dispatch_agents_blocks_repeated_invalid_agent_in_same_turn():
+    """同一 turn 内重复使用已判定非法的 agent_id，应被 runner guard 直接拦截。"""
+    from nini.agent.events import EventType
+
+    runner = _make_runner_with_dispatch_registered()
+    sub_session = _make_sub_session()
+
+    dispatch_tc = {
+        "id": "call-invalid-001",
+        "function": {
+            "name": "dispatch_agents",
+            "arguments": '{"tasks": [{"task_id": 1, "agent_id": "bad_agent", "task": "错误派发"}]}',
+        },
+    }
+
+    first_events = []
+    async for evt in runner._handle_dispatch_agents(dispatch_tc, sub_session, "turn-guard-01"):
+        first_events.append(evt)
+    first_result = next(
+        e for e in first_events if getattr(e, "type", None) == EventType.TOOL_RESULT
+    )
+    assert first_result.data["data"]["result"]["data"]["error_code"] == "INVALID_AGENT_IDS"
+
+    second_events = []
+    async for evt in runner._handle_dispatch_agents(dispatch_tc, sub_session, "turn-guard-01"):
+        second_events.append(evt)
+    second_result = next(
+        e for e in second_events if getattr(e, "type", None) == EventType.TOOL_RESULT
+    )
+    assert second_result.data["data"]["result"]["error_code"] == "DISPATCH_GUARD_BLOCKED"
+
+
 # ─── stage_transition_hint 注入 ─────────────────────────────────────────────
 
 

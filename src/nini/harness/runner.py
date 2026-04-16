@@ -961,6 +961,28 @@ class HarnessRunner:
                 rh = str(result_payload.get("recovery_hint", "")).strip()[:200]
                 if rh:
                     metadata["recovery_hint"] = rh
+                result_data = result_payload.get("data")
+                if isinstance(result_data, dict):
+                    for key in (
+                        "error_code",
+                        "recovery_action",
+                        "tool_misuse_category",
+                        "current_in_progress_task_id",
+                    ):
+                        value = result_data.get(key)
+                        if value not in (None, "", []):
+                            metadata[key] = value
+                    current_pending_wave_task_ids = result_data.get("current_pending_wave_task_ids")
+                    if (
+                        isinstance(current_pending_wave_task_ids, list)
+                        and current_pending_wave_task_ids
+                    ):
+                        metadata["current_pending_wave_task_ids"] = list(
+                            current_pending_wave_task_ids
+                        )
+                    recommended_tools = result_data.get("recommended_tools")
+                    if isinstance(recommended_tools, list) and recommended_tools:
+                        metadata["recommended_tools"] = list(recommended_tools)
             elif isinstance(data.get("data"), dict):
                 rh = str(data["data"].get("recovery_hint", "")).strip()[:200]
                 if rh:
@@ -992,6 +1014,21 @@ class HarnessRunner:
                         action_type="tool_failure_unresolved",
                         key=str(item.get("key", "")).strip(),
                     )
+            if tool_name != "dispatch_agents":
+                for item in session.list_pending_actions(action_type="tool_failure_unresolved"):
+                    item_metadata = item.get("metadata")
+                    if not isinstance(item_metadata, dict):
+                        continue
+                    if (
+                        str(item.get("source_tool", "")).strip() == "dispatch_agents"
+                        and str(item_metadata.get("turn_id", "")).strip() == turn_id
+                        and str(item.get("failure_category", "")).strip()
+                        == "dispatch_context_misuse"
+                    ):
+                        session.resolve_pending_action(
+                            action_type="tool_failure_unresolved",
+                            key=str(item.get("key", "")).strip(),
+                        )
             return None, None
 
         count = tool_error_counts[signature]
@@ -1049,9 +1086,9 @@ class HarnessRunner:
         """返回失败分类与是否阻塞。"""
         normalized_message = str(message or "").strip()
         payload = data.get("data") if isinstance(data.get("data"), dict) else {}
+        result_payload = data.get("result") if isinstance(data.get("result"), dict) else None
+        result_data = result_payload.get("data", {}) if isinstance(result_payload, dict) else {}
         if tool_name in {"task_state", "task_write"}:
-            result_payload = data.get("result")
-            result_data = result_payload.get("data", {}) if isinstance(result_payload, dict) else {}
             no_op_ids = result_data.get("no_op_ids") if isinstance(result_data, dict) else None
             error_code = result_data.get("error_code") if isinstance(result_data, dict) else None
             if isinstance(no_op_ids, list) and no_op_ids:
@@ -1072,6 +1109,19 @@ class HarnessRunner:
             error_code = str(payload.get("error_code", "")).strip()
             if error_code == "WORKSPACE_READ_BINARY_UNSUPPORTED":
                 return "recoverable_input_misuse", False
+        if tool_name == "dispatch_agents":
+            dispatch_error_code = str(
+                result_data.get("error_code", "") or payload.get("error_code", "")
+            ).strip()
+            if dispatch_error_code in {
+                "INVALID_AGENT_IDS",
+                "DISPATCH_CONTEXT_MISMATCH",
+                "TASK_NOT_IN_CURRENT_WAVE",
+                "PARALLEL_TASK_CONFLICT",
+                "DISPATCH_TASK_CONTEXT_REQUIRED",
+                "DISPATCH_GUARD_BLOCKED",
+            }:
+                return "dispatch_context_misuse", False
         # 通用幂等/重复操作识别：DUPLICATE_* 和 ALREADY_* 前缀的 error_code
         # 表示操作已成功完成过，重复调用不是真正的失败
         # error_code 可能出现在多个层级：
@@ -1083,7 +1133,6 @@ class HarnessRunner:
             str(payload.get("error_code", "")).strip(),
             str(data.get("error_code", "")).strip(),
         ]
-        result_payload = data.get("result") if isinstance(data.get("result"), dict) else None
         if result_payload:
             _error_code_candidates.append(str(result_payload.get("error_code", "")).strip())
         nested_result = payload.get("result") if isinstance(payload.get("result"), dict) else None
@@ -1107,6 +1156,22 @@ class HarnessRunner:
         tool_name: str,
         data: dict[str, Any],
     ) -> str:
+        if tool_name == "dispatch_agents":
+            result_payload = data.get("result") if isinstance(data.get("result"), dict) else {}
+            payload = (
+                result_payload.get("data", {})
+                if isinstance(result_payload.get("data"), dict)
+                else {}
+            )
+            error_code = str(payload.get("error_code", "")).strip()
+            task_anchor = (
+                str(payload.get("task_id", "")).strip()
+                or str(payload.get("parent_task_id", "")).strip()
+                or str(payload.get("current_in_progress_task_id", "")).strip()
+                or "none"
+            )
+            if error_code:
+                return f"{tool_name}::{error_code}::{task_anchor}"
         tool_call_id = str(event.tool_call_id or data.get("id", "") or "").strip()
         if tool_call_id:
             for message in reversed(session.messages):
@@ -1226,6 +1291,7 @@ class HarnessRunner:
             for task in session.task_manager.tasks
             if task.status in {"pending", "in_progress"}
         ]
+        dispatch_runtime_state = getattr(session, "dispatch_runtime_state", {}) or {}
         return HarnessSessionSnapshot(
             session_id=session.id,
             turn_id=trace.turn_id,
@@ -1240,6 +1306,20 @@ class HarnessRunner:
                     else 0
                 ),
                 "pending_titles": pending_tasks[:10],
+                "dispatch": (
+                    {
+                        "current_in_progress_task_id": dispatch_runtime_state.get(
+                            "current_in_progress_task_id"
+                        ),
+                        "current_pending_wave_task_ids": dispatch_runtime_state.get(
+                            "current_pending_wave_task_ids", []
+                        ),
+                        "recovery_action": dispatch_runtime_state.get("recovery_action", ""),
+                        "last_error_code": dispatch_runtime_state.get("last_error_code", ""),
+                    }
+                    if isinstance(dispatch_runtime_state, dict) and dispatch_runtime_state
+                    else {}
+                ),
             },
             tool_failures=list(trace.failure_tags),
             selected_tools=selected_tools,

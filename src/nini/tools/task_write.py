@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from nini.agent.task_manager import TaskManager
 from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
 
@@ -259,23 +260,6 @@ class TaskWriteTool(Tool):
             ],
         }
 
-    def _normalize_init_tasks(
-        self, raw_tasks: list[dict[str, Any]]
-    ) -> tuple[list[dict[str, Any]], list[int]]:
-        """将 init 输入统一归一化为 pending，兼容历史错误形状。"""
-        normalized_tasks: list[dict[str, Any]] = []
-        normalized_task_ids: list[int] = []
-        for index, task in enumerate(raw_tasks, start=1):
-            normalized = dict(task)
-            task_id = int(normalized.get("id", index))
-            raw_status = str(normalized.get("status", "pending")).strip()
-            if raw_status != "pending":
-                normalized_task_ids.append(task_id)
-            normalized["id"] = task_id
-            normalized["status"] = "pending"
-            normalized_tasks.append(normalized)
-        return normalized_tasks, normalized_task_ids
-
     def _input_error(
         self,
         *,
@@ -365,8 +349,8 @@ class TaskWriteTool(Tool):
                     ),
                 )
 
-        normalized_tasks, normalized_task_ids = self._normalize_init_tasks(raw_tasks)
-        new_manager = session.task_manager.init_tasks(normalized_tasks)
+        normalization = TaskManager.normalize_init_task_payload(raw_tasks)
+        new_manager = session.task_manager.init_tasks(normalization.tasks)
 
         task_count = len(new_manager.tasks)
         first_task = new_manager.tasks[0] if new_manager.tasks else None
@@ -376,25 +360,42 @@ class TaskWriteTool(Tool):
             "task_write init: session=%s 声明了 %d 个任务，等待模型显式推进状态，归一化任务=%s",
             session.id,
             task_count,
-            normalized_task_ids,
+            normalization.normalized_task_ids,
         )
 
         # 由模型显式推进任务状态，避免运行时替模型隐式修改任务板
         warning_prefix = ""
-        if normalized_task_ids:
+        if normalization.normalized_task_ids:
             warning_prefix = (
-                f"已将任务{','.join(str(task_id) for task_id in normalized_task_ids)}"
+                f"已将任务{','.join(str(task_id) for task_id in normalization.normalized_task_ids)}"
                 "的初始状态归一化为 pending。"
             )
+        dependency_prefix = ""
+        if normalization.normalized_dependencies:
+            normalized_dep_ids = "、".join(
+                f"任务{item['task_id']}" for item in normalization.normalized_dependencies
+            )
+            dependency_prefix = (
+                f"已按高置信线性流水线补全 {normalized_dep_ids} 的 depends_on。"
+            )
+        warning_suffix = ""
+        if normalization.normalization_warnings:
+            warning_suffix = "检测到依赖歧义，系统未自动改写任务图，请后续按当前任务顺序谨慎推进。"
         if first_task:
             tool_hint_text = f"（可使用 {first_task.tool_hint}）" if first_task.tool_hint else ""
             message = (
-                warning_prefix + f"已声明 {task_count} 个分析任务。"
+                warning_prefix
+                + dependency_prefix
+                + f"已声明 {task_count} 个分析任务。"
                 f"建议从任务1「{first_task.title}」开始{tool_hint_text}。"
                 f"先将任务1标记为 in_progress，再执行对应的分析操作。"
+                + warning_suffix
             )
         else:
-            message = f"{warning_prefix}已声明 {task_count} 个分析任务。"
+            message = (
+                f"{warning_prefix}{dependency_prefix}已声明 {task_count} 个分析任务。"
+                f"{warning_suffix}"
+            )
 
         return ToolResult(
             success=True,
@@ -405,11 +406,15 @@ class TaskWriteTool(Tool):
                 "tasks": [t.to_dict() for t in new_manager.tasks],
                 "all_completed": False,
                 "pending_count": task_count,
-                "normalized_task_ids": normalized_task_ids,
+                "normalized_task_ids": normalization.normalized_task_ids,
+                "normalized_dependencies": normalization.normalized_dependencies,
+                "normalization_warnings": normalization.normalization_warnings,
             },
             metadata={
                 "is_task_write": True,
-                "normalized_task_ids": normalized_task_ids,
+                "normalized_task_ids": normalization.normalized_task_ids,
+                "normalized_dependencies": normalization.normalized_dependencies,
+                "normalization_warnings": normalization.normalization_warnings,
             },
         )
 

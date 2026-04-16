@@ -210,6 +210,81 @@ def test_group_into_waves_skips_completed():
     assert waves[0][0].id == 2
 
 
+def test_get_dispatch_context_prefers_current_in_progress_task():
+    """存在进行中任务时，dispatch context 应锁定当前任务并禁止 pending wave 派发。"""
+    tm = _make_manager(
+        [
+            {"id": 1, "title": "读取数据", "status": "completed", "tool_hint": "dataset_catalog"},
+            {"id": 2, "title": "清洗数据", "status": "in_progress", "tool_hint": "dataset_transform"},
+            {"id": 3, "title": "统计分析", "status": "pending", "depends_on": [2]},
+        ]
+    )
+
+    context = tm.get_dispatch_context()
+
+    assert context.current_in_progress_task_id == 2
+    assert context.allow_direct_execution is True
+    assert context.allow_current_task_subdispatch is True
+    assert context.allow_pending_wave_dispatch is False
+    assert context.recommended_tools == ["dataset_transform"]
+
+
+def test_get_dispatch_context_returns_pending_wave_when_no_in_progress():
+    """无进行中任务时，应暴露首个可启动 pending wave。"""
+    tm = _make_manager(
+        [
+            {"id": 1, "title": "读取数据", "status": "completed", "tool_hint": "dataset_catalog"},
+            {
+                "id": 2,
+                "title": "清洗数据",
+                "status": "pending",
+                "depends_on": [1],
+                "tool_hint": "dataset_transform",
+            },
+            {"id": 3, "title": "统计分析", "status": "pending", "depends_on": [2]},
+        ]
+    )
+
+    context = tm.get_dispatch_context()
+
+    assert context.current_in_progress_task_id is None
+    assert context.current_pending_wave_task_ids == [2]
+    assert context.allow_pending_wave_dispatch is True
+    assert context.allow_current_task_subdispatch is False
+    assert context.recommended_tools == ["dataset_transform"]
+
+
+def test_normalize_init_task_payload_adds_linear_dependencies_for_high_confidence_pipeline():
+    """高置信线性流水线应自动补齐前序 depends_on。"""
+    result = TaskManager.normalize_init_task_payload(
+        [
+            {"id": 1, "title": "读取数据", "status": "pending", "tool_hint": "dataset_catalog"},
+            {"id": 2, "title": "预处理数据", "status": "pending", "tool_hint": "dataset_transform"},
+            {"id": 3, "title": "统计分析", "status": "pending", "tool_hint": "stat_test"},
+            {"id": 4, "title": "绘制柱状图", "status": "pending", "tool_hint": "chart_session"},
+        ]
+    )
+
+    assert [task["depends_on"] for task in result.tasks] == [[], [1], [2], [3]]
+    assert [item["task_id"] for item in result.normalized_dependencies] == [2, 3, 4]
+    assert result.normalization_warnings == []
+
+
+def test_normalize_init_task_payload_warns_on_ambiguous_parallel_like_pipeline():
+    """疑似线性但不满足高置信规则时只返回 warning，不静默改写依赖。"""
+    result = TaskManager.normalize_init_task_payload(
+        [
+            {"id": 1, "title": "读取数据", "status": "pending", "tool_hint": "dataset_catalog"},
+            {"id": 2, "title": "清洗 A", "status": "pending", "tool_hint": "dataset_transform"},
+            {"id": 3, "title": "清洗 B", "status": "pending", "tool_hint": "data_cleaner"},
+        ]
+    )
+
+    assert [task["depends_on"] for task in result.tasks] == [[], [], []]
+    assert result.normalized_dependencies == []
+    assert result.normalization_warnings[0]["code"] == "LINEAR_PIPELINE_RISK"
+
+
 # ---- update_tasks 幂等性检测（no_op_ids） ----
 
 

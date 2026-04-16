@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -14,6 +15,7 @@ from nini.harness.models import CompletionCheckResult, HarnessRunContext, Harnes
 from nini.harness.runner import HarnessRunner
 from nini.harness.store import HarnessTraceStore
 from nini.models.database import init_db
+from nini.tools.dispatch_agents import DispatchAgentsTool
 
 
 class _CompletionRecoveryRunner:
@@ -1244,6 +1246,188 @@ def test_handle_tool_result_marks_task_write_missing_mode_as_non_blocking() -> N
     assert len(pending) == 1
     assert pending[0]["blocking"] is False
     assert pending[0]["failure_category"] == "recoverable_input_misuse"
+
+
+def test_handle_tool_result_marks_dispatch_context_error_as_non_blocking() -> None:
+    session = Session()
+    turn_id = "turn-dispatch-context"
+    tool_call_id = "call-dispatch-context"
+    session.add_tool_call(
+        tool_call_id,
+        "dispatch_agents",
+        '{"tasks":[{"task_id":1,"agent_id":"statistician","task":"查看前20行"}]}',
+        turn_id=turn_id,
+    )
+
+    error_event = AgentEvent(
+        type=EventType.TOOL_RESULT,
+        tool_call_id=tool_call_id,
+        tool_name="dispatch_agents",
+        turn_id=turn_id,
+        data={
+            "status": "error",
+            "message": "任务1 当前处于 in_progress。",
+            "result": {
+                "success": False,
+                "message": "任务1 当前处于 in_progress。",
+                "data": {
+                    "error_code": "DISPATCH_CONTEXT_MISMATCH",
+                    "task_id": 1,
+                    "current_in_progress_task_id": 1,
+                    "current_pending_wave_task_ids": [2, 3],
+                    "recovery_action": "run_direct_tool_or_use_parent_task_id",
+                    "recommended_tools": ["dataset_catalog", "run_code"],
+                    "recovery_hint": "请直接执行当前任务，或改用 parent_task_id。",
+                },
+            },
+        },
+    )
+
+    _, blocked_state = HarnessRunner._handle_tool_result(  # noqa: SLF001
+        session=session,
+        event=error_event,
+        turn_id=turn_id,
+        task_id=None,
+        attempt_id=None,
+        tool_error_counts={},
+        tool_failure_messages={},
+        recovered_tool_signatures=set(),
+    )
+
+    assert blocked_state is None
+    pending = session.list_pending_actions(action_type="tool_failure_unresolved")
+    assert len(pending) == 1
+    assert pending[0]["blocking"] is False
+    assert pending[0]["failure_category"] == "dispatch_context_misuse"
+    assert pending[0]["metadata"]["recovery_action"] == "run_direct_tool_or_use_parent_task_id"
+    assert pending[0]["metadata"]["current_pending_wave_task_ids"] == [2, 3]
+
+
+def test_handle_tool_result_resolves_dispatch_pending_action_after_direct_tool_success() -> None:
+    session = Session()
+    turn_id = "turn-dispatch-resolve"
+    session.upsert_pending_action(
+        action_type="tool_failure_unresolved",
+        key="dispatch_agents::DISPATCH_CONTEXT_MISMATCH::1",
+        status="pending",
+        summary="dispatch_agents 失败：任务1 当前处于 in_progress。",
+        source_tool="dispatch_agents",
+        blocking=False,
+        failure_category="dispatch_context_misuse",
+        metadata={"turn_id": turn_id},
+    )
+
+    success_event = AgentEvent(
+        type=EventType.TOOL_RESULT,
+        tool_call_id="call-run-code",
+        tool_name="run_code",
+        turn_id=turn_id,
+        data={"status": "success", "message": "执行成功"},
+    )
+
+    _, blocked_state = HarnessRunner._handle_tool_result(  # noqa: SLF001
+        session=session,
+        event=success_event,
+        turn_id=turn_id,
+        task_id=None,
+        attempt_id=None,
+        tool_error_counts={},
+        tool_failure_messages={},
+        recovered_tool_signatures=set(),
+    )
+
+    assert blocked_state is None
+    assert session.list_pending_actions(action_type="tool_failure_unresolved") == []
+
+
+@pytest.mark.asyncio
+async def test_session_3be947_dispatch_dead_loop_replay_fixture_resolves_with_direct_tool() -> None:
+    """基于真实会话 trace 构造等价 fixture，验证新逻辑不再卡在 dispatch dead loop。"""
+
+    # 可选：本地 trace 文件验证（CI 中不存在则跳过）
+    trace_path = Path("data/sessions/3be947d505b7/harness/traces/756b65a5401f48a5b028e40294b1798e.json")
+    if trace_path.exists():
+        trace = json.loads(trace_path.read_text(encoding="utf-8"))
+        dispatch_messages = [
+            str(event.get("data", {}).get("message", "")).strip()
+            for event in trace.get("events", [])
+            if event.get("type") == "tool_result" and event.get("tool_name") == "dispatch_agents"
+        ]
+        assert any("data-explorer" in message for message in dispatch_messages)
+        assert sum("任务1 不在当前可执行 wave 中" in message for message in dispatch_messages) >= 1
+
+    session = Session()
+    session.task_manager = session.task_manager.init_tasks(
+        [
+            {"id": 1, "title": "读取all sheet并检查数据结构", "status": "pending", "tool_hint": "dataset_catalog"},
+            {"id": 2, "title": "数据预处理", "status": "pending", "tool_hint": "dataset_transform"},
+            {"id": 3, "title": "数据聚合", "status": "pending", "tool_hint": "stat_test"},
+            {"id": 4, "title": "绘制柱状图", "status": "pending", "tool_hint": "chart_session"},
+        ]
+    )
+    session.task_manager = session.task_manager.update_tasks([{"id": 1, "status": "in_progress"}]).manager
+
+    class _ReplayRegistry:
+        def list_dispatchable_agents(self):
+            return [type("Def", (), {"agent_id": "statistician"})()]
+
+    class _ReplaySpawner:
+        async def spawn_batch(self, tasks, session, **kwargs):  # noqa: ANN001
+            return []
+
+    tool = DispatchAgentsTool(agent_registry=_ReplayRegistry(), spawner=_ReplaySpawner())
+    result = await tool.execute(
+        session,
+        tasks=[{"task_id": 1, "agent_id": "statistician", "task": "查看前20行数据"}],
+    )
+
+    assert result.success is False
+    assert result.data["error_code"] == "DISPATCH_CONTEXT_MISMATCH"
+    assert result.data["current_in_progress_task_id"] == 1
+    assert result.data["current_pending_wave_task_ids"] == [2, 3, 4]
+    assert result.data["recovery_action"] == "run_direct_tool_or_use_parent_task_id"
+
+    error_event = AgentEvent(
+        type=EventType.TOOL_RESULT,
+        tool_call_id="call-dispatch-replay",
+        tool_name="dispatch_agents",
+        turn_id="turn-replay",
+        data={
+            "status": "error",
+            "message": result.message,
+            "result": result.to_dict(),
+        },
+    )
+    HarnessRunner._handle_tool_result(  # noqa: SLF001
+        session=session,
+        event=error_event,
+        turn_id="turn-replay",
+        task_id=None,
+        attempt_id=None,
+        tool_error_counts={},
+        tool_failure_messages={},
+        recovered_tool_signatures=set(),
+    )
+    assert session.list_pending_actions(action_type="tool_failure_unresolved")
+
+    success_event = AgentEvent(
+        type=EventType.TOOL_RESULT,
+        tool_call_id="call-run-code-replay",
+        tool_name="run_code",
+        turn_id="turn-replay",
+        data={"status": "success", "message": "已读取前20行数据"},
+    )
+    HarnessRunner._handle_tool_result(  # noqa: SLF001
+        session=session,
+        event=success_event,
+        turn_id="turn-replay",
+        task_id=None,
+        attempt_id=None,
+        tool_error_counts={},
+        tool_failure_messages={},
+        recovered_tool_signatures=set(),
+    )
+    assert session.list_pending_actions(action_type="tool_failure_unresolved") == []
 
 
 @pytest.mark.asyncio
