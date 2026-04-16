@@ -101,6 +101,7 @@ class Session:
     workspace_root: Path | None = None
     load_persisted_messages: bool = False
     harness_runtime_context: str = ""
+    dispatch_runtime_state: dict[str, Any] = field(default_factory=dict)
     pending_actions: list[dict[str, Any]] = field(default_factory=list)
     # 图表输出格式偏好："interactive"（Plotly）/ "image"（Matplotlib/PNG）/ None（未设置）
     chart_output_preference: str | None = None
@@ -415,6 +416,15 @@ class Session:
                     recovery_hint = str(metadata.get("recovery_hint", "")).strip()
                     if recovery_hint:
                         suffix += f"| 建议: {recovery_hint[:150]}"
+                    recovery_action = str(metadata.get("recovery_action", "")).strip()
+                    if recovery_action:
+                        suffix += f"| 恢复动作: {recovery_action}"
+                    current_task_id = str(metadata.get("current_in_progress_task_id", "")).strip()
+                    if current_task_id:
+                        suffix += f"| 当前任务: {current_task_id}"
+                    pending_wave_ids = metadata.get("current_pending_wave_task_ids")
+                    if isinstance(pending_wave_ids, list) and pending_wave_ids:
+                        suffix += f"| 当前 wave: {','.join(str(item) for item in pending_wave_ids)}"
                 elif item.get("type") == "script_not_run":
                     script_id = str(item.get("key", "")).strip()
                     last_error = str(metadata.get("last_error", "")).strip()

@@ -44,6 +44,10 @@ def _build_dispatch_task_item_schema() -> dict[str, Any]:
                 "type": "integer",
                 "description": "任务 ID，应与 task_state/task_write 中的任务 ID 对齐",
             },
+            "parent_task_id": {
+                "type": "integer",
+                "description": "当前进行中主任务 ID，用于当前任务内部子派发",
+            },
             "agent_id": {
                 "type": "string",
                 "description": "目标 Agent 的 ID，必须是可派发 specialist",
@@ -76,7 +80,8 @@ def _build_dispatch_task_item_schema() -> dict[str, Any]:
                 "description": "建议子 Agent 使用的工具档位",
             },
         },
-        "required": ["task_id", "agent_id", "task"],
+        "required": ["agent_id", "task"],
+        "oneOf": [{"required": ["task_id"]}, {"required": ["parent_task_id"]}],
         "additionalProperties": False,
     }
 
@@ -105,7 +110,8 @@ class DispatchAgentsTool(Tool):
             "将同一 wave 中相互独立的任务并行分发给多个专业 Agent 执行。"
             "只适用于当前可执行 wave 内、无共享写目标、无上下游读写冲突的任务。"
             "推荐传 tasks=[{task_id, agent_id, task, input_refs, output_refs}]；"
-            "旧格式 agents=[{agent_id, task}] 仍兼容。"
+            "当前进行中任务的内部子派发使用 tasks=[{parent_task_id, agent_id, task}]；"
+            "旧格式 agents=[{agent_id, task}] 仅在无歧义任务上下文时兼容。"
         )
 
     @property
@@ -173,6 +179,7 @@ class DispatchAgentsTool(Tool):
 
         task_specs = self._normalize_task_specs(tasks=tasks, agents=agents)
         dispatch_run_id = self._build_dispatch_run_id(turn_id=turn_id, tool_call_id=tool_call_id)
+        dispatch_context = self._get_dispatch_context(session)
 
         # 空任务列表：agents 和 tasks 均为空，视为参数错误
         if not task_specs:
@@ -189,41 +196,62 @@ class DispatchAgentsTool(Tool):
                 },
             )
 
+        if self._legacy_agents_require_structured_tasks(dispatch_context=dispatch_context, tasks=tasks):
+            payload = self._build_context_error_payload(
+                error_code="DISPATCH_TASK_CONTEXT_REQUIRED",
+                message=(
+                    "当前会话存在会影响派发语义的任务上下文。"
+                    "请改用结构化 tasks=[{task_id,...}] 或 tasks=[{parent_task_id,...}]，"
+                    "不要继续使用 agents=[...]."
+                ),
+                dispatch_context=dispatch_context,
+                recovery_action="migrate_to_structured_tasks",
+                recommended_dispatch_shape="tasks=[{task_id, agent_id, task}]",
+                tool_misuse_category="legacy_agents_context_ambiguous",
+            )
+            return ToolResult(
+                success=False,
+                message=payload["message"],
+                data=payload,
+                metadata=payload,
+            )
+
         # 校验所有 agent_id 合法性
         invalid_ids = self._validate_agent_ids(task_specs)
         if invalid_ids:
             available = self._list_available_agent_ids()
-            return ToolResult(
-                success=False,
+            payload = self._build_context_error_payload(
+                error_code="INVALID_AGENT_IDS",
                 message=(
                     f"以下 agent_id 不存在：{', '.join(invalid_ids)}。\n"
                     f"可用 agent_id：{', '.join(available)}"
                 ),
-                metadata={
-                    "error_code": "INVALID_AGENT_IDS",
-                    "invalid_ids": invalid_ids,
-                    "available_ids": available,
-                },
+                dispatch_context=dispatch_context,
+                recovery_action="use_registered_agent_ids",
+                recommended_dispatch_shape="tasks=[{task_id, agent_id, task}]",
+                tool_misuse_category="invalid_agent_id",
+                invalid_ids=invalid_ids,
+                available_ids=available,
+            )
+            return ToolResult(
+                success=False,
+                message=payload["message"],
+                data=payload,
+                metadata=payload,
             )
 
         validation_error = self._validate_parallel_task_specs(
             session,
             task_specs,
+            dispatch_context=dispatch_context,
             enforce_current_wave=isinstance(tasks, list) and bool(tasks),
         )
         if validation_error is not None:
             return ToolResult(
                 success=False,
                 message=validation_error["message"],
-                metadata={
-                    "error_code": validation_error["error_code"],
-                    "wave_id": wave_id,
-                    **{
-                        k: v
-                        for k, v in validation_error.items()
-                        if k not in {"message", "error_code"}
-                    },
-                },
+                data={**validation_error, "wave_id": wave_id},
+                metadata={**validation_error, "wave_id": wave_id},
             )
 
         # 构造 (agent_id, task) 对
@@ -258,6 +286,11 @@ class DispatchAgentsTool(Tool):
         )
         stopped_count = sum(1 for r in sub_results if getattr(r, "stopped", False))
         dispatch_success = success_count > 0 or (failure_count == 0 and stopped_count == 0)
+        dispatch_mode = self._resolve_dispatch_mode(task_specs)
+        parent_task_id = next(
+            (int(item["parent_task_id"]) for item in task_specs if item.get("parent_task_id") is not None),
+            None,
+        )
 
         # 记录运行事件
         self._record_dispatch_run_events(
@@ -294,6 +327,25 @@ class DispatchAgentsTool(Tool):
                 "stopped_count": stopped_count,
                 "dispatch_run_id": dispatch_run_id,
                 "wave_id": wave_id,
+                "dispatch_mode": dispatch_mode,
+                "current_in_progress_task_id": (
+                    dispatch_context.current_in_progress_task_id if dispatch_context else None
+                ),
+                "current_pending_wave_task_ids": (
+                    dispatch_context.current_pending_wave_task_ids if dispatch_context else []
+                ),
+                "parent_task_id": parent_task_id,
+                "subtasks": subtasks_payload,
+            },
+            data={
+                "dispatch_mode": dispatch_mode,
+                "current_in_progress_task_id": (
+                    dispatch_context.current_in_progress_task_id if dispatch_context else None
+                ),
+                "current_pending_wave_task_ids": (
+                    dispatch_context.current_pending_wave_task_ids if dispatch_context else []
+                ),
+                "parent_task_id": parent_task_id,
                 "subtasks": subtasks_payload,
             },
         )
@@ -310,6 +362,7 @@ class DispatchAgentsTool(Tool):
             else agents if isinstance(agents, list) else []
         )
         normalized: list[dict[str, Any]] = []
+        using_legacy_agents = not (isinstance(tasks, list) and tasks)
         for index, item in enumerate(raw_specs, start=1):
             if not isinstance(item, dict):
                 continue
@@ -317,9 +370,14 @@ class DispatchAgentsTool(Tool):
                 task_id = int(item.get("task_id", index))
             except (TypeError, ValueError):
                 task_id = index
+            raw_parent_task_id = item.get("parent_task_id")
+            parent_task_id: int | None = None
+            if str(raw_parent_task_id or "").strip().isdigit():
+                parent_task_id = int(raw_parent_task_id)
             normalized.append(
                 {
-                    "task_id": task_id,
+                    "task_id": task_id if parent_task_id is None else None,
+                    "parent_task_id": parent_task_id,
                     "agent_id": str(item.get("agent_id", "")).strip(),
                     "task": str(item.get("task", "")).strip(),
                     "depends_on": (
@@ -339,6 +397,7 @@ class DispatchAgentsTool(Tool):
                         else None
                     ),
                     "tool_profile": str(item.get("tool_profile", "")).strip() or None,
+                    "legacy_shape": using_legacy_agents,
                 }
             )
         return normalized
@@ -379,46 +438,189 @@ class DispatchAgentsTool(Tool):
         return [a.agent_id for a in agents]
 
     @staticmethod
-    def _collect_current_wave_task_map(session: Any) -> dict[int, Any] | None:
-        """返回当前 session 第一可执行 wave 的任务映射；无任务图时返回 None。"""
+    def _get_dispatch_context(session: Any) -> Any | None:
+        """返回当前 session 的 dispatch context；无任务图时返回 None。"""
         manager = getattr(session, "task_manager", None)
-        if manager is None or not hasattr(manager, "group_into_waves"):
+        if manager is None or not hasattr(manager, "get_dispatch_context"):
             return None
-        waves = manager.group_into_waves()
-        if not waves:
-            return {}
-        return {int(task.id): task for task in waves[0]}
+        return manager.get_dispatch_context()
+
+    @staticmethod
+    def _resolve_dispatch_mode(task_specs: list[dict[str, Any]]) -> str:
+        if not task_specs:
+            return "unknown"
+        modes = {
+            "current_task_subdispatch" if item.get("parent_task_id") is not None else "pending_wave"
+            for item in task_specs
+        }
+        if len(modes) == 1:
+            return next(iter(modes))
+        return "mixed"
+
+    @staticmethod
+    def _legacy_agents_require_structured_tasks(
+        *,
+        dispatch_context: Any | None,
+        tasks: list[dict[str, Any]] | None,
+    ) -> bool:
+        if isinstance(tasks, list) and tasks:
+            return False
+        if dispatch_context is None:
+            return False
+        return bool(
+            dispatch_context.current_in_progress_task_id
+            or dispatch_context.current_pending_wave_task_ids
+        )
+
+    @staticmethod
+    def _build_context_error_payload(
+        *,
+        error_code: str,
+        message: str,
+        dispatch_context: Any | None,
+        recovery_action: str,
+        recommended_dispatch_shape: str | None = None,
+        recommended_tools: list[str] | None = None,
+        tool_misuse_category: str | None = None,
+        **extra: Any,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "error_code": error_code,
+            "message": message,
+            "dispatch_mode": (
+                "current_task_locked"
+                if dispatch_context is not None and dispatch_context.current_in_progress_task_id
+                else "pending_wave"
+            ),
+            "current_in_progress_task_id": (
+                dispatch_context.current_in_progress_task_id if dispatch_context else None
+            ),
+            "current_pending_wave_task_ids": (
+                dispatch_context.current_pending_wave_task_ids if dispatch_context else []
+            ),
+            "current_wave_task_ids": (
+                dispatch_context.current_pending_wave_task_ids if dispatch_context else []
+            ),
+            "recovery_action": recovery_action,
+            "recommended_tools": list(recommended_tools or (dispatch_context.recommended_tools if dispatch_context else [])),
+            "recommended_dispatch_shape": recommended_dispatch_shape,
+            "tool_misuse_category": tool_misuse_category,
+        }
+        recovery_hint_parts: list[str] = []
+        if payload["recommended_tools"]:
+            recovery_hint_parts.append(
+                f"优先改用当前 Agent 内的工具：{', '.join(payload['recommended_tools'])}"
+            )
+        if recommended_dispatch_shape:
+            recovery_hint_parts.append(f"如需继续派发，请改用 {recommended_dispatch_shape}")
+        if not recovery_hint_parts:
+            recovery_hint_parts.append("请按当前任务上下文改用直接执行或正确的结构化派发参数。")
+        payload["recovery_hint"] = "；".join(recovery_hint_parts)
+        payload.update(extra)
+        return payload
 
     def _validate_parallel_task_specs(
         self,
         session: Any,
         task_specs: list[dict[str, Any]],
         *,
+        dispatch_context: Any | None,
         enforce_current_wave: bool,
     ) -> dict[str, Any] | None:
         """拒绝跨 wave 或存在读写冲突的任务，确保 dispatch 仅做当前 wave 并行。"""
         seen_task_ids: set[int] = set()
-        current_wave = (
-            self._collect_current_wave_task_map(session) if enforce_current_wave else None
+        current_wave_ids = (
+            set(dispatch_context.current_pending_wave_task_ids)
+            if dispatch_context is not None
+            else set()
         )
+        dispatch_mode = self._resolve_dispatch_mode(task_specs)
+        if dispatch_mode == "mixed":
+            return self._build_context_error_payload(
+                error_code="MIXED_DISPATCH_MODES",
+                message="同一批 dispatch_agents 任务不能混用 task_id 与 parent_task_id。",
+                dispatch_context=dispatch_context,
+                recovery_action="split_dispatch_modes",
+                recommended_dispatch_shape="分别提交 pending wave 派发和当前任务内部子派发",
+                tool_misuse_category="mixed_dispatch_modes",
+            )
         for item in task_specs:
-            task_id = int(item.get("task_id", 0))
-            if task_id in seen_task_ids:
+            task_id = item.get("task_id")
+            parent_task_id = item.get("parent_task_id")
+            unique_key = (
+                f"parent:{parent_task_id}"
+                if parent_task_id is not None
+                else f"task:{int(task_id or 0)}"
+            )
+            if unique_key in seen_task_ids:
                 return {
-                    "error_code": "DUPLICATE_TASK_IDS",
-                    "message": f"dispatch_agents 收到重复 task_id={task_id}，请先在任务图中去重。",
-                    "task_id": task_id,
-                }
-            seen_task_ids.add(task_id)
-            if current_wave is not None and task_id not in current_wave:
-                return {
-                    "error_code": "TASK_NOT_IN_CURRENT_WAVE",
-                    "message": (
-                        f"任务{task_id} 不在当前可执行 wave 中。"
-                        "请先完成当前波次的上游任务，再调度后续任务。"
+                    **self._build_context_error_payload(
+                        error_code="DUPLICATE_TASK_IDS",
+                        message=(
+                            f"dispatch_agents 收到重复任务目标 {unique_key}，请先在任务图中去重。"
+                        ),
+                        dispatch_context=dispatch_context,
+                        recovery_action="deduplicate_dispatch_targets",
+                        tool_misuse_category="duplicate_dispatch_target",
                     ),
                     "task_id": task_id,
-                    "current_wave_task_ids": sorted(current_wave),
+                    "parent_task_id": parent_task_id,
+                }
+            seen_task_ids.add(unique_key)
+            if parent_task_id is not None:
+                current_task_id = (
+                    dispatch_context.current_in_progress_task_id if dispatch_context else None
+                )
+                if current_task_id is None or parent_task_id != current_task_id:
+                    return {
+                        **self._build_context_error_payload(
+                            error_code="DISPATCH_CONTEXT_MISMATCH",
+                            message=(
+                                "当前没有与 parent_task_id 匹配的进行中主任务。"
+                                "请先在主 Agent 内直接执行当前任务，或确认 parent_task_id 指向当前 in_progress 任务。"
+                            ),
+                            dispatch_context=dispatch_context,
+                            recovery_action="use_current_in_progress_parent",
+                            recommended_dispatch_shape="tasks=[{parent_task_id, agent_id, task}]",
+                            tool_misuse_category="parent_task_context_mismatch",
+                        ),
+                        "parent_task_id": parent_task_id,
+                    }
+                continue
+
+            normalized_task_id = int(task_id or 0)
+            if dispatch_context is not None and dispatch_context.current_in_progress_task_id:
+                if normalized_task_id == dispatch_context.current_in_progress_task_id:
+                    return {
+                        **self._build_context_error_payload(
+                            error_code="DISPATCH_CONTEXT_MISMATCH",
+                            message=(
+                                f"任务{normalized_task_id} 当前处于 in_progress。"
+                                "该任务应在主 Agent 内直接执行，或改用 parent_task_id 发起当前任务内部子派发。"
+                            ),
+                            dispatch_context=dispatch_context,
+                            recovery_action="run_direct_tool_or_use_parent_task_id",
+                            recommended_dispatch_shape=(
+                                f'tasks=[{{"parent_task_id": {normalized_task_id}, "agent_id": "...", "task": "..."}}]'
+                            ),
+                            tool_misuse_category="in_progress_task_dispatched_as_wave_item",
+                        ),
+                        "task_id": normalized_task_id,
+                    }
+            if enforce_current_wave and current_wave_ids and normalized_task_id not in current_wave_ids:
+                return {
+                    **self._build_context_error_payload(
+                        error_code="TASK_NOT_IN_CURRENT_WAVE",
+                        message=(
+                            f"任务{normalized_task_id} 不在当前可执行 wave 中。"
+                            "请先完成当前波次的上游任务，再调度后续任务。"
+                        ),
+                        dispatch_context=dispatch_context,
+                        recovery_action="wait_for_current_wave_completion",
+                        recommended_dispatch_shape="tasks=[{task_id, agent_id, task}]",
+                        tool_misuse_category="task_outside_current_pending_wave",
+                    ),
+                    "task_id": normalized_task_id,
                 }
 
         for index, left in enumerate(task_specs):
@@ -434,11 +636,17 @@ class DispatchAgentsTool(Tool):
                 )
                 if conflict_refs:
                     return {
-                        "error_code": "PARALLEL_TASK_CONFLICT",
-                        "message": (
-                            f"任务{left['task_id']} 与任务{right['task_id']} 存在读写冲突："
-                            f"{', '.join(sorted(conflict_refs))}。"
-                            "这类任务必须拆成串行波次，由主 Agent 先执行上游任务。"
+                        **self._build_context_error_payload(
+                            error_code="PARALLEL_TASK_CONFLICT",
+                            message=(
+                                f"任务{left.get('task_id') or left.get('parent_task_id')} 与任务"
+                                f"{right.get('task_id') or right.get('parent_task_id')} 存在读写冲突："
+                                f"{', '.join(sorted(conflict_refs))}。"
+                                "这类任务必须拆成串行波次，由主 Agent 先执行上游任务。"
+                            ),
+                            dispatch_context=dispatch_context,
+                            recovery_action="serialize_conflicting_tasks",
+                            tool_misuse_category="parallel_read_write_conflict",
                         ),
                         "conflict_task_ids": [left["task_id"], right["task_id"]],
                         "conflict_refs": sorted(conflict_refs),
@@ -476,7 +684,11 @@ class DispatchAgentsTool(Tool):
         """把结构化任务包展开成稳定的子 Agent 输入，避免自由发挥。"""
         lines = [
             "这是主 Agent 下发的结构化子任务，请严格按输入执行，不要改写任务边界。",
-            f"task_id: {task_spec['task_id']}",
+            (
+                f"task_id: {task_spec['task_id']}"
+                if task_spec.get("task_id") is not None
+                else f"parent_task_id: {task_spec['parent_task_id']}"
+            ),
             f"goal: {task_spec['task']}",
         ]
         if task_spec.get("input_refs"):
@@ -506,7 +718,8 @@ class DispatchAgentsTool(Tool):
                 status = "error"
             payload.append(
                 {
-                    "task_id": spec["task_id"],
+                    "task_id": spec.get("task_id"),
+                    "parent_task_id": spec.get("parent_task_id"),
                     "agent_id": result.agent_id or spec.get("agent_id"),
                     "agent_name": result.agent_name or None,
                     "task": spec.get("task"),

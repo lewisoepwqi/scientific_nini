@@ -322,6 +322,82 @@ async def test_execute_rejects_conflicting_parallel_tasks():
     assert result.metadata["conflict_task_ids"] == [1, 2]
 
 
+@pytest.mark.asyncio
+async def test_execute_allows_parent_task_subdispatch_for_current_in_progress_task():
+    """当前进行中任务允许通过 parent_task_id 发起内部子派发。"""
+    tool = DispatchAgentsTool(agent_registry=_MockRegistry(), spawner=_MockSpawner())
+    session = _SessionWithTasks(
+        [
+            {"id": 1, "title": "清洗数据", "status": "in_progress", "tool_hint": "dataset_transform"},
+            {"id": 2, "title": "统计分析", "status": "pending", "depends_on": [1]},
+        ]
+    )
+
+    result = await tool.execute(
+        session,
+        tasks=[
+            {
+                "parent_task_id": 1,
+                "agent_id": "data_cleaner",
+                "task": "检查缺失值并给出清洗建议",
+            }
+        ],
+    )
+
+    assert result.success is True
+    assert result.metadata["dispatch_mode"] == "current_task_subdispatch"
+    assert result.metadata["parent_task_id"] == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_rejects_in_progress_task_dispatched_as_pending_wave_item():
+    """进行中任务若继续以 task_id 方式派发，应返回结构化上下文错误。"""
+    tool = DispatchAgentsTool(agent_registry=_MockRegistry(), spawner=_MockSpawner())
+    session = _SessionWithTasks(
+        [
+            {"id": 1, "title": "清洗数据", "status": "in_progress", "tool_hint": "dataset_transform"},
+            {"id": 2, "title": "统计分析", "status": "pending", "depends_on": [1]},
+        ]
+    )
+
+    result = await tool.execute(
+        session,
+        tasks=[
+            {
+                "task_id": 1,
+                "agent_id": "data_cleaner",
+                "task": "继续清洗数据",
+            }
+        ],
+    )
+
+    assert result.success is False
+    assert result.data["error_code"] == "DISPATCH_CONTEXT_MISMATCH"
+    assert result.data["current_in_progress_task_id"] == 1
+    assert result.data["recovery_action"] == "run_direct_tool_or_use_parent_task_id"
+
+
+@pytest.mark.asyncio
+async def test_execute_rejects_legacy_agents_when_task_context_is_ambiguous():
+    """存在任务板上下文时，legacy agents=[...] 形态应返回迁移提示。"""
+    tool = DispatchAgentsTool(agent_registry=_MockRegistry(), spawner=_MockSpawner())
+    session = _SessionWithTasks(
+        [
+            {"id": 1, "title": "读取数据", "status": "pending", "tool_hint": "dataset_catalog"},
+        ]
+    )
+
+    result = await tool.execute(
+        session,
+        agents=[{"agent_id": "literature_search", "task": "检索相关文献"}],
+    )
+
+    assert result.success is False
+    assert result.data["error_code"] == "DISPATCH_TASK_CONTEXT_REQUIRED"
+    assert result.data["tool_misuse_category"] == "legacy_agents_context_ambiguous"
+    assert "改用结构化 tasks" in result.message
+
+
 # ─── 工具元数据 ──────────────────────────────────────────────────────────────
 
 

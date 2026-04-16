@@ -315,6 +315,56 @@ class ContextBuilder:
             )
             context_parts.append(format_untrusted_context_block("task_progress", task_body))
 
+            dispatch_context = session.task_manager.get_dispatch_context()
+            dispatch_state = getattr(session, "dispatch_runtime_state", {}) or {}
+            dispatch_lines: list[str] = []
+            current_task_id = dispatch_context.current_in_progress_task_id
+            if current_task_id is not None:
+                dispatch_lines.append(
+                    f"当前进行中任务：{current_task_id}。禁止再用 task_id={current_task_id} 调用 dispatch_agents。"
+                )
+                dispatch_lines.append(
+                    "若只是在推进当前任务，请直接调用对应分析工具；若需要当前任务内部子派发，请改用 parent_task_id。"
+                )
+            elif dispatch_context.current_pending_wave_task_ids:
+                dispatch_lines.append(
+                    "当前可派发 wave："
+                    + ", ".join(str(task_id) for task_id in dispatch_context.current_pending_wave_task_ids)
+                )
+
+            if dispatch_context.recommended_tools:
+                dispatch_lines.append(
+                    "当前推荐直接执行工具："
+                    + ", ".join(str(tool) for tool in dispatch_context.recommended_tools)
+                )
+
+            if isinstance(dispatch_state, dict):
+                blocked_agents = dispatch_state.get("blocked_invalid_agent_ids")
+                if isinstance(blocked_agents, list) and blocked_agents:
+                    dispatch_lines.append(
+                        "本轮已禁用的非法 agent_id："
+                        + ", ".join(str(item) for item in blocked_agents)
+                    )
+                if dispatch_state.get("legacy_agents_blocked"):
+                    dispatch_lines.append(
+                        "本轮禁止继续使用 legacy agents=[...] 形态，请改用结构化 tasks=[...]."
+                    )
+                blocked_task_ids = dispatch_state.get("blocked_task_ids")
+                if isinstance(blocked_task_ids, dict) and blocked_task_ids:
+                    blocked_keys = ", ".join(str(task_id) for task_id in blocked_task_ids.keys())
+                    dispatch_lines.append(f"本轮已收紧的 task_id 派发目标：{blocked_keys}")
+                recovery_hint = str(dispatch_state.get("recovery_hint", "") or "").strip()
+                if recovery_hint:
+                    dispatch_lines.append(f"当前恢复提示：{recovery_hint}")
+
+            if dispatch_lines:
+                context_parts.append(
+                    format_untrusted_context_block(
+                        "dispatch_constraints",
+                        "\n".join(f"- {line}" for line in dispatch_lines),
+                    )
+                )
+
         # 注入 reasoning 关键决策（防止 LLM 在多轮迭代中丢失执行计划）
         # COMPACT profile 跳过（空间不足），FULL 保留 5 条，STANDARD 保留 3 条
         if _profile != PromptProfile.COMPACT:

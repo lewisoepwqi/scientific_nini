@@ -329,6 +329,32 @@ def test_task_write_init_normalizes_non_pending_status() -> None:
     assert [task["status"] for task in result["data"]["tasks"]] == ["pending", "pending"]
 
 
+def test_task_write_init_adds_high_confidence_linear_dependencies() -> None:
+    registry = create_default_tool_registry()
+    session = Session()
+
+    result = asyncio.run(
+        registry.execute(
+            "task_write",
+            session=session,
+            mode="init",
+            tasks=[
+                {"id": 1, "title": "读取数据", "status": "pending", "tool_hint": "dataset_catalog"},
+                {"id": 2, "title": "预处理数据", "status": "pending", "tool_hint": "dataset_transform"},
+                {"id": 3, "title": "统计分析", "status": "pending", "tool_hint": "stat_test"},
+            ],
+        )
+    )
+
+    assert result["success"] is True
+    assert result["data"]["normalized_dependencies"] == [
+        {"task_id": 2, "depends_on": [1], "reason": "high_confidence_linear_pipeline"},
+        {"task_id": 3, "depends_on": [2], "reason": "high_confidence_linear_pipeline"},
+    ]
+    assert result["data"]["normalization_warnings"] == []
+    assert [task["depends_on"] for task in result["data"]["tasks"]] == [[], [1], [2]]
+
+
 def test_task_write_empty_payload_returns_structured_error() -> None:
     registry = create_default_tool_registry()
     session = Session()

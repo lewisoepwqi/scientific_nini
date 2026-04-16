@@ -574,6 +574,18 @@ class AgentRunner:
         emitted_data_preview_signatures: set[str] = set()
         successful_dataset_profile_signatures: set[str] = set()
         dataset_profile_max_view_by_name: dict[str, str] = {}
+        session.dispatch_runtime_state = {
+            "turn_id": turn_id,
+            "blocked_invalid_agent_ids": [],
+            "blocked_task_ids": {},
+            "legacy_agents_blocked": False,
+            "current_in_progress_task_id": None,
+            "current_pending_wave_task_ids": [],
+            "recovery_action": "",
+            "recovery_hint": "",
+            "recommended_tools": [],
+            "last_error_code": "",
+        }
 
         # 仅在初始轮（非 recovery pass）触发意图澄清，避免 HarnessRunner 重试时重复发问
         if stage_override is None:
@@ -4067,6 +4079,31 @@ class AgentRunner:
         agents_list: list[dict[str, Any]] | None = func_args.get("agents") or None
         tasks_list: list[dict[str, Any]] | None = func_args.get("tasks") or None
         wave_id: str | None = func_args.get("wave_id") or None
+        dispatch_state = self._ensure_dispatch_runtime_state(session, turn_id)
+
+        guard_error = self._check_dispatch_runtime_guard(
+            dispatch_state,
+            agents=agents_list,
+            tasks=tasks_list,
+        )
+        if guard_error is not None:
+            error_msg = str(guard_error.get("message", "") or "dispatch_agents 当前受限").strip()
+            session.add_tool_result(
+                tc_id,
+                error_msg,
+                tool_name="dispatch_agents",
+                status="error",
+                turn_id=turn_id,
+            )
+            yield eb.build_tool_result_event(
+                tool_call_id=tc_id,
+                name="dispatch_agents",
+                status="error",
+                message=error_msg,
+                data={"result": guard_error},
+                turn_id=turn_id,
+            )
+            return
 
         # 获取 dispatch_agents 工具实例
         if self._tool_registry is None:
@@ -4143,6 +4180,11 @@ class AgentRunner:
         # 将融合结果注入 session（作为 tool_result 消息）
         result_content = skill_result.message or ""
         result_dict = skill_result.to_dict()
+        if not skill_result.success:
+            self._update_dispatch_runtime_state(
+                dispatch_state,
+                result_payload=result_dict,
+            )
         session.add_tool_result(
             tc_id,
             result_content,
@@ -4159,6 +4201,158 @@ class AgentRunner:
             data={"result": result_dict},
             turn_id=turn_id,
         )
+
+    @staticmethod
+    def _ensure_dispatch_runtime_state(session: Any, turn_id: str) -> dict[str, Any]:
+        state = getattr(session, "dispatch_runtime_state", None)
+        if not isinstance(state, dict) or str(state.get("turn_id", "")).strip() != turn_id:
+            state = {
+                "turn_id": turn_id,
+                "blocked_invalid_agent_ids": [],
+                "blocked_task_ids": {},
+                "legacy_agents_blocked": False,
+                "current_in_progress_task_id": None,
+                "current_pending_wave_task_ids": [],
+                "recovery_action": "",
+                "recovery_hint": "",
+                "recommended_tools": [],
+                "last_error_code": "",
+            }
+            session.dispatch_runtime_state = state
+        return state
+
+    @staticmethod
+    def _check_dispatch_runtime_guard(
+        state: dict[str, Any],
+        *,
+        agents: list[dict[str, Any]] | None,
+        tasks: list[dict[str, Any]] | None,
+    ) -> dict[str, Any] | None:
+        blocked_invalid_agent_ids = {
+            str(item).strip()
+            for item in state.get("blocked_invalid_agent_ids", [])
+            if str(item).strip()
+        }
+        blocked_task_ids = state.get("blocked_task_ids", {})
+        if not isinstance(blocked_task_ids, dict):
+            blocked_task_ids = {}
+
+        if agents and state.get("legacy_agents_blocked"):
+            return {
+                "success": False,
+                "error_code": "DISPATCH_GUARD_BLOCKED",
+                "message": (
+                    "本轮已判定 legacy agents=[...] 形态在当前任务上下文中存在歧义。"
+                    "请改用结构化 tasks=[{task_id,...}] 或 tasks=[{parent_task_id,...}]。"
+                ),
+                "recovery_action": state.get("recovery_action") or "migrate_to_structured_tasks",
+                "recovery_hint": state.get("recovery_hint")
+                or "请改用结构化 tasks 形态，禁止继续使用 legacy agents=[...].",
+                "current_in_progress_task_id": state.get("current_in_progress_task_id"),
+                "current_pending_wave_task_ids": state.get("current_pending_wave_task_ids", []),
+                "tool_misuse_category": "dispatch_guard_legacy_agents_blocked",
+            }
+
+        for item in tasks or []:
+            if not isinstance(item, dict):
+                continue
+            agent_id = str(item.get("agent_id", "") or "").strip()
+            if agent_id and agent_id in blocked_invalid_agent_ids:
+                return {
+                    "success": False,
+                    "error_code": "DISPATCH_GUARD_BLOCKED",
+                    "message": (
+                        f"agent_id `{agent_id}` 已在本轮被判定为非法，禁止继续重复派发。"
+                    ),
+                    "recovery_action": "use_registered_agent_ids",
+                    "recovery_hint": state.get("recovery_hint")
+                    or "请改用已注册的 agent_id，或切回当前 Agent 直接执行。",
+                    "current_in_progress_task_id": state.get("current_in_progress_task_id"),
+                    "current_pending_wave_task_ids": state.get("current_pending_wave_task_ids", []),
+                    "tool_misuse_category": "dispatch_guard_invalid_agent_repeated",
+                }
+            if item.get("parent_task_id") is not None:
+                continue
+            raw_task_id = item.get("task_id")
+            if not str(raw_task_id or "").strip().isdigit():
+                continue
+            task_id = str(int(raw_task_id))
+            if task_id not in blocked_task_ids:
+                continue
+            blocked_meta = blocked_task_ids.get(task_id) or {}
+            return {
+                "success": False,
+                "error_code": "DISPATCH_GUARD_BLOCKED",
+                "message": str(blocked_meta.get("message") or "该 task_id 在本轮已被限制重复派发。"),
+                "recovery_action": blocked_meta.get("recovery_action")
+                or state.get("recovery_action")
+                or "run_direct_tool_or_use_parent_task_id",
+                "recovery_hint": blocked_meta.get("recovery_hint")
+                or state.get("recovery_hint")
+                or "请直接执行当前任务，或改用 parent_task_id 发起内部子派发。",
+                "current_in_progress_task_id": state.get("current_in_progress_task_id"),
+                "current_pending_wave_task_ids": state.get("current_pending_wave_task_ids", []),
+                "tool_misuse_category": blocked_meta.get("tool_misuse_category")
+                or "dispatch_guard_repeated_task_misuse",
+            }
+        return None
+
+    @staticmethod
+    def _update_dispatch_runtime_state(
+        state: dict[str, Any],
+        *,
+        result_payload: dict[str, Any],
+    ) -> None:
+        payload = result_payload.get("data") if isinstance(result_payload.get("data"), dict) else {}
+        if not payload:
+            payload = (
+                result_payload.get("metadata")
+                if isinstance(result_payload.get("metadata"), dict)
+                else {}
+            )
+        if not isinstance(payload, dict):
+            return
+
+        error_code = str(payload.get("error_code", "") or "").strip()
+        if not error_code:
+            return
+
+        state["last_error_code"] = error_code
+        state["current_in_progress_task_id"] = payload.get("current_in_progress_task_id")
+        state["current_pending_wave_task_ids"] = list(payload.get("current_pending_wave_task_ids", []))
+        state["recovery_action"] = str(payload.get("recovery_action", "") or "").strip()
+        state["recovery_hint"] = str(payload.get("recovery_hint", "") or "").strip()
+        state["recommended_tools"] = list(payload.get("recommended_tools", []) or [])
+
+        blocked_invalid_agent_ids = {
+            str(item).strip()
+            for item in state.get("blocked_invalid_agent_ids", [])
+            if str(item).strip()
+        }
+        for item in payload.get("invalid_ids", []) or []:
+            normalized = str(item).strip()
+            if normalized:
+                blocked_invalid_agent_ids.add(normalized)
+        state["blocked_invalid_agent_ids"] = sorted(blocked_invalid_agent_ids)
+
+        blocked_task_ids = state.get("blocked_task_ids", {})
+        if not isinstance(blocked_task_ids, dict):
+            blocked_task_ids = {}
+        task_id = payload.get("task_id")
+        if str(task_id or "").strip().isdigit() and error_code in {
+            "DISPATCH_CONTEXT_MISMATCH",
+            "TASK_NOT_IN_CURRENT_WAVE",
+        }:
+            blocked_task_ids[str(int(task_id))] = {
+                "message": payload.get("message"),
+                "recovery_action": payload.get("recovery_action"),
+                "recovery_hint": payload.get("recovery_hint"),
+                "tool_misuse_category": payload.get("tool_misuse_category"),
+            }
+        state["blocked_task_ids"] = blocked_task_ids
+
+        if error_code == "DISPATCH_TASK_CONTEXT_REQUIRED":
+            state["legacy_agents_blocked"] = True
 
     async def _execute_tool(
         self,

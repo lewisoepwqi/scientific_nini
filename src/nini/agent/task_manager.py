@@ -14,6 +14,26 @@ TaskStatus = Literal["pending", "in_progress", "completed", "failed", "blocked",
 TaskExecutor = Literal["main_agent", "subagent", "local_tool"]
 TaskFailurePolicy = Literal["stop_pipeline", "allow_partial", "retryable"]
 
+_HIGH_CONFIDENCE_PIPELINE_RANKS: dict[str, int] = {
+    "dataset_catalog": 10,
+    "dataset_transform": 20,
+    "data_cleaner": 20,
+    "stat_test": 30,
+    "stat_model": 30,
+    "chart_session": 40,
+    "export_chart": 40,
+    "report_session": 50,
+    "export_document": 50,
+    "export_report": 50,
+}
+_HIGH_CONFIDENCE_TITLE_RULES: tuple[tuple[int, tuple[str, ...]], ...] = (
+    (10, ("读取", "加载", "检查数据", "概览", "审查数据", "查看数据", "profile")),
+    (20, ("预处理", "清洗", "整理", "标准化", "转换", "特征工程")),
+    (30, ("聚合", "统计", "分析", "建模", "检验", "相关", "回归")),
+    (40, ("绘图", "图表", "柱状图", "可视化", "画图")),
+    (50, ("报告", "总结", "复盘", "汇总", "导出")),
+)
+
 
 @dataclass(frozen=True)
 class TaskItem:
@@ -62,6 +82,49 @@ class UpdateResult:
     no_op_ids: list[int] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class TaskInitNormalizationResult:
+    """任务初始化归一化结果。"""
+
+    tasks: list[dict[str, Any]]
+    normalized_task_ids: list[int] = field(default_factory=list)
+    normalized_dependencies: list[dict[str, Any]] = field(default_factory=list)
+    normalization_warnings: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class DispatchContext:
+    """调度上下文。"""
+
+    current_in_progress_task: TaskItem | None = None
+    current_pending_wave: list[TaskItem] = field(default_factory=list)
+    allow_direct_execution: bool = False
+    allow_current_task_subdispatch: bool = False
+    allow_pending_wave_dispatch: bool = False
+    recommended_tools: list[str] = field(default_factory=list)
+    recommended_action: str | None = None
+
+    @property
+    def current_in_progress_task_id(self) -> int | None:
+        task = self.current_in_progress_task
+        return task.id if task is not None else None
+
+    @property
+    def current_pending_wave_task_ids(self) -> list[int]:
+        return [task.id for task in self.current_pending_wave]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "current_in_progress_task_id": self.current_in_progress_task_id,
+            "current_pending_wave_task_ids": self.current_pending_wave_task_ids,
+            "allow_direct_execution": self.allow_direct_execution,
+            "allow_current_task_subdispatch": self.allow_current_task_subdispatch,
+            "allow_pending_wave_dispatch": self.allow_pending_wave_dispatch,
+            "recommended_tools": list(self.recommended_tools),
+            "recommended_action": self.recommended_action,
+        }
+
+
 @dataclass
 class TaskManager:
     """管理会话内的任务列表。
@@ -83,6 +146,103 @@ class TaskManager:
             if ref and ref not in refs:
                 refs.append(ref)
         return refs
+
+    @classmethod
+    def _infer_pipeline_rank(cls, task: dict[str, Any]) -> int | None:
+        tool_hint = str(task.get("tool_hint", "") or "").strip().lower()
+        if tool_hint in _HIGH_CONFIDENCE_PIPELINE_RANKS:
+            return _HIGH_CONFIDENCE_PIPELINE_RANKS[tool_hint]
+
+        title = str(task.get("title", "") or "").strip().lower()
+        if not title:
+            return None
+        for rank, keywords in _HIGH_CONFIDENCE_TITLE_RULES:
+            if any(keyword in title for keyword in keywords):
+                return rank
+        return None
+
+    @classmethod
+    def normalize_init_task_payload(
+        cls,
+        raw_tasks: list[dict[str, Any]],
+    ) -> TaskInitNormalizationResult:
+        """归一化 init 任务输入，仅对高置信线性流水线补齐依赖。"""
+        normalized_tasks: list[dict[str, Any]] = []
+        normalized_task_ids: list[int] = []
+        normalized_dependencies: list[dict[str, Any]] = []
+        normalization_warnings: list[dict[str, Any]] = []
+
+        for index, task in enumerate(raw_tasks, start=1):
+            normalized = dict(task)
+            task_id = int(normalized.get("id", index))
+            raw_status = str(normalized.get("status", "pending")).strip()
+            if raw_status != "pending":
+                normalized_task_ids.append(task_id)
+            normalized["id"] = task_id
+            normalized["status"] = "pending"
+            raw_depends = normalized.get("depends_on", [])
+            if isinstance(raw_depends, list):
+                normalized["depends_on"] = [
+                    int(dep) for dep in raw_depends if str(dep).strip().isdigit()
+                ]
+            else:
+                normalized["depends_on"] = []
+            normalized_tasks.append(normalized)
+
+        if len(normalized_tasks) < 2:
+            return TaskInitNormalizationResult(
+                tasks=normalized_tasks,
+                normalized_task_ids=normalized_task_ids,
+                normalized_dependencies=normalized_dependencies,
+                normalization_warnings=normalization_warnings,
+            )
+
+        ranks = [cls._infer_pipeline_rank(task) for task in normalized_tasks]
+        recognized = all(rank is not None for rank in ranks)
+        if recognized and all(ranks[i] < ranks[i + 1] for i in range(len(ranks) - 1)):
+            for index, task in enumerate(normalized_tasks[1:], start=1):
+                prev_id = int(normalized_tasks[index - 1]["id"])
+                current_depends = [
+                    int(dep)
+                    for dep in task.get("depends_on", [])
+                    if str(dep).strip().isdigit() and int(dep) < int(task["id"])
+                ]
+                next_depends = sorted(set(current_depends) | {prev_id})
+                if next_depends != current_depends:
+                    task["depends_on"] = next_depends
+                    normalized_dependencies.append(
+                        {
+                            "task_id": int(task["id"]),
+                            "depends_on": next_depends,
+                            "reason": "high_confidence_linear_pipeline",
+                        }
+                    )
+            return TaskInitNormalizationResult(
+                tasks=normalized_tasks,
+                normalized_task_ids=normalized_task_ids,
+                normalized_dependencies=normalized_dependencies,
+                normalization_warnings=normalization_warnings,
+            )
+
+        if recognized and all(ranks[i] <= ranks[i + 1] for i in range(len(ranks) - 1)):
+            task_ids = [int(task["id"]) for task in normalized_tasks]
+            normalization_warnings.append(
+                {
+                    "code": "LINEAR_PIPELINE_RISK",
+                    "message": (
+                        "检测到疑似线性分析流水线，但当前任务顺序存在并列阶段或依赖歧义，"
+                        "系统未自动改写 depends_on。"
+                    ),
+                    "task_ids": task_ids,
+                }
+            )
+
+        return TaskInitNormalizationResult(
+            tasks=normalized_tasks,
+            normalized_task_ids=normalized_task_ids,
+            normalized_dependencies=normalized_dependencies,
+            normalization_warnings=normalization_warnings,
+        )
 
     def init_tasks(self, raw_tasks: list[dict[str, Any]]) -> "TaskManager":
         """用完整任务列表初始化，返回新的 TaskManager。"""
@@ -266,6 +426,50 @@ class TaskManager:
             if t.status == "in_progress":
                 return t
         return None
+
+    def current_pending_wave(self) -> list[TaskItem]:
+        """返回当前可执行的首个 pending wave。"""
+        waves = self.group_into_waves()
+        if not waves:
+            return []
+        return list(waves[0])
+
+    def get_dispatch_context(self) -> DispatchContext:
+        """返回当前运行时调度上下文。"""
+        current = self.current_in_progress()
+        pending_wave = self.current_pending_wave()
+        recommended_tools: list[str] = []
+        recommended_action: str | None = None
+
+        if current is not None:
+            if current.tool_hint:
+                recommended_tools.append(str(current.tool_hint))
+            recommended_action = "direct_execution"
+            return DispatchContext(
+                current_in_progress_task=current,
+                current_pending_wave=pending_wave,
+                allow_direct_execution=True,
+                allow_current_task_subdispatch=True,
+                allow_pending_wave_dispatch=False,
+                recommended_tools=recommended_tools,
+                recommended_action=recommended_action,
+            )
+
+        if pending_wave:
+            first = pending_wave[0]
+            if first.tool_hint:
+                recommended_tools.append(str(first.tool_hint))
+            recommended_action = "start_pending_wave"
+
+        return DispatchContext(
+            current_in_progress_task=None,
+            current_pending_wave=pending_wave,
+            allow_direct_execution=not bool(pending_wave),
+            allow_current_task_subdispatch=False,
+            allow_pending_wave_dispatch=bool(pending_wave),
+            recommended_tools=recommended_tools,
+            recommended_action=recommended_action,
+        )
 
     def to_analysis_plan_dict(self) -> dict[str, Any]:
         """转换为前端 ANALYSIS_PLAN 事件的 data 格式（兼容 store.ts 现有处理逻辑）。"""

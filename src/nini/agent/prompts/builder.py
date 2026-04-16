@@ -171,11 +171,17 @@ _DEFAULT_COMPONENTS: dict[str, str] = {
         "## 多 Agent 并行调度（dispatch_agents）\n"
         "\n"
         "使用 dispatch_agents 工具时，优先传 `tasks=[{task_id, agent_id, task, input_refs, output_refs}]`。\n"
+        "若当前任务已是 in_progress，禁止再用 `task_id=当前任务` 派发；此时要么直接在当前 Agent 内调用工具执行，要么改用 `tasks=[{parent_task_id, agent_id, task}]` 发起当前任务内部子派发。\n"
         "仅在同一 wave 内、彼此独立、且与同批任务无读写冲突的场景使用。\n"
         "若任务存在上下游关系（如先清洗后统计），必须等上游任务完成并进入当前 wave 后再派发。\n"
+        "若 dispatch_agents 返回调度上下文错误，本轮必须停止重复同类派发，立即改用推荐的直接工具路径。\n"
         "`code_session`、`chart_session`、`run_code` 是工具，不是 agent_id，绝不能放进 dispatch_agents。\n"
         "最小调用示例：\n"
         '  tasks=[{"task_id": 1, "agent_id": "literature_search", "task": "检索高血压相关文献"}]\n'
+        "错误示例：\n"
+        '  dispatch_agents(tasks=[{"task_id": 1, "agent_id": "statistician", "task": "使用 code_session 查看前 20 行"}])\n'
+        "正确示例：\n"
+        '  run_code(dataset_name="...", code="print(df.head(20))")\n'
         "\n"
         "可用 Specialist Agent（agent_id → 职责）：\n"
         "- citation_manager：管理参考文献，标准化引用格式，生成引用列表\n"
