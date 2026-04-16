@@ -706,7 +706,7 @@ def _sandbox_worker(
     except KeyError as exc:
         # KeyError 的 str() 仅返回 key 本身（如 "0"），极难诊断。
         # 为 LLM 生成包含操作建议的可读消息。
-        key = exc.args[0] if exc.args else exc
+        key = exc.args[0] if exc.args else "<unknown>"
         if isinstance(key, (int, float)):
             friendly = (
                 f"KeyError: 列下标 {key!r} 不在数据中。"
