@@ -703,6 +703,28 @@ def _sandbox_worker(
                 "policy_error": True,
             }
         )
+    except KeyError as exc:
+        # KeyError 的 str() 仅返回 key 本身（如 "0"），极难诊断。
+        # 为 LLM 生成包含操作建议的可读消息。
+        key = exc.args[0] if exc.args else exc
+        if isinstance(key, (int, float)):
+            friendly = (
+                f"KeyError: 列下标 {key!r} 不在数据中。"
+                f"对字符串命名的列使用整数下标会触发此错误——"
+                f"请改用 .iloc[{key}] 进行位置访问，或用列名字符串访问。"
+            )
+        else:
+            friendly = f"KeyError: 键 {key!r} 不存在。请检查列名或字典键是否正确。"
+        tb = traceback.format_exc()
+        conn.send(
+            {
+                "success": False,
+                "stdout": stdout_text,
+                "stderr": stderr_text,
+                "error": friendly,
+                "traceback": tb,
+            }
+        )
     except Exception as exc:
         tb = traceback.format_exc()
         conn.send(
