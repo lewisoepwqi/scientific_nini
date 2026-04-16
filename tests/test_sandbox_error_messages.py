@@ -38,8 +38,7 @@ val = row[0]       # KeyError(0) — integer label lookup on string index
     assert message != "代码执行失败: 0", f"错误消息太模糊: {message!r}"
     # 应包含可诊断内容
     assert any(
-        hint in message
-        for hint in ("KeyError", "iloc", "整数", "列名", "label")
+        hint in message for hint in ("KeyError", "iloc", "整数", "列名", "label")
     ), f"错误消息应包含诊断提示，实际: {message!r}"
 
 
@@ -57,9 +56,9 @@ val = d["missing_key"]  # KeyError('missing_key')
 
     assert result.success is False
     message = result.message
-    assert "missing_key" in message or "列名" in message or "键" in message, (
-        f"错误消息应提及缺失的键，实际: {message!r}"
-    )
+    assert (
+        "missing_key" in message or "列名" in message or "键" in message
+    ), f"错误消息应提及缺失的键，实际: {message!r}"
     # 不应触发 iloc 建议（那是整数下标专属）
     assert "iloc" not in message, f"字符串键不应建议 iloc，实际: {message!r}"
 
@@ -77,9 +76,7 @@ raise KeyError()  # 空 args——触发 fallback 分支
 
     assert result.success is False
     message = result.message
-    assert "KeyError()" not in message, (
-        f"消息不应含异常对象 repr 'KeyError()'，实际: {message!r}"
-    )
-    assert "<unknown>" in message or "键" in message or "KeyError" in message, (
-        f"消息应包含可读兜底提示，实际: {message!r}"
-    )
+    assert "KeyError()" not in message, f"消息不应含异常对象 repr 'KeyError()'，实际: {message!r}"
+    assert (
+        "<unknown>" in message or "键" in message or "KeyError" in message
+    ), f"消息应包含可读兜底提示，实际: {message!r}"

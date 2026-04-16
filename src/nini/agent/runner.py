@@ -1837,9 +1837,7 @@ class AgentRunner:
                     )
                     if tool_args_signature in successful_dataset_profile_signatures:
                         if not _skip_duplicate_guard:
-                            duplicate_profile_reason = (
-                                f"同一轮中已成功调用过相同的 dataset_catalog(profile): {dataset_name}"
-                            )
+                            duplicate_profile_reason = f"同一轮中已成功调用过相同的 dataset_catalog(profile): {dataset_name}"
                     elif max_view == "full":
                         duplicate_profile_reason = (
                             f"同一轮中已成功获得数据集 '{dataset_name}' 的完整概况(full)，"
