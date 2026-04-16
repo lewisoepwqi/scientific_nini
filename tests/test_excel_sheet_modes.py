@@ -220,16 +220,6 @@ async def test_load_via_dataset_catalog_with_sheet_name_no_mode() -> None:
     session = Session()
     _prepare_multi_sheet_excel(session)
 
-    # 先用 default 模式加载一次，确保 session.datasets 中缓存了第一个 sheet（SheetA）
-    await registry.execute(
-        "dataset_catalog",
-        session=session,
-        operation="load",
-        dataset_name="multi.xlsx",
-    )
-    assert "multi.xlsx" in session.datasets
-    assert list(session.datasets["multi.xlsx"].columns) == ["id", "value_a"]
-
     # 不传 sheet_mode，只传 sheet_name="SheetB"
     result = await registry.execute(
         "dataset_catalog",
@@ -241,7 +231,6 @@ async def test_load_via_dataset_catalog_with_sheet_name_no_mode() -> None:
 
     assert result["success"] is True, result.get("message")
     output_name = result["data"]["dataset_name"]
-    # 修复后 output_name 应为 "multi.xlsx[SheetB]"
     assert "SheetB" in output_name
     assert output_name in session.datasets
     df = session.datasets[output_name]

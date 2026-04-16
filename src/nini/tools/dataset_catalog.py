@@ -186,10 +186,11 @@ class DatasetCatalogTool(Tool):
 
         sheet_name_raw = kwargs.get("sheet_name")
         raw_sheet_mode = kwargs.get("sheet_mode")
+        # 与 _profile_dataset 保持一致：用 strip() 后的值判断，避免全空格误触发 single 模式。
+        # sheet_mode="default" 不支持 sheet_name，若同时传入也需提升为 single 模式。
+        sheet_name_stripped = sheet_name_raw.strip() if isinstance(sheet_name_raw, str) else ""
 
-        # 若传入了 sheet_name 但未显式指定 sheet_mode，自动提升为 single 模式。
-        # 这与 _profile_dataset 的行为一致，避免 sheet_name 被静默忽略。
-        if sheet_name_raw and not raw_sheet_mode:
+        if sheet_name_stripped and (not raw_sheet_mode or raw_sheet_mode == "default"):
             effective_sheet_mode = "single"
         else:
             effective_sheet_mode = raw_sheet_mode or "default"
@@ -198,7 +199,7 @@ class DatasetCatalogTool(Tool):
             session,
             dataset_name=dataset_name,
             sheet_mode=effective_sheet_mode,
-            sheet_name=sheet_name_raw,
+            sheet_name=sheet_name_stripped or None,  # 空字符串传 None，避免下游误解
             combine_sheets=kwargs.get("combine_sheets", False),
             include_sheet_column=kwargs.get("include_sheet_column", True),
             output_dataset_name=kwargs.get("output_dataset_name"),
