@@ -33,7 +33,7 @@ class DatasetCatalogTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "统一管理数据集目录：list/load/profile 操作。\可聚合预览、摘要与质量概览。\n"
+            "统一管理数据集目录：list/load/profile 操作。可聚合预览、摘要与质量概览。\n"
             "最小示例：{operation: profile, dataset_name: demo, view: full, n_rows: 5}\n"
             "约束：load/profile 必须提供 dataset_name。view=preview/full 可用 n_rows。 其他 view 忽略 n_rows。"
         )
