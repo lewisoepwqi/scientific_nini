@@ -1344,15 +1344,17 @@ def test_handle_tool_result_resolves_dispatch_pending_action_after_direct_tool_s
 async def test_session_3be947_dispatch_dead_loop_replay_fixture_resolves_with_direct_tool() -> None:
     """基于真实会话 trace 构造等价 fixture，验证新逻辑不再卡在 dispatch dead loop。"""
 
+    # 可选：本地 trace 文件验证（CI 中不存在则跳过）
     trace_path = Path("data/sessions/3be947d505b7/harness/traces/756b65a5401f48a5b028e40294b1798e.json")
-    trace = json.loads(trace_path.read_text(encoding="utf-8"))
-    dispatch_messages = [
-        str(event.get("data", {}).get("message", "")).strip()
-        for event in trace.get("events", [])
-        if event.get("type") == "tool_result" and event.get("tool_name") == "dispatch_agents"
-    ]
-    assert any("data-explorer" in message for message in dispatch_messages)
-    assert sum("任务1 不在当前可执行 wave 中" in message for message in dispatch_messages) >= 1
+    if trace_path.exists():
+        trace = json.loads(trace_path.read_text(encoding="utf-8"))
+        dispatch_messages = [
+            str(event.get("data", {}).get("message", "")).strip()
+            for event in trace.get("events", [])
+            if event.get("type") == "tool_result" and event.get("tool_name") == "dispatch_agents"
+        ]
+        assert any("data-explorer" in message for message in dispatch_messages)
+        assert sum("任务1 不在当前可执行 wave 中" in message for message in dispatch_messages) >= 1
 
     session = Session()
     session.task_manager = session.task_manager.init_tasks(
