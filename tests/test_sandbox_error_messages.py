@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import pandas as pd
 
@@ -80,3 +82,30 @@ raise KeyError()  # 空 args——触发 fallback 分支
     assert (
         "<unknown>" in message or "键" in message or "KeyError" in message
     ), f"消息应包含可读兜底提示，实际: {message!r}"
+
+
+@pytest.mark.asyncio
+async def test_result_as_matplotlib_figure_returns_hint(tmp_path: Path) -> None:
+    """result = fig 时，沙箱应返回结构化提示而不是模糊错误。"""
+    from nini.sandbox.executor import SandboxExecutor
+
+    executor = SandboxExecutor(timeout_seconds=30)
+    code = (
+        "import matplotlib.pyplot as plt\n"
+        "fig, ax = plt.subplots()\n"
+        "ax.bar([1, 2, 3], [4, 5, 6])\n"
+        "result = fig\n"
+    )
+    outcome = await executor.execute(
+        code=code,
+        session_id="test-figure-result",
+        datasets={},
+    )
+
+    assert outcome["success"] is True, outcome
+    # result 不应是 Figure 对象；应被替换为含提示的字符串
+    result_repr = str(outcome.get("result") or "")
+    assert "Figure" in result_repr
+    assert "result = fig" in result_repr  # 提示语包含正确写法
+    # 图表仍然通过 figures 通道导出
+    assert outcome.get("figures"), "matplotlib Figure 应被自动收集到 figures 通道"
