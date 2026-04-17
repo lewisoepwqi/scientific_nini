@@ -16,6 +16,7 @@ import time
 import traceback
 from typing import Any, Iterable
 
+import numpy as np
 import pandas as pd
 
 from nini.charts import build_style_spec
@@ -356,11 +357,18 @@ def _try_pickleable(value: Any) -> Any:
         return repr(value)
 
 
+_UNSAFE_PAYLOAD_ERROR = (
+    "沙箱返回了不允许的数据类型（跨进程反序列化被拒绝）。"
+    "常见原因：代码里写了 `result = fig`（matplotlib/plotly Figure 对象）。"
+    "请去掉该赋值——图表会通过 figures 通道自动导出。"
+)
+
+
 def _sanitize_result_for_transport(value: Any) -> Any:
     """拦截 result 对象中不适合跨进程传输的类型（如 Figure），替换为结构化提示。
 
-    白名单：None/bool/int/float/complex/str/bytes/list/tuple/dict/set/
-    pandas.DataFrame/Series/Index, numpy.ndarray。
+    白名单：None/bool/int/float/complex/str/bytes/bytearray/list/tuple/dict/set/frozenset、
+    pandas.DataFrame/Series/Index、numpy.ndarray。
     其他类型（尤其是 matplotlib/plotly Figure、Axes）一律改为带修复建议的字符串。
     """
     if value is None:
@@ -371,24 +379,20 @@ def _sanitize_result_for_transport(value: Any) -> Any:
         return value
     if isinstance(value, (pd.DataFrame, pd.Series, pd.Index)):
         return value
-    # numpy 在模块顶部未导入；这里按需加载（子进程侧已 import numpy 到 exec_globals）。
-    try:
-        import numpy as np
-
-        if isinstance(value, np.ndarray):
-            return value
-    except Exception:  # pragma: no cover - numpy 必装，防御性处理
-        pass
+    if isinstance(value, np.ndarray):
+        return value
 
     cls_name = type(value).__name__
     module_name = type(value).__module__ or ""
-    if module_name.startswith("matplotlib") and cls_name in {"Figure", "Axes", "SubFigure"}:
+    is_matplotlib = module_name == "matplotlib" or module_name.startswith("matplotlib.")
+    is_plotly = module_name == "plotly" or module_name.startswith("plotly.")
+    if is_matplotlib and cls_name in {"Figure", "Axes", "SubFigure"}:
         return (
             f"[沙箱提示] 检测到 result 被赋值为 matplotlib {cls_name} 对象，这是常见错误。"
             "图表会通过 figures 通道自动导出，不要写 `result = fig`。"
             "如需返回数据，请把 result 设为 DataFrame/字符串/数字/None。"
         )
-    if module_name.startswith("plotly") and cls_name == "Figure":
+    if is_plotly and cls_name == "Figure":
         return (
             "[沙箱提示] 检测到 result 被赋值为 plotly Figure 对象。"
             "图表会通过 figures 通道自动导出，不要写 `result = fig`。"
@@ -932,11 +936,7 @@ class SandboxExecutor:
                     logger.warning("沙箱进程发送了不安全的 payload，已拒绝: %s", exc)
                     payload = {
                         "success": False,
-                        "error": (
-                            "沙箱返回了不允许的数据类型（跨进程反序列化被拒绝）。"
-                            "常见原因：代码里写了 `result = fig`（matplotlib/plotly Figure 对象）。"
-                            "请去掉该赋值——图表会通过 figures 通道自动导出。"
-                        ),
+                        "error": _UNSAFE_PAYLOAD_ERROR,
                         "stdout": "",
                         "stderr": "",
                     }
@@ -953,11 +953,7 @@ class SandboxExecutor:
                         logger.warning("沙箱进程发送了不安全的 payload，已拒绝: %s", exc)
                         payload = {
                             "success": False,
-                            "error": (
-                                "沙箱返回了不允许的数据类型（跨进程反序列化被拒绝）。"
-                                "常见原因：代码里写了 `result = fig`（matplotlib/plotly Figure 对象）。"
-                                "请去掉该赋值——图表会通过 figures 通道自动导出。"
-                            ),
+                            "error": _UNSAFE_PAYLOAD_ERROR,
                             "stdout": "",
                             "stderr": "",
                         }
