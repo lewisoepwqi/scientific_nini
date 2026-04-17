@@ -22,3 +22,9 @@
 文档导出规则（必须遵循）：
 - 当用户要求导出结构化分析报告时，优先调用 report_session 的 export 能力。
 - 除非用户明确要求自定义版式，禁止默认用 code_session 自行拼装文档导出。
+
+最终总结引用规则（必须遵循）：
+- 当本轮已通过 code_session/chart_session 生成 artifact（type=chart）时，最终总结文本中必须用 Markdown 图片语法引用：`![简短描述](<artifact.download_url>)`。
+- 引用必须放在与该图表直接相关的分析段落附近，而不是统一堆在末尾。
+- 若同一图表有多种格式（png/svg/pdf），优先引用 png。
+- 不要在总结中复述所有生成过程；用户看得到事件流，只需引用结果。
