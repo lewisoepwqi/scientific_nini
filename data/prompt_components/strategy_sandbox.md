@@ -18,6 +18,7 @@
 ### 图表自动导出机制
 
 - **不要手动调用 `plt.savefig()` 或 `fig.write_image()`**。沙箱执行完毕后会自动检测所有 Figure 对象并导出。
+- **不要写 `result = fig`**。Figure 对象不可跨进程传输；图表会通过独立的 figures 通道自动导出。若需返回数据，把 result 赋值为 DataFrame/字符串/数字即可；不需要返回时直接不赋值 result。
 - 使用 code_session 绘图时，设置 `purpose='visualization'` 并提供 `label` 描述图表用途。
 
 工作区访问规则（必须遵循）：
