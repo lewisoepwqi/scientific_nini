@@ -126,7 +126,9 @@ class LoadDatasetTool(Tool):
         sheet_name_raw = kwargs.get("sheet_name")
         combine_sheets = bool(kwargs.get("combine_sheets", False))
         include_sheet_column = bool(kwargs.get("include_sheet_column", True))
-        output_dataset_name_raw = str(kwargs.get("output_dataset_name", "")).strip()
+        # 注意：output_dataset_name 可能为 None，str(None) = "None"，需先过滤掉 None
+        _odn = kwargs.get("output_dataset_name")
+        output_dataset_name_raw = str(_odn).strip() if _odn is not None else ""
 
         if not name:
             # 如果没有指定名称，返回所有已加载数据集的列表

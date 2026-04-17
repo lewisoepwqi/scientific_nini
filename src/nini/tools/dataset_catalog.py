@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
 from nini.tools.data_ops import DataSummaryTool, LoadDatasetTool, PreviewDataTool
 from nini.tools.data_quality import DataQualityTool
+from nini.utils.dataframe_io import list_excel_sheet_names
 from nini.workspace import WorkspaceManager
 
 
@@ -31,7 +33,7 @@ class DatasetCatalogTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "统一管理数据集目录：list/load/profile 操作。\可聚合预览、摘要与质量概览。\n"
+            "统一管理数据集目录：list/load/profile 操作。可聚合预览、摘要与质量概览。\n"
             "最小示例：{operation: profile, dataset_name: demo, view: full, n_rows: 5}\n"
             "约束：load/profile 必须提供 dataset_name。view=preview/full 可用 n_rows。 其他 view 忽略 n_rows。"
         )
@@ -69,7 +71,11 @@ class DatasetCatalogTool(Tool):
                 },
                 "sheet_name": {
                     "type": "string",
-                    "description": "load 模式下指定 sheet 名称",
+                    "description": (
+                        "指定 Excel 工作表名称。"
+                        "用于 load 操作时：直接传入即可（无需额外指定 sheet_mode），系统自动以 single 模式加载；"
+                        "用于 profile 操作时：同样直接传入即可。"
+                    ),
                 },
                 "combine_sheets": {
                     "type": "boolean",
@@ -178,11 +184,22 @@ class DatasetCatalogTool(Tool):
                 minimal_example=self._minimal_example_for_operation("load"),
             )
 
+        sheet_name_raw = kwargs.get("sheet_name")
+        raw_sheet_mode = kwargs.get("sheet_mode")
+        # 与 _profile_dataset 保持一致：用 strip() 后的值判断，避免全空格误触发 single 模式。
+        # sheet_mode="default" 不支持 sheet_name，若同时传入也需提升为 single 模式。
+        sheet_name_stripped = sheet_name_raw.strip() if isinstance(sheet_name_raw, str) else ""
+
+        if sheet_name_stripped and (not raw_sheet_mode or raw_sheet_mode == "default"):
+            effective_sheet_mode = "single"
+        else:
+            effective_sheet_mode = raw_sheet_mode or "default"
+
         result = await self._loader.execute(
             session,
             dataset_name=dataset_name,
-            sheet_mode=kwargs.get("sheet_mode", "default"),
-            sheet_name=kwargs.get("sheet_name"),
+            sheet_mode=effective_sheet_mode,
+            sheet_name=sheet_name_stripped or None,  # 空字符串传 None，避免下游误解
             combine_sheets=kwargs.get("combine_sheets", False),
             include_sheet_column=kwargs.get("include_sheet_column", True),
             output_dataset_name=kwargs.get("output_dataset_name"),
@@ -217,46 +234,96 @@ class DatasetCatalogTool(Tool):
             )
 
         view = str(kwargs.get("view", "basic")).strip()
+        sheet_name_raw = kwargs.get("sheet_name")
         manager = WorkspaceManager(session)
         record = manager.get_dataset_by_name(dataset_name)
-        if dataset_name not in session.datasets:
-            load_result = await self._loader.execute(session, dataset_name=dataset_name)
-            if not load_result.success:
-                return load_result
+
+        # ---- 自动加载逻辑：支持 sheet_name ----
+        effective_name = dataset_name
+        loaded_sheet: str | None = None
+
+        if sheet_name_raw and isinstance(sheet_name_raw, str) and sheet_name_raw.strip():
+            # 指定了 sheet_name → 使用 single 模式加载
+            sheet_name = sheet_name_raw.strip()
+            output_key = f"{dataset_name}[{sheet_name}]"
+            if output_key not in session.datasets:
+                load_result = await self._loader.execute(
+                    session,
+                    dataset_name=dataset_name,
+                    sheet_mode="single",
+                    sheet_name=sheet_name,
+                )
+                if not load_result.success:
+                    return load_result
+                # single 模式可能生成带后缀的名称（如 name(2)），从返回结果中获取实际名称
+                if isinstance(load_result.data, dict) and load_result.data.get("output_dataset"):
+                    effective_name = str(load_result.data["output_dataset"])
+                else:
+                    effective_name = output_key
+            else:
+                effective_name = output_key
+            loaded_sheet = sheet_name
+        else:
+            # 未指定 sheet_name → 默认加载（首个 sheet）
+            if dataset_name not in session.datasets:
+                load_result = await self._loader.execute(session, dataset_name=dataset_name)
+                if not load_result.success:
+                    return load_result
 
         base: dict[str, Any] = {
             "resource_id": (str(record.get("id", "")).strip() or None) if record else None,
             "resource_type": "dataset",
             "dataset_name": dataset_name,
         }
+        if loaded_sheet:
+            base["sheet_name"] = loaded_sheet
 
         if view in {"basic", "full"}:
-            info = await self._loader.execute(session, dataset_name=dataset_name)
+            info = await self._loader.execute(session, dataset_name=effective_name)
             if info.success and isinstance(info.data, dict):
                 base["basic"] = info.data
 
         if view in {"preview", "full"}:
             preview = await self._preview.execute(
                 session,
-                dataset_name=dataset_name,
+                dataset_name=effective_name,
                 n_rows=kwargs.get("n_rows", 5),
             )
             if preview.success and isinstance(preview.data, dict):
+                if loaded_sheet:
+                    preview.data["sheet_name"] = loaded_sheet
                 base["preview"] = preview.data
 
         if view in {"summary", "full"}:
-            summary = await self._summary.execute(session, dataset_name=dataset_name)
+            summary = await self._summary.execute(session, dataset_name=effective_name)
             if summary.success and isinstance(summary.data, dict):
                 base["summary"] = summary.data
 
         if view in {"quality", "full"}:
-            quality = await self._quality.execute(session, dataset_name=dataset_name)
+            quality = await self._quality.execute(session, dataset_name=effective_name)
             if quality.success and isinstance(quality.data, dict):
                 base["quality"] = quality.data
 
+        # ---- 多 sheet 提示（仅在未指定 sheet 且为 Excel 时） ----
+        if not loaded_sheet and record:
+            ext = str(record.get("file_type", "")).strip().lower()
+            if ext in {"xlsx", "xls"}:
+                file_path = Path(str(record.get("file_path", "")))
+                if file_path.exists():
+                    try:
+                        sheets = list_excel_sheet_names(file_path, ext)
+                        if len(sheets) > 1:
+                            base["available_sheets"] = sheets
+                    except Exception:
+                        pass
+
+        message = f"已生成数据集 '{dataset_name}' 的 {view} 概况"
+        if loaded_sheet:
+            message = f"已生成数据集 '{dataset_name}' 工作表 '{loaded_sheet}' 的 {view} 概况"
+
         return ToolResult(
             success=True,
-            message=f"已生成数据集 '{dataset_name}' 的 {view} 概况",
+            message=message,
             data=base,
             has_dataframe="preview" in base,
             dataframe_preview=base.get("preview"),
