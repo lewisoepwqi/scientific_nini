@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 import pandas as pd
 
@@ -85,7 +83,7 @@ raise KeyError()  # 空 args——触发 fallback 分支
 
 
 @pytest.mark.asyncio
-async def test_result_as_matplotlib_figure_returns_hint(tmp_path: Path) -> None:
+async def test_result_as_matplotlib_figure_returns_hint() -> None:
     """result = fig 时，沙箱应返回结构化提示而不是模糊错误。"""
     from nini.sandbox.executor import SandboxExecutor
 
