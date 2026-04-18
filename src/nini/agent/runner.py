@@ -467,6 +467,30 @@ class AgentRunner:
             turn_id=turn_id,
         )
 
+    def _build_force_stop_texts(self, session: Session) -> list[str]:
+        """构造 FORCE_STOP 时要 yield 的文本序列。
+
+        若能从 session.messages 合成有效兜底总结，则返回 [兜底总结, 警告]；
+        否则只返回 [警告]。让"系统终止"不再让用户白跑一轮。
+        """
+        from nini.utils.fallback_summary import build_fallback_summary
+
+        user_msg = next(
+            (m.get("content") for m in session.messages if m.get("role") == "user"),
+            None,
+        )
+        fallback = build_fallback_summary(
+            list(session.messages),
+            user_request=user_msg if isinstance(user_msg, str) else None,
+        )
+        warning = (
+            "⚠️ 检测到工具调用死循环（相同工具组合已重复调用多次），"
+            "系统已自动终止当前任务。请尝试调整问题描述或手动干预。"
+        )
+        if fallback:
+            return [fallback, warning]
+        return [warning]
+
     async def _await_user_question_answers(
         self,
         session: Session,
@@ -1396,28 +1420,30 @@ class AgentRunner:
             # ── 循环检测守卫 ──────────────────────────────────────────────────
             _loop_decision, _loop_tool_names = self._loop_guard.check(tool_calls, session.id)
             if _loop_decision == LoopGuardDecision.FORCE_STOP:
-                # 强制终止：跳过工具执行，推送说明性文本事件后退出循环
-                _stop_msg = (
-                    "⚠️ 检测到工具调用死循环（相同工具组合已重复调用多次），"
-                    "系统已自动终止当前任务。请尝试调整问题描述或手动干预。"
-                )
+                # 强制终止：跳过工具执行，先合成兜底总结（若有可用产物）再推送警告
                 logger.warning(
                     "循环守卫触发 FORCE_STOP: session=%s iteration=%d tools=%s",
                     session.id,
                     iteration,
                     _loop_tool_names,
                 )
-                yield eb.build_text_event(
-                    content=_stop_msg,
-                    turn_id=turn_id,
-                    metadata={"source": "loop_guard", "decision": "force_stop"},
-                )
-                session.add_message(
-                    "assistant",
-                    _stop_msg,
-                    turn_id=turn_id,
-                    operation="complete",
-                )
+                _texts = self._build_force_stop_texts(session)
+                for _idx, _text in enumerate(_texts):
+                    # 首段若是兜底总结（len>1 时），标 fallback_summary；末段为警告仍标 loop_guard
+                    _source = (
+                        "fallback_summary" if (_idx == 0 and len(_texts) > 1) else "loop_guard"
+                    )
+                    yield eb.build_text_event(
+                        content=_text,
+                        turn_id=turn_id,
+                        metadata={"source": _source, "decision": "force_stop"},
+                    )
+                    session.add_message(
+                        "assistant",
+                        _text,
+                        turn_id=turn_id,
+                        operation="complete",
+                    )
                 if (_fe := self._finalize_turn(session, turn_id)) is not None:
                     yield _fe
                 yield eb.build_done_event(turn_id=turn_id)
