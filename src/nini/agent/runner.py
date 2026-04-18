@@ -424,6 +424,49 @@ class AgentRunner:
         # MemoryManager 实例（惰性初始化）
         self._memory_manager: Any | None = None
 
+    def _finalize_turn(self, session: Session, turn_id: str) -> AgentEvent | None:
+        """turn 结束时的统一收尾：自动完成被标记的 last in_progress 任务。
+
+        task_write 在"最后任务"分支里会设置 session.pending_auto_complete_task_id；
+        这里在 turn 成功结束前把该任务静默置 completed，避免模型陷入
+        "先 call task_state 再输出总结"的两步指令循环。
+
+        返回 PLAN_STEP_UPDATE 事件供调用方 yield；若无需处理则返回 None。
+        无论是否实际修改任务状态，都会清除 pending 标记，防止下轮脏状态。
+        """
+        pending_id = getattr(session, "pending_auto_complete_task_id", None)
+        if pending_id is None:
+            return None
+
+        # 统一清除标记，即便目标任务已被模型手动改过（幂等跳过）也不留脏数据。
+        session.pending_auto_complete_task_id = None
+
+        manager = getattr(session, "task_manager", None)
+        if manager is None:
+            return None
+
+        target = next((t for t in manager.tasks if t.id == pending_id), None)
+        if target is None or target.status != "in_progress":
+            # 目标任务已被模型手动置为其他状态，幂等跳过。
+            return None
+
+        # TaskItem 是 frozen 数据类，必须通过 update_tasks 返回新 TaskManager 替换。
+        result = manager.update_tasks([{"id": pending_id, "status": "completed"}])
+        session.task_manager = result.manager
+
+        logger.info(
+            "turn 结束自动完成任务: session=%s task_id=%d title=%s",
+            session.id,
+            target.id,
+            target.title,
+        )
+
+        return eb.build_plan_step_update_event(
+            step_id=pending_id,
+            status="completed",
+            turn_id=turn_id,
+        )
+
     async def _await_user_question_answers(
         self,
         session: Session,
@@ -728,6 +771,8 @@ class AgentRunner:
 
         while max_iter <= 0 or iteration < max_iter:
             if should_stop():
+                if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                    yield _fe
                 yield eb.build_done_event(turn_id=turn_id)
                 return
 
@@ -898,6 +943,8 @@ class AgentRunner:
                         purpose=call_purpose,
                     ):
                         if should_stop():
+                            if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                                yield _fe
                             yield eb.build_done_event(turn_id=turn_id)
                             return
 
@@ -1124,6 +1171,8 @@ class AgentRunner:
                 )
 
             if should_stop():
+                if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                    yield _fe
                 yield eb.build_done_event(turn_id=turn_id)
                 return
 
@@ -1240,6 +1289,8 @@ class AgentRunner:
                             turn_id=turn_id,
                         )
 
+                if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                    yield _fe
                 yield eb.build_done_event(
                     turn_id=turn_id,
                     output_level=(
@@ -1367,6 +1418,8 @@ class AgentRunner:
                     turn_id=turn_id,
                     operation="complete",
                 )
+                if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                    yield _fe
                 yield eb.build_done_event(turn_id=turn_id)
                 return
             elif _loop_decision == LoopGuardDecision.WARN:
@@ -1408,6 +1461,8 @@ class AgentRunner:
                     turn_id=turn_id,
                     operation="complete",
                 )
+                if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                    yield _fe
                 yield eb.build_done_event(turn_id=turn_id)
                 return
             elif consecutive_tool_failure_count >= _CONSECUTIVE_FAILURE_WARN_THRESHOLD:
@@ -1429,6 +1484,8 @@ class AgentRunner:
 
             for tc in tool_calls:
                 if should_stop():
+                    if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                        yield _fe
                     yield eb.build_done_event(turn_id=turn_id)
                     return
 
@@ -2590,6 +2647,8 @@ class AgentRunner:
                         "operation": "complete",
                     },
                 )
+                if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                    yield _fe
                 yield eb.build_done_event(
                     turn_id=turn_id,
                     output_level=(
@@ -2605,6 +2664,8 @@ class AgentRunner:
                 message=f"达到最大迭代次数 ({max_iter})，已停止执行。",
                 turn_id=turn_id,
             )
+            if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                yield _fe
 
     async def _build_messages(self, session: Session) -> list[dict[str, Any]]:
         """构建发送给 LLM 的消息列表。"""
