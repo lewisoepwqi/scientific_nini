@@ -86,6 +86,8 @@ class Session:
     messages: list[dict[str, Any]] = field(default_factory=list)
     datasets: dict[str, pd.DataFrame] = field(default_factory=dict)
     artifacts: dict[str, Any] = field(default_factory=dict)
+    # 最后一个任务进入 in_progress 时记录其 id，供 turn 结束后由 runner 自动关闭
+    pending_auto_complete_task_id: int | None = None
     documents: dict[str, Any] = field(default_factory=dict)
     tool_approval_grants: dict[str, str] = field(default_factory=dict)
     sandbox_approved_imports: set[str] = field(default_factory=set)

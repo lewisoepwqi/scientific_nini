@@ -375,21 +375,16 @@ class TaskWriteTool(Tool):
             normalized_dep_ids = "、".join(
                 f"任务{item['task_id']}" for item in normalization.normalized_dependencies
             )
-            dependency_prefix = (
-                f"已按高置信线性流水线补全 {normalized_dep_ids} 的 depends_on。"
-            )
+            dependency_prefix = f"已按高置信线性流水线补全 {normalized_dep_ids} 的 depends_on。"
         warning_suffix = ""
         if normalization.normalization_warnings:
             warning_suffix = "检测到依赖歧义，系统未自动改写任务图，请后续按当前任务顺序谨慎推进。"
         if first_task:
             tool_hint_text = f"（可使用 {first_task.tool_hint}）" if first_task.tool_hint else ""
             message = (
-                warning_prefix
-                + dependency_prefix
-                + f"已声明 {task_count} 个分析任务。"
+                warning_prefix + dependency_prefix + f"已声明 {task_count} 个分析任务。"
                 f"建议从任务1「{first_task.title}」开始{tool_hint_text}。"
-                f"先将任务1标记为 in_progress，再执行对应的分析操作。"
-                + warning_suffix
+                f"先将任务1标记为 in_progress，再执行对应的分析操作。" + warning_suffix
             )
         else:
             message = (
@@ -477,13 +472,15 @@ class TaskWriteTool(Tool):
                 "注意：总结应基于复盘后的最终结论，确保结果准确无误。"
             )
         elif current_in_progress and pending == 0:
-            # 只剩当前执行中任务（通常是"复盘与检查"或"汇总结论"）
+            # 最后一个任务（通常是"汇总结论"或"复盘检查"）：
+            # 视为隐式自动完成——避免模型陷入"先 call 再总结"的两步循环。
+            session.pending_auto_complete_task_id = current_in_progress.id
             message = (
                 f"所有前序任务已完成，当前仅剩任务{current_in_progress.id}"
                 f"「{current_in_progress.title}」。"
-                "请直接检查前面的结果是否有明显错误，如有则修正。"
-                "确认无误后，将本任务标记为 completed 再输出最终总结。"
-                "不要重复列举已完成的任务。"
+                "请**直接输出最终分析总结**，引用已生成的图表 artifact；"
+                "本任务会在你回复后由系统自动标记为 completed，"
+                "**不要再调用 task_state**。"
             )
         elif current_in_progress:
             hint_text = (
