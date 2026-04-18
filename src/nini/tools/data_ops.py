@@ -212,6 +212,14 @@ class LoadDatasetTool(Tool):
                     success=False, message=f"sheet_mode=single 时必须提供 sheet_name{extra}"
                 )
             sheet_name = sheet_name_raw.strip()
+
+            # 大小写不敏感解析：若 sheet_name 与 available_sheets 里某项忽略大小写相等，替换为真实名
+            if available_sheets and sheet_name not in available_sheets:
+                lowered = sheet_name.lower()
+                matches = [s for s in available_sheets if s.lower() == lowered]
+                if len(matches) == 1:
+                    sheet_name = matches[0]
+
             try:
                 df_sheet = read_excel_sheet_dataframe(file_path, ext, sheet_name=sheet_name)
             except Exception as exc:

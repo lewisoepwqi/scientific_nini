@@ -16,6 +16,7 @@ import time
 import traceback
 from typing import Any, Iterable
 
+import numpy as np
 import pandas as pd
 
 from nini.charts import build_style_spec
@@ -356,6 +357,53 @@ def _try_pickleable(value: Any) -> Any:
         return repr(value)
 
 
+_UNSAFE_PAYLOAD_ERROR = (
+    "沙箱返回了不允许的数据类型（跨进程反序列化被拒绝）。"
+    "常见原因：代码里写了 `result = fig`（matplotlib/plotly Figure 对象）。"
+    "请去掉该赋值——图表会通过 figures 通道自动导出。"
+)
+
+
+def _sanitize_result_for_transport(value: Any) -> Any:
+    """拦截 result 对象中不适合跨进程传输的类型（如 Figure），替换为结构化提示。
+
+    白名单：None/bool/int/float/complex/str/bytes/bytearray/list/tuple/dict/set/frozenset、
+    pandas.DataFrame/Series/Index、numpy.ndarray。
+    其他类型（尤其是 matplotlib/plotly Figure、Axes）一律改为带修复建议的字符串。
+    """
+    if value is None:
+        return None
+    if isinstance(value, (bool, int, float, complex, str, bytes, bytearray)):
+        return value
+    if isinstance(value, (list, tuple, dict, set, frozenset)):
+        return value
+    if isinstance(value, (pd.DataFrame, pd.Series, pd.Index)):
+        return value
+    if isinstance(value, np.ndarray):
+        return value
+
+    cls_name = type(value).__name__
+    module_name = type(value).__module__ or ""
+    is_matplotlib = module_name == "matplotlib" or module_name.startswith("matplotlib.")
+    is_plotly = module_name == "plotly" or module_name.startswith("plotly.")
+    if is_matplotlib and cls_name in {"Figure", "Axes", "SubFigure"}:
+        return (
+            f"[沙箱提示] 检测到 result 被赋值为 matplotlib {cls_name} 对象，这是常见错误。"
+            "图表会通过 figures 通道自动导出，不要写 `result = fig`。"
+            "如需返回数据，请把 result 设为 DataFrame/字符串/数字/None。"
+        )
+    if is_plotly and cls_name == "Figure":
+        return (
+            "[沙箱提示] 检测到 result 被赋值为 plotly Figure 对象。"
+            "图表会通过 figures 通道自动导出，不要写 `result = fig`。"
+        )
+
+    return (
+        f"[沙箱提示] result 类型 {module_name}.{cls_name} 不在允许跨进程传输的白名单内，"
+        "已自动转为文本；如需把结果传给后续步骤，请赋值为 DataFrame、字符串、数字、list/dict 等 JSON 可表达类型。"
+    )
+
+
 def _build_exec_globals(
     datasets: dict[str, pd.DataFrame],
     *,
@@ -675,7 +723,7 @@ def _sandbox_worker(
             "success": True,
             "stdout": stdout_text,
             "stderr": stderr_text,
-            "result": _try_pickleable(result_obj),
+            "result": _try_pickleable(_sanitize_result_for_transport(result_obj)),
             "datasets": local_datasets if persist_df else {},
             "figures": figures,
         }
@@ -888,7 +936,7 @@ class SandboxExecutor:
                     logger.warning("沙箱进程发送了不安全的 payload，已拒绝: %s", exc)
                     payload = {
                         "success": False,
-                        "error": "沙箱返回了不允许的数据类型",
+                        "error": _UNSAFE_PAYLOAD_ERROR,
                         "stdout": "",
                         "stderr": "",
                     }
@@ -905,7 +953,7 @@ class SandboxExecutor:
                         logger.warning("沙箱进程发送了不安全的 payload，已拒绝: %s", exc)
                         payload = {
                             "success": False,
-                            "error": "沙箱返回了不允许的数据类型",
+                            "error": _UNSAFE_PAYLOAD_ERROR,
                             "stdout": "",
                             "stderr": "",
                         }

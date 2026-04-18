@@ -236,3 +236,50 @@ async def test_load_via_dataset_catalog_with_sheet_name_no_mode() -> None:
     df = session.datasets[output_name]
     assert list(df.columns) == ["id", "value_b"]
     assert df["id"].tolist() == [3, 4]
+
+
+@pytest.mark.asyncio
+async def test_load_dataset_sheet_name_case_insensitive() -> None:
+    """sheet_name 大小写不一致时应自动解析到真实 sheet 名。"""
+    session = session_manager.create_session()
+    _prepare_multi_sheet_excel(session)
+
+    registry = create_default_tool_registry()
+    load_tool = registry.get("load_dataset")
+    assert load_tool is not None
+
+    # 真实 sheet 为 "SheetA"，用户写小写 "sheeta"
+    result = await load_tool.execute(
+        session,
+        dataset_name="multi.xlsx",
+        sheet_mode="single",
+        sheet_name="sheeta",
+    )
+
+    assert result.success, result.message
+    assert isinstance(result.data, dict)
+    assert result.data["sheet_name"] == "SheetA"  # 解析到真实名称
+    assert result.data["output_dataset"] == "multi.xlsx[SheetA]"
+
+
+@pytest.mark.asyncio
+async def test_load_dataset_sheet_name_not_found_lists_available() -> None:
+    """不存在的 sheet 名应在错误消息中提示可用 sheet 列表。"""
+    session = session_manager.create_session()
+    _prepare_multi_sheet_excel(session)
+
+    registry = create_default_tool_registry()
+    load_tool = registry.get("load_dataset")
+    assert load_tool is not None
+
+    result = await load_tool.execute(
+        session,
+        dataset_name="multi.xlsx",
+        sheet_mode="single",
+        sheet_name="does_not_exist",
+    )
+
+    assert not result.success
+    assert "可用 sheet" in result.message
+    assert "SheetA" in result.message
+    assert "SheetB" in result.message
