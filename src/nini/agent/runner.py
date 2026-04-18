@@ -1737,7 +1737,7 @@ class AgentRunner:
                         and isinstance(result, dict)
                     ):
                         task_state_noop_repeat_count += 1
-                        if task_state_noop_repeat_count >= 6:
+                        if task_state_noop_repeat_count >= 5:
                             # 第三级：硬熔断，跳过执行并返回失败
                             logger.warning(
                                 "task_state 无操作熔断触发: session=%s "
@@ -1767,7 +1767,7 @@ class AgentRunner:
                                     "你已连续多次调用 task_state 但任务状态未变化，已触发熔断。"
                                     "请立即调用实际的分析工具。"
                                 )
-                        elif task_state_noop_repeat_count >= 4:
+                        elif task_state_noop_repeat_count >= 3:
                             # 第二级：注入 system prompt 警告 + 清理 data 中的 no_op_ids
                             logger.warning(
                                 "task_state 无操作重复升级: session=%s "
