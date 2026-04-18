@@ -424,6 +424,73 @@ class AgentRunner:
         # MemoryManager 实例（惰性初始化）
         self._memory_manager: Any | None = None
 
+    def _finalize_turn(self, session: Session, turn_id: str) -> AgentEvent | None:
+        """turn 结束时的统一收尾：自动完成被标记的 last in_progress 任务。
+
+        task_write 在"最后任务"分支里会设置 session.pending_auto_complete_task_id；
+        这里在 turn 成功结束前把该任务静默置 completed，避免模型陷入
+        "先 call task_state 再输出总结"的两步指令循环。
+
+        返回 PLAN_STEP_UPDATE 事件供调用方 yield；若无需处理则返回 None。
+        无论是否实际修改任务状态，都会清除 pending 标记，防止下轮脏状态。
+        """
+        pending_id = getattr(session, "pending_auto_complete_task_id", None)
+        if pending_id is None:
+            return None
+
+        # 统一清除标记，即便目标任务已被模型手动改过（幂等跳过）也不留脏数据。
+        session.pending_auto_complete_task_id = None
+
+        manager = getattr(session, "task_manager", None)
+        if manager is None:
+            return None
+
+        target = next((t for t in manager.tasks if t.id == pending_id), None)
+        if target is None or target.status != "in_progress":
+            # 目标任务已被模型手动置为其他状态，幂等跳过。
+            return None
+
+        # TaskItem 是 frozen 数据类，必须通过 update_tasks 返回新 TaskManager 替换。
+        result = manager.update_tasks([{"id": pending_id, "status": "completed"}])
+        session.task_manager = result.manager
+
+        logger.info(
+            "turn 结束自动完成任务: session=%s task_id=%d title=%s",
+            session.id,
+            target.id,
+            target.title,
+        )
+
+        return eb.build_plan_step_update_event(
+            step_id=pending_id,
+            status="completed",
+            turn_id=turn_id,
+        )
+
+    def _build_force_stop_texts(self, session: Session) -> list[str]:
+        """构造 FORCE_STOP 时要 yield 的文本序列。
+
+        若能从 session.messages 合成有效兜底总结，则返回 [兜底总结, 警告]；
+        否则只返回 [警告]。让"系统终止"不再让用户白跑一轮。
+        """
+        from nini.utils.fallback_summary import build_fallback_summary
+
+        user_msg = next(
+            (m.get("content") for m in session.messages if m.get("role") == "user"),
+            None,
+        )
+        fallback = build_fallback_summary(
+            list(session.messages),
+            user_request=user_msg if isinstance(user_msg, str) else None,
+        )
+        warning = (
+            "⚠️ 检测到工具调用死循环（相同工具组合已重复调用多次），"
+            "系统已自动终止当前任务。请尝试调整问题描述或手动干预。"
+        )
+        if fallback:
+            return [fallback, warning]
+        return [warning]
+
     async def _await_user_question_answers(
         self,
         session: Session,
@@ -728,6 +795,8 @@ class AgentRunner:
 
         while max_iter <= 0 or iteration < max_iter:
             if should_stop():
+                if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                    yield _fe
                 yield eb.build_done_event(turn_id=turn_id)
                 return
 
@@ -898,6 +967,8 @@ class AgentRunner:
                         purpose=call_purpose,
                     ):
                         if should_stop():
+                            if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                                yield _fe
                             yield eb.build_done_event(turn_id=turn_id)
                             return
 
@@ -1124,6 +1195,8 @@ class AgentRunner:
                 )
 
             if should_stop():
+                if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                    yield _fe
                 yield eb.build_done_event(turn_id=turn_id)
                 return
 
@@ -1240,6 +1313,8 @@ class AgentRunner:
                             turn_id=turn_id,
                         )
 
+                if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                    yield _fe
                 yield eb.build_done_event(
                     turn_id=turn_id,
                     output_level=(
@@ -1345,28 +1420,32 @@ class AgentRunner:
             # ── 循环检测守卫 ──────────────────────────────────────────────────
             _loop_decision, _loop_tool_names = self._loop_guard.check(tool_calls, session.id)
             if _loop_decision == LoopGuardDecision.FORCE_STOP:
-                # 强制终止：跳过工具执行，推送说明性文本事件后退出循环
-                _stop_msg = (
-                    "⚠️ 检测到工具调用死循环（相同工具组合已重复调用多次），"
-                    "系统已自动终止当前任务。请尝试调整问题描述或手动干预。"
-                )
+                # 强制终止：跳过工具执行，先合成兜底总结（若有可用产物）再推送警告
                 logger.warning(
                     "循环守卫触发 FORCE_STOP: session=%s iteration=%d tools=%s",
                     session.id,
                     iteration,
                     _loop_tool_names,
                 )
-                yield eb.build_text_event(
-                    content=_stop_msg,
-                    turn_id=turn_id,
-                    metadata={"source": "loop_guard", "decision": "force_stop"},
-                )
-                session.add_message(
-                    "assistant",
-                    _stop_msg,
-                    turn_id=turn_id,
-                    operation="complete",
-                )
+                _texts = self._build_force_stop_texts(session)
+                for _idx, _text in enumerate(_texts):
+                    # 首段若是兜底总结（len>1 时），标 fallback_summary；末段为警告仍标 loop_guard
+                    _source = (
+                        "fallback_summary" if (_idx == 0 and len(_texts) > 1) else "loop_guard"
+                    )
+                    yield eb.build_text_event(
+                        content=_text,
+                        turn_id=turn_id,
+                        metadata={"source": _source, "decision": "force_stop"},
+                    )
+                    session.add_message(
+                        "assistant",
+                        _text,
+                        turn_id=turn_id,
+                        operation="complete",
+                    )
+                if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                    yield _fe
                 yield eb.build_done_event(turn_id=turn_id)
                 return
             elif _loop_decision == LoopGuardDecision.WARN:
@@ -1408,6 +1487,8 @@ class AgentRunner:
                     turn_id=turn_id,
                     operation="complete",
                 )
+                if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                    yield _fe
                 yield eb.build_done_event(turn_id=turn_id)
                 return
             elif consecutive_tool_failure_count >= _CONSECUTIVE_FAILURE_WARN_THRESHOLD:
@@ -1429,6 +1510,8 @@ class AgentRunner:
 
             for tc in tool_calls:
                 if should_stop():
+                    if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                        yield _fe
                     yield eb.build_done_event(turn_id=turn_id)
                     return
 
@@ -1680,7 +1763,7 @@ class AgentRunner:
                         and isinstance(result, dict)
                     ):
                         task_state_noop_repeat_count += 1
-                        if task_state_noop_repeat_count >= 6:
+                        if task_state_noop_repeat_count >= 5:
                             # 第三级：硬熔断，跳过执行并返回失败
                             logger.warning(
                                 "task_state 无操作熔断触发: session=%s "
@@ -1710,7 +1793,7 @@ class AgentRunner:
                                     "你已连续多次调用 task_state 但任务状态未变化，已触发熔断。"
                                     "请立即调用实际的分析工具。"
                                 )
-                        elif task_state_noop_repeat_count >= 4:
+                        elif task_state_noop_repeat_count >= 3:
                             # 第二级：注入 system prompt 警告 + 清理 data 中的 no_op_ids
                             logger.warning(
                                 "task_state 无操作重复升级: session=%s "
@@ -2590,6 +2673,8 @@ class AgentRunner:
                         "operation": "complete",
                     },
                 )
+                if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                    yield _fe
                 yield eb.build_done_event(
                     turn_id=turn_id,
                     output_level=(
@@ -2605,6 +2690,8 @@ class AgentRunner:
                 message=f"达到最大迭代次数 ({max_iter})，已停止执行。",
                 turn_id=turn_id,
             )
+            if (_fe := self._finalize_turn(session, turn_id)) is not None:
+                yield _fe
 
     async def _build_messages(self, session: Session) -> list[dict[str, Any]]:
         """构建发送给 LLM 的消息列表。"""

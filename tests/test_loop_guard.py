@@ -478,6 +478,35 @@ class TestBuildLoopWarnMessage:
         assert "换一种方法" in msg
 
 
+def test_loop_guard_default_hard_limit_is_six() -> None:
+    """hard_limit 默认值应为 6，让 task_state L3 熔断先于 LoopGuard FORCE_STOP 触发。"""
+    guard = LoopGuard()
+    assert guard._hard_limit == 6
+    assert guard._warn_threshold == 4
+
+
+def test_loop_guard_force_stops_at_count_six() -> None:
+    """同一 fingerprint 出现 6 次时应触发 FORCE_STOP（而非 5 次）。"""
+    guard = LoopGuard()
+    tc = [
+        {
+            "function": {
+                "name": "task_state",
+                "arguments": '{"operation":"update","tasks":[{"id":1,"status":"completed"}]}',
+            }
+        }
+    ]
+    decisions = []
+    for _ in range(6):
+        d, _ = guard.check(tc, "sess-default-hard-limit")
+        decisions.append(d)
+    # 前 3 次（count=1..3）NORMAL；第 4/5 次 WARN；第 6 次才 FORCE_STOP
+    assert decisions[0] == LoopGuardDecision.NORMAL
+    assert decisions[3] == LoopGuardDecision.WARN
+    assert decisions[4] == LoopGuardDecision.WARN
+    assert decisions[5] == LoopGuardDecision.FORCE_STOP
+
+
 def aiter(iterable):
     """将同步可迭代对象包装为异步生成器（用于 mock async for 的方法）。"""
 
