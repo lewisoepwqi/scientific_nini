@@ -1,5 +1,7 @@
 """代码档案 bundle 构建测试。"""
 
+import pytest
+
 from nini.workspace.code_bundle import _make_slug
 
 
@@ -165,3 +167,64 @@ def test_patch_script_r_minimal_header_only():
     result = _patch_script(code, "r", tool_args, meta)
     assert "# 意图：test" in result
     assert "df %>% mutate" in result
+
+
+from nini.workspace import WorkspaceManager
+from nini.workspace.code_bundle import _resolve_dataset_files, _resolve_output_names
+
+
+@pytest.fixture
+def workspace_with_dataset(tmp_path, monkeypatch):
+    """生成临时工作区，含一个 CSV 数据集。"""
+    from nini.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    ws = WorkspaceManager("sess12345678")
+    ws.ensure_dirs()
+    csv_path = ws.uploads_dir / "raw.csv"
+    csv_content = "x,y\n1,2\n3,4\n"
+    csv_path.write_text(csv_content, encoding="utf-8")
+    ws.add_dataset_record(
+        dataset_id="ds_raw_test",
+        name="raw.csv",
+        file_path=csv_path,
+        file_type="csv",
+        file_size=len(csv_content.encode("utf-8")),
+        row_count=2,
+        column_count=2,
+    )
+    return ws
+
+
+def test_resolve_dataset_files_by_name(workspace_with_dataset):
+    ws = workspace_with_dataset
+    tool_args = {"dataset_name": "raw.csv"}
+    files = _resolve_dataset_files(ws, tool_args)
+    assert len(files) == 1
+    assert files[0].name == "raw.csv"
+    assert files[0].exists()
+
+
+def test_resolve_dataset_files_no_match(workspace_with_dataset):
+    tool_args = {"dataset_name": "nonexistent.csv"}
+    assert _resolve_dataset_files(workspace_with_dataset, tool_args) == []
+
+
+def test_resolve_dataset_files_no_dataset_arg(workspace_with_dataset):
+    assert _resolve_dataset_files(workspace_with_dataset, {}) == []
+
+
+def test_resolve_output_names_uses_index(workspace_with_dataset):
+    ws = workspace_with_dataset
+    index = ws._load_index()
+    index.setdefault("artifacts", []).append(
+        {
+            "id": "art_xyz",
+            "name": "sales_chart.png",
+            "file_type": "png",
+        }
+    )
+    ws._save_index(index)
+    names = _resolve_output_names(ws, ["art_xyz", "unknown_id"])
+    assert "sales_chart.png" in names
+    assert "unknown_id" in names

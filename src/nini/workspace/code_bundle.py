@@ -8,8 +8,13 @@ from __future__ import annotations
 import ast
 import re
 import sys
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from nini.sandbox.policy import ALLOWED_IMPORT_ROOTS, REVIEWABLE_IMPORT_ROOTS
+
+if TYPE_CHECKING:
+    from nini.workspace.manager import WorkspaceManager
 
 _SLUG_MAX_LEN = 40
 
@@ -174,3 +179,42 @@ def _patch_script(
 
     header = _PYTHON_HEADER_TEMPLATE.format(df_binding=df_binding, **fields)
     return header + code.rstrip() + _PYTHON_FOOTER
+
+
+def _resolve_dataset_files(
+    ws: "WorkspaceManager", tool_args: dict[str, Any]
+) -> list[Path]:
+    """根据 tool_args.dataset_name 定位物理 CSV 文件。"""
+    name = tool_args.get("dataset_name")
+    if not isinstance(name, str) or not name.strip():
+        return []
+    record = ws.get_dataset_by_name(name.strip())
+    if record is None:
+        return []
+    path_str = str(record.get("file_path", "")).strip()
+    if not path_str:
+        return []
+    path = Path(path_str)
+    return [path] if path.exists() else []
+
+
+def _resolve_output_names(
+    ws: "WorkspaceManager", output_resource_ids: list[str]
+) -> list[str]:
+    """将资源 ID 列表反查为人类可读名称。未找到的保留原 ID。"""
+    if not output_resource_ids:
+        return []
+
+    id_to_name: dict[str, str] = {}
+    for item in ws.list_datasets():
+        rid = str(item.get("id", "")).strip()
+        name = str(item.get("name", "")).strip()
+        if rid:
+            id_to_name[rid] = name or rid
+    for item in ws.list_artifacts():
+        rid = str(item.get("id", "")).strip()
+        name = str(item.get("name", "")).strip()
+        if rid:
+            id_to_name[rid] = name or rid
+
+    return [id_to_name.get(rid, rid) for rid in output_resource_ids]
