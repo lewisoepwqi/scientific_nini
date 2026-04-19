@@ -69,6 +69,42 @@ async def list_workspace_executions(session_id: str):
     }
 
 
+@router.get("/workspace/{session_id}/executions/bundle")
+async def download_executions_bundle(session_id: str) -> Response:
+    """批量下载会话所有 run_code / run_r_code 记录的可复现 zip。"""
+    from nini.workspace.code_bundle import build_batch_bundle
+
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+    zip_bytes = build_batch_bundle(workspace)
+    date_tag = datetime.now(timezone.utc).strftime("%Y%m%d")
+    filename = f"code-archive-{session_id[:8]}-{date_tag}.zip"
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/workspace/{session_id}/executions/{execution_id}/bundle")
+async def download_execution_bundle(session_id: str, execution_id: str) -> Response:
+    """下载单条执行记录的可复现 zip。"""
+    from nini.workspace.code_bundle import build_single_bundle
+
+    _ensure_workspace_session_exists(session_id)
+    workspace = WorkspaceManager(session_id)
+    try:
+        zip_bytes = build_single_bundle(workspace, execution_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    filename = f"execution-{execution_id[:8]}.zip"
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/workspace/{session_id}/resources")
 async def list_workspace_resources(session_id: str):
     """列出工作空间资源摘要。"""
