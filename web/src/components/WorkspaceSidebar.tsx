@@ -1,5 +1,5 @@
 /**
- * 独立工作区侧边栏 —— 右侧面板，包含 Tab 切换（文件 / 执行历史 / 任务），支持列表/树状视图切换。
+ * 独立工作区侧边栏 —— 右侧面板，包含 Tab 切换（文件 / 代码档案 / 任务），支持列表/树状视图切换。
  */
 import { useState, useMemo, useCallback } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -193,7 +193,7 @@ export default function WorkspaceSidebar() {
  </div>
  )}
 
- {/* Tab 切换：任务 → 执行历史 → 文件 */}
+ {/* Tab 切换：任务 → 代码档案 → 文件 */}
  <div
  className={`flex flex-shrink-0 relative overflow-x-auto overflow-y-hidden border-b border-[var(--border-default)] scroll-smooth ${
  hasPreviewTabs ? '' : 'overflow-x-hidden'
@@ -236,7 +236,7 @@ export default function WorkspaceSidebar() {
  }`}
  >
  <Terminal size={13} />
- 执行历史
+ 代码档案
  </Button>
  <Button
  variant="ghost"
