@@ -214,3 +214,111 @@ def _resolve_output_names(ws: "WorkspaceManager", output_resource_ids: list[str]
             id_to_name[rid] = name or rid
 
     return [id_to_name.get(rid, rid) for rid in output_resource_ids]
+
+
+_PURPOSE_ZH = {
+    "exploration": "探索分析",
+    "visualization": "图表",
+    "export": "导出",
+    "transformation": "数据转换",
+}
+
+
+def _render_single_readme(
+    record: dict[str, Any],
+    *,
+    dataset_files: list[str],
+    output_names: list[str],
+) -> str:
+    """渲染单条 bundle 的 README.md。"""
+    intent = record.get("intent") or "未命名代码归档"
+    session_id = str(record.get("session_id") or "")
+    session_id_short = session_id[:8] if session_id else "unknown"
+    purpose = str(record.get("tool_args", {}).get("purpose") or "exploration")
+    purpose_zh = _PURPOSE_ZH.get(purpose, purpose)
+    language = str(record.get("language") or "python")
+
+    lines = [
+        f"# {intent}",
+        "",
+        f"来源：Nini 会话 `{session_id_short}` · 执行 ID `{record.get('id', '')}`",
+        f"时间：{record.get('created_at', '')}",
+        f"类型：{purpose_zh}",
+        f"语言：{language}",
+        "",
+        "## 输入数据",
+        "",
+    ]
+    if dataset_files:
+        for name in dataset_files:
+            lines.append(f"- `datasets/{name}`")
+    else:
+        lines.append("- 无输入数据")
+    lines += ["", "## 预期产出", ""]
+    if output_names:
+        for name in output_names:
+            lines.append(f"- {name}")
+    else:
+        lines.append("- 无持久化产出")
+    lines += [
+        "",
+        "## 运行",
+        "",
+        "```bash",
+        "bash run.sh",
+        "```",
+        "",
+        "需要 Python >= 3.11。依赖见 `requirements.txt`。",
+        "",
+        "## 已知约束",
+        "",
+        "- 本压缩包内含输入数据集，分享前请确认不含敏感信息。",
+    ]
+    if purpose == "visualization":
+        lines.append(
+            "- 图表脚本离线运行时不会自动显示，请自行追加 `fig.show()` 或 "
+            '`fig.write_html("chart.html")`。'
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _render_batch_readme(
+    records: list[dict[str, Any]],
+    slugs: list[str],
+    *,
+    session_id: str,
+) -> str:
+    """渲染批量 bundle 的 README.md。"""
+    session_id_short = session_id[:8] if session_id else "unknown"
+    lines = [
+        f"# Nini 代码档案（会话 {session_id_short}）",
+        "",
+        f"共 {len(records)} 份代码归档，按时间升序排列。",
+        "",
+        "## 运行",
+        "",
+        "```bash",
+        "bash run_all.sh",
+        "```",
+        "",
+        "## 步骤列表",
+        "",
+    ]
+    for idx, (record, slug) in enumerate(zip(records, slugs), 1):
+        intent = record.get("intent") or "未命名"
+        purpose = str(record.get("tool_args", {}).get("purpose") or "exploration")
+        purpose_zh = _PURPOSE_ZH.get(purpose, purpose)
+        language = str(record.get("language") or "python")
+        ext = "R" if language == "r" else "py"
+        lines.append(
+            f"{idx}. **{intent}**（{purpose_zh}）· "
+            f"{record.get('created_at', '')} · `{slug}/script.{ext}`"
+        )
+    lines += [
+        "",
+        "## 已知约束",
+        "",
+        "- 本压缩包内含输入数据集，分享前请确认不含敏感信息。",
+        "- R 脚本的数据加载需要手工补充 `read.csv(...)`。",
+    ]
+    return "\n".join(lines) + "\n"

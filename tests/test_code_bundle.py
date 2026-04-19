@@ -228,3 +228,64 @@ def test_resolve_output_names_uses_index(workspace_with_dataset):
     names = _resolve_output_names(ws, ["art_xyz", "unknown_id"])
     assert "sales_chart.png" in names
     assert "unknown_id" in names
+
+
+from nini.workspace.code_bundle import _render_batch_readme, _render_single_readme
+
+
+def test_render_single_readme_includes_key_sections():
+    record = {
+        "id": "abc123",
+        "session_id": "sess7890abcdef",
+        "created_at": "2026-04-18T03:56:56Z",
+        "language": "python",
+        "intent": "x 列标准化",
+        "tool_args": {"purpose": "exploration", "dataset_name": "raw.csv"},
+    }
+    readme = _render_single_readme(
+        record, dataset_files=["raw.csv"], output_names=["normalized.csv"]
+    )
+    assert "# x 列标准化" in readme
+    assert "sess7890" in readme
+    assert "abc123" in readme
+    assert "datasets/raw.csv" in readme
+    assert "normalized.csv" in readme
+    assert "bash run.sh" in readme
+
+
+def test_render_single_readme_visualization_caveat():
+    record = {
+        "id": "a",
+        "session_id": "s",
+        "created_at": "t",
+        "language": "python",
+        "intent": "销售图表",
+        "tool_args": {"purpose": "visualization"},
+    }
+    readme = _render_single_readme(record, dataset_files=[], output_names=[])
+    assert "fig.show()" in readme or "fig.write_html" in readme
+
+
+def test_render_batch_readme_lists_all_steps():
+    records = [
+        {
+            "id": "a1",
+            "created_at": "2026-04-18T01:00:00Z",
+            "intent": "步骤1",
+            "language": "python",
+            "tool_args": {"purpose": "exploration"},
+        },
+        {
+            "id": "a2",
+            "created_at": "2026-04-18T02:00:00Z",
+            "intent": "步骤2",
+            "language": "python",
+            "tool_args": {"purpose": "visualization"},
+        },
+    ]
+    slugs = ["01_步骤1", "02_步骤2"]
+    readme = _render_batch_readme(records, slugs, session_id="sess7890abcdef")
+    assert "步骤1" in readme
+    assert "步骤2" in readme
+    assert "01_步骤1/script" in readme
+    assert "02_步骤2/script" in readme
