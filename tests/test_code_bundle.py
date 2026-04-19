@@ -71,3 +71,97 @@ def test_extract_deps_r_returns_empty_mvp():
 def test_extract_deps_syntax_error_returns_empty():
     # 语法错误不应抛，返回空列表，README 会提示用户手工核对
     assert _extract_dependencies("def broken(", "python") == []
+
+
+from nini.workspace.code_bundle import _patch_script
+
+
+def test_patch_script_includes_metadata_header():
+    code = "output_df = df.copy()"
+    tool_args = {"dataset_name": "raw.csv", "purpose": "exploration"}
+    meta = {
+        "execution_id": "abc123",
+        "session_id": "sess7890",
+        "created_at": "2026-04-18T03:56:56Z",
+        "intent": "x 列标准化",
+        "tool_name": "run_code",
+    }
+    result = _patch_script(code, "python", tool_args, meta)
+    assert "意图：x 列标准化" in result
+    assert "执行 ID：abc123" in result
+    assert "purpose=exploration" in result
+
+
+def test_patch_script_injects_df_when_dataset_name_set():
+    code = "output_df = df.copy()"
+    tool_args = {"dataset_name": "raw.csv", "purpose": "exploration"}
+    meta = {
+        "execution_id": "a",
+        "session_id": "s",
+        "created_at": "t",
+        "intent": None,
+        "tool_name": "run_code",
+    }
+    result = _patch_script(code, "python", tool_args, meta)
+    assert 'datasets = {p.stem: pd.read_csv(p) for p in _DATASETS_DIR.glob("*.csv")}' in result
+    assert 'df = datasets["raw"].copy()' in result
+
+
+def test_patch_script_skips_df_binding_when_no_dataset():
+    code = "print('hello')"
+    tool_args = {"purpose": "exploration"}
+    meta = {
+        "execution_id": "a",
+        "session_id": "s",
+        "created_at": "t",
+        "intent": None,
+        "tool_name": "run_code",
+    }
+    result = _patch_script(code, "python", tool_args, meta)
+    assert "datasets =" in result
+    assert "df = datasets[" not in result
+
+
+def test_patch_script_preserves_original_code():
+    code = "output_df = df.copy()\noutput_df['x_norm'] = output_df['x'] * 2"
+    tool_args = {"dataset_name": "raw.csv", "purpose": "exploration"}
+    meta = {
+        "execution_id": "a",
+        "session_id": "s",
+        "created_at": "t",
+        "intent": None,
+        "tool_name": "run_code",
+    }
+    result = _patch_script(code, "python", tool_args, meta)
+    assert "output_df = df.copy()" in result
+    assert "output_df['x_norm'] = output_df['x'] * 2" in result
+
+
+def test_patch_script_appends_to_csv_fallback():
+    code = "output_df = df.copy()"
+    tool_args = {"dataset_name": "raw.csv", "purpose": "exploration"}
+    meta = {
+        "execution_id": "a",
+        "session_id": "s",
+        "created_at": "t",
+        "intent": None,
+        "tool_name": "run_code",
+    }
+    result = _patch_script(code, "python", tool_args, meta)
+    assert 'if "output_df" in dir()' in result
+    assert "output_df.to_csv" in result
+
+
+def test_patch_script_r_minimal_header_only():
+    code = "df %>% mutate(x_norm = scale(x))"
+    tool_args = {"dataset_name": "raw.csv", "purpose": "exploration"}
+    meta = {
+        "execution_id": "a",
+        "session_id": "s",
+        "created_at": "t",
+        "intent": "test",
+        "tool_name": "run_r_code",
+    }
+    result = _patch_script(code, "r", tool_args, meta)
+    assert "# 意图：test" in result
+    assert "df %>% mutate" in result

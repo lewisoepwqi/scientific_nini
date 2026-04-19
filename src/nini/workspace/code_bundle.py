@@ -95,3 +95,82 @@ def _extract_dependencies(code: str, language: str) -> list[str]:
             candidates.add(_PYPI_ALIASES.get(root, root))
 
     return sorted(candidates)
+
+
+_PYTHON_HEADER_TEMPLATE = """\
+# ========== Nini 代码档案 ==========
+# 意图：{intent}
+# 执行时间：{created_at}
+# 来源会话：{session_id_short} / 执行 ID：{execution_id}
+# 原始 tool：{tool_name} (purpose={purpose})
+# ===================================
+
+from pathlib import Path
+import pandas as pd
+
+# --- 自动加载输入数据（Nini 沙盒注入变量的离线等价） ---
+_DATASETS_DIR = Path(__file__).parent / "datasets"
+datasets = {{p.stem: pd.read_csv(p) for p in _DATASETS_DIR.glob("*.csv")}}
+{df_binding}
+
+# --- 原始代码 ---
+"""
+
+_PYTHON_FOOTER = """
+
+# --- 保存变更（若存在标准输出变量） ---
+if "output_df" in dir():
+    output_df.to_csv(Path(__file__).parent / "output.csv", index=False)
+elif "result_df" in dir():
+    result_df.to_csv(Path(__file__).parent / "result.csv", index=False)
+"""
+
+_R_HEADER_TEMPLATE = """\
+# ========== Nini 代码档案 ==========
+# 意图：{intent}
+# 执行时间：{created_at}
+# 来源会话：{session_id_short} / 执行 ID：{execution_id}
+# 原始 tool：{tool_name} (purpose={purpose})
+#
+# 注意：R 脚本离线复现需要自行加载数据集，示例：
+#   df <- read.csv("datasets/<name>.csv")
+# ===================================
+
+"""
+
+
+def _patch_script(
+    code: str,
+    language: str,
+    tool_args: dict,
+    meta: dict,
+) -> str:
+    """在原始脚本前后追加元信息头部、数据加载前导、输出落盘代码。
+
+    Python：完整 patch（头部 + df 加载 + 原代码 + to_csv 落盘）
+    R：MVP 仅附带元信息头部，不做变量注入
+    """
+    intent = meta.get("intent") or "未命名"
+    session_id = str(meta.get("session_id") or "")
+    session_id_short = session_id[:8] if session_id else "unknown"
+    fields = {
+        "intent": intent,
+        "created_at": meta.get("created_at") or "",
+        "session_id_short": session_id_short,
+        "execution_id": meta.get("execution_id") or "",
+        "tool_name": meta.get("tool_name") or "run_code",
+        "purpose": tool_args.get("purpose") or "exploration",
+    }
+
+    if language == "r":
+        return _R_HEADER_TEMPLATE.format(**fields) + code.rstrip() + "\n"
+
+    dataset_name = tool_args.get("dataset_name")
+    if isinstance(dataset_name, str) and dataset_name.strip():
+        stem = dataset_name.rsplit(".", 1)[0]
+        df_binding = f'df = datasets["{stem}"].copy()'
+    else:
+        df_binding = ""
+
+    header = _PYTHON_HEADER_TEMPLATE.format(df_binding=df_binding, **fields)
+    return header + code.rstrip() + _PYTHON_FOOTER
