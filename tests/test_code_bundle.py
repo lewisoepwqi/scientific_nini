@@ -446,3 +446,77 @@ def test_build_batch_bundle_empty_when_no_records(tmp_path, monkeypatch):
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         names = zf.namelist()
     assert names == ["README.md"]
+
+
+# --- API 路由集成测试 ---
+
+
+@pytest.fixture
+def api_client(tmp_path, monkeypatch):
+    """创建带临时数据目录的 LocalASGIClient。"""
+    from nini.agent.session import session_manager
+    from nini.app import create_app
+    from nini.config import settings
+    from tests.client_utils import LocalASGIClient
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    settings.ensure_dirs()
+    session_manager._sessions.clear()
+    app = create_app()
+    with LocalASGIClient(app) as client:
+        yield client
+    session_manager._sessions.clear()
+
+
+def test_api_single_bundle_returns_zip(api_client):
+    from nini.agent.session import session_manager
+
+    session_manager.get_or_create("apitest12")
+    ws = WorkspaceManager("apitest12")
+    ws.ensure_dirs()
+    exec_record = ws.save_code_execution(
+        code="x=1",
+        output="",
+        status="success",
+        language="python",
+        tool_name="run_code",
+        tool_args={"purpose": "exploration"},
+        intent="api 测试",
+    )
+    response = api_client.get(f"/api/workspace/apitest12/executions/{exec_record['id']}/bundle")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert "attachment" in response.headers.get("content-disposition", "")
+
+
+def test_api_batch_bundle_returns_zip(api_client):
+    from nini.agent.session import session_manager
+
+    session_manager.get_or_create("batchapi8")
+    ws = WorkspaceManager("batchapi8")
+    ws.ensure_dirs()
+    ws.save_code_execution(
+        code="x=1",
+        output="",
+        status="success",
+        language="python",
+        tool_name="run_code",
+        tool_args={"purpose": "exploration"},
+        intent="批量测试",
+    )
+    response = api_client.get("/api/workspace/batchapi8/executions/bundle")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+
+
+def test_api_bundle_missing_session_404(api_client):
+    response = api_client.get("/api/workspace/notexist/executions/bundle")
+    assert response.status_code == 404
+
+
+def test_api_single_bundle_missing_execution_404(api_client):
+    from nini.agent.session import session_manager
+
+    session_manager.get_or_create("sess404a")
+    response = api_client.get("/api/workspace/sess404a/executions/xxxxxx/bundle")
+    assert response.status_code == 404
