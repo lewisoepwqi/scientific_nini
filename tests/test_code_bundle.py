@@ -289,3 +289,72 @@ def test_render_batch_readme_lists_all_steps():
     assert "步骤2" in readme
     assert "01_步骤1/script" in readme
     assert "02_步骤2/script" in readme
+
+
+import io
+import zipfile
+
+from nini.workspace.code_bundle import build_single_bundle
+
+
+def test_build_single_bundle_contains_all_files(workspace_with_dataset):
+    ws = workspace_with_dataset
+    exec_record = ws.save_code_execution(
+        code="output_df = df.copy()\noutput_df['y2'] = output_df['y'] * 2",
+        output="已保存",
+        status="success",
+        language="python",
+        tool_name="run_code",
+        tool_args={"purpose": "exploration", "dataset_name": "raw.csv"},
+        intent="测试归档",
+    )
+    zip_bytes = build_single_bundle(ws, exec_record["id"])
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        names = set(zf.namelist())
+    assert "README.md" in names
+    assert "script.py" in names
+    assert "requirements.txt" in names
+    assert "run.sh" in names
+    assert "datasets/raw.csv" in names
+
+
+def test_build_single_bundle_script_has_patch_header(workspace_with_dataset):
+    ws = workspace_with_dataset
+    exec_record = ws.save_code_execution(
+        code="output_df = df.copy()",
+        output="",
+        status="success",
+        language="python",
+        tool_name="run_code",
+        tool_args={"purpose": "exploration", "dataset_name": "raw.csv"},
+        intent="测试",
+    )
+    zip_bytes = build_single_bundle(ws, exec_record["id"])
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        script = zf.read("script.py").decode("utf-8")
+    assert "Nini 代码档案" in script
+    assert 'df = datasets["raw"].copy()' in script
+    assert "output_df = df.copy()" in script
+
+
+def test_build_single_bundle_missing_execution_raises(workspace_with_dataset):
+    with pytest.raises(ValueError, match="不存在"):
+        build_single_bundle(workspace_with_dataset, "nonexistent_id")
+
+
+def test_build_single_bundle_r_script_uses_r_extension(workspace_with_dataset):
+    ws = workspace_with_dataset
+    exec_record = ws.save_code_execution(
+        code="df <- data.frame(x=1:3)",
+        output="",
+        status="success",
+        language="r",
+        tool_name="run_r_code",
+        tool_args={"purpose": "exploration"},
+        intent="r 测试",
+    )
+    zip_bytes = build_single_bundle(ws, exec_record["id"])
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        names = set(zf.namelist())
+    assert "script.R" in names
+    assert "script.py" not in names

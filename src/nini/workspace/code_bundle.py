@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import ast
+import io
 import re
 import sys
+import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -280,6 +282,76 @@ def _render_single_readme(
             '`fig.write_html("chart.html")`。'
         )
     return "\n".join(lines) + "\n"
+
+
+_RUN_SH_PYTHON = """\
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python script.py
+"""
+
+_RUN_SH_R = """\
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+Rscript install.R
+Rscript script.R
+"""
+
+_INSTALL_R_TEMPLATE = """\
+# R 基础依赖（请按脚本实际 library() 调用手工补充）
+install.packages(c("readr", "dplyr", "ggplot2"), repos = "https://cloud.r-project.org")
+"""
+
+
+def build_single_bundle(ws: "WorkspaceManager", execution_id: str) -> bytes:
+    """打包单条执行记录为可复现 zip。返回 zip 字节。"""
+    record = ws.get_code_execution(execution_id)
+    if record is None:
+        raise ValueError(f"执行记录 '{execution_id}' 不存在")
+
+    language = str(record.get("language") or "python")
+    code = str(record.get("code") or "")
+    tool_args = record.get("tool_args") or {}
+    meta = {
+        "execution_id": record.get("id"),
+        "session_id": record.get("session_id"),
+        "created_at": record.get("created_at"),
+        "intent": record.get("intent"),
+        "tool_name": record.get("tool_name"),
+    }
+
+    patched = _patch_script(code, language, tool_args, meta)
+    deps = _extract_dependencies(code, language)
+    dataset_paths = _resolve_dataset_files(ws, tool_args)
+    output_names = _resolve_output_names(ws, record.get("output_resource_ids") or [])
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        script_name = "script.R" if language == "r" else "script.py"
+        zf.writestr(script_name, patched)
+        zf.writestr(
+            "README.md",
+            _render_single_readme(
+                record,
+                dataset_files=[p.name for p in dataset_paths],
+                output_names=output_names,
+            ),
+        )
+        if language == "r":
+            zf.writestr("install.R", _INSTALL_R_TEMPLATE)
+            zf.writestr("run.sh", _RUN_SH_R)
+        else:
+            zf.writestr("requirements.txt", "\n".join(deps) + ("\n" if deps else ""))
+            zf.writestr("run.sh", _RUN_SH_PYTHON)
+        for path in dataset_paths:
+            zf.write(path, arcname=f"datasets/{path.name}")
+
+    return buf.getvalue()
 
 
 def _render_batch_readme(
