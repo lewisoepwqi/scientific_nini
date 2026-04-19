@@ -11,7 +11,6 @@ import sys
 
 from nini.sandbox.policy import ALLOWED_IMPORT_ROOTS, REVIEWABLE_IMPORT_ROOTS
 
-
 _SLUG_MAX_LEN = 40
 
 
@@ -88,7 +87,11 @@ def _extract_dependencies(code: str, language: str) -> list[str]:
     for root in roots:
         if root in stdlib_names:
             continue
-        if root in _PIP_INSTALLABLE or root in REVIEWABLE_IMPORT_ROOTS or root not in ALLOWED_IMPORT_ROOTS:
+        if (
+            root in _PIP_INSTALLABLE
+            or root in REVIEWABLE_IMPORT_ROOTS
+            or root not in ALLOWED_IMPORT_ROOTS
+        ):
             candidates.add(_PYPI_ALIASES.get(root, root))
 
     return sorted(candidates)
