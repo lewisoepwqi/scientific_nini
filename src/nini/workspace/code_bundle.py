@@ -181,9 +181,7 @@ def _patch_script(
     return header + code.rstrip() + _PYTHON_FOOTER
 
 
-def _resolve_dataset_files(
-    ws: "WorkspaceManager", tool_args: dict[str, Any]
-) -> list[Path]:
+def _resolve_dataset_files(ws: "WorkspaceManager", tool_args: dict[str, Any]) -> list[Path]:
     """根据 tool_args.dataset_name 定位物理 CSV 文件。"""
     name = tool_args.get("dataset_name")
     if not isinstance(name, str) or not name.strip():
@@ -198,9 +196,7 @@ def _resolve_dataset_files(
     return [path] if path.exists() else []
 
 
-def _resolve_output_names(
-    ws: "WorkspaceManager", output_resource_ids: list[str]
-) -> list[str]:
+def _resolve_output_names(ws: "WorkspaceManager", output_resource_ids: list[str]) -> list[str]:
     """将资源 ID 列表反查为人类可读名称。未找到的保留原 ID。"""
     if not output_resource_ids:
         return []
