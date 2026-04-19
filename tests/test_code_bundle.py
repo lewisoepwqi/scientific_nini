@@ -358,3 +358,91 @@ def test_build_single_bundle_r_script_uses_r_extension(workspace_with_dataset):
         names = set(zf.namelist())
     assert "script.R" in names
     assert "script.py" not in names
+
+
+from nini.workspace.code_bundle import build_batch_bundle
+
+
+def test_build_batch_bundle_orders_by_time_ascending(workspace_with_dataset):
+    ws = workspace_with_dataset
+    for i in range(3):
+        ws.save_code_execution(
+            code=f"x = {i}",
+            output="",
+            status="success",
+            language="python",
+            tool_name="run_code",
+            tool_args={"purpose": "exploration"},
+            intent=f"步骤{i}",
+        )
+    zip_bytes = build_batch_bundle(ws)
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        names = sorted(n for n in zf.namelist() if n.startswith("0"))
+    assert any(n.startswith("01_") for n in names)
+    assert any(n.startswith("02_") for n in names)
+    assert any(n.startswith("03_") for n in names)
+
+
+def test_build_batch_bundle_filters_non_run_code_tools(workspace_with_dataset):
+    ws = workspace_with_dataset
+    ws.save_code_execution(
+        code="x = 1",
+        output="",
+        status="success",
+        language="python",
+        tool_name="run_code",
+        tool_args={"purpose": "exploration"},
+        intent="保留",
+    )
+    ws.save_code_execution(
+        code="noise",
+        output="",
+        status="success",
+        language="python",
+        tool_name="stat_test",
+        tool_args={},
+        intent="过滤掉",
+    )
+    zip_bytes = build_batch_bundle(ws)
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        readme = zf.read("README.md").decode("utf-8")
+    assert "保留" in readme
+    assert "过滤掉" not in readme
+
+
+def test_build_batch_bundle_deduplicates_datasets(workspace_with_dataset):
+    ws = workspace_with_dataset
+    ws.save_code_execution(
+        code="a=1",
+        output="",
+        status="success",
+        language="python",
+        tool_name="run_code",
+        tool_args={"purpose": "exploration", "dataset_name": "raw.csv"},
+        intent="步骤1",
+    )
+    ws.save_code_execution(
+        code="b=2",
+        output="",
+        status="success",
+        language="python",
+        tool_name="run_code",
+        tool_args={"purpose": "exploration", "dataset_name": "raw.csv"},
+        intent="步骤2",
+    )
+    zip_bytes = build_batch_bundle(ws)
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        csv_entries = [n for n in zf.namelist() if n.startswith("datasets/")]
+    assert csv_entries.count("datasets/raw.csv") == 1
+
+
+def test_build_batch_bundle_empty_when_no_records(tmp_path, monkeypatch):
+    from nini.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    ws2 = WorkspaceManager("empty_session_xxx")
+    ws2.ensure_dirs()
+    zip_bytes = build_batch_bundle(ws2)
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        names = zf.namelist()
+    assert names == ["README.md"]

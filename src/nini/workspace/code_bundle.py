@@ -394,3 +394,97 @@ def _render_batch_readme(
         "- R 脚本的数据加载需要手工补充 `read.csv(...)`。",
     ]
     return "\n".join(lines) + "\n"
+
+
+_RUN_ALL_SH = """\
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+for dir in */; do
+  script_py="$dir/script.py"
+  script_r="$dir/script.R"
+  if [ -f "$script_py" ]; then
+    echo ">>> 执行 $script_py"
+    python "$script_py"
+  elif [ -f "$script_r" ]; then
+    echo ">>> 执行 $script_r"
+    Rscript "$script_r"
+  fi
+done
+"""
+
+
+def build_batch_bundle(ws: "WorkspaceManager") -> bytes:
+    """打包会话所有 run_code / run_r_code 记录为批量 zip。按时间升序。"""
+    all_records = ws.list_code_executions(limit=500)
+    records = [r for r in all_records if r.get("tool_name") in {"run_code", "run_r_code"}]
+    records.sort(key=lambda r: str(r.get("created_at", "")))
+
+    if not records:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(
+                "README.md",
+                _render_batch_readme([], [], session_id=ws.session_id),
+            )
+        return buf.getvalue()
+
+    slugs: list[str] = []
+    all_deps: set[str] = set()
+    seen_datasets: set[str] = set()
+    dataset_paths_global: list[Path] = []
+
+    for idx, record in enumerate(records, 1):
+        tool_args = record.get("tool_args") or {}
+        slug_base = _make_slug(
+            record.get("intent"),
+            tool_args.get("label"),
+            str(tool_args.get("purpose") or "exploration"),
+        )
+        slugs.append(f"{idx:02d}_{slug_base}")
+
+        deps = _extract_dependencies(
+            str(record.get("code") or ""),
+            str(record.get("language") or "python"),
+        )
+        all_deps.update(deps)
+
+        for path in _resolve_dataset_files(ws, tool_args):
+            if path.name not in seen_datasets:
+                seen_datasets.add(path.name)
+                dataset_paths_global.append(path)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            "README.md",
+            _render_batch_readme(records, slugs, session_id=ws.session_id),
+        )
+        zf.writestr(
+            "requirements.txt",
+            "\n".join(sorted(all_deps)) + ("\n" if all_deps else ""),
+        )
+        zf.writestr("run_all.sh", _RUN_ALL_SH)
+
+        for record, slug in zip(records, slugs):
+            language = str(record.get("language") or "python")
+            code = str(record.get("code") or "")
+            tool_args = record.get("tool_args") or {}
+            meta = {
+                "execution_id": record.get("id"),
+                "session_id": record.get("session_id"),
+                "created_at": record.get("created_at"),
+                "intent": record.get("intent"),
+                "tool_name": record.get("tool_name"),
+            }
+            patched = _patch_script(code, language, tool_args, meta)
+            script_name = "script.R" if language == "r" else "script.py"
+            zf.writestr(f"{slug}/{script_name}", patched)
+
+        for path in dataset_paths_global:
+            zf.write(path, arcname=f"datasets/{path.name}")
+
+    return buf.getvalue()
