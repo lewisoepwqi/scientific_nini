@@ -1,6 +1,6 @@
 """代码档案 bundle 构建。
 
-将 run_code / run_r_code 执行记录打包为可复现的 zip，供用户下载本地执行。
+将 run_code / run_r_code / code_session 执行记录打包为可复现的 zip，供用户下载本地执行。
 """
 
 from __future__ import annotations
@@ -19,6 +19,10 @@ if TYPE_CHECKING:
     from nini.workspace.manager import WorkspaceManager
 
 _SLUG_MAX_LEN = 40
+
+# 会被代码档案收录的工具名：历史 run_code/run_r_code + 当前主链路 code_session。
+# code_session 实际承担了 CodeSessionTool 所有 run_* 操作与子 Agent 调用。
+ARCHIVED_TOOL_NAMES: frozenset[str] = frozenset({"run_code", "run_r_code", "code_session"})
 
 
 def _make_slug(intent: str | None, label: str | None, purpose: str) -> str:
@@ -418,9 +422,9 @@ done
 
 
 def build_batch_bundle(ws: "WorkspaceManager") -> bytes:
-    """打包会话所有 run_code / run_r_code 记录为批量 zip。按时间升序。"""
+    """打包会话所有代码档案记录为批量 zip。按时间升序。"""
     all_records = ws.list_code_executions(limit=500)
-    records = [r for r in all_records if r.get("tool_name") in {"run_code", "run_r_code"}]
+    records = [r for r in all_records if r.get("tool_name") in ARCHIVED_TOOL_NAMES]
     records.sort(key=lambda r: str(r.get("created_at", "")))
 
     if not records:
