@@ -383,7 +383,8 @@ def test_build_batch_bundle_orders_by_time_ascending(workspace_with_dataset):
     assert any(n.startswith("03_") for n in names)
 
 
-def test_build_batch_bundle_filters_non_run_code_tools(workspace_with_dataset):
+def test_build_batch_bundle_filters_non_archived_tools(workspace_with_dataset):
+    """白名单：run_code / run_r_code / code_session 被保留，其它工具过滤。"""
     ws = workspace_with_dataset
     ws.save_code_execution(
         code="x = 1",
@@ -392,7 +393,25 @@ def test_build_batch_bundle_filters_non_run_code_tools(workspace_with_dataset):
         language="python",
         tool_name="run_code",
         tool_args={"purpose": "exploration"},
-        intent="保留",
+        intent="保留-run_code",
+    )
+    ws.save_code_execution(
+        code="y = 2",
+        output="",
+        status="success",
+        language="python",
+        tool_name="code_session",
+        tool_args={"purpose": "exploration"},
+        intent="保留-code_session",
+    )
+    ws.save_code_execution(
+        code="ggplot(df)",
+        output="",
+        status="success",
+        language="r",
+        tool_name="run_r_code",
+        tool_args={"purpose": "visualization"},
+        intent="保留-run_r_code",
     )
     ws.save_code_execution(
         code="noise",
@@ -406,7 +425,9 @@ def test_build_batch_bundle_filters_non_run_code_tools(workspace_with_dataset):
     zip_bytes = build_batch_bundle(ws)
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         readme = zf.read("README.md").decode("utf-8")
-    assert "保留" in readme
+    assert "保留-run_code" in readme
+    assert "保留-code_session" in readme
+    assert "保留-run_r_code" in readme
     assert "过滤掉" not in readme
 
 

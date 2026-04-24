@@ -1,5 +1,5 @@
 /**
- * 代码档案面板 —— 聚焦 run_code / run_r_code 记录，支持单条与批量下载。
+ * 代码档案面板 —— 聚焦 run_code / run_r_code / code_session 记录，按语言分组展示，支持单条与批量下载。
  */
 import { useEffect, useCallback, useState } from "react";
 import { useStore, type CodeExecution } from "../store";
@@ -320,9 +320,19 @@ export default function CodeExecutionPanel() {
     if (sessionId) fetchCodeExecutions();
   }, [sessionId, fetchCodeExecutions]);
 
-  const filtered = codeExecutions.filter(
-    (e) => e.tool_name === "run_code" || e.tool_name === "run_r_code",
+  const ARCHIVED_TOOL_NAMES = new Set(["run_code", "run_r_code", "code_session"]);
+  const filtered = codeExecutions.filter((e) =>
+    ARCHIVED_TOOL_NAMES.has(e.tool_name ?? ""),
   );
+
+  // 按语言分组：Python 与 R 各自一节，保持各自时间线。
+  const pythonExecs = filtered.filter((e) => (e.language ?? "python") !== "r");
+  const rExecs = filtered.filter((e) => e.language === "r");
+  const groups: Array<{ key: "python" | "r"; label: string; execs: CodeExecution[] }> = [];
+  if (pythonExecs.length > 0)
+    groups.push({ key: "python", label: "Python", execs: pythonExecs });
+  if (rExecs.length > 0) groups.push({ key: "r", label: "R", execs: rExecs });
+  const showGroupHeaders = groups.length > 1;
 
   const handleBatchDownload = useCallback(async () => {
     if (!sessionId) return;
@@ -369,17 +379,34 @@ export default function CodeExecutionPanel() {
           <span>全部下载</span>
         </Button>
       </div>
-      <div className="relative">
-        <div
-          className="absolute left-[11px] top-6 bottom-4 w-0.5"
-          style={{ background: "var(--border-default)" }}
-        />
-        <div className="flex flex-col">
-          {filtered.map((exec) => (
-            <ExecutionItem key={exec.id} exec={exec} sessionId={sessionId || ""} />
-          ))}
+      {groups.map((group) => (
+        <div key={group.key} className="mb-3 last:mb-0">
+          {showGroupHeaders && (
+            <div
+              className="flex items-center gap-2 px-1 mb-1.5 text-[11px] text-[var(--text-muted)]"
+              data-testid={`lang-header-${group.key}`}
+            >
+              <span className="font-medium">{group.label}</span>
+              <span className="text-[10px]">({group.execs.length})</span>
+              <div
+                className="flex-1 h-px"
+                style={{ background: "var(--border-default)" }}
+              />
+            </div>
+          )}
+          <div className="relative">
+            <div
+              className="absolute left-[11px] top-6 bottom-4 w-0.5"
+              style={{ background: "var(--border-default)" }}
+            />
+            <div className="flex flex-col">
+              {group.execs.map((exec) => (
+                <ExecutionItem key={exec.id} exec={exec} sessionId={sessionId || ""} />
+              ))}
+            </div>
+          </div>
         </div>
-      </div>
+      ))}
     </div>
   );
 }
