@@ -47,6 +47,10 @@ from nini.agent.plan_parser import AnalysisPlan, parse_analysis_plan
 # 导入类型安全的事件构造器（逐步迁移中）
 from nini.agent import event_builders as eb
 
+from nini.agent.completion_summarizers import (
+    format_summary_prompt as _format_completion_summary_prompt,
+    summarize_completion as _summarize_tool_completion,
+)
 from nini.agent.loop_guard import LoopGuard, LoopGuardDecision, build_loop_warn_message
 from nini.agent.tool_exposure_policy import (
     compute_tool_exposure_policy,
@@ -648,6 +652,9 @@ class AgentRunner:
         pending_loop_warn_message: str | None = None
         # 工具熔断后的 CoT fallback 提示，在下一轮 LLM 请求时注入
         pending_breaker_fallback_prompt: str | None = None
+        # 批次完成摘要：本轮已成功的守卫语义工具，在下一轮 LLM 请求时注入
+        # 为 system 备注，让 LLM 主动感知已完成状态、避免重复调用。
+        pending_completion_summary_lines: list[str] = []
         # 结论合成提示是否已使用（防止重复触发）
         synthesis_prompt_used: bool = False
         emitted_data_preview_signatures: set[str] = set()
@@ -932,6 +939,20 @@ class AgentRunner:
                     },
                 ]
                 pending_breaker_fallback_prompt = None
+
+            # 注入批次完成摘要：上一轮若有守卫语义工具成功，主动告知 LLM
+            # 已完成的调用，避免下一轮重复发起相同请求（预防层，守卫为兜底）。
+            if settings.runner_completion_summary_enabled and pending_completion_summary_lines:
+                summary_prompt = _format_completion_summary_prompt(pending_completion_summary_lines)
+                if summary_prompt:
+                    messages = [
+                        *messages,
+                        {
+                            "role": "system",
+                            "content": summary_prompt,
+                        },
+                    ]
+                pending_completion_summary_lines = []
 
             # 调用 LLM（流式）；若遇到上下文超限错误，自动压缩后重试一次
             full_text = ""
@@ -2309,6 +2330,17 @@ class AgentRunner:
                             )
                             completed_profiles.add(dataset_name)
                             setattr(session, "_completed_dataset_profiles", completed_profiles)
+                        # 批次完成摘要：本轮成功的守卫语义工具会在下一轮以 system
+                        # 备注形式主动注入，避免 LLM 重复调用。未登记 summarizer
+                        # 的工具返回 None，不入队。
+                        if settings.runner_completion_summary_enabled and isinstance(result, dict):
+                            summary_line = _summarize_tool_completion(
+                                func_name,
+                                parse_tool_arguments(func_args) or {},
+                                result,
+                            )
+                            if summary_line:
+                                pending_completion_summary_lines.append(summary_line)
                         tool_failure_chains.pop(tool_args_signature, None)
                         # 工具成功：重置连续失败计数
                         consecutive_tool_failure_count = 0
