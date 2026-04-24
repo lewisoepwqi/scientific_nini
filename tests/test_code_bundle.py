@@ -384,7 +384,7 @@ def test_build_batch_bundle_orders_by_time_ascending(workspace_with_dataset):
 
 
 def test_build_batch_bundle_filters_non_archived_tools(workspace_with_dataset):
-    """白名单：run_code / run_r_code / code_session 被保留，其它工具过滤。"""
+    """白名单：run_code / run_r_code / code_session / chart_session 被保留，其它工具过滤。"""
     ws = workspace_with_dataset
     ws.save_code_execution(
         code="x = 1",
@@ -414,6 +414,15 @@ def test_build_batch_bundle_filters_non_archived_tools(workspace_with_dataset):
         intent="保留-run_r_code",
     )
     ws.save_code_execution(
+        code="import plotly.express as px\nfig = px.line(df)",
+        output="",
+        status="success",
+        language="python",
+        tool_name="chart_session",
+        tool_args={"purpose": "visualization", "chart_type": "line"},
+        intent="保留-chart_session",
+    )
+    ws.save_code_execution(
         code="noise",
         output="",
         status="success",
@@ -428,6 +437,7 @@ def test_build_batch_bundle_filters_non_archived_tools(workspace_with_dataset):
     assert "保留-run_code" in readme
     assert "保留-code_session" in readme
     assert "保留-run_r_code" in readme
+    assert "保留-chart_session" in readme
     assert "过滤掉" not in readme
 
 

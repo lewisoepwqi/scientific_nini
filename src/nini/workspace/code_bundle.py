@@ -20,9 +20,11 @@ if TYPE_CHECKING:
 
 _SLUG_MAX_LEN = 40
 
-# 会被代码档案收录的工具名：历史 run_code/run_r_code + 当前主链路 code_session。
-# code_session 实际承担了 CodeSessionTool 所有 run_* 操作与子 Agent 调用。
-ARCHIVED_TOOL_NAMES: frozenset[str] = frozenset({"run_code", "run_r_code", "code_session"})
+# 会被代码档案收录的工具名：历史 run_code/run_r_code + 当前主链路 code_session +
+# 可视化链路 chart_session（通过模板生成 Python 绘图脚本并写入代码档案，保证图表可复现）。
+ARCHIVED_TOOL_NAMES: frozenset[str] = frozenset(
+    {"run_code", "run_r_code", "code_session", "chart_session"}
+)
 
 
 def _make_slug(intent: str | None, label: str | None, purpose: str) -> str:

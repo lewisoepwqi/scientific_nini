@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from nini.charts.code_templates.matplotlib_templates import render_matplotlib_script
 from nini.charts.code_templates.plotly_templates import render_plotly_script
 
-__all__ = ["render_plotly_script"]
+__all__ = ["render_plotly_script", "render_matplotlib_script"]
