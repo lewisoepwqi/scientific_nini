@@ -12,12 +12,24 @@ import pandas as pd
 import pytest
 
 from nini.agent.session import Session
+from nini.charts.code_templates import render_matplotlib_script, render_plotly_script
 from nini.charts.style_contract import build_style_spec, normalize_render_engine
-from nini.charts.renderers import apply_plotly_style
 from nini.config import settings
 from nini.tools.markdown_scanner import scan_markdown_tools
 from nini.tools.registry import create_default_tool_registry
 from nini.tools.visualization import CreateChartTool
+
+
+def _exec_plotly_template(code: str, df: pd.DataFrame) -> Any:
+    namespace: dict[str, Any] = {"df": df}
+    exec(compile(code, "<plotly_template>", "exec"), namespace)
+    return namespace["fig"]
+
+
+def _exec_matplotlib_template(code: str, df: pd.DataFrame) -> Any:
+    namespace: dict[str, Any] = {"df": df}
+    exec(compile(code, "<matplotlib_template>", "exec"), namespace)
+    return namespace["fig"]
 
 
 @pytest.fixture(autouse=True)
@@ -87,25 +99,19 @@ def test_create_chart_with_matplotlib_engine_exports_publication_formats() -> No
 def test_cross_engine_style_parameters_consistent() -> None:
     """同一契约下关键样式参数应在双引擎一致。"""
     spec = build_style_spec("science")
-    skill = CreateChartTool()
     df = pd.DataFrame({"x": [1, 2, 3], "y": [2, 3, 4]})
     kwargs: dict[str, object] = {"x_column": "x", "y_column": "y"}
 
-    plotly_fig = skill._create_plotly_figure(df, "line", kwargs, list(spec.colors))
-    apply_plotly_style(plotly_fig, spec, "trend")
+    plotly_code = render_plotly_script("line", kwargs, spec, title="trend")
+    plotly_fig = _exec_plotly_template(plotly_code, df)
     layout = plotly_fig.to_plotly_json()["layout"]
     assert layout["font"]["size"] == spec.font_size
     assert layout["font"]["family"]
     assert layout["xaxis"]["linecolor"] == spec.axis_color
     assert layout["yaxis"]["linecolor"] == spec.axis_color
 
-    matplotlib_fig = skill._create_matplotlib_figure(
-        df=df,
-        chart_type="line",
-        kwargs=kwargs,
-        title="trend",
-        style_spec=spec,
-    )
+    matplotlib_code = render_matplotlib_script("line", kwargs, spec, title="trend")
+    matplotlib_fig = _exec_matplotlib_template(matplotlib_code, df)
     ax = matplotlib_fig.axes[0]
     line = ax.lines[0]
     assert round(float(line.get_linewidth()), 3) == round(float(spec.line_width), 3)
@@ -249,13 +255,12 @@ def _render_plotly_png(
 def test_cross_engine_visual_similarity_ssim_threshold() -> None:
     """同图跨引擎输出在可用环境下满足 SSIM 阈值。"""
     spec = build_style_spec("nature")
-    skill = CreateChartTool()
     df = pd.DataFrame({"x": [1, 2, 3, 4], "y": [2, 3, 3.5, 5]})
     kwargs: dict[str, object] = {"x_column": "x", "y_column": "y"}
 
     # 1) Plotly 渲染 PNG（依赖 kaleido + Chrome）
-    plotly_fig = skill._create_plotly_figure(df, "line", kwargs, list(spec.colors))
-    apply_plotly_style(plotly_fig, spec, "trend")
+    plotly_code = render_plotly_script("line", kwargs, spec, title="trend")
+    plotly_fig = _exec_plotly_template(plotly_code, df)
     try:
         plotly_png = _render_plotly_png(
             plotly_fig,
@@ -267,13 +272,8 @@ def test_cross_engine_visual_similarity_ssim_threshold() -> None:
         pytest.skip(f"Plotly PNG 导出不可用（可能缺 kaleido/Chrome）: {exc}")
 
     # 2) Matplotlib 渲染 PNG
-    matplotlib_fig = skill._create_matplotlib_figure(
-        df=df,
-        chart_type="line",
-        kwargs=kwargs,
-        title="trend",
-        style_spec=spec,
-    )
+    matplotlib_code = render_matplotlib_script("line", kwargs, spec, title="trend")
+    matplotlib_fig = _exec_matplotlib_template(matplotlib_code, df)
     matplot_buf = io.BytesIO()
     matplotlib_fig.savefig(matplot_buf, format="png", dpi=spec.dpi)
     matplotlib_fig.clf()

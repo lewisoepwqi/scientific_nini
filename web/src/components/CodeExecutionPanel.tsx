@@ -320,7 +320,12 @@ export default function CodeExecutionPanel() {
     if (sessionId) fetchCodeExecutions();
   }, [sessionId, fetchCodeExecutions]);
 
-  const ARCHIVED_TOOL_NAMES = new Set(["run_code", "run_r_code", "code_session"]);
+  const ARCHIVED_TOOL_NAMES = new Set([
+    "run_code",
+    "run_r_code",
+    "code_session",
+    "chart_session",
+  ]);
   const filtered = codeExecutions.filter((e) =>
     ARCHIVED_TOOL_NAMES.has(e.tool_name ?? ""),
   );

@@ -340,7 +340,12 @@ def test_task_write_init_adds_high_confidence_linear_dependencies() -> None:
             mode="init",
             tasks=[
                 {"id": 1, "title": "读取数据", "status": "pending", "tool_hint": "dataset_catalog"},
-                {"id": 2, "title": "预处理数据", "status": "pending", "tool_hint": "dataset_transform"},
+                {
+                    "id": 2,
+                    "title": "预处理数据",
+                    "status": "pending",
+                    "tool_hint": "dataset_transform",
+                },
                 {"id": 3, "title": "统计分析", "status": "pending", "tool_hint": "stat_test"},
             ],
         )
@@ -1120,6 +1125,14 @@ def test_chart_session_persists_spec_and_tracks_exports() -> None:
         )
     )["data"]["record"]
     assert record["last_export_ids"]
+
+    executions = manager.list_code_executions()
+    chart_exec_entries = [e for e in executions if e.get("tool_name") == "chart_session"]
+    assert chart_exec_entries, "chart_session 应将生成代码写入代码档案"
+    first_exec = chart_exec_entries[0]
+    assert first_exec.get("language") == "python"
+    assert "import plotly" in (first_exec.get("code") or "")
+    assert "nini" not in (first_exec.get("code") or "").split("import")[1].split("\n")[0]
 
 
 def test_chart_session_schema_uses_operation_level_oneof() -> None:
