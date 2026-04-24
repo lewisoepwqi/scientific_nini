@@ -381,10 +381,15 @@ class TaskWriteTool(Tool):
             warning_suffix = "检测到依赖歧义，系统未自动改写任务图，请后续按当前任务顺序谨慎推进。"
         if first_task:
             tool_hint_text = f"（可使用 {first_task.tool_hint}）" if first_task.tool_hint else ""
+            # 注意：不要再写"再执行对应的分析操作"这类串行模板指令，否则
+            # 当 LLM 在同一批次并行调用 task_state(init) 与分析工具时，会在下一轮
+            # 盲目重复执行已成功的分析工具（触发 DUPLICATE_*_CALL 守卫）。
             message = (
                 warning_prefix + dependency_prefix + f"已声明 {task_count} 个分析任务。"
-                f"建议从任务1「{first_task.title}」开始{tool_hint_text}。"
-                f"先将任务1标记为 in_progress，再执行对应的分析操作。" + warning_suffix
+                f"建议从任务1「{first_task.title}」开始{tool_hint_text}，"
+                f"请将其标为 in_progress。"
+                "若本批次已并行调用过对应分析工具，请直接复用其结果推进下一步，"
+                "不要重复调用同一工具。" + warning_suffix
             )
         else:
             message = (
