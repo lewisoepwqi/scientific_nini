@@ -233,6 +233,13 @@ class ChartSessionTool(Tool):
 
         manager = WorkspaceManager(session)
         artifact_ids = self._resolve_artifact_ids(manager, result.artifacts)
+        self._archive_generated_code(
+            manager=manager,
+            result=result,
+            spec=spec,
+            chart_id=chart_id,
+            artifact_ids=artifact_ids,
+        )
         record = ChartSessionRecord(
             id=chart_id,
             session_id=session.id,
@@ -523,6 +530,52 @@ class ChartSessionTool(Tool):
         if title:
             return title
         return f"{record.chart_type}:{record.dataset_name}"
+
+    def _archive_generated_code(
+        self,
+        *,
+        manager: WorkspaceManager,
+        result: ToolResult,
+        spec: dict[str, Any],
+        chart_id: str,
+        artifact_ids: list[str],
+    ) -> None:
+        """将 create_chart 生成的绘图脚本写入代码档案（主引擎优先）。"""
+        data = result.data if isinstance(result.data, dict) else {}
+        generated = data.get("generated_code") if isinstance(data, dict) else None
+        if not isinstance(generated, dict) or not generated:
+            return
+        engine = str(data.get("render_engine") or spec.get("render_engine") or "plotly").lower()
+        code = generated.get(engine) or generated.get("matplotlib") or generated.get("plotly")
+        if not isinstance(code, str) or not code.strip():
+            return
+        tool_args = {
+            "chart_id": chart_id,
+            "chart_type": spec.get("chart_type"),
+            "dataset_name": spec.get("dataset_name"),
+            "render_engine": engine,
+            "journal_style": spec.get("journal_style"),
+            "purpose": "visualization",
+        }
+        intent_parts = [
+            str(spec.get("title") or "").strip(),
+            f"chart_session:{chart_id}",
+        ]
+        intent = " | ".join(part for part in intent_parts if part)
+        try:
+            manager.save_code_execution(
+                code=code,
+                output=str(result.message or ""),
+                status="success",
+                language="python",
+                tool_name="chart_session",
+                tool_args=tool_args,
+                intent=intent,
+                output_resource_ids=list(artifact_ids),
+            )
+        except Exception:
+            # 代码档案写入失败不应阻塞图表会话创建
+            pass
 
     def _resolve_artifact_ids(
         self,
