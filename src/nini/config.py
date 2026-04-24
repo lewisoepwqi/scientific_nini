@@ -247,6 +247,10 @@ class Settings(BaseSettings):
     agent_max_timeout_seconds: int = 600
     tool_argument_normalization_enabled: bool = True
     tool_circuit_breaker_threshold: int = 2
+    # 批次完成摘要注入：每轮结束后向 LLM 提供"本轮已完成工具"快照，
+    # 预防 LLM 在下一轮盲目重复调用（守卫语义工具）。
+    # 如需关闭作为回滚手段，可设置为 False。
+    runner_completion_summary_enabled: bool = True
 
     # ---- 上传 ----
     max_upload_size: int = 50 * 1024 * 1024  # 50 MB
