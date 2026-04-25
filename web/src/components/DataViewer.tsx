@@ -57,10 +57,17 @@ const DataViewer = React.memo(function DataViewer({ preview }: Props) {
  }
 
  const totalRows = typeof preview.total_rows === 'number' ? preview.total_rows : rows.length
+ const sheetName = typeof preview.sheet_name === 'string' ? preview.sheet_name : null
 
  return (
  <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] mt-2 overflow-hidden">
  <div className="px-3 py-2 text-xs text-[var(--text-secondary)] border-b border-[var(--border-default)] bg-[var(--bg-elevated)]">
+ {sheetName ? (
+ <>
+ 工作表: <span className="font-medium text-[var(--text-primary)]">{sheetName}</span>
+ {' · '}
+ </>
+ ) : null}
  预览 {previewRows} / {totalRows} 行
  </div>
  <div className="overflow-x-auto">
