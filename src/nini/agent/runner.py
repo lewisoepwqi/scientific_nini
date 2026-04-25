@@ -10,11 +10,11 @@ import asyncio
 import json
 import logging
 import re
-import time
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from time import monotonic
 from typing import Any, AsyncGenerator, Awaitable, Callable
 
 from nini.agent.model_resolver import (
@@ -505,11 +505,11 @@ class AgentRunner:
         if self._ask_user_question_handler is None:
             raise RuntimeError("当前未配置 ask_user_question_handler")
 
-        wait_started_at = time.monotonic()
+        wait_started_at = monotonic()
         try:
             return await self._ask_user_question_handler(session, tool_call_id, payload)
         finally:
-            waited = max(0.0, time.monotonic() - wait_started_at)
+            waited = max(0.0, monotonic() - wait_started_at)
             self._timeout_excluded_seconds += waited
 
     async def run(
@@ -621,7 +621,7 @@ class AgentRunner:
             else int(settings.agent_max_timeout_seconds)
         )
         wall_clock_timeout_seconds = int(settings.agent_run_wall_clock_timeout_seconds)
-        loop_start_time = time.monotonic()
+        loop_start_time = monotonic()
         self._timeout_excluded_seconds = 0.0
         should_stop = stop_event.is_set if stop_event else (lambda: False)
         report_markdown_for_turn: str | None = None
@@ -812,7 +812,7 @@ class AgentRunner:
                 return
 
             # Wall-clock 超时检查
-            total_elapsed = max(0.0, time.monotonic() - loop_start_time)
+            total_elapsed = max(0.0, monotonic() - loop_start_time)
             effective_elapsed = max(
                 0.0,
                 total_elapsed - self._timeout_excluded_seconds,
@@ -2793,7 +2793,7 @@ class AgentRunner:
                 resolved_cw,
             )
             setattr(session, "_model_context_window", resolved_cw)
-        start_time = time.monotonic()
+        start_time = monotonic()
         messages, retrieval_event = await self._context_builder.build_messages_and_retrieval(
             session, context_ratio=self._context_ratio
         )
@@ -2802,7 +2802,7 @@ class AgentRunner:
             session.id,
             len(messages),
             "yes" if retrieval_event is not None else "no",
-            int((time.monotonic() - start_time) * 1000),
+            int((monotonic() - start_time) * 1000),
         )
         return messages, retrieval_event
 
@@ -4545,7 +4545,7 @@ class AgentRunner:
         except json.JSONDecodeError:
             return {"error": f"工具参数解析失败: {arguments}"}
 
-        start_time = time.monotonic()
+        start_time = monotonic()
         try:
             result = await self._tool_registry.execute_with_fallback(name, session=session, **args)
             return result
@@ -4559,7 +4559,7 @@ class AgentRunner:
                 "工具执行结束: session=%s tool=%s duration_ms=%d",
                 session.id,
                 name,
-                int((time.monotonic() - start_time) * 1000),
+                int((monotonic() - start_time) * 1000),
             )
 
     def _record_research_profile_activity(

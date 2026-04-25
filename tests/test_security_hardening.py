@@ -268,7 +268,7 @@ class TestAgentTimeoutConfig:
 
         with (
             patch(
-                "nini.agent.runner.time.monotonic",
+                "nini.agent.runner.monotonic",
                 side_effect=[100.0, 102.5, 102.5, 102.5],
             ),
             patch("nini.config_manager.get_active_provider_id", new=AsyncMock(return_value="test")),
@@ -428,7 +428,7 @@ class TestAgentTimeoutConfig:
 
         with (
             patch(
-                "nini.agent.runner.time.monotonic",
+                "nini.agent.runner.monotonic",
                 side_effect=[100.0, 102.5, 102.5, 102.5],
             ),
             patch("nini.config_manager.get_active_provider_id", new=AsyncMock(return_value="test")),
