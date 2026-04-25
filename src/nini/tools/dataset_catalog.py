@@ -35,7 +35,10 @@ class DatasetCatalogTool(Tool):
         return (
             "统一管理数据集目录：list/load/profile 操作。可聚合预览、摘要与质量概览。\n"
             "最小示例：{operation: profile, dataset_name: demo, view: full, n_rows: 5}\n"
-            "约束：load/profile 必须提供 dataset_name。view=preview/full 可用 n_rows。 其他 view 忽略 n_rows。"
+            "约束：load/profile 必须提供 dataset_name。view=preview/full 可用 n_rows。 其他 view 忽略 n_rows。\n"
+            "注意：profile 结果在写入会话记忆时会被压缩为 numeric_stats / categorical_stats / "
+            "quality / preview 摘要（每类至多 30 列、3 行预览）；如需更精细的描述统计或分位数，"
+            "请直接用 run_code 执行 df.describe() / df.info()，不要凭列名编造统计量。"
         )
 
     @property

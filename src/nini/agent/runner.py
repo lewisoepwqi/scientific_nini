@@ -10,11 +10,11 @@ import asyncio
 import json
 import logging
 import re
-import time
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from time import monotonic
 from typing import Any, AsyncGenerator, Awaitable, Callable
 
 from nini.agent.model_resolver import (
@@ -505,11 +505,11 @@ class AgentRunner:
         if self._ask_user_question_handler is None:
             raise RuntimeError("当前未配置 ask_user_question_handler")
 
-        wait_started_at = time.monotonic()
+        wait_started_at = monotonic()
         try:
             return await self._ask_user_question_handler(session, tool_call_id, payload)
         finally:
-            waited = max(0.0, time.monotonic() - wait_started_at)
+            waited = max(0.0, monotonic() - wait_started_at)
             self._timeout_excluded_seconds += waited
 
     async def run(
@@ -621,7 +621,7 @@ class AgentRunner:
             else int(settings.agent_max_timeout_seconds)
         )
         wall_clock_timeout_seconds = int(settings.agent_run_wall_clock_timeout_seconds)
-        loop_start_time = time.monotonic()
+        loop_start_time = monotonic()
         self._timeout_excluded_seconds = 0.0
         should_stop = stop_event.is_set if stop_event else (lambda: False)
         report_markdown_for_turn: str | None = None
@@ -660,6 +660,10 @@ class AgentRunner:
         emitted_data_preview_signatures: set[str] = set()
         successful_dataset_profile_signatures: set[str] = set()
         dataset_profile_max_view_by_name: dict[str, str] = {}
+        # 本轮内每个数据集最近一次 profile 成功的原始 data 字典，
+        # 在重复调用被守卫拦截时回灌给 LLM，避免它在仅有列名的情况下
+        # 凭空编造统计量。
+        dataset_profile_data_cache: dict[str, dict[str, Any]] = {}
         session.dispatch_runtime_state = {
             "turn_id": turn_id,
             "blocked_invalid_agent_ids": [],
@@ -808,7 +812,7 @@ class AgentRunner:
                 return
 
             # Wall-clock 超时检查
-            total_elapsed = max(0.0, time.monotonic() - loop_start_time)
+            total_elapsed = max(0.0, monotonic() - loop_start_time)
             effective_elapsed = max(
                 0.0,
                 total_elapsed - self._timeout_excluded_seconds,
@@ -1929,9 +1933,10 @@ class AgentRunner:
                     max_view = dataset_profile_max_view_by_name.get(dataset_name)
                     duplicate_profile_reason: str | None = None
                     recovery_hint = (
-                        "你已完成数据概况分析，禁止再次调用 dataset_catalog(profile)。"
-                        "下一步：直接调用 run_code / code_session 进行统计分析，"
-                        "或调用 task_state 更新任务进度，或输出分析结论。"
+                        "本轮已获取该数据集 profile，本次响应附带的 data 字段即为缓存的概况，"
+                        "请直接读取其中的 numeric_stats / categorical_stats / quality 进行分析。"
+                        "若仍缺指标，请用 run_code 调用 df.describe() / df.info() 直接取数；"
+                        "严禁基于列名/dtypes 凭空编造均值、标准差、相关系数、p 值等统计量。"
                     )
                     # 当数据集所有列均为 'Unnamed: N' 时，说明 pandas 尚未读取到真实表头，
                     # LLM 必须再次 profile 才能获得列名——此时豁免重复调用保护。
@@ -1951,26 +1956,48 @@ class AgentRunner:
                         )
 
                     if duplicate_profile_reason is not None:
+                        # 命中缓存时改写为"透明缓存命中"：success=True / status=success，
+                        # 让 LLM 把响应当成正常 profile 结果直接读取统计量；
+                        # 同时保留 error_code 与 duplicate_profile_blocked 供
+                        # 失败分类 / 熔断统计 / telemetry 兼容旧测试。
+                        # 未命中缓存（罕见兜底）保持原有 error 形态以触发重试链。
+                        cached_data = dataset_profile_data_cache.get(dataset_name)
+                        cache_hit = isinstance(cached_data, dict)
+                        result_data: dict[str, Any] = {
+                            "dataset_name": dataset_name,
+                            "requested_view": requested_view,
+                            "max_completed_view": max_view or requested_view,
+                            "recovery_hint": recovery_hint,
+                        }
+                        if cache_hit:
+                            # 合并而非覆盖：保留缓存里的 basic/summary/quality/preview，
+                            # 让 _is_dataset_profile/_summarize_dataset_profile 命中专用路径。
+                            for key, value in cached_data.items():
+                                result_data.setdefault(key, value)
+                        if cache_hit:
+                            duplicate_message = (
+                                f"已复用本轮 '{dataset_name}' 的 "
+                                f"{max_view or requested_view} 概况缓存（无需重复读取）。"
+                                "下方 data 字段即为先前 profile 的完整统计量，请直接使用。"
+                            )
+                        else:
+                            duplicate_message = duplicate_profile_reason
                         result = {
-                            "success": False,
-                            "message": duplicate_profile_reason,
+                            "success": cache_hit,
+                            "message": duplicate_message,
                             "error_code": "DUPLICATE_DATASET_PROFILE_CALL",
                             "recovery_hint": recovery_hint,
-                            "data": {
-                                "dataset_name": dataset_name,
-                                "requested_view": requested_view,
-                                "max_completed_view": max_view or requested_view,
-                                "recovery_hint": recovery_hint,
-                            },
+                            "data": result_data,
                             "metadata": {
                                 "duplicate_profile_blocked": True,
+                                "served_from_profile_cache": cache_hit,
                                 "action_id": matched_action_id,
                                 "retry_count": 0,
                                 "max_retries": max_retries,
                             },
                         }
-                        has_error = True
-                        status = "error"
+                        has_error = not cache_hit
+                        status = "success" if cache_hit else "error"
                         result_str = serialize_tool_result_for_memory(result, tool_name=func_name)
                         session.add_tool_result(
                             tc_id,
@@ -1987,9 +2014,13 @@ class AgentRunner:
                             tool_name=func_name,
                             attempt=1,
                             max_attempts=1,
-                            status="failed",
-                            error=duplicate_profile_reason,
-                            note="重复的数据集概况调用已在执行前拦截",
+                            status="completed" if cache_hit else "failed",
+                            error=None if cache_hit else duplicate_profile_reason,
+                            note=(
+                                "复用本轮已获取的数据集概况缓存"
+                                if cache_hit
+                                else "重复的数据集概况调用已在执行前拦截"
+                            ),
                         )
                         raw_result_metadata = result.get("metadata")
                         event_metadata = (
@@ -1999,27 +2030,28 @@ class AgentRunner:
                             tool_call_id=tc_id,
                             name=func_name,
                             status=status,
-                            message=duplicate_profile_reason,
+                            message=duplicate_message,
                             data={"result": result},
                             turn_id=turn_id,
                             metadata=event_metadata,
                         )
-                        existing_chain = tool_failure_chains.get(tool_args_signature)
-                        if (
-                            isinstance(existing_chain, dict)
-                            and str(existing_chain.get("error_code", ""))
-                            == "DUPLICATE_DATASET_PROFILE_CALL"
-                        ):
-                            existing_chain["count"] = int(existing_chain.get("count", 0)) + 1
-                            existing_chain["message"] = duplicate_profile_reason
-                            existing_chain["recovery_hint"] = recovery_hint
-                        else:
-                            tool_failure_chains[tool_args_signature] = {
-                                "count": 1,
-                                "error_code": "DUPLICATE_DATASET_PROFILE_CALL",
-                                "message": duplicate_profile_reason,
-                                "recovery_hint": recovery_hint,
-                            }
+                        if not cache_hit:
+                            existing_chain = tool_failure_chains.get(tool_args_signature)
+                            if (
+                                isinstance(existing_chain, dict)
+                                and str(existing_chain.get("error_code", ""))
+                                == "DUPLICATE_DATASET_PROFILE_CALL"
+                            ):
+                                existing_chain["count"] = int(existing_chain.get("count", 0)) + 1
+                                existing_chain["message"] = duplicate_profile_reason
+                                existing_chain["recovery_hint"] = recovery_hint
+                            else:
+                                tool_failure_chains[tool_args_signature] = {
+                                    "count": 1,
+                                    "error_code": "DUPLICATE_DATASET_PROFILE_CALL",
+                                    "message": duplicate_profile_reason,
+                                    "recovery_hint": recovery_hint,
+                                }
                         continue
 
                 chain_state = tool_failure_chains.get(tool_args_signature)
@@ -2324,6 +2356,12 @@ class AgentRunner:
                                 dataset_profile_max_view_by_name.setdefault(
                                     dataset_name, completed_view
                                 )
+                            # 缓存本次 profile 的原始 data，供后续重复调用守卫
+                            # 直接回灌——避免 LLM 在序列化压缩后丢失统计量。
+                            if isinstance(result, dict):
+                                cached_payload = result.get("data")
+                                if isinstance(cached_payload, dict):
+                                    dataset_profile_data_cache[dataset_name] = cached_payload
                             # 持久化到 session，供 context_builder 在后续轮次的运行时上下文中提醒 LLM
                             completed_profiles: set[str] = getattr(
                                 session, "_completed_dataset_profiles", set()
@@ -2755,7 +2793,7 @@ class AgentRunner:
                 resolved_cw,
             )
             setattr(session, "_model_context_window", resolved_cw)
-        start_time = time.monotonic()
+        start_time = monotonic()
         messages, retrieval_event = await self._context_builder.build_messages_and_retrieval(
             session, context_ratio=self._context_ratio
         )
@@ -2764,7 +2802,7 @@ class AgentRunner:
             session.id,
             len(messages),
             "yes" if retrieval_event is not None else "no",
-            int((time.monotonic() - start_time) * 1000),
+            int((monotonic() - start_time) * 1000),
         )
         return messages, retrieval_event
 
@@ -4507,7 +4545,7 @@ class AgentRunner:
         except json.JSONDecodeError:
             return {"error": f"工具参数解析失败: {arguments}"}
 
-        start_time = time.monotonic()
+        start_time = monotonic()
         try:
             result = await self._tool_registry.execute_with_fallback(name, session=session, **args)
             return result
@@ -4521,7 +4559,7 @@ class AgentRunner:
                 "工具执行结束: session=%s tool=%s duration_ms=%d",
                 session.id,
                 name,
-                int((time.monotonic() - start_time) * 1000),
+                int((monotonic() - start_time) * 1000),
             )
 
     def _record_research_profile_activity(
