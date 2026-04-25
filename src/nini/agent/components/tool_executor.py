@@ -286,8 +286,117 @@ def _is_dataset_profile(data_obj: dict[str, Any]) -> bool:
     )
 
 
+_PROFILE_NUMERIC_COLUMN_LIMIT = 30
+_PROFILE_CATEGORICAL_COLUMN_LIMIT = 20
+_PROFILE_PREVIEW_ROWS = 3
+_PROFILE_QUALITY_DIMENSION_LIMIT = 5
+_PROFILE_QUALITY_ISSUES_PER_DIMENSION = 2
+
+
+def _digest_numeric_stats(
+    numeric_stats: dict[str, Any], *, limit: int
+) -> tuple[dict[str, Any], int]:
+    """精简 numeric_stats，仅保留每列核心 8 个统计量。"""
+    keep_keys = ("count", "mean", "std", "min", "q25", "median", "q75", "max")
+    digest: dict[str, Any] = {}
+    items = list(numeric_stats.items())
+    for col, stats in items[:limit]:
+        if not isinstance(stats, dict):
+            continue
+        digest[str(col)] = {k: stats[k] for k in keep_keys if k in stats}
+    truncated = max(0, len(items) - limit)
+    return digest, truncated
+
+
+def _digest_categorical_stats(
+    categorical_stats: dict[str, Any], *, limit: int
+) -> tuple[dict[str, Any], int]:
+    """精简 categorical_stats，仅保留 unique_count 与前 3 个高频值。"""
+    digest: dict[str, Any] = {}
+    items = list(categorical_stats.items())
+    for col, stats in items[:limit]:
+        if not isinstance(stats, dict):
+            continue
+        col_digest: dict[str, Any] = {}
+        if "unique_count" in stats:
+            col_digest["unique_count"] = stats["unique_count"]
+        top_values = stats.get("top_values")
+        if isinstance(top_values, list) and top_values:
+            col_digest["top_values"] = top_values[:3]
+        if col_digest:
+            digest[str(col)] = col_digest
+    truncated = max(0, len(items) - limit)
+    return digest, truncated
+
+
+def _digest_quality_report(quality: dict[str, Any]) -> dict[str, Any]:
+    """精简 quality report，保留总分与各维度核心 issue。"""
+    digest: dict[str, Any] = {}
+    if "overall_score" in quality:
+        digest["overall_score"] = quality["overall_score"]
+    summary_block = quality.get("summary")
+    if isinstance(summary_block, dict):
+        digest["summary"] = {
+            k: summary_block[k]
+            for k in ("grade", "total_issues", "total_suggestions")
+            if k in summary_block
+        }
+
+    dimension_scores = quality.get("dimension_scores")
+    if isinstance(dimension_scores, list) and dimension_scores:
+        compact_dims: list[dict[str, Any]] = []
+        for ds in dimension_scores[:_PROFILE_QUALITY_DIMENSION_LIMIT]:
+            if not isinstance(ds, dict):
+                continue
+            entry: dict[str, Any] = {}
+            for key in ("dimension", "score", "weight"):
+                if key in ds:
+                    entry[key] = ds[key]
+            issues = ds.get("issues")
+            if isinstance(issues, list) and issues:
+                entry["issues"] = [
+                    {
+                        k: v
+                        for k, v in issue.items()
+                        if k in ("type", "message", "count", "ratio", "columns")
+                    }
+                    for issue in issues[:_PROFILE_QUALITY_ISSUES_PER_DIMENSION]
+                    if isinstance(issue, dict)
+                ]
+            suggestions = ds.get("suggestions")
+            if isinstance(suggestions, list) and suggestions:
+                entry["suggestions"] = [str(s) for s in suggestions[:2]]
+            compact_dims.append(entry)
+        if compact_dims:
+            digest["dimension_scores"] = compact_dims
+    return digest
+
+
+def _digest_preview(preview: dict[str, Any]) -> dict[str, Any]:
+    """精简 preview，仅保留极少量样本行和列名。"""
+    digest: dict[str, Any] = {}
+    rows_value = preview.get("rows")
+    if isinstance(rows_value, list) and rows_value:
+        digest["rows"] = rows_value[:_PROFILE_PREVIEW_ROWS]
+        if len(rows_value) > _PROFILE_PREVIEW_ROWS:
+            digest["rows_truncated"] = len(rows_value) - _PROFILE_PREVIEW_ROWS
+    elif isinstance(preview.get("data"), list) and preview["data"]:
+        data_rows = preview["data"]
+        digest["rows"] = data_rows[:_PROFILE_PREVIEW_ROWS]
+        if len(data_rows) > _PROFILE_PREVIEW_ROWS:
+            digest["rows_truncated"] = len(data_rows) - _PROFILE_PREVIEW_ROWS
+    if "total_rows" in preview:
+        digest["total_rows"] = preview["total_rows"]
+    return digest
+
+
 def _summarize_dataset_profile(data_obj: dict[str, Any]) -> dict[str, Any]:
-    """提取数据集 profile 的关键信息，保留完整列名。"""
+    """提取数据集 profile 的关键信息。
+
+    保留：列名、dtypes、numeric_stats（mean/std/分位数）、categorical_stats、
+    quality 评分摘要与少量 preview 行；这样即便记忆压缩，LLM 也能基于真实统计量
+    继续分析，而无需重新调用 dataset_catalog。
+    """
     summary: dict[str, Any] = {}
 
     # 数据集基本信息
@@ -327,12 +436,57 @@ def _summarize_dataset_profile(data_obj: dict[str, Any]) -> dict[str, Any]:
     if isinstance(dtypes, dict):
         summary["dtypes"] = {str(k): v for k, v in dtypes.items()}
 
-    # 缺失值信息
+    # 缺失值信息（顶层结构）
     null_counts = data_obj.get("null_counts") or (
         isinstance(basic, dict) and basic.get("null_counts")
     )
     if isinstance(null_counts, dict):
         summary["null_counts"] = {str(k): v for k, v in null_counts.items()}
+
+    # summary 子块：缺失值 + 数值/分类统计 + 列类型分类
+    summary_block = data_obj.get("summary")
+    if isinstance(summary_block, dict):
+        missing_values = summary_block.get("missing_values")
+        if isinstance(missing_values, dict) and missing_values:
+            summary["missing_values"] = {str(k): v for k, v in missing_values.items()}
+
+        numeric_stats = summary_block.get("numeric_stats")
+        if isinstance(numeric_stats, dict) and numeric_stats:
+            digest, truncated = _digest_numeric_stats(
+                numeric_stats, limit=_PROFILE_NUMERIC_COLUMN_LIMIT
+            )
+            if digest:
+                summary["numeric_stats"] = digest
+            if truncated:
+                summary["numeric_stats_truncated"] = truncated
+
+        categorical_stats = summary_block.get("categorical_stats")
+        if isinstance(categorical_stats, dict) and categorical_stats:
+            digest, truncated = _digest_categorical_stats(
+                categorical_stats, limit=_PROFILE_CATEGORICAL_COLUMN_LIMIT
+            )
+            if digest:
+                summary["categorical_stats"] = digest
+            if truncated:
+                summary["categorical_stats_truncated"] = truncated
+
+        column_types = summary_block.get("column_types")
+        if isinstance(column_types, dict) and column_types:
+            summary["column_types"] = {str(k): v for k, v in column_types.items()}
+
+    # quality 子块：综合评分 + 维度核心问题
+    quality_block = data_obj.get("quality")
+    if isinstance(quality_block, dict):
+        quality_digest = _digest_quality_report(quality_block)
+        if quality_digest:
+            summary["quality"] = quality_digest
+
+    # preview 子块：保留少量样本行
+    preview_block = data_obj.get("preview")
+    if isinstance(preview_block, dict):
+        preview_digest = _digest_preview(preview_block)
+        if preview_digest:
+            summary["preview"] = preview_digest
 
     return summary
 
