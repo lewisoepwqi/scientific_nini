@@ -52,7 +52,6 @@ _GENERIC_TITLES = {
 }
 _TITLE_HARD_LIMIT = 15
 _TITLE_MAX_TOKENS = 50
-_TITLE_RETRY_MAX_TOKENS = 120
 
 
 def _collect_relevant_messages(messages: list[dict[str, Any]]) -> list[tuple[str, str]]:
@@ -230,90 +229,57 @@ async def generate_title(messages: list[dict[str, Any]]) -> str | None:
         logger.debug("没有可用的消息内容，跳过标题生成")
         return None
 
-    default_prompt = _build_title_prompt(relevant_msgs, max_messages=2, max_content_chars=80)
-    retry_prompt = _build_title_prompt(relevant_msgs, max_messages=1, max_content_chars=60)
-    strategies = [
-        ("default", default_prompt, _TITLE_MAX_TOKENS),
-        ("length_retry", retry_prompt, _TITLE_RETRY_MAX_TOKENS),
-    ]
-    logger.debug("标题生成默认提示词长度: %d 字符", len(default_prompt))
+    prompt = _build_title_prompt(relevant_msgs, max_messages=2, max_content_chars=80)
+    logger.debug("标题生成默认提示词长度: %d 字符", len(prompt))
 
-    try:
-        last_empty_reason = "unknown"
-        last_finish_reason: str | None = None
-        for idx, (strategy_name, prompt, max_tokens) in enumerate(strategies):
-            response = await model_resolver.chat_complete(
-                [{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=max_tokens,
-                purpose="title_generation",
-            )
-            raw_title = response.text or ""
-            finish_reason = getattr(response, "finish_reason", None)
-            finish_reasons = getattr(response, "finish_reasons", [])
-            usage = getattr(response, "usage", {})
-            tool_calls = getattr(response, "tool_calls", [])
-            title = _trim_title_length(raw_title)
-            if title:
-                logger.info(
-                    "会话标题生成成功: %s (strategy=%s, raw_len=%d, finish_reason=%s)",
-                    title,
-                    strategy_name,
-                    len(raw_title),
-                    finish_reason,
-                )
-                return title
-            if tool_calls:
-                empty_reason = "tool_calls_only"
-            elif not raw_title.strip():
-                empty_reason = "raw_empty"
-            else:
-                empty_reason = "normalized_empty"
-            last_empty_reason = empty_reason
-            last_finish_reason = str(finish_reason) if finish_reason is not None else None
-            logger.warning(
-                "会话标题为空: reason=%s, finish_reason=%s, finish_reasons=%s, usage=%s, "
-                "raw_len=%d, raw_preview=%s, strategy=%s",
-                empty_reason,
-                finish_reason,
-                finish_reasons,
-                usage,
-                len(raw_title),
-                _preview_text(raw_title),
-                strategy_name,
-            )
-            should_retry = (
-                idx == 0
-                and empty_reason == "raw_empty"
-                and str(finish_reason or "").lower() == "length"
-            )
-            if should_retry:
-                logger.info(
-                    "检测到标题输出被长度限制截断，触发重试: next_strategy=%s, next_max_tokens=%d",
-                    strategies[idx + 1][0],
-                    strategies[idx + 1][2],
-                )
-                continue
-            break
-        fallback = _fallback_title(messages)
-        if fallback:
-            logger.info(
-                "LLM 标题为空，已使用回退标题: %s (reason=%s, finish_reason=%s)",
-                fallback,
-                last_empty_reason,
-                last_finish_reason,
-            )
-            return fallback
-        logger.warning("LLM 返回空标题，且回退失败")
-        return None
-    except Exception as e:
-        # LLM 调用异常（鉴权失败、网络错误、超时等）不应导致标题为空，
-        # 走与"LLM 返回空文本"相同的规则兜底，从首条用户消息中提炼标题。
-        fallback = _fallback_title(messages)
-        if fallback:
-            logger.warning(
-                "LLM 标题生成失败，已使用回退标题: %s (error=%s)", fallback, e
-            )
-            return fallback
-        logger.warning("生成会话标题失败且回退失败: %s", e)
-        return None
+    response = await model_resolver.chat_complete(
+        [{"role": "user", "content": prompt}],
+        temperature=0.3,
+        max_tokens=_TITLE_MAX_TOKENS,
+        purpose="title_generation",
+        optional=True,
+    )
+    raw_title = (response.text if response is not None else "") or ""
+    finish_reason = getattr(response, "finish_reason", None) if response is not None else None
+    finish_reasons = getattr(response, "finish_reasons", []) if response is not None else []
+    usage = getattr(response, "usage", {}) if response is not None else {}
+    tool_calls = getattr(response, "tool_calls", []) if response is not None else []
+    title = _trim_title_length(raw_title)
+    if title:
+        logger.info(
+            "会话标题生成成功: %s (raw_len=%d, finish_reason=%s)",
+            title,
+            len(raw_title),
+            finish_reason,
+        )
+        return title
+
+    if response is None:
+        empty_reason = "optional_none"
+    elif tool_calls:
+        empty_reason = "tool_calls_only"
+    elif not raw_title.strip():
+        empty_reason = "raw_empty"
+    else:
+        empty_reason = "normalized_empty"
+    logger.warning(
+        "会话标题为空: reason=%s, finish_reason=%s, finish_reasons=%s, usage=%s, raw_len=%d, raw_preview=%s",
+        empty_reason,
+        finish_reason,
+        finish_reasons,
+        usage,
+        len(raw_title),
+        _preview_text(raw_title),
+    )
+
+    fallback = _fallback_title(messages)
+    if fallback:
+        logger.info(
+            "LLM 标题为空，已使用回退标题: %s (reason=%s, finish_reason=%s)",
+            fallback,
+            empty_reason,
+            finish_reason,
+        )
+        return fallback
+    logger.warning("LLM 返回空标题，且回退失败")
+    return None

@@ -6,7 +6,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from threading import RLock
-from typing import Any
+from typing import Any, cast
 
 from nini.todo.hooks import TaskHookRegistry
 from nini.todo.models import (
@@ -118,9 +118,7 @@ class TaskStore:
                 title=normalized_title,
                 description=str(description or ""),
                 dependency_ids=[
-                    str(item).strip()
-                    for item in (dependency_ids or [])
-                    if str(item).strip()
+                    str(item).strip() for item in (dependency_ids or []) if str(item).strip()
                 ],
                 priority=priority,
                 deadline_at=deadline_at,
@@ -201,22 +199,19 @@ class TaskStore:
         with self._lock:
             task = self._require_task_locked(task_id)
             new_dependencies = (
-                [
-                    str(item).strip()
-                    for item in dependency_ids
-                    if str(item).strip()
-                ]
+                [str(item).strip() for item in dependency_ids if str(item).strip()]
                 if dependency_ids is not None
                 else list(task.dependency_ids)
             )
             self._ensure_dependencies_exist(new_dependencies, allow_task_id=task.task_id)
             now = utc_now()
+            next_priority = task.priority if priority is _UNSET else cast(int | None, priority)
             updated = replace(
                 task,
                 title=str(title).strip() if title is not None else task.title,
                 description=str(description) if description is not None else task.description,
                 dependency_ids=new_dependencies,
-                priority=task.priority if priority is _UNSET else priority,
+                priority=next_priority,
                 deadline_at=task.deadline_at if deadline_at is _UNSET else deadline_at,
                 metadata=(dict(metadata) if metadata is not None else dict(task.metadata)),
                 updated_at=now,
@@ -374,9 +369,7 @@ class TaskStore:
                     and normalized_actor
                     and owner != normalized_actor
                 ):
-                    raise TaskConflictError(
-                        f"任务已被其他 Agent 认领: {current.task_id} ({owner})"
-                    )
+                    raise TaskConflictError(f"任务已被其他 Agent 认领: {current.task_id} ({owner})")
                 return clone_task(current)
 
             self._validate_transition_locked(current, to_status, actor_id=actor_id)
@@ -534,13 +527,9 @@ class TaskStore:
         if task.status in {TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS}:
             owner = self._normalize_actor(task.assigned_agent_id)
             if owner and normalized_actor and owner != normalized_actor:
-                raise TaskConflictError(
-                    f"任务已被其他 Agent 认领: {task.task_id} ({owner})"
-                )
+                raise TaskConflictError(f"任务已被其他 Agent 认领: {task.task_id} ({owner})")
 
-        if to_status == TaskStatus.IN_PROGRESS and not (
-            task.assigned_agent_id or normalized_actor
-        ):
+        if to_status == TaskStatus.IN_PROGRESS and not (task.assigned_agent_id or normalized_actor):
             raise InvalidTaskTransitionError("开始执行前必须先认领任务")
 
     def _append_event_locked(
@@ -575,7 +564,10 @@ class TaskStore:
         from_status: TaskStatus,
         to_status: TaskStatus,
     ) -> TaskEventType:
-        if from_status in {TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS} and to_status == TaskStatus.PENDING:
+        if (
+            from_status in {TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS}
+            and to_status == TaskStatus.PENDING
+        ):
             return TaskEventType.RELEASED
         return _STATUS_TO_EVENT.get(to_status, TaskEventType.UPDATED)
 

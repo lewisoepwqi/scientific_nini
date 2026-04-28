@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 from scipy import stats
 
@@ -189,7 +189,9 @@ class KruskalWallisTool(Tool):
             return ToolResult(success=False, message="至少需要 2 个有效分组")
 
         try:
-            h_stat, pval = stats.kruskal(*group_data)
+            raw_h_stat, raw_pval = stats.kruskal(*group_data)
+            h_stat = float(cast(Any, raw_h_stat))
+            pval = float(cast(Any, raw_pval))
             n_total = sum(len(group) for group in group_data)
             n_groups = len(group_data)
             eta_squared = (
@@ -198,8 +200,8 @@ class KruskalWallisTool(Tool):
 
             result = {
                 "test_type": "Kruskal-Wallis H 检验",
-                "h_statistic": float(h_stat),
-                "p_value": float(pval),
+                "h_statistic": h_stat,
+                "p_value": pval,
                 "df": n_groups - 1,
                 "eta_squared": _safe_float(eta_squared),
                 "n_groups": n_groups,
@@ -220,8 +222,8 @@ class KruskalWallisTool(Tool):
                 name,
                 test_name="Kruskal-Wallis H 检验",
                 message=message,
-                test_statistic=float(h_stat),
-                p_value=float(pval),
+                test_statistic=h_stat,
+                p_value=pval,
                 degrees_of_freedom=n_groups - 1,
                 effect_size=_safe_float(eta_squared),
                 effect_type="eta_squared",

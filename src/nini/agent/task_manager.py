@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 TaskStatus = Literal["pending", "in_progress", "completed", "failed", "blocked", "skipped"]
 TaskExecutor = Literal["main_agent", "subagent", "local_tool"]
@@ -199,7 +199,10 @@ class TaskManager:
 
         ranks = [cls._infer_pipeline_rank(task) for task in normalized_tasks]
         recognized = all(rank is not None for rank in ranks)
-        if recognized and all(ranks[i] < ranks[i + 1] for i in range(len(ranks) - 1)):
+        typed_ranks = cast(list[int], ranks) if recognized else []
+        if recognized and all(
+            typed_ranks[i] < typed_ranks[i + 1] for i in range(len(typed_ranks) - 1)
+        ):
             for index, task in enumerate(normalized_tasks[1:], start=1):
                 prev_id = int(normalized_tasks[index - 1]["id"])
                 current_depends = [
@@ -224,7 +227,9 @@ class TaskManager:
                 normalization_warnings=normalization_warnings,
             )
 
-        if recognized and all(ranks[i] <= ranks[i + 1] for i in range(len(ranks) - 1)):
+        if recognized and all(
+            typed_ranks[i] <= typed_ranks[i + 1] for i in range(len(typed_ranks) - 1)
+        ):
             task_ids = [int(task["id"]) for task in normalized_tasks]
             normalization_warnings.append(
                 {
@@ -268,8 +273,8 @@ class TaskManager:
                     input_refs=self._normalize_ref_list(t.get("input_refs")),
                     output_refs=self._normalize_ref_list(t.get("output_refs")),
                     handoff_contract=(
-                        dict(t.get("handoff_contract"))
-                        if isinstance(t.get("handoff_contract"), dict)
+                        dict(handoff_contract)
+                        if isinstance((handoff_contract := t.get("handoff_contract")), dict)
                         else None
                     ),
                     tool_profile=t.get("tool_profile") or None,

@@ -1963,17 +1963,17 @@ class AgentRunner:
                         # 未命中缓存（罕见兜底）保持原有 error 形态以触发重试链。
                         cached_data = dataset_profile_data_cache.get(dataset_name)
                         cache_hit = isinstance(cached_data, dict)
-                        result_data: dict[str, Any] = {
+                        duplicate_result_data: dict[str, Any] = {
                             "dataset_name": dataset_name,
                             "requested_view": requested_view,
                             "max_completed_view": max_view or requested_view,
                             "recovery_hint": recovery_hint,
                         }
-                        if cache_hit:
+                        if isinstance(cached_data, dict):
                             # 合并而非覆盖：保留缓存里的 basic/summary/quality/preview，
                             # 让 _is_dataset_profile/_summarize_dataset_profile 命中专用路径。
                             for key, value in cached_data.items():
-                                result_data.setdefault(key, value)
+                                duplicate_result_data.setdefault(key, value)
                         if cache_hit:
                             duplicate_message = (
                                 f"已复用本轮 '{dataset_name}' 的 "
@@ -1987,7 +1987,7 @@ class AgentRunner:
                             "message": duplicate_message,
                             "error_code": "DUPLICATE_DATASET_PROFILE_CALL",
                             "recovery_hint": recovery_hint,
-                            "data": result_data,
+                            "data": duplicate_result_data,
                             "metadata": {
                                 "duplicate_profile_blocked": True,
                                 "served_from_profile_cache": cache_hit,
@@ -4448,7 +4448,7 @@ class AgentRunner:
             raw_task_id = item.get("task_id")
             if not str(raw_task_id or "").strip().isdigit():
                 continue
-            task_id = str(int(raw_task_id))
+            task_id = str(int(str(raw_task_id).strip()))
             if task_id not in blocked_task_ids:
                 continue
             blocked_meta = blocked_task_ids.get(task_id) or {}
@@ -4514,8 +4514,8 @@ class AgentRunner:
         blocked_task_ids = state.get("blocked_task_ids", {})
         if not isinstance(blocked_task_ids, dict):
             blocked_task_ids = {}
-        task_id = payload.get("task_id")
-        if str(task_id or "").strip().isdigit() and error_code in {
+        task_id = str(payload.get("task_id") or "").strip()
+        if task_id.isdigit() and error_code in {
             "DISPATCH_CONTEXT_MISMATCH",
             "TASK_NOT_IN_CURRENT_WAVE",
         }:

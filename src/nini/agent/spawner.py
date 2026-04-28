@@ -59,7 +59,6 @@ class _FixedPurposeResolver:
         return getattr(self._base, name)
 
 
-
 @dataclass
 class SubAgentResult:
     """子 Agent 执行结果。"""
@@ -82,7 +81,6 @@ class SubAgentResult:
     parent_session_id: str = ""
     child_session_id: str = ""
     resource_session_id: str = ""
-
 
 
 class SubAgentSpawner:
@@ -607,7 +605,7 @@ class SubAgentSpawner:
         )
         # 将派生深度写入子会话，使嵌套链路可感知（硬限制 ≤ 2）
         try:
-            sub_session.spawn_depth = min(current_depth + 1, 2)
+            setattr(sub_session, "spawn_depth", min(current_depth + 1, 2))
         except (AttributeError, TypeError):
             pass
 

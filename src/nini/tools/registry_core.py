@@ -248,14 +248,19 @@ class FunctionToolRegistryOps:
         )
 
         if original_result.get("success") and enable_fallback:
-            should_fallback = cast(
+            fallback_decision = cast(
                 dict[str, Any],
                 await self._owner._fallback_manager.should_trigger_fallback(
                     tool_name, session, kwargs
                 ),
             )
-            if should_fallback["trigger"]:
-                return await self._execute_fallback(tool_name, session, kwargs, should_fallback)
+            if fallback_decision["trigger"]:
+                return await self._execute_fallback(
+                    tool_name,
+                    session,
+                    kwargs,
+                    fallback_decision,
+                )
             return original_result
 
         if original_result.get("success"):
