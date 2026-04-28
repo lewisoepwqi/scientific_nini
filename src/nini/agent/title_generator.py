@@ -307,5 +307,13 @@ async def generate_title(messages: list[dict[str, Any]]) -> str | None:
         logger.warning("LLM 返回空标题，且回退失败")
         return None
     except Exception as e:
-        logger.warning("生成会话标题失败: %s", e)
+        # LLM 调用异常（鉴权失败、网络错误、超时等）不应导致标题为空，
+        # 走与"LLM 返回空文本"相同的规则兜底，从首条用户消息中提炼标题。
+        fallback = _fallback_title(messages)
+        if fallback:
+            logger.warning(
+                "LLM 标题生成失败，已使用回退标题: %s (error=%s)", fallback, e
+            )
+            return fallback
+        logger.warning("生成会话标题失败且回退失败: %s", e)
         return None
