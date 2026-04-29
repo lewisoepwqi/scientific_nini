@@ -59,6 +59,8 @@ _MODEL_CONTEXT_WINDOWS: list[tuple[tuple[str, ...], int]] = [
     (("o1",), 200_000),
     (("o3",), 200_000),
     (("o4",), 200_000),
+    # DeepSeek v4 系列（v4-pro / v4-flash）支持 1M 上下文，需放在通用 deepseek 之前匹配
+    (("deepseek", "v4"), 1_000_000),
     (("deepseek",), 64_000),
     (("glm-5",), 200_000),
     (("glm-4",), 128_000),
