@@ -32,6 +32,7 @@ from nini.agent.providers import (
 )
 from nini.agent.providers.openai_provider import (
     _merge_tool_arguments,
+    _repair_json_arguments,
     dump_chat_payload_debug,
     summarize_messages_for_debug,
 )
@@ -1278,6 +1279,39 @@ def test_merge_tool_arguments_keeps_single_character_closing_brace() -> None:
         "}",
     )
     assert merged == '{"patch":{"mode":"replace_string"}}'
+
+
+def test_merge_tool_arguments_nested_closing_sequence_not_dropped() -> None:
+    """嵌套结构的 `]}` 闭合序列不能被误判为重复回放而丢弃。
+
+    场景：问题对象中含数组字段（如 options），内层 `]}` 关闭 options 数组和问题对象，
+    使 existing 尾部恰好是 `]}`。此时外层真正的 `]}` 到来，若阈值为 1 则被误判为
+    重复回放而丢弃，导致 questions 数组和外层对象未关闭。
+    """
+    # existing 尾部已是 `]}` (options 数组 `]` + 问题对象 `}`)
+    partial = '{"questions": [{"id": "q1", "options": ["a", "b"]}'
+    final_suffix = "]}"
+    # 验证 existing 确实以 `]}` 结尾（触发旧 bug 的前提）
+    assert partial.endswith(final_suffix)
+    merged = _merge_tool_arguments(partial, final_suffix)
+    assert merged == partial + final_suffix
+
+
+def test_repair_json_arguments_fixes_truncated_questions() -> None:
+    """模拟 ask_user_question 流式截断场景：末尾 `]}` 被丢失后能自动修复。"""
+    truncated = '{"questions": [{"id": "q1", "text": "请描述您的研究目标"}'
+    repaired = _repair_json_arguments(truncated)
+    import json as _json
+
+    parsed = _json.loads(repaired)
+    assert "questions" in parsed
+    assert parsed["questions"][0]["id"] == "q1"
+
+
+def test_repair_json_arguments_leaves_valid_json_unchanged() -> None:
+    """完整有效的 JSON 参数不应被修改。"""
+    valid = '{"operation": "create_script", "content": "result = 42"}'
+    assert _repair_json_arguments(valid) == valid
 
 
 def _fake_openai_stream_chunk(text: str = "", finish_reason: str | None = None) -> Any:

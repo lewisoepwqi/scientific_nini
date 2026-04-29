@@ -1115,6 +1115,10 @@ class HarnessRunner:
             error_code = str(payload.get("error_code", "")).strip()
             if error_code == "WORKSPACE_READ_BINARY_UNSUPPORTED":
                 return "recoverable_input_misuse", False
+        if tool_name == "code_session":
+            cs_error_code = str(payload.get("error_code", "")).strip()
+            if cs_error_code in {"CODE_SESSION_OPERATION_MISSING", "CODE_SESSION_OPERATION_INVALID"}:
+                return "recoverable_input_misuse", False
         if tool_name == "dispatch_agents":
             dispatch_error_code = str(
                 result_data.get("error_code", "") or payload.get("error_code", "")

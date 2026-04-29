@@ -39,7 +39,9 @@ class CodeSessionTool(Tool):
     def description(self) -> str:
         return (
             "创建、读取和执行持久化脚本会话（Python/R），统一管理脚本与执行历史。\n"
-            "最小示例：{operation: create_script, content: result = 42}\n"
+            'operation 必填（不可省略）。'
+            '最小示例：{"operation":"create_script","content":"result = 42"}\n'
+            '数据分析：{"operation":"create_script","content":"result=df.describe()","dataset_name":"xxx.csv"}\n'
             "传入 dataset_name 时沙箱自动注入 df（DataFrame），禁止 pd.read_csv 等文件读取。\n"
             "如需配合 save_as 生成派生数据集，脚本必须显式返回 DataFrame（设置 output_df、result_df 或 result）。\n"
             "预注入 pd/np/plt/sns/go/px/datetime/re/json，无需 import。\n"
@@ -53,6 +55,16 @@ class CodeSessionTool(Tool):
             "properties": {
                 "operation": {
                     "type": "string",
+                    "description": (
+                        "【必填】操作类型，不能省略。"
+                        "create_script=新建并执行脚本；"
+                        "run_script=执行已有脚本；"
+                        "patch_script=修改脚本；"
+                        "rerun=重跑；"
+                        "promote_output=提升产物；"
+                        "get_script=读取；"
+                        "list_scripts=列表。"
+                    ),
                     "enum": [
                         "create_script",
                         "get_script",
@@ -172,6 +184,26 @@ class CodeSessionTool(Tool):
 
     async def execute(self, session: Session, **kwargs: Any) -> ToolResult:
         operation = str(kwargs.get("operation", "")).strip()
+        if not operation:
+            has_content = bool(kwargs.get("content"))
+            if has_content:
+                hint = (
+                    'operation 字段缺失（检测到 content，你可能要调用 create_script）。'
+                    '请补充 "operation":"create_script" 后重试。'
+                )
+            else:
+                hint = (
+                    'operation 字段缺失。新建脚本请传 {"operation":"create_script","content":"..."}；'
+                    '列出脚本请传 {"operation":"list_scripts"}。'
+                )
+            return self._input_error(
+                operation="",
+                error_code="CODE_SESSION_OPERATION_MISSING",
+                message=f"code_session 调用缺少 operation 字段。{hint}",
+                expected_fields=["operation"],
+                recovery_hint=hint,
+                minimal_example='{"operation":"create_script","content":"result = 42"}',
+            )
         if operation == "create_script":
             return await self._create_script(session, **kwargs)
         if operation == "get_script":
