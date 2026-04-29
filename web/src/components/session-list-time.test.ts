@@ -30,6 +30,20 @@ describe("session-list-time", () => {
     expect(getSessionActivityIso(session)).toBe("2026-01-02T00:00:00+00:00");
   });
 
+  it("ignores polluted created_at that is newer than activity time", () => {
+    const session: SessionItem = {
+      id: "s3",
+      title: "会话",
+      message_count: 1,
+      source: "disk",
+      created_at: "2026-04-29T02:57:18+00:00",
+      updated_at: "2026-04-28T18:57:07+00:00",
+      last_message_at: "2026-04-28T18:57:07+00:00",
+    };
+
+    expect(getSessionActivityIso(session)).toBe("2026-04-28T18:57:07+00:00");
+  });
+
   it("clamps future timestamps to current moment", () => {
     const now = Date.parse("2026-04-29T03:00:00+00:00");
     const future = "2026-04-29T03:05:00+00:00";
