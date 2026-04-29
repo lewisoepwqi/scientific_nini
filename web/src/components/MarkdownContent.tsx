@@ -55,6 +55,20 @@ function normalizeMarkdownArtifactLinks(content: string): string {
  })
 }
 
+function fixMarkdownTableSeparator(content: string): string {
+ if (!content) return content
+
+ return content
+ .split('\n')
+ .map((line) => {
+ if (!/^\s*\|(?:\s*:?-*:?\s*\|){2,}\s*$/u.test(line)) return line
+ return line
+ .replace(/\|\s*::\s*(?=\|)/gu, '|:---:')
+ .replace(/\|\s*:\s*(?=\|)/gu, '|:---')
+ })
+ .join('\n')
+}
+
 /**
  * 转换图片路径为正确的 URL。
  * - 相对路径如 ./产物/xxx.png → /api/workspace/{sessionId}/files/xxx.png
@@ -277,7 +291,10 @@ function checkForPlotly(node: ReactNode): boolean {
 export default function MarkdownContent({ content, className }: Props) {
  const sessionId = useStore((s) => s.sessionId)
  const components = useMemo(() => createMarkdownComponents(sessionId), [sessionId])
- const normalizedContent = useMemo(() => normalizeMarkdownArtifactLinks(content), [content])
+ const normalizedContent = useMemo(
+ () => normalizeMarkdownArtifactLinks(fixMarkdownTableSeparator(content)),
+ [content],
+ )
 
  return (
  <div className={className}>

@@ -1262,6 +1262,24 @@ def test_merge_tool_arguments_avoids_duplicate_replay() -> None:
     assert merged == '{"method":"correlation","dataset_name":"demo"}'
 
 
+def test_merge_tool_arguments_keeps_single_character_increment() -> None:
+    """单字符增量即使等于现有尾字符，也不能被误判为重复回放。"""
+    merged = _merge_tool_arguments(
+        "df_num = df[num_cols].dropna()\n# Pearson",
+        "n",
+    )
+    assert merged.endswith("Pearsonn")
+
+
+def test_merge_tool_arguments_keeps_single_character_closing_brace() -> None:
+    """单字符 } 增量不能被吞掉，否则 tool_call arguments 会变成残缺 JSON。"""
+    merged = _merge_tool_arguments(
+        '{"patch":{"mode":"replace_string"}',
+        "}",
+    )
+    assert merged == '{"patch":{"mode":"replace_string"}}'
+
+
 def _fake_openai_stream_chunk(text: str = "", finish_reason: str | None = None) -> Any:
     """构造 OpenAI 兼容流式 chunk。"""
     delta = types.SimpleNamespace(content=text, tool_calls=None)
