@@ -44,6 +44,21 @@ def test_empty_and_none_safe() -> None:
     assert fix_markdown_table_separator("") == ""
 
 
+def test_fix_double_colon_separator_to_centered() -> None:
+    """|::| 居中缩写应被修复为 |:---:|（DeepSeek/GLM 常见输出）。"""
+    src = "| 指标 | ISX | Mock |\n|:|::|:|\n| 样本量 | 187 | 174 |\n"
+    out = fix_markdown_table_separator(src)
+    assert "|:---|:---:|:---|" in out
+    assert "|:|::|:|" not in out
+
+
+def test_fix_mixed_centered_and_left_columns() -> None:
+    """4 列混合左/居中对齐缩写。"""
+    src = "| a | b | c | d |\n|:|::|::|:|\n| 1 | 2 | 3 | 4 |\n"
+    out = fix_markdown_table_separator(src)
+    assert "|:---|:---:|:---:|:---|" in out
+
+
 def test_build_text_event_applies_fixup() -> None:
     """build_text_event 产出的事件 content 已通过分隔行修复。"""
     from nini.agent.event_builders import build_text_event

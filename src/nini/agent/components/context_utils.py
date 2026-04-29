@@ -324,6 +324,10 @@ def _prepare_single_message_for_llm(
         }
         if tool_calls:
             cleaned["tool_calls"] = tool_calls
+            # DeepSeek thinking 模式要求带工具调用的 assistant 历史保留 reasoning_content
+            reasoning_content = msg.get("reasoning_content")
+            if reasoning_content:
+                cleaned["reasoning_content"] = str(reasoning_content)
         return cleaned
 
     if role == "tool":
