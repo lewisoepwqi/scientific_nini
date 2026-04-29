@@ -40,6 +40,10 @@ import type {
   DispatchLedgerSummary,
 } from "./types";
 import { apiFetch } from "./auth";
+import {
+  LongTermMemoryStatsSchema,
+  LongTermMemoryListResponseSchema,
+} from "../schemas/memory";
 
 import { isRecord, nextId, makePlanProgressFromSteps, logError } from "./utils";
 import {
@@ -1196,12 +1200,12 @@ export interface LongTermMemoryEntry {
   source_session_id: string;
   source_dataset: string | null;
   analysis_type: string | null;
-  confidence: number;
+  confidence: number | null;
   importance_score: number;
   tags: string[];
   metadata: Record<string, unknown>;
-  created_at: string;
-  last_accessed_at: string;
+  created_at: string | number;
+  last_accessed_at: string | number | null;
   access_count: number;
 }
 
@@ -1209,6 +1213,8 @@ export interface LongTermMemoryStats {
   total_memories: number;
   type_distribution: Record<string, number>;
   vector_store_available: boolean;
+  last_updated_ts: number | null;
+  storage: string;
 }
 
 export async function fetchLongTermMemories(
@@ -1230,10 +1236,12 @@ export async function fetchLongTermMemories(
     const qs = sp.toString();
     const resp = await apiFetch(`/api/memory/long-term${qs ? `?${qs}` : ""}`);
     const data = await resp.json();
-    return {
-      memories: Array.isArray(data.memories) ? (data.memories as LongTermMemoryEntry[]) : [],
-      total: typeof data.total === "number" ? data.total : 0,
-    };
+    const parsed = LongTermMemoryListResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      console.warn("[API] long-term memories response mismatch:", parsed.error.format());
+      return { memories: [], total: 0 };
+    }
+    return parsed.data;
   } catch {
     return { memories: [], total: 0 };
   }
@@ -1255,7 +1263,13 @@ export async function fetchLongTermMemoryStats(): Promise<LongTermMemoryStats | 
   try {
     const resp = await apiFetch("/api/memory/long-term/stats");
     if (!resp.ok) return null;
-    return (await resp.json()) as LongTermMemoryStats;
+    const data = await resp.json();
+    const parsed = LongTermMemoryStatsSchema.safeParse(data);
+    if (!parsed.success) {
+      console.warn("[API] memory stats response mismatch:", parsed.error.format());
+      return null;
+    }
+    return parsed.data;
   } catch {
     return null;
   }

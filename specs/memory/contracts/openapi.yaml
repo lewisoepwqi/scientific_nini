@@ -1,0 +1,254 @@
+openapi: 3.0.3
+info:
+  title: 长期记忆系统接口
+  version: 1.0.0
+  description: |
+    长期记忆 CRUD 与统计接口，用于存储、检索和管理分析过程中产生的结构化记忆。
+servers:
+  - url: /api/memory
+paths:
+  /long-term:
+    get:
+      summary: 获取长期记忆列表
+      operationId: listLongTermMemories
+      parameters:
+        - in: query
+          name: query
+          schema:
+            type: string
+          description: 搜索查询关键词
+        - in: query
+          name: session_id
+          schema:
+            type: string
+          description: 按会话 ID 过滤
+        - in: query
+          name: dataset_name
+          schema:
+            type: string
+          description: 按数据集名称过滤
+        - in: query
+          name: memory_type
+          schema:
+            type: string
+            enum: [finding, statistic, decision, insight]
+          description: 按记忆类型过滤
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: 返回数量限制
+      responses:
+        '200':
+          description: 记忆列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [memories, total]
+                properties:
+                  memories:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LongTermMemoryEntry'
+                  total:
+                    type: integer
+        '500':
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /long-term/stats:
+    get:
+      summary: 获取长期记忆统计信息
+      operationId: getLongTermMemoryStats
+      responses:
+        '200':
+          description: 统计信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LongTermMemoryStats'
+        '500':
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /long-term/{memory_id}:
+    delete:
+      summary: 删除长期记忆
+      operationId: deleteLongTermMemory
+      parameters:
+        - in: path
+          name: memory_id
+          required: true
+          schema:
+            type: string
+          description: 记忆 ID
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success]
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '404':
+          description: 记忆不存在
+        '500':
+          description: 服务器错误
+
+  /long-term/extract:
+    post:
+      summary: 从分析内容中提取长期记忆
+      operationId: extractLongTermMemories
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content, session_id]
+              properties:
+                content:
+                  type: string
+                  description: 分析内容文本
+                session_id:
+                  type: string
+                  description: 来源会话 ID
+                dataset_name:
+                  type: string
+                  description: 关联数据集名称
+      responses:
+        '200':
+          description: 提取结果
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, extracted_count]
+                properties:
+                  success:
+                    type: boolean
+                  extracted_count:
+                    type: integer
+        '500':
+          description: 服务器错误
+
+  /long-term/initialize:
+    post:
+      summary: 初始化长期记忆系统
+      operationId: initializeLongTermMemory
+      responses:
+        '200':
+          description: 初始化结果
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message, total_memories]
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  total_memories:
+                    type: integer
+        '500':
+          description: 服务器错误
+
+components:
+  schemas:
+    LongTermMemoryEntry:
+      type: object
+      required:
+        - id
+        - memory_type
+        - content
+        - importance_score
+        - tags
+        - created_at
+        - access_count
+      properties:
+        id:
+          type: string
+        memory_type:
+          type: string
+          enum: [finding, statistic, decision, insight]
+        content:
+          type: string
+        summary:
+          type: string
+          default: ''
+        source_session_id:
+          type: string
+          default: ''
+        source_dataset:
+          type: string
+          nullable: true
+        analysis_type:
+          type: string
+          nullable: true
+        confidence:
+          type: number
+          nullable: true
+        importance_score:
+          type: number
+          default: 0.5
+        tags:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+        last_accessed_at:
+          type: string
+          nullable: true
+        access_count:
+          type: integer
+          default: 0
+
+    LongTermMemoryStats:
+      type: object
+      required:
+        - total_memories
+        - type_distribution
+        - vector_store_available
+      properties:
+        total_memories:
+          type: integer
+        type_distribution:
+          type: object
+          additionalProperties:
+            type: integer
+          description: 按记忆类型分组的计数
+        vector_store_available:
+          type: boolean
+        last_updated_ts:
+          type: number
+          nullable: true
+        storage:
+          type: string
+          default: sqlite
+
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: string

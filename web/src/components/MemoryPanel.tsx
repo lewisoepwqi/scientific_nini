@@ -94,7 +94,7 @@ function formatTime(isoStr: string): string {
  }
 }
 
-function formatRelativeTime(isoStr: string): string {
+function formatRelativeTime(isoStr: string | number): string {
  try {
  const d = new Date(isoStr);
  const now = Date.now();
