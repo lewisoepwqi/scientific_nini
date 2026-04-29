@@ -41,6 +41,7 @@ class FakeClient(BaseLLMClient):
         *,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        reasoning_effort: str | None = None,
     ) -> AsyncGenerator[LLMChunk, None]:
         if self._error is not None:
             raise self._error

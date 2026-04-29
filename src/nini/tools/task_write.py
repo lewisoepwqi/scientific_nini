@@ -13,6 +13,29 @@ from nini.agent.task_manager import TaskManager
 from nini.agent.session import Session
 from nini.tools.base import Tool, ToolResult
 
+
+def _build_chart_embed_hint(session: Session) -> str:
+    """列举会话中已生成的 chart_session 图表及嵌入语法，供最终报告阶段使用。"""
+    try:
+        from nini.workspace.manager import WorkspaceManager
+
+        manager = WorkspaceManager(session)
+        resources = manager.list_resource_summaries()
+        charts = [r for r in resources if r.get("type") == "chart"]
+        if not charts:
+            return ""
+        lines = ["\n可用图表（在报告中用 `![描述](chart_id)` 嵌入交互图）："]
+        for chart in charts[:5]:
+            cid = str(chart.get("id", "")).strip()
+            name = str(chart.get("name", "")).strip()
+            if not cid:
+                continue
+            label = name or cid
+            lines.append(f"  - {label}：`![{label}]({cid})`")
+        return "\n".join(lines) if len(lines) > 1 else ""
+    except Exception:
+        return ""
+
 logger = logging.getLogger(__name__)
 
 _TASK_STATUS_ENUM = ["pending", "in_progress", "completed", "failed", "blocked", "skipped"]
@@ -480,12 +503,14 @@ class TaskWriteTool(Tool):
             # 最后一个任务（通常是"汇总结论"或"复盘检查"）：
             # 视为隐式自动完成——避免模型陷入"先 call 再总结"的两步循环。
             session.pending_auto_complete_task_id = current_in_progress.id
+            chart_hint = _build_chart_embed_hint(session)
             message = (
                 f"所有前序任务已完成，当前仅剩任务{current_in_progress.id}"
                 f"「{current_in_progress.title}」。"
                 "请**直接输出最终分析总结**，引用已生成的图表 artifact；"
                 "本任务会在你回复后由系统自动标记为 completed，"
                 "**不要再调用 task_state**。"
+                + chart_hint
             )
         elif current_in_progress:
             hint_text = (

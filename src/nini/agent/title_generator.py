@@ -9,6 +9,8 @@ import logging
 import re
 from typing import Any
 
+_COMPRESSED_USER_LINE_RE = re.compile(r"^\s*-\s*\[user\]\s+(.+)", re.IGNORECASE)
+
 from nini.agent.model_resolver import model_resolver
 
 logger = logging.getLogger(__name__)
@@ -51,7 +53,9 @@ _GENERIC_TITLES = {
     "谢谢",
 }
 _TITLE_HARD_LIMIT = 15
-_TITLE_MAX_TOKENS = 50
+# 推理模型（如 DeepSeek-v4-pro）会先消耗 reasoning_content token，再输出正文；
+# 50 token 不足以同时完成推理和输出，故调高上限。
+_TITLE_MAX_TOKENS = 200
 
 
 def _collect_relevant_messages(messages: list[dict[str, Any]]) -> list[tuple[str, str]]:
@@ -210,11 +214,74 @@ def _build_title_prompt(
     return _TITLE_PROMPT + "\n".join(relevant)
 
 
-async def generate_title(messages: list[dict[str, Any]]) -> str | None:
+def _fallback_title_from_compressed_context(compressed_context: str) -> str | None:
+    """从压缩摘要中提取用户意图作为回退标题。"""
+    if not compressed_context:
+        return None
+    for line in compressed_context.splitlines():
+        m = _COMPRESSED_USER_LINE_RE.match(line)
+        if not m:
+            continue
+        content = m.group(1).strip()
+        if not content:
+            continue
+        normalized = _trim_title_length(_strip_leading_filler(content))
+        if normalized and not _is_generic_title(normalized):
+            return normalized
+    return None
+
+
+async def generate_title_from_message(user_message: str) -> str | None:
+    """直接从单条用户消息生成标题（用于首次对话时提前生成）。
+
+    优先使用规则提取，失败时调用 LLM。
+
+    Args:
+        user_message: 用户的原始消息文本
+
+    Returns:
+        生成的标题字符串，失败时返回 None。
+    """
+    if not user_message or not user_message.strip():
+        return None
+
+    # 1. 规则提取：去掉寒暄词后裁剪
+    stripped = _strip_leading_filler(user_message)
+    rule_title = _trim_title_length(stripped)
+    if rule_title and not _is_generic_title(rule_title) and len(rule_title) >= 4:
+        logger.info("标题规则提取成功: %s (source=message)", rule_title)
+        return rule_title
+
+    # 2. 规则提取失败，调用 LLM
+    prompt = _TITLE_PROMPT + "用户: " + user_message[:80]
+    response = await model_resolver.chat_complete(
+        [{"role": "user", "content": prompt}],
+        temperature=0.3,
+        max_tokens=_TITLE_MAX_TOKENS,
+        purpose="title_generation",
+        optional=True,
+        reasoning_effort="none",
+    )
+    raw_title = (response.text if response is not None else "") or ""
+    title = _trim_title_length(raw_title)
+    if title:
+        logger.info("标题 LLM 生成成功: %s (source=message)", title)
+        return title
+
+    logger.debug("标题生成失败（message 源），将由后置逻辑兜底")
+    return None
+
+
+async def generate_title(
+    messages: list[dict[str, Any]],
+    *,
+    compressed_context: str = "",
+) -> str | None:
     """根据对话消息生成会话标题。
 
     Args:
         messages: 会话消息列表（取前几条用户和助手消息）
+        compressed_context: 已压缩的上下文摘要，供 fallback 使用
 
     Returns:
         生成的标题字符串，失败时返回 None。
@@ -238,6 +305,7 @@ async def generate_title(messages: list[dict[str, Any]]) -> str | None:
         max_tokens=_TITLE_MAX_TOKENS,
         purpose="title_generation",
         optional=True,
+        reasoning_effort="none",
     )
     raw_title = (response.text if response is not None else "") or ""
     finish_reason = getattr(response, "finish_reason", None) if response is not None else None
@@ -254,6 +322,13 @@ async def generate_title(messages: list[dict[str, Any]]) -> str | None:
         )
         return title
 
+    # 检测是否因推理模型消耗了全部 token 预算
+    reasoning_tokens = usage.get("reasoning_tokens", 0) if isinstance(usage, dict) else 0
+    output_tokens = usage.get("output_tokens", 0) if isinstance(usage, dict) else 0
+    reasoning_consumed = (
+        reasoning_tokens > 0 and not raw_title.strip() and output_tokens >= _TITLE_MAX_TOKENS * 0.9
+    )
+
     if response is None:
         empty_reason = "optional_none"
     elif tool_calls:
@@ -262,6 +337,8 @@ async def generate_title(messages: list[dict[str, Any]]) -> str | None:
         empty_reason = "raw_empty"
     else:
         empty_reason = "normalized_empty"
+    if reasoning_consumed:
+        empty_reason = "reasoning_consumed"
     logger.warning(
         "会话标题为空: reason=%s, finish_reason=%s, finish_reasons=%s, usage=%s, raw_len=%d, raw_preview=%s",
         empty_reason,
@@ -272,7 +349,15 @@ async def generate_title(messages: list[dict[str, Any]]) -> str | None:
         _preview_text(raw_title),
     )
 
-    fallback = _fallback_title(messages)
+    # 推理消耗场景下，优先从压缩上下文提取（更可靠的用户意图源）
+    if reasoning_consumed:
+        fallback = _fallback_title_from_compressed_context(compressed_context) or _fallback_title(
+            messages
+        )
+    else:
+        fallback = _fallback_title(messages) or _fallback_title_from_compressed_context(
+            compressed_context
+        )
     if fallback:
         logger.info(
             "LLM 标题为空，已使用回退标题: %s (reason=%s, finish_reason=%s)",

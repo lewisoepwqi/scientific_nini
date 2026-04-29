@@ -58,6 +58,7 @@ class AnthropicClient(BaseLLMClient):
         *,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        reasoning_effort: str | None = None,
     ) -> AsyncGenerator[LLMChunk, None]:
         self._ensure_client()
         assert self._client is not None
@@ -71,6 +72,12 @@ class AnthropicClient(BaseLLMClient):
             "temperature": temperature,
             "messages": anthropic_messages,
         }
+        if reasoning_effort is not None:
+            # 映射为 Anthropic thinking budget
+            budget_map = {"none": 0, "low": 1024, "medium": 4096, "high": 16384}
+            budget = budget_map.get(reasoning_effort, 0)
+            if budget > 0:
+                kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
         if system_prompt:
             kwargs["system"] = system_prompt
         if anthropic_tools:
@@ -111,9 +118,20 @@ class AnthropicClient(BaseLLMClient):
         usage_obj = getattr(response, "usage", None)
         usage = None
         if usage_obj is not None:
+            reasoning_tokens = 0
+            # Anthropic extended thinking 可能在 usage 中有独立统计
+            for attr in ("cache_read_input_tokens", "cache_creation_input_tokens"):
+                pass  # 这些是缓存相关，非 reasoning
+            # 从 thinking block 的内容估算 reasoning tokens
+            # Anthropic API 暂无独立的 reasoning_tokens 字段，用 reasoning 文本长度近似
+            if reasoning_parts:
+                # 粗略估算：1 token ≈ 4 字符（英文）或 1.5 字符（中文）
+                reasoning_chars = sum(len(p) for p in reasoning_parts)
+                reasoning_tokens = max(1, int(reasoning_chars / 2))
             usage = {
                 "input_tokens": int(getattr(usage_obj, "input_tokens", 0) or 0),
                 "output_tokens": int(getattr(usage_obj, "output_tokens", 0) or 0),
+                "reasoning_tokens": reasoning_tokens,
             }
 
         finish_reason = getattr(response, "stop_reason", None)

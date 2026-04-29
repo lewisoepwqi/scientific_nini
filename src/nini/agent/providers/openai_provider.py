@@ -326,6 +326,7 @@ class OpenAICompatibleClient(BaseLLMClient):
         *,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        reasoning_effort: str | None = None,
     ) -> AsyncGenerator[LLMChunk, None]:
         self._ensure_client()
         assert self._client is not None
@@ -350,6 +351,8 @@ class OpenAICompatibleClient(BaseLLMClient):
             "max_tokens": max_tokens,
             "stream": True,
         }
+        if reasoning_effort is not None:
+            kwargs["reasoning_effort"] = reasoning_effort
         if self._supports_stream_usage():
             kwargs["stream_options"] = {"include_usage": True}
         if tools:
@@ -417,9 +420,14 @@ class OpenAICompatibleClient(BaseLLMClient):
 
                     usage = None
                     if chunk.usage:
+                        reasoning_tokens = 0
+                        details = getattr(chunk.usage, "completion_tokens_details", None)
+                        if details:
+                            reasoning_tokens = int(getattr(details, "reasoning_tokens", 0) or 0)
                         usage = {
                             "input_tokens": chunk.usage.prompt_tokens or 0,
                             "output_tokens": chunk.usage.completion_tokens or 0,
+                            "reasoning_tokens": reasoning_tokens,
                         }
 
                     chunks_emitted += 1

@@ -17,6 +17,7 @@ class ModelTokenUsage(BaseModel):
     model_id: str
     input_tokens: int = 0
     output_tokens: int = 0
+    reasoning_tokens: int = 0
     total_tokens: int = 0
     cost_cny: float = 0.0
     cost_usd: float = 0.0
@@ -29,6 +30,7 @@ class TokenUsage(BaseModel):
     session_id: str
     input_tokens: int = 0
     output_tokens: int = 0
+    reasoning_tokens: int = 0
     total_tokens: int = 0
     estimated_cost_cny: float = 0.0
     estimated_cost_usd: float = 0.0
@@ -42,6 +44,7 @@ class TokenUsage(BaseModel):
             "session_id": self.session_id,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
+            "reasoning_tokens": self.reasoning_tokens,
             "total_tokens": self.total_tokens,
             "estimated_cost_cny": round(self.estimated_cost_cny, 6),
             "estimated_cost_usd": round(self.estimated_cost_usd, 6),

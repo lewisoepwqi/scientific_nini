@@ -542,7 +542,8 @@ class ModelResolver:
         """获取用于标题生成的客户端。
 
         优先通过 provider 自身的偏好规则动态选取更轻量的标题模型，
-        匹配失败时回退到当前激活供应商的主模型。
+        匹配失败时尝试使用系统内置标题模型（非推理模型），
+        最终回退到当前激活供应商的主模型。
         """
         if not self._active_provider_id:
             return self._trial_client  # 试用模式直接用试用客户端
@@ -579,34 +580,32 @@ class ModelResolver:
             )
             title_model = None
 
-        if not title_model:
-            logger.info(
-                "标题生成模型已确定: provider=%s model=%s source=%s",
-                self._active_provider_id,
-                active_client.get_model_name() or "unknown",
-                "fallback_active_model",
-            )
-            return active_client
+        # 优先使用 provider 推荐的轻量标题模型
+        if title_model and title_model != active_client.get_model_name():
+            built = self._build_client_for_provider(self._active_provider_id, model=title_model)
+            if built and built.is_available():
+                logger.info(
+                    "标题生成模型已确定: provider=%s model=%s source=%s",
+                    self._active_provider_id,
+                    title_model,
+                    model_source,
+                )
+                return built
 
-        if title_model == active_client.get_model_name():
-            logger.info(
-                "标题生成模型已确定: provider=%s model=%s source=%s",
-                self._active_provider_id,
-                active_client.get_model_name() or "unknown",
-                model_source,
-            )
-            return active_client
+        # provider 无轻量模型时，尝试系统内置标题模型（非推理模型）
+        try:
+            builtin_title = self._get_builtin_client("title_generation", BUILTIN_MODE_TITLE)
+            if builtin_title is not None:
+                logger.info(
+                    "标题生成模型已确定: provider=%s model=%s source=builtin_title_fallback",
+                    "builtin",
+                    builtin_title.get_model_name(),
+                )
+                return builtin_title
+        except Exception as exc:
+            logger.debug("内置标题模型不可用: %s", exc)
 
-        built = self._build_client_for_provider(self._active_provider_id, model=title_model)
-        if built and built.is_available():
-            logger.info(
-                "标题生成模型已确定: provider=%s model=%s source=%s",
-                self._active_provider_id,
-                title_model,
-                model_source,
-            )
-            return built
-
+        # 最终回退到激活供应商的主模型
         logger.info(
             "标题生成模型已确定: provider=%s model=%s source=%s",
             self._active_provider_id,
@@ -846,6 +845,7 @@ class ModelResolver:
         purpose: str = "default",
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        reasoning_effort: str | None = None,
     ) -> AsyncGenerator[LLMChunk, None]:
         """流式聊天（单一激活供应商模式）。
 
@@ -855,6 +855,7 @@ class ModelResolver:
             purpose: 用途标识（title_generation 时自动使用廉价模型）
             temperature: 采样温度
             max_tokens: 最大生成 token 数
+            reasoning_effort: 推理深度控制（如 "none"/"low"/"medium"/"high"）
 
         Yields:
             LLMChunk: 流式输出块
@@ -893,6 +894,7 @@ class ModelResolver:
                     tools=tools,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    reasoning_effort=reasoning_effort,
                 ):
                     if builtin_mode_to_count is not None and not builtin_usage_counted:
                         from nini.config_manager import increment_builtin_usage
@@ -984,6 +986,7 @@ class ModelResolver:
         temperature: float = 0.3,
         max_tokens: int = 4096,
         optional: bool = False,
+        reasoning_effort: str | None = None,
     ) -> LLMResponse | None:
         """非流式聊天，聚合所有 chunk 返回完整响应。
 
@@ -994,6 +997,7 @@ class ModelResolver:
             temperature: 采样温度
             max_tokens: 最大生成 token 数
             optional: 全链失败时是否返回 None
+            reasoning_effort: 推理深度控制
 
         Returns:
             完整响应；当 optional=True 且全链失败时返回 None
@@ -1011,6 +1015,7 @@ class ModelResolver:
                 purpose=purpose,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                reasoning_effort=reasoning_effort,
             ):
                 if chunk.text:
                     text_parts.append(chunk.text)
@@ -1024,6 +1029,9 @@ class ModelResolver:
                     )
                     usage["output_tokens"] = usage.get("output_tokens", 0) + chunk.usage.get(
                         "output_tokens", 0
+                    )
+                    usage["reasoning_tokens"] = usage.get("reasoning_tokens", 0) + chunk.usage.get(
+                        "reasoning_tokens", 0
                     )
                 if chunk.finish_reason:
                     finish_reasons.append(chunk.finish_reason)
