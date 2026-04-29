@@ -1,6 +1,8 @@
 ---
 name: publication_figure
-description: 生成符合顶级学术期刊（Nature、Science、Cell 等）发表标准的科研图表
+version: 1.1.0
+min_version: 1.0
+description: 生成符合 Nature/Science/Cell 等顶级期刊投稿标准的科研图表。自动输出 matplotlib/seaborn 可执行代码、PDF/PNG/EPS 矢量图、标准图注（Figure Legend）及提交前自检清单。支持柱状图、折线图、散点图、热图、Kaplan-Meier 生存曲线、火山图、多面板组合图。触发词：论文图、发表级图表、期刊图表、Nature图、Science图、Cell图、投稿用图、科研绘图、论文插图、高分辨率图表、矢量格式图表。
 category: visualization
 allowed-tools:
   - ask_user_question
@@ -22,12 +24,321 @@ allowed-tools:
 
 当用户要求绑制任何科研图表时，**必须**遵循本文档中的规范。
 
+---
+
+## 执行总纲（模型优先阅读）
+
+本文档分为两部分：
+- **前半部分（执行总纲 + 执行流程）**：作战地图，触发时优先阅读，明确"先做什么、再做什么"
+- **后半部分（参考手册）**：详细规范、代码示例、配色参数，按需查阅
+
+### 触发条件
+
+- 用户要求绑制或生成科研数据图表
+- 用户要求将数据可视化为论文发表级别的图形
+- 用户提到 "论文图"、"发表级图表"、"期刊图表"、"Nature图"、"Science图"、"投稿用图" 等关键词
+- 用户要求导出高分辨率或矢量格式图表
+
+### 执行流程速查
+
+```
+Step 1: 需求确认（确认期刊/图表类型/数据/输出格式）
+    ↓ [CP1] 向用户确认需求
+Step 2: 数据预处理（清洗/统计量计算）
+Step 3: 应用期刊规范（尺寸/DPI/字体/配色/线条）
+    ↓ [CP2] 向用户确认规范方案
+Step 4: 生成图表代码（matplotlib/seaborn + 统计标注 + 多格式保存）
+    ↓ [CP3] 展示关键参数，确认后执行
+Step 5: 自检与交付（清单检查 + 图注 + 交付文件）
+    ↓ [CP4] 展示预览，确认或迭代
+```
+
+### 工具映射速查
+
+| 执行步骤 | 推荐工具 | 用途说明 | 参考章节 |
+|---------|---------|---------|---------|
+| Step 1 需求确认 | `ask_user_question` | 向用户确认期刊、图表类型、数据状态 | 执行总纲-图表类型选择指南 |
+| Step 2 数据预处理 | `dataset_catalog` | 检查数据完整性、格式、缺失值 | 第二章 |
+| Step 2 统计计算 | `stat_test` / `stat_model` / `stat_interpret` | 计算统计量、p值、效应量 | 第六章 |
+| Step 3 应用规范 | （规范决策步骤，无工具调用） | 按目标期刊选择尺寸/DPI/字体/配色 | 第一章、第三章 |
+| Step 4 生成代码 | `code_session` / `chart_session` | 编写并执行绘图代码 | 第四章、第七章 |
+| Step 4 多格式导出 | `export_chart` | 同时输出矢量(PDF/EPS/SVG)和位图(PNG/TIFF) | 7.3 节 |
+| Step 5 自检交付 | `workspace_session` | 管理输出文件、交付图注与图表 | 第八章 |
+
+> **使用原则**：优先使用上表推荐的专用工具；若工具不可用，按技能文档中的代码示例和函数模板手动实现。
+
+### 检查点 fallback 速查
+
+| 检查点 | 通过条件 | 未通过处理 |
+|--------|---------|-----------|
+| **CP1** 需求确认 | 用户确认期刊、图表类型、数据状态 | 用户提出修改 → 记录修改项，重新确认；用户未明确 → 给出推荐方案并征得同意 |
+| **CP2** 规范确认 | 用户确认尺寸、配色、字体方案 | 用户要求冲突规范（3D/渐变/红绿）→ 礼貌拒绝并说明原因，提供替代方案；用户要求调整 → 返回 Step 3 修改 |
+| **CP3** 代码执行前 | 用户确认关键参数（尺寸/DPI/配色/统计方法） | 用户要求调整 → 修改代码，重新展示参数摘要；用户未回复 → 等待确认，**不擅自执行** |
+| **CP4** 交付确认 | 用户对图表、图注、布局满意 | 用户提出修改 → 明确修改项（配色/标签/统计/尺寸/布局），返回 Step 3 或 Step 4 迭代 |
+
+### 异常处理速查
+
+| 异常情况 | 快速处理 |
+|---------|---------|
+| 未提供数据 | 询问是否模拟演示，模拟数据须标注 |
+| 数据格式错误 | 确认格式，提供转换协助 |
+| 缺失值 >20% | 警告并建议处理，用户坚持则声明 |
+| 样本量 n<3 | 改用个体数据点图，不适合误差线 |
+| 要求 3D/渐变/阴影 | 礼貌拒绝，说明期刊规范 |
+| 要求红绿配色 | 警告色盲风险，推荐蓝-橙替代 |
+| 图表类型不匹配 | 解释并推荐合适类型 |
+| 要求修改 p 值 | **拒绝**，坚守学术诚信 |
+| 分组数 >24 / 颜色不足 | HSV 动态生成或图案填充补充 |
+| 系统无 Arial 字体 | 自动回退 DejaVu/Liberation Sans |
+| 中文标签显示方框 | 回退到 SimHei/Noto Sans CJK |
+| 数据量过大/拥挤 | 旋转标签、抽样、改用密度图 |
+| 要求动画/交互式图表 | 礼貌拒绝，提供静态版 + 可选补充材料 |
+
+### 图表类型选择指南
+
+根据数据特征快速定位图表类型：
+
+| 数据特征 | 推荐图表 | 关键 MUST 规则 |
+|---------|---------|---------------|
+| 分类数据对比（组间均值） | **柱状图** | Y轴从0开始，必须含误差线（SD/SEM/CI） |
+| 时间序列 / 连续变化 | **折线图** | 时间轴按比例，线型+颜色双重区分，≤5-6条线 |
+| 两变量相关性 | **散点图** | 重叠点用透明度（alpha 0.3-0.6），标注R²和p值 |
+| 数据分布对比 | **箱线图/小提琴图** | 显示中位数和四分位，图注标注样本量 |
+| 矩阵型连续数据 | **热图** | 必须含 colorbar，基因表达须聚类 |
+| 生存数据 | **Kaplan-Meier** | 必须含风险表、置信区间、删失标记、p值和HR |
+| 差异表达数据 | **火山图** | 显示阈值线，上调/下调/不显著分色 |
+| 多子图组合 | **多面板图** | 面板编号 (a,b,c)，粗体10-12pt，严格对齐 |
+
+### 自检速查（交付前必查）
+
+- [ ] 分辨率：位图 ≥300 DPI，线条图 ≥600 DPI
+- [ ] 格式：矢量(PDF/EPS/SVG) + 位图(TIFF/PNG) 同时提供
+- [ ] 尺寸：符合目标期刊单栏/双栏要求
+- [ ] 字体：Arial/Helvetica，最小 6pt
+- [ ] 边框：去除上/右边框，纯白背景
+- [ ] 配色：色盲友好，不仅靠颜色区分
+- [ ] 统计：误差线类型注明（SD/SEM/CI），p值格式正确
+- [ ] 样本量：图注中标注 n 数
+- [ ] 图注：含标题、面板说明、统计方法、缩写解释
+
+---
+
 ## 适用场景
 
 - 用户要求绑制或生成科研数据图表
 - 用户要求将数据可视化为论文发表级别的图形
 - 用户提到 "论文图"、"发表级图表"、"期刊图表" 等关键词
 - 用户要求导出高分辨率或矢量格式图表
+
+---
+
+## 执行流程
+
+### 快速决策入口
+
+根据用户输入的完整度，选择切入步骤：
+
+| 用户状态 | 切入步骤 | 说明 |
+|---------|---------|------|
+| 仅提出绘图需求，未提供数据/期刊/图表类型 | **Step 1** | 完整走流程，从需求确认开始 |
+| 提供了数据和图表类型，但未指定期刊 | **Step 2** | 跳过期刊确认，使用通用规范，生成前询问目标期刊 |
+| 提供了完整参数（数据+期刊+图表类型） | **Step 3** | 直接应用规范生成代码，在 CP2 确认尺寸和配色 |
+| 要求修改已有图表 | **Step 3/4** | 明确修改项（配色/标签/统计/布局），定位到对应步骤 |
+| 仅要求图注/自检已有图表 | **Step 5** | 跳过代码生成，直接自检和撰写图注 |
+
+---
+
+当触发本技能时，按以下步骤执行：
+
+### Step 1: 需求确认（输入 → 决策）
+
+**输入**: 用户的图表请求 + 数据（如有）  
+**输出**: 明确的图表类型、目标期刊、数据状态  
+**推荐工具**: `ask_user_question`
+
+1. **确认目标期刊**：询问用户投稿期刊（如用户未指定，默认按最通用规范执行）
+2. **确认图表类型**：根据数据特征确定图表类型（柱状图/折线图/散点图/热图/生存曲线/火山图/多面板组合图）
+3. **确认数据完整性**：
+   - 数据格式（CSV/Excel/直接提供/需模拟）
+   - 样本量、分组信息、统计检验需求
+   - 如用户未提供数据，询问是否使用模拟数据演示，或等待用户提供
+4. **确认输出格式**：矢量格式（PDF/EPS/SVG）+ 位图格式（TIFF/PNG）
+
+> **[检查点 CP1]** 在继续前，向用户确认需求。使用以下模板提问：
+> 
+> ```
+> 请确认以下信息是否正确：
+> - 投稿期刊：[期刊名，如 Nature/Science/Cell，未指定则写"通用规范"]
+> - 图表类型：[柱状图/折线图/散点图/热图/生存曲线/火山图/多面板组合图]
+> - 数据来源：[用户已提供 / 使用模拟数据演示 / 等待用户提供]
+> - 输出格式：[PDF + PNG / 其他]
+> 
+> 如有调整请告诉我，确认后我将继续生成。
+> ```
+> 
+> 如用户未明确期刊或图表类型，给出推荐方案并征得同意。
+
+### Step 2: 数据预处理
+
+**输入**: 原始数据  
+**输出**: 清洗后的数据 + 统计量  
+**推荐工具**: `dataset_catalog`（数据检查）、`stat_test` / `stat_model` / `stat_interpret`（统计计算）
+
+#### 2.1 数据清洗与质量检查
+
+1. **缺失值检测**：计算每列/每组缺失比例
+   - > 20%：警告用户，建议插补或剔除（见异常处理表）
+   - ≤ 20%：记录处理方法，在图注中声明
+2. **异常值检测**：使用 IQR 法（1.5×IQR 规则）或 Z-score（|z| > 3）标记极端值
+   - 不擅自删除异常值，仅在图注中声明检测方法
+3. **数据类型确认**：确保数值型变量未误录入为字符串，分组变量为类别型
+
+#### 2.2 统计量计算（按图表类型选择）
+
+| 图表类型 | 必须计算的统计量 | 推荐检验 |
+|---------|----------------|---------|
+| 柱状图 / 条形图 | mean ± SEM（或 SD / 95% CI） | 独立 t-test / ANOVA |
+| 折线图 | mean ± SEM 各时间点 | 重复测量 ANOVA |
+| 散点图 | Pearson/Spearman r, R², p-value | 线性回归 |
+| 箱线图 / 小提琴图 | median, Q1, Q3, IQR, 异常值 | Mann-Whitney U / Kruskal-Wallis |
+| 热图 | 行/列 z-score 标准化（如需要） | 层次聚类 |
+| 生存曲线 | KM 生存概率, 95% CI | log-rank test, Cox HR |
+| 火山图 | log2 fold change, -log10(p), adjusted p | DESeq2/edgeR 等差异分析 |
+| 多面板组合 | 各面板独立统计量 | 按面板类型选择 |
+
+> **注意**：计算完成后，将统计结果汇总为表格，供 Step 4 代码直接调用。
+
+#### 2.3 数据适配性验证
+
+1. **样本量检查**：
+   - n < 3 per group：不适合误差线和统计检验 → 建议改用个体数据点图（dot plot），并在图注标注样本量
+   - n < 30：优先使用非参数检验
+2. **分组数检查**：
+   - > 24 组：触发颜色不足边界，使用 HSV 动态扩展或图案填充（见异常处理表）
+3. **数据-图表匹配检查**：
+   - 分类数据误要求折线图 → 返回 Step 1 推荐柱状图
+   - 时间序列误要求柱状图 → 返回 Step 1 推荐折线图
+   - 单变量分布误要求散点图 → 返回 Step 1 推荐箱线图/小提琴图
+
+### Step 3: 应用期刊规范
+
+**输入**: 图表类型 + 目标期刊  
+**输出**: 规范参数清单  
+**推荐工具**: 无（纯规范决策步骤，依赖本技能文档内的参数表）
+
+1. **尺寸**：按目标期刊选择单栏/双栏宽度（见 1.2 节）
+2. **分辨率**：位图 ≥300 DPI，线条图 ≥600 DPI（见 1.1 节）
+3. **字体**：Arial/Helvetica，字号 7-9 pt（见 1.3 节）
+4. **配色**：使用色盲友好配色（见 第三章 及 7.4 节）
+5. **线条与标记**：按 1.5 节设置线宽、标记大小
+6. **去除冗余元素**：按 2.1 节数据墨水比原则清理
+
+> **[检查点 CP2]** 在生成代码前，向用户确认规范方案。使用以下模板提问：
+> 
+> ```
+> 我将使用以下规范生成图表，请确认：
+> - 图片尺寸：[单栏 89mm / 双栏 183mm / 其他]
+> - 配色方案：[Okabe-Ito / Paul Tol Bright / 其他，说明选择理由]
+> - 字体：Arial，最小 7pt
+> - 背景：纯白，无边框阴影
+> 
+> 如无异议，我将继续编写绘图代码。
+> ```
+> 
+> 如用户要求与规范冲突（如 3D 效果、渐变填充、红绿对比），礼貌拒绝并说明原因，提供替代方案。
+
+### Step 4: 生成图表代码
+
+**输入**: 规范参数清单 + 清洗后数据  
+**输出**: 可执行的 Python/Matplotlib/Seaborn 代码  
+**推荐工具**: `code_session` / `chart_session`（代码生成与执行）、`export_chart`（多格式导出）
+
+#### 4.0 图表类型 → 代码模板索引
+
+| 图表类型 | 对应章节 | 核心函数 / 关键参数速查 |
+|---------|---------|----------------------|
+| 柱状图 | 4.1 | `ax.bar(alpha=0.5)` + `ax.scatter(alpha=0.85)` jitter |
+| 折线图 | 4.2 | `ax.plot()` + `ax.fill_between(alpha=0.2)` |
+| 散点图 | 4.3 | `ax.scatter(alpha=0.3-0.6)` + `linregress` |
+| 箱线图/小提琴图 | 4.4 | `violinplot()` + `boxplot()` + `scatter(alpha=0.6)` |
+| 热图 | 4.5 | `sns.heatmap(cmap='RdBu_r')` + `z-score` |
+| 生存曲线 | 4.6 | `kaplan_meier_estimator()` + 风险表 |
+| 火山图 | 4.7 | `scatter()` + 阈值线 + `annotate` |
+| 多面板组合 | 4.8 | `gridspec` + `text(label, fontweight='bold', fontsize=12)` |
+
+**操作**：按上表定位图表类型，复制对应章节的代码框架，替换数据和参数。
+
+#### 4.1 代码编写步骤
+
+1. **导入必要库**（matplotlib, seaborn, numpy, scipy 等）
+2. **设置全局主题**：调用 `set_publication_theme()`（见 7.5 节）或更新 rcParams（见 7.1 节）
+3. **绘制主图**：按 4.0 索引定位到对应章节，复制代码框架，替换数据
+   - 必须应用半透明叠加原则（2.5 节）：汇总元素 `alpha=0.4-0.6`，个体点 `alpha=0.7-0.9`
+   - 必须使用色盲友好配色（第三章）
+4. **添加统计标注**：误差线、显著性标记、样本量（见 第六章）
+5. **保存多格式**：调用 `save_publication_figure()`（见 7.3 节），同时输出 PDF + PNG
+
+> **[检查点 CP3]** 代码编写完成后、执行前，向用户展示关键参数摘要。使用以下模板提问：
+> 
+> ```
+> 代码已准备就绪，关键参数如下：
+> - 图片尺寸：[宽度 x 高度] inch
+> - DPI：[数值]
+> - 配色：[方案名]
+> - 字体：Arial [字号]pt
+> - 统计方法：[t-test/ANOVA/log-rank/等]
+> 
+> 确认无误后我将执行绘图。如需调整请告诉我。
+> ```
+> 
+> 确认无误后再运行代码生成图表。
+
+### Step 5: 自检与交付
+
+**输入**: 生成的图表文件 + 代码  
+**输出**: 最终交付物 + 图注  
+**推荐工具**: `workspace_session`（文件管理与交付）
+
+1. 按 第八章 自检清单逐项检查
+2. 撰写图注（Figure Legend，见 第五章）
+3. 向用户展示图表，确认是否需调整
+
+   > **[检查点 CP4]** 展示图表预览后，使用以下模板询问用户：
+   >
+   > ```
+   > 图表已生成，请确认：
+   > - 整体布局是否符合您的预期？
+   > - 配色是否满意？
+   > - 标签和统计标注是否正确？
+   >
+   > 如需调整，请告诉我具体修改项（如：配色、标签文字、统计方法、尺寸、布局等），我将返回修改。
+   > ```
+   >
+   > 如用户提出修改，明确修改项后返回 Step 3 或 Step 4 迭代。
+
+4. 交付最终文件（矢量 + 位图 + 图注文本）
+
+## 异常处理与边界条件
+
+执行过程中遇到以下情况时，按对应策略处理：
+
+| 异常情况 | 处理策略 |
+|---------|---------|
+| **用户未提供数据** | 询问是否使用模拟数据演示，或请用户提供数据。如使用模拟数据，必须在图注中明确标注 "Simulated data for demonstration"。 |
+| **数据格式错误/无法解析** | 向用户确认数据格式（CSV/Excel/JSON），提供数据格式要求示例，协助转换。 |
+| **缺失值过多（>20%）** | 警告用户缺失值比例，建议插补或剔除。如用户坚持，在图注中声明处理方法。 |
+| **样本量过小（n<3 per group）** | 说明该样本量不适合误差线和统计检验，建议使用个体数据点图（dot plot）而非柱状图，并在图注中标注样本量。 |
+| **用户要求 3D 效果/渐变/阴影** | 礼貌拒绝，解释 Nature/Science 等顶级期刊禁止此类装饰，提供平面替代方案。 |
+| **用户要求红绿配色** | 警告色盲不友好风险，推荐蓝-橙或紫-黄替代方案。如用户坚持用于非色盲场景，需用户书面确认。 |
+| **图表类型与数据不匹配** | 向用户解释原因并推荐合适类型（如分类数据误用折线图 → 推荐柱状图；时间序列误用柱状图 → 推荐折线图）。 |
+| **用户要求的分辨率/尺寸超出期刊限制** | 说明期刊限制，提供合规替代方案。 |
+| **统计检验不显著（p≥0.05）** | 如实报告，不夸大。图注中标注 "ns, not significant"，不隐藏或删除数据。 |
+| **用户要求修改已统计显著的 p 值** | **拒绝**，说明学术诚信要求，引用 9.3 节伦理规范。 |
+| **分组数超过可用颜色数（>24 组）** | 使用 3.5 节高区分度色板的 HSV 动态生成补充色，或改用图案填充（hatch）+ 颜色双重区分。 |
+| **系统缺少指定字体（如 Linux 无 Arial）** | 自动回退到 `['DejaVu Sans', 'Liberation Sans', 'sans-serif']`，不报错中断。 |
+| **中文/特殊字符标签显示为方框** | 字体回退到支持中文的无衬线字体（如 SimHei、WenQuanYi Zen Hei、Noto Sans CJK），并提醒用户最终投稿前替换为期刊要求的英文字体。 |
+| **数据量过大导致标签/点重叠拥挤** | 分类标签过多（>15）时旋转 90° 或抽样显示；散点重叠时提高透明度或改用 hexbin/密度图；热图行列过多时分块或聚类后抽样。 |
+| **用户要求动画/交互式/可缩放图表** | 礼貌拒绝，说明期刊只接受静态图。可提供静态高分辨率版本 + 单独交互版（HTML/Plotly）作为补充材料（需期刊允许）。 |
 
 ---
 
@@ -183,6 +494,29 @@ ASPECT_RATIOS = {
 - **灰度打印友好**：确保黑白打印时仍可区分
 - **高对比度**：确保文字与背景对比度 ≥4.5:1
 
+### 2.5 原始数据透明展示原则（Data Transparency）
+
+> 借鉴自 root-analysis 技能的可视化设计：在展示汇总统计（均值/中位数）的同时，必须让原始数据点可见，避免"柱状图陷阱"。
+
+**半透明叠加规范**：
+
+| 元素 | 推荐 alpha | 说明 |
+|------|-----------|------|
+| 汇总统计柱/箱 | 0.4 - 0.6 | 半透明填充，让底层散点若隐若现 |
+| 个体数据点 | 0.7 - 0.9 | 接近不透明，确保每个点可见 |
+| 置信区间阴影 | 0.15 - 0.25 | 极浅，不遮挡数据 |
+
+**实施要点**：
+- 柱状图：使用 `alpha=0.5` 的柱形 + `alpha=0.8` 的 jittered 散点
+- 箱线图/小提琴图：箱体 `alpha=0.3-0.5` + 原始数据点 `alpha=0.6-0.8`
+- 散点图：重叠密集区域使用 `alpha=0.3-0.6`
+- 配色一致性：散点颜色与汇总统计元素使用同一色系，通过透明度区分层次
+
+**必须避免**：
+- 仅用纯色柱形遮挡全部原始数据
+- alpha 过低（<0.3）导致个体点无法辨认
+- 使用白色填充散点（`edgecolor='black'`），这在打印时可能丢失
+
 ---
 
 ## 三、配色方案
@@ -276,7 +610,56 @@ COLOR_SURVIVAL = [
 ]
 ```
 
-### 3.5 配色禁忌
+### 3.5 高区分度配色（High-Contrast）
+
+> 适用于样本数较多（>8 组）的分类数据，确保视觉上可区分。源自 root-analysis 技能的配色实践。
+
+```python
+COLORS_HIGH_CONTRAST = [
+    '#E31A1C', '#1F78B4', '#33A02C', '#6A3D9A',
+    '#FF7F00', '#DEDE8B', '#A65628', '#F781BF',
+    '#00CED1', '#006400', '#4B0082', '#FF4500',
+    '#DC143C', '#4169E1', '#228B22', '#8A2BE2',
+    '#FF8C00', '#FFD700', '#8B4513', '#FF1493',
+    '#0080FF', '#32CD32', '#9400D3', '#FF6347',
+]
+```
+
+**使用建议**：
+- 前 8 色已针对色盲优化（红/蓝/绿/紫/橙/黄/棕/粉）
+- 对照组/基线组固定使用灰色 `#808080`（第 1 位后的补充色）
+- 样本数 >24 时，使用 HSV 颜色空间动态生成额外颜色
+
+### 3.6 单色渐变方案（Monotone Gradient）
+
+> 适用于有序分类或剂量梯度数据。源自 root-analysis 技能的连续色彩映射。
+
+#### 蓝色渐变（Blue Gradient）
+```python
+COLORS_BLUE_GRADIENT = [
+    '#DEEBF7', '#C6DBEF', '#9ECAE1', '#6BAED6',
+    '#4292C6', '#2171B5', '#08519C', '#08306B',
+    '#1E3A8A', '#1E40AF', '#2563EB', '#3B82F6',
+    '#60A5FA', '#93C5FD', '#BFDBFE', '#DBEAFE',
+]
+```
+
+#### 绿色渐变（Green Gradient）
+```python
+COLORS_GREEN_GRADIENT = [
+    '#EDF8E9', '#C7E9C0', '#A1D99B', '#74C476',
+    '#41AB5D', '#238B45', '#006D2C', '#00441B',
+    '#064E3B', '#065F46', '#047857', '#059669',
+    '#10B981', '#34D399', '#6EE7B7', '#A7F3D0',
+]
+```
+
+**使用建议**：
+- 蓝色渐变：适合对照组→处理组的剂量响应（颜色越深 = 剂量越高）
+- 绿色渐变：适合生长/阳性指标（颜色越深 = 效应越强）
+- 与定性配色混用时，渐变组仅用于有序维度，定性色用于分组维度
+
+### 3.7 配色禁忌
 
 #### 为什么避免彩虹色图（jet/rainbow）
 
@@ -313,30 +696,36 @@ COLOR_SURVIVAL = [
 ```python
 import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
 
 # 数据
 categories = ['Control', 'Treatment A', 'Treatment B']
 means = [10, 15, 12]
 sem = [1.2, 1.5, 1.1]  # 标准误
 
+# 配色：使用高区分度色板（对照组灰色，处理组彩色）
+colors = ['#808080', '#4477AA', '#EE6677']
+
 fig, ax = plt.subplots(figsize=(3.54, 2.65))  # 单栏尺寸
 
-# 绘制柱状图
+# 绘制柱状图 —— 半透明填充（alpha=0.5），让底层散点可见
 x = np.arange(len(categories))
-bars = ax.bar(x, means, width=0.6, color='#4477AA', edgecolor='black', linewidth=0.8)
+bars = ax.bar(x, means, width=0.6, color=colors, edgecolor='black',
+              linewidth=0.8, alpha=0.5, zorder=2)
 
 # 添加误差线
-ax.errorbar(x, means, yerr=sem, fmt='none', color='black', capsize=3, capthick=1)
+ax.errorbar(x, means, yerr=sem, fmt='none', color='black',
+            capsize=3, capthick=1, zorder=3)
 
-# 添加原始数据点（模拟）
+# 添加原始数据点 —— 同色、高透明度、水平 jitter
 np.random.seed(42)
 for i, (mean, se) in enumerate(zip(means, sem)):
-    # 模拟原始数据
+    # 模拟原始数据（n=10）
     raw_data = np.random.normal(mean, se * np.sqrt(10), 10)
-    jitter = np.random.normal(0, 0.05, 10)
-    ax.scatter([i + jitter[j] for j in range(10)], raw_data, 
-               color='white', edgecolor='black', s=15, zorder=3, alpha=0.7)
+    # 水平 jitter：正态分布，标准差 0.04，与 root-analysis 一致
+    jitter = np.random.normal(i, 0.04, size=len(raw_data))
+    ax.scatter(jitter, raw_data,
+               color=colors[i], edgecolor='black', linewidth=0.5,
+               s=20, zorder=4, alpha=0.85)
 
 # 设置标签
 ax.set_xticks(x)
@@ -345,19 +734,27 @@ ax.set_ylabel('Value (units)', fontsize=8)
 ax.set_xlabel('Group', fontsize=8)
 
 # 设置Y轴从0开始
-ax.set_ylim(0, max(means) * 1.3)
+ax.set_ylim(0, max(means) * 1.4)
 
 # 去除上右边框
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 
 # 添加显著性标记示例
-ax.plot([0, 0, 1, 1], [17, 18, 18, 17], 'k-', linewidth=0.8)
-ax.text(0.5, 18.5, '*', ha='center', fontsize=10)
+y_sig = max(means) * 1.2
+ax.plot([0, 0, 1, 1], [y_sig, y_sig + 0.5, y_sig + 0.5, y_sig],
+        'k-', linewidth=0.8)
+ax.text(0.5, y_sig + 0.7, '*', ha='center', fontsize=10)
 
 plt.tight_layout()
 plt.savefig('bar_chart.pdf', dpi=300, bbox_inches='tight')
 ```
+
+**关键设计点**：
+1. `alpha=0.5` 的柱形填充，确保底层散点可透见
+2. 散点使用与柱形同色（`colors[i]`），通过 `alpha=0.85` 区分层次
+3. Jitter 采用 `np.random.normal(i, 0.04)`，避免过度分散
+4. `zorder` 层级：柱形(2) < 误差线(3) < 散点(4)，确保散点在最上层
 
 
 
@@ -1230,6 +1627,7 @@ def add_significance_bar(ax, x1, x2, y, p_value, h=0.02, text_offset=0.01):
 - [ ] **配色**：颜色方案对色盲友好
 - [ ] **区分方式**：不仅靠颜色区分（辅以形状/线型/纹理）
 - [ ] **网格**：无网格或极浅灰色网格
+- [ ] **原始数据透明展示**：柱状图/箱线图使用半透明填充（alpha=0.4-0.6）叠加个体数据点（alpha=0.7-0.9），避免纯色遮挡
 
 ### 8.3 数据完整性检查
 
@@ -1403,6 +1801,18 @@ def add_significance_bar(ax, x1, x2, y, p_value, h=0.02, text_offset=0.01):
 边框线:       0.5-1.0 pt
 ```
 
+### 代码调试速查
+
+| 报错/异常 | 快速诊断 | 修复方案 |
+|---------|---------|---------|
+| `Font family ['Arial'] not found` | 系统缺少 Arial 字体 | 已配置回退链 `['Arial', 'Helvetica', 'DejaVu Sans', 'Liberation Sans']`；如仍报错，安装 `mscorefonts` 或改用 `DejaVu Sans` |
+| `ModuleNotFoundError: No module named 'sksurv'` | 生存分析库未安装 | `pip install scikit-survival`；如安装失败，改用 `lifelines` 库替代 |
+| `UserWarning: Glyph missing` / 中文显示为方框 | 当前字体不支持 CJK 字符 | 临时回退 `plt.rcParams['font.sans-serif'] = ['SimHei', 'WenQuanYi Zen Hei', 'Noto Sans CJK']`；提醒用户投稿前替换为期刊要求的英文字体 |
+| `PermissionError` 保存失败 | 输出目录无写入权限 | 更换 `output_dir` 到用户有权限的路径，如 `./figures` 或当前工作目录 |
+| `ValueError: x and y must have same first dimension` | 数据长度不匹配 | 检查 DataFrame 行列是否与绘图代码一致；确认分组标签与数据点数量相等 |
+| `LinAlgError` 在热图聚类时 | 数据中存在 NaN 或常数列 | 先剔除全 NaN 行/列，或对常数列添加微小噪声 (`+ np.random.normal(0, 1e-10)`) |
+| 图片保存后文字/标签被截断 | `bbox_inches='tight'` 未生效或面板过多 | 增大 `figsize` 或减小 `fontsize`；多面板图使用 `plt.savefig(..., bbox_inches='tight', pad_inches=0.1)` |
+
 ---
 
 ## 版本历史
@@ -1415,20 +1825,23 @@ def add_significance_bar(ax, x1, x2, y, p_value, h=0.02, text_offset=0.01):
 
 ## 参考来源
 
-本技能文档基于以下官方指南和权威资源编制：
+本技能文档基于以下官方指南和权威资源编制。按关联章节索引，便于快速定位：
 
-1. **Nature** - Formatting Guide for Authors (nature.com)
-2. **Science** - Instructions for Preparing Revised Manuscripts (science.org)
-3. **Cell Press** - Figure Guidelines (cell.com)
-4. **The Lancet** - Artwork Guidelines (thelancet.com)
-5. **IEEE** - Graphic Preparation Guidelines (ieee.org)
-6. **PNAS** - Digital Art Guidelines (pnas.org)
-7. **NEJM** - Technical Guidelines for Figures (nejm.org)
-8. **Morrison et al.** (2021) - Ten Principles for Effective Data Visualization. *PLoS Comput Biol*.
-9. **Tufte, E.R.** - The Visual Display of Quantitative Information
-10. **Paul Tol** - Color Schemes for Scientific Data (personal.sron.nl/~pault/)
-11. **Wong, B.** - Color Blindness Considerations (Nature Methods Points of View)
-12. **Matplotlib** - Customizing Matplotlib with style sheets and rcParams
+| 序号 | 来源 | 关联章节 | 用途 |
+|------|------|---------|------|
+| 1 | **Nature** - Formatting Guide for Authors (nature.com) | 1.1, 1.2 | 分辨率、尺寸、格式规范 |
+| 2 | **Science** - Instructions for Preparing Revised Manuscripts (science.org) | 1.1, 1.2, 1.3 | 尺寸、字体、线条规范 |
+| 3 | **Cell Press** - Figure Guidelines (cell.com) | 1.1 | 格式兼容性 |
+| 4 | **The Lancet** - Artwork Guidelines (thelancet.com) | 1.1, 1.2 | 分辨率与最小尺寸 |
+| 5 | **IEEE** - Graphic Preparation Guidelines (ieee.org) | 1.1, 1.2 | 线条图 DPI、单双栏宽度 |
+| 6 | **PNAS** - Digital Art Guidelines (pnas.org) | 1.1 | 最终出版尺寸要求 |
+| 7 | **NEJM** - Technical Guidelines for Figures (nejm.org) | 1.1 | 高分辨率图形标准 |
+| 8 | **Morrison et al.** (2021) - *PLoS Comput Biol* | 2.1, 2.2 | 数据可视化十原则 |
+| 9 | **Tufte, E.R.** - *The Visual Display of Quantitative Information* | 2.1, 2.3 | 数据墨水比、可读性原则 |
+| 10 | **Paul Tol** - Color Schemes for Scientific Data | 3.1, 3.5 | 色盲友好配色方案 |
+| 11 | **Wong, B.** - Nature Methods Points of View | 1.4, 2.4 | 色盲设计考量 |
+| 12 | **Matplotlib** - style sheets and rcParams | 7.1, 7.5 | 全局配置与主题设置 |
+| 13 | **root-analysis skill** (配色实践) | 2.5, 3.5, 3.6 | 半透明叠加原则、高区分度色板、渐变方案 |
 
 ---
 
