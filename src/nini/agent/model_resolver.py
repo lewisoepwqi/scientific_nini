@@ -42,6 +42,7 @@ BUILTIN_MODE_FAST = "fast"
 BUILTIN_MODE_DEEP = "deep"
 BUILTIN_MODE_TITLE = "title"
 DISABLED_PROVIDER_IDS: frozenset[str] = frozenset({"kimi_coding"})
+AUTO_FALLBACK_EXCLUDED_PROVIDER_IDS: frozenset[str] = frozenset({"moonshot"})
 
 # ---- 模型上下文窗口映射 ----
 # 按模型名称前缀/关键词匹配，返回 context window 大小（token 数）。
@@ -267,6 +268,9 @@ class ModelResolver:
             OllamaClient(),
         ]
         self._client_map = {c.provider_id: c for c in self._clients}
+        moonshot_client = self._client_map.get("moonshot")
+        if moonshot_client and moonshot_client.is_available():
+            logger.info("Moonshot 已从自动降级链排除: reason=tool_schema_compatibility")
 
     def _normalize_builtin_mode(self, purpose: str, mode: str | None) -> str:
         """归一化系统内置模式标识。"""
@@ -462,6 +466,7 @@ class ModelResolver:
         if (
             provider_id
             and provider_id not in DISABLED_PROVIDER_IDS
+            and provider_id not in AUTO_FALLBACK_EXCLUDED_PROVIDER_IDS
             and provider_id in self._client_map
         ):
             priority.append(provider_id)
@@ -470,7 +475,9 @@ class ModelResolver:
         default_priority = [
             c.provider_id
             for c in self._clients
-            if c.provider_id and c.provider_id not in DISABLED_PROVIDER_IDS
+            if c.provider_id
+            and c.provider_id not in DISABLED_PROVIDER_IDS
+            and c.provider_id not in AUTO_FALLBACK_EXCLUDED_PROVIDER_IDS
         ]
 
         # 添加未包含的提供商
@@ -640,6 +647,21 @@ class ModelResolver:
                 try_next_provider=True,
                 log_level=logging.WARNING,
             )
+        if isinstance(
+            exc,
+            (
+                httpx.RemoteProtocolError,
+                httpx.ReadError,
+                httpx.WriteError,
+                openai.APIConnectionError,
+                anthropic.APIConnectionError,
+            ),
+        ):
+            return _LLMErrorDisposition(
+                message="网络连接中断，请稍后重试",
+                try_next_provider=True,
+                log_level=logging.WARNING,
+            )
         if isinstance(exc, httpx.TimeoutException):
             return _LLMErrorDisposition(
                 message="连接超时，请检查网络或 Base URL",
@@ -649,6 +671,12 @@ class ModelResolver:
         if isinstance(exc, httpx.ConnectError):
             return _LLMErrorDisposition(
                 message="无法连接到服务器，请检查网络或 Base URL",
+                try_next_provider=True,
+                log_level=logging.WARNING,
+            )
+        if status_code in {502, 504}:
+            return _LLMErrorDisposition(
+                message="模型服务网关暂时不可用，请稍后重试",
                 try_next_provider=True,
                 log_level=logging.WARNING,
             )
@@ -1144,8 +1172,10 @@ class ModelResolver:
         merged: list[BaseLLMClient] = []
         seen_provider_ids: set[str] = set()
 
-        for client in [primary_client, *fallback_clients]:
+        for index, client in enumerate([primary_client, *fallback_clients]):
             provider_id = getattr(client, "provider_id", "") or ""
+            if index > 0 and provider_id in AUTO_FALLBACK_EXCLUDED_PROVIDER_IDS:
+                continue
             if provider_id in seen_provider_ids:
                 continue
             seen_provider_ids.add(provider_id)

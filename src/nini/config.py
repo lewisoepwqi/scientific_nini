@@ -229,6 +229,7 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.3
     llm_max_tokens: int = 4096
     llm_max_retries: int = 3
+    llm_stream_retries: int = 2
     llm_timeout: int = 120  # HTTP 请求超时（秒）
     llm_trust_env_proxy: bool = False
 

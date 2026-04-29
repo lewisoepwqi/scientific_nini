@@ -5,12 +5,16 @@ OpenAI API adapter and compatible providers.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
 import re
 from typing import Any, AsyncGenerator
+
+import httpx
+import openai
 
 from nini.config import settings
 
@@ -180,6 +184,27 @@ def dump_chat_payload_debug(
     return file_path
 
 
+def _is_retryable_stream_error(exc: Exception) -> bool:
+    """判断 OpenAI 兼容流式调用是否属于可重试的瞬态错误。"""
+    if isinstance(
+        exc,
+        (
+            httpx.RemoteProtocolError,
+            httpx.ReadError,
+            httpx.WriteError,
+            openai.APIConnectionError,
+        ),
+    ):
+        return True
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code in {502, 504}
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in {502, 504}
+    return False
+
+
 class OpenAICompatibleClient(BaseLLMClient):
     """OpenAI 兼容 API 适配器基类（OpenAI / Ollama 共用）。"""
 
@@ -303,92 +328,117 @@ class OpenAICompatibleClient(BaseLLMClient):
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
 
-        try:
-            stream = await self._client.chat.completions.create(**kwargs)
-        except Exception as exc:
-            dump_path = dump_chat_payload_debug(
-                provider_id=self.provider_id,
-                model=self._model,
-                base_url=self._base_url,
-                messages=normalized_messages,
-                tools=tools,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                error=exc,
-            )
-            setattr(exc, "debug_dump_path", str(dump_path))
-            logger.warning(
-                "LLM 请求失败，已写入调试 payload: provider=%s model=%s dump=%s reason=%s",
-                self.provider_id,
-                self._model,
-                dump_path,
-                exc,
-            )
-            raise
-        parser = ReasoningStreamParser(enable_tag_split=self._supports_reasoning_tags())
+        max_stream_retries = max(0, int(settings.llm_stream_retries))
+        for attempt in range(max_stream_retries + 1):
+            chunks_emitted = 0
+            parser = ReasoningStreamParser(enable_tag_split=self._supports_reasoning_tags())
+            pending_tool_calls: dict[int, dict[str, Any]] = {}
 
-        # 聚合 tool_calls 片段
-        pending_tool_calls: dict[int, dict[str, Any]] = {}
+            try:
+                stream = await self._client.chat.completions.create(**kwargs)
 
-        async for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            finish = chunk.choices[0].finish_reason if chunk.choices else None
+                async for chunk in stream:
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    finish = chunk.choices[0].finish_reason if chunk.choices else None
 
-            text = ""
-            reasoning = ""
-            raw_text = ""
-            tool_calls_out: list[dict[str, Any]] = []
+                    text = ""
+                    reasoning = ""
+                    raw_text = ""
+                    tool_calls_out: list[dict[str, Any]] = []
 
-            if delta:
-                raw_piece = getattr(delta, "content", "") or ""
-                explicit_reasoning = ReasoningStreamParser.extract_reasoning_from_delta(delta)
-                text, reasoning, raw_text = parser.consume(
-                    raw_piece=str(raw_piece),
-                    explicit_reasoning_piece=explicit_reasoning,
+                    if delta:
+                        raw_piece = getattr(delta, "content", "") or ""
+                        explicit_reasoning = ReasoningStreamParser.extract_reasoning_from_delta(
+                            delta
+                        )
+                        text, reasoning, raw_text = parser.consume(
+                            raw_piece=str(raw_piece),
+                            explicit_reasoning_piece=explicit_reasoning,
+                        )
+
+                        # 聚合 tool_calls 的分段
+                        if delta.tool_calls:
+                            for tc in delta.tool_calls:
+                                idx = tc.index
+                                if idx not in pending_tool_calls:
+                                    pending_tool_calls[idx] = {
+                                        "id": tc.id or "",
+                                        "type": "function",
+                                        "function": {"name": "", "arguments": ""},
+                                    }
+                                entry = pending_tool_calls[idx]
+                                if tc.id:
+                                    entry["id"] = tc.id
+                                if tc.function:
+                                    if tc.function.name:
+                                        entry["function"]["name"] = tc.function.name
+                                    if tc.function.arguments:
+                                        entry["function"]["arguments"] = _merge_tool_arguments(
+                                            str(entry["function"]["arguments"]),
+                                            str(tc.function.arguments),
+                                        )
+
+                    # 当 finish_reason 为 tool_calls 时，输出完整的 tool_calls
+                    if finish == "tool_calls":
+                        tool_calls_out = list(pending_tool_calls.values())
+                        pending_tool_calls.clear()
+
+                    usage = None
+                    if chunk.usage:
+                        usage = {
+                            "input_tokens": chunk.usage.prompt_tokens or 0,
+                            "output_tokens": chunk.usage.completion_tokens or 0,
+                        }
+
+                    chunks_emitted += 1
+                    yield LLMChunk(
+                        text=text,
+                        reasoning=reasoning,
+                        raw_text=raw_text,
+                        tool_calls=tool_calls_out,
+                        finish_reason=finish,
+                        usage=usage,
+                    )
+                return
+            except Exception as exc:
+                can_retry = (
+                    chunks_emitted == 0
+                    and attempt < max_stream_retries
+                    and _is_retryable_stream_error(exc)
                 )
+                if can_retry:
+                    delay = min(0.5 * (2**attempt), 4.0)
+                    logger.warning(
+                        "LLM 流式读取失败，准备同 provider 重试: provider=%s model=%s attempt=%d delay=%.1fs reason=%s",
+                        self.provider_id,
+                        self._model,
+                        attempt + 1,
+                        delay,
+                        exc,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
 
-                # 聚合 tool_calls 的分段
-                if delta.tool_calls:
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in pending_tool_calls:
-                            pending_tool_calls[idx] = {
-                                "id": tc.id or "",
-                                "type": "function",
-                                "function": {"name": "", "arguments": ""},
-                            }
-                        entry = pending_tool_calls[idx]
-                        if tc.id:
-                            entry["id"] = tc.id
-                        if tc.function:
-                            if tc.function.name:
-                                entry["function"]["name"] = tc.function.name
-                            if tc.function.arguments:
-                                entry["function"]["arguments"] = _merge_tool_arguments(
-                                    str(entry["function"]["arguments"]),
-                                    str(tc.function.arguments),
-                                )
-
-            # 当 finish_reason 为 tool_calls 时，输出完整的 tool_calls
-            if finish == "tool_calls":
-                tool_calls_out = list(pending_tool_calls.values())
-                pending_tool_calls.clear()
-
-            usage = None
-            if chunk.usage:
-                usage = {
-                    "input_tokens": chunk.usage.prompt_tokens or 0,
-                    "output_tokens": chunk.usage.completion_tokens or 0,
-                }
-
-            yield LLMChunk(
-                text=text,
-                reasoning=reasoning,
-                raw_text=raw_text,
-                tool_calls=tool_calls_out,
-                finish_reason=finish,
-                usage=usage,
-            )
+                if chunks_emitted == 0:
+                    dump_path = dump_chat_payload_debug(
+                        provider_id=self.provider_id,
+                        model=self._model,
+                        base_url=self._base_url,
+                        messages=normalized_messages,
+                        tools=tools,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        error=exc,
+                    )
+                    setattr(exc, "debug_dump_path", str(dump_path))
+                    logger.warning(
+                        "LLM 请求失败，已写入调试 payload: provider=%s model=%s dump=%s reason=%s",
+                        self.provider_id,
+                        self._model,
+                        dump_path,
+                        exc,
+                    )
+                raise
 
     async def aclose(self) -> None:
         """关闭底层 AsyncOpenAI 客户端，避免 GC 时 _mounts 属性缺失错误。"""

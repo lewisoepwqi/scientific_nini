@@ -168,6 +168,94 @@ async def test_multiple_user_providers_enable_fallback() -> None:
 
 
 @pytest.mark.asyncio
+async def test_auto_fallback_skips_moonshot_but_keeps_later_providers() -> None:
+    """自动降级链应跳过 Moonshot，避免兼容性问题反复进入兜底路径。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(
+                provider_id="openai",
+                model="gpt-test",
+                error=RuntimeError("openai down"),
+            ),
+            FakeClient(
+                provider_id="moonshot",
+                model="moonshot-v1-32k",
+                chunks=[LLMChunk(text="should-not-be-used", finish_reason="stop")],
+            ),
+            FakeClient(
+                provider_id="deepseek",
+                model="deepseek-chat",
+                chunks=[LLMChunk(text="fallback-ok", finish_reason="stop")],
+            ),
+        ]
+    )
+    resolver.set_purpose_route("chat", provider_id="openai", model="gpt-test")
+
+    with patch.object(
+        resolver,
+        "_get_user_configured_provider_ids",
+        AsyncMock(return_value=["openai", "moonshot", "deepseek"]),
+    ):
+        chunks = [
+            chunk
+            async for chunk in resolver.chat(
+                [{"role": "user", "content": "hi"}],
+                purpose="chat",
+            )
+        ]
+
+    assert len(chunks) == 1
+    assert chunks[0].text == "fallback-ok"
+    assert chunks[0].provider_id == "deepseek"
+    assert [item["provider_id"] for item in chunks[0].fallback_chain] == [
+        "openai",
+        "deepseek",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_explicit_moonshot_route_remains_available() -> None:
+    """用户显式选择 Moonshot 时，仍应优先调用 Moonshot。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(
+                provider_id="openai",
+                model="gpt-test",
+                chunks=[LLMChunk(text="should-not-be-used", finish_reason="stop")],
+            ),
+            FakeClient(
+                provider_id="moonshot",
+                model="moonshot-v1-32k",
+                chunks=[LLMChunk(text="moonshot-ok", finish_reason="stop")],
+            ),
+            FakeClient(
+                provider_id="deepseek",
+                model="deepseek-chat",
+                chunks=[LLMChunk(text="should-not-be-used", finish_reason="stop")],
+            ),
+        ]
+    )
+    resolver.set_purpose_route("chat", provider_id="moonshot", model="moonshot-v1-32k")
+
+    with patch.object(
+        resolver,
+        "_get_user_configured_provider_ids",
+        AsyncMock(return_value=["openai", "moonshot", "deepseek"]),
+    ):
+        chunks = [
+            chunk
+            async for chunk in resolver.chat(
+                [{"role": "user", "content": "hi"}],
+                purpose="chat",
+            )
+        ]
+
+    assert len(chunks) == 1
+    assert chunks[0].text == "moonshot-ok"
+    assert chunks[0].provider_id == "moonshot"
+
+
+@pytest.mark.asyncio
 async def test_planning_purpose_inherits_chat_route_when_unset() -> None:
     """planning 未单独配置时，应继承 chat 路由而不是回退到内置试用。"""
     primary = FakeClient(
