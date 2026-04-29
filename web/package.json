@@ -22,6 +22,7 @@
     "react-markdown": "^9.0.1",
     "react-plotly.js": "^2.6.0",
     "remark-gfm": "^4.0.0",
+    "zod": "^4.3.6",
     "zustand": "^5.0.3"
   },
   "devDependencies": {

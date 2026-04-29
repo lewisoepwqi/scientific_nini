@@ -75,21 +75,25 @@ async def list_memories(
         rows = rows[:limit]
 
         # 统一输出格式（与旧 LongTermMemoryEntry.to_dict() 保持字段语义兼容）
-        memories = [
-            {
+        memories = []
+        for r in rows:
+            meta = r.get("sci_metadata") or {}
+            memories.append({
                 "id": r.get("id"),
                 "memory_type": r.get("memory_type"),
                 "content": r.get("content"),
                 "summary": r.get("summary"),
                 "source_session_id": r.get("source_session_id"),
+                "source_dataset": meta.get("dataset_name"),
+                "analysis_type": meta.get("analysis_type"),
+                "confidence": r.get("trust_score"),
                 "importance_score": r.get("importance"),
                 "tags": r.get("tags") or [],
-                "sci_metadata": r.get("sci_metadata") or {},
+                "metadata": meta,
                 "created_at": r.get("created_at"),
+                "last_accessed_at": r.get("last_accessed_at"),
                 "access_count": r.get("access_count", 0),
-            }
-            for r in rows
-        ]
+            })
         return {"memories": memories, "total": len(memories)}
 
     except Exception as e:
@@ -218,7 +222,8 @@ async def get_memory_stats() -> dict[str, Any]:
 
         return {
             "total_memories": total,
-            "by_type": by_type,
+            "type_distribution": by_type,
+            "vector_store_available": False,
             "last_updated_ts": last_updated,
             "storage": "sqlite",
         }
