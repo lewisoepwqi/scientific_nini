@@ -19,7 +19,7 @@ _COMPRESSED_ARTIFACT_RE = re.compile(
     r"|(图表|产物|附件).*?已(生成|导出|创建)",
 )
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Protocol
+from typing import Any, AsyncGenerator, Protocol, cast
 
 from nini.agent import event_builders as eb
 from nini.agent.components.context_builder import _extract_intent_hints
@@ -504,6 +504,11 @@ class HarnessRunner:
             data: dict[str, Any] | str | None = _sanitize_event_data(event.data)
         else:
             data = event.data
+        metadata = (
+            cast(dict[str, Any], _sanitize_event_data(event.metadata))
+            if isinstance(event.metadata, dict)
+            else {}
+        )
         trace.events.append(
             HarnessTraceEvent(
                 type=event.type.value,
@@ -511,11 +516,7 @@ class HarnessRunner:
                 tool_call_id=event.tool_call_id,
                 tool_name=event.tool_name,
                 data=data,
-                metadata=(
-                    _sanitize_event_data(event.metadata)
-                    if isinstance(event.metadata, dict)
-                    else event.metadata
-                ),
+                metadata=metadata,
                 timestamp=event.timestamp.isoformat(),
             )
         )
@@ -1085,9 +1086,14 @@ class HarnessRunner:
     ) -> tuple[str, bool]:
         """返回失败分类与是否阻塞。"""
         normalized_message = str(message or "").strip()
-        payload = data.get("data") if isinstance(data.get("data"), dict) else {}
-        result_payload = data.get("result") if isinstance(data.get("result"), dict) else None
-        result_data = result_payload.get("data", {}) if isinstance(result_payload, dict) else {}
+        raw_payload = data.get("data")
+        payload: dict[str, Any] = raw_payload if isinstance(raw_payload, dict) else {}
+        raw_result_payload = data.get("result")
+        result_payload: dict[str, Any] | None = (
+            raw_result_payload if isinstance(raw_result_payload, dict) else None
+        )
+        raw_result_data = result_payload.get("data") if result_payload is not None else None
+        result_data: dict[str, Any] = raw_result_data if isinstance(raw_result_data, dict) else {}
         if tool_name in {"task_state", "task_write"}:
             no_op_ids = result_data.get("no_op_ids") if isinstance(result_data, dict) else None
             error_code = result_data.get("error_code") if isinstance(result_data, dict) else None
@@ -1157,12 +1163,12 @@ class HarnessRunner:
         data: dict[str, Any],
     ) -> str:
         if tool_name == "dispatch_agents":
-            result_payload = data.get("result") if isinstance(data.get("result"), dict) else {}
-            payload = (
-                result_payload.get("data", {})
-                if isinstance(result_payload.get("data"), dict)
-                else {}
+            raw_result_payload = data.get("result")
+            result_payload: dict[str, Any] = (
+                raw_result_payload if isinstance(raw_result_payload, dict) else {}
             )
+            raw_payload = result_payload.get("data")
+            payload: dict[str, Any] = raw_payload if isinstance(raw_payload, dict) else {}
             error_code = str(payload.get("error_code", "")).strip()
             task_anchor = (
                 str(payload.get("task_id", "")).strip()

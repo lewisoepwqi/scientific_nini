@@ -14,7 +14,7 @@ from typing import Any, AsyncGenerator
 
 from nini.config import settings
 
-from .base import BaseLLMClient, LLMChunk, ReasoningStreamParser
+from .base import BaseLLMClient, LLMChunk, ReasoningStreamParser, match_first_model
 
 logger = logging.getLogger(__name__)
 
@@ -453,4 +453,12 @@ class OpenAIClient(OpenAICompatibleClient):
             api_key=api_key or settings.openai_api_key,
             base_url=base_url or settings.openai_base_url,
             model=model or settings.openai_model,
+        )
+
+    def pick_model_for_purpose(self, purpose: str) -> str | None:
+        if purpose != "title_generation":
+            return None
+        return match_first_model(
+            list(getattr(self, "_available_models_cache", [])),
+            [("mini",), ("gpt-4.1",), ("gpt-4o",)],
         )

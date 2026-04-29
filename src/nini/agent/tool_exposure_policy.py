@@ -407,7 +407,8 @@ def compute_tool_exposure_policy(
                 stage = "profile"
                 stage_reason = "user_message_profile"
             else:
-                stage, recent_reason = _resolve_stage_from_recent_messages(session)
+                recent_stage, recent_reason = _resolve_stage_from_recent_messages(session)
+                stage = str(recent_stage or "")
                 stage_reason = recent_reason
 
     authorization_state: dict[str, bool] = {}

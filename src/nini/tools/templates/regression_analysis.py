@@ -139,19 +139,23 @@ class RegressionAnalysisTool(Tool):
 
         # 正态性检验（Shapiro-Wilk 或 Kolmogorov-Smirnov）
         y = df[dependent_var].dropna()
+        raw_stat: Any
+        raw_p_value: Any
         if len(y) <= 5000:
             # Shapiro-Wilk 适用于小样本
-            stat, p_value = shapiro(y)
+            raw_stat, raw_p_value = shapiro(y)
             test_name = "Shapiro-Wilk"
         else:
             # KS 检验适用于大样本
-            stat, p_value = kstest(y, "norm", args=(y.mean(), y.std()))
+            raw_stat, raw_p_value = kstest(y, "norm", args=(y.mean(), y.std()))
             test_name = "Kolmogorov-Smirnov"
+        stat = float(cast(Any, raw_stat))
+        p_value = float(cast(Any, raw_p_value))
 
         assumptions["normality"] = {
             "test": test_name,
-            "statistic": float(stat),
-            "p_value": float(p_value),
+            "statistic": stat,
+            "p_value": p_value,
             "satisfied": p_value > 0.05,
             "note": "因变量正态性检验",
         }

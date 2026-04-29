@@ -160,8 +160,8 @@ async def test_model_resolver_rate_limit_error_triggers_fallback() -> None:
 
 
 @pytest.mark.asyncio
-async def test_model_resolver_authentication_error_stops_fallback() -> None:
-    """401 认证错误应立即报错，不继续 fallback。"""
+async def test_model_resolver_authentication_error_triggers_fallback() -> None:
+    """401 认证错误应允许跨 provider 降级。"""
     resolver = ModelResolver(
         clients=[
             FakeClient(
@@ -182,11 +182,25 @@ async def test_model_resolver_authentication_error_stops_fallback() -> None:
             ),
         ]
     )
+    resolver.set_purpose_route("chat", provider_id="openai", model="gpt-primary")
 
-    with pytest.raises(RuntimeError) as exc:
-        _ = [chunk async for chunk in resolver.chat([{"role": "user", "content": "hi"}])]
+    with patch.object(
+        resolver,
+        "_get_user_configured_provider_ids",
+        AsyncMock(return_value=["openai", "backup"]),
+    ):
+        chunks = [
+            chunk
+            async for chunk in resolver.chat(
+                [{"role": "user", "content": "hi"}],
+                purpose="chat",
+            )
+        ]
 
-    assert "API Key 无效" in str(exc.value)
+    assert len(chunks) == 1
+    assert chunks[0].provider_id == "backup"
+    assert chunks[0].fallback_applied is True
+    assert "API Key 无效" in str(chunks[0].fallback_reason)
 
 
 @pytest.mark.asyncio
@@ -319,16 +333,6 @@ async def test_title_generation_invalid_route_falls_back_to_title_client(
     assert all(chunk.provider_id != "moonshot" for chunk in chunks)
 
 
-def test_select_title_model_from_available_prefers_dynamic_matchers() -> None:
-    """标题模型应优先从当前可用模型列表里动态匹配。"""
-
-    selected = ModelResolver._select_title_model_from_available(
-        "dashscope",
-        ["qwen-max", "qwen-turbo-latest", "qwen-plus"],
-    )
-    assert selected == "qwen-turbo-latest"
-
-
 def test_analysis_and_fast_purposes_inherit_configured_chat_route() -> None:
     """子 Agent 使用的别名 purpose 应回退到用户配置的 chat 路由。"""
     resolver = ModelResolver(clients=[])
@@ -340,15 +344,34 @@ def test_analysis_and_fast_purposes_inherit_configured_chat_route() -> None:
     assert resolver.get_preferred_provider("deep_reasoning") == "dashscope"
 
 
+def test_title_generation_and_image_analysis_purposes_inherit_chat_route() -> None:
+    """标题生成与图像分析在未配置时应继承 chat 路由。"""
+    resolver = ModelResolver(clients=[])
+    resolver.set_purpose_route("chat", provider_id="deepseek", model="deepseek-chat")
+
+    assert resolver.get_preferred_provider("title_generation") == "deepseek"
+    assert resolver.get_preferred_provider("image_analysis") == "deepseek"
+
+
 @pytest.mark.asyncio
-async def test_get_title_client_uses_dynamic_available_models(
+async def test_get_title_client_uses_provider_pick_model_for_purpose(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """标题客户端应根据服务商当前可用模型动态选择。"""
+    """标题客户端应通过 provider 接口从当前可用模型中挑选偏好模型。"""
+
+    picked_available_models: list[str] = []
+
+    class _TitleAwareClient(FakeClient):
+        def pick_model_for_purpose(self, purpose: str) -> str | None:
+            if purpose != "title_generation":
+                return None
+            available = getattr(self, "_available_models_cache", [])
+            picked_available_models.extend(list(available))
+            return "qwen-turbo-latest" if "qwen-turbo-latest" in available else None
 
     resolver = ModelResolver(
         clients=[
-            FakeClient(
+            _TitleAwareClient(
                 provider_id="dashscope",
                 model="qwen-plus",
                 available=True,
@@ -381,6 +404,7 @@ async def test_get_title_client_uses_dynamic_available_models(
     assert client is not None
     assert client.provider_id == "dashscope"
     assert client.get_model_name() == "qwen-turbo-latest"
+    assert picked_available_models == ["qwen-max", "qwen-turbo-latest", "qwen-plus"]
 
 
 @pytest.mark.asyncio
@@ -389,7 +413,11 @@ async def test_get_title_client_falls_back_to_active_model_when_no_match(
 ) -> None:
     """动态列表匹配不到标题模型时应回退当前主模型。"""
 
-    active_client = FakeClient(
+    class _PassiveTitleClient(FakeClient):
+        def pick_model_for_purpose(self, purpose: str) -> str | None:
+            return None
+
+    active_client = _PassiveTitleClient(
         provider_id="dashscope",
         model="qwen-plus",
         available=True,

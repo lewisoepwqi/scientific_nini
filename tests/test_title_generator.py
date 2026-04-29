@@ -12,7 +12,7 @@ class _DummyResponse:
 
     def __init__(
         self,
-        text: str,
+        text: str | None,
         *,
         finish_reason: str | None = None,
         finish_reasons: list[str] | None = None,
@@ -32,6 +32,27 @@ async def test_generate_title_fallback_when_empty(monkeypatch: pytest.MonkeyPatc
 
     async def _fake_chat_complete(*args, **kwargs):  # type: ignore[no-untyped-def]
         return _DummyResponse("")
+
+    monkeypatch.setattr(title_generator.model_resolver, "chat_complete", _fake_chat_complete)
+
+    messages = [
+        {"role": "user", "content": "分析 GDP 数据并画图"},
+        {"role": "assistant", "content": "好的，我们开始处理数据。"},
+    ]
+
+    title = await title_generator.generate_title(messages)
+
+    assert title == "分析 GDP 数据并画图"
+
+
+@pytest.mark.asyncio
+async def test_generate_title_fallback_when_chat_complete_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """当 optional 调用全链失败返回 None 时应走规则兜底。"""
+
+    async def _fake_chat_complete(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return None
 
     monkeypatch.setattr(title_generator.model_resolver, "chat_complete", _fake_chat_complete)
 
@@ -106,30 +127,25 @@ def test_fallback_title_skips_generic_greeting() -> None:
 
 
 @pytest.mark.asyncio
-async def test_generate_title_retry_once_when_length_raw_empty(
+async def test_generate_title_calls_optional_once_when_length_raw_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """raw_empty + length 时应触发一次重试。"""
+    """raw_empty + length 时不再重试，而是直接走规则兜底。"""
 
     call_count = 0
-    prompt_lengths: list[int] = []
+    captured_kwargs: dict[str, object] = {}
 
     async def _fake_chat_complete(*args, **kwargs):  # type: ignore[no-untyped-def]
         nonlocal call_count
         call_count += 1
-        req_messages = args[0]
-        prompt_lengths.append(len(req_messages[0]["content"]))
+        captured_kwargs.update(kwargs)
         if call_count == 1:
             return _DummyResponse(
                 "",
                 finish_reason="length",
                 usage={"input_tokens": 240, "output_tokens": 50},
             )
-        return _DummyResponse(
-            "实验结果分析",
-            finish_reason="stop",
-            usage={"input_tokens": 120, "output_tokens": 12},
-        )
+        return _DummyResponse("不应发生")
 
     monkeypatch.setattr(title_generator.model_resolver, "chat_complete", _fake_chat_complete)
 
@@ -148,9 +164,10 @@ async def test_generate_title_retry_once_when_length_raw_empty(
 
     title = await title_generator.generate_title(messages)
 
-    assert title == "实验结果分析"
-    assert call_count == 2
-    assert prompt_lengths[1] < prompt_lengths[0]
+    assert title == title_generator._fallback_title(messages)
+    assert call_count == 1
+    assert captured_kwargs["purpose"] == "title_generation"
+    assert captured_kwargs["optional"] is True
 
 
 @pytest.mark.asyncio
@@ -203,7 +220,9 @@ async def test_generate_title_prompt_uses_shorter_user_context(
 
 
 @pytest.mark.asyncio
-async def test_generate_title_no_retry_when_not_length(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_generate_title_does_not_retry_when_not_length(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """非 length 空返回不应重试。"""
 
     call_count = 0
@@ -228,6 +247,20 @@ async def test_generate_title_no_retry_when_not_length(monkeypatch: pytest.Monke
 
     assert title == "开始分析数据"
     assert call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_title_returns_none_when_messages_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """无可用消息时应直接返回 None。"""
+
+    async def _fake_chat_complete(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return _DummyResponse("不应调用")
+
+    monkeypatch.setattr(title_generator.model_resolver, "chat_complete", _fake_chat_complete)
+
+    assert await title_generator.generate_title([]) is None
 
 
 @pytest.mark.asyncio

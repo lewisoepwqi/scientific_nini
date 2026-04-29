@@ -278,12 +278,12 @@ async def upload_document(
 
     except Exception as e:
         _document_store.pop(doc_id, None)
-        doc_file = _document_file(doc_id) if "doc_id" in locals() else None
-        if doc_file is not None:
+        cleanup_doc_file: Path | None = _document_file(doc_id) if "doc_id" in locals() else None
+        if cleanup_doc_file is not None:
             try:
-                doc_file.unlink(missing_ok=True)
+                cleanup_doc_file.unlink(missing_ok=True)
             except OSError:
-                logger.warning("清理失败知识文档正文失败: %s", doc_file)
+                logger.warning("清理失败知识文档正文失败: %s", cleanup_doc_file)
         logger.error(f"文档上传失败: {e}")
         raise HTTPException(status_code=500, detail=f"上传失败: {e}")
 

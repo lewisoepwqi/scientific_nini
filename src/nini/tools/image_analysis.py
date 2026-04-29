@@ -356,6 +356,7 @@ class ImageAnalysisTool(Tool):
             temperature=0.1,
             purpose="image_analysis",
         )
+        assert response is not None
         return response.text or ""
 
     def _parse_json_response(self, response: str, default: Any = None) -> Any:

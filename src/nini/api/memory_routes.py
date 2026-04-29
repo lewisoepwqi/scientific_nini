@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -26,7 +26,7 @@ def _get_store() -> MemoryStore:
         for provider in getattr(mm, "_providers", []):
             store = getattr(provider, "_store", None)
             if store is not None:
-                return store  # type: ignore[return-value]
+                return cast(MemoryStore, store)
 
     # fallback：直接构造（API 端点独立调用时）
     from nini.config import settings
@@ -129,6 +129,7 @@ async def extract_memories(
             max_tokens=2000,
             purpose="chat",
         )
+        assert response is not None
         text = response.text.strip()
 
         import json

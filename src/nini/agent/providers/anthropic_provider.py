@@ -11,7 +11,7 @@ from typing import Any, AsyncGenerator
 
 from nini.config import settings
 
-from .base import BaseLLMClient, LLMChunk
+from .base import BaseLLMClient, LLMChunk, match_first_model
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,14 @@ class AnthropicClient(BaseLLMClient):
 
     def is_available(self) -> bool:
         return bool(self._api_key and self._model)
+
+    def pick_model_for_purpose(self, purpose: str) -> str | None:
+        if purpose != "title_generation":
+            return None
+        return match_first_model(
+            list(getattr(self, "_available_models_cache", [])),
+            [("haiku",), ("sonnet",)],
+        )
 
     async def chat(
         self,

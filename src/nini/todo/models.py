@@ -73,11 +73,6 @@ class Task:
         """兼容旧命名。"""
         return self.assigned_agent_id
 
-    @property
-    def assignee_id(self) -> str | None:
-        """兼容统一任务模型命名。"""
-        return self.assigned_agent_id
-
     def to_dict(self) -> dict[str, Any]:
         """序列化为 JSON 友好的字典。"""
         return {

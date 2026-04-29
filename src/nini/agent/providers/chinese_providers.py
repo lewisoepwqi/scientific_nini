@@ -11,6 +11,7 @@ from typing import Any, AsyncGenerator
 from nini.config import settings
 
 from .base import LLMChunk
+from .base import match_first_model
 from .openai_provider import OpenAICompatibleClient
 
 
@@ -35,6 +36,14 @@ class MoonshotClient(OpenAICompatibleClient):
     def _supports_stream_usage(self) -> bool:
         # Moonshot API 不支持 stream_options.include_usage
         return False
+
+    def pick_model_for_purpose(self, purpose: str) -> str | None:
+        if purpose != "title_generation":
+            return None
+        return match_first_model(
+            list(getattr(self, "_available_models_cache", [])),
+            [("-8k",), ("-32k",), ("kimi", "chat")],
+        )
 
     def _normalize_messages_for_provider(
         self,
@@ -139,6 +148,14 @@ class ZhipuClient(OpenAICompatibleClient):
     def _supports_stream_usage(self) -> bool:
         # 智谱 Coding Plan 端点不支持 stream_options.include_usage
         return False
+
+    def pick_model_for_purpose(self, purpose: str) -> str | None:
+        if purpose != "title_generation":
+            return None
+        return match_first_model(
+            list(getattr(self, "_available_models_cache", [])),
+            [("glm-4-flash",), ("glm-4-air",), ("glm-4",)],
+        )
 
     def _normalize_messages_for_provider(
         self,
@@ -268,6 +285,14 @@ class DeepSeekClient(OpenAICompatibleClient):
             model=model or settings.deepseek_model,
         )
 
+    def pick_model_for_purpose(self, purpose: str) -> str | None:
+        if purpose != "title_generation":
+            return None
+        return match_first_model(
+            list(getattr(self, "_available_models_cache", [])),
+            [("deepseek-chat",)],
+        )
+
 
 class DashScopeClient(OpenAICompatibleClient):
     """阿里百炼（通义千问）适配器，兼容 OpenAI 协议。"""
@@ -287,6 +312,14 @@ class DashScopeClient(OpenAICompatibleClient):
             model=model or settings.dashscope_model,
         )
 
+    def pick_model_for_purpose(self, purpose: str) -> str | None:
+        if purpose != "title_generation":
+            return None
+        return match_first_model(
+            list(getattr(self, "_available_models_cache", [])),
+            [("qwen-turbo",), ("qwen-plus",)],
+        )
+
 
 class MiniMaxClient(OpenAICompatibleClient):
     """MiniMax 文本模型适配器，兼容 OpenAI 协议。"""
@@ -304,4 +337,12 @@ class MiniMaxClient(OpenAICompatibleClient):
             api_key=api_key or settings.minimax_api_key,
             base_url=base_url or settings.minimax_base_url,
             model=model or settings.minimax_model,
+        )
+
+    def pick_model_for_purpose(self, purpose: str) -> str | None:
+        if purpose != "title_generation":
+            return None
+        return match_first_model(
+            list(getattr(self, "_available_models_cache", [])),
+            [("abab",), ("m2.1",), ("m2.5",)],
         )

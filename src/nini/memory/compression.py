@@ -446,6 +446,7 @@ async def _llm_summarize(messages: list[dict[str, Any]]) -> str | None:
             max_tokens=800,
             purpose="chat",
         )
+        assert response is not None
         summary = response.text.strip()
         if summary:
             # 确保不超过 800 字（放宽以保留科研数值细节和 PDCA 任务状态）
@@ -789,4 +790,3 @@ from nini.memory.analysis_memory import (  # noqa: E402,F401
     remove_analysis_memory,
     save_analysis_memory,
 )
-

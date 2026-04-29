@@ -196,7 +196,9 @@ class DispatchAgentsTool(Tool):
                 },
             )
 
-        if self._legacy_agents_require_structured_tasks(dispatch_context=dispatch_context, tasks=tasks):
+        if self._legacy_agents_require_structured_tasks(
+            dispatch_context=dispatch_context, tasks=tasks
+        ):
             payload = self._build_context_error_payload(
                 error_code="DISPATCH_TASK_CONTEXT_REQUIRED",
                 message=(
@@ -288,7 +290,11 @@ class DispatchAgentsTool(Tool):
         dispatch_success = success_count > 0 or (failure_count == 0 and stopped_count == 0)
         dispatch_mode = self._resolve_dispatch_mode(task_specs)
         parent_task_id = next(
-            (int(item["parent_task_id"]) for item in task_specs if item.get("parent_task_id") is not None),
+            (
+                int(item["parent_task_id"])
+                for item in task_specs
+                if item.get("parent_task_id") is not None
+            ),
             None,
         )
 
@@ -373,7 +379,8 @@ class DispatchAgentsTool(Tool):
             raw_parent_task_id = item.get("parent_task_id")
             parent_task_id: int | None = None
             if str(raw_parent_task_id or "").strip().isdigit():
-                parent_task_id = int(raw_parent_task_id)
+                parent_task_id = int(str(raw_parent_task_id).strip())
+            expected_output = item.get("expected_output")
             normalized.append(
                 {
                     "task_id": task_id if parent_task_id is None else None,
@@ -392,9 +399,7 @@ class DispatchAgentsTool(Tool):
                     "input_refs": self._normalize_ref_list(item.get("input_refs")),
                     "output_refs": self._normalize_ref_list(item.get("output_refs")),
                     "expected_output": (
-                        dict(item.get("expected_output"))
-                        if isinstance(item.get("expected_output"), dict)
-                        else None
+                        dict(expected_output) if isinstance(expected_output, dict) else None
                     ),
                     "tool_profile": str(item.get("tool_profile", "")).strip() or None,
                     "legacy_shape": using_legacy_agents,
@@ -502,7 +507,10 @@ class DispatchAgentsTool(Tool):
                 dispatch_context.current_pending_wave_task_ids if dispatch_context else []
             ),
             "recovery_action": recovery_action,
-            "recommended_tools": list(recommended_tools or (dispatch_context.recommended_tools if dispatch_context else [])),
+            "recommended_tools": list(
+                recommended_tools
+                or (dispatch_context.recommended_tools if dispatch_context else [])
+            ),
             "recommended_dispatch_shape": recommended_dispatch_shape,
             "tool_misuse_category": tool_misuse_category,
         }
@@ -528,7 +536,7 @@ class DispatchAgentsTool(Tool):
         enforce_current_wave: bool,
     ) -> dict[str, Any] | None:
         """拒绝跨 wave 或存在读写冲突的任务，确保 dispatch 仅做当前 wave 并行。"""
-        seen_task_ids: set[int] = set()
+        seen_task_ids: set[str] = set()
         current_wave_ids = (
             set(dispatch_context.current_pending_wave_task_ids)
             if dispatch_context is not None
@@ -607,7 +615,11 @@ class DispatchAgentsTool(Tool):
                         ),
                         "task_id": normalized_task_id,
                     }
-            if enforce_current_wave and current_wave_ids and normalized_task_id not in current_wave_ids:
+            if (
+                enforce_current_wave
+                and current_wave_ids
+                and normalized_task_id not in current_wave_ids
+            ):
                 return {
                     **self._build_context_error_payload(
                         error_code="TASK_NOT_IN_CURRENT_WAVE",

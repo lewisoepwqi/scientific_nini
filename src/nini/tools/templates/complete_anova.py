@@ -93,7 +93,9 @@ class CompleteANOVATool(Tool):
 
     def _perform_anova(self, group_data: list[pd.Series], groups: list[Any]) -> dict[str, Any]:
         """执行单因素方差分析。"""
-        f_stat, p_val = stats.f_oneway(*group_data)
+        raw_f_stat, raw_p_val = stats.f_oneway(*group_data)
+        f_stat = float(cast(Any, raw_f_stat))
+        p_val = float(cast(Any, raw_p_val))
 
         # 计算自由度
         k = len(group_data)
@@ -113,8 +115,8 @@ class CompleteANOVATool(Tool):
 
         return {
             "test_type": "单因素方差分析 (One-way ANOVA)",
-            "f_statistic": float(f_stat),
-            "p_value": float(p_val),
+            "f_statistic": f_stat,
+            "p_value": p_val,
             "df_between": df_between,
             "df_within": df_within,
             "ss_between": float(ss_between),

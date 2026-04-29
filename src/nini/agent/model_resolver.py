@@ -43,20 +43,6 @@ BUILTIN_MODE_DEEP = "deep"
 BUILTIN_MODE_TITLE = "title"
 DISABLED_PROVIDER_IDS: frozenset[str] = frozenset({"kimi_coding"})
 
-# ---- 标题生成动态选模规则 ----
-# 每个 provider 配置一组关键词偏好，按顺序从可用模型列表中动态匹配。
-# 空列表表示不切换标题专用模型，直接复用当前主模型。
-TITLE_MODEL_MATCHERS: dict[str, list[tuple[str, ...]]] = {
-    "deepseek": [("chat",), ("coder",)],
-    "zhipu": [("flash",), ("air",), ("glm-4",), ("glm-5",)],
-    "dashscope": [("turbo",), ("plus",)],
-    "moonshot": [("8k",), ("32k",), ("kimi", "chat")],
-    "anthropic": [("haiku",), ("sonnet",)],
-    "openai": [("mini",), ("gpt-4.1",), ("gpt-4o",)],
-    "minimax": [("abab",), ("m2.1",), ("m2.5",)],
-    "ollama": [],
-}
-
 # ---- 模型上下文窗口映射 ----
 # 按模型名称前缀/关键词匹配，返回 context window 大小（token 数）。
 # 列表按优先级排序：更具体的模式在前。
@@ -147,6 +133,8 @@ PURPOSE_ROUTE_FALLBACKS: dict[str, str] = {
     "planning": "chat",
     "verification": "chat",
     "deep_reasoning": "planning",
+    "title_generation": "chat",
+    "image_analysis": "chat",
 }
 
 
@@ -155,7 +143,7 @@ class _LLMErrorDisposition:
     """LLM 调用错误的统一判定结果。"""
 
     message: str
-    should_fallback: bool
+    try_next_provider: bool
     log_level: int
 
 
@@ -515,29 +503,36 @@ class ModelResolver:
             return client
         return None
 
-    @staticmethod
-    def _select_title_model_from_available(
-        provider_id: str,
-        available_models: list[str],
-    ) -> str | None:
-        """从当前可用模型列表中动态挑选适合标题生成的模型。"""
-        matchers = TITLE_MODEL_MATCHERS.get(provider_id, [])
-        if not matchers:
-            return None
+    def _append_active_fallback_client(
+        self,
+        clients: list[BaseLLMClient],
+        purpose: str,
+    ) -> list[BaseLLMClient]:
+        """为 BUILTIN 候选链追加激活 provider，供运行时失败后继续降级。"""
+        if not clients:
+            return clients
 
-        normalized_models = [
-            (model, model.strip().lower()) for model in available_models if str(model).strip()
-        ]
-        for matcher in matchers:
-            for original, normalized in normalized_models:
-                if all(keyword in normalized for keyword in matcher):
-                    return original
-        return None
+        active_client = self._get_single_active_client()
+        if active_client is None or any(client is active_client for client in clients):
+            return clients
+
+        preferred_model = active_client.pick_model_for_purpose(purpose)
+        fallback_client = active_client
+        if preferred_model and preferred_model != active_client.get_model_name():
+            built = self._build_client_for_provider(
+                active_client.provider_id, model=preferred_model
+            )
+            if built and built.is_available():
+                fallback_client = built
+
+        if any(client is fallback_client for client in clients):
+            return clients
+        return [*clients, fallback_client]
 
     async def _get_title_client(self) -> BaseLLMClient | None:
         """获取用于标题生成的客户端。
 
-        优先基于当前服务商的可用模型列表动态选取更轻量的标题模型，
+        优先通过 provider 自身的偏好规则动态选取更轻量的标题模型，
         匹配失败时回退到当前激活供应商的主模型。
         """
         if not self._active_provider_id:
@@ -560,10 +555,13 @@ class ModelResolver:
                 base_url=base_url,
             )
             model_source = str(result.get("source") or "unknown")
-            title_model = self._select_title_model_from_available(
-                self._active_provider_id,
-                result.get("models", []),
+            available_models = result.get("models", [])
+            setattr(
+                active_client,
+                "_available_models_cache",
+                available_models if isinstance(available_models, list) else [],
             )
+            title_model = active_client.pick_model_for_purpose("title_generation")
         except Exception as exc:
             logger.debug(
                 "动态选择标题模型失败，回退主模型: provider=%s err=%s",
@@ -625,54 +623,54 @@ class ModelResolver:
         if isinstance(exc, (openai.AuthenticationError, anthropic.AuthenticationError)):
             return _LLMErrorDisposition(
                 message="API Key 无效或已过期，请检查配置",
-                should_fallback=False,
+                try_next_provider=True,
                 log_level=logging.ERROR,
             )
         if status_code in {401, 403}:
             return _LLMErrorDisposition(
-                message="API Key 无效或权限不足，请检查配置",
-                should_fallback=False,
+                message="API Key 无效或已过期，请检查配置",
+                try_next_provider=True,
                 log_level=logging.ERROR,
             )
         if isinstance(exc, (openai.RateLimitError, anthropic.RateLimitError)) or status_code == 429:
             return _LLMErrorDisposition(
                 message="请求过于频繁，请稍后重试",
-                should_fallback=True,
+                try_next_provider=True,
                 log_level=logging.WARNING,
             )
         if isinstance(exc, httpx.TimeoutException):
             return _LLMErrorDisposition(
                 message="连接超时，请检查网络或 Base URL",
-                should_fallback=True,
+                try_next_provider=True,
                 log_level=logging.WARNING,
             )
         if isinstance(exc, httpx.ConnectError):
             return _LLMErrorDisposition(
                 message="无法连接到服务器，请检查网络或 Base URL",
-                should_fallback=True,
+                try_next_provider=True,
                 log_level=logging.WARNING,
             )
         if status_code == 503:
             return _LLMErrorDisposition(
                 message="服务暂时不可用，请稍后重试",
-                should_fallback=True,
+                try_next_provider=True,
                 log_level=logging.WARNING,
             )
         if status_code == 400:
             return _LLMErrorDisposition(
                 message="请求参数无效，请检查模型或 Base URL 配置",
-                should_fallback=False,
+                try_next_provider=False,
                 log_level=logging.ERROR,
             )
         if isinstance(exc, (openai.APIError, anthropic.APIError)):
             return _LLMErrorDisposition(
                 message=self._compact_error_message(exc),
-                should_fallback=True,
+                try_next_provider=True,
                 log_level=logging.ERROR,
             )
         return _LLMErrorDisposition(
             message=self._compact_error_message(exc),
-            should_fallback=True,
+            try_next_provider=True,
             log_level=logging.ERROR,
         )
 
@@ -711,6 +709,7 @@ class ModelResolver:
                     clients = [builtin_client]
             if not clients:
                 raise await self._build_builtin_quota_error(mode_candidate)
+            clients = self._append_active_fallback_client(clients, purpose)
         elif route_provider:
             selected_client = self._get_specific_client_for_route(
                 route_provider,
@@ -742,6 +741,7 @@ class ModelResolver:
                         if builtin_client:
                             builtin_mode_to_count = BUILTIN_MODE_FAST
                             clients = [builtin_client]
+                            clients = self._append_active_fallback_client(clients, purpose)
                     else:
                         raise await self._build_builtin_quota_error(BUILTIN_MODE_FAST)
                 if not clients:
@@ -915,9 +915,9 @@ class ModelResolver:
                     }
                 )
                 log_message = (
-                    "LLM 客户端调用失败，尝试下一个提供商: provider=%s model=%s reason=%s"
-                    if disposition.should_fallback
-                    else "LLM 客户端调用失败，停止 fallback: provider=%s model=%s reason=%s"
+                    "LLM 客户端调用失败，尝试跨 provider 降级: provider=%s model=%s reason=%s"
+                    if disposition.try_next_provider
+                    else "LLM 客户端调用失败，停止跨 provider 降级: provider=%s model=%s reason=%s"
                 )
                 log_args: tuple[Any, ...] = (provider_id, model_name, compact_error)
                 if debug_dump_path:
@@ -933,7 +933,7 @@ class ModelResolver:
                         "purpose": purpose,
                     },
                 )
-                if not disposition.should_fallback:
+                if not disposition.try_next_provider:
                     raise RuntimeError(compact_error) from e
 
         if last_error is not None:
@@ -953,7 +953,8 @@ class ModelResolver:
         purpose: str = "default",
         temperature: float = 0.3,
         max_tokens: int = 4096,
-    ) -> LLMResponse:
+        optional: bool = False,
+    ) -> LLMResponse | None:
         """非流式聊天，聚合所有 chunk 返回完整响应。
 
         Args:
@@ -962,9 +963,10 @@ class ModelResolver:
             purpose: 用途标识
             temperature: 采样温度
             max_tokens: 最大生成 token 数
+            optional: 全链失败时是否返回 None
 
         Returns:
-            LLMResponse: 完整响应
+            完整响应；当 optional=True 且全链失败时返回 None
         """
         text_parts: list[str] = []
         reasoning_parts: list[str] = []
@@ -972,28 +974,38 @@ class ModelResolver:
         usage: dict[str, int] = {}
         finish_reasons: list[str] = []
 
-        async for chunk in self.chat(
-            messages=messages,
-            tools=tools,
-            purpose=purpose,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        ):
-            if chunk.text:
-                text_parts.append(chunk.text)
-            if chunk.reasoning:
-                reasoning_parts.append(chunk.reasoning)
-            if chunk.tool_calls:
-                tool_calls.extend(chunk.tool_calls)
-            if chunk.usage:
-                usage["input_tokens"] = usage.get("input_tokens", 0) + chunk.usage.get(
-                    "input_tokens", 0
+        try:
+            async for chunk in self.chat(
+                messages=messages,
+                tools=tools,
+                purpose=purpose,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            ):
+                if chunk.text:
+                    text_parts.append(chunk.text)
+                if chunk.reasoning:
+                    reasoning_parts.append(chunk.reasoning)
+                if chunk.tool_calls:
+                    tool_calls.extend(chunk.tool_calls)
+                if chunk.usage:
+                    usage["input_tokens"] = usage.get("input_tokens", 0) + chunk.usage.get(
+                        "input_tokens", 0
+                    )
+                    usage["output_tokens"] = usage.get("output_tokens", 0) + chunk.usage.get(
+                        "output_tokens", 0
+                    )
+                if chunk.finish_reason:
+                    finish_reasons.append(chunk.finish_reason)
+        except Exception as exc:
+            if optional:
+                logger.warning(
+                    "chat_complete optional 调用全链失败，返回 None: purpose=%s error=%s",
+                    purpose,
+                    exc,
                 )
-                usage["output_tokens"] = usage.get("output_tokens", 0) + chunk.usage.get(
-                    "output_tokens", 0
-                )
-            if chunk.finish_reason:
-                finish_reasons.append(chunk.finish_reason)
+                return None
+            raise
 
         finish_reason = finish_reasons[-1] if finish_reasons else None
 

@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -199,20 +200,35 @@ async def test_agent_runner_executes_explicit_contract_skill_with_review_gate(
     )
 
     events = []
-    async for event in runner.run(
-        session,
-        "/demo-contract 糖尿病",
-        turn_id="turn-contract",
+    with (
+        patch("nini.config_manager.get_active_provider_id", AsyncMock(return_value=None)),
+        patch("nini.config_manager.list_user_configured_provider_ids", AsyncMock(return_value=[])),
+        patch(
+            "nini.config_manager.get_trial_status",
+            AsyncMock(
+                return_value={
+                    "expired": False,
+                    "activated": True,
+                    "fast_calls_remaining": 3,
+                    "deep_calls_remaining": 1,
+                }
+            ),
+        ),
     ):
-        events.append(event)
-        if (
-            event.type == EventType.SKILL_STEP
-            and isinstance(event.data, dict)
-            and event.data.get("status") == "review_required"
+        async for event in runner.run(
+            session,
+            "/demo-contract 糖尿病",
+            turn_id="turn-contract",
         ):
-            active_runner = getattr(session, "_active_contract_runner", None)
-            assert active_runner is not None
-            active_runner.approve_review("finalize")
+            events.append(event)
+            if (
+                event.type == EventType.SKILL_STEP
+                and isinstance(event.data, dict)
+                and event.data.get("status") == "review_required"
+            ):
+                active_runner = getattr(session, "_active_contract_runner", None)
+                assert active_runner is not None
+                active_runner.approve_review("finalize")
 
     step_statuses = [
         event.data.get("status")

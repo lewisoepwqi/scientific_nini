@@ -13,6 +13,21 @@ from typing import Any, AsyncGenerator, TypedDict
 logger = logging.getLogger(__name__)
 
 
+def match_first_model(
+    available: list[str],
+    keyword_groups: list[tuple[str, ...]],
+) -> str | None:
+    """按偏好顺序从可用模型列表中匹配第一个命中的模型。"""
+    normalized_models = [
+        (model, model.strip().lower()) for model in available if str(model).strip()
+    ]
+    for keywords in keyword_groups:
+        for original, normalized in normalized_models:
+            if all(keyword in normalized for keyword in keywords):
+                return original
+    return None
+
+
 @dataclass
 class LLMChunk:
     """LLM 流式输出单元。"""
@@ -283,6 +298,10 @@ class BaseLLMClient(ABC):
     def get_model_name(self) -> str:
         """获取当前使用的模型名称。"""
         return getattr(self, "_model", "") or ""
+
+    def pick_model_for_purpose(self, purpose: str) -> str | None:
+        """返回指定用途偏好的模型名；None 表示沿用主模型。"""
+        return None
 
     async def aclose(self) -> None:
         """关闭底层 HTTP 客户端，释放连接资源。
