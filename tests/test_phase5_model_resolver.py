@@ -718,6 +718,137 @@ def test_moonshot_client_unavailable_without_key() -> None:
     assert client.is_available() is False
 
 
+def test_moonshot_sanitize_tools_moves_type_into_anyof_items() -> None:
+    """Moonshot schema 净化：把父级 type 下放到 anyOf 各项内并移除父级 type。
+
+    复现真实工具的 schema 形状（dispatch_agents、code_session.run_script 等），
+    验证转换后既满足 Moonshot ``type`` 必须在 anyOf items 内的要求，
+    也保留原有 properties / required 等约束。
+    """
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "dispatch_agents",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "agents": {"type": "array"},
+                        "tasks": {"type": "array"},
+                    },
+                    "anyOf": [
+                        {"required": ["agents"]},
+                        {"required": ["tasks"]},
+                    ],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "code_session",
+                "parameters": {
+                    "type": "object",
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "properties": {"operation": {"const": "run_script"}},
+                            "required": ["operation"],
+                            "anyOf": [
+                                {"required": ["script_id"]},
+                                {"required": ["content"]},
+                            ],
+                        },
+                    ],
+                },
+            },
+        },
+    ]
+
+    sanitized = MoonshotClient._sanitize_tools_for_moonshot(tools)  # noqa: SLF001
+    assert sanitized is not None
+
+    dispatch_params = sanitized[0]["function"]["parameters"]
+    # 父级 type 已下放，移除
+    assert "type" not in dispatch_params
+    # properties 等其它字段保留
+    assert "properties" in dispatch_params
+    # 每个 anyOf 项都补齐了 type=object 且保留 required
+    assert dispatch_params["anyOf"] == [
+        {"type": "object", "required": ["agents"]},
+        {"type": "object", "required": ["tasks"]},
+    ]
+
+    run_script_branch = sanitized[1]["function"]["parameters"]["oneOf"][0]
+    # 嵌套节点同样被处理
+    assert "type" not in run_script_branch
+    assert run_script_branch["required"] == ["operation"]
+    assert run_script_branch["anyOf"] == [
+        {"type": "object", "required": ["script_id"]},
+        {"type": "object", "required": ["content"]},
+    ]
+
+    # 不修改原对象
+    assert "type" in tools[0]["function"]["parameters"]
+    assert tools[0]["function"]["parameters"]["anyOf"][0] == {"required": ["agents"]}
+
+
+def test_moonshot_sanitize_tools_preserves_explicit_anyof_item_type() -> None:
+    """Moonshot schema 净化：anyOf 项已有 type 时不应被父级 type 覆盖。"""
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "mixed",
+                "parameters": {
+                    "type": "object",
+                    "anyOf": [
+                        {"type": "array", "items": {"type": "string"}},
+                        {"required": ["name"]},
+                    ],
+                },
+            },
+        }
+    ]
+
+    sanitized = MoonshotClient._sanitize_tools_for_moonshot(tools)  # noqa: SLF001
+    assert sanitized is not None
+    params = sanitized[0]["function"]["parameters"]
+    assert "type" not in params
+    assert params["anyOf"] == [
+        {"type": "array", "items": {"type": "string"}},
+        {"type": "object", "required": ["name"]},
+    ]
+
+
+def test_moonshot_sanitize_tools_no_anyof_unchanged() -> None:
+    """Moonshot schema 净化：无 anyOf 时不改动 type 字段。"""
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "simple",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"x": {"type": "string"}},
+                    "required": ["x"],
+                },
+            },
+        }
+    ]
+    sanitized = MoonshotClient._sanitize_tools_for_moonshot(tools)  # noqa: SLF001
+    assert sanitized is not None
+    params = sanitized[0]["function"]["parameters"]
+    assert params["type"] == "object"
+    assert params["required"] == ["x"]
+
+
+def test_moonshot_sanitize_tools_handles_none_and_empty() -> None:
+    """Moonshot schema 净化：None / 空列表保持原值。"""
+    assert MoonshotClient._sanitize_tools_for_moonshot(None) is None  # noqa: SLF001
+    assert MoonshotClient._sanitize_tools_for_moonshot([]) == []  # noqa: SLF001
+
+
 def test_kimi_coding_client_base_url_and_availability() -> None:
     """Kimi Coding 客户端：正确设置 base_url，有 API Key 时可用。"""
     client = KimiCodingClient(api_key="sk-kimi-test", model="kimi-for-coding")
@@ -985,8 +1116,8 @@ def test_dump_chat_payload_debug_writes_file(tmp_path: Path) -> None:
     assert payload["error"] == "messages 参数非法"
 
 
-def test_model_resolver_default_priority_excludes_kimi_coding() -> None:
-    """默认优先级链不应再包含 kimi_coding。"""
+def test_model_resolver_default_priority_excludes_auto_fallback_blocked_providers() -> None:
+    """默认优先级链不应包含被禁用或退出自动降级的 provider。"""
     resolver = ModelResolver(
         clients=[
             FakeClient(provider_id="openai", available=True),
@@ -999,8 +1130,9 @@ def test_model_resolver_default_priority_excludes_kimi_coding() -> None:
 
     ordered = resolver._get_priority_order()  # noqa: SLF001
 
-    assert ordered == ["openai", "moonshot", "zhipu", "dashscope"]
+    assert ordered == ["openai", "zhipu", "dashscope"]
     assert "kimi_coding" not in ordered
+    assert "moonshot" not in ordered
 
 
 @pytest.mark.asyncio
@@ -1146,6 +1278,135 @@ def test_merge_tool_arguments_keeps_single_character_closing_brace() -> None:
         "}",
     )
     assert merged == '{"patch":{"mode":"replace_string"}}'
+
+
+def _fake_openai_stream_chunk(text: str = "", finish_reason: str | None = None) -> Any:
+    """构造 OpenAI 兼容流式 chunk。"""
+    delta = types.SimpleNamespace(content=text, tool_calls=None)
+    choice = types.SimpleNamespace(delta=delta, finish_reason=finish_reason)
+    return types.SimpleNamespace(choices=[choice], usage=None)
+
+
+class _FakeOpenAIStream:
+    """测试用 OpenAI 兼容异步流。"""
+
+    def __init__(
+        self,
+        *,
+        chunks: list[Any] | None = None,
+        error_before_chunks: Exception | None = None,
+        error_after_chunks: Exception | None = None,
+    ) -> None:
+        self._chunks = chunks or []
+        self._error_before_chunks = error_before_chunks
+        self._error_after_chunks = error_after_chunks
+
+    def __aiter__(self) -> AsyncGenerator[Any, None]:
+        return self._iterate()
+
+    async def _iterate(self) -> AsyncGenerator[Any, None]:
+        if self._error_before_chunks is not None:
+            raise self._error_before_chunks
+        for chunk in self._chunks:
+            yield chunk
+        if self._error_after_chunks is not None:
+            raise self._error_after_chunks
+
+
+class _FakeOpenAICompletions:
+    """按顺序返回预设流式响应。"""
+
+    def __init__(self, streams: list[_FakeOpenAIStream]) -> None:
+        self._streams = streams
+        self.calls = 0
+
+    async def create(self, **kwargs: Any) -> _FakeOpenAIStream:
+        self.calls += 1
+        return self._streams.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_client_retries_stream_disconnect_before_any_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """流式读取未产出内容前断开时，应同 provider 重试并只输出成功结果。"""
+    monkeypatch.setattr(settings, "llm_stream_retries", 1, raising=False)
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr("nini.agent.providers.openai_provider.asyncio.sleep", sleep_mock)
+    completions = _FakeOpenAICompletions(
+        [
+            _FakeOpenAIStream(error_before_chunks=httpx.RemoteProtocolError("server disconnected")),
+            _FakeOpenAIStream(chunks=[_fake_openai_stream_chunk("ok", finish_reason="stop")]),
+        ]
+    )
+    client = ZhipuClient(api_key="zhipu-test-key", model="glm-5")
+    client._client = types.SimpleNamespace(  # noqa: SLF001
+        chat=types.SimpleNamespace(completions=completions)
+    )
+
+    chunks = [chunk async for chunk in client.chat([{"role": "user", "content": "hi"}])]
+
+    assert completions.calls == 2
+    assert [chunk.text for chunk in chunks] == ["ok"]
+    sleep_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_client_does_not_retry_after_emitting_chunk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """流式读取已产出内容后断开时，不应从头重试以免重复输出。"""
+    monkeypatch.setattr(settings, "llm_stream_retries", 1, raising=False)
+    completions = _FakeOpenAICompletions(
+        [
+            _FakeOpenAIStream(
+                chunks=[_fake_openai_stream_chunk("partial")],
+                error_after_chunks=httpx.RemoteProtocolError("server disconnected"),
+            ),
+            _FakeOpenAIStream(
+                chunks=[_fake_openai_stream_chunk("duplicated", finish_reason="stop")]
+            ),
+        ]
+    )
+    client = ZhipuClient(api_key="zhipu-test-key", model="glm-5")
+    client._client = types.SimpleNamespace(  # noqa: SLF001
+        chat=types.SimpleNamespace(completions=completions)
+    )
+
+    chunks: list[LLMChunk] = []
+    with pytest.raises(httpx.RemoteProtocolError):
+        async for chunk in client.chat([{"role": "user", "content": "hi"}]):
+            chunks.append(chunk)
+
+    assert completions.calls == 1
+    assert [chunk.text for chunk in chunks] == ["partial"]
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_client_raises_after_stream_retry_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """连续流式断开超过上限后，应抛出最后一次异常。"""
+    monkeypatch.setattr(settings, "llm_stream_retries", 2, raising=False)
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr("nini.agent.providers.openai_provider.asyncio.sleep", sleep_mock)
+    completions = _FakeOpenAICompletions(
+        [
+            _FakeOpenAIStream(error_before_chunks=httpx.ReadError("read failed")),
+            _FakeOpenAIStream(error_before_chunks=httpx.ReadError("read failed")),
+            _FakeOpenAIStream(error_before_chunks=httpx.ReadError("read failed")),
+        ]
+    )
+    client = ZhipuClient(api_key="zhipu-test-key", model="glm-5")
+    client._client = types.SimpleNamespace(  # noqa: SLF001
+        chat=types.SimpleNamespace(completions=completions)
+    )
+
+    with pytest.raises(httpx.ReadError, match="read failed"):
+        _ = [chunk async for chunk in client.chat([{"role": "user", "content": "hi"}])]
+
+    assert completions.calls == 3
+    assert sleep_mock.await_count == 2
 
 
 @pytest.mark.asyncio

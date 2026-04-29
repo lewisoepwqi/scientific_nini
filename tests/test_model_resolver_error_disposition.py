@@ -139,6 +139,43 @@ async def test_bad_request_does_not_try_next_provider() -> None:
 
 
 @pytest.mark.asyncio
+async def test_remote_protocol_error_reports_network_interruption_reason() -> None:
+    """流式网络中断应给出明确降级原因，而不是透出底层异常文本。"""
+    resolver = ModelResolver(
+        clients=[
+            FakeClient(
+                provider_id="deepseek",
+                model="deepseek-chat",
+                error=httpx.RemoteProtocolError("server disconnected without response"),
+            ),
+            FakeClient(
+                provider_id="openai",
+                model="gpt-backup",
+                chunks=[LLMChunk(text="fallback-ok", finish_reason="stop")],
+            ),
+        ]
+    )
+    resolver.set_purpose_route("chat", provider_id="deepseek", model="deepseek-chat")
+
+    with patch.object(
+        resolver,
+        "_get_user_configured_provider_ids",
+        AsyncMock(return_value=["deepseek", "openai"]),
+    ):
+        chunks = [
+            chunk
+            async for chunk in resolver.chat(
+                [{"role": "user", "content": "hi"}],
+                purpose="chat",
+            )
+        ]
+
+    assert len(chunks) == 1
+    assert chunks[0].provider_id == "openai"
+    assert chunks[0].fallback_reason == "网络连接中断，请稍后重试"
+
+
+@pytest.mark.asyncio
 async def test_builtin_auth_error_falls_back_to_active_client() -> None:
     """BUILTIN 401 时，应继续尝试已追加的激活 provider。"""
     active_client = FakeClient(

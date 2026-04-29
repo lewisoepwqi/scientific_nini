@@ -56,6 +56,42 @@ class MoonshotClient(OpenAICompatibleClient):
                 message.setdefault("reasoning_content", "")
         return normalized
 
+    @staticmethod
+    def _sanitize_tools_for_moonshot(
+        tools: list[dict[str, Any]] | None,
+    ) -> list[dict[str, Any]] | None:
+        """适配 Moonshot 的 anyOf 校验。
+
+        Moonshot 拒绝在含 ``anyOf`` 的父 schema 上声明 ``type``，要求 ``type``
+        写在每个 anyOf 项内（错误信息：``when using anyOf, type should be
+        defined in anyOf items instead of the parent schema``）。本函数递归
+        将父级 ``type`` 下放到每个未声明 ``type`` 的 anyOf 项中，并从父级
+        移除 ``type``，使其它 provider 通用的 JSON Schema 也能被 Moonshot 接受。
+        """
+        if not tools:
+            return tools
+
+        def fix(node: Any) -> Any:
+            if isinstance(node, dict):
+                new_node: dict[str, Any] = {k: fix(v) for k, v in node.items()}
+                any_of = new_node.get("anyOf")
+                parent_type = new_node.get("type")
+                if isinstance(any_of, list) and parent_type is not None:
+                    fixed_items: list[Any] = []
+                    for item in any_of:
+                        if isinstance(item, dict) and "type" not in item:
+                            fixed_items.append({"type": parent_type, **item})
+                        else:
+                            fixed_items.append(item)
+                    new_node["anyOf"] = fixed_items
+                    new_node.pop("type", None)
+                return new_node
+            if isinstance(node, list):
+                return [fix(v) for v in node]
+            return node
+
+        return [fix(tool) for tool in tools]
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -69,8 +105,9 @@ class MoonshotClient(OpenAICompatibleClient):
         model = self._model or ""
         if "k2.5" in model:
             temperature = 1.0
+        sanitized_tools = self._sanitize_tools_for_moonshot(tools)
         async for chunk in super().chat(
-            messages, tools, temperature=temperature, max_tokens=max_tokens
+            messages, sanitized_tools, temperature=temperature, max_tokens=max_tokens
         ):
             yield chunk
 
