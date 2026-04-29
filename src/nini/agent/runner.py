@@ -2019,7 +2019,7 @@ class AgentRunner:
                             tool_name=func_name,
                             attempt=1,
                             max_attempts=1,
-                            status="completed" if cache_hit else "failed",
+                            status="success" if cache_hit else "failed",
                             error=None if cache_hit else duplicate_profile_reason,
                             note=(
                                 "复用本轮已获取的数据集概况缓存"
