@@ -1416,6 +1416,11 @@ class AgentRunner:
                 "turn_id": turn_id,
                 "tool_calls": tool_calls,
             }
+            # DeepSeek thinking 模式下，若本轮发生 tool_calls，则该 assistant 的
+            # reasoning_content 必须随后续请求一并回传，否则 API 会以 400 拒绝
+            # （参考 https://api-docs.deepseek.com 思考模式说明）。
+            if full_reasoning:
+                assistant_tool_msg["reasoning_content"] = full_reasoning
             if effective_model_info:
                 assistant_tool_msg["effective_model"] = effective_model_info
             if fallback_chain:

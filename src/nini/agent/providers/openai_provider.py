@@ -248,6 +248,12 @@ class OpenAICompatibleClient(BaseLLMClient):
                     ]
                     if normalized_tool_calls:
                         item["tool_calls"] = normalized_tool_calls
+                        # DeepSeek thinking 模式要求带 tool_calls 的 assistant 历史
+                        # 必须回传上一轮的 reasoning_content；其它 OpenAI 兼容
+                        # 提供商通常忽略未知字段，因此在基类透传是安全的。
+                        reasoning_content = message.get("reasoning_content")
+                        if reasoning_content:
+                            item["reasoning_content"] = str(reasoning_content)
                 normalized.append(item)
                 continue
 
