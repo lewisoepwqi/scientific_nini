@@ -37,10 +37,36 @@ def _merge_tool_arguments(existing: str, incoming: str) -> str:
     # 重复回放：旧值尾部已包含较长新片段，不重复追加。
     # 单字符分片可能是合法增量，例如工具参数里的 `n = len(...)`，
     # 不能仅因历史文本也以 `n` 结尾就吞掉。
-    if len(incoming) > 1 and existing.endswith(incoming):
+    # ≤3 字节的片段（如 `]}`、`}]}`）是 JSON 嵌套结构的合法闭合序列，
+    # 内层 `]}` 与外层 `]}` 词法相同但语义不同，误判会截断合法 JSON。
+    if len(incoming) > 3 and existing.endswith(incoming):
         return existing
     # 增量片段：正常追加。
     return existing + incoming
+
+
+def _repair_json_arguments(raw: str) -> str:
+    """尝试修复因流式截断导致的不完整 JSON 工具参数。
+
+    当 finish_reason=tool_calls 时，若拼接后的参数字符串无法被 json.loads 解析，
+    按常见截断模式依次尝试追加闭合后缀；修复成功则记录 warning 并返回修复后字符串。
+    """
+    if not raw:
+        return raw
+    try:
+        json.loads(raw)
+        return raw
+    except json.JSONDecodeError:
+        pass
+    for suffix in ("]}", "}]}", "]}}", "]}}"):
+        candidate = raw + suffix
+        try:
+            json.loads(candidate)
+            logger.warning("工具参数 JSON 截断已自动修复，追加 %r（原始长度 %d）", suffix, len(raw))
+            return candidate
+        except json.JSONDecodeError:
+            pass
+    return raw
 
 
 def _sanitize_debug_filename(value: str, *, fallback: str) -> str:
@@ -382,6 +408,10 @@ class OpenAICompatibleClient(BaseLLMClient):
 
                     # 当 finish_reason 为 tool_calls 时，输出完整的 tool_calls
                     if finish == "tool_calls":
+                        for entry in pending_tool_calls.values():
+                            entry["function"]["arguments"] = _repair_json_arguments(
+                                entry["function"]["arguments"]
+                            )
                         tool_calls_out = list(pending_tool_calls.values())
                         pending_tool_calls.clear()
 
