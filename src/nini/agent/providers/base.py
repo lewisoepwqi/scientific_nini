@@ -284,8 +284,14 @@ class BaseLLMClient(ABC):
         *,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        reasoning_effort: str | None = None,
     ) -> AsyncGenerator[LLMChunk, None]:
-        """流式聊天接口。"""
+        """流式聊天接口。
+
+        Args:
+            reasoning_effort: 推理深度控制（如 "none"/"low"/"medium"/"high"），
+                仅对支持 reasoning 控制的 provider 生效。
+        """
         ...  # pragma: no cover
         # 确保类型检查器知道这是个 async generator
         yield LLMChunk()  # type: ignore[misc]

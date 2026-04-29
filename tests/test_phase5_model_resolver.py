@@ -67,6 +67,7 @@ class FakeClient(BaseLLMClient):
         *,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        reasoning_effort: str | None = None,
     ) -> AsyncGenerator[LLMChunk, None]:
         if self.error is not None:
             raise self.error
@@ -412,7 +413,7 @@ async def test_get_title_client_uses_provider_pick_model_for_purpose(
 async def test_get_title_client_falls_back_to_active_model_when_no_match(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """动态列表匹配不到标题模型时应回退当前主模型。"""
+    """动态列表匹配不到标题模型且内置标题模型不可用时应回退当前主模型。"""
 
     class _PassiveTitleClient(FakeClient):
         def pick_model_for_purpose(self, purpose: str) -> str | None:
@@ -432,10 +433,15 @@ async def test_get_title_client_falls_back_to_active_model_when_no_match(
     async def _fake_list_available_models(*args, **kwargs):  # type: ignore[no-untyped-def]
         return {"models": ["qwen-max"], "source": "remote"}
 
+    # 内置标题模型不可用
+    def _fake_get_builtin_client(purpose, mode):  # type: ignore[no-untyped-def]
+        return None
+
     monkeypatch.setattr(
         "nini.agent.model_lister.list_available_models",
         _fake_list_available_models,
     )
+    monkeypatch.setattr(resolver, "_get_builtin_client", _fake_get_builtin_client)
 
     client = await resolver._get_title_client()  # noqa: SLF001
 
@@ -642,7 +648,7 @@ async def test_anthropic_client_parses_text_and_tool_calls() -> None:
     assert len(chunk.tool_calls) == 1
     assert chunk.tool_calls[0]["function"]["name"] == "run_code"
     assert json.loads(chunk.tool_calls[0]["function"]["arguments"]) == {"code": "result = 1"}
-    assert chunk.usage == {"input_tokens": 12, "output_tokens": 8}
+    assert chunk.usage == {"input_tokens": 12, "output_tokens": 8, "reasoning_tokens": 0}
 
 
 def test_anthropic_convert_messages_maps_tool_to_assistant_summary() -> None:

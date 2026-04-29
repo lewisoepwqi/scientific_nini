@@ -20,7 +20,7 @@ from nini.api.auth_utils import is_websocket_authenticated
 from nini.agent.runner import AgentRunner
 from nini.agent.events import EventType
 from nini.agent.session import Session, session_manager
-from nini.agent.title_generator import generate_title
+from nini.agent.title_generator import generate_title, generate_title_from_message
 from nini.harness.runner import HarnessRunner
 from nini.logging_config import bind_log_context, reset_log_context
 from nini.models.schemas import WSEvent
@@ -494,6 +494,12 @@ async def websocket_agent(ws: WebSocket):
             max_attempts = max(1, (recipe.recovery.max_retries + 1) if recipe else 1)
             current_attempt = 0
             milestones = {"tooling_started": False, "output_started": False}
+
+            # 首次对话时，在 agent 执行前提前生成标题（此时用户消息未被压缩）
+            if session.title == "新会话" and append_user_message and content:
+                logger.info("前置标题生成触发: session_id=%s", session.id)
+                asyncio.create_task(_auto_generate_title(ws, session, source_message=content))
+
             while current_attempt < max_attempts:
                 current_attempt += 1
                 if recipe is not None:
@@ -723,8 +729,8 @@ async def websocket_agent(ws: WebSocket):
                 len(session.messages),
             )
             if not stop_event.is_set() and session.title == "新会话" and len(session.messages) >= 2:
-                logger.info("触发会话标题自动生成: session_id=%s", session.id)
-                asyncio.create_task(_auto_generate_title(ws, session))
+                logger.info("触发会话标题自动生成（后置兜底）: session_id=%s", session.id)
+                asyncio.create_task(_auto_generate_title(ws, session, source_message=content))
             else:
                 logger.debug(
                     "跳过标题生成: title=%s, messages=%d, stopped=%s",
@@ -1257,10 +1263,26 @@ async def websocket_agent(ws: WebSocket):
         reset_log_context(connection_token)
 
 
-async def _auto_generate_title(ws: WebSocket, session: Any) -> None:
-    """异步生成会话标题并推送给客户端。"""
+async def _auto_generate_title(ws: WebSocket, session: Any, *, source_message: str = "") -> None:
+    """异步生成会话标题并推送给客户端。
+
+    Args:
+        source_message: 用户原始消息文本，用于提前生成标题（避免压缩后消息丢失）。
+    """
     try:
-        title = await generate_title(session.messages)
+        title: str | None = None
+
+        # 优先从原始用户消息直接生成（压缩前最可靠）
+        if source_message:
+            title = await generate_title_from_message(source_message)
+
+        # 兜底：从 session 消息 / 压缩上下文生成
+        if not title:
+            title = await generate_title(
+                session.messages,
+                compressed_context=getattr(session, "compressed_context", "") or "",
+            )
+
         if title:
             session.title = title
             session_manager.save_session_title(session.id, title)
