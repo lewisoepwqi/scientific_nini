@@ -7,6 +7,7 @@ import { Loader2, MessageSquarePlus, MoreHorizontal, Pencil, Trash2, X } from 'l
 import * as api from '../store/api-actions'
 import type { SessionItem } from '../store/types'
 import { onSessionsChanged } from '../store/session-lifecycle'
+import { formatSessionRelativeTime, getSessionActivityIso } from './session-list-time'
 import Button from './ui/Button'
 
 interface Props {
@@ -307,23 +308,6 @@ export default function SessionList({ onClose }: Props) {
  }
  }, [editingId, visibleSessions, focusedIndex, handleClick])
 
- const formatRelativeTime = useCallback((iso?: string) => {
- if (!iso) return ''
- const ts = Date.parse(iso)
- if (Number.isNaN(ts)) return ''
- const deltaMs = Date.now() - ts
- const minute = 60 * 1000
- const hour = 60 * minute
- const day = 24 * hour
- if (deltaMs < minute) return '此刻'
- if (deltaMs < hour) return `${Math.max(1, Math.floor(deltaMs / minute))}分钟前`
- if (deltaMs < day) return '今天'
- if (deltaMs < 2 * day) return '昨天'
- if (deltaMs < 7 * day) return `${Math.floor(deltaMs / day)}天前`
- const dt = new Date(ts)
- return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
- }, [])
-
  const handleScroll = useCallback(() => {
  if (!listRef.current || loadingMore || !hasMore) return
  const el = listRef.current
@@ -493,7 +477,7 @@ export default function SessionList({ onClose }: Props) {
  <span className={`text-[11px] text-[var(--text-muted)] text-right ${
  openActionsId === s.id ? 'hidden' : 'group-hover:hidden'
  }`}>
- {formatRelativeTime(s.created_at || s.updated_at || s.last_message_at)}
+ {formatSessionRelativeTime(getSessionActivityIso(s))}
  </span>
  {/* 更多操作按钮：始终可见，点击展开操作菜单；桌面端 hover 时隐藏（由下方操作按钮替代） */}
  <Button
