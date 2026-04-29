@@ -100,7 +100,7 @@ function ThumbnailIcon({ file }: { file: WorkspaceFile }) {
  <img
  src={file.download_url}
  alt={file.name}
- className="w-full h-full object-cover"
+ className="h-full w-full object-contain p-2"
  loading="lazy"
  />
  )
@@ -265,7 +265,7 @@ export default function ArtifactGallery() {
 
  {/* 网格 */}
  <div className="flex-1 overflow-y-auto px-2 pb-2">
- <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 list-none p-0 m-0">
+ <ul className="grid grid-cols-2 gap-3 list-none p-0 m-0">
  {filteredArtifacts.map((file) => {
  const isSelected = selectedIds.has(file.id)
  return (
@@ -297,7 +297,7 @@ export default function ArtifactGallery() {
  <Button
  variant="ghost"
  type="button"
- className="aspect-square bg-[var(--bg-elevated)] flex items-center justify-center overflow-hidden w-full p-0 focus-visible:outline-2 focus-visible:outline-[var(--accent)] focus-visible:outline-offset-1"
+ className="!h-auto !w-full !p-0 aspect-square bg-[var(--bg-elevated)] flex items-center justify-center overflow-hidden rounded-none focus-visible:outline-2 focus-visible:outline-[var(--accent)] focus-visible:outline-offset-1"
  onClick={() => openPreview(file.id)}
  aria-label={`预览 ${file.name}`}
  >
