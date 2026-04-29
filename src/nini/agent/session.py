@@ -904,7 +904,7 @@ class SessionManager:
 
         return sorted(
             sessions.values(),
-            key=lambda item: (str(item.get("updated_at") or ""), str(item["id"])),
+            key=lambda item: (self._session_sort_timestamp(item), str(item["id"])),
             reverse=True,
         )
 
@@ -1021,10 +1021,16 @@ class SessionManager:
                 return cached_count
 
         count = self._count_message_entries(memory_path)
+        updated_at = datetime.fromtimestamp(current_mtime, timezone.utc).isoformat()
         updated_meta = dict(meta)
         updated_meta["message_count"] = count
         updated_meta["_memory_mtime"] = current_mtime
-        updated_meta["updated_at"] = datetime.fromtimestamp(current_mtime, timezone.utc).isoformat()
+        updated_meta["updated_at"] = updated_at
+        updated_meta["created_at"] = self._derive_session_created_at_iso(
+            session_id,
+            updated_meta,
+            updated_at,
+        )
         meta.clear()
         meta.update(updated_meta)
         self._save_session_meta_fields(session_id, updated_meta)
@@ -1080,6 +1086,50 @@ class SessionManager:
             )
         return count
 
+    def _parse_session_timestamp(self, value: Any) -> datetime | None:
+        """解析会话时间戳，统一转换为 UTC aware datetime。"""
+        if not isinstance(value, str) or not value.strip():
+            return None
+        raw = value.strip().replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def _read_first_message_timestamp_iso(self, session_id: str) -> str | None:
+        """从 memory.jsonl 读取首条有效消息时间，作为旧会话 created_at 的可靠来源。"""
+        memory_path = self._memory_path(session_id)
+        if not memory_path.exists():
+            return None
+        try:
+            with memory_path.open("r", encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(entry, dict) or "role" not in entry:
+                        continue
+                    parsed = self._parse_session_timestamp(entry.get("_ts"))
+                    if parsed is not None:
+                        return parsed.isoformat()
+        except OSError:
+            return None
+        return None
+
+    def _session_sort_timestamp(self, item: dict[str, Any]) -> float:
+        """返回会话排序时间戳；无效时间排到最后。"""
+        parsed = self._parse_session_timestamp(item.get("updated_at"))
+        if parsed is None:
+            return 0.0
+        return parsed.timestamp()
+
     def _derive_session_updated_at_iso(self, session_id: str, meta: dict[str, Any]) -> str:
         raw_updated = meta.get("updated_at")
         if isinstance(raw_updated, str) and raw_updated:
@@ -1101,13 +1151,24 @@ class SessionManager:
         meta: dict[str, Any],
         fallback_updated: str,
     ) -> str:
+        fallback_updated_dt = self._parse_session_timestamp(fallback_updated)
         raw_created = meta.get("created_at")
-        if isinstance(raw_created, str) and raw_created:
-            return raw_created
+        created_dt = self._parse_session_timestamp(raw_created)
+        if created_dt is not None:
+            if fallback_updated_dt is None or created_dt <= fallback_updated_dt:
+                return created_dt.isoformat()
+
+        first_message_ts = self._read_first_message_timestamp_iso(session_id)
+        first_message_dt = self._parse_session_timestamp(first_message_ts)
+        if first_message_dt is not None:
+            if fallback_updated_dt is None or first_message_dt <= fallback_updated_dt:
+                return first_message_dt.isoformat()
 
         session_dir = settings.sessions_dir / session_id
         if session_dir.exists():
-            return datetime.fromtimestamp(session_dir.stat().st_ctime, timezone.utc).isoformat()
+            dir_created = datetime.fromtimestamp(session_dir.stat().st_ctime, timezone.utc)
+            if fallback_updated_dt is None or dir_created <= fallback_updated_dt:
+                return dir_created.isoformat()
         return fallback_updated
 
     def save_session_title(self, session_id: str, title: str) -> None:
@@ -1304,9 +1365,13 @@ class SessionManager:
         meta = self._load_session_meta(session_id)
         meta.update(fields)
         now_iso = datetime.now(timezone.utc).isoformat()
-        meta.setdefault("created_at", now_iso)
         if "updated_at" not in fields:
             meta["updated_at"] = now_iso
+        meta["created_at"] = self._derive_session_created_at_iso(
+            session_id,
+            meta,
+            str(meta.get("updated_at") or now_iso),
+        )
 
         # 主路径：写入 meta.json（保持现有行为，兼容直接读文件的测试）
         meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")

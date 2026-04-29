@@ -365,6 +365,121 @@ def test_list_sessions_refreshes_updated_at_when_memory_file_changes() -> None:
     assert found["updated_at"] == expected_updated_at
 
 
+def test_list_sessions_does_not_backfill_created_at_with_scan_time() -> None:
+    """列表扫描刷新消息计数时，不应把旧会话 created_at 写成当前扫描时间。"""
+    session = session_manager.create_session()
+    session.add_message("user", "old message")
+    session_id = session.id
+    session_manager._sessions.clear()
+
+    memory_path = settings.sessions_dir / session_id / "memory.jsonl"
+    assert memory_path.exists()
+    old_message_ts = "2026-01-01T00:00:00+00:00"
+    memory_path.write_text(
+        json.dumps(
+            {
+                "role": "user",
+                "content": "old message",
+                "event_type": "message",
+                "turn_id": "turn-old",
+                "_ts": old_message_ts,
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    meta_path = settings.sessions_dir / session_id / "meta.json"
+    if meta_path.exists():
+        meta_path.unlink()
+    db_path = settings.sessions_dir / session_id / settings.session_db_filename
+    if db_path.exists():
+        db_path.unlink()
+
+    sessions = session_manager.list_sessions()
+    found = next(item for item in sessions if item["id"] == session_id)
+
+    assert found["created_at"] == old_message_ts
+    assert found["updated_at"] != found["created_at"] or found["updated_at"] >= found["created_at"]
+
+
+def test_list_sessions_normalizes_created_at_newer_than_updated_at() -> None:
+    """已污染的 created_at 不应继续作为 API 输出的创建时间。"""
+    session = session_manager.create_session()
+    session.add_message("user", "historical")
+    session_id = session.id
+    session_manager._sessions.clear()
+
+    memory_path = settings.sessions_dir / session_id / "memory.jsonl"
+    first_ts = "2026-01-02T00:00:00+00:00"
+    memory_path.write_text(
+        json.dumps(
+            {
+                "role": "user",
+                "content": "historical",
+                "event_type": "message",
+                "turn_id": "turn-historical",
+                "_ts": first_ts,
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    memory_mtime = memory_path.stat().st_mtime
+    session_manager._save_session_meta_fields(
+        session_id,
+        {
+            "created_at": "2026-04-29T02:57:18+00:00",
+            "updated_at": "2026-01-02T00:00:01+00:00",
+            "_memory_mtime": memory_mtime,
+            "message_count": 1,
+        },
+    )
+
+    sessions = session_manager.list_sessions()
+    found = next(item for item in sessions if item["id"] == session_id)
+
+    assert found["created_at"] == first_ts
+    assert found["created_at"] <= found["updated_at"]
+
+
+def test_list_sessions_sorts_by_parsed_updated_at_not_iso_string() -> None:
+    """不同 ISO 表示法应按真实时间排序，而不是按字符串字典序排序。"""
+    older = session_manager.create_session()
+    older.add_message("user", "older")
+    newer = session_manager.create_session()
+    newer.add_message("user", "newer")
+    session_manager._sessions.clear()
+
+    older_mtime = (settings.sessions_dir / older.id / "memory.jsonl").stat().st_mtime
+    newer_mtime = (settings.sessions_dir / newer.id / "memory.jsonl").stat().st_mtime
+    session_manager._save_session_meta_fields(
+        older.id,
+        {
+            "created_at": "2026-01-02T00:00:00+00:00",
+            "updated_at": "2026-01-02T00:30:00+00:00",
+            "_memory_mtime": older_mtime,
+            "message_count": 1,
+        },
+    )
+    session_manager._save_session_meta_fields(
+        newer.id,
+        {
+            "created_at": "2026-01-01T23:00:00-01:00",
+            "updated_at": "2026-01-01T23:45:00-01:00",
+            "_memory_mtime": newer_mtime,
+            "message_count": 1,
+        },
+    )
+
+    sessions = session_manager.list_sessions()
+    ids = [item["id"] for item in sessions]
+
+    assert ids.index(newer.id) < ids.index(older.id)
+
+
 def test_list_sessions_supports_query_and_pagination(client: LocalASGIClient) -> None:
     alpha = session_manager.create_session()
     alpha.title = "Alpha session"
