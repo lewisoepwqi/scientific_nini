@@ -66,3 +66,14 @@ def test_build_text_event_applies_fixup() -> None:
     ev = build_text_event("| a | b |\n|:|:|\n| 1 | 2 |\n")
     assert "|:---|:---|" in ev.data["content"]
     assert "|:|:|" not in ev.data["content"]
+
+
+def test_session_add_message_applies_fixup_for_assistant_text() -> None:
+    """最终 assistant 文本进入会话存储前也应修复表格分隔行。"""
+    from nini.agent.session import Session
+
+    session = Session()
+    session.add_message("assistant", "| a | b |\n|:|:|\n| 1 | 2 |\n")
+
+    assert "|:---|:---|" in session.messages[-1]["content"]
+    assert "|:|:|" not in session.messages[-1]["content"]

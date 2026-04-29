@@ -30,8 +30,10 @@ def _merge_tool_arguments(existing: str, incoming: str) -> str:
     # 累计片段：新值已包含旧值，直接替换避免重复拼接。
     if incoming.startswith(existing) or existing in incoming:
         return incoming
-    # 重复回放：旧值尾部已包含新片段，不重复追加。
-    if existing.endswith(incoming):
+    # 重复回放：旧值尾部已包含较长新片段，不重复追加。
+    # 单字符分片可能是合法增量，例如工具参数里的 `n = len(...)`，
+    # 不能仅因历史文本也以 `n` 结尾就吞掉。
+    if len(incoming) > 1 and existing.endswith(incoming):
         return existing
     # 增量片段：正常追加。
     return existing + incoming

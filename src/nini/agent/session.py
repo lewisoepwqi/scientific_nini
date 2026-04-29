@@ -195,6 +195,10 @@ class Session:
             self._check_auto_compress()
 
     def add_message(self, role: str, content: str, **extra: Any) -> None:
+        if role == "assistant":
+            from nini.utils.markdown_fixups import fix_markdown_table_separator
+
+            content = fix_markdown_table_separator(content)
         msg: dict[str, Any] = {"role": role, "content": content}
         if role == "user":
             msg["event_type"] = "message"
