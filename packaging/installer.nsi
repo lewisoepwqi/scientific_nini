@@ -1,4 +1,10 @@
-﻿Unicode true
+﻿; 离线 WebView2 捆绑包路径（可选）：构建时由 /DBUNDLE_WEBVIEW2_PATH=<path> 传入
+; 若未定义则回退到在线下载模式
+!ifndef BUNDLE_WEBVIEW2_PATH
+  !define BUNDLE_WEBVIEW2_PATH ""
+!endif
+
+Unicode true
 
 ; Nini Windows 安装脚本 (NSIS)
 ;
@@ -69,27 +75,42 @@ found:
 FunctionEnd
 
 Function EnsureWebView2Runtime
-    Call HasWebView2Runtime
-    StrCmp $0 "1" done
+  Call HasWebView2Runtime
+  Pop $0
+  ${If} $0 == "yes"
+    Return
+  ${EndIf}
 
-    DetailPrint "未检测到 WebView2 Runtime，准备自动安装..."
-    Delete "${WEBVIEW2_BOOTSTRAPPER_EXE}"
-    ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -UseBasicParsing -Uri ''${WEBVIEW2_BOOTSTRAPPER_URL}'' -OutFile ''${WEBVIEW2_BOOTSTRAPPER_EXE}'' } catch { exit 1 }"' $1
-    StrCmp $1 0 +3
-    MessageBox MB_ICONSTOP|MB_OK "WebView2 Runtime 下载失败，无法继续安装。请确认当前网络可访问微软下载服务。" /SD IDOK
-    Abort
+  ; 离线模式：使用捆绑的安装包
+  !if "${BUNDLE_WEBVIEW2_PATH}" != ""
+    DetailPrint "正在安装离线 WebView2 Runtime..."
+    ExecWait '"$INSTDIR\webview2\MicrosoftEdgeWebView2RuntimeInstallerX64.exe" /silent /install' $0
+    ${If} $0 != 0
+      MessageBox MB_OK|MB_ICONEXCLAMATION \
+        "WebView2 Runtime 离线安装失败（错误码：$0）。$\n请联系管理员或手动安装。"
+      Abort
+    ${EndIf}
+    Return
+  !endif
 
-    ExecWait '"${WEBVIEW2_BOOTSTRAPPER_EXE}" /silent /install' $1
-    Delete "${WEBVIEW2_BOOTSTRAPPER_EXE}"
-    StrCmp $1 0 +3
-    MessageBox MB_ICONSTOP|MB_OK "WebView2 Runtime 安装失败，无法继续安装。请手动安装后重试。" /SD IDOK
+  ; 在线模式：下载 Bootstrapper（现有逻辑）
+  DetailPrint "正在下载 WebView2 Runtime 安装程序..."
+  NSISdl::download \
+    "https://go.microsoft.com/fwlink/p/?LinkId=2124703" \
+    "$TEMP\MicrosoftEdgeWebView2Setup.exe"
+  Pop $0
+  ${If} $0 != "success"
+    MessageBox MB_OK|MB_ICONEXCLAMATION \
+      "WebView2 Runtime 下载失败。$\n请检查网络连接后重试，或联系管理员手动安装。"
     Abort
-
-    Call HasWebView2Runtime
-    StrCmp $0 "1" done
-    MessageBox MB_ICONSTOP|MB_OK "安装程序未能检测到 WebView2 Runtime，无法继续安装。" /SD IDOK
+  ${EndIf}
+  ExecWait '"$TEMP\MicrosoftEdgeWebView2Setup.exe" /silent /install' $0
+  Delete "$TEMP\MicrosoftEdgeWebView2Setup.exe"
+  ${If} $0 != 0
+    MessageBox MB_OK|MB_ICONEXCLAMATION \
+      "WebView2 Runtime 安装失败（错误码：$0）。$\n请联系管理员或手动安装。"
     Abort
-done:
+  ${EndIf}
 FunctionEnd
 
 ; ---- 安装部分 ----
@@ -97,6 +118,13 @@ Section "主程序" SecMain
     SectionIn RO  ; 必选
 
     SetOutPath "$INSTDIR"
+
+  ; 如果有捆绑 WebView2，拷贝到安装目录
+  !if "${BUNDLE_WEBVIEW2_PATH}" != ""
+    SetOutPath "$INSTDIR\webview2"
+    File "${BUNDLE_WEBVIEW2_PATH}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+    SetOutPath "$INSTDIR"
+  !endif
 
     Call EnsureWebView2Runtime
 

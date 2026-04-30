@@ -224,9 +224,21 @@ makensis packaging\installer.nsi
 1. 安装向导显示中文欢迎页
 2. 可选择安装目录（默认 `%LOCALAPPDATA%\Nini`）
 3. 安装完成后桌面/开始菜单出现快捷方式，默认快捷方式指向 `nini.exe`
-4. 开始菜单额外提供“命令行工具”，指向 `nini-cli.exe`
-5. 控制面板"程序和功能"中可见 Nini 条目
+4. 开始菜单额外提供”命令行工具”，指向 `nini-cli.exe`
+5. 控制面板”程序和功能”中可见 Nini 条目
 6. 卸载时提示是否清理用户数据
+
+### 企业离线包构建
+
+如需内嵌 WebView2 Runtime（适用于无网络访问的企业环境）：
+
+```batch
+set BUNDLE_WEBVIEW2=1
+build_windows.bat
+```
+
+构建脚本会自动下载 `MicrosoftEdgeWebView2RuntimeInstallerX64.exe` 并捆绑进安装包。
+安装时无需网络，直接从安装包内部完成 WebView2 安装。
 
 ---
 
