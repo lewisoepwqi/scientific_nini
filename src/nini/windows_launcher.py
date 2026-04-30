@@ -530,8 +530,9 @@ def _open_log_file() -> None:
     if path is None:
         _show_error("未找到日志文件。\n请确认 Nini 已成功启动过至少一次。", title="查看日志")
         return
-    with suppress(Exception):
-        os.startfile(str(path))
+    if sys.platform == "win32":
+        with suppress(Exception):
+            os.startfile(str(path))
 
 
 class _TrayApp:
