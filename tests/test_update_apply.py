@@ -49,9 +49,11 @@ def test_prepare_apply_builds_updater_command(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from nini.update.apply import resolve_updater_path
+
     install_dir = tmp_path / "app"
     install_dir.mkdir()
-    updater = install_dir / "nini-updater.exe"
+    updater = resolve_updater_path(install_dir)
     updater.write_text("", encoding="utf-8")
     installer = tmp_path / "setup.exe"
     settings = Settings(
