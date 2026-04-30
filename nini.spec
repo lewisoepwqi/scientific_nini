@@ -45,6 +45,7 @@ _candidate_datas = [
     (ROOT / "web" / "dist", "app/web/dist", True),
     (ROOT / "data" / "fonts", "assets/fonts", False),
     (ROOT / "data" / "prompt_components", "assets/prompt_components", False),
+    (ROOT / "config" / "recipes", "assets/config/recipes", True),
     (ROOT / "templates" / "journal_styles", "assets/templates/journal_styles", False),
     (ROOT / ".nini" / "skills", "assets/skills/nini", False),
     (ROOT / "skills", "assets/skills/shared", False),

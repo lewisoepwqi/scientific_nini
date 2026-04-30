@@ -131,6 +131,11 @@ Section "主程序" SecMain
 
     Call EnsureWebView2Runtime
 
+    ; 覆盖安装前清理旧运行时目录，避免旧版 PyInstaller 残留包污染新版本导入路径。
+    Delete "$INSTDIR\${PRODUCT_EXE}"
+    Delete "$INSTDIR\${PRODUCT_CLI_EXE}"
+    RMDir /r "$INSTDIR\_internal"
+
     ; 复制安装器专用瘦身目录（由 build_windows.bat 预先生成）
     File /r "${PRODUCT_SOURCE_DIR}\*.*"
 
