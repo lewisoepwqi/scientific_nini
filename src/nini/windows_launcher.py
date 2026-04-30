@@ -512,6 +512,28 @@ def _confirm_exit() -> bool:
     return result == IDYES
 
 
+def _get_log_path() -> Path | None:
+    """返回当前 nini 日志文件路径；若不存在则返回 None。"""
+    candidates = [
+        Path.home() / ".nini" / "logs" / "nini.log",
+        Path.home() / ".nini" / "nini.log",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def _open_log_file() -> None:
+    """用系统默认程序打开日志文件；若日志不存在则弹出提示。"""
+    path = _get_log_path()
+    if path is None:
+        _show_error("未找到日志文件。\n请确认 Nini 已成功启动过至少一次。", title="查看日志")
+        return
+    with suppress(Exception):
+        os.startfile(str(path))
+
+
 class _TrayApp:
     """最小可用的 Windows 托盘宿主。"""
 
@@ -525,6 +547,7 @@ class _TrayApp:
         primary_action: Callable[[], None] | None,
         watched_process: subprocess.Popen[bytes] | None = None,
         on_exit: Callable[[], None] | None = None,
+        show_log_action: Callable[[], None] | None = None,
     ) -> None:
         self.install_root = install_root
         self.host = host
@@ -533,6 +556,7 @@ class _TrayApp:
         self.primary_action = primary_action
         self.watched_process = watched_process
         self.on_exit = on_exit
+        self.show_log_action = show_log_action
         self._hwnd: int | None = None
         self._class_name = "NiniTrayWindow"
         self._wnd_proc: Any = None
@@ -701,6 +725,10 @@ class _TrayApp:
         if command_id == ID_TRAY_OPEN_BROWSER:
             _open_browser(self.host, self.port)
             return 0
+        if command_id == ID_TRAY_LOG:
+            if self.show_log_action is not None:
+                self.show_log_action()
+            return 0
         if command_id == ID_TRAY_EXIT:
             if not _confirm_exit():
                 return 0
@@ -719,6 +747,8 @@ class _TrayApp:
         try:
             user32.AppendMenuW(menu, MF_STRING, ID_TRAY_SHOW, self.primary_label)
             user32.AppendMenuW(menu, MF_STRING, ID_TRAY_OPEN_BROWSER, "在浏览器中打开")
+            user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
+            user32.AppendMenuW(menu, MF_STRING, ID_TRAY_LOG, "查看日志")
             user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
             user32.AppendMenuW(menu, MF_STRING, ID_TRAY_EXIT, "退出 Nini")
             point = POINT()
@@ -764,6 +794,7 @@ class _EmbeddedWindowApp:
             primary_action=self.show_window,
             watched_process=server_process,
             on_exit=self.request_exit,
+            show_log_action=_open_log_file,
         )
 
     def run(self) -> int:
@@ -967,6 +998,7 @@ def main(argv: list[str] | None = None) -> int:
             primary_label="打开 Nini",
             primary_action=lambda: _open_browser(host, port),
             watched_process=server_process,
+            show_log_action=_open_log_file,
         )
         try:
             return tray.run()

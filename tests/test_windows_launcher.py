@@ -12,6 +12,7 @@ from nini.windows_launcher import (
     _build_server_command,
     _confirm_exit,
     _find_webview2_runtime,
+    _get_log_path,
     _is_local_base_url,
     _load_window_state,
     _pick_free_port,
@@ -147,3 +148,24 @@ def test_confirm_exit_returns_true_on_non_windows() -> None:
     import sys
     if sys.platform != "win32":
         assert _confirm_exit() is True
+
+
+def test_get_log_path_returns_none_when_no_log_exists(tmp_path) -> None:
+    """候选路径均不存在时返回 None。"""
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    with patch("nini.windows_launcher.Path") as mock_path_cls:
+        mock_path_cls.home.return_value = fake_home
+        result = _get_log_path()
+    assert result is None
+
+
+def test_get_log_path_returns_path_when_log_exists(tmp_path) -> None:
+    """候选路径存在时返回对应路径。"""
+    log_file = tmp_path / ".nini" / "logs" / "nini.log"
+    log_file.parent.mkdir(parents=True)
+    log_file.touch()
+    with patch("nini.windows_launcher.Path") as mock_path_cls:
+        mock_path_cls.home.return_value = tmp_path
+        result = _get_log_path()
+    assert result == log_file
