@@ -10,6 +10,7 @@ from nini.windows_launcher import (
     _acquire_single_instance_mutex,
     _build_parser,
     _build_server_command,
+    _confirm_exit,
     _find_webview2_runtime,
     _is_local_base_url,
     _load_window_state,
@@ -139,3 +140,10 @@ def test_load_window_state_returns_empty_dict_on_corrupt_file(tmp_path) -> None:
     with patch("nini.windows_launcher._WINDOW_STATE_PATH", state_file):
         result = _load_window_state()
     assert result == {}
+
+
+def test_confirm_exit_returns_true_on_non_windows() -> None:
+    """非 Windows 平台上，_confirm_exit 始终返回 True，不弹出对话框。"""
+    import sys
+    if sys.platform != "win32":
+        assert _confirm_exit() is True

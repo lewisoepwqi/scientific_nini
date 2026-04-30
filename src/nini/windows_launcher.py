@@ -495,6 +495,23 @@ def _signal_existing_instance() -> None:
         user32.PostMessageW(hwnd, WM_APP_SHOW_WINDOW, 0, 0)
 
 
+def _confirm_exit() -> bool:
+    """弹出原生退出确认框，返回用户是否确认退出。非 Windows 环境始终返回 True。"""
+    if sys.platform != "win32":
+        return True
+    IDYES = 6
+    MB_YESNO = 0x00000004
+    MB_ICONQUESTION = 0x00000020
+    MB_SETFOREGROUND = 0x00010000
+    result = user32.MessageBoxW(
+        None,
+        "确定要退出 Nini 吗？\n后台服务将会停止，所有进行中的任务将中断。",
+        "退出 Nini",
+        MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND,
+    )
+    return result == IDYES
+
+
 class _TrayApp:
     """最小可用的 Windows 托盘宿主。"""
 
@@ -685,6 +702,8 @@ class _TrayApp:
             _open_browser(self.host, self.port)
             return 0
         if command_id == ID_TRAY_EXIT:
+            if not _confirm_exit():
+                return 0
             self._stop_requested.set()
             if self.on_exit is not None:
                 with suppress(Exception):
