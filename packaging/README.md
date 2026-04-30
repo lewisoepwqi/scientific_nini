@@ -266,6 +266,21 @@ echo %ERRORLEVEL%
 REM 退出码 0 表示成功，非 0 表示失败
 ```
 
+### 代码签名
+
+签名需要：
+- 已安装 Authenticode 证书（EV 证书或标准证书均可）
+- Windows SDK 中的 `signtool.exe` 在 PATH 中
+
+```batch
+REM 指定证书指纹（在系统证书存储中查找）
+set SIGNING_CERT_THUMBPRINT=YOUR_CERT_THUMBPRINT_HERE
+build_windows.bat
+```
+
+构建脚本会自动对 `nini.exe`、`nini-cli.exe`、`nini-setup.exe` 进行 SHA-256 签名并附加时间戳。
+若未设置 `SIGNING_CERT_THUMBPRINT`，跳过签名，适用于开发构建。
+
 ---
 
 ## 八、减小体积

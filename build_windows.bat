@@ -340,6 +340,17 @@ if !errorlevel! neq 0 (
 echo [3/4] Done.
 echo.
 
+:: ── EXE 签名（在 NSIS 打包前）──────────────────────────────────────────────
+if not "%SIGNING_CERT_THUMBPRINT%"=="" (
+    echo [BUILD] 签名可执行文件...
+    signtool sign /sha1 "%SIGNING_CERT_THUMBPRINT%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d "Nini" dist\nini.exe dist\nini-cli.exe
+    if errorlevel 1 (
+        echo [ERROR] EXE 签名失败
+        exit /b 1
+    )
+)
+echo.
+
 echo [3.5/4] Packaging offline model bundle...
 set "OFFLINE_MODELS_ZIP=dist\Nini-!NINI_VERSION!-OfflineModels.zip"
 set "DIST_HF_DIR=dist\nini\runtime\models\huggingface"
@@ -409,6 +420,19 @@ if !errorlevel! equ 0 (
 ) else (
     echo [SKIP] NSIS not found, skipping installer creation.
     echo        Install from https://nsis.sourceforge.io/ to create setup exe.
+)
+
+:: ── 安装包签名（在 NSIS 打包后）────────────────────────────────────────────
+if not "%SIGNING_CERT_THUMBPRINT%"=="" (
+    echo [BUILD] 签名安装包...
+    signtool sign /sha1 "%SIGNING_CERT_THUMBPRINT%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d "Nini 安装程序" dist\nini-setup.exe
+    if errorlevel 1 (
+        echo [ERROR] 安装包签名失败
+        exit /b 1
+    )
+    echo [BUILD] 代码签名完成
+) else (
+    echo [BUILD] 未设置 SIGNING_CERT_THUMBPRINT，跳过代码签名
 )
 echo.
 
