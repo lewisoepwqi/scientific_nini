@@ -6,6 +6,7 @@ import argparse
 from contextlib import suppress
 import ctypes
 from ctypes import wintypes
+import json
 import os
 from pathlib import Path
 import socket
@@ -449,6 +450,27 @@ def _terminate_process(process: subprocess.Popen[bytes] | None, timeout: float =
 
 
 _SINGLE_INSTANCE_MUTEX_NAME = "Global\\NiniSingleInstanceMutex"
+_WINDOW_STATE_PATH = Path.home() / ".nini" / "window_state.json"
+
+
+def _load_window_state() -> dict[str, int]:
+    """读取上次保存的窗口尺寸；读取失败时返回空字典（使用默认值）。"""
+    try:
+        return json.loads(_WINDOW_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_window_state(width: int, height: int) -> None:
+    """将当前窗口尺寸写入持久化文件。"""
+    try:
+        _WINDOW_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _WINDOW_STATE_PATH.write_text(
+            json.dumps({"width": width, "height": height}),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
 
 
 def _acquire_single_instance_mutex() -> int | None:
@@ -742,12 +764,15 @@ class _EmbeddedWindowApp:
                 return 1
 
             url = _build_app_url(self.host, self.port)
+            state = _load_window_state()
+            win_width = state.get("width", 1360)
+            win_height = state.get("height", 920)
             try:
                 self._window = webview.create_window(
                     "Nini",
                     url=url,
-                    width=1360,
-                    height=920,
+                    width=win_width,
+                    height=win_height,
                     min_size=(1100, 720),
                     confirm_close=False,
                 )
@@ -755,8 +780,8 @@ class _EmbeddedWindowApp:
                 self._window = webview.create_window(
                     "Nini",
                     url=url,
-                    width=1360,
-                    height=920,
+                    width=win_width,
+                    height=win_height,
                 )
 
             self._bind_events()
@@ -783,6 +808,8 @@ class _EmbeddedWindowApp:
             self._window.events.closing += self._on_window_closing
         with suppress(Exception):
             self._window.events.closed += self._on_window_closed
+        with suppress(Exception):
+            self._window.events.resized += self._on_window_resized
 
     def _on_window_closing(self):
         """关闭主窗口时改为隐藏到托盘。"""
@@ -803,6 +830,9 @@ class _EmbeddedWindowApp:
             self._window.restore()
         with suppress(Exception):
             self._window.bring_to_front()
+
+    def _on_window_resized(self, width: int, height: int) -> None:
+        _save_window_state(width, height)
 
     def hide_window(self) -> None:
         if self._window is None:

@@ -12,8 +12,10 @@ from nini.windows_launcher import (
     _build_server_command,
     _find_webview2_runtime,
     _is_local_base_url,
+    _load_window_state,
     _pick_free_port,
     _resolve_runtime_port,
+    _save_window_state,
 )
 
 
@@ -115,3 +117,25 @@ def test_acquire_single_instance_mutex_returns_sentinel_on_non_windows() -> None
     import sys
     if sys.platform != "win32":
         assert _acquire_single_instance_mutex() == -1
+
+
+def test_load_window_state_returns_empty_dict_when_file_missing(tmp_path) -> None:
+    with patch("nini.windows_launcher._WINDOW_STATE_PATH", tmp_path / "window_state.json"):
+        result = _load_window_state()
+    assert result == {}
+
+
+def test_save_and_load_window_state_roundtrip(tmp_path) -> None:
+    state_file = tmp_path / "window_state.json"
+    with patch("nini.windows_launcher._WINDOW_STATE_PATH", state_file):
+        _save_window_state(1440, 900)
+        result = _load_window_state()
+    assert result == {"width": 1440, "height": 900}
+
+
+def test_load_window_state_returns_empty_dict_on_corrupt_file(tmp_path) -> None:
+    state_file = tmp_path / "window_state.json"
+    state_file.write_text("not-json", encoding="utf-8")
+    with patch("nini.windows_launcher._WINDOW_STATE_PATH", state_file):
+        result = _load_window_state()
+    assert result == {}
