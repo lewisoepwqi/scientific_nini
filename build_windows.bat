@@ -316,19 +316,27 @@ popd
 echo [2/4] Done.
 echo.
 
-:: ── 可选：下载离线 WebView2 Runtime 安装包 ──────────────────────────────────
-if "%BUNDLE_WEBVIEW2%"=="1" (
-    echo [BUILD] 下载离线 WebView2 Runtime 安装包...
-    set WEBVIEW2_DIR=%~dp0packaging\webview2
-    if not exist "%WEBVIEW2_DIR%" mkdir "%WEBVIEW2_DIR%"
-    powershell -Command "Invoke-WebRequest -Uri 'https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/MicrosoftEdgeWebView2RuntimeInstallerX64.exe' -OutFile '%WEBVIEW2_DIR%\MicrosoftEdgeWebView2RuntimeInstallerX64.exe'"
-    if errorlevel 1 (
-        echo [ERROR] WebView2 离线包下载失败
-        exit /b 1
+:: ── 准备 WebView2 Runtime 离线安装包（默认启用，可通过 BUNDLE_WEBVIEW2=0 关闭）───
+set "WEBVIEW2_DIR=%~dp0packaging\webview2"
+set "WEBVIEW2_EXE=%WEBVIEW2_DIR%\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+if not exist "%WEBVIEW2_DIR%" mkdir "%WEBVIEW2_DIR%"
+
+if not exist "%WEBVIEW2_EXE%" (
+    if not "%BUNDLE_WEBVIEW2%"=="0" (
+        echo [BUILD] 下载离线 WebView2 Runtime 安装包...
+        powershell -Command "Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2124701' -OutFile '%WEBVIEW2_EXE%'"
+        if errorlevel 1 (
+            echo [WARN] WebView2 离线包下载失败，将回退到在线模式
+        ) else (
+            echo [BUILD] WebView2 离线包已缓存: %WEBVIEW2_EXE%
+        )
     )
-    set NSIS_EXTRA_ARGS=/DBUNDLE_WEBVIEW2_PATH=%WEBVIEW2_DIR%
+)
+
+if exist "%WEBVIEW2_EXE%" (
+    set "NSIS_EXTRA_ARGS=/DBUNDLE_WEBVIEW2_PATH=%WEBVIEW2_DIR%"
 ) else (
-    set NSIS_EXTRA_ARGS=
+    set "NSIS_EXTRA_ARGS="
 )
 
 echo [3/4] Running PyInstaller...

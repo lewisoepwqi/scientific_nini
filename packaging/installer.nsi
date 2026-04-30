@@ -45,7 +45,7 @@ Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
 OutFile "..\dist\Nini-${PRODUCT_VERSION}-Setup.exe"
 InstallDir "$LOCALAPPDATA\${PRODUCT_NAME}"
 InstallDirRegKey HKCU "Software\${PRODUCT_NAME}" "InstallDir"
-RequestExecutionLevel user
+RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 
 ; ---- 界面设置 ----
@@ -91,14 +91,21 @@ Function EnsureWebView2Runtime
     DetailPrint "正在安装离线 WebView2 Runtime..."
     ExecWait '"$INSTDIR\webview2\MicrosoftEdgeWebView2RuntimeInstallerX64.exe" /silent /install' $0
     StrCmp $0 0 done
-    MessageBox MB_ICONSTOP|MB_OK "WebView2 Runtime 离线安装失败，请联系管理员手动安装。" /SD IDOK
-    Abort
+    MessageBox MB_ICONEXCLAMATION|MB_OK "WebView2 Runtime 安装失败。Nini 将继续安装，但部分功能可能需要您后续手动安装 WebView2 Runtime。" /SD IDOK
+    Goto done
   !endif
 
   ; 在线模式：通过 PowerShell 下载 Bootstrapper
   DetailPrint "未检测到 WebView2 Runtime，准备自动安装..."
   Delete "${WEBVIEW2_BOOTSTRAPPER_EXE}"
-  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -UseBasicParsing -Uri ''${WEBVIEW2_BOOTSTRAPPER_URL}'' -OutFile ''${WEBVIEW2_BOOTSTRAPPER_EXE}'' } catch { exit 1 }"' $1
+
+  ; 将 PowerShell 命令写入临时脚本文件以避免 NSIS 引号嵌套问题
+  FileOpen $2 "$TEMP\nini_webview2_download.ps1" w
+  FileWrite $2 "try { Invoke-WebRequest -UseBasicParsing -Uri '${WEBVIEW2_BOOTSTRAPPER_URL}' -OutFile '${WEBVIEW2_BOOTSTRAPPER_EXE}' } catch { exit 1 }$\r$\n"
+  FileClose $2
+
+  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$TEMP\nini_webview2_download.ps1"' $1
+  Delete "$TEMP\nini_webview2_download.ps1"
   StrCmp $1 0 +3
   MessageBox MB_ICONSTOP|MB_OK "WebView2 Runtime 下载失败，无法继续安装。请确认当前网络可访问微软下载服务。" /SD IDOK
   Abort
@@ -106,13 +113,12 @@ Function EnsureWebView2Runtime
   ExecWait '"${WEBVIEW2_BOOTSTRAPPER_EXE}" /silent /install' $1
   Delete "${WEBVIEW2_BOOTSTRAPPER_EXE}"
   StrCmp $1 0 +3
-  MessageBox MB_ICONSTOP|MB_OK "WebView2 Runtime 安装失败，无法继续安装。请手动安装后重试。" /SD IDOK
-  Abort
+  MessageBox MB_ICONEXCLAMATION|MB_OK "WebView2 Runtime 安装失败。Nini 将继续安装，但部分功能可能需要您后续手动安装 WebView2 Runtime。" /SD IDOK
+  Goto done
 
   Call HasWebView2Runtime
   StrCmp $0 "1" done
-  MessageBox MB_ICONSTOP|MB_OK "安装程序未能检测到 WebView2 Runtime，无法继续安装。" /SD IDOK
-  Abort
+  MessageBox MB_ICONEXCLAMATION|MB_OK "未能检测到 WebView2 Runtime。Nini 将继续安装，但部分功能可能需要您后续手动安装 WebView2 Runtime。" /SD IDOK
 done:
 FunctionEnd
 

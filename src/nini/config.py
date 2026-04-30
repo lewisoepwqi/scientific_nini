@@ -310,6 +310,7 @@ class Settings(BaseSettings):
     knowledge_top_k: int = 5  # 向量检索返回的最大条目数
     knowledge_openai_embedding_model: str = "text-embedding-3-small"
     knowledge_local_embedding_model: str = "BAAI/bge-small-zh-v1.5"
+    hierarchical_reranker_model: str = "BAAI/bge-reranker-base"
 
     prompt_component_max_chars: int = 20000
     prompt_total_max_chars: int = 60000

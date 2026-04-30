@@ -67,5 +67,8 @@ research/superagi/
 # 内置 Key 加密构建产物（仅打包时生成，不提交）
 src/nini/_builtin_key.py
 
+# Windows 打包缓存（构建脚本会自动下载，不提交二进制安装器）
+packaging/webview2/
+
 # Git worktrees
 .worktrees/
