@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import socket
 from pathlib import Path
 
 from nini.windows_launcher import (
+    _build_parser,
     _build_server_command,
     _is_local_base_url,
+    _pick_free_port,
+    _resolve_runtime_port,
 )
 
 
@@ -36,3 +40,39 @@ def test_is_local_base_url_only_accepts_loopback_addresses() -> None:
     assert _is_local_base_url("http://localhost:11434") is True
     assert _is_local_base_url("http://192.168.1.8:11434") is False
     assert _is_local_base_url("not-a-url") is False
+
+
+def test_parser_defaults_to_loopback_and_random_port() -> None:
+    args = _build_parser().parse_args([])
+    assert args.host == "127.0.0.1"
+    assert args.port == 0
+    assert args.startup_timeout == 30.0
+    assert args.log_level == "warning"
+    assert args.external_browser is False
+
+
+def test_parser_accepts_explicit_port() -> None:
+    args = _build_parser().parse_args(["--port", "9090"])
+    assert args.port == 9090
+
+
+def test_parser_accepts_external_browser_flag() -> None:
+    args = _build_parser().parse_args(["--external-browser"])
+    assert args.external_browser is True
+
+
+def test_resolve_runtime_port_uses_explicit_port_when_given() -> None:
+    port = _resolve_runtime_port("127.0.0.1", 8500)
+    assert port == 8500
+
+
+def test_resolve_runtime_port_picks_free_port_when_zero() -> None:
+    port = _resolve_runtime_port("127.0.0.1", 0)
+    assert 1024 < port < 65536
+
+
+def test_pick_free_port_returns_usable_port() -> None:
+    port = _pick_free_port("127.0.0.1")
+    assert 1024 < port < 65536
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", port))
