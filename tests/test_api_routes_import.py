@@ -56,6 +56,13 @@ class TestRouteModuleImport:
         assert router is not None
         assert len(router.routes) > 0
 
+    def test_update_routes_import(self):
+        """update_routes 模块应能正确导入。"""
+        from nini.api.update_routes import router
+
+        assert router is not None
+        assert len(router.routes) > 0
+
 
 class TestRoutesRegistration:
     """测试路由是否在主路由中正确注册。"""
@@ -132,6 +139,7 @@ class TestRoutesWithApp:
             "/api/workspace/{session_id}/folders",
             "/api/workspace/{session_id}/executions",
             "/api/sessions/{session_id}/messages",
+            "/api/update/check",
         ]
 
         missing = []

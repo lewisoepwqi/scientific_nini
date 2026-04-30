@@ -150,6 +150,7 @@ powershell -Command "(Get-ChildItem dist\nini -Recurse | Measure-Object -Propert
 dist\nini\
 +-- nini.exe                  # GUI 启动器（双击直接打开内嵌桌面窗口，不弹终端）
 +-- nini-cli.exe              # CLI 入口（doctor/init/start 等）
++-- nini-updater.exe          # 应用内升级器（等待旧进程退出、静默安装、重启）
 +-- web\dist\                 # 前端静态文件
 +-- data\
 |   +-- fonts\                # 内置 CJK 字体
@@ -205,6 +206,7 @@ dist\nini\nini.exe
 | `nini-cli.exe doctor` | 检查通过，无 FAIL |
 | `nini.exe` | 不弹终端，直接打开内嵌桌面窗口 |
 | `nini-cli.exe start` | 控制台输出启动日志 |
+| `nini-updater.exe` | 存在于 `dist\nini\`，不依赖 Web UI 或 Agent 运行时状态 |
 | 内嵌窗口首页 | 显示前端界面 |
 | 发送一条消息 | Agent 正常响应 |
 | 上传 CSV 文件 | 数据加载成功 |
@@ -278,12 +280,109 @@ set SIGNING_CERT_THUMBPRINT=YOUR_CERT_THUMBPRINT_HERE
 build_windows.bat
 ```
 
-构建脚本会自动对 `nini.exe`、`nini-cli.exe`、`nini-setup.exe` 进行 SHA-256 签名并附加时间戳。
+构建脚本会自动对 `nini.exe`、`nini-cli.exe`、`nini-updater.exe` 和安装包进行 SHA-256 签名并附加时间戳。
 若未设置 `SIGNING_CERT_THUMBPRINT`，跳过签名，适用于开发构建。
 
 ---
 
-## 八、减小体积
+## 八、应用内升级发布元数据
+
+应用内升级第一版使用静态发布目录。建议服务器目录结构如下：
+
+```text
+updates/
++-- stable/
+|   +-- latest.json
+|   +-- Nini-0.1.1-Setup.exe
+|   +-- Nini-0.1.1-Setup.exe.sha256
++-- beta/
+    +-- latest.json
+    +-- Nini-0.1.2rc1-Setup.exe
+    +-- Nini-0.1.2rc1-Setup.exe.sha256
+```
+
+客户端配置的更新源基础 URL 应指向 `updates/` 根目录，程序会按 `NINI_UPDATE_CHANNEL` 访问 `<base>/<channel>/latest.json`：
+
+```env
+NINI_UPDATE_BASE_URL=https://download.example.com/nini/updates/
+NINI_UPDATE_CHANNEL=stable
+NINI_UPDATE_AUTO_CHECK_ENABLED=true
+NINI_UPDATE_CHECK_INTERVAL_HOURS=24
+```
+
+### 生成 manifest 草稿
+
+`build_windows.bat` 在生成安装包后会始终生成 `.sha256` 文件。若设置 `NINI_UPDATE_ASSET_BASE_URL`（兼容回退到 `NINI_UPDATE_BASE_URL`），还会生成并校验 `dist\latest.json`：
+
+```batch
+set "NINI_VERSION=0.1.1"
+set "NINI_UPDATE_ASSET_BASE_URL=https://download.example.com/nini/updates/stable/"
+set "NINI_UPDATE_CHANNEL=stable"
+set "NINI_UPDATE_NOTES=修复升级检查失败|优化启动稳定性"
+set "SIGNING_CERT_THUMBPRINT=YOUR_CERT_THUMBPRINT_HERE"
+build_windows.bat
+```
+
+也可以手动执行：
+
+```powershell
+python scripts\generate_update_manifest.py `
+  --installer dist\Nini-0.1.1-Setup.exe `
+  --version 0.1.1 `
+  --channel stable `
+  --base-url https://download.example.com/nini/updates/stable/ `
+  --notes "修复升级检查失败|优化启动稳定性" `
+  --output dist\latest.json
+
+python scripts\verify_update_manifest.py `
+  --manifest dist\latest.json `
+  --installer dist\Nini-0.1.1-Setup.exe
+```
+
+上传前必须确认：
+
+| 检查项 | 要求 |
+|--------|------|
+| `latest.json` | `product=nini`、`channel` 与服务器目录一致、版本号符合 PEP 440 |
+| 安装包 URL | 必须是 HTTPS，且与更新源基础 URL 同域 |
+| `size` / `sha256` | 必须通过 `verify_update_manifest.py` 校验 |
+| 签名 | 正式发布必须签名 `nini.exe`、`nini-cli.exe`、`nini-updater.exe` 和安装包 |
+| manifest 签名字段 | `signature` / `signature_url` 目前预留，MVP 不强制校验 |
+
+### 应用内升级烟测
+
+发布到 stable 前至少执行一次打包版升级烟测：
+
+1. 安装旧版，例如 `Nini-0.1.0-Setup.exe`。
+2. 在 `%USERPROFILE%\.nini` 创建或保留真实配置、数据库、会话、上传文件和日志。
+3. 将旧版配置指向测试更新源，并确认 `latest.json` 指向新版安装包。
+4. 启动旧版 Nini，在设置页手动检查更新。
+5. 下载更新包，确认状态从 downloading 变为 ready。
+6. 点击立即重启并升级，确认旧进程退出、安装器静默覆盖安装、新版 `nini.exe` 自动启动。
+7. 检查 `%USERPROFILE%\.nini\logs\updater.log`，确认记录等待进程、安装退出码和重启结果。
+8. 验证 `%USERPROFILE%\.nini` 中配置、数据库、会话、上传文件和日志仍存在。
+
+如需禁用企业环境更新入口：
+
+```env
+NINI_UPDATE_DISABLED=true
+```
+
+测试构建可显式关闭安装包签名校验，但正式发布不得关闭：
+
+```env
+NINI_UPDATE_SIGNATURE_CHECK_ENABLED=false
+```
+
+正式发布建议使用证书指纹允许列表：
+
+```env
+NINI_UPDATE_SIGNATURE_ALLOWED_THUMBPRINTS=YOUR_CERT_THUMBPRINT_HERE
+```
+
+---
+
+## 九、减小体积
 
 打包体积较大（约 400-800 MB）主要来自科学计算库。可选优化：
 
@@ -293,18 +392,20 @@ build_windows.bat
 
 ---
 
-## 九、代码签名（推荐）
+## 十、代码签名（推荐）
 
 为避免 Windows SmartScreen 警告，建议使用代码签名证书签名：
 
 ```powershell
 signtool sign /f cert.pfx /p password /t http://timestamp.digicert.com dist\nini\nini.exe
+signtool sign /f cert.pfx /p password /t http://timestamp.digicert.com dist\nini\nini-cli.exe
+signtool sign /f cert.pfx /p password /t http://timestamp.digicert.com dist\nini\nini-updater.exe
 signtool sign /f cert.pfx /p password /t http://timestamp.digicert.com dist\Nini-0.1.0-Setup.exe
 ```
 
 ---
 
-## 十、已知限制
+## 十一、已知限制
 
 - `nini-cli.exe tools create` / `nini-cli.exe skills create` 命令在打包模式下不可用（开发者命令）
 - R 代码执行需要用户单独安装 R 环境
@@ -313,7 +414,7 @@ signtool sign /f cert.pfx /p password /t http://timestamp.digicert.com dist\Nini
 
 ---
 
-## 十一、故障排查
+## 十二、故障排查
 
 | 问题 | 解决方案 |
 |------|---------|

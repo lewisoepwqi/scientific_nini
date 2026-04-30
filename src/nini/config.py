@@ -346,6 +346,18 @@ class Settings(BaseSettings):
     # ---- SQLite 会话存储 ----
     session_db_filename: str = "session.db"  # 每个会话目录下的 SQLite 文件名
 
+    # ---- 应用内更新 ----
+    update_base_url: str = ""  # 更新服务器基础 URL；留空时自动检查静默跳过
+    update_channel: str = "stable"  # 更新渠道：stable / beta
+    update_auto_check_enabled: bool = True
+    update_check_interval_hours: int = 24
+    update_disabled: bool = False  # 企业或离线部署可禁用更新入口
+    update_download_timeout_seconds: int = 300
+    update_signature_check_enabled: bool = True
+    update_signature_allowed_thumbprints: str = ""  # 逗号分隔；正式发布推荐使用
+    update_signature_allowed_publishers: str = ""  # 逗号分隔；测试环境可用
+    update_apply_wait_timeout_seconds: int = 60
+
     # ---- 派生属性 ----
     @property
     def upload_dir(self) -> Path:
@@ -445,6 +457,11 @@ class Settings(BaseSettings):
         return self.data_dir / "profiles"
 
     @property
+    def updates_dir(self) -> Path:
+        """应用内更新状态与安装包缓存目录。"""
+        return self.data_dir / "updates"
+
+    @property
     def recipes_dir(self) -> Path:
         """Recipe 配置目录。"""
         return _get_bundle_recipes_dir()
@@ -460,6 +477,7 @@ class Settings(BaseSettings):
             self.knowledge_dir,
             self.prompt_components_dir,
             self.profiles_dir,
+            self.updates_dir,
         ):
             d.mkdir(parents=True, exist_ok=True)
 

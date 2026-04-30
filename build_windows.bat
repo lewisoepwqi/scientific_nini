@@ -351,7 +351,7 @@ echo.
 :: ── EXE 签名（在 NSIS 打包前）──────────────────────────────────────────────
 if not "%SIGNING_CERT_THUMBPRINT%"=="" (
     echo [BUILD] 签名可执行文件...
-    signtool sign /sha1 "%SIGNING_CERT_THUMBPRINT%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d "Nini" dist\nini.exe dist\nini-cli.exe
+    signtool sign /sha1 "%SIGNING_CERT_THUMBPRINT%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d "Nini" dist\nini\nini.exe dist\nini\nini-cli.exe dist\nini\nini-updater.exe
     if errorlevel 1 (
         echo [ERROR] EXE 签名失败
         exit /b 1
@@ -446,11 +446,52 @@ if not "%SIGNING_CERT_THUMBPRINT%"=="" (
 )
 echo.
 
+set "INSTALLER_PATH=dist\Nini-!NINI_VERSION!-Setup.exe"
+if exist "!INSTALLER_PATH!" (
+    echo [4.1/4] Generating installer SHA256...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+        "$ErrorActionPreference='Stop';" ^
+        "$hash = (Get-FileHash -Algorithm SHA256 '!INSTALLER_PATH!').Hash.ToLowerInvariant();" ^
+        "Set-Content -Encoding ASCII -Path '!INSTALLER_PATH!.sha256' -Value ($hash + '  ' + (Split-Path -Leaf '!INSTALLER_PATH!'))"
+    if !errorlevel! neq 0 (
+        echo [FAIL] SHA256 generation failed.
+        goto :error
+    )
+
+    set "UPDATE_ASSET_BASE_URL="
+    if defined NINI_UPDATE_ASSET_BASE_URL set "UPDATE_ASSET_BASE_URL=!NINI_UPDATE_ASSET_BASE_URL!"
+    if not defined UPDATE_ASSET_BASE_URL if defined NINI_UPDATE_BASE_URL set "UPDATE_ASSET_BASE_URL=!NINI_UPDATE_BASE_URL!"
+
+    if defined UPDATE_ASSET_BASE_URL (
+        if not defined NINI_UPDATE_CHANNEL set "NINI_UPDATE_CHANNEL=stable"
+        if not defined NINI_UPDATE_NOTES set "NINI_UPDATE_NOTES=Nini !NINI_VERSION! 发布"
+        echo [4.2/4] Generating update manifest draft...
+        python scripts\generate_update_manifest.py --installer "!INSTALLER_PATH!" --version "!NINI_VERSION!" --channel "!NINI_UPDATE_CHANNEL!" --base-url "!UPDATE_ASSET_BASE_URL!" --notes "!NINI_UPDATE_NOTES!" --output "dist\latest.json"
+        if !errorlevel! neq 0 (
+            echo [FAIL] update manifest generation failed.
+            goto :error
+        )
+        python scripts\verify_update_manifest.py --manifest "dist\latest.json" --installer "!INSTALLER_PATH!"
+        if !errorlevel! neq 0 (
+            echo [FAIL] update manifest verification failed.
+            goto :error
+        )
+    ) else (
+        echo [SKIP] NINI_UPDATE_ASSET_BASE_URL not set, skip update manifest draft.
+    )
+) else (
+    echo [SKIP] Installer not generated, skip SHA256 and update manifest.
+)
+echo.
+
 echo === Build complete! ===
 echo GUI Launcher: dist\nini\nini.exe
 echo CLI Entry : dist\nini\nini-cli.exe
+echo Updater   : dist\nini\nini-updater.exe
 if exist "dist\Nini-!NINI_VERSION!-Setup.exe" (
     echo Installer : dist\Nini-!NINI_VERSION!-Setup.exe
+    if exist "dist\Nini-!NINI_VERSION!-Setup.exe.sha256" echo SHA256    : dist\Nini-!NINI_VERSION!-Setup.exe.sha256
+    if exist "dist\latest.json" echo Manifest  : dist\latest.json
 ) else (
     echo Installer : not generated
 )
