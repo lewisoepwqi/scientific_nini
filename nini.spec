@@ -11,7 +11,7 @@ import os
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, collect_dynamic_libs
 
 block_cipher = None
 
@@ -45,6 +45,7 @@ _candidate_datas = [
     (ROOT / "web" / "dist", "app/web/dist", True),
     (ROOT / "data" / "fonts", "assets/fonts", False),
     (ROOT / "data" / "prompt_components", "assets/prompt_components", False),
+    (ROOT / "config" / "recipes", "assets/config/recipes", True),
     (ROOT / "templates" / "journal_styles", "assets/templates/journal_styles", False),
     (ROOT / ".nini" / "skills", "assets/skills/nini", False),
     (ROOT / "skills", "assets/skills/shared", False),
@@ -85,6 +86,24 @@ for src, dest, required in _candidate_datas:
         )
     else:
         print(f"  WARN: Optional data directory not found, skipping: {src}")
+
+# 收集 certifi SSL 证书（openai/anthropic/httpx 的 HTTPS 请求依赖）
+try:
+    import certifi
+    _certifi_path = certifi.where()
+    if Path(_certifi_path).exists():
+        _datas.append((_certifi_path, "certifi"))
+        print(f"  INFO: Collected certifi CA bundle: {_certifi_path}")
+except Exception as exc:
+    print(f"  WARN: Cannot collect certifi data: {exc}")
+
+# 收集 pyarrow 二进制依赖（pandas 需要完整 pyarrow 才能导入）
+_pyarrow_binaries = []
+try:
+    _pyarrow_binaries = collect_dynamic_libs("pyarrow")
+    print(f"  INFO: Collected pyarrow binaries: {len(_pyarrow_binaries)}")
+except Exception as exc:
+    print(f"  WARN: Cannot collect pyarrow binaries: {exc}")
 
 
 def _collect_optional_submodules(package_name: str) -> list[str]:
@@ -147,6 +166,26 @@ _hiddenimports = [
     "markdown.extensions",
     "markdown.extensions.tables",
     "markdown.extensions.fenced_code",
+    # ----- pyarrow（pandas 依赖，PyInstaller 自带 hook 不够完整）-----
+    "pyarrow",
+    "pyarrow.lib",
+    "pyarrow._pyarrow_cpp",
+    "pyarrow.compute",
+    "pyarrow.types",
+    # ----- websockets（uvicorn[standard] 依赖）-----
+    "websockets",
+    "websockets.legacy",
+    "websockets.legacy.client",
+    "websockets.legacy.server",
+    "websockets.extensions",
+    # ----- scipy 关键 C 扩展（PyInstaller 自带 hook 可能遗漏）-----
+    "scipy.special._ufuncs_cxx",
+    "scipy.special._ellip_harm_2",
+    "scipy.sparse._sparsetools",
+    "scipy.linalg._fblas",
+    "scipy.linalg._flapack",
+    # ----- yaml C 扩展（PyYAML 加速）-----
+    "_yaml",
 ]
 
 for optional_package in [
@@ -157,6 +196,11 @@ for optional_package in [
     "tokenizers",
     "safetensors",
     "llama_index.embeddings.huggingface",
+    # 以下包使用大量动态导入/代码生成，PyInstaller 静态分析无法发现
+    "plotly",
+    "openai",
+    "anthropic",
+    "websockets",
 ]:
     _hiddenimports.extend(_collect_optional_submodules(optional_package))
 
@@ -166,7 +210,7 @@ a = Analysis(
         str(ROOT / "src" / "nini" / "windows_launcher.py"),
     ],
     pathex=[str(ROOT / "src")],
-    binaries=[],
+    binaries=_pyarrow_binaries,
     datas=_datas,
     hiddenimports=_hiddenimports,
     hookspath=[],
