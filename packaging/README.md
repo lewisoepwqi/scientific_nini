@@ -240,6 +240,32 @@ build_windows.bat
 构建脚本会自动下载 `MicrosoftEdgeWebView2RuntimeInstallerX64.exe` 并捆绑进安装包。
 安装时无需网络，直接从安装包内部完成 WebView2 安装。
 
+### 静默安装（GPO / 批量部署）
+
+用于企业 GPO 部署或批量安装场景，所有错误通过退出码反映（0 = 成功，非 0 = 失败），不弹出任何对话框。
+
+```batch
+REM 静默安装到默认路径（%LOCALAPPDATA%\Nini）
+nini-setup.exe /S
+
+REM 静默安装到自定义路径
+nini-setup.exe /S /D=C:\Enterprise\Nini
+
+REM 静默卸载
+"C:\Enterprise\Nini\uninstall.exe" /S
+```
+
+**参数说明**：
+- `/S`：启用静默模式，无任何交互式对话框（错误通过日志和退出码反映）
+- `/D=<path>`：指定安装路径，必须与 `/S` 结合使用且放在末尾
+
+**检查安装结果**：
+```batch
+nini-setup.exe /S /D=C:\Enterprise\Nini
+echo %ERRORLEVEL%
+REM 退出码 0 表示成功，非 0 表示失败
+```
+
 ---
 
 ## 八、减小体积

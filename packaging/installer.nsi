@@ -18,6 +18,13 @@ Unicode true
 
 !include "MUI2.nsh"
 
+; ---- 静默安装支持 ----
+; NSIS 内置支持以下命令行参数：
+;   /S            - 静默模式，无任何交互式对话框
+;   /D=<path>     - 自定义安装路径（必须与 /S 结合使用时放在末尾）
+; 示例：nini-setup.exe /S /D=C:\Enterprise\Nini
+; 详见文档：packaging/README.md - 静默安装
+
 ; ---- 基本信息 ----
 !define PRODUCT_NAME "Nini"
 !ifndef PRODUCT_VERSION
@@ -47,6 +54,7 @@ SetCompressor /SOLID lzma
 !define MUI_UNICON "nini.ico"
 !define MUI_WELCOMEPAGE_TITLE "欢迎安装 ${PRODUCT_NAME}"
 !define MUI_WELCOMEPAGE_TEXT "Nini 是一个本地优先的科研数据分析 AI Agent。$\r$\n$\r$\n安装程序将引导您完成安装过程。"
+!define MUI_FINISHPAGE_NOAUTOCLOSE
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXE}"
 !define MUI_FINISHPAGE_RUN_TEXT "启动 Nini"
 
@@ -86,8 +94,9 @@ Function EnsureWebView2Runtime
     DetailPrint "正在安装离线 WebView2 Runtime..."
     ExecWait '"$INSTDIR\webview2\MicrosoftEdgeWebView2RuntimeInstallerX64.exe" /silent /install' $0
     ${If} $0 != 0
-      MessageBox MB_OK|MB_ICONEXCLAMATION \
-        "WebView2 Runtime 离线安装失败（错误码：$0）。$\n请联系管理员或手动安装。"
+      IfSilent +2
+        MessageBox MB_OK|MB_ICONEXCLAMATION "WebView2 Runtime 离线安装失败（错误码：$0）。$\n请联系管理员或手动安装。"
+      SetErrorLevel 1
       Abort
     ${EndIf}
     Return
@@ -100,15 +109,17 @@ Function EnsureWebView2Runtime
     "$TEMP\MicrosoftEdgeWebView2Setup.exe"
   Pop $0
   ${If} $0 != "success"
-    MessageBox MB_OK|MB_ICONEXCLAMATION \
-      "WebView2 Runtime 下载失败。$\n请检查网络连接后重试，或联系管理员手动安装。"
+    IfSilent +2
+      MessageBox MB_OK|MB_ICONEXCLAMATION "WebView2 Runtime 下载失败。$\n请检查网络连接后重试，或联系管理员手动安装。"
+    SetErrorLevel 1
     Abort
   ${EndIf}
   ExecWait '"$TEMP\MicrosoftEdgeWebView2Setup.exe" /silent /install' $0
   Delete "$TEMP\MicrosoftEdgeWebView2Setup.exe"
   ${If} $0 != 0
-    MessageBox MB_OK|MB_ICONEXCLAMATION \
-      "WebView2 Runtime 安装失败（错误码：$0）。$\n请联系管理员或手动安装。"
+    IfSilent +2
+      MessageBox MB_OK|MB_ICONEXCLAMATION "WebView2 Runtime 安装失败（错误码：$0）。$\n请联系管理员或手动安装。"
+    SetErrorLevel 1
     Abort
   ${EndIf}
 FunctionEnd
@@ -191,7 +202,9 @@ Section "Uninstall"
     DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
 
     ; 提示：是否删除用户数据
-    MessageBox MB_YESNO "是否同时删除用户数据目录（$PROFILE\.nini）？$\r$\n$\r$\n此目录包含您的会话数据、配置和分析结果。" IDNO skip_data
+    ; 静默模式下默认不删除用户数据（保护用户数据安全）
+    IfSilent skip_data
+      MessageBox MB_YESNO "是否同时删除用户数据目录（$PROFILE\.nini）？$\r$\n$\r$\n此目录包含您的会话数据、配置和分析结果。" IDNO skip_data
         RMDir /r "$PROFILE\.nini"
     skip_data:
 SectionEnd
