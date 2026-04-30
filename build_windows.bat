@@ -316,6 +316,21 @@ popd
 echo [2/4] Done.
 echo.
 
+:: ── 可选：下载离线 WebView2 Runtime 安装包 ──────────────────────────────────
+if "%BUNDLE_WEBVIEW2%"=="1" (
+    echo [BUILD] 下载离线 WebView2 Runtime 安装包...
+    set WEBVIEW2_DIR=%~dp0packaging\webview2
+    if not exist "%WEBVIEW2_DIR%" mkdir "%WEBVIEW2_DIR%"
+    powershell -Command "Invoke-WebRequest -Uri 'https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/MicrosoftEdgeWebView2RuntimeInstallerX64.exe' -OutFile '%WEBVIEW2_DIR%\MicrosoftEdgeWebView2RuntimeInstallerX64.exe'"
+    if errorlevel 1 (
+        echo [ERROR] WebView2 离线包下载失败
+        exit /b 1
+    )
+    set NSIS_EXTRA_ARGS=/DBUNDLE_WEBVIEW2_PATH=%WEBVIEW2_DIR%
+) else (
+    set NSIS_EXTRA_ARGS=
+)
+
 echo [3/4] Running PyInstaller...
 python -m PyInstaller nini.spec --noconfirm
 if !errorlevel! neq 0 (
@@ -323,6 +338,17 @@ if !errorlevel! neq 0 (
     goto :error
 )
 echo [3/4] Done.
+echo.
+
+:: ── EXE 签名（在 NSIS 打包前）──────────────────────────────────────────────
+if not "%SIGNING_CERT_THUMBPRINT%"=="" (
+    echo [BUILD] 签名可执行文件...
+    signtool sign /sha1 "%SIGNING_CERT_THUMBPRINT%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d "Nini" dist\nini.exe dist\nini-cli.exe
+    if errorlevel 1 (
+        echo [ERROR] EXE 签名失败
+        exit /b 1
+    )
+)
 echo.
 
 echo [3.5/4] Packaging offline model bundle...
@@ -387,13 +413,28 @@ echo.
 echo [4/4] Creating installer...
 where makensis >nul 2>nul
 if !errorlevel! equ 0 (
-    makensis /INPUTCHARSET UTF8 /DPRODUCT_VERSION=!NINI_VERSION! /DPRODUCT_SOURCE_DIR=..\dist\nini-installer packaging\installer.nsi
+    makensis /INPUTCHARSET UTF8 /DPRODUCT_VERSION=!NINI_VERSION! /DPRODUCT_SOURCE_DIR=..\dist\nini-installer %NSIS_EXTRA_ARGS% packaging\installer.nsi
     if !errorlevel! neq 0 (
         echo [WARN] makensis failed, but portable build is still available.
     )
 ) else (
     echo [SKIP] NSIS not found, skipping installer creation.
     echo        Install from https://nsis.sourceforge.io/ to create setup exe.
+)
+
+:: ── 安装包签名（在 NSIS 打包后）────────────────────────────────────────────
+if not "%SIGNING_CERT_THUMBPRINT%"=="" (
+    echo [BUILD] 签名安装包...
+    for %%f in (dist\Nini-*-Setup.exe) do (
+        signtool sign /sha1 "%SIGNING_CERT_THUMBPRINT%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d "Nini 安装程序" "%%f"
+        if errorlevel 1 (
+            echo [ERROR] 安装包签名失败
+            exit /b 1
+        )
+    )
+    echo [BUILD] 代码签名完成
+) else (
+    echo [BUILD] 未设置 SIGNING_CERT_THUMBPRINT，跳过代码签名
 )
 echo.
 

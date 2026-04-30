@@ -224,9 +224,62 @@ makensis packaging\installer.nsi
 1. 安装向导显示中文欢迎页
 2. 可选择安装目录（默认 `%LOCALAPPDATA%\Nini`）
 3. 安装完成后桌面/开始菜单出现快捷方式，默认快捷方式指向 `nini.exe`
-4. 开始菜单额外提供“命令行工具”，指向 `nini-cli.exe`
-5. 控制面板"程序和功能"中可见 Nini 条目
+4. 开始菜单额外提供”命令行工具”，指向 `nini-cli.exe`
+5. 控制面板”程序和功能”中可见 Nini 条目
 6. 卸载时提示是否清理用户数据
+
+### 企业离线包构建
+
+如需内嵌 WebView2 Runtime（适用于无网络访问的企业环境）：
+
+```batch
+set BUNDLE_WEBVIEW2=1
+build_windows.bat
+```
+
+构建脚本会自动下载 `MicrosoftEdgeWebView2RuntimeInstallerX64.exe` 并捆绑进安装包。
+安装时无需网络，直接从安装包内部完成 WebView2 安装。
+
+### 静默安装（GPO / 批量部署）
+
+用于企业 GPO 部署或批量安装场景，所有错误通过退出码反映（0 = 成功，非 0 = 失败），不弹出任何对话框。
+
+```batch
+REM 静默安装到默认路径（%LOCALAPPDATA%\Nini）
+nini-setup.exe /S
+
+REM 静默安装到自定义路径
+nini-setup.exe /S /D=C:\Enterprise\Nini
+
+REM 静默卸载
+"C:\Enterprise\Nini\uninstall.exe" /S
+```
+
+**参数说明**：
+- `/S`：启用静默模式，无任何交互式对话框（错误通过日志和退出码反映）
+- `/D=<path>`：指定安装路径，必须与 `/S` 结合使用且放在末尾
+
+**检查安装结果**：
+```batch
+nini-setup.exe /S /D=C:\Enterprise\Nini
+echo %ERRORLEVEL%
+REM 退出码 0 表示成功，非 0 表示失败
+```
+
+### 代码签名
+
+签名需要：
+- 已安装 Authenticode 证书（EV 证书或标准证书均可）
+- Windows SDK 中的 `signtool.exe` 在 PATH 中
+
+```batch
+REM 指定证书指纹（在系统证书存储中查找）
+set SIGNING_CERT_THUMBPRINT=YOUR_CERT_THUMBPRINT_HERE
+build_windows.bat
+```
+
+构建脚本会自动对 `nini.exe`、`nini-cli.exe`、`nini-setup.exe` 进行 SHA-256 签名并附加时间戳。
+若未设置 `SIGNING_CERT_THUMBPRINT`，跳过签名，适用于开发构建。
 
 ---
 

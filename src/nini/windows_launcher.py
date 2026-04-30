@@ -6,6 +6,7 @@ import argparse
 from contextlib import suppress
 import ctypes
 from ctypes import wintypes
+import json
 import os
 from pathlib import Path
 import socket
@@ -46,6 +47,9 @@ if sys.platform == "win32":
     ID_TRAY_SHOW = 1001
     ID_TRAY_OPEN_BROWSER = 1002
     ID_TRAY_EXIT = 1003
+    ID_TRAY_LOG = 1004
+    ERROR_ALREADY_EXISTS = 183
+    WM_APP_SHOW_WINDOW = WM_APP + 2
     IDI_APPLICATION = 32512
     IDC_ARROW = 32512
     IMAGE_ICON = 1
@@ -231,6 +235,9 @@ else:
     ID_TRAY_SHOW = 0
     ID_TRAY_OPEN_BROWSER = 0
     ID_TRAY_EXIT = 0
+    ID_TRAY_LOG = 0
+    ERROR_ALREADY_EXISTS = 183
+    WM_APP_SHOW_WINDOW = 0
     IDI_APPLICATION = 0
     IDC_ARROW = 0
     IMAGE_ICON = 0
@@ -442,6 +449,92 @@ def _terminate_process(process: subprocess.Popen[bytes] | None, timeout: float =
         process.wait(timeout=3)
 
 
+_SINGLE_INSTANCE_MUTEX_NAME = "Global\\NiniSingleInstanceMutex"
+_WINDOW_STATE_PATH = Path.home() / ".nini" / "window_state.json"
+
+
+def _load_window_state() -> dict[str, int]:
+    """读取上次保存的窗口尺寸；读取失败时返回空字典（使用默认值）。"""
+    try:
+        return json.loads(_WINDOW_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_window_state(width: int, height: int) -> None:
+    """将当前窗口尺寸写入持久化文件。"""
+    try:
+        _WINDOW_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _WINDOW_STATE_PATH.write_text(
+            json.dumps({"width": width, "height": height}),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def _acquire_single_instance_mutex() -> int | None:
+    """尝试创建命名 Mutex。返回句柄表示本实例为第一个；返回 None 表示已有实例运行。"""
+    if sys.platform != "win32":
+        return -1  # 非 Windows 始终视为第一实例
+    handle = kernel32.CreateMutexW(None, True, _SINGLE_INSTANCE_MUTEX_NAME)
+    if not handle:
+        return None
+    if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+        kernel32.CloseHandle(handle)
+        return None
+    return handle
+
+
+def _signal_existing_instance() -> None:
+    """向已有 Nini 实例的托盘窗口发送显示消息。"""
+    if sys.platform != "win32":
+        return
+    hwnd = user32.FindWindowW("NiniTrayWindow", None)
+    if hwnd:
+        user32.PostMessageW(hwnd, WM_APP_SHOW_WINDOW, 0, 0)
+
+
+def _confirm_exit() -> bool:
+    """弹出原生退出确认框，返回用户是否确认退出。非 Windows 环境始终返回 True。"""
+    if sys.platform != "win32":
+        return True
+    IDYES = 6
+    MB_YESNO = 0x00000004
+    MB_ICONQUESTION = 0x00000020
+    MB_SETFOREGROUND = 0x00010000
+    result = user32.MessageBoxW(
+        None,
+        "确定要退出 Nini 吗？\n后台服务将会停止，所有进行中的任务将中断。",
+        "退出 Nini",
+        MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND,
+    )
+    return result == IDYES
+
+
+def _get_log_path() -> Path | None:
+    """返回当前 nini 日志文件路径；若不存在则返回 None。"""
+    candidates = [
+        Path.home() / ".nini" / "logs" / "nini.log",
+        Path.home() / ".nini" / "nini.log",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def _open_log_file() -> None:
+    """用系统默认程序打开日志文件；若日志不存在则弹出提示。"""
+    path = _get_log_path()
+    if path is None:
+        _show_error("未找到日志文件。\n请确认 Nini 已成功启动过至少一次。", title="查看日志")
+        return
+    if sys.platform == "win32":
+        with suppress(Exception):
+            os.startfile(str(path))
+
+
 class _TrayApp:
     """最小可用的 Windows 托盘宿主。"""
 
@@ -455,6 +548,7 @@ class _TrayApp:
         primary_action: Callable[[], None] | None,
         watched_process: subprocess.Popen[bytes] | None = None,
         on_exit: Callable[[], None] | None = None,
+        show_log_action: Callable[[], None] | None = None,
     ) -> None:
         self.install_root = install_root
         self.host = host
@@ -463,6 +557,7 @@ class _TrayApp:
         self.primary_action = primary_action
         self.watched_process = watched_process
         self.on_exit = on_exit
+        self.show_log_action = show_log_action
         self._hwnd: int | None = None
         self._class_name = "NiniTrayWindow"
         self._wnd_proc: Any = None
@@ -503,6 +598,12 @@ class _TrayApp:
 
             @WNDPROC
             def _window_proc(hwnd, msg, wparam, lparam):
+                if msg == WM_APP_SHOW_WINDOW:
+                    if self.primary_action is not None:
+                        threading.Thread(
+                            target=self.primary_action, daemon=True
+                        ).start()
+                    return 0
                 if msg == WM_TRAYICON:
                     return self._handle_tray_event(hwnd, lparam)
                 if msg == WM_COMMAND:
@@ -625,7 +726,13 @@ class _TrayApp:
         if command_id == ID_TRAY_OPEN_BROWSER:
             _open_browser(self.host, self.port)
             return 0
+        if command_id == ID_TRAY_LOG:
+            if self.show_log_action is not None:
+                self.show_log_action()
+            return 0
         if command_id == ID_TRAY_EXIT:
+            if not _confirm_exit():
+                return 0
             self._stop_requested.set()
             if self.on_exit is not None:
                 with suppress(Exception):
@@ -641,6 +748,8 @@ class _TrayApp:
         try:
             user32.AppendMenuW(menu, MF_STRING, ID_TRAY_SHOW, self.primary_label)
             user32.AppendMenuW(menu, MF_STRING, ID_TRAY_OPEN_BROWSER, "在浏览器中打开")
+            user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
+            user32.AppendMenuW(menu, MF_STRING, ID_TRAY_LOG, "查看日志")
             user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
             user32.AppendMenuW(menu, MF_STRING, ID_TRAY_EXIT, "退出 Nini")
             point = POINT()
@@ -686,6 +795,7 @@ class _EmbeddedWindowApp:
             primary_action=self.show_window,
             watched_process=server_process,
             on_exit=self.request_exit,
+            show_log_action=_open_log_file,
         )
 
     def run(self) -> int:
@@ -705,12 +815,15 @@ class _EmbeddedWindowApp:
                 return 1
 
             url = _build_app_url(self.host, self.port)
+            state = _load_window_state()
+            win_width = state.get("width", 1360)
+            win_height = state.get("height", 920)
             try:
                 self._window = webview.create_window(
                     "Nini",
                     url=url,
-                    width=1360,
-                    height=920,
+                    width=win_width,
+                    height=win_height,
                     min_size=(1100, 720),
                     confirm_close=False,
                 )
@@ -718,8 +831,8 @@ class _EmbeddedWindowApp:
                 self._window = webview.create_window(
                     "Nini",
                     url=url,
-                    width=1360,
-                    height=920,
+                    width=win_width,
+                    height=win_height,
                 )
 
             self._bind_events()
@@ -746,6 +859,8 @@ class _EmbeddedWindowApp:
             self._window.events.closing += self._on_window_closing
         with suppress(Exception):
             self._window.events.closed += self._on_window_closed
+        with suppress(Exception):
+            self._window.events.resized += self._on_window_resized
 
     def _on_window_closing(self):
         """关闭主窗口时改为隐藏到托盘。"""
@@ -766,6 +881,12 @@ class _EmbeddedWindowApp:
             self._window.restore()
         with suppress(Exception):
             self._window.bring_to_front()
+
+    def _on_window_resized(self) -> None:
+        if self._window is None:
+            return
+        with suppress(Exception):
+            _save_window_state(self._window.width, self._window.height)
 
     def hide_window(self) -> None:
         if self._window is None:
@@ -829,67 +950,77 @@ def _resolve_runtime_port(host: str, requested_port: int) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    install_root = _get_install_root()
-    cli_path = install_root / args.cli_name
-    host = args.host
-    port = _resolve_runtime_port(host, args.port)
+    mutex_handle = _acquire_single_instance_mutex()
+    if mutex_handle is None:
+        _signal_existing_instance()
+        return 0
+    try:
+        install_root = _get_install_root()
+        cli_path = install_root / args.cli_name
+        host = args.host
+        port = _resolve_runtime_port(host, args.port)
 
-    if port <= 0:
-        _show_error("无法为 Nini 分配本地监听端口。")
-        return 1
+        if port <= 0:
+            _show_error("无法为 Nini 分配本地监听端口。")
+            return 1
 
-    if not cli_path.exists():
-        _show_error(f"未找到后台启动文件：{cli_path}")
-        return 1
+        if not cli_path.exists():
+            _show_error(f"未找到后台启动文件：{cli_path}")
+            return 1
 
-    existing_service = args.port > 0 and _is_port_open(host, port)
-    server_process: subprocess.Popen[bytes] | None = None
+        existing_service = args.port > 0 and _is_port_open(host, port)
+        server_process: subprocess.Popen[bytes] | None = None
 
-    if not existing_service:
-        _start_bundled_ollama(install_root, args.ollama_base_url)
-        try:
-            server_process = _spawn_background_process(
-                _build_server_command(
-                    cli_path,
-                    host=host,
-                    port=port,
-                    log_level=args.log_level,
+        if not existing_service:
+            _start_bundled_ollama(install_root, args.ollama_base_url)
+            try:
+                server_process = _spawn_background_process(
+                    _build_server_command(
+                        cli_path,
+                        host=host,
+                        port=port,
+                        log_level=args.log_level,
+                    )
                 )
-            )
-        except OSError as exc:
-            _show_error(f"启动后台服务失败：{exc}")
-            return 1
+            except OSError as exc:
+                _show_error(f"启动后台服务失败：{exc}")
+                return 1
 
-        if not _wait_for_port(host, port, args.startup_timeout):
-            _terminate_process(server_process)
-            _show_error(
-                "Nini 后台服务未在预期时间内就绪。\n"
-                "可手动运行 nini-cli.exe start 查看日志并排查问题。"
-            )
-            return 1
+            if not _wait_for_port(host, port, args.startup_timeout):
+                _terminate_process(server_process)
+                _show_error(
+                    "Nini 后台服务未在预期时间内就绪。\n"
+                    "可手动运行 nini-cli.exe start 查看日志并排查问题。"
+                )
+                return 1
 
-    if args.external_browser:
-        _open_browser(host, port)
-        tray = _TrayApp(
+        if args.external_browser:
+            _open_browser(host, port)
+            tray = _TrayApp(
+                install_root=install_root,
+                host=host,
+                port=port,
+                primary_label="打开 Nini",
+                primary_action=lambda: _open_browser(host, port),
+                watched_process=server_process,
+                show_log_action=_open_log_file,
+            )
+            try:
+                return tray.run()
+            finally:
+                _terminate_process(server_process)
+
+        app = _EmbeddedWindowApp(
             install_root=install_root,
             host=host,
             port=port,
-            primary_label="打开 Nini",
-            primary_action=lambda: _open_browser(host, port),
-            watched_process=server_process,
+            server_process=server_process,
         )
-        try:
-            return tray.run()
-        finally:
-            _terminate_process(server_process)
-
-    app = _EmbeddedWindowApp(
-        install_root=install_root,
-        host=host,
-        port=port,
-        server_process=server_process,
-    )
-    return app.run()
+        return app.run()
+    finally:
+        if mutex_handle and mutex_handle != -1:
+            with suppress(Exception):
+                kernel32.CloseHandle(mutex_handle)
 
 
 if __name__ == "__main__":

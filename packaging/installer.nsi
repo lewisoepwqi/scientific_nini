@@ -1,4 +1,10 @@
-﻿Unicode true
+﻿; 离线 WebView2 捆绑包路径（可选）：构建时由 /DBUNDLE_WEBVIEW2_PATH=<path> 传入
+; 若未定义则回退到在线下载模式
+!ifndef BUNDLE_WEBVIEW2_PATH
+  !define BUNDLE_WEBVIEW2_PATH ""
+!endif
+
+Unicode true
 
 ; Nini Windows 安装脚本 (NSIS)
 ;
@@ -11,6 +17,13 @@
 ; 前提：dist/nini/ 目录已由 PyInstaller 生成
 
 !include "MUI2.nsh"
+
+; ---- 静默安装支持 ----
+; NSIS 内置支持以下命令行参数：
+;   /S            - 静默模式，无任何交互式对话框
+;   /D=<path>     - 自定义安装路径（必须与 /S 结合使用时放在末尾）
+; 示例：nini-setup.exe /S /D=C:\Enterprise\Nini
+; 详见文档：packaging/README.md - 静默安装
 
 ; ---- 基本信息 ----
 !define PRODUCT_NAME "Nini"
@@ -41,6 +54,7 @@ SetCompressor /SOLID lzma
 !define MUI_UNICON "nini.ico"
 !define MUI_WELCOMEPAGE_TITLE "欢迎安装 ${PRODUCT_NAME}"
 !define MUI_WELCOMEPAGE_TEXT "Nini 是一个本地优先的科研数据分析 AI Agent。$\r$\n$\r$\n安装程序将引导您完成安装过程。"
+!define MUI_FINISHPAGE_NOAUTOCLOSE
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXE}"
 !define MUI_FINISHPAGE_RUN_TEXT "启动 Nini"
 
@@ -69,26 +83,36 @@ found:
 FunctionEnd
 
 Function EnsureWebView2Runtime
-    Call HasWebView2Runtime
-    StrCmp $0 "1" done
+  Call HasWebView2Runtime
+  StrCmp $0 "1" done
 
-    DetailPrint "未检测到 WebView2 Runtime，准备自动安装..."
-    Delete "${WEBVIEW2_BOOTSTRAPPER_EXE}"
-    ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -UseBasicParsing -Uri ''${WEBVIEW2_BOOTSTRAPPER_URL}'' -OutFile ''${WEBVIEW2_BOOTSTRAPPER_EXE}'' } catch { exit 1 }"' $1
-    StrCmp $1 0 +3
-    MessageBox MB_ICONSTOP|MB_OK "WebView2 Runtime 下载失败，无法继续安装。请确认当前网络可访问微软下载服务。" /SD IDOK
+  ; 离线模式：使用捆绑的安装包
+  !if "${BUNDLE_WEBVIEW2_PATH}" != ""
+    DetailPrint "正在安装离线 WebView2 Runtime..."
+    ExecWait '"$INSTDIR\webview2\MicrosoftEdgeWebView2RuntimeInstallerX64.exe" /silent /install' $0
+    StrCmp $0 0 done
+    MessageBox MB_ICONSTOP|MB_OK "WebView2 Runtime 离线安装失败，请联系管理员手动安装。" /SD IDOK
     Abort
+  !endif
 
-    ExecWait '"${WEBVIEW2_BOOTSTRAPPER_EXE}" /silent /install' $1
-    Delete "${WEBVIEW2_BOOTSTRAPPER_EXE}"
-    StrCmp $1 0 +3
-    MessageBox MB_ICONSTOP|MB_OK "WebView2 Runtime 安装失败，无法继续安装。请手动安装后重试。" /SD IDOK
-    Abort
+  ; 在线模式：通过 PowerShell 下载 Bootstrapper
+  DetailPrint "未检测到 WebView2 Runtime，准备自动安装..."
+  Delete "${WEBVIEW2_BOOTSTRAPPER_EXE}"
+  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -UseBasicParsing -Uri ''${WEBVIEW2_BOOTSTRAPPER_URL}'' -OutFile ''${WEBVIEW2_BOOTSTRAPPER_EXE}'' } catch { exit 1 }"' $1
+  StrCmp $1 0 +3
+  MessageBox MB_ICONSTOP|MB_OK "WebView2 Runtime 下载失败，无法继续安装。请确认当前网络可访问微软下载服务。" /SD IDOK
+  Abort
 
-    Call HasWebView2Runtime
-    StrCmp $0 "1" done
-    MessageBox MB_ICONSTOP|MB_OK "安装程序未能检测到 WebView2 Runtime，无法继续安装。" /SD IDOK
-    Abort
+  ExecWait '"${WEBVIEW2_BOOTSTRAPPER_EXE}" /silent /install' $1
+  Delete "${WEBVIEW2_BOOTSTRAPPER_EXE}"
+  StrCmp $1 0 +3
+  MessageBox MB_ICONSTOP|MB_OK "WebView2 Runtime 安装失败，无法继续安装。请手动安装后重试。" /SD IDOK
+  Abort
+
+  Call HasWebView2Runtime
+  StrCmp $0 "1" done
+  MessageBox MB_ICONSTOP|MB_OK "安装程序未能检测到 WebView2 Runtime，无法继续安装。" /SD IDOK
+  Abort
 done:
 FunctionEnd
 
@@ -97,6 +121,13 @@ Section "主程序" SecMain
     SectionIn RO  ; 必选
 
     SetOutPath "$INSTDIR"
+
+  ; 如果有捆绑 WebView2，拷贝到安装目录
+  !if "${BUNDLE_WEBVIEW2_PATH}" != ""
+    SetOutPath "$INSTDIR\webview2"
+    File "${BUNDLE_WEBVIEW2_PATH}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+    SetOutPath "$INSTDIR"
+  !endif
 
     Call EnsureWebView2Runtime
 
@@ -163,7 +194,9 @@ Section "Uninstall"
     DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
 
     ; 提示：是否删除用户数据
-    MessageBox MB_YESNO "是否同时删除用户数据目录（$PROFILE\.nini）？$\r$\n$\r$\n此目录包含您的会话数据、配置和分析结果。" IDNO skip_data
+    ; 静默模式下默认不删除用户数据（保护用户数据安全）
+    IfSilent skip_data
+      MessageBox MB_YESNO "是否同时删除用户数据目录（$PROFILE\.nini）？$\r$\n$\r$\n此目录包含您的会话数据、配置和分析结果。" IDNO skip_data
         RMDir /r "$PROFILE\.nini"
     skip_data:
 SectionEnd
