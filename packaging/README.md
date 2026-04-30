@@ -327,6 +327,39 @@ NINI_UPDATE_ALLOW_INSECURE_HTTP=true
 3. 公网 IP 和普通域名的 HTTP 仍会被拒绝。
 4. 安装包仍必须通过 SHA256 和 Authenticode 签名校验。
 
+### 服务器一键配置脚本
+
+如果你可以通过 SSH 进入服务器，推荐使用仓库中的交互式脚本完成服务器端目录和静态服务配置：
+
+```bash
+bash scripts/setup_update_server.sh
+```
+
+如果服务器上没有仓库源码，可以只上传这个脚本后运行：
+
+```bash
+scp scripts/setup_update_server.sh 用户名@服务器IP:/tmp/setup_update_server.sh
+ssh 用户名@服务器IP
+bash /tmp/setup_update_server.sh
+```
+
+脚本会询问：
+
+1. 发布文件根目录，默认 `/opt/nini-updates/public`
+2. 更新渠道，默认 `stable`
+3. 监听端口，默认 `8080`
+4. 客户端访问的服务器 IP
+5. 是否创建 systemd 后台服务
+6. 是否尝试放行本机防火墙端口
+
+脚本完成后会输出客户端 `.env` 配置和 `scp` 上传命令。服务器端只需要能访问：
+
+```text
+http://服务器IP:8080/nini/updates/stable/latest.json
+```
+
+如果 `latest.json` 尚未上传，该地址返回 404 是正常的；上传发布文件后再检查即可。
+
 ### 生成 manifest 草稿
 
 `build_windows.bat` 在生成安装包后会始终生成 `.sha256` 文件。若设置 `NINI_UPDATE_ASSET_BASE_URL`（兼容回退到 `NINI_UPDATE_BASE_URL`），还会生成并校验 `dist\latest.json`：
