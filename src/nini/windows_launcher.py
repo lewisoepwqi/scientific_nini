@@ -882,8 +882,11 @@ class _EmbeddedWindowApp:
         with suppress(Exception):
             self._window.bring_to_front()
 
-    def _on_window_resized(self, width: int, height: int) -> None:
-        _save_window_state(width, height)
+    def _on_window_resized(self) -> None:
+        if self._window is None:
+            return
+        with suppress(Exception):
+            _save_window_state(self._window.width, self._window.height)
 
     def hide_window(self) -> None:
         if self._window is None:
@@ -951,62 +954,62 @@ def main(argv: list[str] | None = None) -> int:
     if mutex_handle is None:
         _signal_existing_instance()
         return 0
-    install_root = _get_install_root()
-    cli_path = install_root / args.cli_name
-    host = args.host
-    port = _resolve_runtime_port(host, args.port)
-
-    if port <= 0:
-        _show_error("无法为 Nini 分配本地监听端口。")
-        return 1
-
-    if not cli_path.exists():
-        _show_error(f"未找到后台启动文件：{cli_path}")
-        return 1
-
-    existing_service = args.port > 0 and _is_port_open(host, port)
-    server_process: subprocess.Popen[bytes] | None = None
-
-    if not existing_service:
-        _start_bundled_ollama(install_root, args.ollama_base_url)
-        try:
-            server_process = _spawn_background_process(
-                _build_server_command(
-                    cli_path,
-                    host=host,
-                    port=port,
-                    log_level=args.log_level,
-                )
-            )
-        except OSError as exc:
-            _show_error(f"启动后台服务失败：{exc}")
-            return 1
-
-        if not _wait_for_port(host, port, args.startup_timeout):
-            _terminate_process(server_process)
-            _show_error(
-                "Nini 后台服务未在预期时间内就绪。\n"
-                "可手动运行 nini-cli.exe start 查看日志并排查问题。"
-            )
-            return 1
-
-    if args.external_browser:
-        _open_browser(host, port)
-        tray = _TrayApp(
-            install_root=install_root,
-            host=host,
-            port=port,
-            primary_label="打开 Nini",
-            primary_action=lambda: _open_browser(host, port),
-            watched_process=server_process,
-            show_log_action=_open_log_file,
-        )
-        try:
-            return tray.run()
-        finally:
-            _terminate_process(server_process)
-
     try:
+        install_root = _get_install_root()
+        cli_path = install_root / args.cli_name
+        host = args.host
+        port = _resolve_runtime_port(host, args.port)
+
+        if port <= 0:
+            _show_error("无法为 Nini 分配本地监听端口。")
+            return 1
+
+        if not cli_path.exists():
+            _show_error(f"未找到后台启动文件：{cli_path}")
+            return 1
+
+        existing_service = args.port > 0 and _is_port_open(host, port)
+        server_process: subprocess.Popen[bytes] | None = None
+
+        if not existing_service:
+            _start_bundled_ollama(install_root, args.ollama_base_url)
+            try:
+                server_process = _spawn_background_process(
+                    _build_server_command(
+                        cli_path,
+                        host=host,
+                        port=port,
+                        log_level=args.log_level,
+                    )
+                )
+            except OSError as exc:
+                _show_error(f"启动后台服务失败：{exc}")
+                return 1
+
+            if not _wait_for_port(host, port, args.startup_timeout):
+                _terminate_process(server_process)
+                _show_error(
+                    "Nini 后台服务未在预期时间内就绪。\n"
+                    "可手动运行 nini-cli.exe start 查看日志并排查问题。"
+                )
+                return 1
+
+        if args.external_browser:
+            _open_browser(host, port)
+            tray = _TrayApp(
+                install_root=install_root,
+                host=host,
+                port=port,
+                primary_label="打开 Nini",
+                primary_action=lambda: _open_browser(host, port),
+                watched_process=server_process,
+                show_log_action=_open_log_file,
+            )
+            try:
+                return tray.run()
+            finally:
+                _terminate_process(server_process)
+
         app = _EmbeddedWindowApp(
             install_root=install_root,
             host=host,

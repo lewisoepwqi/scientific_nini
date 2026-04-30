@@ -425,10 +425,12 @@ if !errorlevel! equ 0 (
 :: ── 安装包签名（在 NSIS 打包后）────────────────────────────────────────────
 if not "%SIGNING_CERT_THUMBPRINT%"=="" (
     echo [BUILD] 签名安装包...
-    signtool sign /sha1 "%SIGNING_CERT_THUMBPRINT%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d "Nini 安装程序" dist\nini-setup.exe
-    if errorlevel 1 (
-        echo [ERROR] 安装包签名失败
-        exit /b 1
+    for %%f in (dist\Nini-*-Setup.exe) do (
+        signtool sign /sha1 "%SIGNING_CERT_THUMBPRINT%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d "Nini 安装程序" "%%f"
+        if errorlevel 1 (
+            echo [ERROR] 安装包签名失败
+            exit /b 1
+        )
     )
     echo [BUILD] 代码签名完成
 ) else (
