@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from nini.windows_launcher import (
+    _acquire_single_instance_mutex,
     _build_parser,
     _build_server_command,
     _find_webview2_runtime,
@@ -107,3 +108,14 @@ def test_find_webview2_runtime_returns_path_when_msedge_exists(tmp_path) -> None
     with patch.dict("os.environ", env_overrides, clear=False):
         result = _find_webview2_runtime()
     assert result == exe
+
+
+def test_acquire_single_instance_mutex_returns_non_none_first_time() -> None:
+    """非 Windows 平台上，函数总返回非 None（视为第一实例）。"""
+    import sys
+    if sys.platform == "win32":
+        handle = _acquire_single_instance_mutex()
+        assert handle is not None
+    else:
+        handle = _acquire_single_instance_mutex()
+        assert handle == -1  # 非 Windows 平台哨兵值

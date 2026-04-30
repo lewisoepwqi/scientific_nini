@@ -46,6 +46,9 @@ if sys.platform == "win32":
     ID_TRAY_SHOW = 1001
     ID_TRAY_OPEN_BROWSER = 1002
     ID_TRAY_EXIT = 1003
+    ID_TRAY_LOG = 1004
+    ERROR_ALREADY_EXISTS = 183
+    WM_APP_SHOW_WINDOW = WM_APP + 2
     IDI_APPLICATION = 32512
     IDC_ARROW = 32512
     IMAGE_ICON = 1
@@ -231,6 +234,9 @@ else:
     ID_TRAY_SHOW = 0
     ID_TRAY_OPEN_BROWSER = 0
     ID_TRAY_EXIT = 0
+    ID_TRAY_LOG = 0
+    ERROR_ALREADY_EXISTS = 183
+    WM_APP_SHOW_WINDOW = 0
     IDI_APPLICATION = 0
     IDC_ARROW = 0
     IMAGE_ICON = 0
@@ -442,6 +448,31 @@ def _terminate_process(process: subprocess.Popen[bytes] | None, timeout: float =
         process.wait(timeout=3)
 
 
+_SINGLE_INSTANCE_MUTEX_NAME = "Global\\NiniSingleInstanceMutex"
+
+
+def _acquire_single_instance_mutex() -> int | None:
+    """尝试创建命名 Mutex。返回句柄表示本实例为第一个；返回 None 表示已有实例运行。"""
+    if sys.platform != "win32":
+        return -1  # 非 Windows 始终视为第一实例
+    handle = kernel32.CreateMutexW(None, True, _SINGLE_INSTANCE_MUTEX_NAME)
+    if not handle:
+        return None
+    if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+        kernel32.CloseHandle(handle)
+        return None
+    return handle
+
+
+def _signal_existing_instance() -> None:
+    """向已有 Nini 实例的托盘窗口发送显示消息。"""
+    if sys.platform != "win32":
+        return
+    hwnd = user32.FindWindowW("NiniTrayWindow", None)
+    if hwnd:
+        user32.PostMessageW(hwnd, WM_APP_SHOW_WINDOW, 0, 0)
+
+
 class _TrayApp:
     """最小可用的 Windows 托盘宿主。"""
 
@@ -503,6 +534,12 @@ class _TrayApp:
 
             @WNDPROC
             def _window_proc(hwnd, msg, wparam, lparam):
+                if msg == WM_APP_SHOW_WINDOW:
+                    if self.primary_action is not None:
+                        threading.Thread(
+                            target=self.primary_action, daemon=True
+                        ).start()
+                    return 0
                 if msg == WM_TRAYICON:
                     return self._handle_tray_event(hwnd, lparam)
                 if msg == WM_COMMAND:
@@ -829,6 +866,10 @@ def _resolve_runtime_port(host: str, requested_port: int) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    mutex_handle = _acquire_single_instance_mutex()
+    if mutex_handle is None:
+        _signal_existing_instance()
+        return 0
     install_root = _get_install_root()
     cli_path = install_root / args.cli_name
     host = args.host
@@ -883,13 +924,18 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             _terminate_process(server_process)
 
-    app = _EmbeddedWindowApp(
-        install_root=install_root,
-        host=host,
-        port=port,
-        server_process=server_process,
-    )
-    return app.run()
+    try:
+        app = _EmbeddedWindowApp(
+            install_root=install_root,
+            host=host,
+            port=port,
+            server_process=server_process,
+        )
+        return app.run()
+    finally:
+        if mutex_handle and mutex_handle != -1:
+            with suppress(Exception):
+                kernel32.CloseHandle(mutex_handle)
 
 
 if __name__ == "__main__":
