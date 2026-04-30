@@ -25,18 +25,18 @@ def _notes(raw: str) -> list[str]:
     return [item.strip() for item in raw.split("|") if item.strip()]
 
 
-def _is_local_or_private_host(hostname: str | None) -> bool:
-    """判断主机是否为本机或私有地址。"""
+def _is_ip_or_localhost(hostname: str | None) -> bool:
+    """判断主机是否为 localhost 或字面量 IP 地址。"""
     if not hostname:
         return False
     normalized = hostname.strip().lower()
     if normalized == "localhost":
         return True
     try:
-        address = ipaddress.ip_address(normalized)
+        ipaddress.ip_address(normalized)
     except ValueError:
         return False
-    return address.is_loopback or address.is_private or address.is_link_local
+    return True
 
 
 def build_manifest(
@@ -59,9 +59,9 @@ def build_manifest(
         raise ValueError(f"版本号不符合 PEP 440: {version}") from exc
     parsed_base_url = urlparse(base_url)
     if parsed_base_url.scheme == "http":
-        if not allow_insecure_http or not _is_local_or_private_host(parsed_base_url.hostname):
+        if not allow_insecure_http or not _is_ip_or_localhost(parsed_base_url.hostname):
             raise ValueError(
-                "更新安装包下载 URL 必须使用 HTTPS；HTTP 仅允许显式开启的内网 IP 或 localhost"
+                "更新安装包下载 URL 必须使用 HTTPS；HTTP 仅允许显式开启的 IP 地址或 localhost"
             )
     elif parsed_base_url.scheme != "https":
         raise ValueError("更新安装包下载 URL 必须使用 HTTPS")
@@ -102,7 +102,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--allow-insecure-http",
         action="store_true",
-        help="仅测试或内网发布使用：允许 localhost / 私有 IP 的 HTTP 下载 URL",
+        help="仅测试或无域名部署使用：允许 localhost / IP 地址的 HTTP 下载 URL",
     )
     parser.add_argument("--output", required=True, type=Path)
     return parser

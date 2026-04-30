@@ -5,7 +5,7 @@ from __future__ import annotations
 from importlib import metadata
 
 PACKAGE_NAME = "nini"
-FALLBACK_VERSION = "0.1.1"
+FALLBACK_VERSION = "0.1.2"
 
 
 def get_current_version() -> str:

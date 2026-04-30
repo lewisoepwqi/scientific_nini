@@ -9,6 +9,7 @@ DEFAULT_ROOT="/opt/nini-updates/public"
 DEFAULT_CHANNEL="stable"
 DEFAULT_BIND_HOST="0.0.0.0"
 DEFAULT_PORT="8080"
+DEFAULT_EXAMPLE_VERSION="0.1.2"
 
 info() {
   printf '\033[1;34m[INFO]\033[0m %s\n' "$*"
@@ -120,6 +121,7 @@ write_readme() {
   local root="$1"
   local channel="$2"
   local base_url="$3"
+  local example_version="$4"
   local upload_file="$root/nini/updates/UPLOAD_INSTRUCTIONS.txt"
   cat >"$upload_file" <<EOF
 Nini 更新服务器目录已创建。
@@ -136,8 +138,8 @@ Nini 更新服务器目录已创建。
 
 从本地电脑上传发布文件示例：
   scp dist/latest.json 用户名@服务器IP:$root/nini/updates/$channel/latest.json
-  scp dist/Nini-0.1.1-Setup.exe 用户名@服务器IP:$root/nini/updates/$channel/Nini-0.1.1-Setup.exe
-  scp dist/Nini-0.1.1-Setup.exe.sha256 用户名@服务器IP:$root/nini/updates/$channel/Nini-0.1.1-Setup.exe.sha256
+  scp dist/Nini-$example_version-Setup.exe 用户名@服务器IP:$root/nini/updates/$channel/Nini-$example_version-Setup.exe
+  scp dist/Nini-$example_version-Setup.exe.sha256 用户名@服务器IP:$root/nini/updates/$channel/Nini-$example_version-Setup.exe.sha256
 
 浏览器检查：
   $base_url/nini/updates/$channel/latest.json
@@ -214,6 +216,7 @@ main() {
   local port
   local detected_ip
   local public_host
+  local example_version
   local scheme
   local base_url
 
@@ -223,6 +226,7 @@ main() {
   port="$(prompt_default "监听端口" "$DEFAULT_PORT")"
   detected_ip="$(detect_server_ip)"
   public_host="$(prompt_default "客户端访问的服务器 IP 或主机名" "$detected_ip")"
+  example_version="$(prompt_default "上传示例使用的 Nini 版本号" "$DEFAULT_EXAMPLE_VERSION")"
 
   if prompt_yes_no "客户端是否通过 HTTPS 访问" "N"; then
     scheme="https"
@@ -240,7 +244,7 @@ main() {
   echo
   info "准备创建目录：$root/nini/updates/$channel"
   create_directories "$root" "$channel"
-  write_readme "$root" "$channel" "$base_url"
+  write_readme "$root" "$channel" "$base_url" "$example_version"
 
   echo
   if command -v systemctl >/dev/null 2>&1 && prompt_yes_no "是否创建 systemd 后台服务" "Y"; then
@@ -276,7 +280,7 @@ main() {
   echo
   echo "从本地电脑上传文件示例："
   echo "  scp dist/latest.json 用户名@$public_host:$root/nini/updates/$channel/latest.json"
-  echo "  scp dist/Nini-0.1.1-Setup.exe 用户名@$public_host:$root/nini/updates/$channel/Nini-0.1.1-Setup.exe"
+  echo "  scp dist/Nini-$example_version-Setup.exe 用户名@$public_host:$root/nini/updates/$channel/Nini-$example_version-Setup.exe"
   echo
   echo "如果 latest.json 还不存在，浏览器测试地址返回 404 是正常的；上传后再检查即可。"
 }

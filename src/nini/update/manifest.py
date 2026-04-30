@@ -22,18 +22,18 @@ class UpdateSourceNotConfigured(ManifestError):
     """未配置更新源。"""
 
 
-def _is_local_or_private_host(hostname: str | None) -> bool:
-    """判断主机是否为本机或私有地址。"""
+def _is_ip_or_localhost(hostname: str | None) -> bool:
+    """判断主机是否为 localhost 或字面量 IP 地址。"""
     if not hostname:
         return False
     normalized = hostname.strip().lower()
     if normalized == "localhost":
         return True
     try:
-        address = ipaddress.ip_address(normalized)
+        ipaddress.ip_address(normalized)
     except ValueError:
         return False
-    return address.is_loopback or address.is_private or address.is_link_local
+    return True
 
 
 def _validate_update_url_security(
@@ -42,17 +42,17 @@ def _validate_update_url_security(
     allow_insecure_http: bool,
     label: str,
 ) -> None:
-    """校验更新 URL 协议；HTTP 仅允许显式开启的内网地址。"""
+    """校验更新 URL 协议；HTTP 仅允许显式开启的 IP 地址。"""
     if parsed_url.scheme == "https":
         return
     if (
         parsed_url.scheme == "http"
         and allow_insecure_http
-        and _is_local_or_private_host(parsed_url.hostname)
+        and _is_ip_or_localhost(parsed_url.hostname)
     ):
         return
     if parsed_url.scheme == "http":
-        raise ManifestError(f"{label} 必须使用 HTTPS；HTTP 仅允许显式开启的内网 IP 或 localhost")
+        raise ManifestError(f"{label} 必须使用 HTTPS；HTTP 仅允许显式开启的 IP 地址或 localhost")
     raise ManifestError(f"{label} 必须使用 HTTPS")
 
 

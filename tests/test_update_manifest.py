@@ -65,21 +65,21 @@ def test_build_manifest_url_requires_https() -> None:
         build_manifest_url("http://updates.example.com", "stable")
 
 
-def test_build_manifest_url_allows_private_ip_http_when_explicitly_enabled() -> None:
+def test_build_manifest_url_allows_ip_http_when_explicitly_enabled() -> None:
     assert (
         build_manifest_url(
-            "http://192.168.1.10:8080/releases",
+            "http://121.41.97.123:1116/releases",
             "stable",
             allow_insecure_http=True,
         )
-        == "http://192.168.1.10:8080/releases/stable/latest.json"
+        == "http://121.41.97.123:1116/releases/stable/latest.json"
     )
 
 
-def test_build_manifest_url_rejects_public_http_even_when_enabled() -> None:
-    with pytest.raises(ManifestError, match="内网"):
+def test_build_manifest_url_rejects_http_domain_even_when_enabled() -> None:
+    with pytest.raises(ManifestError, match="IP"):
         build_manifest_url(
-            "http://8.8.8.8:8080/releases",
+            "http://updates.example.com/releases",
             "stable",
             allow_insecure_http=True,
         )
@@ -166,14 +166,14 @@ def test_select_asset_rejects_insecure_asset_url() -> None:
         )
 
 
-def test_select_asset_allows_private_ip_http_when_explicitly_enabled() -> None:
+def test_select_asset_allows_ip_http_when_explicitly_enabled() -> None:
     manifest = UpdateManifest.model_validate(
         _manifest_payload(
             assets=[
                 {
                     "platform": "windows-x64",
                     "kind": "nsis-installer",
-                    "url": "http://192.168.1.10:8080/releases/Nini-0.1.2-Setup.exe",
+                    "url": "http://121.41.97.123:1116/releases/Nini-0.1.2-Setup.exe",
                     "size": 1024,
                     "sha256": _SHA,
                 }
@@ -184,11 +184,11 @@ def test_select_asset_allows_private_ip_http_when_explicitly_enabled() -> None:
     asset = select_asset(
         manifest,
         channel="stable",
-        base_url="http://192.168.1.10:8080/releases",
+        base_url="http://121.41.97.123:1116/releases",
         allow_insecure_http=True,
     )
 
-    assert asset.url.startswith("http://192.168.1.10:8080/")
+    assert asset.url.startswith("http://121.41.97.123:1116/")
 
 
 def test_select_asset_rejects_cross_domain_asset_url() -> None:
@@ -231,14 +231,14 @@ async def test_fetch_manifest_parses_payload() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fetch_manifest_allows_private_ip_http_when_explicitly_enabled() -> None:
+async def test_fetch_manifest_allows_ip_http_when_explicitly_enabled() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert str(request.url) == "http://10.0.0.5:9000/releases/stable/latest.json"
+        assert str(request.url) == "http://121.41.97.123:1116/releases/stable/latest.json"
         return httpx.Response(200, json=_manifest_payload())
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         manifest = await fetch_manifest(
-            "http://10.0.0.5:9000/releases",
+            "http://121.41.97.123:1116/releases",
             channel="stable",
             allow_insecure_http=True,
             client=client,

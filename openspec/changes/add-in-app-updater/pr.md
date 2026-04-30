@@ -1,7 +1,7 @@
 ## 变更内容
 
 - 统一 Nini 当前版本来源，CLI、FastAPI 元数据和更新检查共用 `nini.version.get_current_version()`。
-- 新增应用内更新后端模块，支持 manifest 拉取校验、PEP 440 版本比较、默认 HTTPS 与同域限制、显式内网 HTTP 例外、安装包下载、大小与 SHA256 校验、下载状态持久化。
+- 新增应用内更新后端模块，支持 manifest 拉取校验、PEP 440 版本比较、默认 HTTPS 与同源限制、显式 IP 地址 HTTP 例外、安装包下载、大小与 SHA256 校验、下载状态持久化。
 - 新增 `/api/update/check`、`/api/update/download`、`/api/update/status`、`/api/update/apply`，apply 在源码环境、更新包未就绪、Agent 任务运行中或签名不可信时拒绝执行。
 - 新增独立 `nini-updater.exe` 入口，负责等待旧进程退出、运行 NSIS 静默安装器、写入 updater 日志并重启 Nini。
 - 新增前端更新状态 store、启动低频自动检查、设置页手动检查入口和全局更新对话框。
@@ -29,7 +29,7 @@
 ## 风险点
 
 - 应用内安装依赖 `nini-updater.exe`、NSIS 静默安装和 Windows 文件锁释放，真实可靠性必须通过打包版烟测确认。
-- Manifest 第一版未做独立签名，只预留 `signature` 与 `signature_url` 字段；当前安全边界依赖默认 HTTPS、SHA256 与 Authenticode 签名。内网 HTTP 只应在无域名私有部署中显式开启。
+- Manifest 第一版未做独立签名，只预留 `signature` 与 `signature_url` 字段；当前安全边界依赖默认 HTTPS、SHA256 与 Authenticode 签名。HTTP 只应在无域名、IP 地址部署中显式开启。
 - 企业环境若禁止外网访问，应设置 `NINI_UPDATE_DISABLED=true` 或不配置 `NINI_UPDATE_BASE_URL`。
 
 ## 回滚方式

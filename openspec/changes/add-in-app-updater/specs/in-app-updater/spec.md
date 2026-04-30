@@ -50,12 +50,12 @@
 系统 SHALL 在用户确认后下载更新安装包，并在安装前完成完整性和签名校验。
 
 #### Scenario: 下载并校验成功
-- **GIVEN** 用户确认下载更新且更新包 URL 使用 HTTPS 或显式允许的内网 HTTP
+- **GIVEN** 用户确认下载更新且更新包 URL 使用 HTTPS 或显式允许的 IP 地址 HTTP
 - **WHEN** 下载完成、文件 SHA256 与 manifest 一致且 Authenticode 签名可信
 - **THEN** 系统 MUST 将更新状态标记为 ready，并允许用户进入安装确认步骤
 
 #### Scenario: 下载 URL 不安全
-- **GIVEN** manifest 中安装包 URL 不是 HTTPS，且不是显式允许的 localhost、环回地址、私有网段 IP 或链路本地地址 HTTP
+- **GIVEN** manifest 中安装包 URL 不是 HTTPS，且不是显式允许的 localhost 或字面量 IP 地址 HTTP
 - **WHEN** 系统准备下载更新包
 - **THEN** 系统 MUST 拒绝下载并返回安全错误
 
