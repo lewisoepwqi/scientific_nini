@@ -34,6 +34,7 @@ Unicode true
 !define PRODUCT_DESCRIPTION "科研数据分析 AI Agent"
 !define PRODUCT_EXE "nini.exe"
 !define PRODUCT_CLI_EXE "nini-cli.exe"
+!define PRODUCT_UPDATER_EXE "nini-updater.exe"
 !define PRODUCT_ICON "nini.ico"
 !define WEBVIEW2_BOOTSTRAPPER_URL "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 !define WEBVIEW2_BOOTSTRAPPER_EXE "$TEMP\MicrosoftEdgeWebView2Setup.exe"
@@ -45,7 +46,8 @@ Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
 OutFile "..\dist\Nini-${PRODUCT_VERSION}-Setup.exe"
 InstallDir "$LOCALAPPDATA\${PRODUCT_NAME}"
 InstallDirRegKey HKCU "Software\${PRODUCT_NAME}" "InstallDir"
-RequestExecutionLevel admin
+; 默认安装到 $LOCALAPPDATA 并写入 HKCU，应用内升级需要避免静默安装触发 UAC。
+RequestExecutionLevel user
 SetCompressor /SOLID lzma
 
 ; ---- 界面设置 ----
@@ -137,9 +139,12 @@ Section "主程序" SecMain
 
     Call EnsureWebView2Runtime
 
-    ; 覆盖安装前清理旧运行时目录，避免旧版 PyInstaller 残留包污染新版本导入路径。
+    ; 覆盖安装只处理程序目录，不触碰 $PROFILE\.nini 中的用户数据。
+    ; 卸载流程才允许用户选择是否删除运行时数据目录。
+    ; 清理旧运行时目录，避免旧版 PyInstaller 残留包污染新版本导入路径。
     Delete "$INSTDIR\${PRODUCT_EXE}"
     Delete "$INSTDIR\${PRODUCT_CLI_EXE}"
+    Delete "$INSTDIR\${PRODUCT_UPDATER_EXE}"
     RMDir /r "$INSTDIR\_internal"
 
     ; 复制安装器专用瘦身目录（由 build_windows.bat 预先生成）

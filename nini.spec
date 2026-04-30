@@ -208,6 +208,7 @@ a = Analysis(
     [
         str(ROOT / "src" / "nini" / "__main__.py"),
         str(ROOT / "src" / "nini" / "windows_launcher.py"),
+        str(ROOT / "src" / "nini" / "updater_main.py"),
     ],
     pathex=[str(ROOT / "src")],
     binaries=_pyarrow_binaries,
@@ -285,9 +286,29 @@ launcher_exe = EXE(
     icon=str(ROOT / "packaging" / "nini.ico") if (ROOT / "packaging" / "nini.ico").exists() else None,
 )
 
+updater_exe = EXE(
+    pyz,
+    _select_script(a.scripts, "updater_main"),
+    [],
+    exclude_binaries=True,
+    name="nini-updater",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,  # 独立升级器，后台执行不弹终端
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=str(ROOT / "packaging" / "nini.ico") if (ROOT / "packaging" / "nini.ico").exists() else None,
+)
+
 coll = COLLECT(
     cli_exe,
     launcher_exe,
+    updater_exe,
     a.binaries,
     a.zipfiles,
     a.datas,

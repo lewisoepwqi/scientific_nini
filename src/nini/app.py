@@ -28,6 +28,7 @@ from nini.plugins.network import NetworkPlugin
 from nini.plugins.registry import PluginRegistry
 from nini.tools.registry import create_default_tool_registry
 from nini.api.websocket import set_tool_registry
+from nini.version import get_current_version
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ def create_app() -> FastAPI:
     setup_logging()
     app = FastAPI(
         title="Nini - 科研数据分析 AI Agent",
-        version="0.1.0",
+        version=get_current_version(),
         lifespan=lifespan,
     )
 
@@ -170,12 +171,14 @@ def create_app() -> FastAPI:
     from nini.api.cost_routes import router as cost_router
     from nini.api.knowledge_routes import router as knowledge_router
     from nini.api.memory_routes import router as memory_router
+    from nini.api.update_routes import router as update_router
 
     app.include_router(http_router)
     app.include_router(ws_router)
     app.include_router(cost_router)
     app.include_router(knowledge_router)
     app.include_router(memory_router)
+    app.include_router(update_router)
 
     # 挂载前端静态文件（如果已构建）
     if _WEB_DIST.exists() and (_WEB_DIST / "index.html").exists():

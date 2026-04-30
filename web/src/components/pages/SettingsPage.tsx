@@ -26,6 +26,7 @@ import { useStore } from "../../store";
 import type { ModelProviderInfo } from "../../store/types";
 import { deleteProviderConfig } from "../../store/api-actions";
 import { ConfirmDialog } from "../ui";
+import UpdatePanel from "../UpdatePanel";
 import Button from "../ui/Button";
 import PageHeader from "./PageHeader";
 import { getResolvedTheme, setTheme, type ThemeMode } from "../../theme";
@@ -699,10 +700,12 @@ function AboutSection() {
           </div>
         </div>
         <div className="border-t border-[var(--border-subtle)] pt-3 space-y-2 text-[12px]">
-          <InfoRow label="版本" value="0.1.0" />
+          <InfoRow label="版本" value="见软件更新状态" />
           <InfoRow label="许可" value="开源项目" />
         </div>
       </div>
+
+      <UpdatePanel />
 
       <p className="text-[12px] text-[var(--text-muted)] leading-relaxed m-0">
         Nini 是一款面向科研人员的 AI 助手，支持数据分析、文献辅助、代码执行等功能。

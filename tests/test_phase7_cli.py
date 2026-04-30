@@ -34,6 +34,16 @@ def test_cli_init_creates_env_file(tmp_path: Path) -> None:
     assert "NINI_R_SANDBOX_TIMEOUT=" in text
 
 
+def test_cli_version_outputs_current_version(capsys: pytest.CaptureFixture[str]) -> None:
+    from nini.version import get_current_version
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--version"])
+
+    assert exc_info.value.code == 0
+    assert get_current_version() in capsys.readouterr().out
+
+
 def test_cli_init_without_force_refuses_overwrite(tmp_path: Path) -> None:
     env_path = tmp_path / ".env.nini"
     env_path.write_text("EXISTING=1\n", encoding="utf-8")

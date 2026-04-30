@@ -10,7 +10,9 @@ import SessionList from "./components/SessionList";
 import AuthGate from "./components/AuthGate";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ConfirmDialog from "./components/ConfirmDialog";
+import UpdateDialog from "./components/UpdateDialog";
 import { AUTH_INVALID_EVENT } from "./store/auth";
+import { useUpdateStore } from "./store/update";
 import { runDeferredUiUpdate } from "./app-transitions";
 import { initTheme, getStoredTheme, setTheme, getResolvedTheme, type ThemeMode } from "./theme";
 import GlobalNav, { NiniLogo, NAV_GROUPS } from "./components/GlobalNav";
@@ -81,6 +83,7 @@ function preloadWorkspacePanels(): Promise<unknown[]> {
 export default function App() {
   const connect = useStore((s) => s.connect);
   const bootstrapApp = useStore((s) => s.bootstrapApp);
+  const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
   const submitApiKey = useStore((s) => s.submitApiKey);
   const clearAuthState = useStore((s) => s.clearAuthState);
   const apiKeyRequired = useStore((s) => s.apiKeyRequired);
@@ -159,6 +162,10 @@ export default function App() {
   useEffect(() => {
     void bootstrapApp();
   }, [bootstrapApp]);
+
+  useEffect(() => {
+    void checkForUpdates();
+  }, [checkForUpdates]);
 
   // 暗色模式初始化
   useEffect(() => {
@@ -582,6 +589,7 @@ export default function App() {
       </div>
       {/* 全局确认对话框 */}
       <ConfirmDialog />
+      <UpdateDialog />
     </ErrorBoundary>
   );
 }

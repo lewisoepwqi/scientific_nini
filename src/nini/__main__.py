@@ -167,6 +167,14 @@ def _detect_weasyprint_status() -> tuple[bool, str]:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Nini - 科研数据分析 AI Agent")
+    from nini.version import get_current_version
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"Nini {get_current_version()}",
+        help="显示当前 Nini 版本",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     start_parser = subparsers.add_parser("start", help="启动 Nini 服务")
@@ -356,6 +364,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _normalize_argv(argv: Sequence[str]) -> list[str]:
+    if argv and argv[0] in {"--version", "-h", "--help"}:
+        return list(argv)
     if not argv or argv[0].startswith("-"):
         # 向后兼容：`nini --port 9000` 等价于 `nini start --port 9000`
         return ["start", *argv]
