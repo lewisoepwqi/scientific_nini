@@ -465,8 +465,11 @@ if exist "!INSTALLER_PATH!" (
     if defined UPDATE_ASSET_BASE_URL (
         if not defined NINI_UPDATE_CHANNEL set "NINI_UPDATE_CHANNEL=stable"
         if not defined NINI_UPDATE_NOTES set "NINI_UPDATE_NOTES=Nini !NINI_VERSION! 发布"
+        set "MANIFEST_HTTP_ARG="
+        if /I "!NINI_UPDATE_ALLOW_INSECURE_HTTP!"=="1" set "MANIFEST_HTTP_ARG=--allow-insecure-http"
+        if /I "!NINI_UPDATE_ALLOW_INSECURE_HTTP!"=="true" set "MANIFEST_HTTP_ARG=--allow-insecure-http"
         echo [4.2/4] Generating update manifest draft...
-        python scripts\generate_update_manifest.py --installer "!INSTALLER_PATH!" --version "!NINI_VERSION!" --channel "!NINI_UPDATE_CHANNEL!" --base-url "!UPDATE_ASSET_BASE_URL!" --notes "!NINI_UPDATE_NOTES!" --output "dist\latest.json"
+        python scripts\generate_update_manifest.py --installer "!INSTALLER_PATH!" --version "!NINI_VERSION!" --channel "!NINI_UPDATE_CHANNEL!" --base-url "!UPDATE_ASSET_BASE_URL!" --notes "!NINI_UPDATE_NOTES!" !MANIFEST_HTTP_ARG! --output "dist\latest.json"
         if !errorlevel! neq 0 (
             echo [FAIL] update manifest generation failed.
             goto :error

@@ -310,6 +310,23 @@ NINI_UPDATE_AUTO_CHECK_ENABLED=true
 NINI_UPDATE_CHECK_INTERVAL_HOURS=24
 ```
 
+如果服务器没有域名，优先使用 `https://IP:端口/`。证书需要包含该 IP 的 Subject Alternative Name（SAN），否则客户端会因为证书校验失败而拒绝连接。
+
+如果当前只能在内网使用 HTTP，可显式开启内网 HTTP 例外：
+
+```env
+NINI_UPDATE_BASE_URL=http://192.168.1.10:8080/nini/updates/
+NINI_UPDATE_CHANNEL=stable
+NINI_UPDATE_ALLOW_INSECURE_HTTP=true
+```
+
+限制：
+
+1. 默认仍拒绝 HTTP。
+2. 仅允许 `localhost`、`127.0.0.1`、私有网段 IP 或链路本地地址。
+3. 公网 IP 和普通域名的 HTTP 仍会被拒绝。
+4. 安装包仍必须通过 SHA256 和 Authenticode 签名校验。
+
 ### 生成 manifest 草稿
 
 `build_windows.bat` 在生成安装包后会始终生成 `.sha256` 文件。若设置 `NINI_UPDATE_ASSET_BASE_URL`（兼容回退到 `NINI_UPDATE_BASE_URL`），还会生成并校验 `dist\latest.json`：
@@ -321,6 +338,13 @@ set "NINI_UPDATE_CHANNEL=stable"
 set "NINI_UPDATE_NOTES=修复升级检查失败|优化启动稳定性"
 set "SIGNING_CERT_THUMBPRINT=YOUR_CERT_THUMBPRINT_HERE"
 build_windows.bat
+```
+
+内网 HTTP 发布时需要同步设置：
+
+```batch
+set "NINI_UPDATE_ASSET_BASE_URL=http://192.168.1.10:8080/nini/updates/stable/"
+set "NINI_UPDATE_ALLOW_INSECURE_HTTP=true"
 ```
 
 也可以手动执行：
@@ -339,12 +363,14 @@ python scripts\verify_update_manifest.py `
   --installer dist\Nini-0.1.1-Setup.exe
 ```
 
+内网 HTTP 手动生成时追加 `--allow-insecure-http`。
+
 上传前必须确认：
 
 | 检查项 | 要求 |
 |--------|------|
 | `latest.json` | `product=nini`、`channel` 与服务器目录一致、版本号符合 PEP 440 |
-| 安装包 URL | 必须是 HTTPS，且与更新源基础 URL 同域 |
+| 安装包 URL | 默认必须是 HTTPS；仅在显式开启时允许内网 HTTP，且必须与更新源基础 URL 同域 |
 | `size` / `sha256` | 必须通过 `verify_update_manifest.py` 校验 |
 | 签名 | 正式发布必须签名 `nini.exe`、`nini-cli.exe`、`nini-updater.exe` 和安装包 |
 | manifest 签名字段 | `signature` / `signature_url` 目前预留，MVP 不强制校验 |

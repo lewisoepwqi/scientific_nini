@@ -65,6 +65,26 @@ def test_build_manifest_url_requires_https() -> None:
         build_manifest_url("http://updates.example.com", "stable")
 
 
+def test_build_manifest_url_allows_private_ip_http_when_explicitly_enabled() -> None:
+    assert (
+        build_manifest_url(
+            "http://192.168.1.10:8080/releases",
+            "stable",
+            allow_insecure_http=True,
+        )
+        == "http://192.168.1.10:8080/releases/stable/latest.json"
+    )
+
+
+def test_build_manifest_url_rejects_public_http_even_when_enabled() -> None:
+    with pytest.raises(ManifestError, match="内网"):
+        build_manifest_url(
+            "http://8.8.8.8:8080/releases",
+            "stable",
+            allow_insecure_http=True,
+        )
+
+
 def test_build_manifest_url_uses_channel_path() -> None:
     assert (
         build_manifest_url("https://updates.example.com/releases", "beta")
@@ -146,6 +166,31 @@ def test_select_asset_rejects_insecure_asset_url() -> None:
         )
 
 
+def test_select_asset_allows_private_ip_http_when_explicitly_enabled() -> None:
+    manifest = UpdateManifest.model_validate(
+        _manifest_payload(
+            assets=[
+                {
+                    "platform": "windows-x64",
+                    "kind": "nsis-installer",
+                    "url": "http://192.168.1.10:8080/releases/Nini-0.1.2-Setup.exe",
+                    "size": 1024,
+                    "sha256": _SHA,
+                }
+            ]
+        )
+    )
+
+    asset = select_asset(
+        manifest,
+        channel="stable",
+        base_url="http://192.168.1.10:8080/releases",
+        allow_insecure_http=True,
+    )
+
+    assert asset.url.startswith("http://192.168.1.10:8080/")
+
+
 def test_select_asset_rejects_cross_domain_asset_url() -> None:
     manifest = UpdateManifest.model_validate(
         _manifest_payload(
@@ -185,9 +230,27 @@ async def test_fetch_manifest_parses_payload() -> None:
     assert manifest.notes == ["更新说明"]
 
 
+@pytest.mark.asyncio
+async def test_fetch_manifest_allows_private_ip_http_when_explicitly_enabled() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "http://10.0.0.5:9000/releases/stable/latest.json"
+        return httpx.Response(200, json=_manifest_payload())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        manifest = await fetch_manifest(
+            "http://10.0.0.5:9000/releases",
+            channel="stable",
+            allow_insecure_http=True,
+            client=client,
+        )
+
+    assert manifest.version == "0.1.2"
+
+
 def test_update_settings_default_to_no_real_source() -> None:
     settings = Settings(_env_file=None)
     assert settings.update_base_url == ""
     assert settings.update_channel == "stable"
+    assert settings.update_allow_insecure_http is False
     assert settings.update_auto_check_enabled is True
     assert settings.update_disabled is False

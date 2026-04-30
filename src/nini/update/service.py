@@ -54,6 +54,7 @@ class UpdateService:
                 self.settings.update_base_url,
                 channel=self.settings.update_channel,
                 timeout=float(self.settings.update_download_timeout_seconds),
+                allow_insecure_http=self.settings.update_allow_insecure_http,
                 client=client,
             )
             asset = select_asset(
@@ -61,6 +62,7 @@ class UpdateService:
                 channel=self.settings.update_channel,
                 platform=DEFAULT_PLATFORM,
                 base_url=self.settings.update_base_url,
+                allow_insecure_http=self.settings.update_allow_insecure_http,
             )
             available = is_newer_version(manifest.version, current)
             result = UpdateCheckResult(

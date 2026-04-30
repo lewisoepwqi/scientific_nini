@@ -49,6 +49,40 @@ def test_build_manifest_rejects_insecure_base_url(tmp_path) -> None:
         )
 
 
+def test_build_manifest_allows_private_ip_http_when_explicitly_enabled(tmp_path) -> None:
+    installer = tmp_path / "Nini-0.1.1-Setup.exe"
+    installer.write_bytes(b"nini-installer")
+
+    manifest = build_manifest(
+        installer=installer,
+        version="0.1.1",
+        channel="stable",
+        base_url="http://192.168.1.10:8080/nini/stable/",
+        notes="",
+        important=False,
+        allow_insecure_http=True,
+    )
+
+    asset = manifest["assets"][0]
+    assert asset["url"] == "http://192.168.1.10:8080/nini/stable/Nini-0.1.1-Setup.exe"
+
+
+def test_build_manifest_rejects_public_http_even_when_enabled(tmp_path) -> None:
+    installer = tmp_path / "Nini-0.1.1-Setup.exe"
+    installer.write_bytes(b"nini-installer")
+
+    with pytest.raises(ValueError, match="内网"):
+        build_manifest(
+            installer=installer,
+            version="0.1.1",
+            channel="stable",
+            base_url="http://8.8.8.8:8080/nini/stable/",
+            notes="",
+            important=False,
+            allow_insecure_http=True,
+        )
+
+
 def test_verify_manifest_detects_mismatch(tmp_path) -> None:
     installer = tmp_path / "Nini-0.1.1-Setup.exe"
     installer.write_bytes(b"nini-installer")

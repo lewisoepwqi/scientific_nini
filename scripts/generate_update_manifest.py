@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,20 @@ def _notes(raw: str) -> list[str]:
     return [item.strip() for item in raw.split("|") if item.strip()]
 
 
+def _is_local_or_private_host(hostname: str | None) -> bool:
+    """判断主机是否为本机或私有地址。"""
+    if not hostname:
+        return False
+    normalized = hostname.strip().lower()
+    if normalized == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(normalized)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_private or address.is_link_local
+
+
 def build_manifest(
     *,
     installer: Path,
@@ -32,6 +47,7 @@ def build_manifest(
     base_url: str,
     notes: str,
     important: bool,
+    allow_insecure_http: bool = False,
 ) -> dict[str, object]:
     """根据安装包生成 manifest 内容。"""
     installer = installer.resolve()
@@ -42,7 +58,12 @@ def build_manifest(
     except InvalidVersion as exc:
         raise ValueError(f"版本号不符合 PEP 440: {version}") from exc
     parsed_base_url = urlparse(base_url)
-    if parsed_base_url.scheme != "https":
+    if parsed_base_url.scheme == "http":
+        if not allow_insecure_http or not _is_local_or_private_host(parsed_base_url.hostname):
+            raise ValueError(
+                "更新安装包下载 URL 必须使用 HTTPS；HTTP 仅允许显式开启的内网 IP 或 localhost"
+            )
+    elif parsed_base_url.scheme != "https":
         raise ValueError("更新安装包下载 URL 必须使用 HTTPS")
     url = urljoin(base_url.rstrip("/") + "/", installer.name)
     return {
@@ -78,6 +99,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--notes", default="")
     parser.add_argument("--important", action="store_true")
+    parser.add_argument(
+        "--allow-insecure-http",
+        action="store_true",
+        help="仅测试或内网发布使用：允许 localhost / 私有 IP 的 HTTP 下载 URL",
+    )
     parser.add_argument("--output", required=True, type=Path)
     return parser
 
@@ -91,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         base_url=args.base_url,
         notes=args.notes,
         important=args.important,
+        allow_insecure_http=args.allow_insecure_http,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
