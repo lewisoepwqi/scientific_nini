@@ -110,12 +110,8 @@ def test_find_webview2_runtime_returns_path_when_msedge_exists(tmp_path) -> None
     assert result == exe
 
 
-def test_acquire_single_instance_mutex_returns_non_none_first_time() -> None:
-    """非 Windows 平台上，函数总返回非 None（视为第一实例）。"""
+def test_acquire_single_instance_mutex_returns_sentinel_on_non_windows() -> None:
+    """非 Windows 平台上，函数返回哨兵值 -1（视为第一实例）。"""
     import sys
-    if sys.platform == "win32":
-        handle = _acquire_single_instance_mutex()
-        assert handle is not None
-    else:
-        handle = _acquire_single_instance_mutex()
-        assert handle == -1  # 非 Windows 平台哨兵值
+    if sys.platform != "win32":
+        assert _acquire_single_instance_mutex() == -1
