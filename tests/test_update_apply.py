@@ -96,7 +96,8 @@ def test_build_updater_command_omits_missing_gui_pid(tmp_path: Path) -> None:
     assert "--gui-pid" not in command.args
 
 
-def test_signature_check_can_be_disabled(tmp_path: Path) -> None:
+def test_signature_check_can_be_disabled_in_dev_environment(tmp_path: Path) -> None:
+    """开发环境（源码运行）允许禁用签名校验。"""
     path = tmp_path / "setup.exe"
     path.write_bytes(b"unsigned")
 
@@ -104,6 +105,33 @@ def test_signature_check_can_be_disabled(tmp_path: Path) -> None:
 
     assert result.trusted is True
     assert result.status == "disabled"
+
+
+def test_signature_check_cannot_be_disabled_in_packaged_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """生产环境（打包构建）强制启用签名校验，忽略 enabled=False。"""
+    path = tmp_path / "setup.exe"
+    path.write_bytes(b"unsigned")
+
+    # 模拟打包环境
+    monkeypatch.setattr("nini.config.IS_FROZEN", True)
+
+    # 即使传入 enabled=False，在打包环境下也会被强制启用
+    # 在非 Windows 环境：签名校验会被跳过（status="skipped"）
+    # 在 Windows 环境：会尝试执行 PowerShell 签名校验
+    import sys
+    if sys.platform != "win32":
+        # 非 Windows 环境：签名校验会被跳过
+        result = verify_authenticode_signature(path, enabled=False)
+        assert result.trusted is True
+        assert result.status == "skipped"
+    else:
+        # Windows 环境：会尝试校验签名
+        # 由于测试文件未签名，应该抛出签名验证错误
+        # 或者如果 PowerShell 执行失败，也会抛出错误
+        with pytest.raises(SignatureVerificationError):
+            verify_authenticode_signature(path, enabled=False)
 
 
 def test_signature_check_rejects_missing_file(

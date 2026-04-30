@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import logging
 import os
 import subprocess
 import sys
@@ -13,6 +14,8 @@ from nini.config import Settings, settings
 from nini.update.models import UpdateDownloadState
 from nini.update.runtime_state import has_running_tasks
 from nini.update.signature import SignatureVerificationError, verify_authenticode_signature
+
+logger = logging.getLogger(__name__)
 
 
 class ApplyUpdateError(RuntimeError):
@@ -51,6 +54,8 @@ def build_updater_command(
     gui_pid: int | None,
     log_path: Path,
     wait_timeout: int,
+    backup_dir: Path | None = None,
+    keep_backups: int = 3,
 ) -> UpdaterCommand:
     """构造 updater 命令行。"""
     args = [
@@ -70,6 +75,9 @@ def build_updater_command(
     ]
     if gui_pid and gui_pid > 0:
         args.extend(["--gui-pid", str(gui_pid)])
+    if backup_dir:
+        args.extend(["--backup-dir", str(backup_dir)])
+        args.extend(["--keep-backups", str(keep_backups)])
     return UpdaterCommand(args=args)
 
 
@@ -103,6 +111,10 @@ def prepare_apply_update(
         raise ApplyUpdateError(f"未找到升级器: {updater_path}")
     app_exe = install_dir / ("nini.exe" if sys.platform == "win32" else "nini")
     log_path = app_settings.logs_dir / "updater.log"
+
+    # 备份目录：在 updates 目录下创建 backup 子目录
+    backup_dir = app_settings.updates_dir / "backup"
+
     return build_updater_command(
         updater_path=updater_path,
         installer_path=installer_path,
@@ -112,6 +124,8 @@ def prepare_apply_update(
         gui_pid=os.getppid() if os.getppid() > 0 else None,
         log_path=log_path,
         wait_timeout=app_settings.update_apply_wait_timeout_seconds,
+        backup_dir=backup_dir,
+        keep_backups=3,
     )
 
 
@@ -127,9 +141,35 @@ def launch_updater(command: UpdaterCommand) -> None:
 
 
 def schedule_current_process_exit(delay_seconds: float = 1.0) -> None:
-    """延迟退出当前后端进程，让 apply 响应先返回给前端。"""
+    """延迟退出当前后端进程，让 apply 响应先返回给前端。
+
+    退出流程：
+    1. 等待 delay_seconds 秒（让 HTTP 响应返回给前端）
+    2. 尝试执行关键清理操作（保存日志等）
+    3. 使用 os._exit(0) 强制退出（确保进程终止）
+    """
 
     def _exit_process() -> None:
+        logger.info("开始执行更新退出流程")
+
+        # 尝试执行关键清理操作
+        try:
+            # 刷新日志
+            import logging
+            for handler in logging.getLogger().handlers:
+                try:
+                    handler.flush()
+                except Exception:
+                    pass
+
+            # 执行 atexit 注册的清理函数
+            import atexit
+            atexit._run_exitfuncs()
+        except Exception as exc:
+            logger.warning("清理操作失败（忽略）: %s", exc)
+
+        # 强制退出进程
+        logger.info("退出进程")
         os._exit(0)
 
     timer = threading.Timer(delay_seconds, _exit_process)

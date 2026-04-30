@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import httpx
@@ -32,6 +33,7 @@ class UpdateService:
         self._manifest: UpdateManifest | None = None
         self._asset: UpdateAsset | None = None
         self._check_result: UpdateCheckResult | None = None
+        self._download_lock = asyncio.Lock()
 
     async def check_update(
         self,
@@ -40,13 +42,17 @@ class UpdateService:
     ) -> UpdateCheckResult:
         """检查是否存在可用更新。"""
         current = get_current_version()
+        logger.info("检查更新: current_version=%s, channel=%s", current, self.settings.update_channel)
+
         if self.settings.update_disabled:
             result = UpdateCheckResult(current_version=current, status="disabled")
             self._check_result = result
+            logger.info("更新功能已禁用")
             return result
         if not self.settings.update_base_url.strip():
             result = UpdateCheckResult(current_version=current, status="not_configured")
             self._check_result = result
+            logger.info("更新服务器未配置")
             return result
 
         try:
@@ -77,8 +83,13 @@ class UpdateService:
             )
             self._manifest = manifest
             self._asset = asset
+            logger.info(
+                "检查更新完成: latest=%s, available=%s, important=%s",
+                manifest.version, available, manifest.important,
+            )
         except UpdateSourceNotConfigured:
             result = UpdateCheckResult(current_version=current, status="not_configured")
+            logger.warning("更新源未配置")
         except (ManifestError, httpx.HTTPError, ValueError) as exc:
             logger.warning("检查更新失败: %s", exc)
             result = UpdateCheckResult(
@@ -94,25 +105,43 @@ class UpdateService:
         *,
         client: httpx.AsyncClient | None = None,
     ):
-        """下载当前检查到的更新包。"""
-        if self._manifest is None or self._asset is None:
-            check = await self.check_update(client=client)
-            if not check.update_available:
-                state = self.state_store.load()
-                state.status = "download_failed"
-                state.error = check.error or "当前没有可下载的更新"
-                self.state_store.save(state)
-                return state
-        assert self._manifest is not None
-        assert self._asset is not None
-        return await download_asset(
-            self._asset,
-            version=self._manifest.version,
-            updates_dir=self.settings.updates_dir,
-            state_store=self.state_store,
-            timeout=float(self.settings.update_download_timeout_seconds),
-            client=client,
-        )
+        """下载当前检查到的更新包。
+
+        使用 asyncio.Lock 防止并发下载。
+        """
+        async with self._download_lock:
+            # 检查是否有正在进行的下载
+            existing_state = self.state_store.load()
+            if existing_state.status == "downloading":
+                logger.info("已有下载任务正在进行，返回当前状态")
+                return existing_state
+
+            if self._manifest is None or self._asset is None:
+                check = await self.check_update(client=client)
+                if not check.update_available:
+                    state = self.state_store.load()
+                    state.status = "download_failed"
+                    state.error = check.error or "当前没有可下载的更新"
+                    self.state_store.save(state)
+                    logger.warning("下载更新失败: %s", state.error)
+                    return state
+            assert self._manifest is not None
+            assert self._asset is not None
+
+            logger.info(
+                "开始下载更新: version=%s, size=%d bytes, url=%s",
+                self._manifest.version, self._asset.size, self._asset.url,
+            )
+            result = await download_asset(
+                self._asset,
+                version=self._manifest.version,
+                updates_dir=self.settings.updates_dir,
+                state_store=self.state_store,
+                timeout=float(self.settings.update_download_timeout_seconds),
+                client=client,
+            )
+            logger.info("下载更新完成: status=%s, verified=%s", result.status, result.verified)
+            return result
 
     def status(self) -> UpdateStatus:
         """返回当前更新状态。"""
