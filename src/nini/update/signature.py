@@ -5,8 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import json
+import logging
 import subprocess
 import sys
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -35,7 +38,18 @@ def verify_authenticode_signature(
     allowed_publishers: str = "",
     enabled: bool = True,
 ) -> SignatureVerificationResult:
-    """校验 Windows 安装包 Authenticode 签名。"""
+    """校验 Windows 安装包 Authenticode 签名。
+
+    安全策略：
+    - 生产环境（打包构建）强制启用签名校验，忽略 enabled 参数
+    - 开发环境（源码运行）允许通过 enabled=False 禁用签名校验
+    """
+    # 生产环境强制启用签名校验，防止通过配置绕过安全检查
+    from nini.config import IS_FROZEN
+    if IS_FROZEN and not enabled:
+        logger.warning("生产环境强制启用签名校验，忽略 enabled=False 配置")
+        enabled = True
+
     if not enabled:
         return SignatureVerificationResult(
             trusted=True, status="disabled", message="签名校验已禁用"
@@ -75,7 +89,8 @@ def verify_authenticode_signature(
         check=False,
     )
     if proc.returncode != 0:
-        raise SignatureVerificationError(proc.stderr.strip() or "签名校验命令执行失败")
+        error_msg = (proc.stderr or "").strip() or "签名校验命令执行失败"
+        raise SignatureVerificationError(error_msg)
 
     try:
         payload = json.loads(proc.stdout or "{}")
