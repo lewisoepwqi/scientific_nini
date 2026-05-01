@@ -9,6 +9,7 @@ import type {
 
 const AUTO_CHECK_KEY = "nini:update:last-check";
 const AUTO_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const POLL_INTERVAL_MS = 2000;
 
 const EMPTY_DOWNLOAD: UpdateDownloadState = {
   status: "idle",
@@ -24,14 +25,21 @@ interface UpdateStore {
   check: UpdateCheckResult | null;
   download: UpdateDownloadState;
   dialogOpen: boolean;
-  busy: boolean;
+  checking: boolean;
+  downloading: boolean;
+  applying: boolean;
   error: string | null;
+  checkCompleted: boolean;
+  pollTimer: ReturnType<typeof setInterval> | null;
   checkForUpdates: (options?: { manual?: boolean }) => Promise<void>;
   downloadUpdate: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   applyUpdate: () => Promise<void>;
   closeDialog: () => void;
   openDialog: () => void;
+  resetCheckCompleted: () => void;
+  startPolling: () => void;
+  stopPolling: () => void;
 }
 
 function shouldAutoCheck(): boolean {
@@ -58,13 +66,17 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
   check: null,
   download: EMPTY_DOWNLOAD,
   dialogOpen: false,
-  busy: false,
+  checking: false,
+  downloading: false,
+  applying: false,
   error: null,
+  checkCompleted: false,
+  pollTimer: null,
 
   async checkForUpdates(options) {
     const manual = options?.manual === true;
     if (!manual && !shouldAutoCheck()) return;
-    set({ busy: true, error: null });
+    set({ checking: true, error: null });
     try {
       const response = await apiFetch("/api/update/check");
       const payload = await readApiResponse<UpdateCheckResult>(response);
@@ -72,7 +84,8 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
       if (!manual) recordAutoCheck();
       set({
         check,
-        busy: false,
+        checking: false,
+        checkCompleted: true,
         dialogOpen: check.update_available ? true : get().dialogOpen,
         error:
           check.status === "check_failed"
@@ -84,21 +97,27 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     } catch (error) {
       if (!manual) recordAutoCheck();
       set({
-        busy: false,
+        checking: false,
+        checkCompleted: true,
         error: error instanceof Error ? error.message : "检查更新失败",
       });
     }
   },
 
   async downloadUpdate() {
-    set({ busy: true, error: null });
+    set({ downloading: true, error: null });
     try {
+      // 启动下载，不等待完成
       const response = await apiFetch("/api/update/download", { method: "POST" });
       const payload = await readApiResponse<UpdateDownloadState>(response);
-      set({ download: payload.data, busy: false, dialogOpen: true, error: payload.data.error ?? null });
+      set({ download: payload.data, downloading: false, error: payload.data.error ?? null });
+      // 如果下载未完成，开始轮询
+      if (payload.data.status === "downloading" || payload.data.status === "verifying") {
+        get().startPolling();
+      }
     } catch (error) {
       set({
-        busy: false,
+        downloading: false,
         error: error instanceof Error ? error.message : "下载更新失败",
       });
     }
@@ -108,29 +127,52 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     try {
       const response = await apiFetch("/api/update/status");
       const payload = await readApiResponse<UpdateStatus>(response);
+      const newDownload = payload.data.download ?? get().download;
       set({
         check: payload.data.check ?? get().check,
-        download: payload.data.download ?? get().download,
+        download: newDownload,
       });
+      // 如果下载完成或失败，停止轮询
+      if (newDownload.status === "ready" || newDownload.status === "download_failed" || newDownload.status === "verify_failed") {
+        get().stopPolling();
+      }
     } catch {
       // 状态轮询失败不打断用户当前操作。
     }
   },
 
   async applyUpdate() {
-    set({ busy: true, error: null });
+    set({ applying: true, error: null });
     try {
+      // 启动应用更新，不等待完成
       const response = await apiFetch("/api/update/apply", { method: "POST" });
       await readApiResponse<{ status: string }>(response);
       set({
-        busy: false,
+        applying: false,
         download: { ...get().download, status: "restarting" },
       });
     } catch (error) {
       set({
-        busy: false,
+        applying: false,
         error: error instanceof Error ? error.message : "启动升级失败",
       });
+    }
+  },
+
+  startPolling() {
+    const existing = get().pollTimer;
+    if (existing) clearInterval(existing);
+    const timer = setInterval(() => {
+      void get().refreshStatus();
+    }, POLL_INTERVAL_MS);
+    set({ pollTimer: timer });
+  },
+
+  stopPolling() {
+    const timer = get().pollTimer;
+    if (timer) {
+      clearInterval(timer);
+      set({ pollTimer: null });
     }
   },
 
@@ -140,5 +182,9 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
 
   openDialog() {
     set({ dialogOpen: true });
+  },
+
+  resetCheckCompleted() {
+    set({ checkCompleted: false });
   },
 }));

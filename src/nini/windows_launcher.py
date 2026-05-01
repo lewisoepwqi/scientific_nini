@@ -919,7 +919,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--log-level",
-        default="warning",
+        default="info",
         choices=["critical", "error", "warning", "info", "debug", "trace"],
         help="后台服务日志级别",
     )

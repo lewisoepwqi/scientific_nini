@@ -23,7 +23,9 @@ describe("update store", () => {
         error: null,
       },
       dialogOpen: false,
-      busy: false,
+      checking: false,
+      downloading: false,
+      applying: false,
       error: null,
     });
   });

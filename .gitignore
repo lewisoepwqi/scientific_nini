@@ -40,6 +40,12 @@ pnpm-debug.log*
 .env.*
 !.env.example
 
+# 发布配置（含服务器敏感信息）
+config/release.conf
+
+# 按版本隔离的打包产物
+dist/v*/
+
 # 运行时数据与日志
 uploads/
 *.log

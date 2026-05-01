@@ -7,7 +7,8 @@ export default function UpdateDialog() {
   const open = useUpdateStore((s) => s.dialogOpen);
   const check = useUpdateStore((s) => s.check);
   const download = useUpdateStore((s) => s.download);
-  const busy = useUpdateStore((s) => s.busy);
+  const downloading = useUpdateStore((s) => s.downloading);
+  const applying = useUpdateStore((s) => s.applying);
   const error = useUpdateStore((s) => s.error);
   const closeDialog = useUpdateStore((s) => s.closeDialog);
   const downloadUpdate = useUpdateStore((s) => s.downloadUpdate);
@@ -18,7 +19,8 @@ export default function UpdateDialog() {
 
   const ready = download.status === "ready";
   const hasRunningTask = runningSessions.size > 0;
-  const applying = download.status === "applying" || download.status === "restarting";
+  const isDownloading = download.status === "downloading" || download.status === "verifying";
+  const isApplying = download.status === "applying" || download.status === "restarting";
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/35 p-4">
@@ -71,18 +73,40 @@ export default function UpdateDialog() {
             </div>
           )}
 
-          {download.status !== "idle" && (
+          {/* 下载进度 */}
+          {(isDownloading || isApplying) && (
             <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
-              <div className="flex items-center justify-between text-[12px] text-[var(--text-secondary)]">
-                <span>下载状态：{download.status}</span>
+              <div className="flex items-center justify-between text-[12px] text-[var(--text-secondary)] mb-2">
+                <span>
+                  {download.status === "verifying"
+                    ? "正在校验…"
+                    : isDownloading
+                      ? "正在下载…"
+                      : isApplying
+                        ? "正在应用更新…"
+                        : "准备中…"}
+                </span>
                 <span>{download.progress}%</span>
               </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--bg-overlay)]">
+              <div className="h-2 overflow-hidden rounded-full bg-[var(--bg-overlay)]">
                 <div
                   className="h-full rounded-full bg-[var(--accent)] transition-[width]"
                   style={{ width: `${download.progress}%` }}
                 />
               </div>
+              {download.total_bytes && (
+                <div className="mt-1.5 text-[11px] text-[var(--text-muted)] text-right">
+                  {(download.downloaded_bytes / 1024 / 1024).toFixed(1)} MB / {(download.total_bytes / 1024 / 1024).toFixed(1)} MB
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 已准备好 */}
+          {ready && (
+            <div className="rounded-lg border border-green-500/20 bg-green-500/10 px-3 py-2 text-[12px] text-green-700 flex items-center gap-2">
+              <CheckCircle2 size={15} className="shrink-0" />
+              <span>更新已下载完成并校验通过，可以重启安装。</span>
             </div>
           )}
 
@@ -101,22 +125,22 @@ export default function UpdateDialog() {
 
         <footer className="flex flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] px-5 py-4">
           <Button variant="secondary" onClick={closeDialog}>
-            稍后处理
+            {isDownloading ? "后台下载" : "稍后处理"}
           </Button>
-          {!ready ? (
-            <Button onClick={() => void downloadUpdate()} disabled={busy}>
-              {busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+          {!ready && !isDownloading ? (
+            <Button onClick={() => void downloadUpdate()} disabled={downloading}>
+              {downloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
               下载并校验
             </Button>
-          ) : (
+          ) : ready ? (
             <Button
               onClick={() => void applyUpdate()}
-              disabled={busy || hasRunningTask || applying}
+              disabled={hasRunningTask || applying || isApplying}
             >
               <CheckCircle2 size={14} />
               立即重启并升级
             </Button>
-          )}
+          ) : null}
         </footer>
       </section>
     </div>

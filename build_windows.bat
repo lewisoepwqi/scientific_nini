@@ -62,6 +62,37 @@ if !errorlevel! neq 0 (
 echo [0.5/4] Done. Version: !NINI_VERSION!
 echo.
 
+:: ── 设置版本隔离输出目录 ──────────────────────────────────────────────────
+set "VERSION_DIST_DIR=dist\v!NINI_VERSION!"
+set "VERSION_BUILD_DIR=build\v!NINI_VERSION!"
+
+:: ── 清理旧版本打包目录（默认保留，设置 NINI_CLEAN_OLD_VERSIONS=1 时清理）──
+echo [0.6/4] Checking old versioned build directories...
+if /I "!NINI_CLEAN_OLD_VERSIONS!"=="1" (
+    echo [CLEAN] NINI_CLEAN_OLD_VERSIONS=1, cleaning old versions...
+    if exist "dist\v*" (
+        for /d %%D in ("dist\v*") do (
+            if /I not "%%~nxD"=="v!NINI_VERSION!" (
+                echo [CLEAN] Removing old version directory: %%D
+                rmdir /s /q "%%D" >nul 2>nul
+            )
+        )
+    )
+    if exist "build\v*" (
+        for /d %%D in ("build\v*") do (
+            if /I not "%%~nxD"=="v!NINI_VERSION!" (
+                echo [CLEAN] Removing old build directory: %%D
+                rmdir /s /q "%%D" >nul 2>nul
+            )
+        )
+    )
+    echo [0.6/4] Old versions cleaned.
+) else (
+    echo [SKIP] Preserving old version directories. Set NINI_CLEAN_OLD_VERSIONS=1 to clean.
+)
+echo [0.6/4] Done.
+echo.
+
 echo [1/4] Installing dependencies...
 pip install -e .[packaging,webr,local,local_vector,advanced_retrieval]
 if !errorlevel! neq 0 (
@@ -339,8 +370,17 @@ if exist "%WEBVIEW2_EXE%" (
     set "NSIS_EXTRA_ARGS="
 )
 
+echo [2.5/4] Baking version !NINI_VERSION! into Python source files...
+python scripts\bake_version.py !NINI_VERSION!
+if !errorlevel! neq 0 (
+    echo [FAIL] Version baking failed.
+    goto :error
+)
+echo [2.5/4] Done.
+echo.
+
 echo [3/4] Running PyInstaller...
-python -m PyInstaller nini.spec --noconfirm
+python -m PyInstaller nini.spec --noconfirm --distpath "!VERSION_DIST_DIR!" --workpath "!VERSION_BUILD_DIR!"
 if !errorlevel! neq 0 (
     echo [FAIL] PyInstaller failed.
     goto :error
@@ -351,7 +391,7 @@ echo.
 :: ── EXE 签名（在 NSIS 打包前）──────────────────────────────────────────────
 if not "%SIGNING_CERT_THUMBPRINT%"=="" (
     echo [BUILD] 签名可执行文件...
-    signtool sign /sha1 "%SIGNING_CERT_THUMBPRINT%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d "Nini" dist\nini\nini.exe dist\nini\nini-cli.exe dist\nini\nini-updater.exe
+    signtool sign /sha1 "%SIGNING_CERT_THUMBPRINT%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d "Nini" "!VERSION_DIST_DIR!\nini\nini.exe" "!VERSION_DIST_DIR!\nini\nini-cli.exe" "!VERSION_DIST_DIR!\nini\nini-updater.exe"
     if errorlevel 1 (
         echo [ERROR] EXE 签名失败
         exit /b 1
@@ -360,12 +400,12 @@ if not "%SIGNING_CERT_THUMBPRINT%"=="" (
 echo.
 
 echo [3.5/4] Packaging offline model bundle...
-set "OFFLINE_MODELS_ZIP=dist\Nini-!NINI_VERSION!-OfflineModels.zip"
-set "DIST_HF_DIR=dist\nini\runtime\models\huggingface"
-set "DIST_ST_DIR=dist\nini\runtime\models\sentence-transformers"
-set "DIST_INTERNAL_HF_DIR=dist\nini\_internal\runtime\models\huggingface"
-set "DIST_INTERNAL_ST_DIR=dist\nini\_internal\runtime\models\sentence-transformers"
-set "INSTALLER_STAGE_DIR=dist\nini-installer"
+set "OFFLINE_MODELS_ZIP=!VERSION_DIST_DIR!\Nini-!NINI_VERSION!-OfflineModels.zip"
+set "DIST_HF_DIR=!VERSION_DIST_DIR!\nini\runtime\models\huggingface"
+set "DIST_ST_DIR=!VERSION_DIST_DIR!\nini\runtime\models\sentence-transformers"
+set "DIST_INTERNAL_HF_DIR=!VERSION_DIST_DIR!\nini\_internal\runtime\models\huggingface"
+set "DIST_INTERNAL_ST_DIR=!VERSION_DIST_DIR!\nini\_internal\runtime\models\sentence-transformers"
+set "INSTALLER_STAGE_DIR=!VERSION_DIST_DIR!\nini-installer"
 set "HAS_DIST_OFFLINE_MODELS="
 
 if exist "!DIST_HF_DIR!" set "HAS_DIST_OFFLINE_MODELS=1"
@@ -377,12 +417,13 @@ if defined HAS_DIST_OFFLINE_MODELS (
     if exist "!OFFLINE_MODELS_ZIP!" del /q "!OFFLINE_MODELS_ZIP!" >nul 2>nul
     powershell -NoProfile -ExecutionPolicy Bypass -Command ^
         "$ErrorActionPreference='Stop';" ^
-        "$zip = Resolve-Path 'dist'; $zip = Join-Path $zip 'Nini-!NINI_VERSION!-OfflineModels.zip';" ^
+        "$distDir = Resolve-Path '!VERSION_DIST_DIR!';" ^
+        "$zip = Join-Path $distDir 'Nini-!NINI_VERSION!-OfflineModels.zip';" ^
         "$items = @();" ^
-        "if (Test-Path 'dist\nini\runtime\models\huggingface') { $items += (Resolve-Path 'dist\nini\runtime\models\huggingface').Path };" ^
-        "if (Test-Path 'dist\nini\runtime\models\sentence-transformers') { $items += (Resolve-Path 'dist\nini\runtime\models\sentence-transformers').Path };" ^
-        "if (Test-Path 'dist\nini\_internal\runtime\models\huggingface') { $items += (Resolve-Path 'dist\nini\_internal\runtime\models\huggingface').Path };" ^
-        "if (Test-Path 'dist\nini\_internal\runtime\models\sentence-transformers') { $items += (Resolve-Path 'dist\nini\_internal\runtime\models\sentence-transformers').Path };" ^
+        "if (Test-Path '$distDir\nini\runtime\models\huggingface') { $items += (Resolve-Path '$distDir\nini\runtime\models\huggingface').Path };" ^
+        "if (Test-Path '$distDir\nini\runtime\models\sentence-transformers') { $items += (Resolve-Path '$distDir\nini\runtime\models\sentence-transformers').Path };" ^
+        "if (Test-Path '$distDir\nini\_internal\runtime\models\huggingface') { $items += (Resolve-Path '$distDir\nini\_internal\runtime\models\huggingface').Path };" ^
+        "if (Test-Path '$distDir\nini\_internal\runtime\models\sentence-transformers') { $items += (Resolve-Path '$distDir\nini\_internal\runtime\models\sentence-transformers').Path };" ^
         "if ($items.Count -eq 0) { exit 0 };" ^
         "Compress-Archive -Path $items -DestinationPath $zip -Force"
     if !errorlevel! neq 0 (
@@ -392,7 +433,7 @@ if defined HAS_DIST_OFFLINE_MODELS (
         echo [INFO] NSIS installer will exclude offline model caches to avoid oversized setup packages.
     )
 ) else (
-    echo [SKIP] No offline model directory found in dist\nini\runtime\models.
+    echo [SKIP] No offline model directory found in !VERSION_DIST_DIR!\nini\runtime\models.
 )
 echo [3.5/4] Done.
 echo.
@@ -401,8 +442,9 @@ echo [3.6/4] Preparing installer staging directory...
 if exist "!INSTALLER_STAGE_DIR!" rmdir /s /q "!INSTALLER_STAGE_DIR!" >nul 2>nul
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "$ErrorActionPreference='Stop';" ^
-    "$source = Resolve-Path 'dist\nini';" ^
-    "$target = Join-Path (Resolve-Path 'dist') 'nini-installer';" ^
+    "$distDir = Resolve-Path '!VERSION_DIST_DIR!';" ^
+    "$source = Join-Path $distDir 'nini';" ^
+    "$target = Join-Path $distDir 'nini-installer';" ^
     "Copy-Item -Path $source -Destination $target -Recurse -Force;" ^
     "$excluded = @(" ^
     "  (Join-Path $target 'runtime\models\huggingface')," ^
@@ -419,9 +461,10 @@ echo [3.6/4] Done.
 echo.
 
 echo [4/4] Creating installer...
+set "INSTALLER_OUTFILE=!VERSION_DIST_DIR!\Nini-!NINI_VERSION!-Setup.exe"
 where makensis >nul 2>nul
 if !errorlevel! equ 0 (
-    makensis /INPUTCHARSET UTF8 /DPRODUCT_VERSION=!NINI_VERSION! /DPRODUCT_SOURCE_DIR=..\dist\nini-installer %NSIS_EXTRA_ARGS% packaging\installer.nsi
+    makensis /INPUTCHARSET UTF8 /DPRODUCT_VERSION=!NINI_VERSION! /DPRODUCT_SOURCE_DIR=..\!VERSION_DIST_DIR!\nini-installer /DOUTFILE_PATH=..\!VERSION_DIST_DIR!\Nini-!NINI_VERSION!-Setup.exe %NSIS_EXTRA_ARGS% packaging\installer.nsi
     if !errorlevel! neq 0 (
         echo [WARN] makensis failed, but portable build is still available.
     )
@@ -433,7 +476,7 @@ if !errorlevel! equ 0 (
 :: ── 安装包签名（在 NSIS 打包后）────────────────────────────────────────────
 if not "%SIGNING_CERT_THUMBPRINT%"=="" (
     echo [BUILD] 签名安装包...
-    for %%f in (dist\Nini-*-Setup.exe) do (
+    for %%f in (!VERSION_DIST_DIR!\Nini-*-Setup.exe) do (
         signtool sign /sha1 "%SIGNING_CERT_THUMBPRINT%" /tr http://timestamp.digicert.com /td sha256 /fd sha256 /d "Nini 安装程序" "%%f"
         if errorlevel 1 (
             echo [ERROR] 安装包签名失败
@@ -446,7 +489,8 @@ if not "%SIGNING_CERT_THUMBPRINT%"=="" (
 )
 echo.
 
-set "INSTALLER_PATH=dist\Nini-!NINI_VERSION!-Setup.exe"
+set "INSTALLER_PATH=!VERSION_DIST_DIR!\Nini-!NINI_VERSION!-Setup.exe"
+
 if exist "!INSTALLER_PATH!" (
     echo [4.1/4] Generating installer SHA256...
     python -c "import hashlib,os,sys;p=sys.argv[1];h=hashlib.sha256();f=open(p,'rb');[h.update(b) for b in iter(lambda:f.read(1048576),b'')];f.close();open(p+'.sha256','w',encoding='ascii').write(h.hexdigest()+'  '+os.path.basename(p)+'\n')" "!INSTALLER_PATH!"
@@ -455,43 +499,82 @@ if exist "!INSTALLER_PATH!" (
         goto :error
     )
 
+    :: ── 读取发布配置（优先使用 config/release.conf）──────────────────────────
+    set "RELEASE_CONF=config\release.conf"
     set "UPDATE_ASSET_BASE_URL="
+    set "UPDATE_CHANNEL="
+    set "UPDATE_NOTES="
+    set "UPDATE_ALLOW_INSECURE_HTTP="
+
+    if exist "!RELEASE_CONF!" (
+        echo [4.2/4] Reading release configuration from !RELEASE_CONF!...
+        for /f "tokens=1,2 delims== " %%a in ('findstr /R "^url \= ^channel \= ^allow_insecure_http \= ^default_notes \= " !RELEASE_CONF!') do (
+            if "%%a"=="url" set "UPDATE_ASSET_BASE_URL=%%b"
+            if "%%a"=="channel" set "UPDATE_CHANNEL=%%b"
+            if "%%a"=="allow_insecure_http" set "UPDATE_ALLOW_INSECURE_HTTP=%%b"
+            if "%%a"=="default_notes" set "UPDATE_NOTES=%%b"
+        )
+        :: 去掉可能存在的引号
+        set "UPDATE_ASSET_BASE_URL=!UPDATE_ASSET_BASE_URL:"=!"
+        set "UPDATE_CHANNEL=!UPDATE_CHANNEL:"=!"
+        set "UPDATE_ALLOW_INSECURE_HTTP=!UPDATE_ALLOW_INSECURE_HTTP:"=!"
+        set "UPDATE_NOTES=!UPDATE_NOTES:"=!"
+    )
+
+    :: 环境变量优先级高于配置文件
     if defined NINI_UPDATE_ASSET_BASE_URL set "UPDATE_ASSET_BASE_URL=!NINI_UPDATE_ASSET_BASE_URL!"
     if not defined UPDATE_ASSET_BASE_URL if defined NINI_UPDATE_BASE_URL set "UPDATE_ASSET_BASE_URL=!NINI_UPDATE_BASE_URL!"
+    if defined NINI_UPDATE_CHANNEL set "UPDATE_CHANNEL=!NINI_UPDATE_CHANNEL!"
+    if defined NINI_UPDATE_NOTES set "UPDATE_NOTES=!NINI_UPDATE_NOTES!"
+    if not defined NINI_UPDATE_CHANNEL if not defined UPDATE_CHANNEL set "UPDATE_CHANNEL=stable"
+    if not defined NINI_UPDATE_NOTES if not defined UPDATE_NOTES set "UPDATE_NOTES=Nini !NINI_VERSION! 发布"
 
     if defined UPDATE_ASSET_BASE_URL (
-        if not defined NINI_UPDATE_CHANNEL set "NINI_UPDATE_CHANNEL=stable"
-        if not defined NINI_UPDATE_NOTES set "NINI_UPDATE_NOTES=Nini !NINI_VERSION! 发布"
         set "MANIFEST_HTTP_ARG="
+        if /I "!UPDATE_ALLOW_INSECURE_HTTP!"=="true" set "MANIFEST_HTTP_ARG=--allow-insecure-http"
+        if /I "!UPDATE_ALLOW_INSECURE_HTTP!"=="1" set "MANIFEST_HTTP_ARG=--allow-insecure-http"
         if /I "!NINI_UPDATE_ALLOW_INSECURE_HTTP!"=="1" set "MANIFEST_HTTP_ARG=--allow-insecure-http"
         if /I "!NINI_UPDATE_ALLOW_INSECURE_HTTP!"=="true" set "MANIFEST_HTTP_ARG=--allow-insecure-http"
+
         echo [4.2/4] Generating update manifest draft...
-        python scripts\generate_update_manifest.py --installer "!INSTALLER_PATH!" --version "!NINI_VERSION!" --channel "!NINI_UPDATE_CHANNEL!" --base-url "!UPDATE_ASSET_BASE_URL!" --notes "!NINI_UPDATE_NOTES!" !MANIFEST_HTTP_ARG! --output "dist\latest.json"
+        python scripts\generate_update_manifest.py --installer "!INSTALLER_PATH!" --version "!NINI_VERSION!" --channel "!UPDATE_CHANNEL!" --base-url "!UPDATE_ASSET_BASE_URL!" --notes "!UPDATE_NOTES!" !MANIFEST_HTTP_ARG! --output "!VERSION_DIST_DIR!\latest.json"
         if !errorlevel! neq 0 (
             echo [FAIL] update manifest generation failed.
             goto :error
         )
-        python scripts\verify_update_manifest.py --manifest "dist\latest.json" --installer "!INSTALLER_PATH!"
+        python scripts\verify_update_manifest.py --manifest "!VERSION_DIST_DIR!\latest.json" --installer "!INSTALLER_PATH!"
         if !errorlevel! neq 0 (
             echo [FAIL] update manifest verification failed.
             goto :error
         )
+
+        echo [4.3/4] Generating upload scripts...
+        python scripts\generate_upload_script.py --version "!NINI_VERSION!" --installer-dir "!VERSION_DIST_DIR!" --config "!RELEASE_CONF!" --output-dir "!VERSION_DIST_DIR!"
+        if !errorlevel! neq 0 (
+            echo [WARN] upload script generation failed.
+        )
     ) else (
-        echo [SKIP] NINI_UPDATE_ASSET_BASE_URL not set, skip update manifest draft.
+        echo [SKIP] NINI_UPDATE_ASSET_BASE_URL / config/release.conf not set, skip update manifest draft.
     )
 ) else (
     echo [SKIP] Installer not generated, skip SHA256 and update manifest.
 )
+
+
 echo.
 
 echo === Build complete! ===
-echo GUI Launcher: dist\nini\nini.exe
-echo CLI Entry : dist\nini\nini-cli.exe
-echo Updater   : dist\nini\nini-updater.exe
-if exist "dist\Nini-!NINI_VERSION!-Setup.exe" (
-    echo Installer : dist\Nini-!NINI_VERSION!-Setup.exe
-    if exist "dist\Nini-!NINI_VERSION!-Setup.exe.sha256" echo SHA256    : dist\Nini-!NINI_VERSION!-Setup.exe.sha256
-    if exist "dist\latest.json" echo Manifest  : dist\latest.json
+echo Version Output: !VERSION_DIST_DIR!\nini.exe
+echo GUI Launcher : !VERSION_DIST_DIR!\nini\nini.exe
+echo CLI Entry    : !VERSION_DIST_DIR!\nini\nini-cli.exe
+echo Updater      : !VERSION_DIST_DIR!\nini\nini-updater.exe
+if exist "!VERSION_DIST_DIR!\Nini-!NINI_VERSION!-Setup.exe" (
+    echo Installer    : !VERSION_DIST_DIR!\Nini-!NINI_VERSION!-Setup.exe
+    if exist "!VERSION_DIST_DIR!\Nini-!NINI_VERSION!-Setup.exe.sha256" echo SHA256       : !VERSION_DIST_DIR!\Nini-!NINI_VERSION!-Setup.exe.sha256
+    if exist "!VERSION_DIST_DIR!\latest.json" echo Manifest     : !VERSION_DIST_DIR!\latest.json
+    if exist "!VERSION_DIST_DIR!\upload.bat" echo Upload Script: !VERSION_DIST_DIR!\upload.bat
+    if exist "!VERSION_DIST_DIR!\upload.ps1" echo Upload Script: !VERSION_DIST_DIR!\upload.ps1
+    if exist "!VERSION_DIST_DIR!\UPLOAD_INSTRUCTIONS.txt" echo Instructions : !VERSION_DIST_DIR!\UPLOAD_INSTRUCTIONS.txt
 ) else (
     echo Installer : not generated
 )
