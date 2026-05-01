@@ -65,7 +65,7 @@ def build_manifest(
             )
     elif parsed_base_url.scheme != "https":
         raise ValueError("更新安装包下载 URL 必须使用 HTTPS")
-    url = urljoin(base_url.rstrip("/") + "/", installer.name)
+    url = urljoin(base_url.rstrip("/") + "/", f"{channel}/{installer.name}")
     return {
         "schema_version": 1,
         "product": "nini",

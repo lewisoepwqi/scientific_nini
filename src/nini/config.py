@@ -349,7 +349,7 @@ class Settings(BaseSettings):
     # ---- 应用内更新 ----
     update_base_url: str = ""  # 更新服务器基础 URL；留空时自动检查静默跳过
     update_channel: str = "stable"  # 更新渠道：stable / beta
-    update_allow_insecure_http: bool = False  # 仅允许内网 IP / localhost 的 HTTP 更新源
+    update_allow_insecure_http: bool = False  # 允许 HTTP 更新源（IP 地址）；生产应保持 False
     update_auto_check_enabled: bool = True
     update_check_interval_hours: int = 24
     update_disabled: bool = False  # 企业或离线部署可禁用更新入口

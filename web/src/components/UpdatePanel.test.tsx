@@ -26,9 +26,28 @@ describe("UpdatePanel", () => {
         error: null,
       },
       dialogOpen: false,
-      busy: false,
+      checking: false,
+      downloading: false,
+      applying: false,
       error: null,
     });
+  });
+
+  it("verifying 状态显示正在校验文案", () => {
+    useUpdateStore.setState({
+      download: {
+        status: "verifying",
+        progress: 95,
+        downloaded_bytes: 50000000,
+        total_bytes: 52428800,
+        installer_path: null,
+        verified: false,
+        error: null,
+      },
+    });
+
+    render(<UpdatePanel />);
+    expect(screen.getByText("正在校验…")).toBeInTheDocument();
   });
 
   it("展示更新信息并触发下载", () => {

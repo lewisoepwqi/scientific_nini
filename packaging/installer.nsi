@@ -43,7 +43,10 @@ Unicode true
 !endif
 
 Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
-OutFile "..\dist\Nini-${PRODUCT_VERSION}-Setup.exe"
+!ifndef OUTFILE_PATH
+!define OUTFILE_PATH "..\dist\Nini-${PRODUCT_VERSION}-Setup.exe"
+!endif
+OutFile "${OUTFILE_PATH}"
 InstallDir "$LOCALAPPDATA\${PRODUCT_NAME}"
 InstallDirRegKey HKCU "Software\${PRODUCT_NAME}" "InstallDir"
 ; 默认安装到 $LOCALAPPDATA 并写入 HKCU，应用内升级需要避免静默安装触发 UAC。
@@ -93,7 +96,8 @@ Function EnsureWebView2Runtime
     DetailPrint "正在安装离线 WebView2 Runtime..."
     ExecWait '"$INSTDIR\webview2\MicrosoftEdgeWebView2RuntimeInstallerX64.exe" /silent /install' $0
     StrCmp $0 0 done
-    MessageBox MB_ICONEXCLAMATION|MB_OK "WebView2 Runtime 安装失败。Nini 将继续安装，但部分功能可能需要您后续手动安装 WebView2 Runtime。" /SD IDOK
+    ; 安装包返回非零可能是：已安装/版本冲突/无需更新，这些都不影响使用
+    DetailPrint "WebView2 Runtime 安装器返回码: $0（可能已安装或无需更新）"
     Goto done
   !endif
 

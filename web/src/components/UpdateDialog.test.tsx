@@ -29,9 +29,28 @@ describe("UpdateDialog", () => {
         error: null,
       },
       dialogOpen: true,
-      busy: false,
+      checking: false,
+      downloading: false,
+      applying: false,
       error: null,
     });
+  });
+
+  it("verifying 状态显示正在校验文案", () => {
+    useUpdateStore.setState({
+      download: {
+        status: "verifying",
+        progress: 95,
+        downloaded_bytes: 50000000,
+        total_bytes: 52428800,
+        installer_path: null,
+        verified: false,
+        error: null,
+      },
+    });
+
+    render(<UpdateDialog />);
+    expect(screen.getByText("正在校验…")).toBeInTheDocument();
   });
 
   it("ready 状态允许启动升级", () => {

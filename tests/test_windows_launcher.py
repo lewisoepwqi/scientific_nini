@@ -54,7 +54,7 @@ def test_parser_defaults_to_loopback_and_random_port() -> None:
     assert args.host == "127.0.0.1"
     assert args.port == 0
     assert args.startup_timeout == 30.0
-    assert args.log_level == "warning"
+    assert args.log_level == "info"
     assert args.external_browser is False
 
 

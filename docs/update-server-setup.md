@@ -265,6 +265,87 @@ http://你的公网IP:8080/nini/updates/stable/
 
 ---
 
+## 3.5 版本隔离输出与发布配置（推荐）
+
+### 3.5.1 什么是版本隔离输出
+
+从 Nini 0.1.3 开始，打包产物按版本隔离存放：
+
+```
+dist/
+├── v0.1.1/                          # 历史版本归档
+├── v0.1.2/                          # 历史版本归档
+└── v0.1.3/                          # 最新版本
+    ├── nini/                         # 该版本的单文件可执行文件
+    ├── Nini-0.1.3-Setup.exe         # 安装包
+    ├── Nini-0.1.3-Setup.exe.sha256  # 校验文件
+    ├── latest.json                   # 更新清单
+    ├── upload.bat                    # Windows CMD 一键上传脚本
+    ├── upload.ps1                    # PowerShell 上传脚本（推荐）
+    └── UPLOAD_INSTRUCTIONS.txt       # 运维人员操作说明
+```
+
+**好处：**
+- 多版本共存，互不覆盖
+- 每个版本自包含（exe + json + 脚本 + 说明）
+- 历史版本可追溯、可回滚
+- 打包时自动清理旧版本目录，避免磁盘膨胀
+
+### 3.5.2 发布配置文件
+
+创建 `config/release.conf`（已加入 `.gitignore`，不会提交到 git）：
+
+```bash
+cp config/release.conf.example config/release.conf
+```
+
+编辑 `config/release.conf`，填入实际的服务器信息：
+
+```ini
+[server]
+url = http://121.41.97.123:1116/
+channel = stable
+allow_insecure_http = true
+ssh_user = root
+ssh_host = 121.41.97.123
+upload_path = /opt/nini-updates/public/nini/updates/stable
+
+[release]
+default_notes = 修复若干问题|新增导出功能|优化启动速度
+```
+
+**配置优先级：** 环境变量 > `config/release.conf` > 默认值
+
+### 3.5.3 打包后的产物
+
+运行 `build_windows.bat` 后，若存在 `config/release.conf`，会自动：
+
+1. 生成 `dist/v{X.Y.Z}/latest.json`
+2. 生成 `dist/v{X.Y.Z}/upload.bat`（CMD 一键上传）
+3. 生成 `dist/v{X.Y.Z}/upload.ps1`（PowerShell 上传，推荐）
+4. 生成 `dist/v{X.Y.Z}/UPLOAD_INSTRUCTIONS.txt`（运维手册）
+
+如果未配置 `config/release.conf`，打包仍能完成，但跳过上传脚本生成。
+
+### 3.5.4 上传方式
+
+**方式一：PowerShell 上传（推荐）**
+
+```powershell
+cd dist/v0.1.3
+.\upload.ps1
+```
+
+**方式二：CMD 一键上传**
+
+双击运行 `dist/v0.1.3/upload.bat`
+
+**方式三：手动上传**
+
+按 `UPLOAD_INSTRUCTIONS.txt` 中的 scp 命令手动上传。
+
+---
+
 ## 4. 上传文件到服务器
 
 ### 4.1 为什么要按特定顺序
@@ -274,6 +355,25 @@ http://你的公网IP:8080/nini/updates/stable/
 **正确顺序：先传 .exe，再传 `latest.json`。**（exe 是大文件，传得慢；最后再切 latest.json 等于做"原子切换"。）
 
 ### 4.2 操作
+
+**使用版本隔离目录（推荐）：**
+
+```bash
+# 一键上传（PowerShell，推荐）
+本地$ cd dist/v0.1.3
+本地$ .\upload.ps1
+
+# 或手动上传
+# 第 1 步：先传 .exe（耗时）
+本地$ scp dist/v0.1.3/Nini-0.1.3-Setup.exe \
+        用户名@服务器IP:/opt/nini-updates/public/nini/updates/stable/Nini-0.1.3-Setup.exe
+
+# 第 2 步：再传 latest.json（瞬间完成）
+本地$ scp dist/v0.1.3/latest.json \
+        用户名@服务器IP:/opt/nini-updates/public/nini/updates/stable/latest.json
+```
+
+**旧版非隔离目录（兼容）：**
 
 ```bash
 # 第 1 步：先传 .exe（耗时）
