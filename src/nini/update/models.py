@@ -7,6 +7,15 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+UpdateCheckStatus = Literal[
+    "available",
+    "up_to_date",
+    "check_failed",
+    "not_configured",
+    "disabled",
+    "channel_mismatch",
+]
+
 DownloadStatus = Literal[
     "idle",
     "checking",
@@ -73,7 +82,7 @@ class UpdateCheckResult(BaseModel):
     latest_version: str | None = None
     update_available: bool = False
     important: bool = False
-    status: str = "up_to_date"
+    status: UpdateCheckStatus = "up_to_date"
     title: str | None = None
     notes: list[str] = Field(default_factory=list)
     asset_size: int | None = None
@@ -91,6 +100,9 @@ class UpdateDownloadState(BaseModel):
     installer_path: str | None = None
     verified: bool = False
     error: str | None = None
+    # 预期 sha256 / size 由 manifest 提供，updater 在 NSIS 之前以此进行二次校验
+    expected_sha256: str | None = None
+    expected_size: int | None = None
 
 
 class UpdateStatus(BaseModel):

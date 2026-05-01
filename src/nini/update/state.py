@@ -16,16 +16,16 @@ logger = logging.getLogger(__name__)
 class UpdateStateStore:
     """将更新下载状态保存到本地 JSON 文件。
 
-    安全特性：
-    - 使用 HMAC-SHA256 签名保护状态文件完整性
-    - 签名密钥基于更新目录路径生成，确保唯一性
+    完整性校验：
+    - 使用 HMAC-SHA256 检测状态文件意外损坏
+    - 签名密钥基于更新目录路径生成，不构成防定向篡改能力
     - 签名验证失败时返回空状态并记录警告
     """
 
     def __init__(self, path: Path, *, secret: str | None = None) -> None:
         self.path = path
         self.sig_path = path.with_suffix(path.suffix + ".sig")
-        # 使用更新目录路径作为密钥的一部分
+        # 路径派生密钥仅用于完整性校验，不能作为防篡改密钥。
         self._secret = (secret or str(path.parent)).encode("utf-8")
 
     def _compute_hmac(self, data: bytes) -> str:

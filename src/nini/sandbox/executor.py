@@ -30,6 +30,7 @@ from nini.sandbox.policy import (
     validate_code,
     validate_import,
 )
+from nini.update.runtime_state import register_owned_process, unregister_owned_pid
 from nini.utils.chart_fonts import (
     CJK_FONT_CANDIDATES,
     CJK_FONT_FAMILY,
@@ -916,6 +917,7 @@ class SandboxExecutor:
         )
 
         process.start()
+        register_owned_process(process)
         child_conn.close()
         deadline = time.monotonic() + self.timeout_seconds
         payload: dict[str, Any] | None = None
@@ -964,6 +966,7 @@ class SandboxExecutor:
             if process.is_alive():
                 process.terminate()
                 process.join(timeout=1)
+            unregister_owned_pid(process.pid)
             parent_conn.close()
             if isinstance(payload, dict):
                 if payload.get("review_required"):
@@ -980,6 +983,7 @@ class SandboxExecutor:
         if process.is_alive():
             process.terminate()
             process.join(timeout=1)
+            unregister_owned_pid(process.pid)
             parent_conn.close()
             return _with_duration(
                 {
@@ -991,6 +995,7 @@ class SandboxExecutor:
             )
 
         process.join(timeout=0.2)
+        unregister_owned_pid(process.pid)
         parent_conn.close()
         return _with_duration(
             {

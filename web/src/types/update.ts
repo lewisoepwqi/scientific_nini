@@ -5,7 +5,8 @@ export type UpdateCheckStatus =
   | "up_to_date"
   | "not_configured"
   | "disabled"
-  | "check_failed";
+  | "check_failed"
+  | "channel_mismatch";
 
 export type UpdateDownloadStatus =
   | "idle"
@@ -26,7 +27,7 @@ export interface UpdateCheckResult {
   latest_version?: string | null;
   update_available: boolean;
   important: boolean;
-  status: UpdateCheckStatus | string;
+  status: UpdateCheckStatus;
   title?: string | null;
   notes: string[];
   asset_size?: number | null;

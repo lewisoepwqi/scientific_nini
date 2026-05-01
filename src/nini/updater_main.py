@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import shutil
 from datetime import datetime, timezone
 import os
@@ -10,6 +11,15 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+
+# 退出码（区分失败原因，便于运维定位）
+EXIT_OK = 0
+EXIT_PARSE = 1
+EXIT_INSTALLER_MISSING = 2
+EXIT_PROCESS_WAIT_TIMEOUT = 3
+EXIT_VERIFICATION_FAILED = 4
+EXIT_BACKUP_FAILED = 5
+EXIT_LOCK_PROBE_FAILED = 6
 
 
 def _process_exists(pid: int) -> bool:
@@ -48,6 +58,71 @@ def _wait_for_processes(pids: list[int], timeout: float, log_path: Path) -> bool
     return not any(_process_exists(pid) for pid in pids)
 
 
+def _parse_pid_csv(value: str) -> list[int]:
+    """解析逗号分隔 PID 列表。"""
+    result: list[int] = []
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            pid = int(item)
+        except ValueError:
+            continue
+        if pid > 0 and pid != os.getpid():
+            result.append(pid)
+    return result
+
+
+def _probe_install_dir_unlocked(
+    install_dir: Path,
+    *,
+    timeout: float,
+    log_path: Path,
+) -> bool:
+    """通过独占重命名探测安装目录是否仍被文件锁占用。"""
+    if timeout <= 0 or not install_dir.exists():
+        return True
+
+    probe_path = install_dir.with_name(f"{install_dir.name}.lockprobe-{os.getpid()}")
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            os.rename(install_dir, probe_path)
+            os.rename(probe_path, install_dir)
+            _write_log(log_path, "文件锁探测通过")
+            return True
+        except Exception as exc:
+            last_error = exc
+            if probe_path.exists() and not install_dir.exists():
+                try:
+                    os.rename(probe_path, install_dir)
+                except Exception as restore_exc:
+                    _write_log(log_path, f"文件锁探测回滚失败: {restore_exc}")
+                    return False
+            _write_log(log_path, f"文件锁探测等待中: {exc}")
+            time.sleep(1)
+
+    _write_log(log_path, f"文件锁探测超时，取消安装: {last_error}")
+    return False
+
+
+def _hardlink_copytree(src: Path, dst: Path) -> None:
+    """递归使用硬链接克隆目录。"""
+    dst.mkdir(parents=True, exist_ok=False)
+    for root, dirs, files in os.walk(src):
+        root_path = Path(root)
+        relative_root = root_path.relative_to(src)
+        target_root = dst / relative_root
+        for dirname in dirs:
+            (target_root / dirname).mkdir(exist_ok=True)
+        for filename in files:
+            source_file = root_path / filename
+            target_file = target_root / filename
+            os.link(source_file, target_file)
+
+
 def _backup_install_dir(install_dir: Path, backup_dir: Path, log_path: Path) -> Path | None:
     """备份安装目录。
 
@@ -68,11 +143,18 @@ def _backup_install_dir(install_dir: Path, backup_dir: Path, log_path: Path) -> 
 
     try:
         _write_log(log_path, f"开始备份: {install_dir} -> {backup_path}")
-        shutil.copytree(install_dir, backup_path, dirs_exist_ok=True)
-        _write_log(log_path, f"备份完成: {backup_path}")
+        try:
+            _hardlink_copytree(install_dir, backup_path)
+            _write_log(log_path, f"硬链接备份完成: {backup_path}")
+        except Exception as link_exc:
+            _write_log(log_path, f"硬链接备份失败，回退完整复制: {link_exc}")
+            if backup_path.exists():
+                shutil.rmtree(backup_path)
+            shutil.copytree(install_dir, backup_path)
+            _write_log(log_path, f"复制备份完成: {backup_path}")
         return backup_path
     except Exception as exc:
-        _write_log(log_path, f"备份失败（忽略）: {exc}")
+        _write_log(log_path, f"备份失败，取消安装: {exc}")
         return None
 
 
@@ -131,6 +213,79 @@ def _cleanup_old_backups(backup_dir: Path, keep_count: int, log_path: Path) -> N
         _write_log(log_path, f"清理备份列表失败（忽略）: {exc}")
 
 
+def _sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    """流式计算文件 SHA256，避免整文件读入内存。"""
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verify_installer_before_install(
+    installer: Path,
+    *,
+    expected_sha256: str,
+    expected_size: int,
+    allowed_thumbprints: str,
+    allowed_publishers: str,
+    signature_check_enabled: bool,
+    log_path: Path,
+) -> str | None:
+    """在执行 NSIS 之前对安装包做二次校验。
+
+    返回 None 表示通过，否则返回失败原因（已记录日志）。
+    关闭"主进程校验通过 → 文件被替换 → updater 直接执行"的 TOCTOU 时间窗口。
+    """
+    if not installer.exists() or not installer.is_file():
+        msg = f"二次校验：安装包不存在 {installer}"
+        _write_log(log_path, msg)
+        return msg
+
+    if expected_size > 0:
+        actual_size = installer.stat().st_size
+        if actual_size != expected_size:
+            msg = f"二次校验：大小不匹配，预期={expected_size}，实际={actual_size}"
+            _write_log(log_path, msg)
+            return msg
+
+    if expected_sha256:
+        start = time.monotonic()
+        actual_sha = _sha256_file(installer)
+        elapsed = time.monotonic() - start
+        if actual_sha.lower() != expected_sha256.lower():
+            msg = f"二次校验：SHA256 不匹配，预期={expected_sha256}，实际={actual_sha}"
+            _write_log(log_path, msg)
+            return msg
+        _write_log(log_path, f"二次校验：SHA256 通过（耗时 {elapsed:.2f}s）")
+
+    # Authenticode 签名校验（仅 Windows）
+    if signature_check_enabled and sys.platform == "win32":
+        try:
+            from nini.update.signature import (
+                SignatureVerificationError,
+                verify_authenticode_signature,
+            )
+        except Exception as exc:
+            msg = f"二次校验：无法加载签名校验模块: {exc}"
+            _write_log(log_path, msg)
+            return msg
+        try:
+            verify_authenticode_signature(
+                installer,
+                allowed_thumbprints=allowed_thumbprints,
+                allowed_publishers=allowed_publishers,
+                enabled=True,
+            )
+        except SignatureVerificationError as exc:
+            msg = f"二次校验：签名失败 {exc}"
+            _write_log(log_path, msg)
+            return msg
+        _write_log(log_path, "二次校验：Authenticode 通过")
+
+    return None
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Nini 独立升级器")
     parser.add_argument("--installer", required=True)
@@ -141,7 +296,19 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-path", required=True)
     parser.add_argument("--wait-timeout", type=float, default=60.0)
     parser.add_argument("--backup-dir", default="", help="备份目录（留空则不备份）")
-    parser.add_argument("--keep-backups", type=int, default=3, help="保留的备份数量")
+    parser.add_argument("--keep-backups", type=int, default=1, help="保留的备份数量")
+    parser.add_argument("--child-pids", default="", help="Nini 派生子进程 PID（逗号分隔）")
+    parser.add_argument("--lock-probe-seconds", type=float, default=10.0, help="文件锁探测超时")
+    # 二次校验参数（关闭 TOCTOU 时间窗口）
+    parser.add_argument("--expected-sha256", default="", help="安装包预期 SHA256（小写）")
+    parser.add_argument("--expected-size", type=int, default=0, help="安装包预期大小（字节）")
+    parser.add_argument("--allowed-thumbprints", default="", help="允许的签名指纹（逗号分隔）")
+    parser.add_argument("--allowed-publishers", default="", help="允许的签名发布者（逗号分隔）")
+    parser.add_argument(
+        "--skip-signature-check",
+        action="store_true",
+        help="跳过 Authenticode 签名校验（仅测试构建，正式发布禁用）",
+    )
     return parser
 
 
@@ -151,7 +318,11 @@ def main(argv: list[str] | None = None) -> int:
     install_dir = Path(args.install_dir).expanduser().resolve()
     app_exe = Path(args.app_exe).expanduser().resolve()
     log_path = Path(args.log_path).expanduser().resolve()
-    pids = [pid for pid in [args.backend_pid, args.gui_pid] if pid > 0 and pid != os.getpid()]
+    pids = [
+        pid
+        for pid in [args.backend_pid, args.gui_pid, *_parse_pid_csv(args.child_pids)]
+        if pid > 0 and pid != os.getpid()
+    ]
 
     # 解析备份目录
     backup_dir = Path(args.backup_dir).expanduser().resolve() if args.backup_dir else None
@@ -159,15 +330,39 @@ def main(argv: list[str] | None = None) -> int:
     _write_log(log_path, "updater 启动")
     if not installer.exists():
         _write_log(log_path, f"安装包不存在: {installer}")
-        return 2
+        return EXIT_INSTALLER_MISSING
     if not _wait_for_processes(pids, args.wait_timeout, log_path):
         _write_log(log_path, "等待 Nini 进程退出超时，取消安装")
-        return 3
+        return EXIT_PROCESS_WAIT_TIMEOUT
+
+    if not _probe_install_dir_unlocked(
+        install_dir,
+        timeout=float(args.lock_probe_seconds),
+        log_path=log_path,
+    ):
+        return EXIT_LOCK_PROBE_FAILED
+
+    # 二次校验：在 NSIS 执行前重新比对大小/SHA256/签名，
+    # 关闭"主进程校验通过 → 文件被替换 → updater 直接执行"的 TOCTOU 时间窗口
+    verify_failure = _verify_installer_before_install(
+        installer,
+        expected_sha256=args.expected_sha256,
+        expected_size=args.expected_size,
+        allowed_thumbprints=args.allowed_thumbprints,
+        allowed_publishers=args.allowed_publishers,
+        signature_check_enabled=not args.skip_signature_check,
+        log_path=log_path,
+    )
+    if verify_failure is not None:
+        _write_log(log_path, "二次校验未通过，取消安装")
+        return EXIT_VERIFICATION_FAILED
 
     # 备份当前安装目录
     backup_path = None
     if backup_dir:
         backup_path = _backup_install_dir(install_dir, backup_dir, log_path)
+        if install_dir.exists() and backup_path is None:
+            return EXIT_BACKUP_FAILED
 
     time.sleep(1.5)
     command = [str(installer), "/S", f"/D={install_dir}"]

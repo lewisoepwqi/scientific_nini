@@ -18,7 +18,7 @@ from nini.update.manifest import (
 )
 from nini.update.models import UpdateAsset, UpdateCheckResult, UpdateManifest, UpdateStatus
 from nini.update.state import UpdateStateStore, build_state_store
-from nini.update.versioning import is_newer_version
+from nini.update.versioning import is_newer_version, is_safe_upgrade
 from nini.version import get_current_version
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,9 @@ class UpdateService:
     ) -> UpdateCheckResult:
         """检查是否存在可用更新。"""
         current = get_current_version()
-        logger.info("检查更新: current_version=%s, channel=%s", current, self.settings.update_channel)
+        logger.info(
+            "检查更新: current_version=%s, channel=%s", current, self.settings.update_channel
+        )
 
         if self.settings.update_disabled:
             result = UpdateCheckResult(current_version=current, status="disabled")
@@ -71,21 +73,32 @@ class UpdateService:
                 allow_insecure_http=self.settings.update_allow_insecure_http,
             )
             available = is_newer_version(manifest.version, current)
+            safe_upgrade = is_safe_upgrade(manifest.version, current)
             result = UpdateCheckResult(
                 current_version=current,
                 latest_version=manifest.version,
                 update_available=available,
                 important=manifest.important,
-                status="available" if available else "up_to_date",
+                status=(
+                    "available"
+                    if available
+                    else "up_to_date" if safe_upgrade else "channel_mismatch"
+                ),
                 title=manifest.title,
-                notes=manifest.notes,
+                notes=(
+                    manifest.notes
+                    if safe_upgrade
+                    else ["当前安装版本高于所选渠道版本，渠道切换无法降级。"]
+                ),
                 asset_size=asset.size,
             )
             self._manifest = manifest
             self._asset = asset
             logger.info(
                 "检查更新完成: latest=%s, available=%s, important=%s",
-                manifest.version, available, manifest.important,
+                manifest.version,
+                available,
+                manifest.important,
             )
         except UpdateSourceNotConfigured:
             result = UpdateCheckResult(current_version=current, status="not_configured")
@@ -130,7 +143,9 @@ class UpdateService:
 
             logger.info(
                 "开始下载更新: version=%s, size=%d bytes, url=%s",
-                self._manifest.version, self._asset.size, self._asset.url,
+                self._manifest.version,
+                self._asset.size,
+                self._asset.url,
             )
             result = await download_asset(
                 self._asset,
@@ -149,3 +164,8 @@ class UpdateService:
 
 
 update_service = UpdateService()
+
+
+def get_update_service() -> UpdateService:
+    """返回更新服务实例；保留全局 shim 以兼容现有调用点。"""
+    return update_service

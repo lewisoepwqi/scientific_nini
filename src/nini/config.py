@@ -358,6 +358,13 @@ class Settings(BaseSettings):
     update_signature_allowed_thumbprints: str = ""  # 逗号分隔；正式发布推荐使用
     update_signature_allowed_publishers: str = ""  # 逗号分隔；测试环境可用
     update_apply_wait_timeout_seconds: int = 60
+    update_apply_grace_seconds: int = 5
+    update_apply_lock_probe_seconds: int = 10
+    # Origin/Referer 校验：CSRF 防御补强。企业离线部署若需禁用，显式置 false
+    update_require_origin_check: bool = True
+    # 允许的额外更新入口 Origin（逗号分隔），用于 Tauri/Electron 自定义 scheme 等场景
+    # 例如：tauri://localhost,https://tauri.localhost,nini://app
+    update_allowed_origins: str = ""
 
     # ---- 派生属性 ----
     @property
