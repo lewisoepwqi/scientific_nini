@@ -93,6 +93,15 @@ if /I "!NINI_CLEAN_OLD_VERSIONS!"=="1" (
 echo [0.6/4] Done.
 echo.
 
+echo [0.7/4] Baking version !NINI_VERSION! into Python source files...
+python scripts\bake_version.py !NINI_VERSION!
+if !errorlevel! neq 0 (
+    echo [FAIL] Version baking failed.
+    goto :error
+)
+echo [0.7/4] Done.
+echo.
+
 echo [1/4] Installing dependencies...
 pip install -e .[packaging,webr,local,local_vector,advanced_retrieval]
 if !errorlevel! neq 0 (
@@ -369,15 +378,6 @@ if exist "%WEBVIEW2_EXE%" (
 ) else (
     set "NSIS_EXTRA_ARGS="
 )
-
-echo [2.5/4] Baking version !NINI_VERSION! into Python source files...
-python scripts\bake_version.py !NINI_VERSION!
-if !errorlevel! neq 0 (
-    echo [FAIL] Version baking failed.
-    goto :error
-)
-echo [2.5/4] Done.
-echo.
 
 echo [3/4] Running PyInstaller...
 python -m PyInstaller nini.spec --noconfirm --distpath "!VERSION_DIST_DIR!" --workpath "!VERSION_BUILD_DIR!"
