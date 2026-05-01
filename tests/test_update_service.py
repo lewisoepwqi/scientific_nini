@@ -10,9 +10,10 @@ import pytest
 
 from nini.config import Settings
 from nini.update.download import download_asset
-from nini.update.models import UpdateAsset
+from nini.update.models import UpdateAsset, UpdateManifest
 from nini.update.service import UpdateService
 from nini.update.state import build_state_store
+from nini.update.versioning import is_safe_upgrade
 
 
 def _asset_for_content(
@@ -142,3 +143,49 @@ async def test_download_asset_sha256_failure(tmp_path: Path) -> None:
     assert state.status == "verify_failed"
     assert state.verified is False
     assert "SHA256" in (state.error or "")
+
+
+def test_is_safe_upgrade_rejects_downgrade() -> None:
+    assert is_safe_upgrade("0.1.2", "0.1.1") is True
+    assert is_safe_upgrade("0.1.1", "0.1.1") is True
+    assert is_safe_upgrade("0.1.0", "0.1.1") is False
+
+
+@pytest.mark.asyncio
+async def test_check_update_returns_channel_mismatch_for_downgrade(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path,
+        update_base_url="https://updates.example.com",
+        update_channel="stable",
+    )
+    service = UpdateService(settings)
+    manifest = UpdateManifest(
+        version="0.1.1",
+        assets=[
+            UpdateAsset(
+                platform="windows-x64",
+                url="https://updates.example.com/Nini.exe",
+                size=10,
+                sha256="a" * 64,
+            )
+        ],
+    )
+
+    async def fake_fetch_manifest(*_args, **_kwargs):
+        return manifest
+
+    monkeypatch.setattr("nini.update.service.get_current_version", lambda: "0.1.2")
+    monkeypatch.setattr("nini.update.service.fetch_manifest", fake_fetch_manifest)
+    monkeypatch.setattr(
+        "nini.update.service.select_asset", lambda *_args, **_kwargs: manifest.assets[0]
+    )
+
+    result = await service.check_update()
+
+    assert result.update_available is False
+    assert result.status == "channel_mismatch"
+    assert "无法降级" in result.notes[0]

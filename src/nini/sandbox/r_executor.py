@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import contextlib
 from pathlib import Path
 import re
 import shutil
@@ -18,6 +19,7 @@ import pandas as pd
 
 from nini.config import settings
 from nini.sandbox.r_policy import RSandboxPolicyError, validate_r_code
+from nini.update.runtime_state import register_owned_process, unregister_owned_pid
 
 try:
     import resource  # type: ignore[attr-defined]
@@ -512,19 +514,25 @@ class RSandboxExecutor:
 
         cmd = [_rscript_binary(), "--vanilla", str(wrapper_path)]
         env = _r_env()
+        proc: subprocess.Popen[str] | None = None
         try:
-            proc = subprocess.run(
+            proc = subprocess.Popen(  # noqa: S603
                 cmd,
                 cwd=str(working_dir),
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=self.timeout_seconds,
-                check=False,
                 env=env,
                 preexec_fn=_build_preexec_fn(self.max_memory_mb),
                 **_windows_subprocess_kwargs(),
             )
+            register_owned_process(proc)
+            stdout, stderr = proc.communicate(timeout=self.timeout_seconds)
         except subprocess.TimeoutExpired:
+            if proc is not None:
+                proc.terminate()
+                with contextlib.suppress(Exception):
+                    proc.wait(timeout=1)
             return _with_duration(
                 {
                     "success": False,
@@ -543,9 +551,12 @@ class RSandboxExecutor:
                     "error": f"R 代码执行失败: {exc}",
                 }
             )
+        finally:
+            if proc is not None:
+                unregister_owned_pid(proc.pid)
 
-        stdout_text = (proc.stdout or "").strip()
-        stderr_text = (proc.stderr or "").strip()
+        stdout_text = (stdout or "").strip()
+        stderr_text = (stderr or "").strip()
 
         result_json_path = working_dir / "_result.json"
         result_data: dict[str, Any] = {}

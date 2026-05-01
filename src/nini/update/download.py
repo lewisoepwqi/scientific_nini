@@ -93,6 +93,12 @@ async def _stream_download(
     async def _download_with_client(c: httpx.AsyncClient) -> int:
         nonlocal downloaded, last_saved_progress
         async with c.stream("GET", url, headers=headers) as response:
+            # 拒绝任何 3xx 重定向：当前发布架构无 CDN redirect 需求，
+            # 跟随重定向可能让安装包来源偏离 manifest 同源校验
+            if 300 <= response.status_code < 400:
+                raise DownloadError(
+                    f"更新包 URL 返回重定向（status={response.status_code}），出于安全考虑已拒绝跟随"
+                )
             # 检查服务器是否支持 Range 请求
             if resume_from > 0:
                 if response.status_code == 200:
@@ -123,7 +129,9 @@ async def _stream_download(
 
                     # 更新进度
                     state.downloaded_bytes = downloaded
-                    state.progress = int(downloaded * 100 / expected_size) if expected_size > 0 else 0
+                    state.progress = (
+                        int(downloaded * 100 / expected_size) if expected_size > 0 else 0
+                    )
 
                     # 定期保存状态（避免频繁 IO）
                     if state.progress - last_saved_progress >= _PROGRESS_SAVE_INTERVAL:
@@ -133,7 +141,7 @@ async def _stream_download(
         return downloaded
 
     if client is None:
-        async with httpx.AsyncClient(timeout=timeout) as owned_client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as owned_client:
             return await _download_with_client(owned_client)
     else:
         return await _download_with_client(client)
@@ -177,13 +185,34 @@ async def download_asset(
     target = version_dir / filename
     temp_target = target.with_suffix(target.suffix + ".download")
 
+    if can_resume and (existing.expected_sha256 or "").lower() != asset.sha256.lower():
+        logger.warning(
+            "检测到同版本 manifest 重发布，丢弃旧下载字节: version=%s old_sha=%s new_sha=%s",
+            version,
+            existing.expected_sha256,
+            asset.sha256,
+        )
+        if temp_target.exists():
+            temp_target.unlink()
+        existing.status = "idle"
+        existing.downloaded_bytes = 0
+        existing.progress = 0
+        existing.verified = False
+        existing.error = "manifest sha256 已变化，已从头重新下载"
+        state_store.save(existing)
+        can_resume = False
+
     # 初始化或恢复状态
     if can_resume:
         logger.info(
             "尝试断点续传: version=%s, 已下载=%d bytes",
-            version, existing.downloaded_bytes,
+            version,
+            existing.downloaded_bytes,
         )
         state = existing
+        state.expected_sha256 = asset.sha256
+        state.expected_size = asset.size
+        state.total_bytes = asset.size
         resume_from = existing.downloaded_bytes
     else:
         state = UpdateDownloadState(
@@ -193,13 +222,18 @@ async def download_asset(
             downloaded_bytes=0,
             total_bytes=asset.size,
             installer_path=str(target),
+            expected_sha256=asset.sha256,
+            expected_size=asset.size,
         )
         state_store.save(state)
         resume_from = 0
 
     logger.info(
         "开始流式下载: version=%s, size=%d bytes, resume_from=%d, url=%s",
-        version, asset.size, resume_from, asset.url,
+        version,
+        asset.size,
+        resume_from,
+        asset.url,
     )
 
     try:
@@ -231,6 +265,8 @@ async def download_asset(
         state.installer_path = str(target)
         state.verified = True
         state.error = None
+        state.expected_sha256 = asset.sha256
+        state.expected_size = asset.size
         state_store.save(state)
 
         logger.info("更新包校验通过: path=%s", target)

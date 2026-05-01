@@ -308,6 +308,8 @@ NINI_UPDATE_BASE_URL=https://download.example.com/nini/updates/
 NINI_UPDATE_CHANNEL=stable
 NINI_UPDATE_AUTO_CHECK_ENABLED=true
 NINI_UPDATE_CHECK_INTERVAL_HOURS=24
+NINI_UPDATE_APPLY_GRACE_SECONDS=5
+NINI_UPDATE_APPLY_LOCK_PROBE_SECONDS=10
 ```
 
 如果服务器没有域名，优先使用 `https://IP:端口/`。证书需要包含该 IP 的 Subject Alternative Name（SAN），否则客户端会因为证书校验失败而拒绝连接。
@@ -431,6 +433,34 @@ NINI_UPDATE_DISABLED=true
 
 ```env
 NINI_UPDATE_SIGNATURE_CHECK_ENABLED=false
+```
+
+应用内更新启动独立 updater 后，会先等待后端和 Nini 派生子进程释放资源，再探测安装目录文件锁。默认值适用于普通桌面环境；杀软扫描较慢的企业镜像可适当调大：
+
+```env
+NINI_UPDATE_APPLY_GRACE_SECONDS=5
+NINI_UPDATE_APPLY_LOCK_PROBE_SECONDS=10
+```
+
+### 更新入口 Origin 校验
+
+`/api/update/download` 与 `/api/update/apply` 在通过 API Key 鉴权之外，还会校验请求的
+`Origin` / `Referer` 头，仅放行：
+
+- `http://127.0.0.1:<port>` / `http://localhost:<port>` / `[::1]`（任意端口）
+- `tauri://localhost` 与 `https://tauri.localhost`（Tauri 壳）
+- `Origin: null` 与 `file://` scheme（Electron file:// 加载）
+
+如部署使用自定义 scheme 的 Tauri/Electron 壳，可显式追加：
+
+```env
+NINI_UPDATE_ALLOWED_ORIGINS=tauri://localhost,nini://app
+```
+
+企业离线部署如需完全关闭来源校验（**不推荐**，仅在受控网络环境内）：
+
+```env
+NINI_UPDATE_REQUIRE_ORIGIN_CHECK=false
 ```
 
 正式发布建议使用证书指纹允许列表：

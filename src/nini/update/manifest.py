@@ -139,9 +139,14 @@ async def fetch_manifest(
         allow_insecure_http=allow_insecure_http,
     )
     if client is None:
-        async with httpx.AsyncClient(timeout=timeout) as owned_client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as owned_client:
             response = await owned_client.get(url)
     else:
         response = await client.get(url)
+    if 300 <= response.status_code < 400:
+        # 当前发布架构无 CDN redirect 需求；任何 3xx 视为来源篡改/配置错误
+        raise ManifestError(
+            f"更新清单 URL 返回重定向（status={response.status_code}），出于安全考虑已拒绝跟随"
+        )
     response.raise_for_status()
     return UpdateManifest.model_validate(response.json())

@@ -419,16 +419,34 @@ def _cmd_start(args: argparse.Namespace) -> int:
         )
         t.start()
 
-    uvicorn.run(
-        "nini.app:create_app",
-        factory=True,
-        host=args.host,
-        port=args.port,
-        reload=args.reload,
-        reload_dirs=["src"] if args.reload else None,
-        log_level=args.log_level,
-        log_config=None,
-    )
+    if not args.reload and hasattr(uvicorn, "Config") and hasattr(uvicorn, "Server"):
+        from nini.update.apply import set_uvicorn_server
+
+        config = uvicorn.Config(
+            "nini.app:create_app",
+            factory=True,
+            host=args.host,
+            port=args.port,
+            log_level=args.log_level,
+            log_config=None,
+        )
+        server = uvicorn.Server(config)
+        set_uvicorn_server(server)
+        try:
+            server.run()
+        finally:
+            set_uvicorn_server(None)
+    else:
+        uvicorn.run(
+            "nini.app:create_app",
+            factory=True,
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+            reload_dirs=["src"] if args.reload else None,
+            log_level=args.log_level,
+            log_config=None,
+        )
     return 0
 
 

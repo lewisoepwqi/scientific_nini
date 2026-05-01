@@ -16,3 +16,8 @@ def parse_version(value: str) -> Version:
 def is_newer_version(candidate: str, current: str) -> bool:
     """判断候选版本是否高于当前版本。"""
     return parse_version(candidate) > parse_version(current)
+
+
+def is_safe_upgrade(candidate: str, current: str) -> bool:
+    """判断候选版本是否不会造成降级。"""
+    return parse_version(candidate) >= parse_version(current)

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import atexit
+import asyncio
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
 import logging
@@ -9,13 +12,20 @@ import os
 import subprocess
 import sys
 import threading
+from typing import Any
 
 from nini.config import Settings, settings
 from nini.update.models import UpdateDownloadState
-from nini.update.runtime_state import has_running_tasks
+from nini.update.runtime_state import (
+    collect_owned_pids,
+    has_running_tasks,
+    request_owned_process_shutdown,
+    wait_owned_processes,
+)
 from nini.update.signature import SignatureVerificationError, verify_authenticode_signature
 
 logger = logging.getLogger(__name__)
+_uvicorn_server: Any | None = None
 
 
 class ApplyUpdateError(RuntimeError):
@@ -54,10 +64,22 @@ def build_updater_command(
     gui_pid: int | None,
     log_path: Path,
     wait_timeout: int,
+    child_pids: list[int] | None = None,
+    lock_probe_seconds: int = 10,
     backup_dir: Path | None = None,
-    keep_backups: int = 3,
+    keep_backups: int = 1,
+    expected_sha256: str = "",
+    expected_size: int = 0,
+    allowed_thumbprints: str = "",
+    allowed_publishers: str = "",
+    signature_check_enabled: bool = True,
 ) -> UpdaterCommand:
-    """构造 updater 命令行。"""
+    """构造 updater 命令行。
+
+    `expected_sha256` / `expected_size` / `allowed_thumbprints` / `allowed_publishers`
+    用于 updater 在执行 NSIS 之前再次校验安装包，关闭"主进程校验通过 → 文件被替换 → updater
+    直接执行"的 TOCTOU 时间窗口。
+    """
     args = [
         str(updater_path),
         "--installer",
@@ -75,9 +97,26 @@ def build_updater_command(
     ]
     if gui_pid and gui_pid > 0:
         args.extend(["--gui-pid", str(gui_pid)])
+    if child_pids:
+        normalized_child_pids = sorted(
+            {pid for pid in child_pids if pid > 0 and pid != backend_pid}
+        )
+        if normalized_child_pids:
+            args.extend(["--child-pids", ",".join(str(pid) for pid in normalized_child_pids)])
+    args.extend(["--lock-probe-seconds", str(lock_probe_seconds)])
     if backup_dir:
         args.extend(["--backup-dir", str(backup_dir)])
         args.extend(["--keep-backups", str(keep_backups)])
+    if expected_sha256:
+        args.extend(["--expected-sha256", expected_sha256])
+    if expected_size > 0:
+        args.extend(["--expected-size", str(expected_size)])
+    if allowed_thumbprints:
+        args.extend(["--allowed-thumbprints", allowed_thumbprints])
+    if allowed_publishers:
+        args.extend(["--allowed-publishers", allowed_publishers])
+    if not signature_check_enabled:
+        args.append("--skip-signature-check")
     return UpdaterCommand(args=args)
 
 
@@ -122,53 +161,127 @@ def prepare_apply_update(
         app_exe=app_exe,
         backend_pid=os.getpid(),
         gui_pid=os.getppid() if os.getppid() > 0 else None,
+        child_pids=collect_owned_pids(),
         log_path=log_path,
         wait_timeout=app_settings.update_apply_wait_timeout_seconds,
+        lock_probe_seconds=app_settings.update_apply_lock_probe_seconds,
         backup_dir=backup_dir,
-        keep_backups=3,
+        keep_backups=1,
+        expected_sha256=state.expected_sha256 or "",
+        expected_size=state.expected_size or 0,
+        allowed_thumbprints=app_settings.update_signature_allowed_thumbprints,
+        allowed_publishers=app_settings.update_signature_allowed_publishers,
+        signature_check_enabled=app_settings.update_signature_check_enabled,
     )
 
 
 def launch_updater(command: UpdaterCommand) -> None:
     """后台启动 updater。"""
-    subprocess.Popen(  # noqa: S603
-        command.args,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    popen_kwargs: dict[str, Any] = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if sys.platform != "win32":
+        subprocess.Popen(command.args, start_new_session=True, **popen_kwargs)  # noqa: S603
+        return
+
+    new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    detached = getattr(subprocess, "DETACHED_PROCESS", 0)
+    breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    candidates = [
+        new_group | detached | breakaway,
+        detached | new_group,
+        no_window,
+    ]
+    last_error: OSError | None = None
+    for flags in candidates:
+        try:
+            subprocess.Popen(  # noqa: S603
+                command.args,
+                creationflags=flags,
+                **popen_kwargs,
+            )
+            return
+        except OSError as exc:
+            last_error = exc
+            logger.warning("启动 updater 失败，尝试 fallback: flags=%s error=%s", flags, exc)
+    assert last_error is not None
+    raise last_error
+
+
+def set_uvicorn_server(server: Any | None) -> None:
+    """登记 uvicorn Server 句柄，更新退出时尽力设置 should_exit。"""
+    global _uvicorn_server
+    _uvicorn_server = server
+
+
+def _request_server_exit() -> None:
+    if _uvicorn_server is not None and hasattr(_uvicorn_server, "should_exit"):
+        with contextlib.suppress(Exception):
+            _uvicorn_server.should_exit = True
+
+
+def _flush_shutdown_hooks() -> None:
+    try:
+        for handler in logging.getLogger().handlers:
+            with contextlib.suppress(Exception):
+                handler.flush()
+        atexit._run_exitfuncs()
+    except Exception as exc:
+        logger.warning("清理操作失败（忽略）: %s", exc)
+
+
+async def _shutdown_current_process(delay_seconds: float, grace_seconds: float) -> None:
+    await asyncio.sleep(max(0.0, delay_seconds))
+    logger.info("开始执行更新退出流程")
+    _request_server_exit()
+    request_owned_process_shutdown()
+    alive_pids = await wait_owned_processes(grace_seconds)
+    if alive_pids:
+        logger.warning("子进程在 grace 周期内未退出，交由 updater 等待: %s", alive_pids)
+
+    current_task = asyncio.current_task()
+    pending_tasks = [
+        task for task in asyncio.all_tasks() if task is not current_task and not task.done()
+    ]
+    for task in pending_tasks:
+        task.cancel()
+    if pending_tasks:
+        with contextlib.suppress(Exception):
+            await asyncio.wait(pending_tasks, timeout=0.5)
+
+    _flush_shutdown_hooks()
+    logger.info("退出进程")
+    os._exit(0)
+
+
+def schedule_current_process_exit(
+    delay_seconds: float = 1.0,
+    grace_seconds: float | None = None,
+) -> None:
+    """延迟退出当前后端进程，让 apply 响应先返回给前端。"""
+    effective_grace = (
+        float(settings.update_apply_grace_seconds)
+        if grace_seconds is None
+        else float(grace_seconds)
     )
 
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
 
-def schedule_current_process_exit(delay_seconds: float = 1.0) -> None:
-    """延迟退出当前后端进程，让 apply 响应先返回给前端。
-
-    退出流程：
-    1. 等待 delay_seconds 秒（让 HTTP 响应返回给前端）
-    2. 尝试执行关键清理操作（保存日志等）
-    3. 使用 os._exit(0) 强制退出（确保进程终止）
-    """
+    if loop is not None and loop.is_running():
+        loop.create_task(_shutdown_current_process(delay_seconds, effective_grace))
+        return
 
     def _exit_process() -> None:
         logger.info("开始执行更新退出流程")
-
-        # 尝试执行关键清理操作
-        try:
-            # 刷新日志
-            import logging
-            for handler in logging.getLogger().handlers:
-                try:
-                    handler.flush()
-                except Exception:
-                    pass
-
-            # 执行 atexit 注册的清理函数
-            import atexit
-            atexit._run_exitfuncs()
-        except Exception as exc:
-            logger.warning("清理操作失败（忽略）: %s", exc)
-
-        # 强制退出进程
+        _request_server_exit()
+        request_owned_process_shutdown()
+        _flush_shutdown_hooks()
         logger.info("退出进程")
         os._exit(0)
 

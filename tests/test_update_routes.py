@@ -141,3 +141,122 @@ async def test_update_apply_launches_updater_and_schedules_exit(
     assert response.status_code == 200
     assert response.json()["data"]["status"] == "restarting"
     assert events == ["launch", "exit"]
+
+
+# ---------- API Key 鉴权与 Origin 校验 ----------
+
+
+@pytest.fixture
+async def auth_client(monkeypatch: pytest.MonkeyPatch):
+    """启用 API Key 后的客户端。"""
+    import httpx
+    import nini.api.update_routes as update_routes
+    from nini.app import create_app
+    from nini.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "api_key", "secret-key")
+    fake = _FakeUpdateService()
+    monkeypatch.setattr(update_routes, "update_service", fake)
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as test_client:
+        yield test_client
+
+
+@pytest.mark.asyncio
+async def test_update_download_requires_api_key(auth_client) -> None:
+    response = await auth_client.post("/api/update/download")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_update_apply_requires_api_key(auth_client) -> None:
+    response = await auth_client.post("/api/update/apply")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_update_download_rejects_wrong_token(auth_client) -> None:
+    response = await auth_client.post(
+        "/api/update/download",
+        headers={"X-API-Key": "wrong-key"},
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_update_download_accepts_correct_token(auth_client) -> None:
+    response = await auth_client.post(
+        "/api/update/download",
+        headers={"X-API-Key": "secret-key"},
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_update_download_rejects_remote_origin(client) -> None:
+    response = await client.post(
+        "/api/update/download",
+        headers={"Origin": "http://evil.example.com"},
+    )
+    assert response.status_code == 403
+    assert "Origin" in response.text
+
+
+@pytest.mark.asyncio
+async def test_update_apply_rejects_remote_origin(client) -> None:
+    response = await client.post(
+        "/api/update/apply",
+        headers={"Origin": "http://evil.example.com"},
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_update_download_accepts_localhost_origin(client) -> None:
+    response = await client.post(
+        "/api/update/download",
+        headers={"Origin": "http://127.0.0.1:8000"},
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_update_download_accepts_tauri_origin(client) -> None:
+    response = await client.post(
+        "/api/update/download",
+        headers={"Origin": "tauri://localhost"},
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_update_download_accepts_null_origin(client) -> None:
+    # Electron file:// 加载会上送 Origin: null
+    response = await client.post(
+        "/api/update/download",
+        headers={"Origin": "null"},
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_update_origin_check_can_be_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`update_require_origin_check=false` 时禁用校验。"""
+    import httpx
+    import nini.api.update_routes as update_routes
+    from nini.app import create_app
+    from nini.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "update_require_origin_check", False)
+    monkeypatch.setattr(update_routes, "update_service", _FakeUpdateService())
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as test_client:
+        response = await test_client.post(
+            "/api/update/download",
+            headers={"Origin": "http://evil.example.com"},
+        )
+        assert response.status_code == 200

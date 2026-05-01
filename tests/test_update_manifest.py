@@ -254,3 +254,17 @@ def test_update_settings_default_to_no_real_source() -> None:
     assert settings.update_allow_insecure_http is False
     assert settings.update_auto_check_enabled is True
     assert settings.update_disabled is False
+
+
+@pytest.mark.asyncio
+async def test_fetch_manifest_rejects_redirect() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"Location": "https://evil.example.com/x.json"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(ManifestError, match="重定向"):
+            await fetch_manifest(
+                "https://updates.example.com/releases",
+                channel="stable",
+                client=client,
+            )

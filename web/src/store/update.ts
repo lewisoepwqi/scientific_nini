@@ -74,7 +74,12 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
         check,
         busy: false,
         dialogOpen: check.update_available ? true : get().dialogOpen,
-        error: check.status === "check_failed" ? check.error ?? "检查更新失败" : null,
+        error:
+          check.status === "check_failed"
+            ? check.error ?? "检查更新失败"
+            : check.status === "channel_mismatch"
+              ? "当前版本高于所选更新渠道，渠道切换无法降级。"
+              : null,
       });
     } catch (error) {
       if (!manual) recordAutoCheck();

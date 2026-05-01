@@ -11,7 +11,9 @@ import pytest
 from nini.config import Settings
 from nini.update.apply import (
     ApplyUpdateError,
+    UpdaterCommand,
     build_updater_command,
+    launch_updater,
     prepare_apply_update,
 )
 from nini.update.models import UpdateDownloadState
@@ -68,6 +70,7 @@ def test_prepare_apply_builds_updater_command(
     monkeypatch.setattr("nini.update.apply.has_running_tasks", lambda: False)
     monkeypatch.setattr("nini.update.apply.os.getpid", lambda: 111)
     monkeypatch.setattr("nini.update.apply.os.getppid", lambda: 222)
+    monkeypatch.setattr("nini.update.apply.collect_owned_pids", lambda: [333, 444])
 
     command = prepare_apply_update(state, app_settings=settings, packaged=True)
 
@@ -80,6 +83,7 @@ def test_prepare_apply_builds_updater_command(
     assert "222" in command.args
     assert "--wait-timeout" in command.args
     assert "12" in command.args
+    assert command.args[command.args.index("--child-pids") + 1] == "333,444"
 
 
 def test_build_updater_command_omits_missing_gui_pid(tmp_path: Path) -> None:
@@ -94,6 +98,62 @@ def test_build_updater_command_omits_missing_gui_pid(tmp_path: Path) -> None:
         wait_timeout=60,
     )
     assert "--gui-pid" not in command.args
+
+
+def test_build_updater_command_includes_child_pids_and_lock_probe(tmp_path: Path) -> None:
+    command = build_updater_command(
+        updater_path=tmp_path / "nini-updater.exe",
+        installer_path=tmp_path / "setup.exe",
+        install_dir=tmp_path / "app",
+        app_exe=tmp_path / "app" / "nini.exe",
+        backend_pid=100,
+        gui_pid=200,
+        child_pids=[300, 100, 300],
+        log_path=tmp_path / "updater.log",
+        wait_timeout=60,
+        lock_probe_seconds=7,
+    )
+
+    assert command.args[command.args.index("--child-pids") + 1] == "300"
+    assert command.args[command.args.index("--lock-probe-seconds") + 1] == "7"
+
+
+def test_launch_updater_uses_windows_detach_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+
+    monkeypatch.setattr("nini.update.apply.sys.platform", "win32")
+    monkeypatch.setattr("nini.update.apply.subprocess.CREATE_NEW_PROCESS_GROUP", 1, raising=False)
+    monkeypatch.setattr("nini.update.apply.subprocess.DETACHED_PROCESS", 2, raising=False)
+    monkeypatch.setattr("nini.update.apply.subprocess.CREATE_BREAKAWAY_FROM_JOB", 4, raising=False)
+    monkeypatch.setattr("nini.update.apply.subprocess.CREATE_NO_WINDOW", 8, raising=False)
+
+    def fake_popen(_args, **kwargs):
+        calls.append(kwargs["creationflags"])
+        if len(calls) < 3:
+            raise OSError("job 不允许 breakaway")
+        return SimpleNamespace()
+
+    monkeypatch.setattr("nini.update.apply.subprocess.Popen", fake_popen)
+
+    launch_updater(UpdaterCommand(args=["nini-updater.exe"]))
+
+    assert calls == [7, 3, 8]
+
+
+def test_launch_updater_starts_new_session_on_posix(monkeypatch: pytest.MonkeyPatch) -> None:
+    kwargs_seen: dict[str, object] = {}
+
+    monkeypatch.setattr("nini.update.apply.sys.platform", "linux")
+
+    def fake_popen(_args, **kwargs):
+        kwargs_seen.update(kwargs)
+        return SimpleNamespace()
+
+    monkeypatch.setattr("nini.update.apply.subprocess.Popen", fake_popen)
+
+    launch_updater(UpdaterCommand(args=["nini-updater"]))
+
+    assert kwargs_seen["start_new_session"] is True
 
 
 def test_signature_check_can_be_disabled_in_dev_environment(tmp_path: Path) -> None:
@@ -121,6 +181,7 @@ def test_signature_check_cannot_be_disabled_in_packaged_environment(
     # 在非 Windows 环境：签名校验会被跳过（status="skipped"）
     # 在 Windows 环境：会尝试执行 PowerShell 签名校验
     import sys
+
     if sys.platform != "win32":
         # 非 Windows 环境：签名校验会被跳过
         result = verify_authenticode_signature(path, enabled=False)

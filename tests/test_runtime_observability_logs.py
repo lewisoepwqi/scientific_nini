@@ -148,10 +148,17 @@ def test_r_sandbox_logs_duration(
     monkeypatch.setattr("nini.sandbox.r_executor._rscript_binary", lambda: "Rscript")
     monkeypatch.setattr("nini.sandbox.r_executor._r_env", lambda: {})
 
-    def _fake_run(*_args, **_kwargs):
-        return SimpleNamespace(stdout="ok", stderr="", returncode=0)
+    class _FakePopen:
+        pid = 12345
+        returncode = 0
 
-    monkeypatch.setattr("nini.sandbox.r_executor.subprocess.run", _fake_run)
+        def communicate(self, timeout=None):
+            return ("ok", "")
+
+    monkeypatch.setattr(
+        "nini.sandbox.r_executor.subprocess.Popen",
+        lambda *_args, **_kwargs: _FakePopen(),
+    )
 
     executor = RSandboxExecutor(timeout_seconds=1, max_memory_mb=256)
 
