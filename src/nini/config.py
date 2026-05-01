@@ -347,7 +347,7 @@ class Settings(BaseSettings):
     session_db_filename: str = "session.db"  # 每个会话目录下的 SQLite 文件名
 
     # ---- 应用内更新 ----
-    update_base_url: str = "http://121.41.97.123:1116/nini/updates"  # 更新服务器基础 URL
+    update_base_url: str = ""  # 更新服务器基础 URL；留空时自动检查静默跳过
     update_channel: str = "stable"  # 更新渠道：stable / beta
     update_allow_insecure_http: bool = True  # 允许 HTTP 更新源（IP 地址）
     update_auto_check_enabled: bool = True
