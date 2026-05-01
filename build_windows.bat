@@ -449,10 +449,7 @@ echo.
 set "INSTALLER_PATH=dist\Nini-!NINI_VERSION!-Setup.exe"
 if exist "!INSTALLER_PATH!" (
     echo [4.1/4] Generating installer SHA256...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-        "$ErrorActionPreference='Stop';" ^
-        "$hash = (Get-FileHash -Algorithm SHA256 '!INSTALLER_PATH!').Hash.ToLowerInvariant();" ^
-        "Set-Content -Encoding ASCII -Path '!INSTALLER_PATH!.sha256' -Value ($hash + '  ' + (Split-Path -Leaf '!INSTALLER_PATH!'))"
+    python -c "import hashlib,os,sys;p=sys.argv[1];h=hashlib.sha256();f=open(p,'rb');[h.update(b) for b in iter(lambda:f.read(1048576),b'')];f.close();open(p+'.sha256','w',encoding='ascii').write(h.hexdigest()+'  '+os.path.basename(p)+'\n')" "!INSTALLER_PATH!"
     if !errorlevel! neq 0 (
         echo [FAIL] SHA256 generation failed.
         goto :error
