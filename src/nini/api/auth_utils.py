@@ -8,8 +8,11 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from fastapi import Depends, HTTPException
 from starlette.requests import Request
 from starlette.responses import Response
+
+from nini.config import settings
 
 AUTH_SESSION_COOKIE_NAME = "nini_auth_session"
 AUTH_SESSION_TTL = timedelta(hours=8)
@@ -122,3 +125,9 @@ def clear_auth_session_cookie(response: Response, *, secure: bool) -> None:
         secure=secure,
         path="/",
     )
+
+
+async def require_auth(request: Request) -> None:
+    """FastAPI 依赖项：验证写操作请求已认证（防御浏览器 CSRF）。"""
+    if not is_request_authenticated(request, settings.api_key):
+        raise HTTPException(status_code=401, detail="未认证")

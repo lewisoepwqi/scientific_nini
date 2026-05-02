@@ -73,6 +73,7 @@ def test_updater_runs_installer_and_starts_app(monkeypatch, tmp_path: Path) -> N
             "123",
             "--log-path",
             str(log_path),
+            "--skip-signature-check",
         ]
     )
 

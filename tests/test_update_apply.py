@@ -29,6 +29,7 @@ def _ready_state(installer: Path) -> UpdateDownloadState:
         progress=100,
         installer_path=str(installer),
         verified=True,
+        expected_sha256="abc123",
     )
 
 

@@ -231,12 +231,36 @@ async def test_update_download_accepts_tauri_origin(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_download_accepts_null_origin(client) -> None:
-    # Electron file:// 加载会上送 Origin: null
+async def test_update_download_rejects_null_origin_by_default(client) -> None:
+    # Origin: null 默认不再放行，需显式配置 update_allowed_origins
     response = await client.post(
         "/api/update/download",
         headers={"Origin": "null"},
     )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_update_download_accepts_null_origin_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """显式配置 update_allowed_origins 包含 null 时应放行。"""
+    import httpx
+    from nini.config import settings
+
+    monkeypatch.setattr(settings, "update_allowed_origins", "null")
+    from nini.app import create_app
+    import nini.api.update_routes as update_routes
+
+    fake = _FakeUpdateService()
+    monkeypatch.setattr(update_routes, "update_service", fake)
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as ac:
+        response = await ac.post(
+            "/api/update/download",
+            headers={"Origin": "null"},
+        )
     assert response.status_code == 200
 
 

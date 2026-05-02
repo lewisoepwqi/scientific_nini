@@ -123,3 +123,81 @@ def test_websocket_cookie_session_is_treated_as_authenticated(
         cookies={AUTH_SESSION_COOKIE_NAME: build_auth_session_cookie_value("test-key")}
     )
     assert is_websocket_authenticated(ws, settings.api_key) is True
+
+
+# ---- 写操作端点鉴权测试（require_auth 依赖项） ----
+
+
+def test_unauth_post_upload_returns_401(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "api_key", "test-key")
+    app = create_app()
+    with LocalASGIClient(app) as client:
+        resp = client.post("/api/upload", data={"session_id": "x"}, files={"file": (b"a")})
+        assert resp.status_code == 401
+
+
+def test_auth_post_upload_not_401(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "api_key", "test-key")
+    app = create_app()
+    with LocalASGIClient(app) as client:
+        resp = client.post(
+            "/api/upload",
+            data={"session_id": "x"},
+            files={"file": ("t.csv", b"a,b\n1,2\n", "text/csv")},
+            headers={"Authorization": "Bearer test-key"},
+        )
+        assert resp.status_code != 401
+
+
+def test_unauth_get_health_not_401(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "api_key", "test-key")
+    app = create_app()
+    with LocalASGIClient(app) as client:
+        resp = client.get("/api/health")
+        assert resp.status_code == 200
+
+
+# ---- _resolve_file_path 符号链接 TOCTOU 防御 ----
+
+
+def test_resolve_file_path_rejects_symlink_to_external(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+
+    session_id = "test-symlink"
+    # sessions_dir 由 data_dir 派生
+    workspace = settings.sessions_dir / session_id / "workspace" / "artifacts"
+    workspace.mkdir(parents=True)
+
+    external = tmp_path / "secret.txt"
+    external.write_text("secret")
+
+    symlink = workspace / "safe.csv"
+    try:
+        symlink.symlink_to(external)
+    except (OSError, NotImplementedError):
+        pytest.skip("符号链接不支持")
+
+    from nini.api.routes import _resolve_file_path
+
+    assert _resolve_file_path(session_id, "safe.csv") is None
+
+
+def test_resolve_file_path_accepts_normal_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    settings.ensure_dirs()
+
+    session_id = "test-normal"
+    workspace = settings.sessions_dir / session_id / "workspace" / "artifacts"
+    workspace.mkdir(parents=True)
+    (workspace / "data.csv").write_text("a,b\n1,2\n")
+
+    from nini.api.routes import _resolve_file_path
+
+    result = _resolve_file_path(session_id, "data.csv")
+    assert result is not None
+    assert result.name == "data.csv"

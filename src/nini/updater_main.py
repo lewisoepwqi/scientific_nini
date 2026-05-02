@@ -20,6 +20,7 @@ EXIT_PROCESS_WAIT_TIMEOUT = 3
 EXIT_VERIFICATION_FAILED = 4
 EXIT_BACKUP_FAILED = 5
 EXIT_LOCK_PROBE_FAILED = 6
+EXIT_RESTORE_FAILED = 10
 
 
 def _process_exists(pid: int) -> bool:
@@ -30,6 +31,11 @@ def _process_exists(pid: int) -> bool:
 
         process = ctypes.windll.kernel32.OpenProcess(0x100000, False, pid)
         if not process:
+            error_code = ctypes.GetLastError()
+            if error_code == 5:  # ERROR_ACCESS_DENIED
+                logger.warning("OpenProcess 权限不足 pid=%d，视为进程存活", pid)
+                return True
+            # ERROR_INVALID_PARAMETER(87) 等其他错误码视为进程已退出
             return False
         ctypes.windll.kernel32.CloseHandle(process)
         return True
@@ -87,22 +93,41 @@ def _probe_install_dir_unlocked(
     probe_path = install_dir.with_name(f"{install_dir.name}.lockprobe-{os.getpid()}")
     deadline = time.monotonic() + timeout
     last_error: Exception | None = None
-    while time.monotonic() < deadline:
-        try:
-            os.rename(install_dir, probe_path)
-            os.rename(probe_path, install_dir)
-            _write_log(log_path, "文件锁探测通过")
-            return True
-        except Exception as exc:
-            last_error = exc
-            if probe_path.exists() and not install_dir.exists():
+    try:
+        while time.monotonic() < deadline:
+            try:
+                os.rename(install_dir, probe_path)
+                # rename 成功，立即尝试恢复原位
                 try:
                     os.rename(probe_path, install_dir)
                 except Exception as restore_exc:
-                    _write_log(log_path, f"文件锁探测回滚失败: {restore_exc}")
-                    return False
-            _write_log(log_path, f"文件锁探测等待中: {exc}")
-            time.sleep(1)
+                    _write_log(log_path, f"文件锁探测 rename-back 失败: {restore_exc}")
+                    # 二次尝试恢复
+                    try:
+                        os.rename(probe_path, install_dir)
+                    except Exception as retry_exc:
+                        _write_log(log_path, f"文件锁探测二次恢复失败: {retry_exc}")
+                        return False
+                _write_log(log_path, "文件锁探测通过")
+                return True
+            except Exception as exc:
+                last_error = exc
+                # 确保 rename 成功后如果 rename-back 没执行，探测文件不会残留
+                if probe_path.exists() and not install_dir.exists():
+                    try:
+                        os.rename(probe_path, install_dir)
+                    except Exception as restore_exc:
+                        _write_log(log_path, f"文件锁探测恢复失败: {restore_exc}")
+                        return False
+                _write_log(log_path, f"文件锁探测等待中: {exc}")
+                time.sleep(1)
+    finally:
+        # 确保任何退出路径上探测文件不残留
+        if probe_path.exists() and not install_dir.exists():
+            try:
+                os.rename(probe_path, install_dir)
+            except Exception:
+                pass
 
     _write_log(log_path, f"文件锁探测超时，取消安装: {last_error}")
     return False
@@ -364,7 +389,6 @@ def main(argv: list[str] | None = None) -> int:
         if install_dir.exists() and backup_path is None:
             return EXIT_BACKUP_FAILED
 
-    time.sleep(1.5)
     command = [str(installer), "/S", f"/D={install_dir}"]
     _write_log(log_path, f"开始静默安装: {' '.join(command)}")
     proc = subprocess.run(  # noqa: S603
@@ -384,16 +408,20 @@ def main(argv: list[str] | None = None) -> int:
                 _write_log(log_path, "回滚成功")
                 # 尝试启动旧版本
                 if app_exe.exists():
-                    subprocess.Popen(  # noqa: S603
-                        [str(app_exe)],
-                        stdin=subprocess.DEVNULL,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                    )
-                    _write_log(log_path, f"已启动旧版本: {app_exe}")
+                    try:
+                        subprocess.Popen(  # noqa: S603
+                            [str(app_exe)],
+                            stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                        )
+                        _write_log(log_path, f"已启动旧版本: {app_exe}")
+                    except OSError as start_exc:
+                        _write_log(log_path, f"启动旧版本失败: {start_exc}")
             else:
                 _write_log(log_path, "回滚失败，安装目录可能已损坏")
+                return EXIT_RESTORE_FAILED
 
         return proc.returncode
 

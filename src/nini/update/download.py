@@ -100,6 +100,7 @@ async def _stream_download(
                     f"更新包 URL 返回重定向（status={response.status_code}），出于安全考虑已拒绝跟随"
                 )
             # 检查服务器是否支持 Range 请求
+            range_offset_ok = True
             if resume_from > 0:
                 if response.status_code == 200:
                     # 服务器不支持 Range 请求，从头开始下载
@@ -108,13 +109,34 @@ async def _stream_download(
                     state.downloaded_bytes = 0
                     state.progress = 0
                 elif response.status_code == 206:
-                    # 服务器支持 Range 请求，继续下载
-                    logger.info("服务器支持 Range 请求，继续下载")
+                    # 校验 Content-Range 起始偏移与 resume_from 一致
+                    content_range = response.headers.get("Content-Range", "")
+                    range_offset_ok = True
+                    if content_range:
+                        try:
+                            # 格式: bytes 1000-1999/2000
+                            range_spec = content_range.replace("bytes ", "")
+                            start_str = range_spec.split("-")[0]
+                            server_start = int(start_str)
+                            if server_start != resume_from:
+                                logger.warning(
+                                    "Content-Range 偏移不匹配: server=%d, local=%d，从头下载",
+                                    server_start,
+                                    resume_from,
+                                )
+                                downloaded = 0
+                                state.downloaded_bytes = 0
+                                state.progress = 0
+                                range_offset_ok = False
+                        except (ValueError, IndexError):
+                            logger.warning("Content-Range 格式异常: %s", content_range)
+                    if range_offset_ok:
+                        logger.info("服务器支持 Range 请求，继续下载")
                 else:
                     response.raise_for_status()
 
-            # 选择写入模式
-            mode = "ab" if resume_from > 0 and response.status_code == 206 else "wb"
+            # 选择写入模式：仅在续传偏移匹配时追加，否则从头写入
+            mode = "ab" if resume_from > 0 and response.status_code == 206 and range_offset_ok else "wb"
 
             with target.open(mode) as f:
                 async for chunk in response.aiter_bytes(chunk_size=_CHUNK_SIZE):
@@ -273,13 +295,12 @@ async def download_asset(
         return state
     except Exception as exc:
         logger.error("下载或校验失败: %s", exc)
-        # 清理临时文件（但保留部分下载的文件以便续传）
-        if "不支持 Range" in str(exc) or resume_from == 0:
-            # 如果是全新下载失败，清理临时文件
+        # 布尔 flag 决定是否清理临时文件
+        should_reset_temp = resume_from == 0
+        if should_reset_temp:
             if temp_target.exists():
                 temp_target.unlink()
         else:
-            # 断点续传失败，保留已下载的部分
             logger.info("保留部分下载文件以便续传: %s", temp_target)
 
         state.status = "download_failed" if state.status == "downloading" else "verify_failed"

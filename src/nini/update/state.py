@@ -49,15 +49,29 @@ class UpdateStateStore:
             if self.sig_path.exists():
                 expected_sig = self.sig_path.read_text(encoding="utf-8").strip()
                 if not self._verify_hmac(data, expected_sig):
-                    logger.warning("更新状态文件签名不匹配，已重置: %s", self.path)
+                    logger.error("更新状态文件签名不匹配，已重置: %s", self.path)
+                    # 清理 installer_path 指向的孤立文件
+                    try:
+                        parsed = json.loads(data)
+                        installer = parsed.get("installer_path")
+                        if installer:
+                            installer_path = Path(installer)
+                            if installer_path.exists():
+                                installer_path.unlink()
+                                logger.info("已清理签名不匹配的孤立安装包: %s", installer_path)
+                    except Exception:
+                        pass
                     return UpdateDownloadState(error="更新状态文件签名不匹配，已重置")
             else:
                 logger.debug("更新状态文件签名文件不存在，跳过验证: %s", self.sig_path)
 
             return UpdateDownloadState.model_validate(json.loads(data))
-        except Exception:
+        except json.JSONDecodeError:
             logger.warning("更新状态文件损坏，已重置: %s", self.path)
             return UpdateDownloadState(error="更新状态文件损坏，已重置")
+        except Exception:
+            logger.warning("更新状态文件读取异常，已重置: %s", self.path)
+            return UpdateDownloadState(error="更新状态文件读取异常，已重置")
 
     def save(self, state: UpdateDownloadState) -> None:
         """保存下载状态及其 HMAC 签名。"""
