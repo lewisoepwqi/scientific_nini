@@ -15,9 +15,8 @@ from nini.config import Settings, settings
 
 
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
-# Tauri / Electron / file:// 壳的常见来源；Electron file:// 可能上送 Origin: null
+# Tauri / Electron / file:// 壳的常见来源
 _DEFAULT_SHELL_ORIGINS = {
-    "null",
     "tauri://localhost",
     "https://tauri.localhost",
     "http://tauri.localhost",
@@ -39,6 +38,7 @@ def _origin_allowed(origin: str, *, extra_origins: set[str]) -> bool:
     if not origin:
         return False
     normalized = origin.strip().lower()
+    # 显式配置的额外 origin 优先（包括 "null"，仅当用户主动配置时才放行）
     if normalized in extra_origins:
         return True
     if normalized in _DEFAULT_SHELL_ORIGINS:

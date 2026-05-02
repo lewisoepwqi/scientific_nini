@@ -6,6 +6,7 @@ import asyncio
 import io
 import json
 import logging
+import os
 import mimetypes
 import re
 import shutil
@@ -19,7 +20,7 @@ from typing import Any
 from urllib.parse import quote, unquote
 
 import pandas as pd
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 
 from nini.agent.session import session_manager
@@ -27,6 +28,7 @@ from nini.api.auth_utils import (
     AUTH_SESSION_COOKIE_NAME,
     clear_auth_session_cookie,
     is_request_authenticated,
+    require_auth,
     set_auth_session_cookie,
 )
 from nini.config import settings
@@ -304,7 +306,7 @@ def _build_download_response(path: Path, filename: str, *, inline: bool = False)
     )
 
 
-@router.post("/upload", response_model=UploadResponse)
+@router.post("/upload", response_model=UploadResponse, dependencies=[Depends(require_auth)])
 async def upload_file(
     file: UploadFile = File(...),
     session_id: str = Form(...),
@@ -428,7 +430,7 @@ async def list_datasets(session_id: str):
     return APIResponse(success=True, data={"session_id": session_id, "datasets": datasets})
 
 
-@router.post("/datasets/{session_id}/{dataset_id}/load", response_model=APIResponse)
+@router.post("/datasets/{session_id}/{dataset_id}/load", response_model=APIResponse, dependencies=[Depends(require_auth)])
 async def load_dataset_into_session(session_id: str, dataset_id: str):
     """将工作空间数据集加载到会话内存。"""
     if not session_manager.session_exists(session_id):
@@ -516,7 +518,7 @@ async def get_dataset_preview(session_id: str, dataset_name: str):
     return APIResponse(success=True, data=stats)
 
 
-@router.delete("/datasets/{session_id}/{dataset_name}")
+@router.delete("/datasets/{session_id}/{dataset_name}", dependencies=[Depends(require_auth)])
 async def delete_dataset(session_id: str, dataset_name: str):
     """删除数据集。"""
     session = _get_existing_session_or_404(session_id)
@@ -617,47 +619,36 @@ def _resolve_file_path(session_id: str, file_path: str) -> Path | None:
     resolved_session = session_dir.resolve()
     filename = Path(file_path).name
 
+    def _realpath_within(path: Path, base: Path) -> Path | None:
+        """resolve 后再用 realpath 消解符号链接，确认未超出 base。"""
+        rp = Path(os.path.realpath(path))
+        if not rp.is_relative_to(base):
+            return None
+        return rp
+
     # 1. 直接路径（支持子目录）
-    direct_path = (workspace_dir / file_path).resolve()
-    if not direct_path.is_relative_to(resolved_workspace):
-        return None
-    if direct_path.exists() and direct_path.is_file():
+    direct_path = _realpath_within(workspace_dir / file_path, resolved_workspace)
+    if direct_path is not None and direct_path.exists() and direct_path.is_file():
         return direct_path
 
     # 2. artifacts 子目录
-    artifact_path = (workspace_dir / "artifacts" / filename).resolve()
-    if (
-        artifact_path.is_relative_to(resolved_workspace)
-        and artifact_path.exists()
-        and artifact_path.is_file()
-    ):
+    artifact_path = _realpath_within(workspace_dir / "artifacts" / filename, resolved_workspace)
+    if artifact_path is not None and artifact_path.exists() and artifact_path.is_file():
         return artifact_path
 
     # 3. notes 子目录
-    notes_path = (workspace_dir / "notes" / filename).resolve()
-    if (
-        notes_path.is_relative_to(resolved_workspace)
-        and notes_path.exists()
-        and notes_path.is_file()
-    ):
+    notes_path = _realpath_within(workspace_dir / "notes" / filename, resolved_workspace)
+    if notes_path is not None and notes_path.exists() and notes_path.is_file():
         return notes_path
 
     # 4. uploads 子目录
-    uploads_path = (workspace_dir / "uploads" / filename).resolve()
-    if (
-        uploads_path.is_relative_to(resolved_workspace)
-        and uploads_path.exists()
-        and uploads_path.is_file()
-    ):
+    uploads_path = _realpath_within(workspace_dir / "uploads" / filename, resolved_workspace)
+    if uploads_path is not None and uploads_path.exists() and uploads_path.is_file():
         return uploads_path
 
     # 5. 旧版产物目录（兼容）
-    legacy_path = (session_dir / "artifacts" / filename).resolve()
-    if (
-        legacy_path.is_relative_to(resolved_session)
-        and legacy_path.exists()
-        and legacy_path.is_file()
-    ):
+    legacy_path = _realpath_within(session_dir / "artifacts" / filename, resolved_session)
+    if legacy_path is not None and legacy_path.exists() and legacy_path.is_file():
         return legacy_path
 
     # 6. 模糊匹配（兼容文件名含控制字符如 \n 的历史数据）
@@ -676,7 +667,11 @@ def _resolve_file_path(session_id: str, file_path: str) -> Path | None:
             continue
         for entry in search_dir.iterdir():
             if entry.is_file() and _normalize_name(entry.name) == normalized_filename:
-                return entry
+                # realpath 校验：拒绝符号链接指向预期目录外
+                rp = Path(os.path.realpath(entry))
+                if rp.is_relative_to(resolved_workspace) or rp.is_relative_to(resolved_session):
+                    return rp
+                return None
 
     return None
 
@@ -833,7 +828,7 @@ async def get_workspace_file(
     return _build_download_response(target_path, filename, inline=inline)
 
 
-@router.post("/workspace/{session_id}/files/{file_path:path}/move")
+@router.post("/workspace/{session_id}/files/{file_path:path}/move", dependencies=[Depends(require_auth)])
 async def move_workspace_file(
     session_id: str,
     file_path: str,
@@ -853,7 +848,7 @@ async def move_workspace_file(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/workspace/{session_id}/files/{file_path:path}/rename")
+@router.post("/workspace/{session_id}/files/{file_path:path}/rename", dependencies=[Depends(require_auth)])
 async def rename_workspace_file(
     session_id: str,
     file_path: str,
@@ -903,7 +898,7 @@ async def rename_workspace_file(
     return APIResponse(success=True, data={"path": result.get("new_path", file_path)})
 
 
-@router.post("/workspace/{session_id}/files/{file_path:path}")
+@router.post("/workspace/{session_id}/files/{file_path:path}", dependencies=[Depends(require_auth)])
 async def save_workspace_file(
     session_id: str,
     file_path: str,
@@ -928,7 +923,7 @@ async def save_workspace_file(
         raise HTTPException(status_code=500, detail=f"保存失败: {exc}") from exc
 
 
-@router.delete("/workspace/{session_id}/files/{file_path:path}")
+@router.delete("/workspace/{session_id}/files/{file_path:path}", dependencies=[Depends(require_auth)])
 async def delete_workspace_file(session_id: str, file_path: str):
     """删除工作空间文件。"""
     _ensure_workspace_session_exists(session_id)
@@ -987,7 +982,7 @@ async def download_workspace_file(
     return _build_download_response(full_path, full_path.name, inline=inline)
 
 
-@router.post("/workspace/{session_id}/download-zip")
+@router.post("/workspace/{session_id}/download-zip", dependencies=[Depends(require_auth)])
 async def download_workspace_zip(
     session_id: str,
     paths: list[str],
@@ -1088,7 +1083,7 @@ async def list_markdown_skill_files(tool_name: str):
     )
 
 
-@router.put("/skills/markdown/{tool_name}", response_model=APIResponse)
+@router.put("/skills/markdown/{tool_name}", response_model=APIResponse, dependencies=[Depends(require_auth)])
 async def update_markdown_tool(tool_name: str, request: MarkdownToolUpdateRequest):
     """更新 Markdown Skill（编辑元数据和内容）。"""
     try:
@@ -1135,7 +1130,7 @@ async def update_markdown_tool(tool_name: str, request: MarkdownToolUpdateReques
     )
 
 
-@router.patch("/skills/markdown/{tool_name}/enabled", response_model=APIResponse)
+@router.patch("/skills/markdown/{tool_name}/enabled", response_model=APIResponse, dependencies=[Depends(require_auth)])
 async def set_markdown_tool_enabled(tool_name: str, request: MarkdownToolEnabledRequest):
     """启用/禁用 Markdown Skill。"""
     registry = _get_tool_registry()
@@ -1146,7 +1141,7 @@ async def set_markdown_tool_enabled(tool_name: str, request: MarkdownToolEnabled
     return APIResponse(data={"skill": updated})
 
 
-@router.delete("/skills/markdown/{tool_name}", response_model=APIResponse)
+@router.delete("/skills/markdown/{tool_name}", response_model=APIResponse, dependencies=[Depends(require_auth)])
 async def delete_markdown_skill(tool_name: str):
     """删除 Markdown Skill。"""
     try:
@@ -1202,7 +1197,7 @@ async def get_markdown_skill_file_content(tool_name: str, path: str):
     )
 
 
-@router.put("/skills/markdown/{tool_name}/files/content", response_model=APIResponse)
+@router.put("/skills/markdown/{tool_name}/files/content", response_model=APIResponse, dependencies=[Depends(require_auth)])
 async def save_markdown_tool_file_content(tool_name: str, req: MarkdownToolFileWriteRequest):
     """保存 Markdown Skill 文本文件内容。"""
     try:
@@ -1229,7 +1224,7 @@ async def save_markdown_tool_file_content(tool_name: str, req: MarkdownToolFileW
     )
 
 
-@router.post("/skills/markdown/{tool_name}/files/upload", response_model=APIResponse)
+@router.post("/skills/markdown/{tool_name}/files/upload", response_model=APIResponse, dependencies=[Depends(require_auth)])
 async def upload_markdown_skill_attachment(
     tool_name: str,
     file: UploadFile = File(...),
@@ -1280,7 +1275,7 @@ async def upload_markdown_skill_attachment(
     )
 
 
-@router.post("/skills/markdown/{tool_name}/directories", response_model=APIResponse)
+@router.post("/skills/markdown/{tool_name}/directories", response_model=APIResponse, dependencies=[Depends(require_auth)])
 async def create_markdown_tool_directory(tool_name: str, request: MarkdownToolDirCreateRequest):
     """在 Markdown Skill 内创建目录。"""
     registry = _get_tool_registry()
@@ -1291,7 +1286,7 @@ async def create_markdown_tool_directory(tool_name: str, request: MarkdownToolDi
     return APIResponse(success=True, data={"path": request.path})
 
 
-@router.post("/skills/markdown/{tool_name}/dirs", response_model=APIResponse)
+@router.post("/skills/markdown/{tool_name}/dirs", response_model=APIResponse, dependencies=[Depends(require_auth)])
 async def create_markdown_tool_dir(tool_name: str, req: MarkdownToolDirCreateRequest):
     """创建 Markdown Skill 子目录。"""
     try:
@@ -1314,7 +1309,7 @@ async def create_markdown_tool_dir(tool_name: str, req: MarkdownToolDirCreateReq
     )
 
 
-@router.delete("/skills/markdown/{tool_name}/paths", response_model=APIResponse)
+@router.delete("/skills/markdown/{tool_name}/paths", response_model=APIResponse, dependencies=[Depends(require_auth)])
 async def delete_markdown_tool_path(tool_name: str, req: MarkdownToolPathDeleteRequest):
     """删除 Markdown Skill 目录内文件或子目录。"""
     try:
@@ -1374,7 +1369,7 @@ async def get_markdown_skill_file(tool_name: str, file_path: str):
     )
 
 
-@router.post("/skills/markdown/{tool_name}/files/{file_path:path}", response_model=APIResponse)
+@router.post("/skills/markdown/{tool_name}/files/{file_path:path}", response_model=APIResponse, dependencies=[Depends(require_auth)])
 async def write_markdown_tool_file(
     tool_name: str, file_path: str, request: MarkdownToolFileWriteRequest
 ):
@@ -1389,7 +1384,7 @@ async def write_markdown_tool_file(
     return APIResponse(success=True, data={"path": file_path})
 
 
-@router.delete("/skills/markdown/{tool_name}/paths/{file_path:path}", response_model=APIResponse)
+@router.delete("/skills/markdown/{tool_name}/paths/{file_path:path}", response_model=APIResponse, dependencies=[Depends(require_auth)])
 async def delete_markdown_skill_path_by_path(tool_name: str, file_path: str):
     """删除 Markdown Skill 内的文件或目录（路径式兼容接口）。"""
     registry = _get_tool_registry()
@@ -1434,8 +1429,8 @@ async def download_markdown_skill_bundle(tool_name: str):
     )
 
 
-@router.post("/skills/upload", response_model=APIResponse)
-@router.post("/skills/markdown/upload", response_model=APIResponse)
+@router.post("/skills/upload", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.post("/skills/markdown/upload", response_model=APIResponse, dependencies=[Depends(require_auth)])
 async def upload_skill_file(file: UploadFile = File(...)):
     """上传 Markdown Skill 文件。"""
     if not file.filename:
@@ -1503,7 +1498,7 @@ def _get_capability_registry():
     return _capability_registry
 
 
-@router.post("/capabilities/suggest", response_model=APIResponse)
+@router.post("/capabilities/suggest", response_model=APIResponse, dependencies=[Depends(require_auth)])
 async def suggest_capabilities(user_message: str):
     """根据用户消息推荐相关能力。
 
@@ -1535,7 +1530,7 @@ async def suggest_capabilities(user_message: str):
     )
 
 
-@router.post("/capabilities/{name}/execute", response_model=APIResponse)
+@router.post("/capabilities/{name}/execute", response_model=APIResponse, dependencies=[Depends(require_auth)])
 async def execute_capability(
     name: str,
     session_id: str,

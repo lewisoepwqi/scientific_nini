@@ -137,6 +137,18 @@ def prepare_apply_update(
         raise ApplyUpdateError("当前存在正在运行的 Agent 任务，请等待任务完成后再升级")
 
     installer_path = Path(state.installer_path).expanduser().resolve()
+
+    # sha256 兜底：state 缺失时尝试从缓存 asset 回填
+    expected_sha256 = state.expected_sha256 or ""
+    if not expected_sha256:
+        from nini.update.service import update_service
+
+        if update_service._asset and update_service._asset.sha256:
+            expected_sha256 = update_service._asset.sha256
+            logger.info("从缓存 asset 回填 expected_sha256: %s", expected_sha256)
+    if not expected_sha256:
+        raise ApplyUpdateError("安装包 SHA256 为空，无法进行二次校验")
+
     verify_authenticode_signature(
         installer_path,
         allowed_thumbprints=app_settings.update_signature_allowed_thumbprints,
@@ -167,7 +179,7 @@ def prepare_apply_update(
         lock_probe_seconds=app_settings.update_apply_lock_probe_seconds,
         backup_dir=backup_dir,
         keep_backups=1,
-        expected_sha256=state.expected_sha256 or "",
+        expected_sha256=expected_sha256,
         expected_size=state.expected_size or 0,
         allowed_thumbprints=app_settings.update_signature_allowed_thumbprints,
         allowed_publishers=app_settings.update_signature_allowed_publishers,

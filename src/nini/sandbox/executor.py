@@ -188,7 +188,6 @@ _BASE_SAFE_BUILTINS: dict[str, Any] = {
     "str": str,
     "sum": sum,
     "tuple": tuple,
-    "type": type,
     "repr": repr,
     "zip": zip,
     "Exception": Exception,
@@ -197,11 +196,81 @@ _BASE_SAFE_BUILTINS: dict[str, Any] = {
 }
 
 
+def safe_type(obj: Any, *args: Any, **kwargs: Any) -> type:
+    """受限 type() 替代：仅允许单参数形式 type(obj)，禁止 type(name, bases, dict) 动态创建类型。"""
+    if args or kwargs:
+        raise SandboxPolicyError("不允许动态创建类型（type 三参数形式）。如需创建类，请使用 class 语句。")
+    return type(obj)
+
+
 def _make_safe_builtins(allowed_import_roots: set[str]) -> dict[str, Any]:
     """按本次执行动态构造受限 builtins。"""
     safe_builtins = dict(_BASE_SAFE_BUILTINS)
     safe_builtins["__import__"] = _make_safe_import(allowed_import_roots)
+    safe_builtins["type"] = safe_type
     return safe_builtins
+
+
+# df.eval / df.query 拦截的危险关键词
+_EVAL_DANGEROUS_PATTERNS = (
+    "__import__",
+    "exec",
+    "compile",
+    "open",
+    "os.",
+    "subprocess",
+    "sys.",
+)
+
+
+def _check_eval_expr(expr: str, method_name: str) -> None:
+    """检查 df.eval/df.query 表达式是否包含危险模式。"""
+    if not isinstance(expr, str):
+        return
+    for pattern in _EVAL_DANGEROUS_PATTERNS:
+        if pattern in expr:
+            raise SandboxPolicyError(
+                f"不允许在 {method_name} 中使用 '{pattern}'。"
+                f"请在 {method_name} 中仅使用数据列名和算术/比较表达式。"
+            )
+
+
+def _make_safe_df_eval(original_eval: Any) -> Any:
+    """创建拦截危险表达式的 DataFrame.eval 包装。"""
+
+    def _safe_eval(self_df: Any, expr: str, *args: Any, **kwargs: Any) -> Any:
+        _check_eval_expr(expr, "df.eval")
+        return original_eval(self_df, expr, *args, **kwargs)
+
+    return _safe_eval
+
+
+def _make_safe_df_query(original_query: Any) -> Any:
+    """创建拦截危险表达式的 DataFrame.query 包装。"""
+
+    def _safe_query(self_df: Any, expr: str, *args: Any, **kwargs: Any) -> Any:
+        _check_eval_expr(expr, "df.query")
+        return original_query(self_df, expr, *args, **kwargs)
+
+    return _safe_query
+
+
+def _make_path_restricted_reader(original_fn: Any, fn_name: str, working_dir: str) -> Any:
+    """创建限制路径在 working_dir 内的 pd.read_* 包装。"""
+
+    def _restricted_read(filepath_or_buffer: Any, *args: Any, **kwargs: Any) -> Any:
+        # 仅对路径类参数（str/os.PathLike）做限制，buffer 类跳过
+        if isinstance(filepath_or_buffer, (str, os.PathLike)):
+            resolved = os.path.realpath(os.path.join(working_dir, str(filepath_or_buffer)))
+            wd_real = os.path.realpath(working_dir)
+            if not resolved.startswith(wd_real + os.sep) and resolved != wd_real:
+                raise SandboxPolicyError(
+                    f"不允许读取工作目录之外的文件（{fn_name}: {filepath_or_buffer}）。"
+                    "请仅使用工作目录内的数据文件。"
+                )
+        return original_fn(filepath_or_buffer, *args, **kwargs)
+
+    return _restricted_read
 
 
 def _apply_matplotlib_cjk_font_fallback(fig: Any) -> None:
@@ -478,6 +547,11 @@ def _build_exec_globals(
         "json": json,
     }
 
+    # 沙箱安全加固：monkey-patch df.eval/df.query 拦截危险表达式，
+    # hook pd.read_* 限制文件路径在工作目录内
+    pd.DataFrame.eval = _make_safe_df_eval(pd.DataFrame.eval)
+    pd.DataFrame.query = _make_safe_df_query(pd.DataFrame.query)
+
     # 可视化库（如果可用）
     if plt is not None:
         globals_dict["plt"] = plt
@@ -688,6 +762,15 @@ def _sandbox_worker(
         allowed_import_roots = get_allowed_import_roots(extra_allowed_imports)
         safe_builtins = _make_safe_builtins(allowed_import_roots)
         exec_globals = _build_exec_globals(local_datasets, safe_builtins=safe_builtins)
+
+        # 沙箱安全加固：hook pd.read_* 限制路径在 working_dir 内
+        for _fn_name, _orig_fn in [
+            ("read_csv", pd.read_csv),
+            ("read_excel", pd.read_excel),
+            ("read_json", pd.read_json),
+            ("read_pickle", pd.read_pickle),
+        ]:
+            setattr(pd, _fn_name, _make_path_restricted_reader(_orig_fn, _fn_name, working_dir))
 
         # 使用单命名空间：避免 exec(code, globals, locals) 双命名空间导致
         # 用户在代码中定义的函数无法被 lambda/闭包引用（NameError）。

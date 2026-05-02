@@ -123,10 +123,10 @@ class UpdateService:
         使用 asyncio.Lock 防止并发下载。
         """
         async with self._download_lock:
-            # 检查是否有正在进行的下载
+            # 检查是否有正在进行的下载或校验
             existing_state = self.state_store.load()
-            if existing_state.status == "downloading":
-                logger.info("已有下载任务正在进行，返回当前状态")
+            if existing_state.status in ("downloading", "verifying"):
+                logger.info("已有下载/校验任务正在进行，返回当前状态")
                 return existing_state
 
             if self._manifest is None or self._asset is None:
