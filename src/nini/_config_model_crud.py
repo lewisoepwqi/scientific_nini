@@ -152,13 +152,15 @@ async def _ensure_app_settings_table(db: Any) -> None:
     某些测试场景不会触发应用 lifespan（不会先执行 init_db），
     这里做就地兜底，避免路由直接读写配置时报 no such table。
     """
-    await db.execute("""
+    await db.execute(
+        """
         CREATE TABLE IF NOT EXISTS app_settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
-        """)
+        """
+    )
 
 
 async def save_model_config(

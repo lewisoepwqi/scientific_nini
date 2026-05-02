@@ -84,4 +84,4 @@
 - [x] 11.5 全部 `pytest -q` 通过
 - [x] 11.6 `python scripts/check_event_schema_consistency.py` 通过
 - [x] 11.7 `cd web && npm run build` 通过
-- [ ] 11.8 Windows 打包烟测：手动验证 升级成功 / 升级失败回滚 / 续传 / 重发布丢字节 / 文件锁超时 五个场景的日志与最终版本号
+- [x] 11.8 Windows 打包烟测：手动验证 升级成功 / 升级失败回滚 / 续传 / 重发布丢字节 / 文件锁超时 五个场景的日志与最终版本号

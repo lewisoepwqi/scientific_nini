@@ -58,14 +58,16 @@ def test_custom_yaml_override(tmp_path, monkeypatch):
 
     custom_dir = tmp_path / "agents"
     custom_dir.mkdir()
-    yaml_content = textwrap.dedent("""
+    yaml_content = textwrap.dedent(
+        """
         agent_id: data_cleaner
         name: 自定义数据清洗
         description: 覆盖版本
         system_prompt: 覆盖
         purpose: analysis
         allowed_tools: []
-    """)
+    """
+    )
     (custom_dir / "data_cleaner.yaml").write_text(yaml_content, encoding="utf-8")
     monkeypatch.setattr(reg_module, "_CUSTOM_AGENTS_DIR", custom_dir)
 

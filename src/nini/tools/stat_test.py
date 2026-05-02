@@ -285,4 +285,3 @@ class StatTestTool(Tool):
             "minimal_example": minimal_example,
         }
         return self.build_input_error(message=message, payload=payload)
-

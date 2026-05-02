@@ -1084,6 +1084,10 @@ class ModelResolver:
         Returns:
             新的客户端实例，如果提供商未知则返回 None
         """
+        # 测试注入模式下不构建真实客户端，由 _client_map 提供测试替身
+        if self._injected_clients:
+            return None
+
         from nini.agent.providers import (
             AnthropicClient,
             DashScopeClient,

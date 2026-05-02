@@ -1117,7 +1117,10 @@ class HarnessRunner:
                 return "recoverable_input_misuse", False
         if tool_name == "code_session":
             cs_error_code = str(payload.get("error_code", "")).strip()
-            if cs_error_code in {"CODE_SESSION_OPERATION_MISSING", "CODE_SESSION_OPERATION_INVALID"}:
+            if cs_error_code in {
+                "CODE_SESSION_OPERATION_MISSING",
+                "CODE_SESSION_OPERATION_INVALID",
+            }:
                 return "recoverable_input_misuse", False
         if tool_name == "dispatch_agents":
             dispatch_error_code = str(

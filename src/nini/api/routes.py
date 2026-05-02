@@ -430,7 +430,11 @@ async def list_datasets(session_id: str):
     return APIResponse(success=True, data={"session_id": session_id, "datasets": datasets})
 
 
-@router.post("/datasets/{session_id}/{dataset_id}/load", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.post(
+    "/datasets/{session_id}/{dataset_id}/load",
+    response_model=APIResponse,
+    dependencies=[Depends(require_auth)],
+)
 async def load_dataset_into_session(session_id: str, dataset_id: str):
     """将工作空间数据集加载到会话内存。"""
     if not session_manager.session_exists(session_id):
@@ -828,7 +832,9 @@ async def get_workspace_file(
     return _build_download_response(target_path, filename, inline=inline)
 
 
-@router.post("/workspace/{session_id}/files/{file_path:path}/move", dependencies=[Depends(require_auth)])
+@router.post(
+    "/workspace/{session_id}/files/{file_path:path}/move", dependencies=[Depends(require_auth)]
+)
 async def move_workspace_file(
     session_id: str,
     file_path: str,
@@ -848,7 +854,9 @@ async def move_workspace_file(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/workspace/{session_id}/files/{file_path:path}/rename", dependencies=[Depends(require_auth)])
+@router.post(
+    "/workspace/{session_id}/files/{file_path:path}/rename", dependencies=[Depends(require_auth)]
+)
 async def rename_workspace_file(
     session_id: str,
     file_path: str,
@@ -923,7 +931,9 @@ async def save_workspace_file(
         raise HTTPException(status_code=500, detail=f"保存失败: {exc}") from exc
 
 
-@router.delete("/workspace/{session_id}/files/{file_path:path}", dependencies=[Depends(require_auth)])
+@router.delete(
+    "/workspace/{session_id}/files/{file_path:path}", dependencies=[Depends(require_auth)]
+)
 async def delete_workspace_file(session_id: str, file_path: str):
     """删除工作空间文件。"""
     _ensure_workspace_session_exists(session_id)
@@ -1083,7 +1093,9 @@ async def list_markdown_skill_files(tool_name: str):
     )
 
 
-@router.put("/skills/markdown/{tool_name}", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.put(
+    "/skills/markdown/{tool_name}", response_model=APIResponse, dependencies=[Depends(require_auth)]
+)
 async def update_markdown_tool(tool_name: str, request: MarkdownToolUpdateRequest):
     """更新 Markdown Skill（编辑元数据和内容）。"""
     try:
@@ -1130,7 +1142,11 @@ async def update_markdown_tool(tool_name: str, request: MarkdownToolUpdateReques
     )
 
 
-@router.patch("/skills/markdown/{tool_name}/enabled", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.patch(
+    "/skills/markdown/{tool_name}/enabled",
+    response_model=APIResponse,
+    dependencies=[Depends(require_auth)],
+)
 async def set_markdown_tool_enabled(tool_name: str, request: MarkdownToolEnabledRequest):
     """启用/禁用 Markdown Skill。"""
     registry = _get_tool_registry()
@@ -1141,7 +1157,9 @@ async def set_markdown_tool_enabled(tool_name: str, request: MarkdownToolEnabled
     return APIResponse(data={"skill": updated})
 
 
-@router.delete("/skills/markdown/{tool_name}", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.delete(
+    "/skills/markdown/{tool_name}", response_model=APIResponse, dependencies=[Depends(require_auth)]
+)
 async def delete_markdown_skill(tool_name: str):
     """删除 Markdown Skill。"""
     try:
@@ -1197,7 +1215,11 @@ async def get_markdown_skill_file_content(tool_name: str, path: str):
     )
 
 
-@router.put("/skills/markdown/{tool_name}/files/content", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.put(
+    "/skills/markdown/{tool_name}/files/content",
+    response_model=APIResponse,
+    dependencies=[Depends(require_auth)],
+)
 async def save_markdown_tool_file_content(tool_name: str, req: MarkdownToolFileWriteRequest):
     """保存 Markdown Skill 文本文件内容。"""
     try:
@@ -1224,7 +1246,11 @@ async def save_markdown_tool_file_content(tool_name: str, req: MarkdownToolFileW
     )
 
 
-@router.post("/skills/markdown/{tool_name}/files/upload", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.post(
+    "/skills/markdown/{tool_name}/files/upload",
+    response_model=APIResponse,
+    dependencies=[Depends(require_auth)],
+)
 async def upload_markdown_skill_attachment(
     tool_name: str,
     file: UploadFile = File(...),
@@ -1275,7 +1301,11 @@ async def upload_markdown_skill_attachment(
     )
 
 
-@router.post("/skills/markdown/{tool_name}/directories", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.post(
+    "/skills/markdown/{tool_name}/directories",
+    response_model=APIResponse,
+    dependencies=[Depends(require_auth)],
+)
 async def create_markdown_tool_directory(tool_name: str, request: MarkdownToolDirCreateRequest):
     """在 Markdown Skill 内创建目录。"""
     registry = _get_tool_registry()
@@ -1286,7 +1316,11 @@ async def create_markdown_tool_directory(tool_name: str, request: MarkdownToolDi
     return APIResponse(success=True, data={"path": request.path})
 
 
-@router.post("/skills/markdown/{tool_name}/dirs", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.post(
+    "/skills/markdown/{tool_name}/dirs",
+    response_model=APIResponse,
+    dependencies=[Depends(require_auth)],
+)
 async def create_markdown_tool_dir(tool_name: str, req: MarkdownToolDirCreateRequest):
     """创建 Markdown Skill 子目录。"""
     try:
@@ -1309,7 +1343,11 @@ async def create_markdown_tool_dir(tool_name: str, req: MarkdownToolDirCreateReq
     )
 
 
-@router.delete("/skills/markdown/{tool_name}/paths", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.delete(
+    "/skills/markdown/{tool_name}/paths",
+    response_model=APIResponse,
+    dependencies=[Depends(require_auth)],
+)
 async def delete_markdown_tool_path(tool_name: str, req: MarkdownToolPathDeleteRequest):
     """删除 Markdown Skill 目录内文件或子目录。"""
     try:
@@ -1369,7 +1407,11 @@ async def get_markdown_skill_file(tool_name: str, file_path: str):
     )
 
 
-@router.post("/skills/markdown/{tool_name}/files/{file_path:path}", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.post(
+    "/skills/markdown/{tool_name}/files/{file_path:path}",
+    response_model=APIResponse,
+    dependencies=[Depends(require_auth)],
+)
 async def write_markdown_tool_file(
     tool_name: str, file_path: str, request: MarkdownToolFileWriteRequest
 ):
@@ -1384,7 +1426,11 @@ async def write_markdown_tool_file(
     return APIResponse(success=True, data={"path": file_path})
 
 
-@router.delete("/skills/markdown/{tool_name}/paths/{file_path:path}", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.delete(
+    "/skills/markdown/{tool_name}/paths/{file_path:path}",
+    response_model=APIResponse,
+    dependencies=[Depends(require_auth)],
+)
 async def delete_markdown_skill_path_by_path(tool_name: str, file_path: str):
     """删除 Markdown Skill 内的文件或目录（路径式兼容接口）。"""
     registry = _get_tool_registry()
@@ -1430,7 +1476,9 @@ async def download_markdown_skill_bundle(tool_name: str):
 
 
 @router.post("/skills/upload", response_model=APIResponse, dependencies=[Depends(require_auth)])
-@router.post("/skills/markdown/upload", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.post(
+    "/skills/markdown/upload", response_model=APIResponse, dependencies=[Depends(require_auth)]
+)
 async def upload_skill_file(file: UploadFile = File(...)):
     """上传 Markdown Skill 文件。"""
     if not file.filename:
@@ -1498,7 +1546,9 @@ def _get_capability_registry():
     return _capability_registry
 
 
-@router.post("/capabilities/suggest", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.post(
+    "/capabilities/suggest", response_model=APIResponse, dependencies=[Depends(require_auth)]
+)
 async def suggest_capabilities(user_message: str):
     """根据用户消息推荐相关能力。
 
@@ -1530,7 +1580,9 @@ async def suggest_capabilities(user_message: str):
     )
 
 
-@router.post("/capabilities/{name}/execute", response_model=APIResponse, dependencies=[Depends(require_auth)])
+@router.post(
+    "/capabilities/{name}/execute", response_model=APIResponse, dependencies=[Depends(require_auth)]
+)
 async def execute_capability(
     name: str,
     session_id: str,

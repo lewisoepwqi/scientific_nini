@@ -36,6 +36,7 @@ def _build_chart_embed_hint(session: Session) -> str:
     except Exception:
         return ""
 
+
 logger = logging.getLogger(__name__)
 
 _TASK_STATUS_ENUM = ["pending", "in_progress", "completed", "failed", "blocked", "skipped"]
@@ -509,8 +510,7 @@ class TaskWriteTool(Tool):
                 f"「{current_in_progress.title}」。"
                 "请**直接输出最终分析总结**，引用已生成的图表 artifact；"
                 "本任务会在你回复后由系统自动标记为 completed，"
-                "**不要再调用 task_state**。"
-                + chart_hint
+                "**不要再调用 task_state**。" + chart_hint
             )
         elif current_in_progress:
             hint_text = (

@@ -600,9 +600,7 @@ class _TrayApp:
             def _window_proc(hwnd, msg, wparam, lparam):
                 if msg == WM_APP_SHOW_WINDOW:
                     if self.primary_action is not None:
-                        threading.Thread(
-                            target=self.primary_action, daemon=True
-                        ).start()
+                        threading.Thread(target=self.primary_action, daemon=True).start()
                     return 0
                 if msg == WM_TRAYICON:
                     return self._handle_tray_event(hwnd, lparam)

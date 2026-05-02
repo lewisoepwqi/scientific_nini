@@ -33,7 +33,7 @@
 - [x] 4.5 updater 实现等待 Nini 相关进程退出、短暂缓冲、运行 `Setup.exe /S /D=<install-dir>`、记录退出码和重启 `nini.exe`
 - [x] 4.6 后端 apply 成功启动 updater 后，协调 GUI 壳和后端服务退出，不直接在 API 请求线程中阻塞安装
 - [x] 4.7 新增单元测试覆盖非打包环境禁止 apply、未 ready 禁止 apply、Agent 运行中禁止 apply、签名失败禁止 apply、updater 命令参数构造和进程等待逻辑
-- [ ] 4.8 在 Windows 打包版手动验证 updater 日志写入 `%USERPROFILE%\.nini\logs\updater.log`
+- [x] 4.8 在 Windows 打包版手动验证 updater 日志写入 `%USERPROFILE%\.nini\logs\updater.log`
 
 ## 5. 前端更新体验
 
@@ -53,7 +53,7 @@
 - [x] 6.4 新增 `scripts/generate_update_manifest.py`，根据安装包路径、版本、渠道、下载 URL 和更新说明生成 `latest.json` 草稿
 - [x] 6.5 新增 `scripts/verify_update_manifest.py`，校验 manifest 中 size 与 sha256 和安装包实际值一致
 - [x] 6.6 更新 `packaging/README.md`，增加发布服务器目录、manifest 上传、SHA256 校验和应用内升级烟测说明
-- [ ] 6.7 执行 `python -m build` 和 Windows 打包流程，确认生成 `nini.exe`、`nini-cli.exe`、`nini-updater.exe` 和安装包
+- [x] 6.7 执行 `python -m build` 和 Windows 打包流程，确认生成 `nini.exe`、`nini-cli.exe`、`nini-updater.exe` 和安装包
 
 ## 7. 安全、配置与企业场景
 
@@ -66,10 +66,10 @@
 
 ## 8. 验证与回归
 
-- [ ] 8.1 运行 `black --check src tests`
-- [ ] 8.2 运行 `mypy src/nini`
-- [ ] 8.3 运行 `pytest -q`
+- [x] 8.1 运行 `black --check src tests`
+- [x] 8.2 运行 `mypy src/nini`
+- [x] 8.3 运行 `pytest -q`
 - [x] 8.4 运行 `cd web && npm run build`
-- [ ] 8.5 执行打包烟测：安装旧版、检查新版、下载校验、确认升级、静默覆盖安装、自动重启新版
-- [ ] 8.6 验证升级后 `%USERPROFILE%\.nini` 中配置、数据库、会话、上传文件和日志仍存在
+- [x] 8.5 执行打包烟测：安装旧版、检查新版、下载校验、确认升级、静默覆盖安装、自动重启新版
+- [x] 8.6 验证升级后 `%USERPROFILE%\.nini` 中配置、数据库、会话、上传文件和日志仍存在
 - [x] 8.7 准备 PR 描述，包含变更内容、验证方式、风险点、回滚方式和更新服务器发布步骤

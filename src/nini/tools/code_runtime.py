@@ -322,6 +322,7 @@ def _save_python_figures(
             # 沙箱子 Agent 模式下存储 ArtifactRef（引用），否则存储内容（供 export_chart 复用）
             if getattr(session, "workspace_root", None) is not None:
                 from nini.agent.artifact_ref import ArtifactRef
+
                 session.artifacts["latest_chart"] = ArtifactRef(
                     path=json_name,
                     type="chart",

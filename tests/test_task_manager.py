@@ -215,7 +215,12 @@ def test_get_dispatch_context_prefers_current_in_progress_task():
     tm = _make_manager(
         [
             {"id": 1, "title": "读取数据", "status": "completed", "tool_hint": "dataset_catalog"},
-            {"id": 2, "title": "清洗数据", "status": "in_progress", "tool_hint": "dataset_transform"},
+            {
+                "id": 2,
+                "title": "清洗数据",
+                "status": "in_progress",
+                "tool_hint": "dataset_transform",
+            },
             {"id": 3, "title": "统计分析", "status": "pending", "depends_on": [2]},
         ]
     )

@@ -136,7 +136,11 @@ async def _stream_download(
                     response.raise_for_status()
 
             # 选择写入模式：仅在续传偏移匹配时追加，否则从头写入
-            mode = "ab" if resume_from > 0 and response.status_code == 206 and range_offset_ok else "wb"
+            mode = (
+                "ab"
+                if resume_from > 0 and response.status_code == 206 and range_offset_ok
+                else "wb"
+            )
 
             with target.open(mode) as f:
                 async for chunk in response.aiter_bytes(chunk_size=_CHUNK_SIZE):

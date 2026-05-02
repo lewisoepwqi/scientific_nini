@@ -18,34 +18,40 @@ def knowledge_dir(tmp_path: Path) -> Path:
 
     # comparison.md — high 优先级
     (methods / "comparison.md").write_text(
-        textwrap.dedent("""\
+        textwrap.dedent(
+            """\
         <!-- keywords: t检验, 比较, 差异, 两组, anova -->
         <!-- priority: high -->
         # 组间比较方法选择指南
         两组比较用 t 检验，多组用 ANOVA。
-        """),
+        """
+        ),
         encoding="utf-8",
     )
 
     # correlation.md — high 优先级
     (methods / "correlation.md").write_text(
-        textwrap.dedent("""\
+        textwrap.dedent(
+            """\
         <!-- keywords: 相关, 回归, pearson, spearman -->
         <!-- priority: high -->
         # 相关与回归
         Pearson 用于正态，Spearman 用于非正态。
-        """),
+        """
+        ),
         encoding="utf-8",
     )
 
     # normality.md — normal 优先级
     (methods / "normality.md").write_text(
-        textwrap.dedent("""\
+        textwrap.dedent(
+            """\
         <!-- keywords: 正态, 分布, shapiro, 非参数 -->
         <!-- priority: normal -->
         # 正态性检查
         用 Shapiro-Wilk 检验正态性。
-        """),
+        """
+        ),
         encoding="utf-8",
     )
 
@@ -54,12 +60,14 @@ def knowledge_dir(tmp_path: Path) -> Path:
 
     # common_errors.md — low 优先级
     (pitfalls / "common_errors.md").write_text(
-        textwrap.dedent("""\
+        textwrap.dedent(
+            """\
         <!-- keywords: 错误, 误用, 陷阱 -->
         <!-- priority: low -->
         # 常见统计错误
         不要用多次 t 检验代替 ANOVA。
-        """),
+        """
+        ),
         encoding="utf-8",
     )
 

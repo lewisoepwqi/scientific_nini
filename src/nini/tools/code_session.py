@@ -39,7 +39,7 @@ class CodeSessionTool(Tool):
     def description(self) -> str:
         return (
             "创建、读取和执行持久化脚本会话（Python/R），统一管理脚本与执行历史。\n"
-            'operation 必填（不可省略）。'
+            "operation 必填（不可省略）。"
             '最小示例：{"operation":"create_script","content":"result = 42"}\n'
             '数据分析：{"operation":"create_script","content":"result=df.describe()","dataset_name":"xxx.csv"}\n'
             "传入 dataset_name 时沙箱自动注入 df（DataFrame），禁止 pd.read_csv 等文件读取。\n"
@@ -188,7 +188,7 @@ class CodeSessionTool(Tool):
             has_content = bool(kwargs.get("content"))
             if has_content:
                 hint = (
-                    'operation 字段缺失（检测到 content，你可能要调用 create_script）。'
+                    "operation 字段缺失（检测到 content，你可能要调用 create_script）。"
                     '请补充 "operation":"create_script" 后重试。'
                 )
             else:

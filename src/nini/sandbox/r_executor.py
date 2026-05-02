@@ -277,7 +277,8 @@ def _build_wrapper_script(
     persist_df: bool,
 ) -> str:
     dataset_name_literal = json.dumps(dataset_name or "")
-    return f"""
+    return (
+        f"""
 options(stringsAsFactors = FALSE, warn = 1)
 {_r_lib_init_expr()}
 
@@ -397,7 +398,9 @@ jsonlite::write_json(
   pretty = TRUE,
   null = "null"
 )
-""".strip() + "\n"
+""".strip()
+        + "\n"
+    )
 
 
 class RSandboxExecutor:

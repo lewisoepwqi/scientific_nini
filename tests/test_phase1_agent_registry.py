@@ -36,14 +36,16 @@ def test_yaml_valid_model_preference_parsed(tmp_path, monkeypatch, value):
 
     builtin_dir = tmp_path / "builtin"
     builtin_dir.mkdir()
-    yaml_content = textwrap.dedent(f"""
+    yaml_content = textwrap.dedent(
+        f"""
         agent_id: test_agent
         name: 测试 Agent
         description: 测试用
         system_prompt: 你是测试助手
         purpose: default
         model_preference: {value}
-    """)
+    """
+    )
     (builtin_dir / "test_agent.yaml").write_text(yaml_content, encoding="utf-8")
 
     monkeypatch.setattr(reg_module, "_BUILTIN_AGENTS_DIR", builtin_dir)
@@ -64,13 +66,15 @@ def test_yaml_missing_model_preference_defaults_to_none(tmp_path, monkeypatch):
 
     builtin_dir = tmp_path / "builtin"
     builtin_dir.mkdir()
-    yaml_content = textwrap.dedent("""
+    yaml_content = textwrap.dedent(
+        """
         agent_id: test_agent
         name: 测试 Agent
         description: 测试用
         system_prompt: 你是测试助手
         purpose: default
-    """)
+    """
+    )
     (builtin_dir / "test_agent.yaml").write_text(yaml_content, encoding="utf-8")
 
     monkeypatch.setattr(reg_module, "_BUILTIN_AGENTS_DIR", builtin_dir)
@@ -93,14 +97,16 @@ def test_yaml_invalid_model_preference_falls_back_to_none_with_warning(
 
     builtin_dir = tmp_path / "builtin"
     builtin_dir.mkdir()
-    yaml_content = textwrap.dedent("""
+    yaml_content = textwrap.dedent(
+        """
         agent_id: test_agent
         name: 测试 Agent
         description: 测试用
         system_prompt: 你是测试助手
         purpose: default
         model_preference: gpt4
-    """)
+    """
+    )
     (builtin_dir / "test_agent.yaml").write_text(yaml_content, encoding="utf-8")
 
     monkeypatch.setattr(reg_module, "_BUILTIN_AGENTS_DIR", builtin_dir)

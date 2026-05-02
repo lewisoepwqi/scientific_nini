@@ -187,7 +187,12 @@ async def test_runtime_context_includes_dispatch_constraints_block() -> None:
     session.add_message("user", "继续分析")
     session.task_manager = session.task_manager.init_tasks(
         [
-            {"id": 1, "title": "清洗数据", "status": "in_progress", "tool_hint": "dataset_transform"},
+            {
+                "id": 1,
+                "title": "清洗数据",
+                "status": "in_progress",
+                "tool_hint": "dataset_transform",
+            },
             {"id": 2, "title": "统计分析", "status": "pending", "depends_on": [1]},
         ]
     )

@@ -53,9 +53,7 @@ class TodoService:
         storage_path = session_dir / "todo_state.json"
         hooks = TaskHookRegistry()
         hooks.register(self._log_hook)
-        dispatcher = TaskDispatcher(
-            TaskStore(storage_path=storage_path, hook_registry=hooks)
-        )
+        dispatcher = TaskDispatcher(TaskStore(storage_path=storage_path, hook_registry=hooks))
         self._dispatchers[normalized] = dispatcher
         return dispatcher
 

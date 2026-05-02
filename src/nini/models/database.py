@@ -233,13 +233,15 @@ async def _migrate_model_configs(db: AsyncSQLiteConnection) -> None:
 
     # 创建 app_settings 表（如果不存在）
     try:
-        await db.execute("""
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS app_settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
-        """)
+        """
+        )
     except Exception as e:
         logger.debug("创建 app_settings 表跳过: %s", e)
 

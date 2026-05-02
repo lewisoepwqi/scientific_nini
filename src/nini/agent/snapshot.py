@@ -56,9 +56,11 @@ class SubAgentRunSnapshot:
         """从 SubAgentResult 构建快照。"""
         # 从 artifacts 中提取工具调用记录（若存在）
         artifacts = getattr(result, "artifacts", {}) or {}
-        tool_calls: tuple[str, ...] = tuple(
-            str(v) for v in artifacts.get("_tool_calls", [])
-        ) if isinstance(artifacts.get("_tool_calls"), list) else ()
+        tool_calls: tuple[str, ...] = (
+            tuple(str(v) for v in artifacts.get("_tool_calls", []))
+            if isinstance(artifacts.get("_tool_calls"), list)
+            else ()
+        )
 
         stop_reason = getattr(result, "stop_reason", "") or ""
         if not stop_reason:
@@ -89,7 +91,11 @@ class SubAgentRunSnapshot:
 
     def as_markdown(self) -> str:
         """将快照渲染为可读的 Markdown 报告（参考 claw-code RuntimeSession.as_markdown()）。"""
-        status = "✅ 成功" if self.success else ("⏹ 已停止" if self.stop_reason == "stopped" else "❌ 失败")
+        status = (
+            "✅ 成功"
+            if self.success
+            else ("⏹ 已停止" if self.stop_reason == "stopped" else "❌ 失败")
+        )
         lines = [
             f"# Sub-Agent 执行快照",
             f"",

@@ -78,22 +78,24 @@ async def list_memories(
         memories = []
         for r in rows:
             meta = r.get("sci_metadata") or {}
-            memories.append({
-                "id": r.get("id"),
-                "memory_type": r.get("memory_type"),
-                "content": r.get("content"),
-                "summary": r.get("summary"),
-                "source_session_id": r.get("source_session_id"),
-                "source_dataset": meta.get("dataset_name"),
-                "analysis_type": meta.get("analysis_type"),
-                "confidence": r.get("trust_score"),
-                "importance_score": r.get("importance"),
-                "tags": r.get("tags") or [],
-                "metadata": meta,
-                "created_at": r.get("created_at"),
-                "last_accessed_at": r.get("last_accessed_at"),
-                "access_count": r.get("access_count", 0),
-            })
+            memories.append(
+                {
+                    "id": r.get("id"),
+                    "memory_type": r.get("memory_type"),
+                    "content": r.get("content"),
+                    "summary": r.get("summary"),
+                    "source_session_id": r.get("source_session_id"),
+                    "source_dataset": meta.get("dataset_name"),
+                    "analysis_type": meta.get("analysis_type"),
+                    "confidence": r.get("trust_score"),
+                    "importance_score": r.get("importance"),
+                    "tags": r.get("tags") or [],
+                    "metadata": meta,
+                    "created_at": r.get("created_at"),
+                    "last_accessed_at": r.get("last_accessed_at"),
+                    "access_count": r.get("access_count", 0),
+                }
+            )
         return {"memories": memories, "total": len(memories)}
 
     except Exception as e:

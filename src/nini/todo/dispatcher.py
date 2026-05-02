@@ -87,9 +87,10 @@ class TaskDispatcher:
         """标记任务失败。"""
         return self._store.fail_task(task_id, agent_id=agent_id, message=note)
 
-    def cancel_task(self, task_id: str, *, actor_id: str | None = None, note: str | None = None) -> Task:
+    def cancel_task(
+        self, task_id: str, *, actor_id: str | None = None, note: str | None = None
+    ) -> Task:
         """取消任务。"""
         return self._store.cancel_task(task_id, actor_id=actor_id, message=note)
 
     # TODO: 后续在这里接入 dispatch_agents / spawner，使子 Agent 先 claim 再执行。
-

@@ -199,7 +199,9 @@ _BASE_SAFE_BUILTINS: dict[str, Any] = {
 def safe_type(obj: Any, *args: Any, **kwargs: Any) -> type:
     """受限 type() 替代：仅允许单参数形式 type(obj)，禁止 type(name, bases, dict) 动态创建类型。"""
     if args or kwargs:
-        raise SandboxPolicyError("不允许动态创建类型（type 三参数形式）。如需创建类，请使用 class 语句。")
+        raise SandboxPolicyError(
+            "不允许动态创建类型（type 三参数形式）。如需创建类，请使用 class 语句。"
+        )
     return type(obj)
 
 

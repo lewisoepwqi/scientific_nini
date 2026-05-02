@@ -117,6 +117,7 @@ def test_find_webview2_runtime_returns_path_when_msedge_exists(tmp_path) -> None
 def test_acquire_single_instance_mutex_returns_sentinel_on_non_windows() -> None:
     """非 Windows 平台上，函数返回哨兵值 -1（视为第一实例）。"""
     import sys
+
     if sys.platform != "win32":
         assert _acquire_single_instance_mutex() == -1
 
@@ -146,6 +147,7 @@ def test_load_window_state_returns_empty_dict_on_corrupt_file(tmp_path) -> None:
 def test_confirm_exit_returns_true_on_non_windows() -> None:
     """非 Windows 平台上，_confirm_exit 始终返回 True，不弹出对话框。"""
     import sys
+
     if sys.platform != "win32":
         assert _confirm_exit() is True
 

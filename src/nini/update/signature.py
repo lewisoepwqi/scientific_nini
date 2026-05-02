@@ -46,6 +46,7 @@ def verify_authenticode_signature(
     """
     # 生产环境强制启用签名校验，防止通过配置绕过安全检查
     from nini.config import IS_FROZEN
+
     if IS_FROZEN and not enabled:
         logger.warning("生产环境强制启用签名校验，忽略 enabled=False 配置")
         enabled = True
