@@ -3,6 +3,7 @@
 根因：dataset_transform.group_aggregate 在 metrics 包含多个聚合函数时
 产生 MultiIndex 列（tuple 类型），后续 json.dumps 无法序列化 tuple key 的 dict。
 """
+
 import json
 
 import pandas as pd
@@ -14,11 +15,13 @@ from nini.agent.components.tool_executor import (
 
 def _make_multiindex_df() -> pd.DataFrame:
     """构造一个模拟 groupby().agg() 产生的 MultiIndex 列 DataFrame。"""
-    df = pd.DataFrame({
-        "月份": ["1月", "1月", "2月", "2月"],
-        "收缩压": [120, 130, 140, 135],
-        "舒张压": [80, 85, 90, 88],
-    })
+    df = pd.DataFrame(
+        {
+            "月份": ["1月", "1月", "2月", "2月"],
+            "收缩压": [120, 130, 140, 135],
+            "舒张压": [80, 85, 90, 88],
+        }
+    )
     metrics = {"收缩压": ["mean", "std"], "舒张压": ["mean", "std"]}
     result = df.groupby("月份", dropna=False).agg(metrics).reset_index()
     return result

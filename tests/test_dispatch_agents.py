@@ -328,7 +328,12 @@ async def test_execute_allows_parent_task_subdispatch_for_current_in_progress_ta
     tool = DispatchAgentsTool(agent_registry=_MockRegistry(), spawner=_MockSpawner())
     session = _SessionWithTasks(
         [
-            {"id": 1, "title": "清洗数据", "status": "in_progress", "tool_hint": "dataset_transform"},
+            {
+                "id": 1,
+                "title": "清洗数据",
+                "status": "in_progress",
+                "tool_hint": "dataset_transform",
+            },
             {"id": 2, "title": "统计分析", "status": "pending", "depends_on": [1]},
         ]
     )
@@ -355,7 +360,12 @@ async def test_execute_rejects_in_progress_task_dispatched_as_pending_wave_item(
     tool = DispatchAgentsTool(agent_registry=_MockRegistry(), spawner=_MockSpawner())
     session = _SessionWithTasks(
         [
-            {"id": 1, "title": "清洗数据", "status": "in_progress", "tool_hint": "dataset_transform"},
+            {
+                "id": 1,
+                "title": "清洗数据",
+                "status": "in_progress",
+                "tool_hint": "dataset_transform",
+            },
             {"id": 2, "title": "统计分析", "status": "pending", "depends_on": [1]},
         ]
     )

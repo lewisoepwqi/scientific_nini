@@ -68,9 +68,7 @@ def _render_matplotlib(
     return _exec_matplotlib_template(code, df)
 
 
-def _assert_plotly_style_consistent(
-    fig: go.Figure, style_key: str, title: str | None
-) -> None:
+def _assert_plotly_style_consistent(fig: go.Figure, style_key: str, title: str | None) -> None:
     """断言 plotly 模板生成的 fig 样式与 ChartStyleSpec 一致。"""
     spec = build_style_spec(style_key)
     layout = fig.to_plotly_json()["layout"]
@@ -173,9 +171,7 @@ def heatmap_df() -> pd.DataFrame:
         ("heatmap", {"columns": ["a", "b", "c"]}),
     ],
 )
-def test_plotly_template_is_self_contained(
-    chart_type: str, params: dict[str, Any]
-) -> None:
+def test_plotly_template_is_self_contained(chart_type: str, params: dict[str, Any]) -> None:
     """D1 自包含：plotly 生成脚本不得 import nini.*。"""
     spec = build_style_spec("default")
     code = render_plotly_script(chart_type, params, spec)
@@ -197,9 +193,7 @@ def test_plotly_template_is_self_contained(
         ("heatmap", {"columns": ["a", "b", "c"]}),
     ],
 )
-def test_matplotlib_template_is_self_contained(
-    chart_type: str, params: dict[str, Any]
-) -> None:
+def test_matplotlib_template_is_self_contained(chart_type: str, params: dict[str, Any]) -> None:
     """D1 自包含：matplotlib 生成脚本不得 import nini.*。"""
     spec = build_style_spec("default")
     code = render_matplotlib_script(chart_type, params, spec)
@@ -244,9 +238,7 @@ def test_scatter_plotly_template_requires_xy() -> None:
 
 
 @pytest.mark.parametrize("color_col", [None, "series"])
-def test_line_plotly_template_renders(
-    line_df: pd.DataFrame, color_col: str | None
-) -> None:
+def test_line_plotly_template_renders(line_df: pd.DataFrame, color_col: str | None) -> None:
     params = {"x_column": "t", "y_column": "v", "color_column": color_col}
     fig = _render_plotly(line_df, "line", params)
     assert fig.data[0].type == "scatter"  # px.line 底层为 scatter+mode=lines
@@ -370,9 +362,7 @@ def test_scatter_matplotlib_template_renders(
 
 
 @pytest.mark.parametrize("color_col", [None, "series"])
-def test_line_matplotlib_template_renders(
-    line_df: pd.DataFrame, color_col: str | None
-) -> None:
+def test_line_matplotlib_template_renders(line_df: pd.DataFrame, color_col: str | None) -> None:
     fig = _render_matplotlib(
         line_df,
         "line",
@@ -384,9 +374,7 @@ def test_line_matplotlib_template_renders(
         assert ax.get_ylabel() == "v"
         assert len(ax.lines) >= 1
         spec = build_style_spec("default")
-        assert round(float(ax.lines[0].get_linewidth()), 3) == round(
-            float(spec.line_width), 3
-        )
+        assert round(float(ax.lines[0].get_linewidth()), 3) == round(float(spec.line_width), 3)
     finally:
         plt.close(fig)
 
@@ -423,9 +411,7 @@ def test_bar_matplotlib_template_renders(
         {"x_column": None, "y_column": "val", "group_column": None},
     ],
 )
-def test_box_matplotlib_template_renders(
-    box_df: pd.DataFrame, params: dict[str, Any]
-) -> None:
+def test_box_matplotlib_template_renders(box_df: pd.DataFrame, params: dict[str, Any]) -> None:
     fig = _render_matplotlib(box_df, "box", params)
     try:
         ax = fig.axes[0]
@@ -442,9 +428,7 @@ def test_box_matplotlib_template_renders(
         {"x_column": "grp", "y_column": "val", "group_column": "sub"},
     ],
 )
-def test_violin_matplotlib_template_renders(
-    box_df: pd.DataFrame, params: dict[str, Any]
-) -> None:
+def test_violin_matplotlib_template_renders(box_df: pd.DataFrame, params: dict[str, Any]) -> None:
     fig = _render_matplotlib(box_df, "violin", params)
     try:
         ax = fig.axes[0]

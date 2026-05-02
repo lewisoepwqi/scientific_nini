@@ -17,7 +17,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 async def test_build_long_term_memory_context_with_results():
     """MemoryManager.prefetch_all 返回内容时，应返回含不可信上下文标签的字符串。"""
     mock_mm = MagicMock()
-    mock_mm.prefetch_all = AsyncMock(return_value="[FINDING] t 检验结果显著（来源：experiment.csv）")
+    mock_mm.prefetch_all = AsyncMock(
+        return_value="[FINDING] t 检验结果显著（来源：experiment.csv）"
+    )
 
     # 在 context_memory.py 中，get_memory_manager 通过懒导入调用
     # 需要 patch 到实际被调用的 nini.memory.manager.get_memory_manager

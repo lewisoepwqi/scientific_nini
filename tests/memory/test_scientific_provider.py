@@ -1,4 +1,5 @@
 """ScientificMemoryProvider 生命周期测试。"""
+
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ async def provider(tmp_path: Path) -> ScientificMemoryProvider:
 
 
 # ---- 基础属性 ----
+
 
 def test_provider_name_is_builtin():
     """name 属性必须返回 'builtin'。"""
@@ -39,6 +41,7 @@ async def test_provider_has_two_tool_schemas(provider: ScientificMemoryProvider)
 
 
 # ---- system_prompt_block ----
+
 
 async def test_system_prompt_block_safe_before_initialize():
     """initialize 前调用 system_prompt_block 不应抛出异常。"""
@@ -265,7 +268,11 @@ async def test_tool_save_stores_fact(provider: ScientificMemoryProvider):
 
     result = await provider.handle_tool_call(
         "nini_memory_save",
-        {"content": "数据正态性不满足，应使用非参数检验", "memory_type": "decision", "importance": 0.8},
+        {
+            "content": "数据正态性不满足，应使用非参数检验",
+            "memory_type": "decision",
+            "importance": 0.8,
+        },
     )
     data = _json.loads(result)
     assert data["success"] is True

@@ -125,9 +125,7 @@ def test_probe_retries_rename_back_on_failure(tmp_path: Path) -> None:
     monkeypatch_local.setattr(updater.os, "rename", fake_rename)
 
     # 设置极短超时避免循环
-    result = updater._probe_install_dir_unlocked(
-        install_dir, timeout=0.01, log_path=log_path
-    )
+    result = updater._probe_install_dir_unlocked(install_dir, timeout=0.01, log_path=log_path)
     monkeypatch_local.undo()
 
     # 二次恢复成功，应返回 True
@@ -151,7 +149,9 @@ def test_prepare_apply_raises_when_sha256_empty_and_no_asset(tmp_path: Path) -> 
     )
     # 非 packaged 环境
     with pytest.raises(ApplyUpdateError, match="源码开发环境"):
-        prepare_apply_update(state, app_settings=Settings(_env_file=None, data_dir=tmp_path), packaged=False)
+        prepare_apply_update(
+            state, app_settings=Settings(_env_file=None, data_dir=tmp_path), packaged=False
+        )
 
 
 # ---- 3.5 HMAC 日志升级与孤立文件清理 ----
@@ -438,7 +438,9 @@ def test_process_exists_access_denied_returns_true(monkeypatch) -> None:
     mock_ctypes.GetLastError.return_value = 5
 
     # 通过 monkeypatch 替换 ctypes 导入
-    original_import = updater.__builtins__["__import__"] if isinstance(updater.__builtins__, dict) else None
+    original_import = (
+        updater.__builtins__["__import__"] if isinstance(updater.__builtins__, dict) else None
+    )
 
     # 简化测试：直接验证逻辑
     # 由于 _process_exists 在模块加载时已绑定 ctypes，

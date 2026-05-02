@@ -14,10 +14,10 @@ class ArtifactRef:
     path 为相对于父会话 workspace 根目录的路径。
     """
 
-    path: str       # 相对于父会话 workspace 的路径，如 artifacts/agent_id/chart.json
-    type: str       # "chart" | "dataset" | "report" | "file"
-    summary: str    # 一句话描述，供融合引擎生成摘要
-    agent_id: str   # 生成者 agent_id（由 spawner 填充）
+    path: str  # 相对于父会话 workspace 的路径，如 artifacts/agent_id/chart.json
+    type: str  # "chart" | "dataset" | "report" | "file"
+    summary: str  # 一句话描述，供融合引擎生成摘要
+    agent_id: str  # 生成者 agent_id（由 spawner 填充）
 
     def to_dict(self) -> dict[str, Any]:
         """序列化为字典，用于跨进程传递或持久化。"""

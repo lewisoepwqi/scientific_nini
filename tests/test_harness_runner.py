@@ -1345,7 +1345,9 @@ async def test_session_3be947_dispatch_dead_loop_replay_fixture_resolves_with_di
     """基于真实会话 trace 构造等价 fixture，验证新逻辑不再卡在 dispatch dead loop。"""
 
     # 可选：本地 trace 文件验证（CI 中不存在则跳过）
-    trace_path = Path("data/sessions/3be947d505b7/harness/traces/756b65a5401f48a5b028e40294b1798e.json")
+    trace_path = Path(
+        "data/sessions/3be947d505b7/harness/traces/756b65a5401f48a5b028e40294b1798e.json"
+    )
     if trace_path.exists():
         trace = json.loads(trace_path.read_text(encoding="utf-8"))
         dispatch_messages = [
@@ -1359,13 +1361,20 @@ async def test_session_3be947_dispatch_dead_loop_replay_fixture_resolves_with_di
     session = Session()
     session.task_manager = session.task_manager.init_tasks(
         [
-            {"id": 1, "title": "读取all sheet并检查数据结构", "status": "pending", "tool_hint": "dataset_catalog"},
+            {
+                "id": 1,
+                "title": "读取all sheet并检查数据结构",
+                "status": "pending",
+                "tool_hint": "dataset_catalog",
+            },
             {"id": 2, "title": "数据预处理", "status": "pending", "tool_hint": "dataset_transform"},
             {"id": 3, "title": "数据聚合", "status": "pending", "tool_hint": "stat_test"},
             {"id": 4, "title": "绘制柱状图", "status": "pending", "tool_hint": "chart_session"},
         ]
     )
-    session.task_manager = session.task_manager.update_tasks([{"id": 1, "status": "in_progress"}]).manager
+    session.task_manager = session.task_manager.update_tasks(
+        [{"id": 1, "status": "in_progress"}]
+    ).manager
 
     class _ReplayRegistry:
         def list_dispatchable_agents(self):

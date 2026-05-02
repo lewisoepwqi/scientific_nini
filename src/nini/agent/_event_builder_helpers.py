@@ -1,4 +1,5 @@
 """event_builders 内部辅助函数，不对外暴露。"""
+
 from __future__ import annotations
 
 from typing import Any

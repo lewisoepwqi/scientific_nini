@@ -197,9 +197,7 @@ class CreateChartTool(Tool):
             matplotlib_code: str | None = None
             if resolved_engine == "matplotlib":
                 matplot_base = Path(output_name).stem.replace(".plotly", "") or "chart"
-                mpl_code = render_matplotlib_script(
-                    chart_type, kwargs, style_spec, title=title
-                )
+                mpl_code = render_matplotlib_script(chart_type, kwargs, style_spec, title=title)
                 matplotlib_code = mpl_code
                 matplotlib_artifacts = self._save_matplotlib_artifacts(
                     storage=storage,

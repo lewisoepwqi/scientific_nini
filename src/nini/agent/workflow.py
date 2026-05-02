@@ -64,6 +64,7 @@ class WorkflowDef:
     @classmethod
     def from_yaml(cls, yaml_text: str) -> "WorkflowDef":
         import yaml
+
         data = yaml.safe_load(yaml_text)
         if not isinstance(data, dict):
             raise ValueError("工作流 YAML 必须为 dict 格式")
@@ -121,11 +122,7 @@ def _topological_layers(steps: tuple[WorkflowStep, ...]) -> list[list[WorkflowSt
 
     while remaining:
         # 当前层：所有依赖已完成（in_degree == 0）的步骤
-        current_layer = [
-            step_map[sid]
-            for sid in remaining
-            if in_degree[sid] == 0
-        ]
+        current_layer = [step_map[sid] for sid in remaining if in_degree[sid] == 0]
         if not current_layer:
             raise ValueError(f"工作流存在循环依赖，剩余步骤: {remaining}")
 
@@ -219,6 +216,7 @@ class WorkflowExecutor:
                     task = f"{task}\n\n背景信息：{context}"
 
                 import time
+
                 start = time.monotonic()
                 result = await self._spawner.spawn_with_retry(
                     step.agent_id,

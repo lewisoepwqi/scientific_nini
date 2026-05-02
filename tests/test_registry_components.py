@@ -165,7 +165,9 @@ def test_markdown_registry_ops_duplicate_skills_log_summary_instead_of_warning(
     _write_skill_md(extra_dir / "guide" / "SKILL.md", name="guide", description="低优先级版本")
 
     with caplog.at_level(logging.INFO):
-        items = registry_owner._markdown_ops.reload_markdown_tools(set(registry_owner._tools.keys()))
+        items = registry_owner._markdown_ops.reload_markdown_tools(
+            set(registry_owner._tools.keys())
+        )
 
     guide_items = [item for item in items if item["name"] == "guide"]
     assert len(guide_items) == 1

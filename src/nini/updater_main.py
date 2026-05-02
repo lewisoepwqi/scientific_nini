@@ -33,7 +33,6 @@ def _process_exists(pid: int) -> bool:
         if not process:
             error_code = ctypes.GetLastError()
             if error_code == 5:  # ERROR_ACCESS_DENIED
-                logger.warning("OpenProcess 权限不足 pid=%d，视为进程存活", pid)
                 return True
             # ERROR_INVALID_PARAMETER(87) 等其他错误码视为进程已退出
             return False

@@ -1,4 +1,5 @@
 """旧数据迁移测试。"""
+
 import json
 from pathlib import Path
 
@@ -72,9 +73,7 @@ def test_migrate_profile_json_does_not_overwrite_existing(store: MemoryStore, tm
     """已存在 profile 时，migrate 不覆盖（保护新数据）。"""
     store.upsert_profile("default", data_json={"domain": "new"}, narrative_md="")
     json_path = tmp_path / "default.json"
-    json_path.write_text(
-        json.dumps({"user_id": "default", "domain": "old"}), encoding="utf-8"
-    )
+    json_path.write_text(json.dumps({"user_id": "default", "domain": "old"}), encoding="utf-8")
 
     store.migrate_profile_json(json_path)
 

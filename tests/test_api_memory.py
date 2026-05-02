@@ -57,9 +57,15 @@ async def test_memory_list_entry_shape(async_client: httpx.AsyncClient) -> None:
     for entry in data["memories"]:
         # 必需字段
         required_fields = [
-            "id", "memory_type", "content", "summary",
-            "source_session_id", "importance_score", "tags",
-            "created_at", "access_count",
+            "id",
+            "memory_type",
+            "content",
+            "summary",
+            "source_session_id",
+            "importance_score",
+            "tags",
+            "created_at",
+            "access_count",
         ]
         for field in required_fields:
             assert field in entry, f"记忆条目缺少字段: {field}"

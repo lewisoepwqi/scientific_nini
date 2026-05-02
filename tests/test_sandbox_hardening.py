@@ -65,7 +65,9 @@ class TestEvalQueryInterception:
         _check_eval_expr(123, "df.eval")
 
     @pytest.mark.asyncio
-    async def test_eval_blocked_in_sandbox(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_eval_blocked_in_sandbox(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
         settings.ensure_dirs()
 
@@ -79,7 +81,9 @@ class TestEvalQueryInterception:
             )
 
     @pytest.mark.asyncio
-    async def test_eval_safe_in_sandbox(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_eval_safe_in_sandbox(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
         settings.ensure_dirs()
 
@@ -95,7 +99,9 @@ class TestEvalQueryInterception:
         assert isinstance(result["result"], pd.Series)
 
     @pytest.mark.asyncio
-    async def test_query_safe_in_sandbox(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_query_safe_in_sandbox(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
         settings.ensure_dirs()
 
@@ -177,7 +183,9 @@ class TestSafeType:
             safe_type("X", ())
 
     @pytest.mark.asyncio
-    async def test_type_single_arg_in_sandbox(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_type_single_arg_in_sandbox(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
         settings.ensure_dirs()
 

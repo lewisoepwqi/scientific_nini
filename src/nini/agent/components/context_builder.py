@@ -329,7 +329,9 @@ class ContextBuilder:
             elif dispatch_context.current_pending_wave_task_ids:
                 dispatch_lines.append(
                     "当前可派发 wave："
-                    + ", ".join(str(task_id) for task_id in dispatch_context.current_pending_wave_task_ids)
+                    + ", ".join(
+                        str(task_id) for task_id in dispatch_context.current_pending_wave_task_ids
+                    )
                 )
 
             if dispatch_context.recommended_tools:
