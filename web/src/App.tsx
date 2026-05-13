@@ -156,6 +156,13 @@ export default function App() {
   const pendingAskUserQuestionsBySession = useStore(
     (s) => s.pendingAskUserQuestionsBySession,
   );
+  const currentSessionId = useStore((s) => s.sessionId);
+
+  // 非当前会话的待回答问题数，用于导航栏 badge
+  const pendingOtherSessionsCount = Object.keys(pendingAskUserQuestionsBySession)
+    .filter((id) => id !== currentSessionId)
+    .length;
+
   const activeAgents = useStore((s) => s.activeAgents);
   const completedAgents = useStore((s) => s.completedAgents);
   const agentRunTabs = useStore((s) => s.agentRunTabs);
@@ -306,6 +313,7 @@ export default function App() {
           onToggleTheme={handleToggleTheme}
           onNavigate={handleNavNavigate}
           activeNav={activeNav}
+          badges={pendingOtherSessionsCount > 0 ? { chat: pendingOtherSessionsCount } : undefined}
         />
 
         {/* === 独立页面模式（非 skills）=== */}
