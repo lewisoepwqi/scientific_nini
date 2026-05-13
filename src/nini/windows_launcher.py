@@ -815,7 +815,11 @@ class _EmbeddedWindowApp:
             from webview.menu import Menu, MenuAction, MenuSeparator  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
 
             def _open_devtools() -> None:
-                """通过 WebView2 CoreWebView2 接口打开调试面板。"""
+                """通过 WebView2 CoreWebView2 接口打开调试面板。
+
+                注意：_js_bridge.webview 是 pywebview edgechromium 后端的私有属性，
+                升级 pywebview 时需验证此路径仍然有效；suppress 是预期的降级路径。
+                """
                 with suppress(Exception):
                     self._window._js_bridge.webview.CoreWebView2.OpenDevToolsWindow()  # type: ignore[attr-defined]
 
@@ -825,7 +829,7 @@ class _EmbeddedWindowApp:
 
             def _hard_reload() -> None:
                 with suppress(Exception):
-                    self._window.evaluate_js("location.reload(true)")  # type: ignore[attr-defined]
+                    self._window.evaluate_js("window.location.href = window.location.href")  # type: ignore[attr-defined]
 
             def _toggle_fullscreen() -> None:
                 with suppress(Exception):
