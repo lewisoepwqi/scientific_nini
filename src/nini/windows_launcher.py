@@ -812,6 +812,71 @@ class _EmbeddedWindowApp:
                 )
                 return 1
 
+            from webview.menu import Menu, MenuAction, MenuSeparator  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
+
+            def _open_devtools() -> None:
+                """通过 WebView2 CoreWebView2 接口打开调试面板。
+
+                注意：_js_bridge.webview 是 pywebview edgechromium 后端的私有属性，
+                升级 pywebview 时需验证此路径仍然有效；suppress 是预期的降级路径。
+                """
+                with suppress(Exception):
+                    self._window._js_bridge.webview.CoreWebView2.OpenDevToolsWindow()  # type: ignore[attr-defined]
+
+            def _reload() -> None:
+                with suppress(Exception):
+                    self._window.evaluate_js("location.reload()")  # type: ignore[attr-defined]
+
+            def _hard_reload() -> None:
+                with suppress(Exception):
+                    self._window.evaluate_js("window.location.href = window.location.href")  # type: ignore[attr-defined]
+
+            def _toggle_fullscreen() -> None:
+                with suppress(Exception):
+                    self._window.toggle_fullscreen()  # type: ignore[attr-defined]
+
+            def _new_session() -> None:
+                with suppress(Exception):
+                    self._window.evaluate_js(  # type: ignore[attr-defined]
+                        "window.dispatchEvent(new CustomEvent('nini:new-session'))"
+                    )
+
+            def _check_updates() -> None:
+                with suppress(Exception):
+                    self._window.evaluate_js(  # type: ignore[attr-defined]
+                        "window.dispatchEvent(new CustomEvent('nini:check-updates'))"
+                    )
+
+            app_menu = [
+                Menu(
+                    "文件",
+                    [
+                        MenuAction("新建会话\tCtrl+N", _new_session),
+                        MenuSeparator(),
+                        MenuAction("退出", self.request_exit),
+                    ],
+                ),
+                Menu(
+                    "视图",
+                    [
+                        MenuAction("开发者工具\tCtrl+Shift+I", _open_devtools),
+                        MenuSeparator(),
+                        MenuAction("重新加载\tCtrl+R", _reload),
+                        MenuAction("强制重新加载\tCtrl+Shift+R", _hard_reload),
+                        MenuSeparator(),
+                        MenuAction("全屏\tF11", _toggle_fullscreen),
+                    ],
+                ),
+                Menu(
+                    "帮助",
+                    [
+                        MenuAction("查看日志", _open_log_file),
+                        MenuSeparator(),
+                        MenuAction("检查更新", _check_updates),
+                    ],
+                ),
+            ]
+
             url = _build_app_url(self.host, self.port)
             state = _load_window_state()
             win_width = state.get("width", 1360)
@@ -835,7 +900,7 @@ class _EmbeddedWindowApp:
 
             self._bind_events()
             self._tray.start_background()
-            webview.start(gui="edgechromium", debug=False)
+            webview.start(gui="edgechromium", debug=False, menu=app_menu)
             return 0
         except Exception as exc:
             _show_error(

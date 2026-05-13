@@ -6,6 +6,7 @@ import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useStore } from "./store";
 import { useIsDesktop } from "./hooks";
 import ChatPanel from "./components/ChatPanel";
+import SessionTabs from "./components/SessionTabs";
 import SessionList from "./components/SessionList";
 import AuthGate from "./components/AuthGate";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -92,6 +93,7 @@ export default function App() {
   const appBootstrapping = useStore((s) => s.appBootstrapping);
   const workspacePanelOpen = useStore((s) => s.workspacePanelOpen);
   const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel);
+  const createNewSession = useStore((s) => s.createNewSession);
 
   // 独立页面 vs 浮层面板
   const [activePage, setActivePage] = useState<PageType | null>(null);
@@ -154,6 +156,13 @@ export default function App() {
   const pendingAskUserQuestionsBySession = useStore(
     (s) => s.pendingAskUserQuestionsBySession,
   );
+  const currentSessionId = useStore((s) => s.sessionId);
+
+  // 非当前会话的待回答问题数，用于导航栏 badge
+  const pendingOtherSessionsCount = Object.keys(pendingAskUserQuestionsBySession)
+    .filter((id) => id !== currentSessionId)
+    .length;
+
   const activeAgents = useStore((s) => s.activeAgents);
   const completedAgents = useStore((s) => s.completedAgents);
   const agentRunTabs = useStore((s) => s.agentRunTabs);
@@ -211,6 +220,13 @@ export default function App() {
       window.removeEventListener("nini:open-cost", handler);
     };
   }, [openPanel]);
+
+  // 监听桌面壳菜单"新建会话"事件
+  useEffect(() => {
+    const handler = () => { void createNewSession(); };
+    window.addEventListener("nini:new-session", handler);
+    return () => window.removeEventListener("nini:new-session", handler);
+  }, [createNewSession]);
 
   useEffect(() => {
     const reconnectIfVisible = () => {
@@ -297,6 +313,7 @@ export default function App() {
           onToggleTheme={handleToggleTheme}
           onNavigate={handleNavNavigate}
           activeNav={activeNav}
+          badges={pendingOtherSessionsCount > 0 ? { chat: pendingOtherSessionsCount } : undefined}
         />
 
         {/* === 独立页面模式（非 skills）=== */}
@@ -346,6 +363,8 @@ export default function App() {
 
             {/* 主面板 */}
             <main className="flex-1 flex flex-col min-w-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-base)] overflow-hidden">
+              {/* 会话 Tab 栏 */}
+              <SessionTabs />
               {/* Toolbar — 三栏布局：左侧移动菜单 + 中间 Logo/标题/连接状态 + 右侧工作区开关 */}
               <header className="h-12 border-b border-[var(--border-subtle)] flex items-center px-4 bg-[var(--bg-base)] flex-shrink-0">
                 {/* 左侧：移动端菜单（桌面端空占位） */}

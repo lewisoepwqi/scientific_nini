@@ -35,6 +35,8 @@ export interface GlobalNavProps {
 	onToggleTheme: () => void;
 	onNavigate: (id: string) => void;
 	activeNav: string;
+	/** nav item id → badge 数值；0 或 undefined 不显示 */
+	badges?: Record<string, number>;
 }
 
 /**
@@ -78,12 +80,14 @@ function NavButton({
 	isActive,
 	expanded,
 	onClick,
+	badge,
 }: {
 	icon: React.ComponentType<React.SVGProps<SVGSVGElement> & { size?: number | string }>;
 	label: string;
 	isActive: boolean;
 	expanded: boolean;
 	onClick: () => void;
+	badge?: number;
 }) {
 	return (
 		<button
@@ -110,6 +114,9 @@ function NavButton({
 				/>
 			)}
 			<Icon size={16} className="flex-shrink-0" />
+			{badge != null && badge > 0 && (
+				<span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-[var(--accent)] ring-2 ring-[var(--bg-base)]" />
+			)}
 			{expanded && (
 				<span className="text-sm whitespace-nowrap">{label}</span>
 			)}
@@ -122,6 +129,7 @@ export default function GlobalNav({
 	onToggleTheme,
 	onNavigate,
 	activeNav,
+	badges,
 }: GlobalNavProps) {
 	const [expanded, setExpanded] = useState(false);
 	const toggleExpand = useCallback(() => setExpanded((v) => !v), []);
@@ -176,6 +184,7 @@ export default function GlobalNav({
 								isActive={activeNav === item.id}
 								expanded={expanded}
 								onClick={() => onNavigate(item.id)}
+								badge={badges?.[item.id]}
 							/>
 						))}
 					</div>
