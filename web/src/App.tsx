@@ -355,6 +355,8 @@ export default function App() {
 
             {/* 主面板 */}
             <main className="flex-1 flex flex-col min-w-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-base)] overflow-hidden">
+              {/* 会话 Tab 栏 */}
+              <SessionTabs />
               {/* Toolbar — 三栏布局：左侧移动菜单 + 中间 Logo/标题/连接状态 + 右侧工作区开关 */}
               <header className="h-12 border-b border-[var(--border-subtle)] flex items-center px-4 bg-[var(--bg-base)] flex-shrink-0">
                 {/* 左侧：移动端菜单（桌面端空占位） */}
@@ -423,9 +425,6 @@ export default function App() {
                   </button>
                 </div>
               </header>
-
-              {/* 会话 Tab 栏 */}
-              <SessionTabs />
 
               {/* 多 Agent 执行状态面板（WorkflowTopology 在 ≥2 个 Agent 时自动渲染） */}
               {(agentRunTabs.length > 1 || Object.keys(activeAgents).length > 0 || completedAgents.length > 0) && (
