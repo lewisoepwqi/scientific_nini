@@ -812,7 +812,7 @@ class _EmbeddedWindowApp:
                 )
                 return 1
 
-            from webview.menu import Menu, MenuAction, MenuSeparator  # noqa: PLC0415
+            from webview.menu import Menu, MenuAction, MenuSeparator  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
 
             def _open_devtools() -> None:
                 """通过 WebView2 CoreWebView2 接口打开调试面板。"""
