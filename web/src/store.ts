@@ -206,6 +206,10 @@ export interface AppState {
   sessionId: string | null;
   messages: Message[];
   sessions: SessionItem[];
+  /** 当前在 Tab 栏中展示的会话 ID，最多 5 个，按打开顺序排列 */
+  openTabIds: string[];
+  /** Tab 栏中各会话的标题缓存 */
+  tabTitles: Record<string, string>;
   contextCompressionTick: number;
   datasets: DatasetItem[];
   workspaceFiles: WorkspaceFile[];
@@ -363,6 +367,9 @@ export interface AppState {
   switchSession: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<boolean>;
   updateSessionTitle: (sessionId: string, title: string) => Promise<void>;
+  openTab: (sessionId: string, title: string) => void;
+  closeTab: (sessionId: string) => void;
+  syncTabTitle: (sessionId: string, title: string) => void;
 
   // 记忆文件操作
   fetchMemoryFiles: () => Promise<void>;
@@ -505,6 +512,8 @@ export const useStore = create<AppState>((set, get) => ({
   sessionId: null,
   messages: [],
   sessions: [],
+  openTabIds: JSON.parse(localStorage.getItem("nini:open-tabs") ?? "[]") as string[],
+  tabTitles: JSON.parse(localStorage.getItem("nini:tab-titles") ?? "{}") as Record<string, string>,
   contextCompressionTick: 0,
   datasets: [],
   workspaceFiles: [],
@@ -1648,12 +1657,17 @@ export const useStore = create<AppState>((set, get) => ({
       get().fetchFolders(),
       get().fetchTokenUsage(targetSessionId),
     ]);
+    // 切换成功后自动将目标会话加入 Tab 栏
+    const sessionTitle =
+      get().sessions.find((s) => s.id === targetSessionId)?.title ?? "会话";
+    get().openTab(targetSessionId, sessionTitle);
   },
 
   async deleteSession(targetSessionId: string) {
     const success = await api.deleteSession(targetSessionId);
     if (!success) return false;
     deleteSessionUiCacheEntry(targetSessionId);
+    get().closeTab(targetSessionId);
 
     const { sessionId } = get();
     await get().fetchSessions();
@@ -1680,6 +1694,47 @@ export const useStore = create<AppState>((set, get) => ({
       ),
     }));
     emitSessionsChanged({ reason: "rename" });
+    get().syncTabTitle(targetSessionId, title);
+  },
+
+  openTab(sessionId: string, title: string) {
+    set((s) => {
+      const MAX = 5;
+      const withoutThis = s.openTabIds.filter((id) => id !== sessionId);
+      let next: string[];
+      if (withoutThis.length < MAX) {
+        next = [...withoutThis, sessionId];
+      } else {
+        // 超出上限：移除最旧的非活跃 Tab
+        const activeId = s.sessionId;
+        const removable = withoutThis.find((id) => id !== activeId) ?? withoutThis[0];
+        next = [...withoutThis.filter((id) => id !== removable), sessionId];
+      }
+      const nextTitles = { ...s.tabTitles, [sessionId]: title };
+      localStorage.setItem("nini:open-tabs", JSON.stringify(next));
+      localStorage.setItem("nini:tab-titles", JSON.stringify(nextTitles));
+      return { openTabIds: next, tabTitles: nextTitles };
+    });
+  },
+
+  closeTab(sessionId: string) {
+    set((s) => {
+      const next = s.openTabIds.filter((id) => id !== sessionId);
+      const nextTitles = { ...s.tabTitles };
+      delete nextTitles[sessionId];
+      localStorage.setItem("nini:open-tabs", JSON.stringify(next));
+      localStorage.setItem("nini:tab-titles", JSON.stringify(nextTitles));
+      return { openTabIds: next, tabTitles: nextTitles };
+    });
+  },
+
+  syncTabTitle(sessionId: string, title: string) {
+    set((s) => {
+      if (!s.openTabIds.includes(sessionId)) return {};
+      const nextTitles = { ...s.tabTitles, [sessionId]: title };
+      localStorage.setItem("nini:tab-titles", JSON.stringify(nextTitles));
+      return { tabTitles: nextTitles };
+    });
   },
 
   // ============================================================================
