@@ -1669,9 +1669,11 @@ export const useStore = create<AppState>((set, get) => ({
       get().fetchFolders(),
       get().fetchTokenUsage(targetSessionId),
     ]);
-    // 切换成功后自动将目标会话加入 Tab 栏
+    // 优先使用 API 返回的标题（避免 sessions 列表尚未刷新时读到占位值）
     const sessionTitle =
-      get().sessions.find((s) => s.id === targetSessionId)?.title ?? "会话";
+      sessionDetail?.title ??
+      get().sessions.find((s) => s.id === targetSessionId)?.title ??
+      "会话";
     get().openTab(targetSessionId, sessionTitle);
   },
 
@@ -1719,6 +1721,7 @@ export const useStore = create<AppState>((set, get) => ({
       } else {
         // 超出上限：移除最旧的非活跃 Tab
         const activeId = s.sessionId;
+        // activeId 为 null 时所有 tab 都非活跃，find 返回第一项即最旧的，行为正确
         const removable = withoutThis.find((id) => id !== activeId) ?? withoutThis[0];
         next = [...withoutThis.filter((id) => id !== removable), sessionId];
       }

@@ -3,21 +3,24 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import SessionTabs from "./SessionTabs";
 
 // mock store
-const mockState = {
+const createMockState = () => ({
   sessionId: "s1",
   openTabIds: ["s1", "s2"],
   tabTitles: { s1: "文献综述", s2: "数据分析" },
   runningSessions: new Set<string>(),
   switchSession: vi.fn(),
   closeTab: vi.fn(),
-};
+});
+
+let mockState: ReturnType<typeof createMockState>;
 
 vi.mock("../store", () => ({
-  useStore: (selector: (s: typeof mockState) => unknown) => selector(mockState),
+  useStore: (selector: (s: ReturnType<typeof createMockState>) => unknown) =>
+    selector(mockState),
 }));
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  mockState = createMockState();
 });
 
 describe("SessionTabs", () => {
@@ -31,7 +34,6 @@ describe("SessionTabs", () => {
     mockState.openTabIds = [];
     const { container } = render(<SessionTabs />);
     expect(container.firstChild).toBeNull();
-    mockState.openTabIds = ["s1", "s2"];
   });
 
   it("活跃 Tab aria-selected=true，非活跃 false", () => {
