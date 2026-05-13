@@ -58,4 +58,12 @@ describe("SessionTabs", () => {
     fireEvent.click(active);
     expect(mockState.switchSession).not.toHaveBeenCalled();
   });
+
+  it("点击关闭按钮调用 closeTab 并阻止切换会话", () => {
+    render(<SessionTabs />);
+    const closeBtn = screen.getByRole("button", { name: /关闭 文献综述/ });
+    fireEvent.click(closeBtn);
+    expect(mockState.closeTab).toHaveBeenCalledWith("s1");
+    expect(mockState.switchSession).not.toHaveBeenCalled();
+  });
 });

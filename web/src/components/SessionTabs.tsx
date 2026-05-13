@@ -38,35 +38,36 @@ export default function SessionTabs() {
         const isRunning = runningSessions.has(id);
         const title = tabTitles[id] ?? "会话";
         return (
-          <button
+          <div
             key={id}
             role="tab"
             aria-selected={isActive}
-            type="button"
-            onClick={() => handleTabClick(id)}
             className={[
               "group relative flex items-center gap-1.5 max-w-[160px] min-w-[80px]",
-              "h-8 px-3 rounded-t-md text-xs font-medium transition-colors shrink-0",
+              "h-8 px-2 rounded-t-md text-xs font-medium transition-colors shrink-0 cursor-pointer",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
               isActive
                 ? "bg-[var(--bg-base)] text-[var(--text-primary)] border border-b-0 border-[var(--border-subtle)] z-10"
                 : "bg-[var(--bg-app)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]",
             ].join(" ")}
+            tabIndex={0}
+            onClick={() => handleTabClick(id)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleTabClick(id); }}
           >
             {isRunning && (
               <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] shrink-0" />
             )}
-            <span className="truncate flex-1 text-left">{title}</span>
-            <span
-              role="button"
+            <span className="truncate flex-1 text-left pl-1">{title}</span>
+            <button
+              type="button"
               aria-label={`关闭 ${title}`}
-              tabIndex={-1}
+              tabIndex={0}
               onClick={(e) => handleClose(e, id)}
               className="opacity-0 group-hover:opacity-100 rounded p-0.5 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-opacity shrink-0"
             >
               <X size={10} />
-            </span>
-          </button>
+            </button>
+          </div>
         );
       })}
     </div>
