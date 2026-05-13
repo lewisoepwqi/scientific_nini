@@ -512,8 +512,20 @@ export const useStore = create<AppState>((set, get) => ({
   sessionId: null,
   messages: [],
   sessions: [],
-  openTabIds: JSON.parse(localStorage.getItem("nini:open-tabs") ?? "[]") as string[],
-  tabTitles: JSON.parse(localStorage.getItem("nini:tab-titles") ?? "{}") as Record<string, string>,
+  openTabIds: (() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem("nini:open-tabs");
+      return raw ? (JSON.parse(raw) as string[]) : [];
+    } catch { return []; }
+  })(),
+  tabTitles: (() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = localStorage.getItem("nini:tab-titles");
+      return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    } catch { return {}; }
+  })(),
   contextCompressionTick: 0,
   datasets: [],
   workspaceFiles: [],
