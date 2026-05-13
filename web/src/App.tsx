@@ -92,6 +92,7 @@ export default function App() {
   const appBootstrapping = useStore((s) => s.appBootstrapping);
   const workspacePanelOpen = useStore((s) => s.workspacePanelOpen);
   const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel);
+  const createNewSession = useStore((s) => s.createNewSession);
 
   // 独立页面 vs 浮层面板
   const [activePage, setActivePage] = useState<PageType | null>(null);
@@ -211,6 +212,13 @@ export default function App() {
       window.removeEventListener("nini:open-cost", handler);
     };
   }, [openPanel]);
+
+  // 监听桌面壳菜单"新建会话"事件
+  useEffect(() => {
+    const handler = () => { void createNewSession(); };
+    window.addEventListener("nini:new-session", handler);
+    return () => window.removeEventListener("nini:new-session", handler);
+  }, [createNewSession]);
 
   useEffect(() => {
     const reconnectIfVisible = () => {
