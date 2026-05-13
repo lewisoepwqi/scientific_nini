@@ -6,6 +6,7 @@ import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useStore } from "./store";
 import { useIsDesktop } from "./hooks";
 import ChatPanel from "./components/ChatPanel";
+import SessionTabs from "./components/SessionTabs";
 import SessionList from "./components/SessionList";
 import AuthGate from "./components/AuthGate";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -422,6 +423,9 @@ export default function App() {
                   </button>
                 </div>
               </header>
+
+              {/* 会话 Tab 栏 */}
+              <SessionTabs />
 
               {/* 多 Agent 执行状态面板（WorkflowTopology 在 ≥2 个 Agent 时自动渲染） */}
               {(agentRunTabs.length > 1 || Object.keys(activeAgents).length > 0 || completedAgents.length > 0) && (
