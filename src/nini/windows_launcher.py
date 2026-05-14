@@ -815,13 +815,43 @@ class _EmbeddedWindowApp:
             from webview.menu import Menu, MenuAction, MenuSeparator  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
 
             def _open_devtools() -> None:
-                """通过 WebView2 CoreWebView2 接口打开调试面板。
+                """启用并打开 WebView2 DevTools 面板。
 
-                注意：_js_bridge.webview 是 pywebview edgechromium 后端的私有属性，
-                升级 pywebview 时需验证此路径仍然有效；suppress 是预期的降级路径。
+                关键约束：
+                1. pywebview 的菜单回调显式在子线程执行（见 winforms.py:set_window_menu），
+                   而 WebView2 / WinForms 控件方法必须在 UI 线程调用，因此需要通过
+                   `webview2_ctl.Invoke(...)` marshal 回 UI 线程。
+                2. pywebview 在 debug=False 启动时把 `AreDevToolsEnabled` 设为 False，
+                   `OpenDevToolsWindow()` 即使调用成功也会被静默丢弃；这里在 UI 线程上
+                   先开启 settings 再打开 DevTools。
+                3. 通过公开属性 `Window.native`（pywebview 设定的 BrowserForm 实例）拿
+                   WebView2 控件，避免依赖私有 `_js_bridge` 路径。
+                失败时把异常打印到 stderr，方便开发模式下定位问题。
                 """
-                with suppress(Exception):
-                    self._window._js_bridge.webview.CoreWebView2.OpenDevToolsWindow()  # type: ignore[attr-defined]
+                import traceback  # noqa: PLC0415
+
+                try:
+                    native = getattr(self._window, "native", None)
+                    webview2_ctl = getattr(native, "webview", None)
+                    if webview2_ctl is None or webview2_ctl.CoreWebView2 is None:
+                        print(
+                            "[nini] 打开 DevTools 失败：WebView2 控件尚未就绪",
+                            file=sys.stderr,
+                        )
+                        return
+
+                    # 延迟到运行时再 import：pywebview 启动时已加载 .NET CLR，
+                    # 此时 System 模块才在 sys.path 上可用。
+                    from System import Action  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
+
+                    def _do_open() -> None:
+                        core = webview2_ctl.CoreWebView2
+                        core.Settings.AreDevToolsEnabled = True
+                        core.OpenDevToolsWindow()
+
+                    webview2_ctl.Invoke(Action(_do_open))
+                except Exception:
+                    traceback.print_exc()
 
             def _reload() -> None:
                 with suppress(Exception):
