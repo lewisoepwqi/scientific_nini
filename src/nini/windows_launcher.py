@@ -768,6 +768,142 @@ class _TrayApp:
             user32.DestroyMenu(menu)
 
 
+class _DesktopShellApi:
+    """暴露给前端自绘标题栏的 JS 桥接对象。
+
+    pywebview 把实例上的可调用属性映射到 ``window.pywebview.api.<name>(...)``，
+    回调统一返回 None 或简单字典（pywebview 会自动 JSON 序列化）。最大化/最小化
+    通过 pywebview 5.x 的 ``window.maximize/minimize`` 实现；不可用时退化到 WinForms
+    的 ``WindowState`` 属性。
+    """
+
+    def __init__(
+        self,
+        *,
+        host_app: "_EmbeddedWindowApp",
+        open_devtools: Callable[[], None],
+        reload_: Callable[[], None],
+        hard_reload: Callable[[], None],
+        toggle_fullscreen: Callable[[], None],
+        new_session: Callable[[], None],
+        check_updates: Callable[[], None],
+        open_log_file: Callable[[], None],
+    ) -> None:
+        self._host = host_app
+        self._open_devtools = open_devtools
+        self._reload = reload_
+        self._hard_reload = hard_reload
+        self._toggle_fullscreen = toggle_fullscreen
+        self._new_session = new_session
+        self._check_updates = check_updates
+        self._open_log_file = open_log_file
+
+    # --- 窗口控制 -----------------------------------------------------------
+    def is_desktop_shell(self) -> bool:
+        return True
+
+    def minimize(self) -> None:
+        window = self._host._window
+        if window is None:
+            return
+        # pywebview 5.x: 优先直接调用 minimize；旧版本退化到 WinForms。
+        if hasattr(window, "minimize"):
+            with suppress(Exception):
+                window.minimize()
+                return
+        self._set_winforms_state("Minimized")
+
+    def toggle_maximize(self) -> dict[str, bool]:
+        window = self._host._window
+        maximized = False
+        if window is not None:
+            if self._is_winforms_maximized():
+                # 还原
+                if hasattr(window, "restore"):
+                    with suppress(Exception):
+                        window.restore()
+                else:
+                    self._set_winforms_state("Normal")
+                maximized = False
+            else:
+                # 最大化（pywebview 5.3+ 提供 maximize；老版本走 WinForms）
+                if hasattr(window, "maximize"):
+                    with suppress(Exception):
+                        window.maximize()
+                        maximized = True
+                if not maximized:
+                    self._set_winforms_state("Maximized")
+                    maximized = self._is_winforms_maximized()
+        return {"maximized": maximized}
+
+    def close_to_tray(self) -> None:
+        """模拟点击系统关闭按钮：触发 closing 事件，隐藏到托盘。"""
+        self._host.hide_window()
+
+    def request_exit(self) -> None:
+        """从应用菜单退出整个桌面壳。"""
+        self._host.request_exit()
+
+    # --- 菜单项 -------------------------------------------------------------
+    def open_devtools(self) -> None:
+        self._open_devtools()
+
+    def reload(self) -> None:
+        self._reload()
+
+    def hard_reload(self) -> None:
+        self._hard_reload()
+
+    def toggle_fullscreen(self) -> None:
+        self._toggle_fullscreen()
+
+    def new_session(self) -> None:
+        self._new_session()
+
+    def check_updates(self) -> None:
+        self._check_updates()
+
+    def open_log_file(self) -> None:
+        self._open_log_file()
+
+    # --- WinForms 兜底 ------------------------------------------------------
+    def _winforms_form(self) -> Any:
+        window = self._host._window
+        if window is None:
+            return None
+        return getattr(window, "native", None)
+
+    def _set_winforms_state(self, state: str) -> None:
+        form = self._winforms_form()
+        if form is None:
+            return
+        try:
+            from System.Windows.Forms import FormWindowState  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
+
+            mapping = {
+                "Minimized": FormWindowState.Minimized,
+                "Maximized": FormWindowState.Maximized,
+                "Normal": FormWindowState.Normal,
+            }
+            target = mapping.get(state)
+            if target is None:
+                return
+            form.BeginInvoke(lambda: setattr(form, "WindowState", target))
+        except Exception:
+            pass
+
+    def _is_winforms_maximized(self) -> bool:
+        form = self._winforms_form()
+        if form is None:
+            return False
+        try:
+            from System.Windows.Forms import FormWindowState  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
+
+            return bool(form.WindowState == FormWindowState.Maximized)
+        except Exception:
+            return False
+
+
 class _EmbeddedWindowApp:
     """使用 pywebview 承载 WebView2 的桌面宿主。"""
 
@@ -811,8 +947,6 @@ class _EmbeddedWindowApp:
                     title="Nini 启动失败",
                 )
                 return 1
-
-            from webview.menu import Menu, MenuAction, MenuSeparator  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
 
             def _open_devtools() -> None:
                 """启用并打开 WebView2 DevTools 面板。
@@ -877,50 +1011,38 @@ class _EmbeddedWindowApp:
                         "window.dispatchEvent(new CustomEvent('nini:check-updates'))"
                     )
 
-            app_menu = [
-                Menu(
-                    "文件",
-                    [
-                        MenuAction("新建会话\tCtrl+N", _new_session),
-                        MenuSeparator(),
-                        MenuAction("退出", self.request_exit),
-                    ],
-                ),
-                Menu(
-                    "视图",
-                    [
-                        MenuAction("开发者工具\tCtrl+Shift+I", _open_devtools),
-                        MenuSeparator(),
-                        MenuAction("重新加载\tCtrl+R", _reload),
-                        MenuAction("强制重新加载\tCtrl+Shift+R", _hard_reload),
-                        MenuSeparator(),
-                        MenuAction("全屏\tF11", _toggle_fullscreen),
-                    ],
-                ),
-                Menu(
-                    "帮助",
-                    [
-                        MenuAction("查看日志", _open_log_file),
-                        MenuSeparator(),
-                        MenuAction("检查更新", _check_updates),
-                    ],
-                ),
-            ]
+            # 将原 pywebview 原生菜单回调封装成 JS API，前端自绘标题栏调用。
+            # 详见 web/src/components/TitleBar.tsx 与 web/src/lib/desktopBridge.ts。
+            app_api = _DesktopShellApi(
+                host_app=self,
+                open_devtools=_open_devtools,
+                reload_=_reload,
+                hard_reload=_hard_reload,
+                toggle_fullscreen=_toggle_fullscreen,
+                new_session=_new_session,
+                check_updates=_check_updates,
+                open_log_file=_open_log_file,
+            )
 
             url = _build_app_url(self.host, self.port)
             state = _load_window_state()
             win_width = state.get("width", 1360)
             win_height = state.get("height", 920)
+            create_kwargs: dict[str, Any] = {
+                "url": url,
+                "width": win_width,
+                "height": win_height,
+                "min_size": (1100, 720),
+                "confirm_close": False,
+                "frameless": True,
+                "easy_drag": False,
+                "js_api": app_api,
+            }
             try:
-                self._window = webview.create_window(
-                    "Nini",
-                    url=url,
-                    width=win_width,
-                    height=win_height,
-                    min_size=(1100, 720),
-                    confirm_close=False,
-                )
+                self._window = webview.create_window("Nini", **create_kwargs)
             except TypeError:
+                # 老版本 pywebview 不支持部分参数（min_size / frameless / js_api），
+                # 退化到最小可用集合：标题 + URL + 尺寸。
                 self._window = webview.create_window(
                     "Nini",
                     url=url,
@@ -930,7 +1052,7 @@ class _EmbeddedWindowApp:
 
             self._bind_events()
             self._tray.start_background()
-            webview.start(gui="edgechromium", debug=False, menu=app_menu)
+            webview.start(gui="edgechromium", debug=False)
             return 0
         except Exception as exc:
             _show_error(

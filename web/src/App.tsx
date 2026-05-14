@@ -6,7 +6,7 @@ import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useStore } from "./store";
 import { useIsDesktop } from "./hooks";
 import ChatPanel from "./components/ChatPanel";
-import SessionTabs from "./components/SessionTabs";
+import TitleBar from "./components/TitleBar";
 import SessionList from "./components/SessionList";
 import AuthGate from "./components/AuthGate";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -303,7 +303,10 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="flex h-screen bg-[var(--bg-app)] p-2 gap-2">
+      <div className="flex h-screen flex-col bg-[var(--bg-app)]">
+        {/* 桌面壳合一行标题栏：菜单按钮 + 会话 Tab + 窗口控制；浏览器模式自动降级。 */}
+        <TitleBar showTabs={activePage === null} />
+        <div className="flex flex-1 min-h-0 p-2 gap-2">
         {apiKeyRequired && !authReady && !appBootstrapping && (
           <AuthGate error={authError} loading={appBootstrapping} onSubmit={submitApiKey} />
         )}
@@ -361,10 +364,8 @@ export default function App() {
               </>
             )}
 
-            {/* 主面板 */}
+            {/* 主面板：标签页已上移到顶部 TitleBar，此处只保留工具栏 + 内容 */}
             <main className="flex-1 flex flex-col min-w-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-base)] overflow-hidden">
-              {/* 会话 Tab 栏 */}
-              <SessionTabs />
               {/* Toolbar — 三栏布局：左侧移动菜单 + 中间 Logo/标题/连接状态 + 右侧工作区开关 */}
               <header className="h-12 border-b border-[var(--border-subtle)] flex items-center px-4 bg-[var(--bg-base)] flex-shrink-0">
                 {/* 左侧：移动端菜单（桌面端空占位） */}
@@ -605,6 +606,7 @@ export default function App() {
             )}
           </Suspense>
         )}
+        </div>
       </div>
       {/* 全局确认对话框 */}
       <ConfirmDialog />
