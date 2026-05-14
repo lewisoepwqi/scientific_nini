@@ -164,7 +164,7 @@ python -m build                # 打包 wheel
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **scientific_nini** (28884 symbols, 52853 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **scientific_nini** (30927 symbols, 54813 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -202,25 +202,5 @@ This project is indexed by GitNexus as **scientific_nini** (28884 symbols, 52853
 | Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
 | Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
-| Work in the Tests area (1339 symbols) | `.claude/skills/generated/tests/SKILL.md` |
-| Work in the Tools area (503 symbols) | `.claude/skills/generated/tools/SKILL.md` |
-| Work in the Agent area (321 symbols) | `.claude/skills/generated/agent/SKILL.md` |
-| Work in the Components area (316 symbols) | `.claude/skills/generated/components/SKILL.md` |
-| Work in the Store area (299 symbols) | `.claude/skills/generated/store/SKILL.md` |
-| Work in the Memory area (193 symbols) | `.claude/skills/generated/memory/SKILL.md` |
-| Work in the Api area (188 symbols) | `.claude/skills/generated/api/SKILL.md` |
-| Work in the Nini area (167 symbols) | `.claude/skills/generated/nini/SKILL.md` |
-| Work in the Workspace area (143 symbols) | `.claude/skills/generated/workspace/SKILL.md` |
-| Work in the Scripts area (112 symbols) | `.claude/skills/generated/scripts/SKILL.md` |
-| Work in the Harness area (81 symbols) | `.claude/skills/generated/harness/SKILL.md` |
-| Work in the Todo area (80 symbols) | `.claude/skills/generated/todo/SKILL.md` |
-| Work in the Sandbox area (76 symbols) | `.claude/skills/generated/sandbox/SKILL.md` |
-| Work in the Pages area (64 symbols) | `.claude/skills/generated/pages/SKILL.md` |
-| Work in the Executors area (60 symbols) | `.claude/skills/generated/executors/SKILL.md` |
-| Work in the Update area (55 symbols) | `.claude/skills/generated/update/SKILL.md` |
-| Work in the Providers area (54 symbols) | `.claude/skills/generated/providers/SKILL.md` |
-| Work in the Knowledge area (44 symbols) | `.claude/skills/generated/knowledge/SKILL.md` |
-| Work in the Skills area (43 symbols) | `.claude/skills/generated/skills/SKILL.md` |
-| Work in the Intent area (33 symbols) | `.claude/skills/generated/intent/SKILL.md` |
 
 <!-- gitnexus:end -->

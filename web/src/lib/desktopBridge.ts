@@ -39,34 +39,47 @@ export function isDesktopShell(): boolean {
 }
 
 /**
- * 等待 pywebview JS 桥就绪。pywebview 在页面加载后异步注入 `window.pywebview.api`，
- * 初次渲染时可能尚未挂载。带超时降级，浏览器模式直接返回 false。
+ * 等待 pywebview JS 桥就绪。
+ *
+ * pywebview 在桥注入完毕后会 dispatch `pywebviewready` DOM 事件，这是官方推荐的
+ * 检测时机。同时保留超时降级（兜底轮询），避免事件在监听前已触发的竞态。
  */
-export function waitForDesktopShell(timeoutMs = 1500): Promise<boolean> {
+export function waitForDesktopShell(timeoutMs = 5000): Promise<boolean> {
   if (typeof window === "undefined") return Promise.resolve(false);
   if (isDesktopShell()) return Promise.resolve(true);
   return new Promise((resolve) => {
-    const start = Date.now();
-    const timer = setInterval(() => {
-      if (isDesktopShell()) {
-        clearInterval(timer);
-        resolve(true);
-        return;
-      }
-      if (Date.now() - start > timeoutMs) {
-        clearInterval(timer);
-        resolve(false);
-      }
-    }, 80);
+    let settled = false;
+
+    const finish = (result: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener("pywebviewready", onReady);
+      resolve(result);
+    };
+
+    const onReady = () => finish(true);
+    window.addEventListener("pywebviewready", onReady, { once: true });
+
+    // 挂载监听后立即检查一次，防止事件在监听前已触发
+    if (isDesktopShell()) {
+      finish(true);
+      return;
+    }
+
+    // 超时降级：最后再检查一次 API 是否已就绪
+    setTimeout(() => finish(isDesktopShell()), timeoutMs);
   });
 }
 
-async function call<T = void>(method: keyof DesktopShellApi): Promise<T | null> {
+async function call<T = void>(
+  method: keyof DesktopShellApi,
+  ...args: Parameters<DesktopShellApi[typeof method]>
+): Promise<T | null> {
   const api = getApi();
-  const fn = api?.[method] as (() => Promise<T>) | undefined;
+  const fn = api?.[method] as ((...args: unknown[]) => Promise<T>) | undefined;
   if (!fn) return null;
   try {
-    return await fn();
+    return await fn(...args);
   } catch (err) {
     console.warn(`[desktopBridge] ${method} 调用失败`, err);
     return null;
