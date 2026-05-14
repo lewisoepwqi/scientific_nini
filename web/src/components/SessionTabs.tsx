@@ -1,6 +1,9 @@
-import { useCallback } from "react";
+import { useCallback, type CSSProperties } from "react";
 import { X } from "lucide-react";
 import { useStore } from "../store";
+
+const DRAG: CSSProperties = { WebkitAppRegion: "drag" } as CSSProperties;
+const NO_DRAG: CSSProperties = { WebkitAppRegion: "no-drag" } as CSSProperties;
 
 export default function SessionTabs() {
   const sessionId = useStore((s) => s.sessionId);
@@ -31,7 +34,8 @@ export default function SessionTabs() {
     <div
       role="tablist"
       aria-label="会话标签页"
-      className="flex items-end gap-0.5 overflow-x-auto px-2 pt-1.5 scrollbar-none"
+      style={DRAG}
+      className="pywebview-drag-region flex h-full items-end gap-0.5 overflow-x-auto px-2 pt-1.5 scrollbar-none"
     >
       {openTabIds.map((id) => {
         const isActive = id === sessionId;
@@ -42,6 +46,7 @@ export default function SessionTabs() {
             key={id}
             role="tab"
             aria-selected={isActive}
+            style={NO_DRAG}
             className={[
               "group relative flex items-center gap-1.5 max-w-[160px] min-w-[80px]",
               "h-8 px-2 rounded-t-md text-xs font-medium transition-colors shrink-0 cursor-pointer",
@@ -52,6 +57,7 @@ export default function SessionTabs() {
             ].join(" ")}
             tabIndex={0}
             onClick={() => handleTabClick(id)}
+            onDoubleClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleTabClick(id); }}
           >
             {isRunning && (
@@ -62,6 +68,7 @@ export default function SessionTabs() {
               type="button"
               aria-label={`关闭 ${title}`}
               tabIndex={0}
+              style={NO_DRAG}
               onClick={(e) => handleClose(e, id)}
               className="opacity-0 group-hover:opacity-100 rounded p-0.5 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-opacity shrink-0"
             >

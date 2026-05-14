@@ -1438,6 +1438,8 @@ export const useStore = create<AppState>((set, get) => ({
             ],
       }));
       localStorage.setItem("nini_last_session_id", newSessionId);
+      // 立即打开 Tab，不等 switchSession 完成，避免 Tab 出现延迟
+      get().openTab(newSessionId, "新会话");
       // 列表刷新与会话数据恢复放到后台，不阻塞交互
       void get().fetchSessions();
       void get().switchSession(newSessionId);

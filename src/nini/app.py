@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+from pathlib import Path
 import secrets
 from contextlib import asynccontextmanager
 from typing import Awaitable, Callable
@@ -34,6 +35,24 @@ logger = logging.getLogger(__name__)
 
 # 前端构建产物目录（冻结模式下从 bundle 内读取）
 _WEB_DIST = _get_bundle_web_dist_dir()
+
+
+def _is_spa_fallback_request(request: Request) -> bool:
+    """判断 404 是否应回退到 SPA 入口页。"""
+    path = request.url.path
+    if request.method not in {"GET", "HEAD"}:
+        return False
+    if path.startswith("/api/") or path == "/ws":
+        return False
+    if Path(path).suffix:
+        return False
+    accept = request.headers.get("accept", "").lower()
+    return "text/html" in accept
+
+
+def _read_web_index_html() -> str:
+    """读取当前前端入口页。"""
+    return (_WEB_DIST / "index.html").read_text(encoding="utf-8")
 
 
 @asynccontextmanager
@@ -184,8 +203,6 @@ def create_app() -> FastAPI:
     if _WEB_DIST.exists() and (_WEB_DIST / "index.html").exists():
         from fastapi.responses import HTMLResponse
 
-        _index_html_content = (_WEB_DIST / "index.html").read_text(encoding="utf-8")
-
         @app.get("/", response_class=HTMLResponse, include_in_schema=False)
         async def serve_web_index() -> HTMLResponse:
             """返回前端入口页。
@@ -193,7 +210,7 @@ def create_app() -> FastAPI:
             测试环境中的 httpx ASGITransport 与 FileResponse 组合会阻塞，
             这里直接返回 HTML 文本，避免根路径请求卡住。
             """
-            return HTMLResponse(_index_html_content)
+            return HTMLResponse(_read_web_index_html())
 
         # 1. 挂载静态文件（html=True 让 / 自动映射到 index.html）
         app.mount("/", StaticFiles(directory=str(_WEB_DIST), html=True), name="web")
@@ -206,10 +223,10 @@ def create_app() -> FastAPI:
             call_next: Callable[[Request], Awaitable[Response]],
         ) -> Response:
             response = await call_next(request)
-            path = request.url.path
-            # 仅对非 API/WS 路径的 404 返回 index.html（SPA 客户端路由）
-            if response.status_code == 404 and not path.startswith("/api/") and path != "/ws":
-                return HTMLResponse(_index_html_content)
+            # 仅对页面导航的 404 返回 index.html；静态资源缺失必须保留 404，
+            # 避免浏览器把 HTML 当作 module script 加载导致 MIME 错误黑屏。
+            if response.status_code == 404 and _is_spa_fallback_request(request):
+                return HTMLResponse(_read_web_index_html())
             return response
 
         logger.info("前端静态文件已挂载: %s (SPA fallback 已启用)", _WEB_DIST)

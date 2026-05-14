@@ -9,6 +9,7 @@ from ctypes import wintypes
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
@@ -27,6 +28,7 @@ if sys.platform == "win32":
     WM_CLOSE = 0x0010
     WM_QUIT = 0x0012
     WM_COMMAND = 0x0111
+    WM_NCCALCSIZE = 0x0083
     WM_USER = 0x0400
     WM_APP = 0x8000
     WM_LBUTTONUP = 0x0202
@@ -56,6 +58,15 @@ if sys.platform == "win32":
     LR_LOADFROMFILE = 0x0010
     LR_DEFAULTSIZE = 0x0040
     WM_TRAYICON = WM_APP + 1
+    GWL_WNDPROC = -4
+    GWL_STYLE = -16
+    WS_CAPTION = 0x00C00000
+    SWP_NOSIZE = 0x0001
+    SWP_NOMOVE = 0x0002
+    SWP_NOZORDER = 0x0004
+    SWP_NOACTIVATE = 0x0010
+    SWP_FRAMECHANGED = 0x0020
+    SWP_NOOWNERZORDER = 0x0200
 
     HCURSOR = wintypes.HANDLE
     HBRUSH = wintypes.HANDLE
@@ -65,6 +76,7 @@ if sys.platform == "win32":
     ATOM = wintypes.WORD
     HMODULE = wintypes.HANDLE
     LPCRECT = ctypes.POINTER(wintypes.RECT)
+    LONG_PTR = ctypes.c_longlong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_long
     WNDPROC = ctypes.WINFUNCTYPE(
         LRESULT,
         wintypes.HWND,
@@ -117,6 +129,12 @@ if sys.platform == "win32":
             ("dwInfoFlags", wintypes.DWORD),
             ("guidItem", ctypes.c_byte * 16),
             ("hBalloonIcon", wintypes.HICON),
+        ]
+
+    class NCCALCSIZE_PARAMS(ctypes.Structure):
+        _fields_ = [
+            ("rgrc", wintypes.RECT * 3),
+            ("lppos", ctypes.c_void_p),
         ]
 
     def _make_int_resource(resource_id: int):
@@ -189,9 +207,43 @@ if sys.platform == "win32":
         wintypes.LPARAM,
     ]
     user32.PostMessageW.restype = wintypes.BOOL
+    user32.SendMessageW.argtypes = [
+        wintypes.HWND,
+        wintypes.UINT,
+        wintypes.WPARAM,
+        wintypes.LPARAM,
+    ]
+    user32.SendMessageW.restype = LRESULT
     user32.DestroyWindow.argtypes = [wintypes.HWND]
     user32.DestroyWindow.restype = wintypes.BOOL
     user32.PostQuitMessage.argtypes = [ctypes.c_int]
+    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user32.GetWindowRect.restype = wintypes.BOOL
+    user32.ReleaseCapture.argtypes = []
+    user32.ReleaseCapture.restype = wintypes.BOOL
+    user32.CallWindowProcW.argtypes = [
+        LONG_PTR,
+        wintypes.HWND,
+        wintypes.UINT,
+        wintypes.WPARAM,
+        wintypes.LPARAM,
+    ]
+    user32.CallWindowProcW.restype = LRESULT
+    if hasattr(user32, "SetWindowLongPtrW"):
+        _set_window_long_ptr = user32.SetWindowLongPtrW
+    else:
+        _set_window_long_ptr = user32.SetWindowLongW
+    _set_window_long_ptr.argtypes = [wintypes.HWND, ctypes.c_int, LONG_PTR]
+    _set_window_long_ptr.restype = LONG_PTR
+    if hasattr(user32, "GetWindowLongPtrW"):
+        _get_window_long_ptr = user32.GetWindowLongPtrW
+    else:
+        _get_window_long_ptr = user32.GetWindowLongW
+    _get_window_long_ptr.argtypes = [wintypes.HWND, ctypes.c_int]
+    _get_window_long_ptr.restype = LONG_PTR
+    # 不设置 SetWindowPos.argtypes：pywebview 内部会在 SWP_NOSIZE 时传 None
+    # 给 cx/cy。若这里全局绑定 int 类型，会把 pywebview 的拖拽实现打崩。
+    user32.SetWindowPos.restype = wintypes.BOOL
     user32.PeekMessageW.argtypes = [
         ctypes.POINTER(MSG),
         wintypes.HWND,
@@ -215,6 +267,7 @@ else:
     WM_CLOSE = 0
     WM_QUIT = 0
     WM_COMMAND = 0
+    WM_NCCALCSIZE = 0
     WM_USER = 0
     WM_APP = 0
     WM_LBUTTONUP = 0
@@ -244,6 +297,15 @@ else:
     LR_LOADFROMFILE = 0
     LR_DEFAULTSIZE = 0
     WM_TRAYICON = 0
+    GWL_WNDPROC = 0
+    GWL_STYLE = 0
+    WS_CAPTION = 0
+    SWP_NOSIZE = 0
+    SWP_NOMOVE = 0
+    SWP_NOZORDER = 0
+    SWP_NOACTIVATE = 0
+    SWP_FRAMECHANGED = 0
+    SWP_NOOWNERZORDER = 0
 
     HCURSOR = object
     HBRUSH = object
@@ -253,7 +315,10 @@ else:
     ATOM = object
     HMODULE = object
     LPCRECT = object
+    LONG_PTR = object
     WNDPROC = Callable[..., int]
+    _set_window_long_ptr = cast(Any, None)
+    _get_window_long_ptr = cast(Any, None)
 
     class WNDCLASSW(ctypes.Structure):
         pass
@@ -265,6 +330,9 @@ else:
         pass
 
     class NOTIFYICONDATAW(ctypes.Structure):
+        pass
+
+    class NCCALCSIZE_PARAMS(ctypes.Structure):
         pass
 
     def _make_int_resource(resource_id: int):
@@ -914,13 +982,18 @@ class _EmbeddedWindowApp:
         host: str,
         port: int,
         server_process: subprocess.Popen[bytes] | None,
+        debug: bool = False,
     ) -> None:
         self.install_root = install_root
         self.host = host
         self.port = port
         self.server_process = server_process
-        self._window = None
+        self.debug = debug
+        self._window: Any = None
         self._exit_requested = threading.Event()
+        self._resize_old_wnd_proc: int | None = None
+        self._resize_wnd_proc: Any = None
+        self._resize_hwnd: int | None = None
         self._tray = _TrayApp(
             install_root=install_root,
             host=host,
@@ -948,6 +1021,8 @@ class _EmbeddedWindowApp:
                 )
                 return 1
 
+            webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
+
             def _open_devtools() -> None:
                 """启用并打开 WebView2 DevTools 面板。
 
@@ -962,30 +1037,11 @@ class _EmbeddedWindowApp:
                    WebView2 控件，避免依赖私有 `_js_bridge` 路径。
                 失败时把异常打印到 stderr，方便开发模式下定位问题。
                 """
-                import traceback  # noqa: PLC0415
-
-                try:
-                    native = getattr(self._window, "native", None)
-                    webview2_ctl = getattr(native, "webview", None)
-                    if webview2_ctl is None or webview2_ctl.CoreWebView2 is None:
-                        print(
-                            "[nini] 打开 DevTools 失败：WebView2 控件尚未就绪",
-                            file=sys.stderr,
-                        )
-                        return
-
-                    # 延迟到运行时再 import：pywebview 启动时已加载 .NET CLR，
-                    # 此时 System 模块才在 sys.path 上可用。
-                    from System import Action  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
-
-                    def _do_open() -> None:
-                        core = webview2_ctl.CoreWebView2
-                        core.Settings.AreDevToolsEnabled = True
-                        core.OpenDevToolsWindow()
-
-                    webview2_ctl.Invoke(Action(_do_open))
-                except Exception:
-                    traceback.print_exc()
+                threading.Thread(
+                    target=self._schedule_open_devtools,
+                    name="nini-open-devtools",
+                    daemon=True,
+                ).start()
 
             def _reload() -> None:
                 with suppress(Exception):
@@ -1034,7 +1090,9 @@ class _EmbeddedWindowApp:
                 "height": win_height,
                 "min_size": (1100, 720),
                 "confirm_close": False,
-                "frameless": True,
+                # 使用 pywebview 原生窗口框架（FormBorderStyle.Sizable）：
+                # 原生标题栏 / 缩放边框 / 最小化最大化关闭 / 拖动全部由系统负责。
+                "frameless": False,
                 "easy_drag": False,
                 "js_api": app_api,
             }
@@ -1052,7 +1110,29 @@ class _EmbeddedWindowApp:
 
             self._bind_events()
             self._tray.start_background()
-            webview.start(gui="edgechromium", debug=False)
+
+            # 打包模式：持久化用户数据（localStorage / Cookie 跨会话保留）。
+            # 开发模式：每次强制删除并重建 WebView2 数据目录，彻底防止旧版
+            # index.html 被 HTTP 缓存，避免资产哈希不匹配导致 MIME 报错黑屏。
+            if getattr(sys, "frozen", False):
+                webview2_data_dir = Path.home() / ".nini" / "webview2"
+                webview2_data_dir.mkdir(parents=True, exist_ok=True)
+                webview.start(
+                    gui="edgechromium",
+                    debug=self.debug,
+                    private_mode=False,
+                    storage_path=str(webview2_data_dir),
+                )
+            else:
+                dev_data_dir = Path.home() / ".nini" / "webview2_dev"
+                shutil.rmtree(dev_data_dir, ignore_errors=True)
+                dev_data_dir.mkdir(parents=True, exist_ok=True)
+                webview.start(
+                    gui="edgechromium",
+                    debug=self.debug,
+                    private_mode=False,
+                    storage_path=str(dev_data_dir),
+                )
             return 0
         except Exception as exc:
             _show_error(
@@ -1067,6 +1147,152 @@ class _EmbeddedWindowApp:
             self._tray.stop()
             _terminate_process(self.server_process)
 
+    def _schedule_open_devtools(self) -> None:
+        """后台投递 DevTools 打开动作，避免阻塞 JS bridge。"""
+        import traceback  # noqa: PLC0415
+
+        try:
+            native = getattr(self._window, "native", None)
+            webview2_ctl = getattr(native, "webview", None)
+            if webview2_ctl is None:
+                print("[nini] 打开 DevTools 失败：WebView2 控件尚未就绪", file=sys.stderr)
+                return
+
+            from System import Action  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
+
+            def _do_open() -> None:
+                try:
+                    core = webview2_ctl.CoreWebView2
+                    if core is None:
+                        print(
+                            "[nini] 打开 DevTools 失败：WebView2 Core 尚未就绪",
+                            file=sys.stderr,
+                        )
+                        return
+                    core.Settings.AreDevToolsEnabled = True
+                    core.OpenDevToolsWindow()
+                except Exception:
+                    traceback.print_exc()
+
+            webview2_ctl.BeginInvoke(Action(_do_open))
+        except Exception:
+            traceback.print_exc()
+
+    def _install_caption_strip(self) -> None:
+        """隐藏原生标题栏，但保留原生缩放边框。
+
+        ``frameless=False`` 给了完整的原生窗口框架（标题栏 + 四周缩放边框）。这里
+        子类化 WndProc 处理 ``WM_NCCALCSIZE``：DefWindowProc 默认会从顶部多扣掉一个
+        标题栏高度，导致客户区顶部留出一条非客户区残留（表现为黑边）。这里把顶部
+        的内缩量重新对齐到与左右边框一致——标题栏区域归还给客户区，顶部仅保留与
+        左右下相同的细缩放边框。该做法直接由几何关系推导，与 DPI 无关。窗口拖动由
+        前端自绘标题栏的 ``-webkit-app-region: drag``（WebView2
+        IsNonClientRegionSupportEnabled）负责。最大化时不剥离，避免破坏 WinForms 的
+        最大化布局。
+        """
+        if sys.platform != "win32" or self._resize_wnd_proc is not None:
+            return
+        native = getattr(self._window, "native", None)
+        hwnd = self._native_hwnd(native)
+        if hwnd is None:
+            return
+
+        @WNDPROC
+        def _caption_proc(hwnd_value, msg, wparam, lparam):
+            old = self._resize_old_wnd_proc
+            if msg == WM_NCCALCSIZE and wparam and old is not None:
+                params = ctypes.cast(
+                    ctypes.c_void_p(lparam),
+                    ctypes.POINTER(NCCALCSIZE_PARAMS),
+                )
+                # rgrc[0] 进入时是新窗口矩形，DefWindowProc 处理后变为客户区矩形。
+                win_top = int(params.contents.rgrc[0].top)
+                result = user32.CallWindowProcW(old, hwnd_value, msg, wparam, lparam)
+                if not self._window_is_maximized():
+                    with suppress(Exception):
+                        # 顶部内缩归零：客户区直达窗口顶边，顶部不再有非客户区，
+                        # 从根上消除被 DWM 渲染成深色标题栏框的黑边残留。左右下仍
+                        # 保留细缩放边框，配合 WS_THICKFRAME 提供四角与左右下三边的
+                        # 原生缩放（顶部两角经左右边框区命中）；仅失去纯顶边缩放。
+                        params.contents.rgrc[0].top = win_top
+                return result
+            if old is None:
+                return user32.DefWindowProcW(hwnd_value, msg, wparam, lparam)
+            return user32.CallWindowProcW(old, hwnd_value, msg, wparam, lparam)
+
+        proc_ptr = ctypes.cast(_caption_proc, ctypes.c_void_p).value
+        if proc_ptr is None:
+            return
+        old_proc = _set_window_long_ptr(hwnd, GWL_WNDPROC, proc_ptr)
+        if old_proc:
+            self._resize_hwnd = hwnd
+            self._resize_old_wnd_proc = int(old_proc)
+            self._resize_wnd_proc = _caption_proc
+            # 去掉 WS_CAPTION：保留 WS_CAPTION 时 DefWindowProc 仍会把顶部非客户区
+            # 当作标题栏框绘制（表现为黑边）；移除后系统只画四周统一的细缩放边框，
+            # 缩放能力来自仍保留的 WS_THICKFRAME。
+            with suppress(Exception):
+                style = int(_get_window_long_ptr(hwnd, GWL_STYLE))
+                new_style = style & ~WS_CAPTION
+                if new_style != style:
+                    _set_window_long_ptr(hwnd, GWL_STYLE, new_style)
+            # 立即触发一次 NCCALCSIZE 重算，让标题栏马上消失。
+            with suppress(Exception):
+                user32.SetWindowPos(
+                    wintypes.HWND(hwnd),
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE
+                    | SWP_NOSIZE
+                    | SWP_NOZORDER
+                    | SWP_NOACTIVATE
+                    | SWP_NOOWNERZORDER
+                    | SWP_FRAMECHANGED,
+                )
+
+    def _window_is_maximized(self) -> bool:
+        """判断宿主 WinForms 窗口是否最大化。"""
+        native = getattr(self._window, "native", None)
+        if native is None:
+            return False
+        try:
+            from System.Windows.Forms import FormWindowState  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
+
+            return bool(native.WindowState == FormWindowState.Maximized)
+        except Exception:
+            return False
+
+    def _restore_native_wnd_proc(self) -> None:
+        """窗口关闭前恢复原始 WndProc。"""
+        if (
+            sys.platform != "win32"
+            or self._resize_hwnd is None
+            or self._resize_old_wnd_proc is None
+        ):
+            return
+        with suppress(Exception):
+            _set_window_long_ptr(self._resize_hwnd, GWL_WNDPROC, self._resize_old_wnd_proc)
+        self._resize_hwnd = None
+        self._resize_old_wnd_proc = None
+        self._resize_wnd_proc = None
+
+    @staticmethod
+    def _native_hwnd(native: Any) -> int | None:
+        """从 WinForms Form 中取出 HWND。"""
+        handle = getattr(native, "Handle", None)
+        if handle is None:
+            return None
+        with suppress(Exception):
+            return int(handle.ToInt64())
+        with suppress(Exception):
+            return int(handle.ToInt32())
+        with suppress(Exception):
+            return int(handle)
+        return None
+
     def _bind_events(self) -> None:
         if self._window is None:
             return
@@ -1076,6 +1302,41 @@ class _EmbeddedWindowApp:
             self._window.events.closed += self._on_window_closed
         with suppress(Exception):
             self._window.events.resized += self._on_window_resized
+        with suppress(Exception):
+            self._window.events.loaded += self._on_window_loaded
+
+    def _on_window_loaded(self) -> None:
+        """每次页面加载完成后，隐藏原生标题栏并启用 WebView2 CSS 拖拽区域支持。
+
+        ``_install_caption_strip`` 通过 WndProc 子类隐藏原生标题栏（保留缩放边框）；
+        WebView2 的 IsNonClientRegionSupportEnabled 让前端自绘标题栏的 CSS
+        ``-webkit-app-region: drag`` 被识别为可拖动区域，从而能拖动整个窗口。
+        """
+        import traceback  # noqa: PLC0415
+
+        try:
+            native = getattr(self._window, "native", None)
+            webview2_ctl = getattr(native, "webview", None)
+            if webview2_ctl is None:
+                return
+            self._install_caption_strip()
+            from System import Action  # type: ignore[import-not-found]  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
+
+            def _enable() -> None:
+                try:
+                    core = webview2_ctl.CoreWebView2
+                    if core is not None:
+                        core.Settings.IsNonClientRegionSupportEnabled = True
+                        core.CallDevToolsProtocolMethodAsync(
+                            "Overlay.setShowViewportSizeOnResize",
+                            '{"show":false}',
+                        )
+                except Exception:
+                    pass  # 旧版 WebView2 SDK 不支持此属性，忽略
+
+            webview2_ctl.BeginInvoke(Action(_enable))
+        except Exception:
+            traceback.print_exc()
 
     def _on_window_closing(self):
         """关闭主窗口时改为隐藏到托盘。"""
@@ -1085,6 +1346,7 @@ class _EmbeddedWindowApp:
         return False
 
     def _on_window_closed(self):
+        self._restore_native_wnd_proc()
         self._exit_requested.set()
 
     def show_window(self) -> None:
@@ -1153,6 +1415,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default="nini-cli.exe" if sys.platform == "win32" else "nini-cli",
         help="后台 CLI 可执行文件名",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="启用 WebView2 调试模式（DevTools 可用，控制台输出错误）",
+    )
     return parser
 
 
@@ -1179,6 +1446,11 @@ def main(argv: list[str] | None = None) -> int:
             _show_error("无法为 Nini 分配本地监听端口。")
             return 1
 
+        if not cli_path.exists() and not getattr(sys, "frozen", False):
+            # 开发模式：回退到 PATH 中的 nini 脚本
+            fallback = shutil.which("nini")
+            if fallback:
+                cli_path = Path(fallback)
         if not cli_path.exists():
             _show_error(f"未找到后台启动文件：{cli_path}")
             return 1
@@ -1230,6 +1502,7 @@ def main(argv: list[str] | None = None) -> int:
             host=host,
             port=port,
             server_process=server_process,
+            debug=args.debug,
         )
         return app.run()
     finally:

@@ -162,86 +162,102 @@ export default function TitleBar({ showTabs }: TitleBarProps) {
       label: "帮助",
       items: [
         { label: "查看日志", onSelect: () => void desktopBridge.openLogFile() },
-        { label: "检查更新", onSelect: () => void desktopBridge.checkUpdates() },
       ],
     },
   ];
 
   return (
-    <div
-      style={DRAG}
-      onDoubleClick={handleDoubleClickDrag}
-      className="flex h-9 select-none items-stretch bg-[var(--bg-app)] border-b border-[var(--border-subtle)]"
-    >
-      {/* 左：菜单按钮 + 应用图标 */}
-      <div style={NO_DRAG} className="flex items-center gap-1 pl-2 pr-1">
-        <button
-          ref={menuBtnRef}
-          type="button"
-          aria-label="应用菜单"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          onClick={() => (menuOpen ? setMenuOpen(false) : openMenu())}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-        >
-          <MenuIcon size={16} />
-        </button>
-        <div className="flex items-center gap-1.5 px-1 text-xs font-medium text-[var(--text-secondary)]">
-          <NiniLogo size={16} />
-          <span>Nini</span>
-        </div>
-      </div>
-
-      {/* 中：标签页（也是 drag 区域：标签之间的空白可以拖动窗口） */}
-      <div className="flex flex-1 min-w-0 items-end">
-        {showTabs ? (
-          <div style={NO_DRAG} className="flex min-w-0 flex-1 items-end">
-            <SessionTabs />
+    <>
+      {/* 窗口缩放由 pywebview 原生框架负责，不再渲染自绘缩放手柄 */}
+      <div
+        style={DRAG}
+        onDoubleClick={handleDoubleClickDrag}
+        className="pywebview-drag-region flex h-9 select-none items-stretch bg-[var(--bg-app)] border-b border-[var(--border-subtle)]"
+      >
+        {/* 左：菜单按钮 + 应用图标 */}
+        <div style={NO_DRAG} className="flex items-center gap-1 pl-2 pr-1">
+          <button
+            ref={menuBtnRef}
+            type="button"
+            aria-label="应用菜单"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={() => (menuOpen ? setMenuOpen(false) : openMenu())}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          >
+            <MenuIcon size={16} />
+          </button>
+          <div
+            style={DRAG}
+            className="pywebview-drag-region flex h-full items-center gap-1.5 px-1 text-xs font-medium text-[var(--text-secondary)]"
+          >
+            <span className="pointer-events-none flex items-center">
+              <NiniLogo size={16} />
+            </span>
+            <span className="pointer-events-none">Nini</span>
           </div>
-        ) : (
-          <div className="flex-1" />
-        )}
-        {/* 标签页右侧留一段拖动空白 */}
-        <div className="h-full flex-1 min-w-[24px]" />
-      </div>
-
-      {/* 右：窗口控制按钮 */}
-      {shellAvailable && (
-        <div style={NO_DRAG} className="flex items-stretch">
-          <button
-            type="button"
-            aria-label="最小化"
-            onClick={() => void desktopBridge.minimize()}
-            className="flex h-full w-11 items-center justify-center text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-          >
-            <Minus size={14} />
-          </button>
-          <button
-            type="button"
-            aria-label={maximized ? "向下还原" : "最大化"}
-            onClick={() => void handleToggleMax()}
-            className="flex h-full w-11 items-center justify-center text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-          >
-            {maximized ? <Copy size={12} /> : <Square size={12} />}
-          </button>
-          <button
-            type="button"
-            aria-label="关闭"
-            onClick={() => void desktopBridge.closeToTray()}
-            className="flex h-full w-11 items-center justify-center text-[var(--text-muted)] hover:bg-[#e81123] hover:text-white"
-          >
-            <X size={14} />
-          </button>
         </div>
-      )}
 
-      {menuOpen && (
-        <MenuDropdown
-          groups={menuGroups}
-          onClose={() => setMenuOpen(false)}
-          anchorRect={anchorRect}
-        />
-      )}
-    </div>
+        {/* 中：标签页（也是 drag 区域：标签之间的空白可以拖动窗口） */}
+        <div
+          style={DRAG}
+          className="pywebview-drag-region flex flex-1 min-w-0 items-end"
+        >
+          {showTabs ? (
+            <div
+              style={DRAG}
+              className="pywebview-drag-region flex min-w-0 flex-1 items-end"
+            >
+              <SessionTabs />
+            </div>
+          ) : (
+            <div style={DRAG} className="pywebview-drag-region h-full flex-1" />
+          )}
+          {/* 标签页右侧留一段拖动空白 */}
+          <div
+            style={DRAG}
+            className="pywebview-drag-region h-full flex-1 min-w-[24px]"
+          />
+        </div>
+
+        {/* 右：窗口控制按钮 */}
+        {shellAvailable && (
+          <div style={NO_DRAG} className="flex items-stretch">
+            <button
+              type="button"
+              aria-label="最小化"
+              onClick={() => void desktopBridge.minimize()}
+              className="flex h-full w-11 items-center justify-center text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+            >
+              <Minus size={14} />
+            </button>
+            <button
+              type="button"
+              aria-label={maximized ? "向下还原" : "最大化"}
+              onClick={() => void handleToggleMax()}
+              className="flex h-full w-11 items-center justify-center text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+            >
+              {maximized ? <Copy size={12} /> : <Square size={12} />}
+            </button>
+            <button
+              type="button"
+              aria-label="关闭"
+              onClick={() => void desktopBridge.closeToTray()}
+              className="flex h-full w-11 items-center justify-center text-[var(--text-muted)] hover:bg-[#e81123] hover:text-white"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {menuOpen && (
+          <MenuDropdown
+            groups={menuGroups}
+            onClose={() => setMenuOpen(false)}
+            anchorRect={anchorRect}
+          />
+        )}
+      </div>
+    </>
   );
 }
