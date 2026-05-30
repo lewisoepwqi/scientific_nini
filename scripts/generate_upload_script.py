@@ -19,8 +19,9 @@ def _generate_bat_script(
     installer_name: str,
 ) -> str:
     """生成 Windows CMD 上传脚本。"""
-    return f'''@echo off
+    return f"""@echo off
 chcp 65001 >nul 2>nul
+cd /d "%~dp0"
 echo === Nini v{version} 发布上传 ===
 echo.
 echo 服务器: {ssh_host}
@@ -29,7 +30,7 @@ echo 上传目录: {upload_path}
 echo.
 
 echo [1/3] 上传 latest.json...
-scp latest.json {ssh_user}@{ssh_host}:{upload_path}/
+scp "latest.json" {ssh_user}@{ssh_host}:{upload_path}/
 if %errorlevel% neq 0 (
     echo [FAIL] latest.json 上传失败
     pause
@@ -37,7 +38,7 @@ if %errorlevel% neq 0 (
 )
 
 echo [2/3] 上传 {installer_name}...
-scp {installer_name} {ssh_user}@{ssh_host}:{upload_path}/
+scp "{installer_name}" {ssh_user}@{ssh_host}:{upload_path}/
 if %errorlevel% neq 0 (
     echo [FAIL] {installer_name} 上传失败
     pause
@@ -46,7 +47,12 @@ if %errorlevel% neq 0 (
 
 echo [3/3] 上传 {installer_name}.sha256...
 if exist "{installer_name}.sha256" (
-    scp {installer_name}.sha256 {ssh_user}@{ssh_host}:{upload_path}/
+    scp "{installer_name}.sha256" {ssh_user}@{ssh_host}:{upload_path}/
+    if %errorlevel% neq 0 (
+        echo [FAIL] {installer_name}.sha256 上传失败
+        pause
+        exit /b 1
+    )
 )
 
 echo.
@@ -54,7 +60,7 @@ echo === 上传完成 ===
 echo 验证地址: {server_url}{channel}/latest.json
 echo.
 pause
-'''
+"""
 
 
 def _generate_ps1_script(
@@ -68,7 +74,7 @@ def _generate_ps1_script(
     installer_name: str,
 ) -> str:
     """生成 PowerShell 上传脚本。"""
-    return f'''#Requires -Version 5.1
+    return f"""#Requires -Version 5.1
 # Nini v{version} 发布上传脚本（PowerShell）
 # 推荐方式：右键选择"使用 PowerShell 运行"
 
@@ -79,6 +85,8 @@ $User = "{ssh_user}"
 $RemotePath = "{upload_path}"
 $Channel = "{channel}"
 $VerifyUrl = "{server_url}{channel}/latest.json"
+$ScriptDir = Split-Path -Parent $PSCommandPath
+Set-Location -LiteralPath $ScriptDir
 
 Write-Host "=== Nini v{version} 发布上传 ===" -ForegroundColor Cyan
 Write-Host "服务器: $Server" -ForegroundColor Gray
@@ -92,7 +100,7 @@ $Files = @(
 )
 
 # 可选文件
-if (Test-Path "{installer_name}.sha256") {{
+if (Test-Path -LiteralPath (Join-Path $ScriptDir "{installer_name}.sha256")) {{
     $Files += "{installer_name}.sha256"
 }}
 
@@ -101,7 +109,14 @@ foreach ($File in $Files) {{
     $Index++
     Write-Host "[$Index/$($Files.Count)] 上传 $File..." -ForegroundColor Yellow -NoNewline
     try {{
-        scp $File "$User@${{Server}}:$RemotePath/"
+        $LocalFile = Join-Path $ScriptDir $File
+        if (-not (Test-Path -LiteralPath $LocalFile)) {{
+            throw "本地文件不存在: $LocalFile"
+        }}
+        scp $LocalFile "$User@${{Server}}:$RemotePath/"
+        if ($LASTEXITCODE -ne 0) {{
+            throw "scp failed with exit code $LASTEXITCODE"
+        }}
         Write-Host " 完成" -ForegroundColor Green
     }} catch {{
         Write-Host " 失败" -ForegroundColor Red
@@ -130,7 +145,7 @@ try {{
 
 Write-Host ""
 Read-Host "按 Enter 键退出"
-'''
+"""
 
 
 def _generate_instructions(
@@ -153,7 +168,7 @@ def _generate_instructions(
   NINI_UPDATE_ALLOW_INSECURE_HTTP=true
 """
 
-    return f'''================================================================================
+    return f"""================================================================================
 Nini v{version} 发布文件上传说明
 ================================================================================
 生成时间: {datetime.now(timezone.utc).isoformat()}
@@ -172,8 +187,8 @@ Nini v{version} 发布文件上传说明
 
 【方式一：PowerShell 上传（推荐）】
   1. 打开 PowerShell
-  2. 进入目录: cd dist/v{version}
-  3. 执行: .\\upload.ps1
+  2. 执行: dist\\v{version}\\upload.ps1
+     或进入目录后执行: .\\upload.ps1
   或右键 upload.ps1 → "使用 PowerShell 运行"
 
 【方式二：CMD 一键上传】
@@ -202,7 +217,7 @@ Nini v{version} 发布文件上传说明
   3. 如果客户端已运行，需要重启客户端才能检测到更新
 {http_note}
 ================================================================================
-'''
+"""
 
 
 def generate_upload_scripts(
