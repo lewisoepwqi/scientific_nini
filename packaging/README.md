@@ -304,7 +304,7 @@ updates/
 客户端配置的更新源基础 URL 应指向 `updates/` 根目录，程序会按 `NINI_UPDATE_CHANNEL` 访问 `<base>/<channel>/latest.json`：
 
 ```env
-NINI_UPDATE_BASE_URL=https://download.example.com/nini/updates/
+NINI_UPDATE_BASE_URL=https://update.lewisoepwqi.com/nini/updates/
 NINI_UPDATE_CHANNEL=stable
 NINI_UPDATE_AUTO_CHECK_ENABLED=true
 NINI_UPDATE_CHECK_INTERVAL_HOURS=24
@@ -368,7 +368,7 @@ http://服务器IP:8080/nini/updates/stable/latest.json
 
 ```batch
 set "NINI_VERSION=0.1.1"
-set "NINI_UPDATE_ASSET_BASE_URL=https://download.example.com/nini/updates/stable/"
+set "NINI_UPDATE_ASSET_BASE_URL=https://update.lewisoepwqi.com/nini/updates/"
 set "NINI_UPDATE_CHANNEL=stable"
 set "NINI_UPDATE_NOTES=修复升级检查失败|优化启动稳定性"
 set "SIGNING_CERT_THUMBPRINT=YOUR_CERT_THUMBPRINT_HERE"
@@ -389,7 +389,7 @@ python scripts\generate_update_manifest.py `
   --installer dist\Nini-0.1.1-Setup.exe `
   --version 0.1.1 `
   --channel stable `
-  --base-url https://download.example.com/nini/updates/stable/ `
+  --base-url https://update.lewisoepwqi.com/nini/updates/ `
   --notes "修复升级检查失败|优化启动稳定性" `
   --output dist\latest.json
 

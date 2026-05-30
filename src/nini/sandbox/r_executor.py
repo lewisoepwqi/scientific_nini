@@ -13,7 +13,7 @@ import subprocess
 import sys
 import time
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -235,12 +235,13 @@ def _build_preexec_fn(max_memory_mb: int):
     resource_module = resource
     if resource_module is None:
         return None
+    resource_api = cast(Any, resource_module)
 
     def _limit_resources() -> None:
         try:
-            if hasattr(resource_module, "RLIMIT_AS") and max_memory_mb > 0:
+            if hasattr(resource_api, "RLIMIT_AS") and max_memory_mb > 0:
                 mem_bytes = int(max(256, max_memory_mb)) * 1024 * 1024
-                resource_module.setrlimit(resource_module.RLIMIT_AS, (mem_bytes, mem_bytes))
+                resource_api.setrlimit(resource_api.RLIMIT_AS, (mem_bytes, mem_bytes))
         except Exception:
             pass
 

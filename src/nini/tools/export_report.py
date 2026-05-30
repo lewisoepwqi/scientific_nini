@@ -858,64 +858,46 @@ async def export_workspace_document(
                     "请先检查图表文件有效性或运行 `nini doctor` 后重试。"
                 ),
             )
-        chromium_exc: Exception | None = None
-        if sys.platform == "win32":
-            try:
-                output_bytes = await _run_export_operation_with_retry(
-                    operation_name="Chromium PDF 导出",
-                    manager=manager,
-                    export_job_id=str(export_job.get("id", "")),
-                    operation=lambda: _run_blocking_in_isolated_thread(
-                        lambda: _render_pdf_with_chromium(html)
-                    ),
-                )
-            except Exception as exc:
-                chromium_exc = exc
-                logger.warning("Chromium PDF 导出失败，回退 weasyprint: %s", exc)
-            else:
-                chromium_exc = None
-        if sys.platform == "win32" and chromium_exc is not None:
-            logger.info("Windows PDF 导出回退到 weasyprint")
-        if sys.platform != "win32" or chromium_exc is not None:
-            try:
-                import weasyprint  # type: ignore[import-not-found,import-untyped]
-            except ImportError:
-                if chromium_exc is not None:
-                    manager.update_export_job(
-                        str(export_job.get("id", "")),
-                        status="failed",
-                        message="PDF 导出依赖缺失",
+        try:
+            import weasyprint  # type: ignore[import-not-found,import-untyped]
+        except ImportError:
+            manager.update_export_job(
+                str(export_job.get("id", "")),
+                status="failed",
+                message="PDF 导出依赖缺失",
+            )
+            return ToolResult(
+                success=False,
+                message=(
+                    "PDF 导出需要 weasyprint 库，当前未安装。\n"
+                    "请执行以下命令之一安装后重试：\n"
+                    "- `pip install -e .[dev]`（源码开发环境，推荐）\n"
+                    "- `pip install -e .[pdf]`（源码开发环境，仅补装 PDF）\n"
+                    "- `pip install nini[pdf]`（已发布包环境）"
+                ),
+            )
+        try:
+            output_bytes = await _run_export_operation_with_retry(
+                operation_name="WeasyPrint PDF 导出",
+                manager=manager,
+                export_job_id=str(export_job.get("id", "")),
+                operation=lambda: _run_blocking_in_isolated_thread(
+                    lambda: weasyprint.HTML(string=html).write_pdf(),  # type: ignore[union-attr]
+                ),
+            )
+        except Exception as exc:
+            logger.error("PDF 生成失败: %s", exc, exc_info=True)
+            if sys.platform == "win32":
+                try:
+                    output_bytes = await _run_export_operation_with_retry(
+                        operation_name="Chromium PDF 导出",
+                        manager=manager,
+                        export_job_id=str(export_job.get("id", "")),
+                        operation=lambda: _run_blocking_in_isolated_thread(
+                            lambda: _render_pdf_with_chromium(html)
+                        ),
                     )
-                    return ToolResult(
-                        success=False, message=_format_pdf_export_failure(chromium_exc)
-                    )
-                manager.update_export_job(
-                    str(export_job.get("id", "")),
-                    status="failed",
-                    message="PDF 导出依赖缺失",
-                )
-                return ToolResult(
-                    success=False,
-                    message=(
-                        "PDF 导出需要 weasyprint 库，当前未安装。\n"
-                        "请执行以下命令之一安装后重试：\n"
-                        "- `pip install -e .[dev]`（源码开发环境，推荐）\n"
-                        "- `pip install -e .[pdf]`（源码开发环境，仅补装 PDF）\n"
-                        "- `pip install nini[pdf]`（已发布包环境）"
-                    ),
-                )
-            try:
-                output_bytes: bytes = await _run_export_operation_with_retry(
-                    operation_name="WeasyPrint PDF 导出",
-                    manager=manager,
-                    export_job_id=str(export_job.get("id", "")),
-                    operation=lambda: _run_blocking_in_isolated_thread(
-                        lambda: weasyprint.HTML(string=html).write_pdf(),  # type: ignore[union-attr]
-                    ),
-                )
-            except Exception as exc:
-                logger.error("PDF 生成失败: %s", exc, exc_info=True)
-                if chromium_exc is not None:
+                except Exception as chromium_exc:
                     manager.update_export_job(
                         str(export_job.get("id", "")),
                         status="failed",
@@ -924,10 +906,12 @@ async def export_workspace_document(
                     return ToolResult(
                         success=False,
                         message=(
-                            _format_pdf_export_failure(chromium_exc)
-                            + "\n已尝试回退 weasyprint，但回退链路也失败。"
+                            _format_pdf_export_failure(exc)
+                            + "\n已尝试回退 Chromium，但回退链路也失败："
+                            + _format_pdf_export_failure(chromium_exc)
                         ),
                     )
+            else:
                 manager.update_export_job(
                     str(export_job.get("id", "")),
                     status="failed",

@@ -106,13 +106,20 @@ class TestUpdaterLogWriting:
 
         ret = updater.main(
             [
-                "--installer", str(installer),
-                "--install-dir", str(install_dir),
-                "--app-exe", str(app_exe),
-                "--backend-pid", "1234",
-                "--log-path", str(log_path),
-                "--expected-sha256", expected_sha,
-                "--expected-size", str(len(installer_payload)),
+                "--installer",
+                str(installer),
+                "--install-dir",
+                str(install_dir),
+                "--app-exe",
+                str(app_exe),
+                "--backend-pid",
+                "1234",
+                "--log-path",
+                str(log_path),
+                "--expected-sha256",
+                expected_sha,
+                "--expected-size",
+                str(len(installer_payload)),
                 "--skip-signature-check",
             ]
         )
@@ -335,20 +342,27 @@ class TestEndToEndUpgradeFlow:
         monkeypatch.setattr(
             updater.subprocess,
             "Popen",
-            lambda cmd, **kw: subprocess_calls.append(("Popen", cmd))
-            or SimpleNamespace(),
+            lambda cmd, **kw: subprocess_calls.append(("Popen", cmd)) or SimpleNamespace(),
         )
 
         ret = updater.main(
             [
-                "--installer", str(installer),
-                "--install-dir", str(install_dir),
-                "--app-exe", str(app_exe),
-                "--backend-pid", "9999",
-                "--log-path", str(log_path),
-                "--backup-dir", str(backup_dir),
-                "--expected-sha256", asset.sha256,
-                "--expected-size", str(asset.size),
+                "--installer",
+                str(installer),
+                "--install-dir",
+                str(install_dir),
+                "--app-exe",
+                str(app_exe),
+                "--backend-pid",
+                "9999",
+                "--log-path",
+                str(log_path),
+                "--backup-dir",
+                str(backup_dir),
+                "--expected-sha256",
+                asset.sha256,
+                "--expected-size",
+                str(asset.size),
                 "--skip-signature-check",
             ]
         )
@@ -426,7 +440,9 @@ class TestUserDataPreservation:
         ]
         assert len(rm_lines) <= 1  # 最多一处删除
 
-    def test_updater_backup_preserves_install_dir_content(self, monkeypatch, tmp_path: Path) -> None:
+    def test_updater_backup_preserves_install_dir_content(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
         """updater 备份机制保留安装目录中的完整内容。"""
         # 模拟安装目录（含多个文件和子目录）
         install_dir = tmp_path / "install"
@@ -521,12 +537,18 @@ class TestUserDataPreservation:
 
         ret = updater.main(
             [
-                "--installer", str(installer),
-                "--install-dir", str(install_dir),
-                "--app-exe", str(install_dir / "nini.exe"),
-                "--backend-pid", "123",
-                "--log-path", str(log_path),
-                "--expected-sha256", expected_sha,
+                "--installer",
+                str(installer),
+                "--install-dir",
+                str(install_dir),
+                "--app-exe",
+                str(install_dir / "nini.exe"),
+                "--backend-pid",
+                "123",
+                "--log-path",
+                str(log_path),
+                "--expected-sha256",
+                expected_sha,
                 "--skip-signature-check",
             ]
         )

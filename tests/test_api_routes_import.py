@@ -286,7 +286,7 @@ class TestModelRoutingEndpoint:
     @pytest.mark.asyncio
     async def test_set_model_routing_with_purpose_providers_compat(self, client):
         """POST /api/models/routing 应兼容旧版 purpose_providers 字段。"""
-        payload = {"purpose_providers": {"chat": "openai", "title_generation": "anthropic"}}
+        payload = {"purpose_providers": {"chat": "zhipu", "title_generation": "deepseek"}}
 
         response = await client.post("/api/models/routing", json=payload)
 
@@ -295,8 +295,8 @@ class TestModelRoutingEndpoint:
         data = response.json()
         assert data.get("success") is True
         # 验证 purpose_providers 被正确转换
-        assert data["data"]["purpose_providers"]["chat"] == "openai"
-        assert data["data"]["purpose_providers"]["title_generation"] == "anthropic"
+        assert data["data"]["purpose_providers"]["chat"] == "zhipu"
+        assert data["data"]["purpose_providers"]["title_generation"] == "deepseek"
 
     @pytest.mark.asyncio
     async def test_set_model_routing_invalid_provider_returns_error(self, client):

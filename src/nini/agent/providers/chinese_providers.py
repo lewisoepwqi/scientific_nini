@@ -99,6 +99,7 @@ class MoonshotClient(OpenAICompatibleClient):
         *,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        reasoning_effort: str | None = None,
     ) -> AsyncGenerator[LLMChunk, None]:
         """Kimi 模型流式聊天，处理 temperature 限制。"""
         # kimi-k2.5 等模型只支持 temperature=1
@@ -107,7 +108,11 @@ class MoonshotClient(OpenAICompatibleClient):
             temperature = 1.0
         sanitized_tools = self._sanitize_tools_for_moonshot(tools)
         async for chunk in super().chat(
-            messages, sanitized_tools, temperature=temperature, max_tokens=max_tokens
+            messages,
+            sanitized_tools,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
         ):
             yield chunk
 

@@ -414,7 +414,7 @@ def _build_server_command(
 ) -> list[str]:
     """构建后台服务启动命令。"""
     return [
-        str(cli_path),
+        cli_path.as_posix(),
         "start",
         "--host",
         host,
@@ -524,7 +524,14 @@ _WINDOW_STATE_PATH = Path.home() / ".nini" / "window_state.json"
 def _load_window_state() -> dict[str, int]:
     """读取上次保存的窗口尺寸；读取失败时返回空字典（使用默认值）。"""
     try:
-        return json.loads(_WINDOW_STATE_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(_WINDOW_STATE_PATH.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return {}
+        state: dict[str, int] = {}
+        for key, value in payload.items():
+            if isinstance(key, str) and isinstance(value, int):
+                state[key] = value
+        return state
     except Exception:
         return {}
 
@@ -551,7 +558,7 @@ def _acquire_single_instance_mutex() -> int | None:
     if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
         kernel32.CloseHandle(handle)
         return None
-    return handle
+    return int(handle)
 
 
 def _signal_existing_instance() -> None:
@@ -577,7 +584,7 @@ def _confirm_exit() -> bool:
         "退出 Nini",
         MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND,
     )
-    return result == IDYES
+    return int(result) == IDYES
 
 
 def _get_log_path() -> Path | None:

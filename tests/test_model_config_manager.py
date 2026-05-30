@@ -12,6 +12,7 @@ from nini.config import settings
 from nini.config_manager import (
     API_MODE_CODING_PLAN,
     API_MODE_STANDARD,
+    BUILTIN_PROVIDER_ID,
     get_builtin_usage,
     get_effective_config,
     get_model_priorities,
@@ -151,6 +152,26 @@ async def test_set_model_purpose_routes_supports_model_override() -> None:
     assert routes["chat"]["model"] == "glm-5"
     assert routes["title_generation"]["provider_id"] == "zhipu"
     assert routes["title_generation"]["model"] == "glm-4.7-flash"
+
+
+@pytest.mark.asyncio
+async def test_set_model_purpose_routes_preserves_builtin_route() -> None:
+    """系统内置模式写入后再次读取不应丢失。"""
+    await init_db()
+
+    await set_model_purpose_routes(
+        {
+            "chat": {
+                "provider_id": BUILTIN_PROVIDER_ID,
+                "model": "deep",
+                "base_url": None,
+            },
+        }
+    )
+    routes = await get_model_purpose_routes()
+
+    assert routes["chat"]["provider_id"] == BUILTIN_PROVIDER_ID
+    assert routes["chat"]["model"] == "deep"
 
 
 @pytest.mark.asyncio
@@ -444,6 +465,72 @@ def test_list_models_ollama_env_status(
 
     assert ollama["configured"] is expected_configured
     assert ollama["config_source"] == expected_source
+
+
+def test_model_routing_rejects_hidden_provider_for_dialog() -> None:
+    """对话框路由不应接受未在用户配置面板暴露的 provider。"""
+    asyncio.run(init_db())
+
+    app = create_app()
+    client = LocalASGIClient(app)
+    try:
+        response = client.post(
+            "/api/models/routing",
+            json={
+                "purpose_routes": {
+                    "chat": {
+                        "provider_id": "openai",
+                        "model": "gpt-4o",
+                        "base_url": None,
+                    }
+                }
+            },
+        )
+    finally:
+        client.close()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is False
+    assert "openai" in payload["error"]
+
+
+def test_active_model_ignores_hidden_legacy_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    """历史隐藏 provider 路由不应让 gpt-4o 出现在对话框。"""
+    from nini.agent.model_resolver import get_model_resolver, reset_model_resolver
+
+    for field_name in (
+        "openai_api_key",
+        "anthropic_api_key",
+        "moonshot_api_key",
+        "kimi_coding_api_key",
+        "zhipu_api_key",
+        "deepseek_api_key",
+        "dashscope_api_key",
+        "minimax_api_key",
+    ):
+        monkeypatch.setattr(settings, field_name, None)
+    monkeypatch.setattr(settings, "ollama_base_url", "http://localhost:11434")
+    monkeypatch.setattr(settings, "ollama_model", "qwen2.5:7b")
+
+    asyncio.run(init_db())
+    reset_model_resolver()
+    resolver = get_model_resolver()
+    resolver.set_purpose_route("chat", provider_id="openai", model="gpt-4o")
+
+    app = create_app()
+    client = LocalASGIClient(app)
+    try:
+        response = client.get("/api/models/active")
+    finally:
+        client.close()
+        reset_model_resolver()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["data"]["provider_id"] == BUILTIN_PROVIDER_ID
+    assert payload["data"]["model"] == "快速"
 
 
 @pytest.mark.parametrize(

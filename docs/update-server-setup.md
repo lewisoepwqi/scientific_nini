@@ -303,9 +303,9 @@ cp config/release.conf.example config/release.conf
 
 ```ini
 [server]
-url = http://121.41.97.123:1116/
+url = https://update.lewisoepwqi.com/nini/updates/
 channel = stable
-allow_insecure_http = true
+allow_insecure_http = false
 ssh_user = root
 ssh_host = 121.41.97.123
 upload_path = /opt/nini-updates/public/nini/updates/stable
