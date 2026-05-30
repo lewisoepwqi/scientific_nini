@@ -495,9 +495,23 @@ def test_model_routing_rejects_hidden_provider_for_dialog() -> None:
     assert "openai" in payload["error"]
 
 
-def test_active_model_ignores_hidden_legacy_route() -> None:
+def test_active_model_ignores_hidden_legacy_route(monkeypatch: pytest.MonkeyPatch) -> None:
     """历史隐藏 provider 路由不应让 gpt-4o 出现在对话框。"""
     from nini.agent.model_resolver import get_model_resolver, reset_model_resolver
+
+    for field_name in (
+        "openai_api_key",
+        "anthropic_api_key",
+        "moonshot_api_key",
+        "kimi_coding_api_key",
+        "zhipu_api_key",
+        "deepseek_api_key",
+        "dashscope_api_key",
+        "minimax_api_key",
+    ):
+        monkeypatch.setattr(settings, field_name, None)
+    monkeypatch.setattr(settings, "ollama_base_url", "http://localhost:11434")
+    monkeypatch.setattr(settings, "ollama_model", "qwen2.5:7b")
 
     asyncio.run(init_db())
     reset_model_resolver()

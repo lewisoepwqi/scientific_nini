@@ -497,7 +497,15 @@ async def get_active_models():
 
     resolver = get_model_resolver()
     # 使用 "chat" purpose 获取用户为对话选择的模型
+    route_provider = resolver.get_preferred_provider(purpose="chat")
+    if route_provider and not _is_selectable_route_provider(route_provider):
+        return APIResponse(success=True, data=_builtin_fast_active_model())
+
     active = resolver.get_active_model_info(purpose="chat")
+    preferred_provider = active.get("preferred_provider")
+    if preferred_provider and not _is_selectable_route_provider(preferred_provider):
+        return APIResponse(success=True, data=_builtin_fast_active_model())
+
     provider_id = active.get("provider_id")
     if not _is_selectable_route_provider(provider_id):
         return APIResponse(success=True, data=_builtin_fast_active_model())
