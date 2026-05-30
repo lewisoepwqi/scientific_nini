@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 import traceback
-from typing import Any, Iterable
+from typing import Any, Iterable, cast
 
 import numpy as np
 import pandas as pd
@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 _BENIGN_STDERR_PATTERNS = ("FigureCanvasAgg is non-interactive, and thus cannot be shown",)
 _WINDOWS_SPAWN_PATCHED = False
+_PANDAS_SERIES_GETITEM_GUARDED = False
 
 
 def _format_exception_detail(exc: Exception) -> str:
@@ -56,6 +57,26 @@ def _format_exception_detail(exc: Exception) -> str:
     if message:
         return f"{exc.__class__.__name__}: {message}"
     return repr(exc)
+
+
+def _patch_pandas_series_integer_key_guard() -> None:
+    """让字符串索引 Series 的整数访问显式失败，提示用户使用 iloc。"""
+    global _PANDAS_SERIES_GETITEM_GUARDED
+    if _PANDAS_SERIES_GETITEM_GUARDED:
+        return
+
+    original_getitem = pd.Series.__getitem__
+
+    def guarded_getitem(self: pd.Series, key: Any) -> Any:
+        if isinstance(key, (int, np.integer)) and not isinstance(key, bool):
+            try:
+                self.index.get_loc(key)
+            except (KeyError, TypeError, ValueError):
+                raise KeyError(int(key)) from None
+        return original_getitem(self, key)
+
+    pd.Series.__getitem__ = guarded_getitem  # type: ignore[method-assign]
+    _PANDAS_SERIES_GETITEM_GUARDED = True
 
 
 def _strip_benign_stderr(stderr_text: str) -> str:
@@ -82,7 +103,8 @@ def _patch_windows_spawn_no_window() -> None:
     except Exception:
         return
 
-    original_popen = spawn_win32.Popen
+    spawn_api = cast(Any, spawn_win32)
+    original_popen = spawn_api.Popen
     if getattr(original_popen, "_nini_no_window_patch", False):
         _WINDOWS_SPAWN_PATCHED = True
         return
@@ -93,17 +115,17 @@ def _patch_windows_spawn_no_window() -> None:
         _nini_no_window_patch = True
 
         def __init__(self, process_obj: Any):
-            prep_data = spawn_win32.spawn.get_preparation_data(process_obj._name)
-            rhandle, whandle = spawn_win32._winapi.CreatePipe(None, 0)
-            wfd = spawn_win32.msvcrt.open_osfhandle(whandle, 0)
-            cmd = spawn_win32.spawn.get_command_line(
+            prep_data = spawn_api.spawn.get_preparation_data(process_obj._name)
+            rhandle, whandle = spawn_api._winapi.CreatePipe(None, 0)
+            wfd = spawn_api.msvcrt.open_osfhandle(whandle, 0)
+            cmd = spawn_api.spawn.get_command_line(
                 parent_pid=os.getpid(),
                 pipe_handle=rhandle,
             )
 
-            python_exe = spawn_win32.spawn.get_executable()
-            if spawn_win32.WINENV and spawn_win32._path_eq(python_exe, sys.executable):
-                cmd[0] = python_exe = sys._base_executable
+            python_exe = spawn_api.spawn.get_executable()
+            if spawn_api.WINENV and spawn_api._path_eq(python_exe, sys.executable):
+                cmd[0] = python_exe = getattr(sys, "_base_executable", sys.executable)
                 env = os.environ.copy()
                 env["__PYVENV_LAUNCHER__"] = sys.executable
             else:
@@ -111,11 +133,11 @@ def _patch_windows_spawn_no_window() -> None:
 
             cmdline = " ".join('"%s"' % x for x in cmd)
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            startupinfo = spawn_win32.STARTUPINFO(dwFlags=spawn_win32.STARTF_FORCEOFFFEEDBACK)
+            startupinfo = spawn_api.STARTUPINFO(dwFlags=spawn_api.STARTF_FORCEOFFFEEDBACK)
 
             with open(wfd, "wb", closefd=True) as to_child:
                 try:
-                    hp, ht, pid, tid = spawn_win32._winapi.CreateProcess(
+                    hp, ht, pid, tid = spawn_api._winapi.CreateProcess(
                         python_exe,
                         cmdline,
                         None,
@@ -126,29 +148,29 @@ def _patch_windows_spawn_no_window() -> None:
                         None,
                         startupinfo,
                     )
-                    spawn_win32._winapi.CloseHandle(ht)
+                    spawn_api._winapi.CloseHandle(ht)
                 except Exception:
-                    spawn_win32._winapi.CloseHandle(rhandle)
+                    spawn_api._winapi.CloseHandle(rhandle)
                     raise
 
                 self.pid = pid
                 self.returncode = None
                 self._handle = hp
                 self.sentinel = int(hp)
-                self.finalizer = spawn_win32.util.Finalize(
+                self.finalizer = spawn_api.util.Finalize(
                     self,
-                    spawn_win32._close_handles,
+                    spawn_api._close_handles,
                     (self.sentinel, int(rhandle)),
                 )
 
-                spawn_win32.set_spawning_popen(self)
+                spawn_api.set_spawning_popen(self)
                 try:
-                    spawn_win32.reduction.dump(prep_data, to_child)
-                    spawn_win32.reduction.dump(process_obj, to_child)
+                    spawn_api.reduction.dump(prep_data, to_child)
+                    spawn_api.reduction.dump(process_obj, to_child)
                 finally:
-                    spawn_win32.set_spawning_popen(None)
+                    spawn_api.set_spawning_popen(None)
 
-    spawn_win32.Popen = HiddenWindowPopen
+    setattr(spawn_api, "Popen", HiddenWindowPopen)
     _WINDOWS_SPAWN_PATCHED = True
 
 
@@ -402,19 +424,20 @@ def _set_resource_limits(timeout_seconds: int, max_memory_mb: int) -> None:
     """对子进程施加资源限制。"""
     if resource is None:
         return
+    resource_api = cast(Any, resource)
     try:
-        if hasattr(resource, "RLIMIT_CPU"):
+        if hasattr(resource_api, "RLIMIT_CPU"):
             cpu_limit = max(1, int(timeout_seconds))
-            resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit))
-        if hasattr(resource, "RLIMIT_AS") and int(max_memory_mb) > 0:
-            usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            resource_api.setrlimit(resource_api.RLIMIT_CPU, (cpu_limit, cpu_limit))
+        if hasattr(resource_api, "RLIMIT_AS") and int(max_memory_mb) > 0:
+            usage = resource_api.getrusage(resource_api.RUSAGE_SELF).ru_maxrss
             # Linux ru_maxrss 单位是 KB，macOS 是 Byte；统一转换为 MB
             usage_mb = usage / 1024 if usage > 10_000 else usage / (1024 * 1024)
             # 给运行时、动态库加载和序列化留出充足缓冲，避免导入科学计算库时误触 OOM。
             # AS 限制对共享库映射较敏感：在 spawn 子进程中需预留更大虚拟内存缓冲。
             effective_limit_mb = max(int(max_memory_mb), int(usage_mb) + 4096)
             mem_limit = effective_limit_mb * 1024 * 1024
-            resource.setrlimit(resource.RLIMIT_AS, (mem_limit, mem_limit))
+            resource_api.setrlimit(resource_api.RLIMIT_AS, (mem_limit, mem_limit))
     except Exception as exc:
         # 某些环境不允许设置 rlimit，降级为仅使用超时终止
         logger.warning("设置 rlimit 失败，将仅依赖超时终止: %s", exc)
@@ -551,8 +574,8 @@ def _build_exec_globals(
 
     # 沙箱安全加固：monkey-patch df.eval/df.query 拦截危险表达式，
     # hook pd.read_* 限制文件路径在工作目录内
-    pd.DataFrame.eval = _make_safe_df_eval(pd.DataFrame.eval)
-    pd.DataFrame.query = _make_safe_df_query(pd.DataFrame.query)
+    pd.DataFrame.eval = _make_safe_df_eval(pd.DataFrame.eval)  # type: ignore[method-assign]
+    pd.DataFrame.query = _make_safe_df_query(pd.DataFrame.query)  # type: ignore[method-assign]
 
     # 可视化库（如果可用）
     if plt is not None:
@@ -759,6 +782,7 @@ def _sandbox_worker(
         _set_resource_limits(timeout_seconds, max_memory_mb)
         os.chdir(working_dir)
         _configure_chart_defaults()
+        _patch_pandas_series_integer_key_guard()
 
         local_datasets = _safe_copy_datasets(datasets)
         allowed_import_roots = get_allowed_import_roots(extra_allowed_imports)
@@ -916,7 +940,7 @@ class _RestrictedUnpickler(pickle.Unpickler):
         raise pickle.UnpicklingError(f"不允许从沙箱反序列化类型: {module}.{name}")
 
 
-def _safe_recv(conn: Connection) -> Any:
+def _safe_recv(conn: Any) -> Any:
     """使用受限反序列化器接收沙箱进程数据，防止 pickle RCE。"""
     raw = conn.recv_bytes()
     return _RestrictedUnpickler(io.BytesIO(raw)).load()

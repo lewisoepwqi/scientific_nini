@@ -261,7 +261,7 @@ def list_markdown_tool_runtime_resources(skill_path: Path) -> list[dict[str, Any
     for path in sorted(skill_dir.rglob("*")):
         if path == skill_path or path.name.startswith("."):
             continue
-        rel_path = str(path.relative_to(skill_dir))
+        rel_path = path.relative_to(skill_dir).as_posix()
         if path.is_dir():
             child_count = sum(1 for child in path.iterdir())
             resources.append(
@@ -451,7 +451,8 @@ def _render_snapshot_section(title: str, items: list[dict[str, Any]]) -> list[st
         lines.append(f"  category: {skill.get('category', 'other')}")
         lines.append(f"  enabled: {bool(skill.get('enabled', True))}")
         lines.append(f"  description: {skill.get('description', '')}")
-        lines.append(f"  location: {skill.get('location', '')}")
+        location = str(skill.get("location", "")).replace("\\", "/")
+        lines.append(f"  location: {location}")
         if isinstance(metadata, dict):
             standards = metadata.get("source_standard")
             if isinstance(standards, list) and standards:

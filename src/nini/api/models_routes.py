@@ -27,7 +27,7 @@ _MODEL_PURPOSES = [
 ]
 
 # 面向用户暴露的 4 个供应商（外部分发版）
-_MODEL_PROVIDERS = [
+_MODEL_PROVIDERS: list[dict[str, str | None]] = [
     {
         "id": "deepseek",
         "name": "DeepSeek",
@@ -62,6 +62,9 @@ _MODEL_PROVIDERS = [
     },
 ]
 
+_SELECTABLE_PROVIDER_IDS = frozenset(str(provider["id"]) for provider in _MODEL_PROVIDERS)
+_SELECTABLE_ROUTE_PROVIDER_IDS = _SELECTABLE_PROVIDER_IDS | {"builtin"}
+
 _MODE_AWARE_AVAILABLE_MODELS: dict[str, dict[str, list[str]]] = {
     "zhipu": {
         "standard": [
@@ -95,6 +98,21 @@ _MODE_AWARE_AVAILABLE_MODELS: dict[str, dict[str, list[str]]] = {
         ],
     },
 }
+
+
+def _is_selectable_route_provider(provider_id: str | None) -> bool:
+    """判断 provider 是否允许从对话框路由选择。"""
+    return bool(provider_id and provider_id in _SELECTABLE_ROUTE_PROVIDER_IDS)
+
+
+def _builtin_fast_active_model() -> dict[str, str | None]:
+    """返回对话框默认的系统内置快速模型。"""
+    return {
+        "provider_id": "builtin",
+        "provider_name": "系统内置",
+        "model": "快速",
+        "preferred_provider": "builtin",
+    }
 
 
 def _get_mode_aware_available_models(provider_id: str, api_mode: str | None) -> list[str]:
@@ -282,8 +300,6 @@ async def set_model_routing(req: ModelRoutingRequest):
         set_default_provider,
         set_model_purpose_routes,
         VALID_MODEL_PURPOSES,
-        VALID_PROVIDERS,
-        VALID_ROUTE_PROVIDERS,
     )
 
     resolver = get_model_resolver()
@@ -293,7 +309,7 @@ async def set_model_routing(req: ModelRoutingRequest):
     if update_global_preferred:
         preferred_provider_raw = (req.preferred_provider or "").strip()
         preferred_provider = preferred_provider_raw or None
-        if preferred_provider and preferred_provider not in VALID_PROVIDERS:
+        if preferred_provider and preferred_provider not in _SELECTABLE_PROVIDER_IDS:
             return APIResponse(success=False, error=f"未知的模型提供商: {preferred_provider}")
 
     updates: dict[str, dict[str, str | None]] = {}
@@ -302,7 +318,7 @@ async def set_model_routing(req: ModelRoutingRequest):
         if purpose not in VALID_MODEL_PURPOSES:
             return APIResponse(success=False, error=f"未知的模型用途: {purpose}")
         provider_id = (provider or "").strip() or None
-        if provider_id and provider_id not in VALID_ROUTE_PROVIDERS:
+        if provider_id and provider_id not in _SELECTABLE_ROUTE_PROVIDER_IDS:
             return APIResponse(success=False, error=f"未知的模型提供商: {provider_id}")
         updates[purpose] = {
             "provider_id": provider_id,
@@ -317,7 +333,7 @@ async def set_model_routing(req: ModelRoutingRequest):
         provider_id = (route.provider_id or "").strip() or None
         model = (route.model or "").strip() or None
         base_url = (route.base_url or "").strip() or None
-        if provider_id and provider_id not in VALID_ROUTE_PROVIDERS:
+        if provider_id and provider_id not in _SELECTABLE_ROUTE_PROVIDER_IDS:
             return APIResponse(success=False, error=f"未知的模型提供商: {provider_id}")
         updates[purpose] = {
             "provider_id": provider_id,
@@ -482,6 +498,9 @@ async def get_active_models():
     resolver = get_model_resolver()
     # 使用 "chat" purpose 获取用户为对话选择的模型
     active = resolver.get_active_model_info(purpose="chat")
+    provider_id = active.get("provider_id")
+    if not _is_selectable_route_provider(provider_id):
+        return APIResponse(success=True, data=_builtin_fast_active_model())
 
     return APIResponse(success=True, data=active)
 

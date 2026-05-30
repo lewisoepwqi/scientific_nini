@@ -578,7 +578,7 @@ def _normalize_route_item(item: Any) -> ModelPurposeRoute:
 
     provider_raw = item.get("provider_id")
     provider_id = provider_raw.strip() if isinstance(provider_raw, str) else ""
-    if provider_id and provider_id in VALID_PROVIDERS:
+    if provider_id and provider_id in VALID_ROUTE_PROVIDERS:
         route["provider_id"] = provider_id
 
     model_raw = item.get("model")
